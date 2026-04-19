@@ -6394,7 +6394,9 @@ export async function pgAssessmentsHub(setTopbar) {
 
 export async function pgBrainMapPlanner(setTopbar) {
   setTopbar('Brain Map Planner', `
-    <button class="btn btn-sm" onclick="window._nav('protocol-wizard')" style="border-color:var(--teal);color:var(--teal)">Protocol Search</button>
+    <button class="btn btn-sm" onclick="window._bmpImportFromProtocol()">Import from protocol &#x2193;</button>
+    <button class="btn btn-sm" style="border-color:var(--teal);color:var(--teal)" onclick="window._bmpSaveToProtocol()">Save to protocol &#x2192;</button>
+    <button class="btn btn-sm" onclick="window._nav('protocol-wizard')">Protocol Search</button>
     <button class="btn btn-sm" onclick="window._nav('prescriptions')">Prescriptions</button>
   `);
   const el = document.getElementById('content');
@@ -6602,6 +6604,14 @@ export async function pgBrainMapPlanner(setTopbar) {
     labelMode: 'smart', // smart | full | minimal
     panX: 0, // in SVG coordinate units (viewBox space)
     panY: 0,
+    // v2 additions — all behaviourally backwards-compatible (tab defaults to
+    // 'clinical' which mirrors the pre-v2 single-screen experience).
+    tab: 'clinical',           // clinical | montage | research
+    patientId: '',             // optional free-string patient label; '' → "Demo patient"
+    placeMode: 'anode',        // anode | cathode — which electrode a map-click places
+    compare: false,            // 2-up compare canvases
+    eFieldOverlay: true,       // toggle radial-gradient E-field on primary site
+    waveform: 'Anodal DC',     // stimulation waveform hint
   };
 
   // Load persisted state (best-effort). Never trust shape fully.
@@ -6626,6 +6636,12 @@ export async function pgBrainMapPlanner(setTopbar) {
         labelMode:    (raw.labelMode === 'full' || raw.labelMode === 'minimal' || raw.labelMode === 'smart') ? raw.labelMode : bmpState.labelMode,
         panX:         Number.isFinite(raw.panX) ? raw.panX : bmpState.panX,
         panY:         Number.isFinite(raw.panY) ? raw.panY : bmpState.panY,
+        tab:          (raw.tab === 'clinical' || raw.tab === 'montage' || raw.tab === 'research') ? raw.tab : bmpState.tab,
+        patientId:    typeof raw.patientId === 'string' ? raw.patientId : bmpState.patientId,
+        placeMode:    (raw.placeMode === 'anode' || raw.placeMode === 'cathode') ? raw.placeMode : bmpState.placeMode,
+        compare:      !!raw.compare,
+        eFieldOverlay: raw.eFieldOverlay == null ? bmpState.eFieldOverlay : !!raw.eFieldOverlay,
+        waveform:     typeof raw.waveform === 'string' ? raw.waveform : bmpState.waveform,
       };
     }
   } catch (_) {}
@@ -6649,6 +6665,12 @@ export async function pgBrainMapPlanner(setTopbar) {
         labelMode: bmpState.labelMode,
         panX: bmpState.panX,
         panY: bmpState.panY,
+        tab: bmpState.tab,
+        patientId: bmpState.patientId,
+        placeMode: bmpState.placeMode,
+        compare: bmpState.compare,
+        eFieldOverlay: bmpState.eFieldOverlay,
+        waveform: bmpState.waveform,
       }));
     } catch (_) {}
   }
@@ -6814,6 +6836,120 @@ export async function pgBrainMapPlanner(setTopbar) {
 
   function _mc() { return MODALITY_COLORS[bmpState.modality] || '#00d4bc'; }
 
+  // ── Brain Map Planner v2 helpers ─────────────────────────────────────────
+  // Region-group bucketing mirrors the design's left-atlas groupings so the
+  // visible ordering matches the clinician-grade layout without duplicating
+  // the region table.
+  function _regionGroup(id) {
+    if (!id) return 'Other';
+    if (/^DLPFC|^mPFC|^DMPFC|^VMPFC|^OFC|^ACC$/.test(id)) return 'Prefrontal';
+    if (/^M1|^SMA$|^S1$/.test(id)) return 'Motor / Sensory';
+    if (/^TEMPORAL|^IFG|^PPC/.test(id)) return 'Parietal / Temporal';
+    if (/^V1$|^CEREBELLUM$/.test(id)) return 'Occipital';
+    return 'Other';
+  }
+  function _regionLabel(id) {
+    const map = {
+      'DLPFC-L':'DLPFC · Left', 'DLPFC-R':'DLPFC · Right', 'DLPFC-B':'DLPFC · Bilateral',
+      'M1-L':'M1 · Left', 'M1-R':'M1 · Right', 'M1-B':'M1 · Bilateral',
+      'SMA':'SMA · Supplementary motor', 'mPFC':'mPFC · Medial PFC',
+      'DMPFC':'DMPFC · Dorsomedial', 'VMPFC':'VMPFC · Ventromedial',
+      'OFC':'OFC · Orbitofrontal', 'ACC':'ACC · Anterior cingulate',
+      'IFG-L':"Broca · IFG Left", 'IFG-R':'IFG · Right',
+      'PPC-L':'PPC · Left', 'PPC-R':'PPC · Right',
+      'TEMPORAL-L':'Temporal · Left', 'TEMPORAL-R':'Temporal · Right',
+      'S1':'S1 · Somatosensory', 'V1':'V1 · Primary visual',
+      'CEREBELLUM':'Cerebellum', 'Cz':'Cz · Vertex', 'Pz':'Pz · Parietal midline',
+      'Fz':'Fz · Frontal midline',
+    };
+    return map[id] || id.replace(/[-_]/g, ' ');
+  }
+  function _regionFunction(id) {
+    const fn = {
+      'DLPFC-L':'Executive control · cognitive reappraisal · top-down affect',
+      'DLPFC-R':'Inhibitory control · risk aversion · anxious rumination',
+      'DLPFC-B':'Bilateral executive regulation · MDD & cognition',
+      'M1-L':'Pain modulation · motor rehab · corticospinal excitability',
+      'M1-R':'Motor recovery (right) · chronic pain · post-stroke',
+      'M1-B':'Bilateral M1 · motor rehab · pain',
+      'SMA':'Motor planning · response inhibition · tics · OCD rituals',
+      'mPFC':'Midline self-referential processing · mood',
+      'DMPFC':'Deep midline target · OCD · depression',
+      'VMPFC':'Emotion valuation · fear extinction · default mode',
+      'OFC':'Reward valuation · craving · addiction',
+      'ACC':'Conflict monitoring · pain affect · attention',
+      'IFG-L':'Speech production · post-stroke aphasia rehab',
+      'IFG-R':'Response inhibition · disinhibition',
+      'PPC-L':'Attention · working memory · left neglect',
+      'PPC-R':'Spatial attention · neglect rehab',
+      'TEMPORAL-L':'Auditory hallucinations · language · schizophrenia',
+      'TEMPORAL-R':'Tinnitus · right-hemisphere auditory',
+      'S1':'Somatosensory cortex · pain processing',
+      'V1':'Cortical excitability · migraine prophylaxis',
+      'CEREBELLUM':'Motor coordination · ataxia · cognition',
+      'Cz':'Motor/sensory midline · neurofeedback SMR',
+      'Pz':'Alpha-theta training · anxiety · memory',
+      'Fz':'Frontal midline · ADHD · neurofeedback',
+    };
+    return fn[id] || 'Targeted 10-20 region';
+  }
+
+  // Pad-density math for safety envelope. Mirrors the design's 35×35 mm pad
+  // spec (12.25 cm²). Guidelines cap at 0.08 mA/cm² (Antal 2017); amber
+  // 0.08–0.12; err > 0.12.
+  const BMP_PAD_AREA_CM2 = 12.25;
+  function _parseIntensityMA(v) {
+    const m = String(v || '').match(/-?\d+(?:\.\d+)?/);
+    if (!m) return 0;
+    const n = Number(m[0]);
+    return Number.isFinite(n) ? n : 0;
+  }
+  function _computeDensity(intensity_mA, pad_cm2) {
+    const mA = Number.isFinite(intensity_mA) ? intensity_mA : _parseIntensityMA(intensity_mA);
+    const area = pad_cm2 || BMP_PAD_AREA_CM2;
+    if (area <= 0) return 0;
+    return Math.round((mA / area) * 1000) / 1000; // mA/cm² to 3 dp
+  }
+  function _densityStatus(d) {
+    if (d > 0.12) return 'err';
+    if (d > 0.08) return 'amber';
+    return 'ok';
+  }
+
+  // Pick up to 3 evidence rows for the active protocol: the protocol itself
+  // plus up to 2 catalog siblings sharing the same targetRegion with distinct
+  // evidence grades. All in-memory, no new API.
+  function _evidenceForActive() {
+    const active = bmpState.protoId ? _catalogById[bmpState.protoId] : null;
+    if (!active) return [];
+    const out = [{
+      id: active.id,
+      title: active.name,
+      summary: active.summary || '',
+      grade: active.evidenceGrade || '?',
+      meta: active.modality + (active.source !== 'curated' ? ' · inferred target' : ''),
+      isActive: true,
+    }];
+    const seenGrades = new Set([String(active.evidenceGrade || '?').toUpperCase()]);
+    _catalog.forEach(function(p) {
+      if (out.length >= 3) return;
+      if (p.id === active.id) return;
+      if (!p.targetRegion || p.targetRegion !== active.targetRegion) return;
+      const g = String(p.evidenceGrade || '?').toUpperCase();
+      if (seenGrades.has(g)) return;
+      seenGrades.add(g);
+      out.push({
+        id: p.id,
+        title: p.name,
+        summary: p.summary || '',
+        grade: p.evidenceGrade || '?',
+        meta: p.modality + ' · ' + (p.source === 'curated' ? 'curated' : p.source === 'library' ? 'library' : 'registry'),
+        isActive: false,
+      });
+    });
+    return out;
+  }
+
   function _inferRegionFromSite(site) {
     if (!site) return '';
     const keys = Object.keys(BMP_REGION_SITES);
@@ -6860,7 +6996,15 @@ export async function pgBrainMapPlanner(setTopbar) {
     s('<defs><filter id="bmp-glow" x="-50%" y="-50%" width="200%" height="200%">'
       + '<feGaussianBlur stdDeviation="3" result="blur"/>'
       + '<feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>'
-      + '</filter></defs>');
+      + '</filter>'
+      + '<radialGradient id="bmp-efield" cx="50%" cy="50%" r="50%">'
+      + '<stop offset="0%" stop-color="rgba(255,107,157,0.7)"/>'
+      + '<stop offset="30%" stop-color="rgba(255,139,71,0.45)"/>'
+      + '<stop offset="55%" stop-color="rgba(255,181,71,0.22)"/>'
+      + '<stop offset="75%" stop-color="rgba(74,222,128,0.1)"/>'
+      + '<stop offset="100%" stop-color="rgba(0,212,188,0)"/>'
+      + '</radialGradient>'
+      + '</defs>');
     s('<g id="bmp-vp" transform="translate(' + panXS + ' ' + panYS + ') scale(' + zSafe + ')">');
     // Head outline — made visibly stronger (0.25 → 0.55 stroke) so clinicians can
     // actually see the head shape. Matches the new brain-map-svg.js helper.
@@ -6941,6 +7085,13 @@ export async function pgBrainMapPlanner(setTopbar) {
         const isTDCS = (bmpState.modality === 'tDCS');
         const isNFB  = (bmpState.modality === 'Neurofeedback');
         const isTMS  = (['TMS/rTMS','iTBS','cTBS','Deep TMS'].indexOf(bmpState.modality) !== -1);
+        // Pre-baked E-field overlay (radial gradient) — fires on the first
+        // primary site whenever the toggle is on. No data dep; purely visual
+        // cue so clinicians see where the peak E-field lobe sits.
+        if (bmpState.eFieldOverlay) {
+          s('<circle cx="' + sx + '" cy="' + sy + '" r="56" fill="url(#bmp-efield)"'
+            + ' opacity="0.85" pointer-events="none"/>');
+        }
         s('<circle cx="' + sx + '" cy="' + sy + '" r="18" fill="' + mc + '" opacity="0.09"/>');
         s('<circle cx="' + sx + '" cy="' + sy + '" r="14" fill="' + mc + '" opacity="0.13"/>');
         if (isTMS) {
@@ -7082,10 +7233,39 @@ export async function pgBrainMapPlanner(setTopbar) {
   }
 
   function _updateMap() {
+    // If compare is on, rebuild the whole canvas-wrap (cheap; SVG is small)
+    // so both panels share the current state.
+    if (bmpState.compare) {
+      const wrap = document.querySelector('.bm-canvas-wrap');
+      if (wrap) {
+        wrap.innerHTML = _buildCanvasPanels();
+        _attachSVGEvents(document.getElementById('bmp-svg-container'));
+      }
+      return;
+    }
     const ctr = document.getElementById('bmp-svg-container');
     if (!ctr) return;
     ctr.innerHTML = _buildSVG(bmpState.view === 'patient');
     _attachSVGEvents(ctr);
+    // Refresh the "ACTIVE · patient · region" label.
+    const lbl = document.querySelector('.bm-panel-label');
+    if (lbl) {
+      const patientLabel = bmpState.patientId || 'Demo patient';
+      const regLabel = _regionLabel(bmpState.region) || (bmpState.selectedSite || 'no region');
+      lbl.innerHTML = 'ACTIVE \u00b7 <strong>' + _esc(patientLabel) + '</strong> \u00b7 ' + _esc(regLabel);
+    }
+  }
+  function _updateRight() {
+    const right = document.getElementById('bm-right');
+    if (!right) return;
+    right.innerHTML = _buildParamsPanel();
+    _wireRightPanel();
+  }
+  function _updateAtlas() {
+    const left = document.getElementById('bm-left');
+    if (!left) return;
+    left.innerHTML = _buildAtlasRail();
+    _wireAtlas();
   }
 
   function _updateDetail() {
@@ -7096,6 +7276,9 @@ export async function pgBrainMapPlanner(setTopbar) {
   function _updateParams() {
     const pp = document.getElementById('bmp-params-section');
     if (pp) pp.style.display = (bmpState.modality || bmpState.protoId) ? '' : 'none';
+    // Re-render the right panel so metrics + safety + evidence reflect
+    // latest state (intensity change → density recomputes instantly).
+    _updateRight();
   }
 
   function _loadProtocol(pid) {
@@ -7219,158 +7402,401 @@ export async function pgBrainMapPlanner(setTopbar) {
       + lbl + '</button>';
   }
 
-  el.innerHTML =
-    '<div class="bmp-layout">'
-    + '<div class="bmp-panel bmp-panel--left">'
-      + '<div class="bmp-section-card">'
-        + '<div class="bmp-section-title">Quick actions</div>'
-        + '<div style="display:flex;flex-direction:column;gap:6px">'
-          + '<button class="btn btn-sm" style="border-color:var(--teal);color:var(--teal);font-size:12px" onclick="window._bmpCopySummary()">Copy plan summary</button>'
-          + '<button class="btn btn-sm" style="font-size:12px" onclick="window._bmpSavePreset()">Save as preset</button>'
-          + '<button class="btn btn-sm" style="font-size:12px" onclick="window._bmpReset()">Reset</button>'
+  // ── v2 render helpers (bm-* classes, clinician-grade layout) ───────────
+  // Build the left atlas rail: search + condition chips + grouped regions.
+  function _buildAtlasRail() {
+    const groups = { 'Prefrontal': [], 'Motor / Sensory': [], 'Parietal / Temporal': [], 'Occipital': [], 'Other': [] };
+    Object.keys(BMP_REGION_SITES).forEach(function(id) {
+      groups[_regionGroup(id)].push(id);
+    });
+    let h = '<div class="bm-left-head">'
+      + '<div style="position:relative">'
+      + '<input id="bm-region-search" class="bm-search" placeholder="Region, function, condition\u2026" />'
+      + '</div>'
+      + '<div id="bm-cond-chips" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">';
+    // condition chips — "All" + conditions from the unified set
+    const allActive = !_bmpProtoFilter.cond ? ' bm-chip-active' : '';
+    h += '<span class="bm-chip' + allActive + '" data-cond="">All</span>';
+    _condEntries.slice(0, 10).forEach(function(c) {
+      const active = _bmpProtoFilter.cond === c.id ? ' bm-chip-active' : '';
+      h += '<span class="bm-chip' + active + '" data-cond="' + _esc(c.id) + '">'
+        + _esc(c.label) + '</span>';
+    });
+    h += '</div></div><div class="bm-left-body" id="bm-left-body">';
+    Object.keys(groups).forEach(function(g) {
+      if (!groups[g].length) return;
+      h += '<div class="bm-region-group-title">' + _esc(g) + '</div>';
+      groups[g].forEach(function(id) {
+        const rs = BMP_REGION_SITES[id];
+        const primary = (rs.primary && rs.primary[0]) || '';
+        const ba = BMP_BA[primary] || '';
+        const sites = (rs.primary || []).join(' · ');
+        const condArr = BMP_CONDITIONS[primary] || [];
+        const active = bmpState.region === id ? ' active' : '';
+        h += '<div class="bm-region' + active + '" data-region-id="' + _esc(id) + '"'
+          + ' data-region-q="' + _esc((_regionLabel(id) + ' ' + _regionFunction(id) + ' ' + sites).toLowerCase()) + '">'
+          + '<div class="bm-region-dot"></div>'
+          + '<div class="bm-region-body">'
+          + '<div class="bm-region-name">' + _esc(_regionLabel(id)) + '</div>'
+          + '<div class="bm-region-sites">' + _esc(sites) + (ba ? ' \u00b7 ' + _esc(ba) : '') + '</div>'
+          + '<div class="bm-region-fn">' + _esc(_regionFunction(id)) + '</div>';
+        if (condArr.length) {
+          h += '<div class="bm-region-cond">';
+          condArr.slice(0, 4).forEach(function(c) { h += '<span>' + _esc(c) + '</span>'; });
+          h += '</div>';
+        }
+        h += '</div></div>';
+      });
+    });
+    h += '</div>';
+    return h;
+  }
+
+  // Right-panel parameter groups fed by active catalog entry + BMP_PROTO_MAP.
+  function _buildParamsPanel() {
+    const cat = bmpState.protoId ? _catalogById[bmpState.protoId] : null;
+    const rs = BMP_REGION_SITES[bmpState.region] || { primary:[], ref:[], alt:[] };
+    const anode   = bmpState.selectedSite || (rs.primary && rs.primary[0]) || (cat && cat.anode) || '—';
+    const cathode = (rs.ref && rs.ref[0]) || (cat && cat.cathode) || '—';
+    const intensity_mA = _parseIntensityMA(bmpState.intensity);
+    const density = _computeDensity(intensity_mA);
+    const dStatus = _densityStatus(density);
+    const peakE = (0.4 + Math.min(intensity_mA, 4) * 0.06).toFixed(2);
+    const focal = (0.55 + Math.min(intensity_mA, 4) * 0.04).toFixed(2);
+    const ev = _evidenceForActive();
+
+    // Determine which groups are visible per tab. Montage → hide safety &
+    // evidence, widen electrodes + stim. Research → emphasise evidence.
+    const tab = bmpState.tab;
+    const showElectrodes = tab !== 'research' ? true : true;
+    const showStim = tab !== 'research';
+    const showSafety = tab === 'clinical';
+    const showEvidence = (tab === 'clinical' || tab === 'research');
+
+    let h = '<div class="bm-right-head">'
+      + '<div style="display:flex;gap:10px;align-items:center">'
+      + '<div class="bm-metric" style="flex:1;margin:0;padding:8px 10px">'
+      + '<div class="bm-metric-lbl">Peak E-field</div>'
+      + '<div class="bm-metric-num">' + _esc(peakE) + '<span class="unit">V/m</span></div>'
+      + '</div>'
+      + '<div class="bm-metric" style="flex:1;margin:0;padding:8px 10px">'
+      + '<div class="bm-metric-lbl">Focality</div>'
+      + '<div class="bm-metric-num">' + _esc(focal) + '<span class="unit">/1.0</span></div>'
+      + '</div>'
+      + '</div></div>';
+
+    h += '<div class="bm-right-body" id="bm-right-body">';
+
+    if (showElectrodes) {
+      h += '<div class="bm-param-group">'
+        + '<div class="bm-param-group-title"><span class="num">01</span>Electrodes</div>'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+        + '<div style="padding:8px;background:rgba(255,107,157,0.06);border:1px solid rgba(255,107,157,0.18);border-radius:6px">'
+        + '<div style="font-size:9px;color:var(--rose);font-weight:700;letter-spacing:0.04em;font-family:var(--font-mono)">ANODE +</div>'
+        + '<div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-top:4px">' + _esc(anode) + '</div>'
+        + '<div style="font-size:9.5px;color:var(--text-tertiary);margin-top:2px">35\u00d735 mm \u00b7 saline <span style="opacity:0.6">(example)</span></div>'
+        + '<div style="font-size:9.5px;color:var(--teal);margin-top:2px">\u03a9 4.2 k\u03a9 <span style="opacity:0.6">(example)</span></div>'
         + '</div>'
-      + '</div>'
-      + '<div class="bmp-section-card">'
-        + '<div class="bmp-section-title" style="display:flex;align-items:center;gap:8px">'
-          + '<span>Load Protocol</span>'
-          + '<span id="bmp-proto-count" style="margin-left:auto;font-size:10.5px;color:var(--text-tertiary);font-weight:400">0 protocols</span>'
+        + '<div style="padding:8px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.18);border-radius:6px">'
+        + '<div style="font-size:9px;color:var(--blue);font-weight:700;letter-spacing:0.04em;font-family:var(--font-mono)">CATHODE \u2212</div>'
+        + '<div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-top:4px">' + _esc(cathode) + '</div>'
+        + '<div style="font-size:9.5px;color:var(--text-tertiary);margin-top:2px">35\u00d735 mm \u00b7 saline <span style="opacity:0.6">(example)</span></div>'
+        + '<div style="font-size:9.5px;color:var(--teal);margin-top:2px">\u03a9 3.8 k\u03a9 <span style="opacity:0.6">(example)</span></div>'
         + '</div>'
-        + '<input id="bmp-proto-q" class="form-input" type="text" placeholder="Search protocols\u2026"'
-          + ' style="width:100%;font-size:12px;box-sizing:border-box;margin-bottom:6px"'
-          + ' oninput="window._bmpSetProtoFilter(\'q\', this.value)" />'
-        + '<div style="display:flex;gap:6px;margin-bottom:6px">'
-          + '<select id="bmp-proto-ev" class="form-select" style="flex:1;font-size:11.5px" onchange="window._bmpSetProtoFilter(\'ev\', this.value)">'
-            + '<option value="">All evidence</option>'
-            + '<option value="A">Grade A</option>'
-            + '<option value="B">Grade B</option>'
-            + '<option value="C">Grade C</option>'
-          + '</select>'
         + '</div>'
-        + '<select id="bmp-proto-sel" class="form-select" style="width:100%;font-size:12px"'
-          + ' onchange="window._bmpLoadProto(this.value)">'
-          + '<option value="">\u2014 select protocol \u2014</option>'
-        + '</select>'
-      + '</div>'
-      + '<div class="bmp-section-card">'
-        + '<div class="bmp-section-title">Load preset</div>'
-        + '<select id="bmp-preset-sel" class="form-select" style="width:100%;font-size:12px" onchange="window._bmpLoadPreset(this.value)">'
-          + '<option value="">\u2014 select \u2014</option>'
-        + '</select>'
-        + '<div style="margin-top:6px;font-size:11px;color:var(--text-tertiary);line-height:1.4">'
-          + 'Saved locally in this browser.'
+        + '<div class="bm-polarity">'
+        + '<button class="' + (bmpState.placeMode === 'anode' ? 'active anode' : '') + '" data-placemode="anode">\u25cf Anode mode</button>'
+        + '<button class="' + (bmpState.placeMode === 'cathode' ? 'active cathode' : '') + '" data-placemode="cathode">\u25cb Cathode mode</button>'
+        + '</div>';
+      if (cat && cat.source !== 'curated') {
+        h += '<div role="note" style="display:flex;gap:6px;align-items:flex-start;font-size:10.5px;color:var(--amber,#ffb547);background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.25);border-radius:6px;padding:6px 8px;margin-top:8px;line-height:1.4">'
+          + '<span aria-hidden="true" style="flex-shrink:0">\u26a0</span>'
+          + '<span>Target electrode inferred from protocol text. Verify anatomical placement before prescribing.</span>'
+          + '</div>';
+      }
+      h += '<div style="margin-top:8px;font-size:10px;color:var(--text-tertiary);line-height:1.45">'
+        + 'Click any 10-20 site on the map to place the <strong>' + _esc(bmpState.placeMode) + '</strong>. '
+        + 'Region: <strong style="color:var(--text-primary)">' + _esc(_regionLabel(bmpState.region) || '—') + '</strong>.'
+        + '</div>';
+      h += '</div>';
+    }
+
+    if (showStim) {
+      const intensityPct = Math.min(100, Math.max(0, (intensity_mA / 4) * 100));
+      const durationN = Number(bmpState.duration || 0) || 0;
+      const durationPct = Math.min(100, Math.max(0, (durationN / 45) * 100));
+      h += '<div class="bm-param-group">'
+        + '<div class="bm-param-group-title"><span class="num">02</span>Stimulation</div>'
+        + '<div class="bm-param-row"><span class="bm-param-label">Current</span>'
+        + '<span class="bm-param-val">' + (intensity_mA ? intensity_mA.toFixed(1) + ' mA' : '—') + '</span></div>'
+        + '<div class="bm-slider-wrap">'
+        + '<input id="bm-slider-current" type="range" min="0" max="4" step="0.1" value="' + intensity_mA + '" class="bm-slider-input" />'
+        + '<div class="bm-slider-ticks"><span>0</span><span>1</span><span>2</span><span>3</span><span>4 mA</span></div>'
         + '</div>'
-      + '</div>'
-      + '<div style="display:flex;align-items:center;gap:8px;margin:2px 0 4px">'
-        + '<div style="flex:1;height:1px;background:var(--border)"></div>'
-        + '<span style="font-size:11px;color:var(--text-tertiary);white-space:nowrap">or configure manually</span>'
-        + '<div style="flex:1;height:1px;background:var(--border)"></div>'
-      + '</div>'
-      + '<div class="bmp-section-card">'
-        + '<div class="bmp-section-title">Condition</div>'
-        + '<select id="bmp-cond-sel" class="form-select" style="width:100%;font-size:12px"'
-          + ' onchange="window._bmpSetProtoFilter(\'cond\', this.value)">'
-          + '<option value="">\u2014 all conditions \u2014</option>' + condOptions
-        + '</select>'
-      + '</div>'
-      + '<div class="bmp-section-card">'
-        + '<div class="bmp-section-title">Modality</div>'
-        + '<select id="bmp-mod-sel" class="form-select" style="width:100%;font-size:12px"'
-          + ' onchange="window._bmpSetModality(this.value)">'
-          + modalityOptions
-        + '</select>'
-      + '</div>'
-      + '<div class="bmp-section-card">'
-        + '<div class="bmp-section-title">Target region</div>'
-        + '<select id="bmp-region-sel" class="form-select" style="width:100%;font-size:12px"'
-          + ' onchange="window._bmpSetRegion(this.value)">'
-          + '<option value="">\u2014 select \u2014</option>'
-          + regionOptions
-        + '</select>'
-        + '<div style="margin-top:6px;font-size:11px;color:var(--text-tertiary);line-height:1.4">'
-          + 'Tip: choose a region to highlight primary/reference electrodes on the map.'
+        + '<div class="bm-param-row" style="margin-top:10px"><span class="bm-param-label">Duration</span>'
+        + '<span class="bm-param-val">' + (durationN ? durationN + ' min' : '—') + '</span></div>'
+        + '<div class="bm-slider-wrap">'
+        + '<input id="bm-slider-duration" type="range" min="0" max="45" step="1" value="' + durationN + '" class="bm-slider-input" />'
+        + '<div class="bm-slider-ticks"><span>5</span><span>15</span><span>30</span><span>45 min</span></div>'
         + '</div>'
-      + '</div>'
-      + '<div class="bmp-section-card">'
-        + '<div class="bmp-section-title">Laterality</div>'
-        + '<div class="bmp-lat-toggle">'
-          + _latBtn('left','Left') + _latBtn('bilateral','Bilateral') + _latBtn('right','Right')
-        + '</div>'
-      + '</div>'
-      + '<div id="bmp-params-section" class="bmp-section-card" style="display:none">'
-        + '<div class="bmp-section-title">Parameters</div>'
-        + '<div style="display:flex;flex-direction:column;gap:8px">'
-          + '<label style="font-size:11px;color:var(--text-secondary)">Frequency (Hz)'
-            + '<input id="bmp-param-freq" class="form-input" type="text"'
-            + ' style="margin-top:3px;width:100%;font-size:12px;box-sizing:border-box"></label>'
-          + '<label style="font-size:11px;color:var(--text-secondary)">Intensity (% MT)'
-            + '<input id="bmp-param-intensity" class="form-input" type="text"'
-            + ' style="margin-top:3px;width:100%;font-size:12px;box-sizing:border-box"></label>'
-          + '<label style="font-size:11px;color:var(--text-secondary)">Pulses/session'
-            + '<input id="bmp-param-pulses" class="form-input" type="text"'
-            + ' style="margin-top:3px;width:100%;font-size:12px;box-sizing:border-box"></label>'
-          + '<label style="font-size:11px;color:var(--text-secondary)">Duration (min)'
-            + '<input id="bmp-param-duration" class="form-input" type="text"'
-            + ' style="margin-top:3px;width:100%;font-size:12px;box-sizing:border-box"></label>'
-          + '<label style="font-size:11px;color:var(--text-secondary)">Sessions'
-            + '<input id="bmp-param-sessions" class="form-input" type="text"'
-            + ' style="margin-top:3px;width:100%;font-size:12px;box-sizing:border-box"></label>'
-          + '<label style="font-size:11px;color:var(--text-secondary)">Notes'
-            + '<textarea id="bmp-param-notes" class="form-input" rows="2"'
-            + ' style="margin-top:3px;width:100%;font-size:12px;box-sizing:border-box;resize:vertical"></textarea></label>'
-        + '</div>'
-      + '</div>'
-      + '<div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">'
-        + '<button class="btn btn-sm" style="border-color:var(--teal);color:var(--teal);font-size:12px"'
-          + ' onclick="window._bmpPrescribe()">Add to Prescription</button>'
-        + '<button class="btn btn-sm" style="font-size:12px"'
-          + ' onclick="window._bmpUseInWizard()">Use in Protocol Wizard</button>'
-      + '</div>'
-    + '</div>'
-    + '<div class="bmp-panel bmp-panel--map">'
-      + '<div class="bmp-map-wrap">'
-        + '<div class="bmp-map-header">'
-          + '<span style="font-size:13px;font-weight:700;color:var(--text-primary)">Electrode Map</span>'
-          + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
-            + '<div class="bmp-map-ctrl">'
-              + '<span class="bmp-map-ctrl-lbl">Find</span>'
-              + '<input id="bmp-site-search" class="bmp-map-search" placeholder="e.g. F3, Cz, Pz" />'
-              + '<button class="btn btn-sm" style="font-size:11px;padding:4px 10px" onclick="window._bmpGoSite()">Go</button>'
-            + '</div>'
-            + '<div class="bmp-map-ctrl">'
-              + '<span class="bmp-map-ctrl-lbl">Zoom</span>'
-              + '<input id="bmp-zoom" type="range" min="1" max="1.8" step="0.05" value="' + (bmpState.zoom || 1) + '" />'
-            + '</div>'
-            + '<div class="bmp-map-ctrl">'
-              + '<span class="bmp-map-ctrl-lbl">Labels</span>'
-              + '<select id="bmp-label-mode" class="form-select" style="font-size:11px;padding:3px 8px" onchange="window._bmpSetLabelMode(this.value)">'
-                + '<option value="smart"' + (bmpState.labelMode === 'smart' ? ' selected' : '') + '>Smart</option>'
-                + '<option value="full"' + (bmpState.labelMode === 'full' ? ' selected' : '') + '>Full</option>'
-                + '<option value="minimal"' + (bmpState.labelMode === 'minimal' ? ' selected' : '') + '>Minimal</option>'
-              + '</select>'
-            + '</div>'
-            + '<button class="btn btn-sm" style="font-size:11px;padding:4px 10px" onclick="window._bmpResetView()">Reset view</button>'
-          + '</div>'
-          + '<div class="bmp-view-toggle">'
-            + '<button class="bmp-view-btn bmp-view-active" data-view="clinical">Clinical</button>'
-            + '<button class="bmp-view-btn" data-view="patient">Patient</button>'
-          + '</div>'
-        + '</div>'
-        + '<div class="bmp-svg-wrap"><div id="bmp-svg-container">' + _buildSVG(false) + '</div></div>'
-        + '<div class="bmp-legend-row">'
-          + '<div class="bmp-legend-item"><span class="bmp-legend-swatch" style="background:var(--teal)"></span>Primary</div>'
-          + '<div class="bmp-legend-item"><span class="bmp-legend-swatch" style="background:#ffb547"></span>Reference</div>'
-          + '<div class="bmp-legend-item"><span class="bmp-legend-swatch" style="background:#4a9eff;opacity:0.6"></span>Alternate</div>'
-          + '<div class="bmp-legend-item"><span class="bmp-legend-swatch" style="background:rgba(148,163,184,0.3)"></span>Inactive</div>'
-        + '</div>'
-      + '</div>'
-    + '</div>'
-    + '<div class="bmp-panel bmp-panel--right">'
-      + '<div id="bmp-detail-panel">' + _buildDetailPanel('') + '</div>'
+        + '<div class="bm-param-row" style="margin-top:10px"><span class="bm-param-label">Ramp</span>'
+        + '<span class="bm-param-val">30 s / 30 s</span></div>'
+        + '<div class="bm-param-row"><span class="bm-param-label">Waveform</span>'
+        + '<select id="bm-waveform" class="form-select" style="font-size:10.5px;padding:2px 6px;max-width:130px">'
+        + ['Anodal DC','Cathodal DC','Biphasic'].map(function(w) {
+            return '<option value="' + _esc(w) + '"' + (bmpState.waveform === w ? ' selected' : '') + '>' + _esc(w) + '</option>';
+          }).join('')
+        + '</select></div>'
+        + '<div class="bm-param-row"><span class="bm-param-label">Blinding</span>'
+        + '<span class="bm-param-val" style="color:var(--text-tertiary)">Open (clinical)</span></div>';
+      h += '</div>';
+    }
+
+    if (showSafety) {
+      h += '<div class="bm-param-group" id="bm-safety-group">'
+        + '<div class="bm-param-group-title"><span class="num">03</span>Safety &amp; contraindications</div>';
+      const densityText = density ? density.toFixed(3) + ' mA/cm\u00b2' : '—';
+      if (dStatus === 'ok') {
+        h += '<div class="bm-warn ok">'
+          + '<span class="bm-warn-ico">\u2713</span>'
+          + '<div><div class="bm-warn-title">Within safety envelope</div>'
+          + '<div class="bm-warn-body">Current density ' + _esc(densityText) + ' \u00b7 below 0.08 mA/cm\u00b2 limit \u00b7 NIBS guidelines Antal 2017.</div></div>'
+          + '</div>';
+      } else if (dStatus === 'amber') {
+        h += '<div class="bm-warn amb">'
+          + '<span class="bm-warn-ico">\u25d0</span>'
+          + '<div><div class="bm-warn-title">Approaching density limit</div>'
+          + '<div class="bm-warn-body">Current density ' + _esc(densityText) + ' \u00b7 between 0.08 and 0.12 mA/cm\u00b2 \u00b7 monitor scalp response.</div></div>'
+          + '</div>';
+      } else {
+        h += '<div class="bm-warn err">'
+          + '<span class="bm-warn-ico">\u26a0</span>'
+          + '<div><div class="bm-warn-title">Current density exceeds guideline</div>'
+          + '<div class="bm-warn-body">Computed ' + _esc(densityText) + ' \u00b7 above 0.12 mA/cm\u00b2 \u00b7 reduce intensity or enlarge pad.</div></div>'
+          + '</div>';
+      }
+      h += '<div class="bm-warn amb">'
+        + '<span class="bm-warn-ico">\u25d0</span>'
+        + '<div><div class="bm-warn-title">Scalp sensitivity check <span style="opacity:0.6;font-weight:400">(example)</span></div>'
+        + '<div class="bm-warn-body">Recommend saline refresh + skin inspection pre-session.</div></div>'
+        + '</div>';
+      h += '</div>';
+    }
+
+    if (showEvidence) {
+      h += '<div class="bm-param-group">'
+        + '<div class="bm-param-group-title"><span class="num">04</span>Evidence \u00b7 this montage</div>';
+      if (!ev.length) {
+        h += '<div style="font-size:11px;color:var(--text-tertiary);padding:8px 0">'
+          + 'Load a protocol to see evidence for this montage.</div>';
+      } else {
+        ev.forEach(function(r) {
+          const gClass = /^A/i.test(r.grade) ? 'a' : /^B/i.test(r.grade) ? 'b' : /^C/i.test(r.grade) ? 'c' : '';
+          h += '<div class="bm-evidence" data-proto="' + _esc(r.id) + '">'
+            + '<div class="bm-evidence-header">'
+            + '<div class="bm-evidence-title">' + _esc(r.title) + '</div>'
+            + '<span class="bm-evidence-grade ' + gClass + '">' + _esc(r.grade) + '</span>'
+            + '</div>';
+          if (r.meta) h += '<div class="bm-evidence-meta">' + _esc(r.meta) + '</div>';
+          if (r.summary) {
+            const s = r.summary.slice(0, 160) + (r.summary.length > 160 ? '\u2026' : '');
+            h += '<div class="bm-evidence-delta">' + _esc(s) + '</div>';
+          }
+          h += '</div>';
+        });
+      }
+      if (bmpState.tab === 'research' && cat) {
+        h += '<div style="margin-top:10px;padding:10px;background:var(--bg-surface);border:1px dashed var(--border);border-radius:6px;font-size:10.5px;color:var(--text-secondary);line-height:1.5">'
+          + '<div style="font-weight:600;color:var(--text-primary);margin-bottom:4px">Raw catalog entry</div>'
+          + 'id: ' + _esc(cat.id) + '<br>'
+          + 'source: ' + _esc(cat.source) + '<br>'
+          + 'targetRegion: ' + _esc(cat.targetRegion || '') + '<br>'
+          + 'anode: ' + _esc(cat.anode || '') + ' \u00b7 cathode: ' + _esc(cat.cathode || '')
+          + '</div>';
+      }
+      h += '</div>';
+    }
+
+    // Active-protocol detail re-used from _buildDetailPanel (kept for site-level
+    // info: MNI, BA, placement guidance, linked protocols, alt sites).
+    h += '<div class="bm-param-group">'
+      + '<div class="bm-param-group-title"><span class="num">\u2699</span>Site detail</div>'
+      + '<div id="bmp-detail-panel" class="bm-site-detail">' + _buildDetailPanel(bmpState.selectedSite || '') + '</div>'
       + '<div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">'
-        + '<button class="btn btn-sm" style="font-size:12px" onclick="window._bmpViewDetail()">View Protocol Detail</button>'
-        + '<button class="btn btn-sm" style="font-size:12px" onclick="window._bmpPrescribeProto(window._bmpState && window._bmpState.protoId)">Prescribe This Protocol</button>'
+      + '<button class="btn btn-sm" style="font-size:11px" onclick="window._bmpViewDetail()">View Protocol Detail</button>'
+      + '<button class="btn btn-sm" style="font-size:11px;border-color:var(--teal);color:var(--teal)" onclick="window._bmpPrescribeProto(window._bmpState && window._bmpState.protoId)">Prescribe This Protocol</button>'
       + '</div>'
+      + '</div>';
+
+    h += '</div>'; // /.bm-right-body
+
+    return h;
+  }
+
+  // Advanced filters expander — keeps the old dropdowns reachable so nothing
+  // is deleted; clinicians can still filter by condition / evidence / search
+  // from the canvas toolbar row.
+  function _buildAdvancedFilters() {
+    return '<details class="bm-adv-filters">'
+      + '<summary>Advanced filters</summary>'
+      + '<div class="bm-adv-filters-body">'
+      + '<input id="bmp-proto-q" class="form-input bm-adv-input" type="text" placeholder="Search protocols\u2026"'
+        + ' value="' + _esc(_bmpProtoFilter.q || '') + '"'
+        + ' oninput="window._bmpSetProtoFilter(\'q\', this.value)" />'
+      + '<select id="bmp-proto-ev" class="form-select bm-adv-input" onchange="window._bmpSetProtoFilter(\'ev\', this.value)">'
+      + '<option value="">All evidence</option>'
+      + '<option value="A"' + (_bmpProtoFilter.ev === 'A' ? ' selected' : '') + '>Grade A</option>'
+      + '<option value="B"' + (_bmpProtoFilter.ev === 'B' ? ' selected' : '') + '>Grade B</option>'
+      + '<option value="C"' + (_bmpProtoFilter.ev === 'C' ? ' selected' : '') + '>Grade C</option>'
+      + '</select>'
+      + '<select id="bmp-cond-sel" class="form-select bm-adv-input" onchange="window._bmpSetProtoFilter(\'cond\', this.value)">'
+      + '<option value="">All conditions</option>' + condOptions
+      + '</select>'
+      + '<select id="bmp-mod-sel" class="form-select bm-adv-input" onchange="window._bmpSetModality(this.value)">'
+      + modalityOptions
+      + '</select>'
+      + '<select id="bmp-region-sel" class="form-select bm-adv-input" onchange="window._bmpSetRegion(this.value)">'
+      + '<option value="">Select region</option>' + regionOptions
+      + '</select>'
+      + '<div class="bm-adv-overflow">'
+      + '<button class="btn btn-sm" style="font-size:11px" onclick="window._bmpCopySummary()">Copy summary</button>'
+      + '<button class="btn btn-sm" style="font-size:11px" onclick="window._bmpSavePreset()">Save preset</button>'
+      + '<select id="bmp-preset-sel" class="form-select bm-adv-input" onchange="window._bmpLoadPreset(this.value)">'
+      + '<option value="">Load preset</option>'
+      + '</select>'
+      + '<button class="btn btn-sm" style="font-size:11px" onclick="window._bmpReset()">Reset planner</button>'
+      + '</div>'
+      + '<div class="bm-adv-lat">'
+      + '<div class="bmp-lat-toggle">' + _latBtn('left','Left') + _latBtn('bilateral','Bilateral') + _latBtn('right','Right') + '</div>'
+      + '</div>'
+      + '<div id="bmp-params-section" class="bm-adv-params" style="display:none">'
+      + '<label>Freq (Hz)<input id="bmp-param-freq" class="form-input" type="text"></label>'
+      + '<label>Intensity<input id="bmp-param-intensity" class="form-input" type="text"></label>'
+      + '<label>Pulses<input id="bmp-param-pulses" class="form-input" type="text"></label>'
+      + '<label>Duration (min)<input id="bmp-param-duration" class="form-input" type="text"></label>'
+      + '<label>Sessions<input id="bmp-param-sessions" class="form-input" type="text"></label>'
+      + '<label style="grid-column:1 / -1">Notes<textarea id="bmp-param-notes" class="form-input" rows="2"></textarea></label>'
+      + '</div>'
+      + '</div>'
+      + '</details>';
+  }
+
+  // Main canvas toolbar: view modes + overlay toggles + compare.
+  function _buildCanvasToolbar() {
+    return '<div class="bm-view-toolbar">'
+      + '<div class="bm-view-toggle">'
+      + '<button class="active" data-canvas-mode="2d">\u25c9 2D 10-20</button>'
+      + '<button disabled data-canvas-mode="3d">\u25ce 3D cortex <span class="bm-soon">Soon</span></button>'
+      + '<button disabled data-canvas-mode="inflated">\u25c8 Inflated <span class="bm-soon">Soon</span></button>'
+      + '<button disabled data-canvas-mode="slices">\u25a4 Slices <span class="bm-soon">Soon</span></button>'
+      + '</div>'
+      + '<div style="width:1px;height:20px;background:var(--border)"></div>'
+      + '<label class="bm-toggle-row" data-toggle="efield">'
+      + '<span class="bm-toggle-pill ' + (bmpState.eFieldOverlay ? 'on' : '') + '"><span></span></span>'
+      + 'E-field overlay</label>'
+      + '<label class="bm-toggle-row" data-toggle="labels">'
+      + '<span class="bm-toggle-pill ' + (bmpState.labelMode !== 'minimal' ? 'on' : '') + '"><span></span></span>'
+      + 'Atlas labels</label>'
+      + '<div class="bm-map-ctrl" style="margin-left:8px">'
+      + '<span class="bmp-map-ctrl-lbl">Find</span>'
+      + '<input id="bmp-site-search" class="bmp-map-search" placeholder="F3, Cz, Pz" />'
+      + '<button class="btn btn-sm" style="font-size:11px;padding:4px 10px" onclick="window._bmpGoSite()">Go</button>'
+      + '</div>'
+      + '<div class="bm-map-ctrl">'
+      + '<span class="bmp-map-ctrl-lbl">Labels</span>'
+      + '<select id="bmp-label-mode" class="form-select" style="font-size:11px;padding:3px 8px" onchange="window._bmpSetLabelMode(this.value)">'
+      + '<option value="smart"' + (bmpState.labelMode === 'smart' ? ' selected' : '') + '>Smart</option>'
+      + '<option value="full"' + (bmpState.labelMode === 'full' ? ' selected' : '') + '>Full</option>'
+      + '<option value="minimal"' + (bmpState.labelMode === 'minimal' ? ' selected' : '') + '>Minimal</option>'
+      + '</select>'
+      + '</div>'
+      + '<div class="bm-map-ctrl">'
+      + '<span class="bmp-map-ctrl-lbl">Zoom</span>'
+      + '<input id="bmp-zoom" type="range" min="1" max="1.8" step="0.05" value="' + (bmpState.zoom || 1) + '" />'
+      + '</div>'
+      + '<div style="margin-left:auto;display:flex;gap:6px">'
+      + '<button class="btn btn-sm" style="font-size:10.5px" onclick="window._bmpResetView()">\u21ba Reset</button>'
+      + '<button class="btn btn-sm ' + (bmpState.compare ? 'btn-primary' : '') + '" style="font-size:10.5px" onclick="window._bmpToggleCompare()">\u21c6 Compare</button>'
+      + '</div>'
+      + '</div>';
+  }
+
+  // Build one or two canvas panels depending on compare mode.
+  function _buildCanvasPanels() {
+    const patientLabel = bmpState.patientId || 'Demo patient';
+    const regLabel = _regionLabel(bmpState.region) || (bmpState.selectedSite || 'no region');
+    const main = '<div class="bm-canvas-panel" style="flex:1;width:100%;position:relative">'
+      + '<div class="bm-panel-label">ACTIVE \u00b7 <strong>' + _esc(patientLabel) + '</strong> \u00b7 ' + _esc(regLabel) + '</div>'
+      + '<div class="bmp-svg-wrap"><div id="bmp-svg-container">' + _buildSVG(bmpState.view === 'patient') + '</div></div>'
+      + '</div>';
+    if (!bmpState.compare) {
+      return '<div class="bm-canvas">' + main + '</div>';
+    }
+    // Compare mode: second panel renders the first linked protocol sharing
+    // the same region, so clinicians can see an alternative montage side by
+    // side. No new API — all in-memory catalog.
+    let altHtml = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);font-size:11px">No comparable montage in catalog.</div>';
+    const activeCat = bmpState.protoId ? _catalogById[bmpState.protoId] : null;
+    const alt = _catalog.find(function(p) {
+      if (!activeCat) return p.targetRegion === bmpState.region && p.id !== bmpState.protoId;
+      return p.targetRegion === activeCat.targetRegion && p.id !== activeCat.id;
+    });
+    if (alt) {
+      altHtml = '<div class="bm-panel-label">COMPARE \u00b7 <strong>' + _esc(alt.name) + '</strong></div>'
+        + '<div class="bmp-svg-wrap" style="opacity:0.85"><div id="bmp-svg-container-alt">'
+        + _buildSVG(false)
+        + '</div></div>';
+    }
+    const altPanel = '<div class="bm-canvas-panel" style="flex:1;width:100%;position:relative">' + altHtml + '</div>';
+    return '<div class="bm-canvas compare">' + main + altPanel + '</div>';
+  }
+
+  // Tab strip — clinical / montage / research
+  function _buildTabStrip() {
+    const tabs = [
+      { id:'clinical', num:'01', label:'Clinical planner' },
+      { id:'montage',  num:'02', label:'Montage studio' },
+      { id:'research', num:'03', label:'Research overlay' },
+    ];
+    let h = '<div class="bm-tabs-wrap">';
+    tabs.forEach(function(t) {
+      h += '<button class="bm-tab' + (bmpState.tab === t.id ? ' active' : '') + '" data-tab="' + t.id + '">'
+        + '<span class="tab-num">' + t.num + '</span>' + _esc(t.label) + '</button>';
+    });
+    h += '<div style="margin-left:auto;display:flex;gap:8px;align-items:center;padding-right:4px">'
+      + '<span style="font-size:10.5px;color:var(--text-tertiary);font-family:var(--font-mono)">Patient</span>'
+      + '<input id="bm-patient-inp" class="form-input" placeholder="Demo patient"'
+      + ' value="' + _esc(bmpState.patientId) + '"'
+      + ' style="font-size:11px;padding:3px 8px;width:150px" />'
+      + '</div></div>';
+    return h;
+  }
+
+  const hideAtlas = (bmpState.tab === 'montage');
+
+  el.innerHTML =
+    _buildTabStrip()
+    + '<div class="bm-shell bm-shell-v2' + (hideAtlas ? ' bm-no-left' : '') + '">'
+    + (hideAtlas ? '' : ('<aside class="bm-left" id="bm-left">' + _buildAtlasRail() + '</aside>'))
+    + '<div class="bm-center">'
+    + _buildCanvasToolbar()
+    + _buildAdvancedFilters()
+    + '<div class="bm-proto-strip">'
+      + '<span class="bm-proto-strip-lbl">Protocol</span>'
+      + '<select id="bmp-proto-sel" class="form-select" style="flex:1;font-size:12px" onchange="window._bmpLoadProto(this.value)">'
+      + '<option value="">\u2014 select protocol \u2014</option>'
+      + '</select>'
+      + '<span id="bmp-proto-count" style="font-size:10.5px;color:var(--text-tertiary);white-space:nowrap">0 protocols</span>'
     + '</div>'
+    + '<div class="bm-canvas-wrap">' + _buildCanvasPanels() + '</div>'
+    + '<div class="bm-legend-row" style="padding:8px 16px;border-top:1px solid var(--border)">'
+      + '<div class="bm-legend-item"><span class="bm-legend-swatch" style="background:var(--teal)"></span>Primary</div>'
+      + '<div class="bm-legend-item"><span class="bm-legend-swatch" style="background:#ffb547"></span>Reference</div>'
+      + '<div class="bm-legend-item"><span class="bm-legend-swatch" style="background:#4a9eff;opacity:0.6"></span>Alternate</div>'
+      + '<div class="bm-legend-item"><span class="bm-legend-swatch" style="background:rgba(148,163,184,0.3)"></span>Inactive</div>'
+    + '</div>'
+    + '</div>'
+    + '<aside class="bm-right" id="bm-right">' + _buildParamsPanel() + '</aside>'
     + '</div>'
     + '<div id="bmp-tooltip" class="bmp-tooltip" style="display:none"></div>';
 
@@ -7414,6 +7840,201 @@ export async function pgBrainMapPlanner(setTopbar) {
     sel.innerHTML = opts.join('');
   }
   _renderPresetSelect();
+
+  // ── v2 wiring ───────────────────────────────────────────────────────────
+  // These are defined as named `var` so they can be referenced before first
+  // call (hoisted) by _updateRight/_updateAtlas.
+  function _wireRightPanel() {
+    const root = document.getElementById('bm-right');
+    if (!root) return;
+    // Polarity toggle — anode/cathode placement mode
+    root.querySelectorAll('[data-placemode]').forEach(function(b) {
+      b.addEventListener('click', function() {
+        bmpState.placeMode = b.dataset.placemode === 'cathode' ? 'cathode' : 'anode';
+        _persist();
+        _updateRight();
+      });
+    });
+    // Current slider
+    const curEl = root.querySelector('#bm-slider-current');
+    if (curEl) {
+      curEl.addEventListener('input', function() {
+        const v = Number(curEl.value || 0);
+        const mA = Number.isFinite(v) ? Math.max(0, Math.min(4, v)) : 0;
+        bmpState.intensity = mA.toFixed(1) + ' mA';
+        // Keep the legacy text input in sync too
+        const legacy = document.getElementById('bmp-param-intensity');
+        if (legacy) legacy.value = bmpState.intensity;
+        _persist();
+        _updateRight();
+      });
+    }
+    // Duration slider
+    const durEl = root.querySelector('#bm-slider-duration');
+    if (durEl) {
+      durEl.addEventListener('input', function() {
+        const v = Number(durEl.value || 0);
+        const m = Number.isFinite(v) ? Math.max(0, Math.min(45, v)) : 0;
+        bmpState.duration = String(Math.round(m));
+        const legacy = document.getElementById('bmp-param-duration');
+        if (legacy) legacy.value = bmpState.duration;
+        _persist();
+        _updateRight();
+      });
+    }
+    // Waveform select
+    const wf = root.querySelector('#bm-waveform');
+    if (wf) {
+      wf.addEventListener('change', function() {
+        bmpState.waveform = wf.value || 'Anodal DC';
+        _persist();
+      });
+    }
+    // Evidence card click → load that protocol
+    root.querySelectorAll('.bm-evidence').forEach(function(card) {
+      card.addEventListener('click', function() {
+        const pid = card.dataset.proto;
+        if (pid) window._bmpLoadProto(pid);
+      });
+    });
+    // Detail panel click (alt site + linked protocol buttons — unchanged behaviour)
+    const detailPanel = root.querySelector('#bmp-detail-panel');
+    if (detailPanel) {
+      detailPanel.addEventListener('click', function(e) {
+        const ab = e.target.closest('[data-altsite]');
+        if (ab) { window._bmpSiteClick(ab.dataset.altsite); return; }
+        const pb = e.target.closest('[data-proto]');
+        if (pb) { window._bmpLoadProto(pb.dataset.proto); return; }
+      });
+    }
+  }
+
+  function _wireAtlas() {
+    const root = document.getElementById('bm-left');
+    if (!root) return;
+    // Region click → set region + select primary site
+    root.querySelectorAll('[data-region-id]').forEach(function(r) {
+      r.addEventListener('click', function() {
+        window._bmpSetRegion(r.dataset.regionId);
+      });
+    });
+    // Condition chip click → set filter (reuse existing setter so main
+    // protocol select re-renders)
+    root.querySelectorAll('[data-cond]').forEach(function(c) {
+      c.addEventListener('click', function() {
+        window._bmpSetProtoFilter('cond', c.dataset.cond);
+        // toggle the active class locally
+        root.querySelectorAll('[data-cond]').forEach(function(x) {
+          x.classList.toggle('bm-chip-active', x.dataset.cond === c.dataset.cond);
+        });
+      });
+    });
+    // Search filter — filter visible regions by name/function/condition substring
+    const search = root.querySelector('#bm-region-search');
+    if (search) {
+      search.addEventListener('input', function() {
+        const q = String(search.value || '').toLowerCase().trim();
+        root.querySelectorAll('[data-region-id]').forEach(function(r) {
+          if (!q) { r.style.display = ''; return; }
+          const blob = r.dataset.regionQ || '';
+          r.style.display = blob.indexOf(q) !== -1 ? '' : 'none';
+        });
+      });
+    }
+  }
+
+  function _wireTabs() {
+    const root = el.querySelector('.bm-tabs-wrap');
+    if (!root) return;
+    root.querySelectorAll('[data-tab]').forEach(function(t) {
+      t.addEventListener('click', function() {
+        const v = t.dataset.tab;
+        if (!v || v === bmpState.tab) return;
+        bmpState.tab = v;
+        _persist();
+        // Toggle the atlas rail visibility for montage tab, re-render right
+        const shell = el.querySelector('.bm-shell-v2');
+        const leftAside = el.querySelector('#bm-left');
+        if (shell) {
+          shell.classList.toggle('bm-no-left', v === 'montage');
+          if (v === 'montage' && leftAside) leftAside.style.display = 'none';
+          else if (leftAside) leftAside.style.display = '';
+        }
+        // Highlight active tab
+        root.querySelectorAll('[data-tab]').forEach(function(x) {
+          x.classList.toggle('active', x.dataset.tab === v);
+        });
+        _updateRight();
+      });
+    });
+    // Patient input
+    const pInp = el.querySelector('#bm-patient-inp');
+    if (pInp) {
+      pInp.addEventListener('input', function() {
+        bmpState.patientId = String(pInp.value || '').slice(0, 80);
+        _persist();
+        const lbl = el.querySelector('.bm-panel-label');
+        if (lbl) {
+          const patientLabel = bmpState.patientId || 'Demo patient';
+          const regLabel = _regionLabel(bmpState.region) || (bmpState.selectedSite || 'no region');
+          lbl.innerHTML = 'ACTIVE \u00b7 <strong>' + _esc(patientLabel) + '</strong> \u00b7 ' + _esc(regLabel);
+        }
+      });
+    }
+  }
+
+  function _wireCanvasToolbar() {
+    const root = el.querySelector('.bm-view-toolbar');
+    if (!root) return;
+    root.querySelectorAll('[data-toggle]').forEach(function(l) {
+      l.addEventListener('click', function(e) {
+        e.preventDefault();
+        const k = l.dataset.toggle;
+        if (k === 'efield') {
+          bmpState.eFieldOverlay = !bmpState.eFieldOverlay;
+          l.querySelector('.bm-toggle-pill').classList.toggle('on', bmpState.eFieldOverlay);
+          _persist();
+          _updateMap();
+        } else if (k === 'labels') {
+          bmpState.labelMode = (bmpState.labelMode === 'minimal') ? 'smart' : 'minimal';
+          const ls = document.getElementById('bmp-label-mode');
+          if (ls) ls.value = bmpState.labelMode;
+          l.querySelector('.bm-toggle-pill').classList.toggle('on', bmpState.labelMode !== 'minimal');
+          _persist();
+          _updateMap();
+        }
+      });
+    });
+  }
+
+  // _wireRightPanel() already ran via _updateParams → _updateRight above.
+  // Atlas + tabs + canvas toolbar are rendered once (not re-rendered by
+  // _updateRight), so wire them once here.
+  _wireAtlas();
+  _wireTabs();
+  _wireCanvasToolbar();
+
+  // New top-bar button handlers
+  window._bmpImportFromProtocol = function() {
+    const sel = document.getElementById('bmp-proto-sel');
+    if (sel) {
+      try { sel.focus(); sel.scrollIntoView({ behavior:'smooth', block:'center' }); } catch (_) {}
+    }
+  };
+  window._bmpSaveToProtocol = function() {
+    if (bmpState.protoId) {
+      window._bmpPrescribeProto(bmpState.protoId);
+    } else {
+      window._showNotifToast?.({ title:'Select a protocol first', body:'Pick a protocol from the strip above to save this montage.', severity:'warn' });
+      const sel = document.getElementById('bmp-proto-sel');
+      if (sel) { try { sel.focus(); } catch (_) {} }
+    }
+  };
+  window._bmpToggleCompare = function() {
+    bmpState.compare = !bmpState.compare;
+    _persist();
+    _updateMap();
+  };
 
   // Delegated events for lat buttons
   const latToggle = el.querySelector('.bmp-lat-toggle');
