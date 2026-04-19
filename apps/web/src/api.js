@@ -1012,6 +1012,10 @@ export const api = {
   bookSession: (_data) => Promise.reject(new Error('not_implemented')),
   triageReferral: (_id, _data) => Promise.reject(new Error('not_implemented')),
   dismissReferral: (_id) => Promise.reject(new Error('not_implemented')),
+
+  // ── Home program task notifications (stub — endpoint not yet implemented) ──
+  remindHomeProgramTask: (_taskId, _payload) => Promise.reject(new Error('not_implemented')),
+  listHomeProgramTaskTemplates: () => Promise.reject(new Error('not_implemented')),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).
