@@ -97,6 +97,19 @@ async function apiFetch(path, opts = {}) {
         return retryData;
       }
     }
+    // Per-endpoint "not a real user" — demo JWTs are rejected by routes that
+    // require a DB-backed user (e.g. profile/preferences/clinic). Surface as
+    // a plain 401 without clearing tokens, so the session stays alive for
+    // every other endpoint.
+    let body401 = null;
+    try { body401 = await res.clone().json(); } catch {}
+    if (body401 && body401.code === 'not_a_real_user') {
+      const err = new Error(body401.message || 'Not available for demo account');
+      err.status = 401;
+      err.code = 'not_a_real_user';
+      err.body = body401;
+      return Promise.reject(err);
+    }
     // Refresh failed or unavailable — session truly expired
     clearToken();
     _on401();
