@@ -883,7 +883,7 @@ export async function pgDash(setTopbar, navigate) {
 <div data-setup-card style="background:linear-gradient(135deg,rgba(0,212,188,0.07),rgba(59,130,246,0.07));border:1px solid rgba(0,212,188,0.18);border-radius:12px;padding:20px 24px;margin-bottom:16px">
   <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px">
     <div>
-      <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:3px">Get started with DeepSynaps Studio</div>
+      <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:3px">Get started with DeepSynaps Protocol Studio</div>
       <div style="font-size:12px;color:var(--text-secondary)">Complete these steps to set up your clinic workflow</div>
     </div>
     <button onclick="localStorage.setItem('ds_setup_dismissed','1');document.querySelector('[data-setup-card]')?.remove()"

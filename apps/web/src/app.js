@@ -446,7 +446,7 @@ const NAV = [
 
   // ── PROTOCOL ─────────────────────────────────────────────────────────────────
   { section: 'Protocol', sectionId: 'protocol', collapsed: false },
-  { id: 'protocol-studio',    label: 'Studio',            icon: '🧪', ai: true },
+  { id: 'protocol-studio',    label: 'Protocol Studio',   icon: '🧪', ai: true },
   { id: 'brainmap-v2',        label: 'Brain Map Planner', icon: '🧠' },
   { id: 'handbooks-v2',       label: 'Handbooks',         icon: '📚' },
   { id: 'library-v2',         label: 'Library',           icon: '📖' },
@@ -1364,7 +1364,7 @@ async function renderPage() {
     case 'assessments-v2':     { const m = await loadClinicalHubs(); await m.pgAssessmentsHub(setTopbar, navigate); break; }
     case 'patients-v2':        { const m = await loadClinicalHubs(); await m.pgPatientHub(setTopbar, navigate); break; }
     case 'protocol-studio':    { const m = await loadClinicalHubs(); await m.pgProtocolHub(setTopbar, navigate); break; }
-    case 'brainmap-v2':        { const m = await loadBrainMap(); await m.pgBrainMapPlanner(setTopbar, navigate); break; }
+    case 'brainmap-v2':        { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar, navigate); break; }
     case 'handbooks-v2':       { const m = await loadHandbooks(); await m.pgHandbooks(setTopbar); break; }
     case 'library-v2':         { const m = await loadClinicalHubs(); await m.pgLibraryHub(setTopbar, navigate); break; }
     case 'live-session':       { const m = await loadClinicalHubs(); await m.pgVirtualCareHub(setTopbar, navigate); break; }
