@@ -2145,10 +2145,12 @@ export async function pgPatientCourse() {
   };
 
   // ── Data loading ─────────────────────────────────────────────────────────
-  const [coursesRaw, sessionsRaw, outcomesRaw] = await Promise.all([
+  const [coursesRaw, sessionsRaw, outcomesRaw, hpTasksRaw, wearableSummaryRaw] = await Promise.all([
     api.patientPortalCourses().catch(() => null),
     api.patientPortalSessions().catch(() => null),
     api.patientOutcomes?.().catch(() => null),
+    api.portalListHomeProgramTasks?.().catch(() => null),
+    api.patientPortalWearableSummary?.(7).catch(() => null),
   ]);
 
   const coursesArr  = Array.isArray(coursesRaw)  ? coursesRaw  : [];
@@ -2169,7 +2171,9 @@ export async function pgPatientCourse() {
 
   // ── Derived values ────────────────────────────────────────────────────────
   const delivered  = course.session_count ?? 0;
-  const total      = course.total_sessions_planned ?? 20;
+  // Real value from backend (TreatmentCourse.planned_sessions_total); no silent
+  // default — if the backend ever returns null, show 0 rather than fabricating.
+  const total      = course.total_sessions_planned ?? 0;
   const remaining  = Math.max(total - delivered, 0);
   const pct        = total > 0 ? Math.round((delivered / total) * 100) : 0;
   const startedStr = fmtDate(course.started_at || course.created_at);
@@ -2183,68 +2187,77 @@ export async function pgPatientCourse() {
     'Reduce primary symptoms', 'Improve daily functioning', 'Support overall wellbeing',
   ];
 
-  // ── Outcome trend ─────────────────────────────────────────────────────────
+  // ── Outcome trend (real data only — no fabricated percentages) ─────────────
   let outcomePct = null;
   let outcomeLabel = '';
   const outcomes = Array.isArray(outcomesRaw) ? outcomesRaw : [];
-  const phq = outcomes.filter(o => (o.scale || '').toLowerCase().includes('phq'));
+  const phq = outcomes.filter(o => (o.scale || o.template_id || '').toLowerCase().includes('phq'));
   if (phq.length >= 2) {
-    const first = phq[0].total_score ?? phq[0].score;
-    const last  = phq[phq.length - 1].total_score ?? phq[phq.length - 1].score;
-    if (first > 0) { outcomePct = Math.round(((first - last) / first) * 100); }
-    outcomeLabel = `PHQ-9: ${first} → ${last}`;
-  }
-  // Demo seed
-  if (outcomePct === null && (course._isDemoData || !outcomes.length)) {
-    outcomePct   = 44;
-    outcomeLabel = 'PHQ-9: 18 → 10';
+    const first = phq[0].total_score ?? phq[0].score_numeric ?? phq[0].score;
+    const last  = phq[phq.length - 1].total_score ?? phq[phq.length - 1].score_numeric ?? phq[phq.length - 1].score;
+    if (Number(first) > 0 && last != null) {
+      outcomePct = Math.round(((Number(first) - Number(last)) / Number(first)) * 100);
+      outcomeLabel = `PHQ-9: ${first} → ${last}`;
+    }
   }
 
-  // ── Clinician feedback ────────────────────────────────────────────────────
-  let feedback = null;
-  try { feedback = JSON.parse(localStorage.getItem('ds_clinician_feedback') || 'null'); } catch (_e) {}
-  if (!feedback) {
-    feedback = {
-      _isDemoData: true,
-      reviewer: 'Dr. Sarah Mitchell',
-      date: new Date(Date.now() - 2 * 86400000).toISOString(),
-      note: 'Great response to sessions 8–10. Mood scores improving steadily. Maintaining current protocol parameters — no changes needed. Keep up the sleep hygiene work.',
-    };
+  // ── Clinician feedback — uses course.clinician_notes (real backend field) ──
+  const clinicianNote = (course.clinician_notes || '').trim();
+  const feedback = clinicianNote
+    ? { note: clinicianNote, date: course.updated_at || course.started_at || course.created_at }
+    : null;
+
+  // ── Safety / tolerance — start empty; real adverse events are surfaced by
+  //    the session-level flow. The patient reports new effects via the
+  //    "Report a new side effect" button below.
+  const reportedEffects = [];
+
+  // ── Wearable / biometric snapshot (7-day summary from backend) ────────────
+  const wearableDays = Array.isArray(wearableSummaryRaw) ? wearableSummaryRaw : [];
+  const latestDay = wearableDays.length ? wearableDays[wearableDays.length - 1] : null;
+  const wearable = latestDay
+    ? {
+        hrv:    latestDay.hrv_ms != null           ? `${latestDay.hrv_ms} ms`                  : '—',
+        sleep:  latestDay.sleep_duration_h != null ? `${latestDay.sleep_duration_h.toFixed(1)} h` : '—',
+        steps:  latestDay.steps != null            ? latestDay.steps.toLocaleString()           : '—',
+        stress: latestDay.anxiety_score != null    ? (latestDay.anxiety_score >= 6 ? 'Elevated' : latestDay.anxiety_score >= 3 ? 'Moderate' : 'Low') : '—',
+        hasData: true,
+      }
+    : { hrv: '—', sleep: '—', steps: '—', stress: '—', hasData: false };
+
+  // ── Homework tasks (clinician-assigned via real API + optional patient
+  //    personal notes stored locally, clearly labelled). ─────────────────────
+  const hpTasksArr = Array.isArray(hpTasksRaw) ? hpTasksRaw : [];
+  const personalKey = 'ds_homework_personal_' + (uid || 'default');
+  function loadPersonal() {
+    try { return JSON.parse(localStorage.getItem(personalKey) || '[]'); } catch { return []; }
   }
-
-  // ── Safety / tolerance data ───────────────────────────────────────────────
-  let safetyItems = [];
-  try { safetyItems = JSON.parse(localStorage.getItem('ds_safety_' + uid) || '[]'); } catch (_e) {}
-  const _SIDE_EFFECTS = ['Mild headache', 'Scalp tingling', 'Fatigue after sessions', 'Jaw tension'];
-  const reportedEffects = safetyItems.length
-    ? safetyItems
-    : [{ effect: 'Mild headache', sessions: 'Sessions 1–3', resolved: true }];
-
-  // ── Wearable / biometric snapshot ────────────────────────────────────────
-  let wearable = null;
-  try { wearable = JSON.parse(localStorage.getItem('ds_wearable_summary') || 'null'); } catch (_e) {}
-  if (!wearable) {
-    wearable = { _isDemoData: true, hrv: '42 ms', sleep: '7h 12m', steps: '6,840', stress: 'Moderate' };
+  function savePersonal(items) {
+    try { localStorage.setItem(personalKey, JSON.stringify(items)); } catch {}
   }
-
-  // ── Homework tasks ────────────────────────────────────────────────────────
-  const hwKey = 'ds_homework_tasks_' + (uid || 'default');
-  const HW_DEFAULTS = [
-    { id: 'hw1', title: 'Daily mindfulness (10 min)', description: 'Morning preferred — use the timer in Sessions', freq: 'Daily', done: false },
-    { id: 'hw2', title: 'Sleep hygiene checklist',    description: 'No screens 1 hr before bed; consistent wake time', freq: 'Daily', done: false },
-    { id: 'hw3', title: 'Symptom diary',              description: 'Rate mood (0–10) and energy each evening', freq: 'Daily', done: false },
-  ];
+  // Local completion state for clinician-assigned tasks, synced to the backend
+  // via api.portalCompleteHomeProgramTask. Keyed by server_task_id.
+  const assignedCompletionKey = 'ds_hp_task_done_' + (uid || 'default');
+  function loadAssignedDone() {
+    try { return JSON.parse(localStorage.getItem(assignedCompletionKey) || '{}'); } catch { return {}; }
+  }
+  function saveAssignedDone(m) {
+    try { localStorage.setItem(assignedCompletionKey, JSON.stringify(m)); } catch {}
+  }
   function loadHW() {
-    let s = null;
-    try { s = JSON.parse(localStorage.getItem(hwKey)); } catch (_e) {}
-    if (!s) return HW_DEFAULTS.map(h => ({ ...h }));
-    const map = {}; s.forEach(h => { map[h.id] = h; });
-    const merged = HW_DEFAULTS.map(h => map[h.id] ? { ...h, ...map[h.id] } : { ...h });
-    // Include: personal tasks added by patient + clinician-assigned tasks (have assignedAt/status)
-    const extras = s.filter(h => !merged.find(m => m.id === h.id) && (h.personal || h.assignedAt || h.status === 'active' || h.status === 'pending'));
-    return [...merged, ...extras];
+    const done = loadAssignedDone();
+    const assigned = hpTasksArr.map(t => ({
+      id:          t.server_task_id,
+      server_task_id: t.server_task_id,
+      title:       t.title || t.task?.title || 'Assigned task',
+      description: t.instructions || t.task?.instructions || t.task?.notes || '',
+      freq:        t.task?.frequency || t.category || 'Assigned',
+      assignedAt:  t.task?.assignedAt || true,
+      done:        !!done[t.server_task_id],
+    }));
+    const personal = loadPersonal().map(p => ({ ...p, personal: true }));
+    return [...assigned, ...personal];
   }
-  function saveHW(items) { try { localStorage.setItem(hwKey, JSON.stringify(items)); } catch (_e) {} }
 
   // ── Session milestones ────────────────────────────────────────────────────
   const MILESTONE_SESSIONS = [total * 0.25, total * 0.5, total * 0.75, total].map(Math.round);
@@ -2475,20 +2488,19 @@ export async function pgPatientCourse() {
       ${outcomePct >= 50 ? '<div class="ptcp-outcome-note">Clinically significant response — keep going</div>' : ''}
     </div>` : `
     <p class="ptcp-body-text ptcp-muted">Outcome data will appear here after your first formal assessment.</p>`}
-    <button class="ptcp-link-btn" style="margin-top:10px" onclick="window._navPatient('patient-outcomes')">View full progress charts</button>
+    <button class="ptcp-link-btn" style="margin-top:10px" onclick="window._navPatient('patient-reports')">View full progress charts</button>
   </div>
 
   <!-- ⑦ CLINICIAN FEEDBACK -->
   <div class="ptcp-section">
     <div class="ptcp-section-header">
       <h3 class="ptcp-section-title">From your clinician</h3>
-      <span class="ptcp-reviewed-badge">Reviewed</span>
+      ${feedback ? '<span class="ptcp-reviewed-badge">Reviewed</span>' : ''}
     </div>
     ${feedback ? `
     <div class="ptcp-feedback-block">
-      ${feedback._isDemoData ? '<div class="ptcp-demo-notice">Showing example feedback</div>' : ''}
       <div class="ptcp-feedback-text">${esc(feedback.note)}</div>
-      <div class="ptcp-feedback-meta">${esc(feedback.reviewer)} · ${fmtDate(feedback.date)}</div>
+      <div class="ptcp-feedback-meta">${fmtDate(feedback.date)}</div>
     </div>` : `
     <p class="ptcp-body-text ptcp-muted">No feedback yet. Your clinician will leave notes after reviewing your progress.</p>`}
   </div>
@@ -2502,6 +2514,7 @@ export async function pgPatientCourse() {
       ${esc(modality || 'This treatment')} is well tolerated. The most common experiences are mild and temporary.
       Always tell your clinician about any new or worsening effects.
     </p>
+    ${reportedEffects.length ? `
     <div class="ptcp-safety-grid">
       ${reportedEffects.map(item => {
         const resolved = typeof item === 'object' ? item.resolved : false;
@@ -2513,7 +2526,8 @@ export async function pgPatientCourse() {
           ${sessions ? `<div class="ptcp-safety-when">${esc(sessions)}</div>` : ''}
         </div>`;
       }).join('')}
-    </div>
+    </div>` : `
+    <p class="ptcp-body-text ptcp-muted" style="margin-bottom:12px">No side effects reported so far.</p>`}
     <button class="ptcp-link-btn" style="margin-top:12px" onclick="window._navPatient('patient-messages')">Report a new side effect</button>
   </div>
 
@@ -2521,14 +2535,15 @@ export async function pgPatientCourse() {
   <div class="ptcp-section">
     <div class="ptcp-section-header">
       <h3 class="ptcp-section-title">Devices &amp; biometrics</h3>
-      ${wearable._isDemoData ? '<span class="ptcp-demo-tag">Example data</span>' : ''}
     </div>
+    ${wearable.hasData ? `
     <div class="ptcp-bio-row">
       <div class="ptcp-bio-tile"><div class="ptcp-bio-val">${esc(wearable.hrv)}</div><div class="ptcp-bio-lbl">HRV</div></div>
       <div class="ptcp-bio-tile"><div class="ptcp-bio-val">${esc(wearable.sleep)}</div><div class="ptcp-bio-lbl">Sleep last night</div></div>
       <div class="ptcp-bio-tile"><div class="ptcp-bio-val">${esc(wearable.steps)}</div><div class="ptcp-bio-lbl">Steps today</div></div>
       <div class="ptcp-bio-tile"><div class="ptcp-bio-val">${esc(wearable.stress)}</div><div class="ptcp-bio-lbl">Stress level</div></div>
-    </div>
+    </div>` : `
+    <p class="ptcp-body-text ptcp-muted">Connect a wearable to see your HRV, sleep and activity alongside your treatment.</p>`}
     <button class="ptcp-link-btn" style="margin-top:10px" onclick="window._navPatient('patient-wearables')">Manage connected devices</button>
   </div>
 
@@ -2577,22 +2592,40 @@ export async function pgPatientCourse() {
     }).join('');
   }
 
-  window._ptcpToggleHW = function(id) {
+  window._ptcpToggleHW = async function(id) {
     const items = loadHW();
     const item  = items.find(h => h.id === id);
     if (!item) return;
-    item.done = !item.done;
-    item.completedAt = item.done ? new Date().toISOString() : null;
-    saveHW(items);
-    // Write completion back so doctor's Adherence view sees it
-    try {
-      const compKey = 'ds_task_completions_' + (uid || 'default');
-      const comps = JSON.parse(localStorage.getItem(compKey) || '{}');
-      if (item.done) comps[id] = { completedAt: item.completedAt, source: 'patient' };
-      else delete comps[id];
-      localStorage.setItem(compKey, JSON.stringify(comps));
-    } catch {}
+    const nextDone = !item.done;
+
+    if (item.personal) {
+      // Patient's own note — local-only.
+      const personal = loadPersonal();
+      const p = personal.find(x => x.id === id);
+      if (p) { p.done = nextDone; p.completedAt = nextDone ? new Date().toISOString() : null; }
+      savePersonal(personal);
+      renderHW();
+      return;
+    }
+
+    // Clinician-assigned task — persist via the real completion API.
+    const doneMap = loadAssignedDone();
+    if (nextDone) doneMap[id] = { completedAt: new Date().toISOString() };
+    else delete doneMap[id];
+    saveAssignedDone(doneMap);
     renderHW();
+
+    try {
+      await api.portalCompleteHomeProgramTask(item.server_task_id || id, { completed: nextDone });
+    } catch (err) {
+      // Roll back local state so the UI stays honest about what the backend has.
+      const rollback = loadAssignedDone();
+      if (nextDone) delete rollback[id];
+      else rollback[id] = { completedAt: new Date().toISOString() };
+      saveAssignedDone(rollback);
+      renderHW();
+      try { alert('Could not save completion. Please try again.'); } catch {}
+    }
   };
   window._ptcpShowAddHW = function() {
     document.getElementById('ptcp-hw-add-form').style.display = '';
@@ -2602,9 +2635,9 @@ export async function pgPatientCourse() {
     const inp = document.getElementById('ptcp-hw-input');
     const val = inp?.value?.trim();
     if (!val) return;
-    const items = loadHW();
-    items.push({ id: 'p_' + Date.now(), title: val, description: 'Personal note', freq: 'Personal', done: false, personal: true });
-    saveHW(items);
+    const personal = loadPersonal();
+    personal.push({ id: 'p_' + Date.now(), title: val, description: 'Personal note (only visible to you)', freq: 'Personal', done: false });
+    savePersonal(personal);
     if (inp) inp.value = '';
     document.getElementById('ptcp-hw-add-form').style.display = 'none';
     renderHW();

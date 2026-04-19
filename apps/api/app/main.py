@@ -72,6 +72,7 @@ from app.routers.forms_router import router as forms_router
 from app.routers.medications_router import router as medications_router
 from app.routers.consent_management_router import router as consent_management_router
 from app.routers.home_program_tasks_router import router as home_program_tasks_router
+from app.routers.home_task_templates_router import router as home_task_templates_router
 from app.routers.reminders_router import router as reminders_router
 from app.routers.irb_router import router as irb_router
 from app.routers.evidence_router import router as evidence_router
@@ -158,6 +159,7 @@ app.include_router(forms_router)
 app.include_router(medications_router)
 app.include_router(consent_management_router)
 app.include_router(home_program_tasks_router)
+app.include_router(home_task_templates_router)
 app.include_router(reminders_router)
 app.include_router(irb_router)
 app.include_router(literature_router)
