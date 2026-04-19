@@ -153,6 +153,7 @@ export function pgTelehealth(setTopbar) {
     </div>`;
 }
 
+
 // ── Messaging ─────────────────────────────────────────────────────────────────
 export function pgMsg(setTopbar) {
   setTopbar('Secure Messaging', '');
@@ -4534,7 +4535,30 @@ export async function pgClinicSettings(setTopbar) {
     render();
   };
 
-  window._csSaveIdentity = function() {
+  // Upsert the backend-modeled core clinic row (name/address/phone/email/website).
+  // Branding extras (colors, tagline, NPI, taxId, customDomain, licenseNumber,
+  // templates, legal text, customCss) have no clinic-schema columns yet and
+  // therefore remain local-only until a dedicated endpoint lands.
+  async function _csPersistCoreClinic() {
+    try {
+      const existing = await api.getClinic().catch(() => null);
+      const payload = {
+        name:    cfg.name,
+        address: cfg.address,
+        phone:   cfg.phone,
+        email:   cfg.email,
+        website: cfg.website,
+      };
+      if (existing && (existing.id || existing.name)) await api.updateClinic(payload);
+      else await api.createClinic(payload);
+      return true;
+    } catch (err) {
+      console.warn('[cs] core clinic save failed:', err?.message || err);
+      return false;
+    }
+  }
+
+  window._csSaveIdentity = async function() {
     cfg.address       = document.getElementById('cs-address')?.value       ?? cfg.address;
     cfg.phone         = document.getElementById('cs-phone')?.value         ?? cfg.phone;
     cfg.email         = document.getElementById('cs-email')?.value         ?? cfg.email;
@@ -4544,7 +4568,9 @@ export async function pgClinicSettings(setTopbar) {
     cfg.taxId         = document.getElementById('cs-tax-id')?.value        ?? cfg.taxId;
     cfg.licenseNumber = document.getElementById('cs-license')?.value       ?? cfg.licenseNumber;
     saveClinicConfig(cfg);
-    window._showToast?.('Identity saved.') || alert('Identity saved.');
+    const ok = await _csPersistCoreClinic();
+    const msg = ok ? 'Identity saved.' : 'Identity cached locally — server sync failed.';
+    window._showToast?.(msg, ok ? 'success' : 'warning') || alert(msg);
   };
 
   window._csSaveTemplates = function() {
@@ -4606,7 +4632,7 @@ export async function pgClinicSettings(setTopbar) {
     openTextModal('Privacy Policy Preview', document.getElementById('cs-privacy')?.value || cfg.privacyPolicy);
   };
 
-  window._csSaveAll = function() {
+  window._csSaveAll = async function() {
     const v   = id => document.getElementById(id)?.value;
     const chk = id => document.getElementById(id)?.checked;
     cfg.name                        = v('cs-name')             ?? cfg.name;
@@ -4633,7 +4659,11 @@ export async function pgClinicSettings(setTopbar) {
     cfg.tosLastUpdated              = v('cs-tos-date')         ?? cfg.tosLastUpdated;
     cfg.privacyLastUpdated          = v('cs-privacy-date')     ?? cfg.privacyLastUpdated;
     saveClinicConfig(cfg);
-    window._showToast?.('All clinic settings saved successfully!', 'success') || alert('All clinic settings saved!');
+    const ok = await _csPersistCoreClinic();
+    const msg = ok
+      ? 'Clinic identity saved to server. Branding/templates/legal stored locally until a server endpoint exists.'
+      : 'Not saved to server — cached locally, please retry.';
+    window._showToast?.(msg, ok ? 'success' : 'warning') || alert(msg);
   };
 }
 

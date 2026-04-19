@@ -3756,13 +3756,17 @@ export async function pgPatientReports() {
   });
 
   assessments.forEach(a => {
-    const templateKey = (a.assessment_type || a.name || '').toLowerCase();
+    // Backend `PortalAssessmentOut` returns `template_id` + `template_title`
+    // (see apps/api/app/routers/patient_portal_router.py). Older callsites
+    // read `assessment_type`/`name` which silently dropped live data on the
+    // shape mismatch — accept both shapes so the list never blanks out.
+    const templateKey = (a.template_id || a.assessment_type || a.name || '').toLowerCase();
     docs.push({
       id:          a.id || `assess-${Math.random().toString(36).slice(2)}`,
       _source:     'assessment',
-      title:       a.name || a.title || a.assessment_type || 'Assessment',
-      date:        a.completed_at || a.administered_at || a.created_at,
-      displayDate: fmtDate(a.completed_at || a.administered_at || a.created_at),
+      title:       a.template_title || a.name || a.title || a.assessment_type || 'Assessment',
+      date:        a.created_at || a.completed_at || a.administered_at,
+      displayDate: fmtDate(a.created_at || a.completed_at || a.administered_at),
       templateKey,
       category:    categorise({ ...a, _source: 'assessment' }),
       score:       a.score != null ? a.score : null,
@@ -4539,6 +4543,21 @@ export async function pgPatientMessages() {
     listSection.setAttribute('hidden', '');
     // Scroll to top of detail
     detailSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Honest read receipts: only mark incoming unread messages (not patient-sent) as read.
+    const unreadIncoming = (th.messages || []).filter(m =>
+      m && m.id
+      && m.is_read === false
+      && (m.sender_type || '').toLowerCase() !== 'patient'
+      && m.sender_id !== uid
+    );
+    if (unreadIncoming.length && api.patientPortalMarkMessageRead) {
+      Promise.all(unreadIncoming.map(m =>
+        api.patientPortalMarkMessageRead(m.id).catch(() => null)
+      )).then(() => {
+        unreadIncoming.forEach(m => { m.is_read = true; });
+        th.unreadCount = 0;
+      });
+    }
   };
 
   // Close thread detail and return to list
@@ -4563,11 +4582,20 @@ export async function pgPatientMessages() {
     if (btn) { btn.disabled = true; btn.textContent = t('patient.msg.sending'); }
 
     try {
-      // Extension point: include thread_id when backend supports threaded replies.
+      const activeThread = threads.find(th => th.key === threadKey);
+      // Only forward thread_id when the grouping key looks like a real backend
+      // id (uuid-ish); otherwise the thread was a subject-based fallback group,
+      // so prefer the first message's server-assigned thread_id when present.
+      const looksLikeThreadId = typeof threadKey === 'string'
+        && /^[a-f0-9-]{16,}$/i.test(threadKey);
+      const realThreadId = looksLikeThreadId
+        ? threadKey
+        : (activeThread?.messages?.[0]?.thread_id || null);
       await api.patientPortalSendMessage({
-        thread_id: threadKey,
+        thread_id: realThreadId,
         body:      text,
-        category:  threads.find(th => th.key === threadKey)?.category || null,
+        subject:   activeThread?.messages?.[0]?.subject || null,
+        category:  activeThread?.category || null,
       });
       input.value = '';
       if (status) {
@@ -4576,6 +4604,8 @@ export async function pgPatientMessages() {
         status.textContent = t('patient.msg.reply_sent');
       }
       if (btn) { btn.disabled = false; btn.textContent = t('patient.msg.send_reply'); }
+      // Refetch the thread so the reply renders with its real id / timestamp.
+      try { await pgPatientMessages(); } catch (_err) { /* best-effort */ }
     } catch (_e) {
       if (status) {
         status.removeAttribute('hidden');
@@ -6610,12 +6640,11 @@ export async function pgPatientWearables() {
       dataUsed: ['Sleep', 'Heart rate', 'Steps', 'Activity'],
       connectNote: 'Opens Health Connect on your Android phone.',
     },
-    {
-      id: 'smartwatch', label: 'Smart Watch', platform: 'Any',
-      icon: '◌', accentVar: '--blue',
-      dataUsed: ['Heart rate', 'HRV', 'Activity', 'Stress'],
-      connectNote: "Sync via your phone's health app (Apple Health or Health Connect).",
-    },
+    // Generic "Smart Watch" entry intentionally omitted — the backend only
+    // accepts the four canonical sources (_VALID_SOURCES in
+    // patient_portal_router.py). Apple Watch / Wear OS users sync via
+    // Apple Health or Android Health Connect above; a dedicated
+    // "smartwatch" source would 422 on connect.
     {
       id: 'oura', label: 'Oura Ring', platform: 'iOS / Android',
       icon: '◌', accentVar: '--violet',
@@ -6688,14 +6717,35 @@ export async function pgPatientWearables() {
     return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
   }
 
+  // ── Local toast (the clinician-intake showToast is out of scope here) ───
+  // Without this, _pdwConnect / _pdwSaveSession / _pdwReportIssue would
+  // throw ReferenceError on their first use and silently break the page.
+  function showToast(msg, color) {
+    color = color || 'var(--teal)';
+    const toastEl = document.createElement('div');
+    toastEl.textContent = msg;
+    toastEl.style.cssText =
+      'position:fixed;bottom:24px;right:24px;z-index:9999;background:' + color +
+      ';color:white;padding:10px 20px;border-radius:8px;font-size:.875rem;font-weight:500;' +
+      'box-shadow:0 4px 12px rgba(0,0,0,.25);pointer-events:none';
+    document.body.appendChild(toastEl);
+    setTimeout(() => toastEl.remove(), 2800);
+  }
+
   // ── Fetch API data ────────────────────────────────────────────────────────
-  const [wearableData, _summaryData] = await Promise.all([
+  const [wearableData, _summaryData, homeDeviceData] = await Promise.all([
     api.patientPortalWearables().catch(() => null),
     api.patientPortalWearableSummary(7).catch(() => null),
+    // Real home-device assignment from /api/v1/patient-portal/home-device.
+    // Used by _pdwSaveSession below to decide whether it can POST the
+    // log to the live backend (requires an active assignment) or must
+    // fall back to local-only storage and an honest "saved locally" toast.
+    (api.portalGetHomeDevice ? api.portalGetHomeDevice().catch(() => null) : Promise.resolve(null)),
   ]);
 
   const connections  = wearableData?.connections   || [];
   const recentAlerts = wearableData?.recent_alerts || [];
+  const activeHomeAssignment = homeDeviceData?.assignment || null;
 
   // ── LocalStorage: home device assignments + session log ───────────────────
   const homeDevKey  = 'ds_home_devices_'  + (uid || 'demo');
@@ -7156,7 +7206,7 @@ export async function pgPatientWearables() {
     if (m) m.style.display = 'none';
   };
 
-  window._pdwSaveSession = function() {
+  window._pdwSaveSession = async function() {
     const deviceId  = document.getElementById('pdw-log-device-id')?.value || '';
     const completed = document.querySelector('input[name="pdw-completed"]:checked')?.value || 'yes';
     const timeVal   = document.getElementById('pdw-log-time')?.value || new Date().toISOString();
@@ -7165,6 +7215,7 @@ export async function pgPatientWearables() {
     const note      = document.getElementById('pdw-log-note')?.value?.trim() || '';
     const entry = { id:'sess_'+Date.now(), deviceId, date:timeVal, completedAt:timeVal, completed, effects, feel, note };
 
+    // Local cache — always write so the UI reflects the log instantly.
     let sess = [];
     try { sess = JSON.parse(localStorage.getItem(homeSessKey) || '[]'); } catch (_e) {}
     sess.push(entry);
@@ -7176,8 +7227,37 @@ export async function pgPatientWearables() {
     if (devRec) devRec.lastSession = timeVal;
     try { localStorage.setItem(homeDevKey, JSON.stringify(devs)); } catch (_e) {}
 
+    // Backend sync — only when the clinician has issued a real home-device
+    // assignment. Without it, POST /home-sessions returns 404
+    // (no_active_assignment), so we honestly downgrade the toast instead
+    // of falsely claiming the care team saw the log.
+    let syncedToBackend = false;
+    if (activeHomeAssignment && typeof api.portalLogHomeSession === 'function') {
+      try {
+        const rawFeel = parseInt(feel, 10);
+        const mood_after = Number.isFinite(rawFeel)
+          ? Math.max(1, Math.min(5, Math.round(rawFeel / 2)))
+          : null;
+        const tolerance_rating = effects.length > 0 ? 3 : null;
+        await api.portalLogHomeSession({
+          session_date: new Date(timeVal).toISOString().slice(0, 10),
+          completed: completed === 'yes',
+          side_effects_during: effects.length ? effects.join(', ') : null,
+          tolerance_rating,
+          mood_after,
+          notes: note || null,
+        });
+        syncedToBackend = true;
+      } catch (_err) { /* keep local-only; toast below reflects truth */ }
+    }
+
     window._pdwCloseModal();
-    showToast('Session logged. Your care team can see this.');
+    showToast(
+      syncedToBackend
+        ? 'Session logged. Your care team can see this.'
+        : 'Session saved locally. Ask your clinician to activate home-device sync so it reaches your care team.',
+      syncedToBackend ? undefined : '#d97706',
+    );
     pgPatientWearables();
   };
 
@@ -8867,23 +8947,35 @@ export async function pgPatientNotificationSettings(setTopbarFn) {
   const el = document.getElementById('patient-content');
   if (!el) return;
 
-  const prefs = getNotifPrefs();
+  // Server is source of truth for notification preferences. These toggles map
+  // to the `notification_prefs` channel matrix on /api/v1/preferences — we
+  // store the in-app channel (`inapp`) boolean per event key.
+  let serverPrefs = null;
+  try { serverPrefs = await api.getPreferences(); } catch {}
+  const localPrefs = getNotifPrefs();
+  const serverMatrix = (serverPrefs && typeof serverPrefs.notification_prefs === 'object')
+    ? serverPrefs.notification_prefs
+    : null;
+
+  const resolvePref = (key, dflt) => {
+    if (serverMatrix && serverMatrix[key] && typeof serverMatrix[key] === 'object' && 'inapp' in serverMatrix[key]) {
+      return !!serverMatrix[key].inapp;
+    }
+    if (key in localPrefs) return !!localPrefs[key];
+    return dflt;
+  };
+
   const pushSupported = 'Notification' in window;
   const currentPerm = pushSupported ? Notification.permission : 'unsupported';
   const shareSupported = 'share' in navigator;
 
   function toggleRow(key, label, defaultVal) {
-    const val = prefs[key] !== undefined ? prefs[key] : defaultVal;
+    const val = resolvePref(key, defaultVal);
     return `<div class="pt-notif-toggle-row">
       <span style="font-size:13px">${label}</span>
       <label style="position:relative;display:inline-block;width:40px;height:22px;cursor:pointer">
-        <input type="checkbox" id="notif-${key}" ${val ? 'checked' : ''}
-          style="opacity:0;width:0;height:0;position:absolute"
-          onchange="(function(){
-            const p = JSON.parse(localStorage.getItem('${NOTIF_PREFS_KEY}')||'{}');
-            p['${key}'] = document.getElementById('notif-${key}').checked;
-            localStorage.setItem('${NOTIF_PREFS_KEY}', JSON.stringify(p));
-          })()">
+        <input type="checkbox" id="notif-${key}" data-pref-key="${key}" ${val ? 'checked' : ''}
+          style="opacity:0;width:0;height:0;position:absolute">
         <span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;border-radius:22px;background:var(--border);transition:.25s" id="notif-${key}-track">
           <span style="position:absolute;height:16px;width:16px;left:3px;bottom:3px;border-radius:50%;background:white;transition:.25s;transform:${val?'translateX(18px)':'translateX(0)'}"></span>
         </span>
@@ -8932,8 +9024,29 @@ export async function pgPatientNotificationSettings(setTopbarFn) {
       </div>` : ''}
     </div>`;
 
-  // Sync toggle visual state on change (pure CSS toggles need a bit of help)
-  el.querySelectorAll('input[type=checkbox]').forEach(cb => {
+  // Round-trip each toggle to the server so a patient's preferences travel
+  // with their account, not their browser. Local mirror kept for offline read.
+  const _syncPatientNotif = async (prefKey, enabled) => {
+    try {
+      const p = JSON.parse(localStorage.getItem(NOTIF_PREFS_KEY) || '{}');
+      p[prefKey] = enabled;
+      localStorage.setItem(NOTIF_PREFS_KEY, JSON.stringify(p));
+    } catch {}
+    try {
+      const current = await api.getPreferences().catch(() => null);
+      const matrix = (current && typeof current.notification_prefs === 'object')
+        ? { ...current.notification_prefs } : {};
+      matrix[prefKey] = {
+        ...(matrix[prefKey] && typeof matrix[prefKey] === 'object' ? matrix[prefKey] : {}),
+        inapp: enabled,
+      };
+      await api.updatePreferences({ notification_prefs: matrix });
+    } catch (err) {
+      console.warn('[patient-notif] sync failed:', err?.message || err);
+    }
+  };
+
+  el.querySelectorAll('input[type=checkbox][data-pref-key]').forEach(cb => {
     cb.addEventListener('change', () => {
       const track = document.getElementById(cb.id + '-track');
       if (track) {
@@ -8941,6 +9054,8 @@ export async function pgPatientNotificationSettings(setTopbarFn) {
         if (dot) dot.style.transform = cb.checked ? 'translateX(18px)' : 'translateX(0)';
         track.style.background = cb.checked ? 'var(--teal,#0d9488)' : 'var(--border)';
       }
+      const key = cb.getAttribute('data-pref-key');
+      if (key) _syncPatientNotif(key, cb.checked);
     });
     // Set initial track colour
     const track = document.getElementById(cb.id + '-track');
@@ -11789,14 +11904,26 @@ export async function pgPatientAdherenceHistory() {
   } catch (_e) { /* handled below */ }
 
   const sessArr = Array.isArray(sessions) ? sessions : [];
-  const s = summary || {};
+  // Backend envelope: { assignment_id, adherence: {...} } or { assignment: null, adherence: null }.
+  // Accept flat legacy shape too.
+  const _envelope = summary || {};
+  const s = (_envelope && typeof _envelope === 'object' && _envelope.adherence)
+    ? _envelope.adherence
+    : _envelope;
+  const hasAssignment = !!(_envelope && (_envelope.assignment_id || _envelope.adherence));
 
-  // Stats
-  const totalSessions   = s.total_sessions    ?? sessArr.length;
-  const completedCount  = s.completed_sessions ?? sessArr.filter(x => x.completed !== false).length;
-  const completedRate   = totalSessions > 0 ? Math.round((completedCount / totalSessions) * 100) : 0;
-  const currentStreak   = s.current_streak   ?? 0;
-  const longestStreak   = s.longest_streak   ?? 0;
+  // Stats — map backend keys (sessions_logged / sessions_expected / adherence_rate_pct
+  // / streak_current / streak_best / logs_by_week).
+  const totalSessions    = s.sessions_logged   ?? s.total_sessions     ?? sessArr.length;
+  const completedCount   = s.sessions_logged   ?? s.completed_sessions ?? sessArr.filter(x => x.completed !== false).length;
+  const expectedSessions = s.sessions_expected ?? null;
+  const completedRate    = (s.adherence_rate_pct != null)
+    ? Math.round(s.adherence_rate_pct)
+    : ((expectedSessions && expectedSessions > 0)
+        ? Math.round((completedCount / expectedSessions) * 100)
+        : (totalSessions > 0 ? Math.round((completedCount / totalSessions) * 100) : 0));
+  const currentStreak = s.streak_current ?? s.current_streak ?? 0;
+  const longestStreak = s.streak_best    ?? s.longest_streak ?? 0;
   const avgTolerance    = s.avg_tolerance    != null
     ? Number(s.avg_tolerance).toFixed(1)
     : (sessArr.filter(x => x.tolerance_rating != null).length > 0
@@ -11805,8 +11932,10 @@ export async function pgPatientAdherenceHistory() {
   const avgMoodBefore = s.avg_mood_before != null ? Number(s.avg_mood_before).toFixed(1) : null;
   const avgMoodAfter  = s.avg_mood_after  != null ? Number(s.avg_mood_after).toFixed(1)  : null;
 
-  // Weekly bar chart data (8 weeks)
-  const weeklyData = Array.isArray(s.weekly_sessions) ? s.weekly_sessions : [];
+  // Weekly bar chart data (8 weeks) — backend returns logs_by_week: [{week_start, count}].
+  const weeklyData = Array.isArray(s.logs_by_week)
+    ? s.logs_by_week
+    : (Array.isArray(s.weekly_sessions) ? s.weekly_sessions : []);
 
   // Build 8-week local data if no server data
   function buildLocalWeekly() {
@@ -11854,12 +11983,19 @@ export async function pgPatientAdherenceHistory() {
     </div>`;
   }
 
+  const noAssignmentNotice = !hasAssignment ? `
+    <div class="notice notice-info" style="margin-bottom:16px;font-size:12.5px;line-height:1.6">
+      No active home device assignment — the stats below show any sessions you have already logged.
+    </div>` : '';
+
   el.innerHTML = `
+    ${noAssignmentNotice}
     <!-- Stats grid -->
     <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:20px">
       ${statCard('Total Sessions', totalSessions, 'logged', '0,212,188')}
-      ${statCard('Completed Rate', completedRate + '%', completedCount + ' of ' + totalSessions, '74,158,255')}
+      ${statCard('Adherence', completedRate + '%', expectedSessions ? (completedCount + ' of ' + expectedSessions + ' planned') : (completedCount + ' sessions'), '74,158,255')}
       ${statCard('Current Streak', currentStreak, currentStreak === 1 ? 'day' : 'days', '167,139,250')}
+      ${statCard('Best Streak', longestStreak, longestStreak === 1 ? 'day' : 'days', '52,211,153')}
       ${statCard('Avg Tolerance', avgTolerance ?? '—', 'out of 5', '0,212,188')}
       ${avgMoodBefore != null ? statCard('Avg Mood Before', avgMoodBefore, 'out of 5', '74,158,255') : ''}
       ${avgMoodAfter  != null ? statCard('Avg Mood After',  avgMoodAfter,  'out of 5', '52,211,153') : ''}
