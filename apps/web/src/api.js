@@ -875,10 +875,20 @@ export const api = {
   aiSummarizeReport: (reportId) =>
     apiFetch(`/api/v1/reports/${encodeURIComponent(reportId)}/ai-summary`, { method: 'POST' }),
 
-  // AI draft generator for Reports hub. Defaults to GLM-4.5-Flash (free tier)
-  // via BigModel/Z.AI. Returns structured sections.
-  generateReport: (payload) =>
-    apiFetch('/api/v1/reports/generate', { method: 'POST', body: JSON.stringify(payload) }),
+  // Persist a generated text report (JSON body; no multipart file). Called
+  // from the Reports hub Save flow. Server stores it in PatientMediaUpload
+  // with media_type="text".
+  createReport: (body) =>
+    apiFetch('/api/v1/reports', { method: 'POST', body: JSON.stringify(body) }),
+
+  // List clinician's own generated reports for the Recent tab. Returns items
+  // in reverse-chronological order; optional since= ISO date filter.
+  listMyReports: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetchWithRetry('/api/v1/reports' + (q ? '?' + q : ''));
+  },
 
   // ── Patient outcomes (portal alias) ─────────────────────────────────────
   patientOutcomes: () => apiFetch('/api/v1/patient-portal/outcomes'),
