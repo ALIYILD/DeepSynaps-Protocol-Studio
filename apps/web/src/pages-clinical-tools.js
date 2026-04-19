@@ -11949,6 +11949,11 @@ export async function pgHomePrograms(setTopbar, navigate) {
   let _hpSuggestionRowByTplId = new Map();
   let _hpModalProvenance = null;
   let _hpSuggestExpanded = false;
+  let _tplEditorOpen = false;
+  let _tplEditing = null; // null = new; otherwise a template object being edited
+
+  // Default templates (bundled) cannot be edited or deleted. Detect by id prefix.
+  const _isDefaultTemplate = id => /^tpl-\d+$/.test(id || '') || /^chp-CON-\d+$/.test(id || '');
 
   // ── Date helpers ─────────────────────────────────────────────────────────
   const _today    = () => new Date().toISOString().slice(0, 10);
@@ -12063,7 +12068,9 @@ export async function pgHomePrograms(setTopbar, navigate) {
   };
 
   // ── Template card ────────────────────────────────────────────────────────
-  const _tplCard = tpl => `
+  const _tplCard = tpl => {
+    const editable = !_isDefaultTemplate(tpl.id);
+    return `
     <div class="hp-tpl-card">
       <div class="hp-tpl-icon">${_typeIcon(tpl.type)}</div>
       <div class="hp-tpl-body">
@@ -12073,8 +12080,39 @@ export async function pgHomePrograms(setTopbar, navigate) {
         <div class="hp-tpl-desc">${_esc(tpl.instructions || '')}</div>
         ${tpl.reason ? `<div class="hp-tpl-reason">${_esc(tpl.reason)}</div>` : ''}
       </div>
-      <button class="hp-act-btn hp-act-primary" onclick="window._hpUseTemplate('${tpl.id}')">Use</button>
+      <div style="display:flex;flex-direction:column;gap:6px;align-items:stretch">
+        <button class="hp-act-btn hp-act-primary" onclick="window._hpUseTemplate('${tpl.id}')">Use</button>
+        ${editable ? `<button class="hp-act-btn" title="Edit template" onclick="window._hpOpenTplEditor('${tpl.id}')">\u270E Edit</button>` : ''}
+        ${editable ? `<button class="hp-act-btn" title="Delete template" onclick="window._hpDeleteTplPrompt('${tpl.id}')">\uD83D\uDDD1 Delete</button>` : ''}
+      </div>
     </div>`;
+  };
+
+  // ── Template editor modal (small inline form) ────────────────────────────
+  const _tplEditorHtml = () => {
+    const isEdit = !!_tplEditing?.id;
+    const t = _tplEditing || {};
+    const notes = (t.payload && typeof t.payload === 'object' && t.payload.notes) || t.instructions || '';
+    return `
+      <div class="hp-modal-overlay" onclick="window._hpCloseTplEditor()">
+        <div class="hp-modal" onclick="event.stopPropagation()" style="max-width:520px">
+          <div class="hp-modal-header">
+            <span>${isEdit ? 'Edit Template' : 'New Template'}</span>
+            <button class="hp-modal-close" onclick="window._hpCloseTplEditor()">\u2715</button>
+          </div>
+          <div class="hp-modal-body">
+            <label class="hp-lbl">Name</label>
+            <input id="hp-tple-name" class="hp-input" type="text" placeholder="e.g. Evening wind-down routine" value="${_esc(t.title || '')}">
+            <label class="hp-lbl">Payload notes</label>
+            <textarea id="hp-tple-notes" class="hp-input hp-textarea" placeholder="Notes / instructions stored on the template payload\u2026">${_esc(notes)}</textarea>
+          </div>
+          <div class="hp-modal-footer">
+            <button class="hp-act-btn" onclick="window._hpCloseTplEditor()">Cancel</button>
+            <button class="hp-act-btn hp-act-primary" onclick="window._hpSubmitTplEditor()">Save</button>
+          </div>
+        </div>
+      </div>`;
+  };
 
   // ── Adherence view ───────────────────────────────────────────────────────
   const _adherenceView = () => {
@@ -12375,7 +12413,10 @@ export async function pgHomePrograms(setTopbar, navigate) {
           </div>
         </div>`;
       mainContent = `<div class="hp-card hp-tpl-card-wrap">
-        <div class="hp-card-title">Task Templates &amp; Library <span class="hp-tpl-count">${ft.length}</span></div>
+        <div class="hp-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+          <span>Task Templates &amp; Library <span class="hp-tpl-count">${ft.length}</span></span>
+          <button class="hp-act-btn hp-act-primary" onclick="window._hpOpenTplEditor()">+ New Template</button>
+        </div>
         ${tplToolbar}
         <div class="hp-tpl-grid">${ft.length ? ft.map(_tplCard).join('') : '<div class="hp-empty">No templates match filters.</div>'}</div>
       </div>`;
@@ -12404,6 +12445,7 @@ export async function pgHomePrograms(setTopbar, navigate) {
         ${topActions}
         ${mainContent}
         ${_showModal ? _modalHtml(_editingTask, '') : ''}
+        ${_tplEditorOpen ? _tplEditorHtml() : ''}
       </div>
       </div>`;
     if (_showModal) queueMicrotask(() => window._hpSyncSuggestPanel?.());
@@ -12611,6 +12653,40 @@ export async function pgHomePrograms(setTopbar, navigate) {
       patientId: '',
     };
     _showModal = true; _view = 'queue'; renderPage();
+  };
+
+  // ── Template editor handlers (CRUD UI) ───────────────────────────────────
+  window._hpOpenTplEditor = (tplId) => {
+    if (tplId) {
+      const tpl = _getTemplates().find(t => t.id === tplId);
+      if (!tpl || _isDefaultTemplate(tpl.id)) return;
+      _tplEditing = { ...tpl, payload: { notes: tpl.instructions || '' } };
+    } else {
+      _tplEditing = null;
+    }
+    _tplEditorOpen = true;
+    renderPage();
+  };
+  window._hpCloseTplEditor = () => { _tplEditorOpen = false; _tplEditing = null; renderPage(); };
+  window._hpSubmitTplEditor = async () => {
+    const name = document.getElementById('hp-tple-name')?.value?.trim();
+    const notes = document.getElementById('hp-tple-notes')?.value || '';
+    if (!name) {
+      window._showNotifToast?.({ title: 'Name required', body: 'Template name cannot be empty.', severity: 'warn' });
+      return;
+    }
+    const existing = _tplEditing && _tplEditing.id ? _tplEditing : null;
+    const tpl = existing
+      ? { ...existing, title: name, instructions: notes, payload: { notes } }
+      : { id: 'tplc-' + Date.now(), title: name, instructions: notes, payload: { notes } };
+    _tplEditorOpen = false;
+    _tplEditing = null;
+    await window._hpSaveTemplate(tpl);
+  };
+  window._hpDeleteTplPrompt = async (tplId) => {
+    if (!tplId || _isDefaultTemplate(tplId)) return;
+    if (!confirm('Delete this template? This cannot be undone.')) return;
+    await window._hpDeleteTemplate(tplId);
   };
 
   window._hpConflictTakeServer = (tid, pid) => {
