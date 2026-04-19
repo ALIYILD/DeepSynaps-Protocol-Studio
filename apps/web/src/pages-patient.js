@@ -2803,8 +2803,16 @@ export async function pgPatientAssessments() {
     if (score == null || score === '' || !meta || !meta.scoreRanges || !meta.scoreRanges.length) return null;
     const n = Number(score);
     if (!Number.isFinite(n)) return null;
-    for (const band of meta.scoreRanges) {
-      if (n <= band.max) return { label: band.label, note: band.note };
+    const ranges = meta.scoreRanges;
+    for (let i = 0; i < ranges.length; i++) {
+      const band = ranges[i];
+      if (n <= band.max) {
+        // Severity signals whether to surface a reach-out CTA.
+        // First 2 bands (Minimal/Mild) → low; 3rd band (Moderate) → moderate;
+        // any band beyond that → high.
+        const severity = i <= 1 ? 'low' : i === 2 ? 'moderate' : 'high';
+        return { label: band.label, note: band.note, severity };
+      }
     }
     return null;
   }
@@ -3020,6 +3028,12 @@ export async function pgPatientAssessments() {
     if (item.score != null) {
       const ctx = item.scoreCtx;
       const bandClass = ctx ? ctx.label.toLowerCase().replace(/\s+/g, '-') : '';
+      const needsReachOut = ctx && (ctx.severity === 'moderate' || ctx.severity === 'high');
+      const reachOutHtml = needsReachOut
+        ? '<button class="pt-assess-reach-btn" onclick="window._navPatient(\'patient-messages\')">' +
+            '<span aria-hidden="true">✉</span> Message your care team' +
+          '</button>'
+        : '';
       resultHtml =
         '<div class="pt-assess-result-row">' +
           '<span class="pt-assess-score-label">Your result</span>' +
@@ -3028,7 +3042,8 @@ export async function pgPatientAssessments() {
             : '<span class="pt-assess-score-num">' + esc(String(item.score)) + '</span>') +
           (isReviewed ? '<span class="pt-assess-reviewed-badge">✓ Reviewed by your team</span>' : '') +
         '</div>' +
-        (ctx ? '<div class="pt-assess-score-note">' + esc(ctx.note) + '</div>' : '');
+        (ctx ? '<div class="pt-assess-score-note">' + esc(ctx.note) + '</div>' : '') +
+        reachOutHtml;
     } else if (isReviewed) {
       resultHtml = '<div class="pt-assess-result-row"><span class="pt-assess-reviewed-badge">✓ Reviewed by your team</span></div>';
     }
@@ -3154,6 +3169,7 @@ export async function pgPatientAssessments() {
     let scoreHtml = '';
     if (isCompleted && item.score != null) {
       const ctx = item.scoreCtx;
+      const needsReachOut = ctx && (ctx.severity === 'moderate' || ctx.severity === 'high');
       scoreHtml = `
         <div class="pt-assess-score-row">
           <span class="pt-assess-score-label">Your result</span>
@@ -3161,7 +3177,8 @@ export async function pgPatientAssessments() {
             ? `<span class="pt-assess-score-band ${esc(ctx.label.toLowerCase().replace(/\s+/g,'-'))}">${esc(ctx.label)}</span>`
             : `<span class="pt-assess-score-num">${(item.score != null && !isNaN(Number(item.score))) ? esc(String(item.score)) : '—'}</span>`}
         </div>
-        ${ctx ? `<div class="pt-assess-score-note">${esc(ctx.note)}</div>` : ''}`;
+        ${ctx ? `<div class="pt-assess-score-note">${esc(ctx.note)}</div>` : ''}
+        ${needsReachOut ? `<button class="pt-assess-reach-btn" onclick="window._navPatient('patient-messages')"><span aria-hidden="true">✉</span> Message your care team</button>` : ''}`;
     }
 
     // CTA
@@ -3571,7 +3588,14 @@ export async function pgPatientReports() {
   // ── Document card HTML ───────────────────────────────────────────────────
   // Extension point: pass { showSharing: true } to add caregiver/proxy share UI.
   function docCardHTML(doc, opts = {}) {
-    const { expandPl = false } = opts;
+    // Compute delta once — re-used below for first-report detection and
+    // the "What changed" row.
+    const delta = _ptComputeDelta(doc, docs);
+    // Auto-expand the plain-language explanation the first time a patient
+    // sees a given template — they need the band + meaning, not just the
+    // number.
+    const _firstReport = doc.score != null && doc.templateKey && delta === null;
+    const { expandPl = _firstReport } = opts;
     const cm = CAT_META[doc.category] || CAT_META['outcome'];
     const plId = `pt-doc-pl-${esc(doc.id)}`;
 
@@ -3602,8 +3626,8 @@ export async function pgPatientReports() {
       ? `<span class="pt-doc-status-badge">${esc(doc.status)}</span>`
       : '';
 
-    // Delta — what changed since the most recent prior report of same template type
-    const delta = _ptComputeDelta(doc, docs);
+    // Delta row — what changed since the most recent prior report of
+    // same template type. Uses `delta` computed at the top of the fn.
     let deltaRow = '';
     if (delta !== null) {
       const abs = Math.abs(delta.delta);
@@ -10848,11 +10872,12 @@ function _renderOutcomePortal_LEGACY() {
     '<button id="overlay-toggle-btn" style="font-size:0.78rem;padding:6px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:var(--text-muted,#94a3b8);cursor:pointer" onclick="window._outcomeToggleOverlay()">Show Session Dates</button>' +
     '</div>' +
     '<div id="overlay-session-dates" style="display:none;margin-bottom:12px;font-size:0.78rem;color:var(--accent-teal,#2dd4bf);padding:8px 12px;background:rgba(45,212,191,0.07);border-radius:8px;border:1px solid rgba(45,212,191,0.2)">Session dates: ' + sdates + '</div>' +
+    '<p style="font-size:0.78rem;color:var(--text-muted,#94a3b8);margin:4px 0 10px;line-height:1.5">Each tile is one day. Colour shows how strong your symptoms were — <strong style="color:var(--accent-teal,#2dd4bf)">teal means a calmer day</strong>, rose means a tougher one. Tap a tile to see details.</p>' +
     '<div class="iii-calendar-dots">' + _calendarDots30() + '</div>' +
-    '<div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap">' +
-    '<span style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-teal,#2dd4bf);display:inline-block;opacity:0.7"></span>Low</span>' +
-    '<span style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-amber,#fbbf24);display:inline-block;opacity:0.7"></span>Moderate</span>' +
-    '<span style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-rose,#f43f5e);display:inline-block;opacity:0.7"></span>High</span>' +
+    '<div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap" role="list" aria-label="Symptom intensity legend">' +
+    '<span role="listitem" style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-teal,#2dd4bf);display:inline-block;opacity:0.7" aria-hidden="true"></span>Low symptoms &mdash; calmer day</span>' +
+    '<span role="listitem" style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-amber,#fbbf24);display:inline-block;opacity:0.7" aria-hidden="true"></span>Moderate</span>' +
+    '<span role="listitem" style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-rose,#f43f5e);display:inline-block;opacity:0.7" aria-hidden="true"></span>High symptoms &mdash; tougher day</span>' +
     '</div>' +
     '<div id="day-detail-popup" style="display:none;margin-top:12px;padding:14px 16px;background:var(--card-bg,rgba(255,255,255,0.05));border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:12px;font-size:0.83rem;color:var(--text-muted,#94a3b8)"></div>' +
     '</div>' +

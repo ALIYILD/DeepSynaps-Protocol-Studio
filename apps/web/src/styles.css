@@ -7166,6 +7166,21 @@ body.light-theme .pt-assess-cat-chip { opacity: .9; }
   background:rgba(0,212,188,.04); border-left:2px solid var(--teal);
   margin-top:6px;
 }
+.pt-assess-reach-btn {
+  display:inline-flex; align-items:center; gap:6px;
+  margin-top:8px; padding:6px 12px;
+  border-radius:999px;
+  background:rgba(0,212,188,0.08);
+  border:1px solid rgba(0,212,188,0.28);
+  color:var(--teal);
+  font-size:12px; font-weight:600; letter-spacing:0.2px;
+  cursor:pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.pt-assess-reach-btn:hover {
+  background:rgba(0,212,188,0.16);
+  border-color:rgba(0,212,188,0.5);
+}
 
 /* CTA column */
 .pt-assess-cta-col { flex-shrink:0; display:flex; align-items:flex-start; padding-top:2px; }
