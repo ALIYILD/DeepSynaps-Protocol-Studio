@@ -297,6 +297,17 @@ function daysUntil(d) {
   } catch (_e) { return null; }
 }
 
+// ── Dashboard helpers (pure; extracted to ./patient-dashboard-helpers.js so
+//    they can be unit-tested under plain `node --test` without importing
+//    this file — which touches `window` transitively via auth.js). ───────────
+import {
+  computeCountdown,
+  phaseLabel,
+  outcomeGoalMarker,
+  groupOutcomesByTemplate,
+} from './patient-dashboard-helpers.js';
+export { computeCountdown, phaseLabel, outcomeGoalMarker, groupOutcomesByTemplate };
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────────────────
 export async function pgPatientDashboard(user) {
   setTopbar('Home');
@@ -306,22 +317,80 @@ export async function pgPatientDashboard(user) {
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
 
-  const [portalSessions, portalCourses, portalOutcomes] = await Promise.all([
+  // ── Fetch all real endpoints in parallel ────────────────────────────────────
+  const patientId = user?.patient_id || user?.id || null;
+  const [
+    portalSessions,
+    portalCourses,
+    portalOutcomes,
+    portalMessagesRaw,
+    wearableSummaryRaw,
+    homeTasksRaw,
+    homeTasksPortalRaw,
+  ] = await Promise.all([
     api.patientPortalSessions().catch(() => null),
     api.patientPortalCourses().catch(() => null),
     api.patientPortalOutcomes().catch(() => null),
+    api.patientPortalMessages().catch(() => null),
+    api.patientPortalWearableSummary(7).catch(() => null),
+    // Per brief: wire api.listHomeProgramTasks({patient_id}). Will 403 for
+    // patient role — we fall through to the portal-scoped endpoint below.
+    (patientId ? api.listHomeProgramTasks({ patient_id: patientId }).catch(() => null) : Promise.resolve(null)),
+    (api.portalListHomeProgramTasks ? api.portalListHomeProgramTasks().catch(() => null) : Promise.resolve(null)),
   ]);
 
-  const sessions = Array.isArray(portalSessions) ? portalSessions : [];
-  const outcomes = Array.isArray(portalOutcomes) ? portalOutcomes : [];
-  const coursesArr = Array.isArray(portalCourses) ? portalCourses : [];
+  const sessions     = Array.isArray(portalSessions) ? portalSessions : [];
+  const outcomes     = Array.isArray(portalOutcomes) ? portalOutcomes : [];
+  const coursesArr   = Array.isArray(portalCourses) ? portalCourses : [];
   const activeCourse = coursesArr.find(c => c.status === 'active') || coursesArr[0] || null;
+  const messages     = Array.isArray(portalMessagesRaw) ? portalMessagesRaw : [];
 
+  // Wearable daily summary (list of daily rows) → flatten to latest-valued metrics.
+  const wearableDays = Array.isArray(wearableSummaryRaw) ? wearableSummaryRaw : [];
+  function _avg(arr) {
+    const xs = arr.filter(x => x != null && !Number.isNaN(Number(x))).map(Number);
+    if (!xs.length) return null;
+    return xs.reduce((a, b) => a + b, 0) / xs.length;
+  }
+  const wearable = {
+    hasData:    wearableDays.length > 0,
+    sleepAvg:   _avg(wearableDays.map(d => d.sleep_duration_h)),
+    hrvAvg:     _avg(wearableDays.map(d => d.hrv_ms)),
+    rhrAvg:     _avg(wearableDays.map(d => d.rhr_bpm)),
+    stepsAvg:   _avg(wearableDays.map(d => d.steps)),
+    lastDate:   wearableDays.length ? (wearableDays[wearableDays.length - 1]?.date || null) : null,
+  };
+
+  // Home-program tasks — prefer clinician-shaped (has items envelope) then portal.
+  let homeTasks = [];
+  if (homeTasksRaw && Array.isArray(homeTasksRaw.items)) {
+    homeTasks = homeTasksRaw.items;
+  } else if (Array.isArray(homeTasksRaw)) {
+    homeTasks = homeTasksRaw;
+  } else if (Array.isArray(homeTasksPortalRaw)) {
+    // Patient-portal shape: [{id, server_task_id, title, category, instructions, task:{...}}]
+    homeTasks = homeTasksPortalRaw.map(r => ({
+      id: r.server_task_id || r.id,
+      server_task_id: r.server_task_id,
+      title: r.title || r.task?.title || r.task?.name || 'Task',
+      category: r.category || r.task?.category || '',
+      instructions: r.instructions || r.task?.instructions || '',
+      completed: !!(r.task?.completed || r.task?.done),
+      due_on: r.task?.due_on || r.task?.dueOn || null,
+      task_type: r.task?.task_type || r.task?.type || null,
+      raw: r,
+    }));
+  }
+
+  const openTasks = homeTasks.filter(t => !(t.completed || t.done));
+  const firstOpenTask = openTasks[0] || null;
+
+  // ── Progress ────────────────────────────────────────────────────────────────
   const totalPlanned  = activeCourse?.total_sessions_planned ?? null;
   const sessDelivered = activeCourse?.session_count ?? sessions.length;
   const progressPct   = (totalPlanned && sessDelivered) ? Math.round((sessDelivered / totalPlanned) * 100) : null;
-  const sessRemaining = (totalPlanned != null && sessDelivered != null) ? Math.max(0, totalPlanned - sessDelivered) : null;
 
+  // ── Next session ────────────────────────────────────────────────────────────
   const now = Date.now();
   const loc = getLocale() === 'tr' ? 'tr-TR' : 'en-US';
   const upcomingSessions = sessions
@@ -335,66 +404,158 @@ export async function pgPatientDashboard(user) {
   const nextSessTime = nextSessDate
     ? nextSessDate.toLocaleTimeString(loc, { hour: 'numeric', minute: '2-digit' })
     : null;
-  const msUntilNext = nextSessDate ? nextSessDate.getTime() - now : null;
-  const daysUntilNext = msUntilNext !== null ? Math.ceil(msUntilNext / 86400000) : null;
+  const countdown = nextSessDate ? computeCountdown(nextSessDate, now) : null;
+  const daysUntilNext = countdown ? countdown.days : null;
 
+  // ── Greeting ────────────────────────────────────────────────────────────────
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-  const todayFmt = new Date().toLocaleDateString(loc, { weekday: 'long', month: 'long', day: 'numeric' });
   const todayStr = new Date().toISOString().slice(0, 10);
   const checkedInToday = localStorage.getItem('ds_last_checkin') === todayStr;
 
-  // ── Wellness snapshot from check-in history ──────────────────────────────────
-  function _ptdGetCheckins(n) {
-    const result = [];
-    for (let i = 0; i < n; i++) {
-      const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-      const raw = localStorage.getItem('ds_checkin_' + d);
-      if (raw) { try { result.push({ date: d, ...JSON.parse(raw) }); } catch (_e) {} }
+  // ── Outcome grouping + latest-delta sentence for hero sub ──────────────────
+  const outcomeGroups = groupOutcomesByTemplate(outcomes, 4);
+  function _ptdHeroDelta() {
+    if (!outcomeGroups.length) return null;
+    const g = outcomeGroups[0];
+    if (!g.latest || !g.baseline || g.latest === g.baseline) return null;
+    const base = Number(g.baseline.score_numeric);
+    const cur  = Number(g.latest.score_numeric);
+    if (!Number.isFinite(base) || !Number.isFinite(cur)) return null;
+    const delta = cur - base;
+    if (Math.abs(delta) < 1) return null;
+    const direction = delta < 0 ? 'dropped' : 'rose';
+    return `this week's ${g.template_name} ${direction} by <strong style="color:var(--teal)">${Math.abs(Math.round(delta))} points</strong>`;
+  }
+  const heroDelta = _ptdHeroDelta();
+
+  // ── Adherence (homework) outcome row (derived) ──────────────────────────────
+  function _ptdAdherenceRow() {
+    if (!homeTasks.length) return null;
+    const completed = homeTasks.filter(t => t.completed || t.done).length;
+    const total = homeTasks.length;
+    const pct = Math.round((completed / total) * 100);
+    return { completed, total, pct };
+  }
+  const adherence = _ptdAdherenceRow();
+
+  // ── 28-day mood grid ────────────────────────────────────────────────────────
+  function _ptdMoodCells() {
+    const cells = [];
+    for (let i = 27; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000);
+      const ds = d.toISOString().slice(0, 10);
+      const raw = localStorage.getItem('ds_checkin_' + ds);
+      let level = 0;
+      if (raw) {
+        try {
+          const c = JSON.parse(raw);
+          const avg = ((Number(c.mood) || 0) + (Number(c.sleep) || 0) + (Number(c.energy) || 0)) / 3;
+          if (avg >= 8.5) level = 5;
+          else if (avg >= 7) level = 4;
+          else if (avg >= 5.5) level = 3;
+          else if (avg >= 3.5) level = 2;
+          else if (avg > 0) level = 1;
+        } catch (_e) {}
+      }
+      cells.push({ date: ds, level, isToday: ds === todayStr });
     }
-    return result;
+    return cells;
   }
-  const recentCheckins = _ptdGetCheckins(7);
-  const hasCheckinData = recentCheckins.length > 0;
-  const latestCheckin = recentCheckins[0] || null;
+  const moodCells = _ptdMoodCells();
+  const moodLogged = moodCells.filter(c => c.level > 0).length;
 
-  function _ptdWellnessTrend() {
-    if (recentCheckins.length < 2) return { label: 'Check in to see your trend', icon: '○', color: 'var(--text-secondary,#94a3b8)' };
-    const recent = recentCheckins.slice(0, 2);
-    const all5 = recentCheckins.slice(0, Math.min(5, recentCheckins.length));
-    const avgRecent = recent.reduce((s, c) => s + ((c.mood || 5) + (c.sleep || 5) + (c.energy || 5)) / 3, 0) / recent.length;
-    const avgAll = all5.reduce((s, c) => s + ((c.mood || 5) + (c.sleep || 5) + (c.energy || 5)) / 3, 0) / all5.length;
-    const delta = avgRecent - avgAll;
-    if (delta >= 0.5) return { label: 'Improving', icon: '↑', color: '#22c55e' };
-    if (delta <= -0.5) return { label: 'Needs review', icon: '↓', color: 'var(--accent-amber,#fbbf24)' };
-    return { label: 'Steady', icon: '→', color: 'var(--text-secondary)' };
+  // ── Wellness ring value ─────────────────────────────────────────────────────
+  // 0..100 derived from check-in recency + wearable readiness. If neither, 0.
+  function _ptdWellnessRingValue() {
+    let pieces = [];
+    if (moodLogged > 0) {
+      const recent7 = moodCells.slice(-7).filter(c => c.level > 0);
+      if (recent7.length) {
+        const avg = recent7.reduce((s, c) => s + c.level, 0) / recent7.length;
+        pieces.push(Math.round((avg / 5) * 100));
+      }
+    }
+    if (wearable.hasData) {
+      const parts = [];
+      if (wearable.sleepAvg != null) parts.push(Math.max(0, Math.min(100, (wearable.sleepAvg / 8) * 100)));
+      if (wearable.hrvAvg   != null) parts.push(Math.max(0, Math.min(100, (wearable.hrvAvg / 80) * 100)));
+      if (wearable.rhrAvg   != null) parts.push(Math.max(0, Math.min(100, 100 - ((wearable.rhrAvg - 50) / 50) * 100)));
+      if (parts.length) pieces.push(Math.round(parts.reduce((a, b) => a + b, 0) / parts.length));
+    }
+    if (!pieces.length) return 0;
+    return Math.round(pieces.reduce((a, b) => a + b, 0) / pieces.length);
   }
-  const wellnessTrend = _ptdWellnessTrend();
+  const wellnessVal = _ptdWellnessRingValue();
 
-  const wellnessDrivers = latestCheckin ? [
-    { label: 'Mood',        val: latestCheckin.mood   ?? '—', icon: '◑', color: 'var(--teal)' },
-    { label: 'Sleep',       val: latestCheckin.sleep  ?? '—', icon: '◌', color: 'var(--accent-blue,#60a5fa)' },
-    { label: 'Energy',      val: latestCheckin.energy ?? '—', icon: '◉', color: 'var(--accent-violet,#a78bfa)' },
-    { label: 'Side effects',val: (!latestCheckin.side_effects || latestCheckin.side_effects === 'none') ? 'None' : latestCheckin.side_effects, icon: '◎', color: 'var(--text-secondary)' },
-  ] : [];
-
-  // ── Outcome trend ─────────────────────────────────────────────────────────────
-  const sortedOutcomes = outcomes.slice().sort((a, b) => new Date(a.administered_at || 0) - new Date(b.administered_at || 0));
-
-  function _ptdOutcomeTrend() {
-    const phq = sortedOutcomes.filter(o => (o.template_name || '').toLowerCase().includes('phq'));
-    const gad = sortedOutcomes.filter(o => (o.template_name || '').toLowerCase().includes('gad'));
-    const best = phq.length >= 2 ? phq : gad.length >= 2 ? gad : sortedOutcomes.length >= 2 ? sortedOutcomes : null;
-    if (!best || best.length < 2) return null;
-    const baseline = best[0], latest = best[best.length - 1];
-    if (baseline.score_numeric == null || latest.score_numeric == null) return null;
-    const change = latest.score_numeric - baseline.score_numeric;
-    const pct = baseline.score_numeric > 0 ? Math.abs(Math.round((change / baseline.score_numeric) * 100)) : 0;
-    return { name: baseline.template_name || 'Assessment', baseline: baseline.score_numeric, current: latest.score_numeric, change, pct, improving: change < 0 };
+  // ── Care team (from course or from sessions) ────────────────────────────────
+  function _ptdCareTeam() {
+    if (Array.isArray(activeCourse?.care_team) && activeCourse.care_team.length) {
+      return activeCourse.care_team.map(m => ({
+        name: m.name || m.display_name || 'Clinician',
+        role: m.role || m.title || 'Care team',
+        avatar: m.avatar_initials || (m.name ? m.name.split(' ').map(s => s[0]).join('').slice(0, 2).toUpperCase() : '·'),
+        accent: m.accent || 'linear-gradient(135deg,#00d4bc,#4a9eff)',
+      }));
+    }
+    const seen = new Map();
+    for (const s of sessions) {
+      const n = s.clinician_name || s.clinician_display_name;
+      if (!n || seen.has(n)) continue;
+      seen.set(n, {
+        name: n,
+        role: s.clinician_role || s.clinician_title || 'Clinician',
+        avatar: n.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase(),
+        accent: 'linear-gradient(135deg,#00d4bc,#4a9eff)',
+      });
+    }
+    return Array.from(seen.values()).slice(0, 3);
   }
-  const outcomeTrend = _ptdOutcomeTrend();
+  const careTeam = _ptdCareTeam();
 
-  // ── Clinician feedback ───────────────────────────────────────────────────────
+  // ── Upcoming 2-3 sessions with date pill ────────────────────────────────────
+  const upcomingPreview = upcomingSessions.slice(0, 3).map(s => {
+    const dd = new Date(s.scheduled_at);
+    return {
+      id:       s.id,
+      dow:      dd.toLocaleDateString(loc, { weekday: 'short' }).toUpperCase(),
+      day:      dd.getDate(),
+      title:    s.title || ((activeCourse?.modality_slug || 'Session') + (s.session_number ? ' · ' + s.session_number : '')),
+      time:     dd.toLocaleTimeString(loc, { hour: 'numeric', minute: '2-digit' }),
+      modality: s.modality_slug || activeCourse?.modality_slug || '',
+      isVideo:  !!(s.video_link || /video|tele|remote/i.test(String(s.location || s.modality_slug || ''))),
+    };
+  });
+
+  // ── Latest unread message (for message tile) ────────────────────────────────
+  function _ptdLatestUnread() {
+    if (!messages.length) return null;
+    const unread = messages
+      .filter(m => !m.is_read && (m.sender_type !== 'patient'))
+      .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    return unread[0] || null;
+  }
+  const latestUnread = _ptdLatestUnread();
+
+  // ── Brain-map electrode target (anode/cathode) ──────────────────────────────
+  function _ptdElectrodePair() {
+    const ac = (activeCourse?.target_region_anode || '').toString().toUpperCase();
+    const cc = (activeCourse?.target_region_cathode || '').toString().toUpperCase();
+    if (ac && cc) return { anode: ac, cathode: cc };
+    const mod = String(activeCourse?.modality_slug || '').toLowerCase();
+    const cond = String(activeCourse?.condition_slug || '').toLowerCase();
+    // Conservative heuristic: tDCS for depression → F3/FP2 (L-DLPFC anode).
+    if (/tdcs|tacs|trns/.test(mod) && /depress|mdd|pt-mdd/.test(cond)) {
+      return { anode: 'F3', cathode: 'FP2' };
+    }
+    return null;
+  }
+  const elecPair = _ptdElectrodePair();
+
+  // ── Streak from ds_wellness_streak ──────────────────────────────────────────
+  const streak = parseInt(localStorage.getItem('ds_wellness_streak') || '0', 10) || 0;
+
+  // ── Clinician feedback (latest reviewed outcome or demo-labelled example) ──
   const reviewedOutcomes = outcomes.filter(o => o.reviewed_by || o.reviewed_at || o.clinician_notes);
   const latestReview = reviewedOutcomes.length ? reviewedOutcomes[reviewedOutcomes.length - 1] : null;
   let clinicianFeedback = null;
@@ -407,309 +568,411 @@ export async function pgPatientDashboard(user) {
     };
   }
 
-  // ── Task list ────────────────────────────────────────────────────────────────
-  const taskList = [];
-  if (!checkedInToday) taskList.push({ id: 'checkin', icon: '💚', label: 'Daily check-in', urgency: 'today', nav: 'pt-wellness', cta: 'Start' });
-  try {
-    const ptKey = user?.patient_id || user?.id || 'default';
-    const homeTasks = JSON.parse(localStorage.getItem('ds_homework_tasks_' + ptKey) || '[]');
-    homeTasks.filter(t => !t.completed && !t.done).slice(0, 3).forEach(t => {
-      taskList.push({ id: 'ht_' + (t.id || Math.random()), icon: '📝', label: t.title || t.name || 'Home task', urgency: 'recommended', nav: 'pt-wellness', cta: 'Complete' });
-    });
-  } catch (_e) {}
-  if (sortedOutcomes.length > 0) {
-    const daysSince = Math.floor((now - new Date(sortedOutcomes[sortedOutcomes.length - 1].administered_at || 0).getTime()) / 86400000);
-    if (daysSince > 14) taskList.push({ id: 'assessment', icon: '📋', label: 'Assessment overdue by ' + daysSince + ' days', urgency: 'overdue', nav: 'patient-assessments', cta: 'Start' });
-  }
-  if (daysUntilNext !== null && daysUntilNext <= 2) {
-    taskList.push({ id: 'prep', icon: '📅', label: daysUntilNext === 0 ? 'Session today \u2014 prepare now' : 'Session tomorrow \u2014 review your notes', urgency: 'today', nav: 'patient-sessions', cta: 'View' });
-  }
+  // ── Alt-variant soft card (patient-facing view-only) ───────────────────────
+  const altVariant = activeCourse?.alt_variant
+    || activeCourse?.alternative_variant
+    || activeCourse?.recommendation
+    || null;
 
-  // ── Biometrics (localStorage or demo seed) ──────────────────────────────���─────
-  let biometrics = null;
-  try { const r = localStorage.getItem('ds_wearable_summary'); if (r) biometrics = JSON.parse(r); } catch (_e) {}
-  if (!biometrics) biometrics = { hrv: { val: 52, unit: 'ms', trend: '+3' }, sleep: { val: 6.8, unit: 'h', trend: '+0.4' }, rhr: { val: 68, unit: 'bpm', trend: '\u22122' }, lastSync: 'Today, 7:42 AM', _isDemoData: true };
-
-  // ── Phase label ───────────────────────────────────────────────────────────────
-  function phaseLabel(pct) {
-    if (!pct)      return 'Getting started';
-    if (pct <= 20) return 'Early treatment';
-    if (pct <= 50) return 'Active treatment';
-    if (pct <= 80) return 'Consolidation';
-    if (pct < 100) return 'Final phase';
-    return 'Complete';
+  // ── Render helpers ──────────────────────────────────────────────────────────
+  function _initials(n) {
+    return String(n || '').split(/\s+/).filter(Boolean).map(s => s[0]).join('').slice(0, 2).toUpperCase() || '·';
   }
-  function nextMilestone(pct, total) {
-    if (!total || !pct) return null;
-    const done = Math.round((pct / 100) * total);
-    if (done < 4) return { label: 'First week review', at: 4 };
-    if (done < Math.round(total * 0.5)) return { label: 'Halfway milestone', at: Math.round(total * 0.5) };
-    if (done < Math.round(total * 0.75)) return { label: 'Three-quarter review', at: Math.round(total * 0.75) };
-    return null;
+  function _progressRowsHtml() {
+    const rows = outcomeGroups.slice(0, 3).map(g => {
+      if (!g.latest) return '';
+      const gm = outcomeGoalMarker(g.latest, g.baseline);
+      const val = g.latest.score_numeric ?? '—';
+      const goalText = gm.goal != null ? `<em>\u2192 goal ${gm.goal}</em>` : '';
+      return `
+        <div class="outcome-row">
+          <div class="outcome-top">
+            <div>
+              <div class="outcome-name">${esc(g.template_name)}</div>
+              <div class="outcome-sub">${gm.goal != null ? 'Goal: \u2264 ' + gm.goal : 'Trend'}</div>
+            </div>
+            <div class="outcome-val">${esc(val)} ${goalText}</div>
+          </div>
+          <div class="outcome-bar${gm.down ? ' down' : ''}">
+            <span style="width:${gm.fillPct}%"></span>
+            ${gm.markerPct != null ? `<span class="outcome-marker" style="left:${gm.markerPct}%"></span>` : ''}
+          </div>
+        </div>`;
+    }).filter(Boolean).join('');
+    const adhRow = adherence ? `
+      <div class="outcome-row">
+        <div class="outcome-top">
+          <div>
+            <div class="outcome-name">Homework adherence</div>
+            <div class="outcome-sub">${adherence.completed} of ${adherence.total} tasks</div>
+          </div>
+          <div class="outcome-val">${adherence.pct}<em>%</em></div>
+        </div>
+        <div class="outcome-bar"><span style="width:${adherence.pct}%"></span></div>
+      </div>` : '';
+    return rows + adhRow;
   }
-  const milestone = nextMilestone(progressPct, totalPlanned);
-
-  // ── Countdown label ───────────────────────────────────────────────────────────
-  function countdownLabel() {
-    if (daysUntilNext === null) return null;
-    if (daysUntilNext === 0) return 'Today';
-    if (daysUntilNext === 1) return 'Tomorrow';
-    return 'In ' + daysUntilNext + ' days';
+  function _moodGridHtml() {
+    return moodCells.map(c => {
+      const attr = c.isToday ? ' data-today' : '';
+      return `<div class="mood-cell" data-level="${c.level}"${attr}></div>`;
+    }).join('');
   }
-
-  function urgencyBadge(urgency) {
-    if (urgency === 'overdue')        return '<span class="ptd-task-badge ptd-task-badge--overdue">Overdue</span>';
-    if (urgency === 'today')          return '<span class="ptd-task-badge ptd-task-badge--today">Today</span>';
-    if (urgency === 'before-session') return '<span class="ptd-task-badge ptd-task-badge--session">Before next session</span>';
-    if (urgency === 'recommended')    return '<span class="ptd-task-badge ptd-task-badge--rec">Recommended</span>';
-    return '';
+  function _vitalBar(label, valNum, unit, colorFrom, colorTo, fillPct) {
+    const pct = Math.max(0, Math.min(100, Math.round(fillPct || 0)));
+    const display = valNum == null ? '—' : (typeof valNum === 'number' ? valNum.toFixed(valNum % 1 === 0 ? 0 : 1) : valNum);
+    return `
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px;">
+          <span style="color:var(--text-secondary)">${esc(label)}</span>
+          <span style="font-family:var(--font-mono);color:${colorFrom}">${esc(display)}${unit ? esc(unit) : ''}</span>
+        </div>
+        <div class="outcome-bar"><span style="width:${pct}%;background:linear-gradient(90deg,${colorFrom},${colorTo})"></span></div>
+      </div>`;
   }
-
-  // ── Wellness gauge value (0-100 maps to trend) ───────────────────────────────
-  const wellnessGaugeVal = (() => {
-    if (!hasCheckinData) return 0;
-    if (wellnessTrend.label === 'Improving') return 76;
-    if (wellnessTrend.label === 'Needs review') return 22;
-    if (wellnessTrend.label === 'Steady') return 50;
-    return 38; // "Check in to see your trend" — below stable
-  })();
-
-  // ── 7-day check-in strip data ─────────────────────────────────────────────
-  const weekStripDays = (() => {
-    const days = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 86400000);
-      const ds = d.toISOString().slice(0, 10);
-      const hasCk = !!localStorage.getItem('ds_checkin_' + ds);
-      const isFut = ds > todayStr;
-      days.push({
-        dayName: d.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 2),
-        status: isFut ? 'future' : hasCk ? 'done' : ds === todayStr ? 'future' : 'missed',
-        isToday: ds === todayStr,
-      });
+  function _vitalsHtml() {
+    if (!wearable.hasData) {
+      return `<div class="pt-vitals-empty" style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:6px">
+        <div style="font-size:12.5px;color:var(--text-secondary)">No wearable data yet.</div>
+        <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">Connect a device to see Sleep, HRV, Resting HR, and Steps.</div>
+        <button class="pt-inline-btn" onclick="window._navPatient('patient-wearables')" style="margin-top:6px;align-self:flex-start">Connect device \u2192</button>
+      </div>`;
     }
-    return days;
-  })();
-
-  // ── Wellness interpretation sentence ─────────────────────────────────────────
-  function _ptdWellnessInterp() {
-    if (!hasCheckinData || recentCheckins.length < 2) return 'Complete more check-ins to build your trend.';
-    if (wellnessTrend.label === 'Improving') {
-      const lt = recentCheckins[0], pv = recentCheckins[1];
-      if ((lt.energy || 5) > (pv.energy || 5)) return 'Your energy is improving compared with recent check-ins.';
-      return 'Your recent check-ins show a positive trend.';
-    }
-    if (wellnessTrend.label === 'Steady') return 'Your recent check-ins look stable.';
-    return 'Your care team can see any variation in your check-ins.';
+    return `<div style="flex:1;display:flex;flex-direction:column;gap:12px;">
+      ${_vitalBar('Sleep',      wearable.sleepAvg, 'h',   'var(--teal)',   'var(--blue)',   wearable.sleepAvg != null ? (wearable.sleepAvg / 8) * 100 : 0)}
+      ${_vitalBar('HRV',        wearable.hrvAvg,   'ms',  'var(--violet)', 'var(--blue)',   wearable.hrvAvg   != null ? (wearable.hrvAvg   / 80) * 100 : 0)}
+      ${_vitalBar('Resting HR', wearable.rhrAvg,   ' bpm','var(--green)',  'var(--teal)',   wearable.rhrAvg   != null ? Math.max(0, 100 - ((wearable.rhrAvg - 50) / 50) * 100) : 0)}
+      ${_vitalBar('Steps',      wearable.stepsAvg, '',    'var(--amber)',  'var(--teal)',   wearable.stepsAvg != null ? (wearable.stepsAvg / 10000) * 100 : 0)}
+    </div>`;
   }
-  const wellnessInterp = _ptdWellnessInterp();
+  function _brainMapHtml() {
+    if (!elecPair) {
+      const region = activeCourse?.target_region || activeCourse?.target_region_label || (activeCourse?.condition_slug ? 'Target: ' + activeCourse.condition_slug : null);
+      if (!region) return '';
+      return `<div class="pt-brainmap-row">
+        <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Your treatment</div>
+        <div class="pt-brainmap-card"><div style="font-size:12.5px;font-weight:600">${esc(region)}</div></div>
+      </div>`;
+    }
+    const modLbl = activeCourse?.modality_slug ? (String(activeCourse.modality_slug).toUpperCase() + ' · ') : '';
+    return `<div class="pt-brainmap-row">
+      <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Your treatment</div>
+      <div class="pt-brainmap-card">
+        <svg viewBox="0 0 120 120" width="60" height="60" aria-hidden="true" style="flex-shrink:0">
+          <circle cx="60" cy="60" r="48" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+          <polygon points="60,20 56,27 64,27" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.35)" stroke-width="1"/>
+          <ellipse cx="14" cy="60" rx="3" ry="8" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)"/>
+          <ellipse cx="106" cy="60" rx="3" ry="8" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)"/>
+          <circle cx="46" cy="44" r="7" fill="#00d4bc" stroke="rgba(255,255,255,0.8)" stroke-width="1.5"/>
+          <text x="46" y="47" font-size="7" text-anchor="middle" fill="#04121c" font-weight="700">${esc(elecPair.anode)}</text>
+          <circle cx="70" cy="30" r="6" fill="#ff6b9d" stroke="rgba(255,255,255,0.8)" stroke-width="1.5"/>
+          <text x="70" y="33" font-size="6" text-anchor="middle" fill="#04121c" font-weight="700">${esc(elecPair.cathode)}</text>
+          <line x1="46" y1="44" x2="70" y2="30" stroke="url(#pt-mini-g)" stroke-width="1.5" stroke-dasharray="3,2"/>
+          <defs><linearGradient id="pt-mini-g"><stop offset="0%" stop-color="#00d4bc"/><stop offset="100%" stop-color="#ff6b9d"/></linearGradient></defs>
+        </svg>
+        <div>
+          <div style="font-size:12.5px;font-weight:600">${esc(modLbl)}${esc(elecPair.anode)} / ${esc(elecPair.cathode)} target</div>
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:3px;line-height:1.5">Anode ${esc(elecPair.anode)} \u2194 cathode ${esc(elecPair.cathode)}. Set and adjusted by your care team.</div>
+        </div>
+      </div>
+    </div>`;
+  }
+  function _altVariantHtml() {
+    if (!altVariant) return '';
+    return `
+      <div class="pt-alt-variant">
+        <div class="pt-alt-variant-title">Your care team is reviewing a small tweak to your setup</div>
+        <a href="#" class="pt-alt-variant-link" onclick="event.preventDefault();window._navPatient('patient-reports')">Learn more \u2192</a>
+      </div>`;
+  }
+  function _homeworkListHtml() {
+    if (!homeTasks.length) {
+      return `<div class="pt-homework-empty">
+        <div style="font-size:13px;color:var(--text-secondary)">No home program tasks assigned yet.</div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Your care team will add tasks here.</div>
+      </div>`;
+    }
+    const todayItems = homeTasks.slice(0, 6);
+    return todayItems.map(t => {
+      const isDone = !!(t.completed || t.done);
+      const title = t.title || t.name || 'Home task';
+      const sub = t.category || t.task_type || (isDone ? 'Completed' : 'Pending');
+      const accent = /mind|breath|relax/.test(String(t.category || '').toLowerCase()) ? 'teal'
+                   : /read|learn|edu/.test(String(t.category || '').toLowerCase()) ? 'violet'
+                   : /check|journal/.test(String(t.category || '').toLowerCase()) ? 'amber'
+                   : '';
+      const action = isDone
+        ? '<span class="chip green">\u2713 Done</span>'
+        : `<button class="btn btn-primary btn-sm" onclick="window._navPatient('pt-wellness')">Start</button>`;
+      return `<div class="homework-item">
+        <div class="homework-ico ${accent}">${isDone ? '\u2713' : '\u25cb'}</div>
+        <div>
+          <div class="homework-title"${isDone ? ' style="text-decoration:line-through;color:var(--text-tertiary)"' : ''}>${esc(title)}</div>
+          <div class="homework-sub">${esc(sub)}</div>
+        </div>
+        <div class="homework-action">${action}</div>
+      </div>`;
+    }).join('');
+  }
+  function _careTeamHtml() {
+    if (!careTeam.length) {
+      return `<div style="padding:16px;color:var(--text-secondary);font-size:12.5px">Your care team will appear here once assigned.</div>`;
+    }
+    return careTeam.map(m => `
+      <div class="care-member">
+        <div class="care-av" style="background:${m.accent}">${esc(m.avatar)}</div>
+        <div>
+          <div class="care-name">${esc(m.name)}</div>
+          <div class="care-role">${esc(m.role)}</div>
+        </div>
+      </div>`).join('');
+  }
+  function _upcomingHtml() {
+    if (!upcomingPreview.length) {
+      return `<div style="font-size:12px;color:var(--text-tertiary);padding:10px">No upcoming sessions booked.</div>`;
+    }
+    return upcomingPreview.map(u => `
+      <div class="pt-upcoming-item">
+        <div class="pt-upcoming-date">
+          <div class="pt-upcoming-dow">${esc(u.dow)}</div>
+          <div class="pt-upcoming-day">${esc(u.day)}</div>
+        </div>
+        <div style="flex:1">
+          <div class="pt-upcoming-title">${esc(u.title)}</div>
+          <div class="pt-upcoming-sub">${esc(u.time)}${u.modality ? ' · ' + esc(u.modality) : ''}</div>
+        </div>
+        <span class="chip ${u.isVideo ? 'blue' : 'teal'}">${u.isVideo ? 'Video' : 'In-person'}</span>
+      </div>`).join('');
+  }
+  function _heroNextHtml() {
+    if (!nextSessDateLabel) {
+      return `<div class="pt-hero-next pt-hero-next--empty">
+        <div>
+          <div class="pt-hero-next-title">No session booked yet</div>
+          <div class="pt-hero-next-sub">Your clinic can help you schedule your next visit.</div>
+          <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="window._navPatient('patient-messages')">Contact clinic</button>
+        </div>
+      </div>`;
+    }
+    const roomBit = nextSess?.location ? esc(nextSess.location) : '';
+    const clinician = nextSess?.clinician_name ? esc(nextSess.clinician_name) : '';
+    const modBit = activeCourse?.modality_slug
+      ? esc(String(activeCourse.modality_slug).toUpperCase()) + (sessDelivered != null && totalPlanned ? ' session ' + (sessDelivered + 1) + '/' + totalPlanned : '')
+      : '';
+    const detailLine = [roomBit, clinician, modBit].filter(Boolean).join(' · ');
+    return `<div class="pt-hero-next">
+      <div class="pt-hero-countdown">
+        <div class="pt-hero-countdown-num">${daysUntilNext}</div>
+        <div class="pt-hero-countdown-lbl">${daysUntilNext === 1 ? 'day to go' : 'days to go'}</div>
+      </div>
+      <div class="pt-hero-next-info">
+        <div class="pt-hero-next-title">Next session \xb7 ${esc(nextSessDateLabel)} ${esc(nextSessTime)}</div>
+        <div class="pt-hero-next-sub">${detailLine || 'With your care team'}</div>
+        <button class="btn btn-ghost btn-sm" style="margin-top:8px;padding:5px 10px;font-size:11px" onclick="window._navPatient('patient-sessions')">Reschedule</button>
+      </div>
+    </div>`;
+  }
+  function _tilesHtml() {
+    const tiles = [];
+    // 1. Weekly check-in (default teal)
+    if (!checkedInToday) {
+      tiles.push(`<button class="pt-tile" id="pt-tile-checkin" onclick="window._ptdOpenCheckin()">
+        <div class="pt-tile-ico">\u25CE</div>
+        <div>
+          <div class="pt-tile-title">Weekly check-in</div>
+          <div class="pt-tile-sub">Mood + sleep + energy \xb7 2 min</div>
+        </div>
+        <div class="pt-tile-meta">Due today</div>
+      </button>`);
+    }
+    // 2. Today's exercise (blue) — first open task
+    if (firstOpenTask) {
+      const title = firstOpenTask.title || firstOpenTask.name || 'Home exercise';
+      const sub = firstOpenTask.category || firstOpenTask.task_type || 'Home practice';
+      tiles.push(`<button class="pt-tile blue" onclick="window._navPatient('pt-wellness')">
+        <div class="pt-tile-ico">\u25B6</div>
+        <div>
+          <div class="pt-tile-title">Today&rsquo;s exercise</div>
+          <div class="pt-tile-sub">${esc(title)}</div>
+        </div>
+        <div class="pt-tile-meta">${esc(sub)}</div>
+      </button>`);
+    }
+    // 3. Read article (violet) — omitted: no learning-content API.
+    // 4. Message from clinician (rose)
+    if (latestUnread) {
+      const sender = latestUnread.sender_name || 'your clinician';
+      const preview = (latestUnread.subject || latestUnread.body || '').toString().slice(0, 64);
+      tiles.push(`<button class="pt-tile rose" onclick="window._navPatient('patient-messages')">
+        <div class="pt-tile-ico">\u2709</div>
+        <div>
+          <div class="pt-tile-title">Message from ${esc(sender)}</div>
+          <div class="pt-tile-sub">${esc(preview)}${preview.length >= 64 ? '\u2026' : ''}</div>
+        </div>
+        <div class="pt-tile-meta" style="color:var(--rose)">1 unread</div>
+      </button>`);
+    }
+    if (!tiles.length) {
+      tiles.push(`<div class="pt-tile pt-tile--empty" style="grid-column:1/-1">
+        <div style="color:var(--text-secondary);font-size:13px">All caught up \u2713</div>
+        <div style="color:var(--text-tertiary);font-size:11.5px">No check-ins, exercises, or messages pending.</div>
+      </div>`);
+    }
+    return tiles.join('');
+  }
 
-  // ── Render ────────────────────────────────────────────────────────────────────
+  // ── Hero sub-sentence (progress + outcome delta) ───────────────────────────
+  const courseName = activeCourse?.modality_slug
+    ? String(activeCourse.modality_slug)
+    : (activeCourse?.condition_slug || 'treatment');
+  const heroSubParts = [];
+  if (progressPct != null) heroSubParts.push(`You&rsquo;re <strong style="color:var(--teal)">${progressPct}%</strong> through your ${esc(courseName)} course`);
+  if (heroDelta) heroSubParts.push(heroDelta);
+  const heroSub = heroSubParts.length
+    ? heroSubParts.join(' \u00b7 ') + '.'
+    : `Welcome back \u2014 your dashboard is updated.`;
+
+  // ── Render ──────────────────────────────────────────────────────────────────
   el.innerHTML = `
     <div class="ptd-dashboard">
 
-      <!-- Greeting + specialist agents -->
-      <div class="ptd-greeting-row">
+      <!-- Hero -->
+      <div class="pt-hero">
         <div>
-          <div class="ptd-greeting-name">${greeting}, ${firstName}</div>
-          <div class="ptd-greeting-date">${todayFmt}</div>
-          <div class="ptd-agent-hint">Specialist AI agents use your plan, scores, and check-ins to answer (not a substitute for your clinician).</div>
+          <div class="pt-hero-greet">${greeting}, ${firstName} <span style="font-size:20px">\ud83d\udc4b</span></div>
+          <div class="pt-hero-sub">${heroSub}</div>
+          <button class="pt-ca-pill" onclick="window._ptdOpenAssistant()" style="margin-top:10px">
+            <span style="font-size:13px">\u25CE</span>
+            <span>Ask specialist agents</span>
+          </button>
         </div>
-        <button class="ptd-ca-trigger" onclick="window._ptdOpenAssistant()">
-          <span style="font-size:16px">◎</span>
-          <span>Ask specialist agents</span>
-        </button>
+        ${_heroNextHtml()}
       </div>
 
-      <!-- ROW 1: Next Session · Treatment Progress · Wellness Snapshot -->
-      <div class="ptd-row1">
+      <!-- Quick tiles -->
+      <div class="pt-tiles">${_tilesHtml()}</div>
 
-        <!-- Next Session -->
-        <div class="ptd-card ptd-card--session" onclick="window._navPatient('patient-sessions')" role="button" tabindex="0">
-          <div class="ptd-eyebrow">Next Session</div>
-          ${nextSessDateLabel
-            ? `<div class="ptd-next-date">${nextSessDateLabel}</div>
-               <div class="ptd-next-time">${nextSessTime}${nextSess.modality_slug ? ' \xb7 ' + esc(nextSess.modality_slug) : ''}</div>
-               <div class="ptd-countdown-badge">${countdownLabel() || ''}</div>
-               <div class="ptd-meta-chips">
-                 <span class="ptd-chip">${sessDelivered} done</span>
-                 ${sessRemaining !== null ? '<span class="ptd-chip">' + sessRemaining + ' remaining</span>' : ''}
-               </div>`
-            : `<div class="ptd-empty-headline">No session booked yet</div>
-               <div class="ptd-empty-support">Your clinic can help you schedule your next visit.</div>
-               <button class="ptd-inline-btn" onclick="event.stopPropagation();window._navPatient('patient-messages')" style="margin:8px 0 4px">Contact clinic to schedule \u2192</button>
-               <div class="ptd-empty-hint">You&rsquo;ll see session details here once it&rsquo;s booked.</div>`}
-          <div class="ptd-card-link${nextSessDateLabel ? '' : ' ptd-card-link--dim'}">View session details \u2192</div>
+      <!-- Check-in inline form (hidden unless opened) -->
+      <div id="pt-checkin-form" class="pt-checkin-form" style="display:none">
+        <div class="pt-checkin-mini-title">Quick check-in</div>
+        <div class="ptd-slider-rows">
+          ${[
+            { id: 'ptd-dc-mood',   label: 'Mood',   color: 'var(--teal,#2dd4bf)' },
+            { id: 'ptd-dc-sleep',  label: 'Sleep',  color: 'var(--accent-blue,#60a5fa)' },
+            { id: 'ptd-dc-energy', label: 'Energy', color: 'var(--accent-violet,#a78bfa)' },
+          ].map(s => `<div class="ptd-slider-row">
+            <label>${s.label}</label>
+            <input type="range" id="${s.id}" min="1" max="10" value="5" oninput="document.getElementById('${s.id}-v').textContent=this.value" style="accent-color:${s.color}">
+            <span id="${s.id}-v" style="color:${s.color}">5</span>
+          </div>`).join('')}
         </div>
-
-        <!-- Treatment Progress -->
-        <div class="ptd-card" onclick="window._navPatient('patient-course')" role="button" tabindex="0">
-          <div class="ptd-eyebrow">Treatment Progress</div>
-          ${activeCourse
-            ? `<div class="ptd-card-headline">${phaseLabel(progressPct)}</div>
-               <div class="ptd-card-sub">${esc(activeCourse.condition_slug || activeCourse.condition || 'Treatment')}${activeCourse.modality_slug ? ' \xb7 ' + esc(activeCourse.modality_slug) : ''}</div>
-               <div class="ptd-prog-wrap">
-                 <div class="ptd-prog-track"><div class="ptd-prog-fill" style="width:${progressPct || 0}%"></div></div>
-                 <div class="ptd-prog-labels"><span>${sessDelivered} of ${totalPlanned ?? '?'} sessions</span><span>${progressPct !== null ? progressPct + '%' : ''}</span></div>
-               </div>
-               ${milestone ? '<div class="ptd-milestone">Next: ' + milestone.label + ' at session ' + milestone.at + '</div>' : ''}`
-            : `<div class="ptd-empty-headline">Your treatment plan is not active yet</div>
-               <div class="ptd-empty-support">Your care team will add your treatment course here.</div>
-               <div class="ptd-empty-hint">Once assigned, you&rsquo;ll see your phase, sessions, and milestones here.</div>`}
-          <div class="ptd-card-link${activeCourse ? '' : ' ptd-card-link--dim'}">View full plan \u2192</div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn-primary btn-sm" onclick="window._ptdSubmitCheckin()">Save check-in</button>
+          <button class="btn btn-ghost btn-sm" onclick="window._ptdCloseCheckin()">Cancel</button>
         </div>
-
-        <!-- Wellness Snapshot -->
-        <div class="ptd-card">
-          <div class="ptd-eyebrow">Wellness Snapshot</div>
-          ${_vizGauge(wellnessGaugeVal, { size: 122, label: wellnessTrend.label, subtitle: hasCheckinData ? wellnessInterp : 'Complete a check-in to see your trend.' })}
-          ${hasCheckinData
-            ? `<div class="ptd-driver-grid" style="margin-top:10px">
-                 ${wellnessDrivers.map(d => `<div class="ptd-driver">
-                   <span class="ptd-driver-icon" style="color:${d.color}">${d.icon}</span>
-                   <span class="ptd-driver-label">${d.label}</span>
-                   <span class="ptd-driver-val">${d.val}${typeof d.val === 'number' ? '/10' : ''}</span>
-                 </div>`).join('')}
-               </div>
-               ${_vizWeekStrip(weekStripDays, { legend: false })}
-               <div class="ptd-snapshot-note">Your care team uses check-ins to monitor progress. Not a medical assessment.</div>`
-            : `<div class="ptd-snapshot-empty" style="margin-top:8px">
-                 <button class="ptd-inline-btn" onclick="event.stopPropagation();window._navPatient('pt-wellness')">Start check-in \u2192</button>
-                 <div class="ptd-empty-hint" style="margin-top:8px">Your care team uses check-ins to help monitor progress.</div>
-               </div>`}
-        </div>
-
       </div>
 
-      <!-- ROW 2: Today's Tasks · From Your Care Team -->
-      <div class="ptd-row2">
-
-        <!-- Today's Tasks -->
-        <div class="ptd-card">
-          <div class="ptd-card-hdr">
-            <div class="ptd-eyebrow" style="margin-bottom:0">Today&rsquo;s Tasks</div>
-            ${taskList.length > 0
-              ? '<span class="ptd-task-count">' + taskList.length + ' pending</span>'
-              : '<span class="ptd-task-count ptd-task-count--clear">All done \u2713</span>'}
-          </div>
-          <div class="ptd-task-list">
-            ${taskList.length > 0
-              ? taskList.map(task => `
-                  <div class="ptd-task-item ptd-task-item--${task.urgency}" onclick="window._navPatient('${task.nav}')">
-                    <span class="ptd-task-icon">${task.icon}</span>
-                    <span class="ptd-task-label">${task.label}</span>
-                    ${urgencyBadge(task.urgency)}
-                    <span class="ptd-task-cta">${task.cta} \u2192</span>
-                  </div>`).join('')
-              : `<div class="ptd-tasks-clear">
-                   <span style="font-size:22px">✓</span>
-                   <div><div style="font-size:13px;font-weight:600;color:var(--text-primary)">All caught up</div><div style="font-size:12px;color:var(--text-secondary);margin-top:2px">Nothing pending for today.</div></div>
-                 </div>`}
-          </div>
-          ${!checkedInToday ? `
-          <div class="ptd-checkin-mini" id="ptd-checkin-mini">
-            <div class="ptd-checkin-mini-title">Quick check-in</div>
-            <div class="ptd-slider-rows">
-              ${[
-                { id: 'ptd-dc-mood', label: 'Mood', color: 'var(--teal,#2dd4bf)' },
-                { id: 'ptd-dc-sleep', label: 'Sleep', color: 'var(--accent-blue,#60a5fa)' },
-                { id: 'ptd-dc-energy', label: 'Energy', color: 'var(--accent-violet,#a78bfa)' },
-              ].map(s => `<div class="ptd-slider-row">
-                <label>${s.label}</label>
-                <input type="range" id="${s.id}" min="1" max="10" value="5" oninput="document.getElementById('${s.id}-v').textContent=this.value" style="accent-color:${s.color}">
-                <span id="${s.id}-v" style="color:${s.color}">5</span>
-              </div>`).join('')}
+      <!-- Row: Progress + Wellness -->
+      <div class="pt-row-3-2">
+        <div class="pt-card">
+          <div class="pt-card-hd">
+            <div>
+              <div class="pt-card-title">My progress</div>
+              <div class="pt-card-sub">Your scores vs. course start \xb7 lower = better</div>
             </div>
-            <button class="ptd-submit-btn" onclick="window._ptdSubmitCheckin()">Save check-in</button>
-          </div>` : ''}
-        </div>
-
-        <!-- From Your Care Team -->
-        <div class="ptd-card">
-          <div class="ptd-card-hdr">
-            <div class="ptd-eyebrow" style="margin-bottom:0">From Your Care Team</div>
-            <button class="ptd-ghost-btn" onclick="window._navPatient('patient-messages')">Messages \u2192</button>
+            <button class="pt-ghost-btn" onclick="window._navPatient('pt-outcomes')">Full view \u2192</button>
           </div>
-          ${(latestReview || clinicianFeedback)
-            ? `<div class="ptd-feedback-block">
-                 <div class="ptd-reviewed-badge">\u2713 Reviewed by care team</div>
-                 <div class="ptd-feedback-text">${esc((latestReview?.clinician_notes) || clinicianFeedback?.summary || 'Your care team has reviewed your latest data.')}</div>
-                 <div class="ptd-feedback-meta">
-                   ${esc((latestReview?.reviewed_by) || clinicianFeedback?.reviewer || 'Your care team')}
-                   ${((latestReview?.reviewed_at) || clinicianFeedback?.date) ? ' \xb7 ' + new Date((latestReview?.reviewed_at) || clinicianFeedback.date).toLocaleDateString(loc, { month: 'short', day: 'numeric' }) : ''}
-                   ${clinicianFeedback?._isDemoData ? ' <span style="font-size:10px;color:var(--text-tertiary)">(example)</span>' : ''}
-                 </div>
-               </div>`
-            : `<div class="ptd-feedback-empty">
-                 <div style="font-size:18px;opacity:0.25;margin-bottom:8px">◫</div>
-                 <div style="font-size:13px;color:var(--text-secondary)">No reviews yet</div>
-                 <div style="font-size:12px;color:var(--text-tertiary);margin-top:4px;line-height:1.5">Your care team&rsquo;s notes will appear here after they review your sessions.</div>
-               </div>`}
-          <div class="ptd-feedback-actions">
-            <button class="ptd-feedback-action-primary" onclick="window._navPatient('patient-reports')">View report \u2192</button>
-            <button class="ptd-inline-btn" onclick="window._ptdOpenAssistant()">Ask a question</button>
+          ${outcomeGroups.length
+            ? `<div class="outcome-list">${_progressRowsHtml()}</div>`
+            : `<div style="font-size:13px;color:var(--text-secondary);padding:8px 0 12px">Complete your first assessment to start tracking progress here.</div>
+               <button class="pt-inline-btn" onclick="window._navPatient('patient-assessments')">Start assessment \u2192</button>`}
+          <div class="pt-mood-section">
+            <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-tertiary);font-weight:600;margin-bottom:10px">Weekly mood \xb7 last 28 days</div>
+            <div class="mood-grid" id="pt-mood-grid">${_moodGridHtml()}</div>
+            <div style="display:flex;gap:14px;margin-top:12px;font-size:10.5px;color:var(--text-tertiary);flex-wrap:wrap">
+              <div style="display:flex;align-items:center;gap:5px"><span class="mood-cell" style="width:12px;height:12px" data-level="1"></span>Low</div>
+              <div style="display:flex;align-items:center;gap:5px"><span class="mood-cell" style="width:12px;height:12px" data-level="3"></span>Okay</div>
+              <div style="display:flex;align-items:center;gap:5px"><span class="mood-cell" style="width:12px;height:12px" data-level="5"></span>Great</div>
+              <div style="margin-left:auto">Logged: ${moodLogged}/28 days</div>
+            </div>
           </div>
         </div>
 
+        <div class="pt-card">
+          <div class="pt-card-hd">
+            <div>
+              <div class="pt-card-title">This week&rsquo;s wellness</div>
+              <div class="pt-card-sub">${wearable.hasData ? 'From your wearable + self-report' : 'From self-report'}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:18px;align-items:center">
+            <div class="wellness-ring">
+              <svg width="150" height="150">
+                <circle cx="75" cy="75" r="62" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="10"/>
+                <circle cx="75" cy="75" r="62" fill="none" stroke="url(#pt-wellness-grad)" stroke-width="10" stroke-linecap="round"
+                  stroke-dasharray="389"
+                  stroke-dashoffset="${Math.max(0, 389 - (wellnessVal / 100) * 389).toFixed(1)}"/>
+                <defs>
+                  <linearGradient id="pt-wellness-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#00d4bc"/><stop offset="100%" stop-color="#9b7fff"/></linearGradient>
+                </defs>
+              </svg>
+              <div class="wellness-ring-center">
+                <div class="wellness-ring-num">${wellnessVal || '\u2014'}</div>
+                <div class="wellness-ring-lbl">Wellness</div>
+              </div>
+            </div>
+            ${_vitalsHtml()}
+          </div>
+          ${_brainMapHtml()}
+          ${_altVariantHtml()}
+        </div>
       </div>
 
-      <!-- ROW 3: Progress Over Time · Devices & Biometrics · Sessions Remaining -->
-      <div class="ptd-row3">
-
-        <!-- Progress Over Time -->
-        <div class="ptd-card">
-          <div class="ptd-card-hdr">
-            <div class="ptd-eyebrow" style="margin-bottom:0">Progress Over Time</div>
-            <button class="ptd-ghost-btn" onclick="window._navPatient('pt-outcomes')">Full view \u2192</button>
+      <!-- Row: Homework + Care team -->
+      <div class="pt-row-3-2">
+        <div class="pt-card">
+          <div class="pt-card-hd">
+            <div>
+              <div class="pt-card-title">Today&rsquo;s homework</div>
+              <div class="pt-card-sub">${homeTasks.length ? homeTasks.length + ' tasks \xb7 ' + (homeTasks.length - openTasks.length) + ' complete' : 'Nothing assigned yet'}</div>
+            </div>
+            <div class="pt-tab-row" role="tablist" id="pt-homework-tabs">
+              <button class="active" data-pt-homework-tab="today">Today</button>
+              <button data-pt-homework-tab="week">This week</button>
+              <button data-pt-homework-tab="all">All</button>
+            </div>
           </div>
-          ${outcomeTrend
-            ? `<div class="ptd-outcome-hero ${outcomeTrend.improving ? 'ptd-outcome-hero--good' : ''}">
-                 <span class="ptd-outcome-arrow">${outcomeTrend.improving ? '\u2193' : '\u2192'}</span>
-                 <span class="ptd-outcome-pct">${outcomeTrend.pct}% ${outcomeTrend.improving ? 'improvement' : 'change'}</span>
-               </div>
-               <div class="ptd-outcome-name">${esc(outcomeTrend.name)}</div>
-               <div class="ptd-outcome-detail">Baseline: ${outcomeTrend.baseline} \u2192 Now: ${outcomeTrend.current}</div>
-               <div class="ptd-outcome-plain">${outcomeTrend.improving
-                 ? 'Your score has improved since you started \u2014 a positive response to treatment.'
-                 : 'Your score is holding steady. Consistent attendance builds lasting results.'}</div>`
-            : `<div style="font-size:13px;color:var(--text-secondary);padding:8px 0 12px">Complete your first assessment to start tracking progress here.</div>
-               <button class="ptd-inline-btn" onclick="window._navPatient('patient-assessments')">Start assessment \u2192</button>`}
-          ${sessions.length > 0 ? `
-          <div class="ptd-sessions-mini">
-            <div class="ptd-sm-label">Sessions completed</div>
-            <div class="ptd-sm-bar"><div class="ptd-sm-fill" style="width:${progressPct || 0}%"></div></div>
-            <div class="ptd-sm-legend"><span>${sessDelivered} done</span><span>${totalPlanned ? totalPlanned + ' total' : ''}</span></div>
+          <div style="display:flex;flex-direction:column;gap:8px" id="pt-homework-list">${_homeworkListHtml()}</div>
+          <div class="pt-streak-strip">
+            <span style="font-size:15px;color:var(--teal)">\u2728</span>
+            <span><strong style="color:var(--text-primary)">Streak: ${streak} day${streak === 1 ? '' : 's'}.</strong> Consistency is a strong predictor of treatment response.</span>
+          </div>
+        </div>
+
+        <div class="pt-card">
+          <div class="pt-card-hd">
+            <div>
+              <div class="pt-card-title">Your care team</div>
+              <div class="pt-card-sub">${activeCourse?.clinic_name ? esc(activeCourse.clinic_name) : 'Your treatment team'}</div>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">Message</button>
+          </div>
+          <div class="care-team">${_careTeamHtml()}</div>
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+            <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-tertiary);font-weight:600;margin-bottom:10px">Upcoming</div>
+            <div style="display:flex;flex-direction:column;gap:8px">${_upcomingHtml()}</div>
+          </div>
+          ${(latestReview || clinicianFeedback) ? `
+          <div class="pt-feedback-block" style="margin-top:14px">
+            <div class="pt-reviewed-badge">\u2713 Reviewed by care team</div>
+            <div class="pt-feedback-text">${esc((latestReview?.clinician_notes) || clinicianFeedback?.summary || 'Your care team has reviewed your latest data.')}</div>
+            <div class="pt-feedback-meta">
+              ${esc((latestReview?.reviewed_by) || clinicianFeedback?.reviewer || 'Your care team')}
+              ${((latestReview?.reviewed_at) || clinicianFeedback?.date) ? ' \xb7 ' + new Date((latestReview?.reviewed_at) || clinicianFeedback.date).toLocaleDateString(loc, { month: 'short', day: 'numeric' }) : ''}
+              ${clinicianFeedback?._isDemoData ? ' <span style="font-size:10px;color:var(--text-tertiary)">(example)</span>' : ''}
+            </div>
           </div>` : ''}
         </div>
-
-        <!-- Devices & Biometrics -->
-        <div class="ptd-card">
-          <div class="ptd-card-hdr">
-            <div class="ptd-eyebrow" style="margin-bottom:0">Devices &amp; Biometrics</div>
-            <button class="ptd-ghost-btn" onclick="window._navPatient('patient-wearables')">Details \u2192</button>
-          </div>
-          <div class="ptd-bio-grid">
-            <div class="ptd-bio-item"><div class="ptd-bio-val">${biometrics.hrv.val}<span class="ptd-bio-unit">${biometrics.hrv.unit}</span></div><div class="ptd-bio-lbl">HRV</div><div class="ptd-bio-trend">${biometrics.hrv.trend}</div></div>
-            <div class="ptd-bio-item"><div class="ptd-bio-val">${biometrics.sleep.val}<span class="ptd-bio-unit">${biometrics.sleep.unit}</span></div><div class="ptd-bio-lbl">Sleep</div><div class="ptd-bio-trend">${biometrics.sleep.trend}</div></div>
-            <div class="ptd-bio-item"><div class="ptd-bio-val">${biometrics.rhr.val}<span class="ptd-bio-unit">${biometrics.rhr.unit}</span></div><div class="ptd-bio-lbl">Resting HR</div><div class="ptd-bio-trend">${biometrics.rhr.trend}</div></div>
-          </div>
-          <div class="ptd-bio-sync">Last sync: ${biometrics.lastSync}${biometrics._isDemoData ? ' <span style="font-size:10px;color:var(--text-tertiary)">(example)</span>' : ''}</div>
-          ${biometrics._isDemoData ? '<button class="ptd-inline-btn" style="margin-top:8px" onclick="window._navPatient(\'patient-wearables\')">Connect device \u2192</button>' : ''}
-        </div>
-
-        <!-- Sessions Remaining -->
-        <div class="ptd-card ptd-card--sessions-remaining">
-          <div class="ptd-eyebrow">Sessions</div>
-          ${sessRemaining !== null
-            ? `<div class="ptd-sess-count">${sessRemaining}</div>
-               <div class="ptd-sess-label">sessions remaining</div>
-               <div class="ptd-sess-of">${sessDelivered} of ${totalPlanned} complete</div>`
-            : `<div class="ptd-sess-count ptd-empty">\u2014</div>
-               <div class="ptd-sess-label">Contact your clinic for session details.</div>`}
-          ${activeCourse?.status === 'active' ? `<div class="ptd-pkg-chip">${esc(activeCourse.condition_slug || 'Active course')}${activeCourse.modality_slug ? ' \xb7 ' + esc(activeCourse.modality_slug) : ''}</div>` : ''}
-          <button class="ptd-inline-btn ptd-inline-btn--full" onclick="window._navPatient('patient-sessions')" style="margin-top:12px">View session history \u2192</button>
-        </div>
-
       </div>
 
     </div>
@@ -724,11 +987,11 @@ export async function pgPatientDashboard(user) {
         <div class="ptd-asst-intro">Ask about your scores, next session, or wellbeing &mdash; answers use your dashboard snapshot. For medical decisions, contact your care team.</div>
         <div class="ptd-asst-prompts">
           ${[
-            { icon: '📈', q: 'Explain my progress' },
-            { icon: '🔄', q: 'What changed since last session?' },
-            { icon: '📅', q: 'What should I do before my next session?' },
-            { icon: '📋', q: 'Explain my last report' },
-            { icon: '💤', q: 'Summarise my check-ins this week' },
+            { icon: '\ud83d\udcc8', q: 'Explain my progress' },
+            { icon: '\ud83d\udd04', q: 'What changed since last session?' },
+            { icon: '\ud83d\udcc5', q: 'What should I do before my next session?' },
+            { icon: '\ud83d\udccb', q: 'Explain my last report' },
+            { icon: '\ud83d\udca4', q: 'Summarise my check-ins this week' },
           ].map(p => `<button class="ptd-asst-prompt" onclick="window._ptdAskPrompt(${JSON.stringify(p.q)})">${p.icon} ${p.q}</button>`).join('')}
         </div>
         <div class="ptd-asst-input-row">
@@ -762,11 +1025,11 @@ export async function pgPatientDashboard(user) {
       totalPlanned != null ? `Planned sessions: ${totalPlanned}` : '',
       progressPct != null ? `Course progress: ${progressPct}%` : '',
       nextSessDateLabel ? `Next session: ${nextSessDateLabel} at ${nextSessTime || ''}` : 'Next session: not scheduled',
-      outcomeTrend
-        ? `Outcome (${outcomeTrend.name}): baseline ${outcomeTrend.baseline}, current ${outcomeTrend.current}, change ${outcomeTrend.improving ? 'improving' : 'steady'}`
+      outcomeGroups.length
+        ? `Outcome trends: ${outcomeGroups.map(g => g.template_name + ' current=' + (g.latest?.score_numeric ?? '?')).join('; ')}`
         : '',
-      `Wellness trend label: ${wellnessTrend.label}`,
-      hasCheckinData ? `Check-in days in view: ${recentCheckins.length}` : 'No check-ins yet',
+      wearable.hasData ? `Wearable (avg 7d): sleep ${wearable.sleepAvg?.toFixed(1) || '?'}h, HRV ${wearable.hrvAvg?.toFixed(0) || '?'}ms, RHR ${wearable.rhrAvg?.toFixed(0) || '?'}bpm` : 'No wearable data',
+      `Wellness ring: ${wellnessVal}`,
     ].filter(Boolean).join('\n');
 
     const lang = getLocale() === 'tr' ? 'tr' : 'en';
@@ -783,8 +1046,9 @@ export async function pgPatientDashboard(user) {
       const q = question.trim().toLowerCase();
       let answer = '';
       if (q.includes('progress') || q.includes('improv')) {
-        answer = outcomeTrend
-          ? `Your ${outcomeTrend.name} has ${outcomeTrend.improving ? 'improved by ' + outcomeTrend.pct + '%' : 'stayed steady'} since baseline (${outcomeTrend.baseline} \u2192 ${outcomeTrend.current}). ${outcomeTrend.improving ? 'This is a positive response to treatment.' : 'Consistent attendance is helping build lasting results.'}`
+        const g = outcomeGroups[0];
+        answer = g && g.latest && g.baseline
+          ? `Your ${g.template_name} has changed from ${g.baseline.score_numeric} (baseline) to ${g.latest.score_numeric} (current).`
           : `You\u2019re ${sessDelivered ? sessDelivered + ' sessions into your treatment course' : 'just getting started'}. Complete your first assessment to start tracking scores over time.`;
       } else if (q.includes('next session') || q.includes('before')) {
         answer = nextSessDateLabel
@@ -797,7 +1061,15 @@ export async function pgPatientDashboard(user) {
     }
   };
 
-  // ── Quick check-in from dashboard ────────────────────────────────────────────
+  // ── Weekly check-in (tile-opens-inline) ─────────────────────────────────────
+  window._ptdOpenCheckin = function() {
+    const f = document.getElementById('pt-checkin-form');
+    if (f) { f.style.display = 'block'; f.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+  };
+  window._ptdCloseCheckin = function() {
+    const f = document.getElementById('pt-checkin-form');
+    if (f) f.style.display = 'none';
+  };
   window._ptdSubmitCheckin = async function() {
     const moodEl = document.getElementById('ptd-dc-mood');
     const sleepEl = document.getElementById('ptd-dc-sleep');
@@ -815,14 +1087,59 @@ export async function pgPatientDashboard(user) {
       localStorage.setItem('ds_last_checkin_prev', todayIso);
     } catch (_e) {}
     try { const uid = user?.patient_id || user?.id; if (uid) await api.submitAssessment(uid, { type: 'wellness_checkin', ...payload }).catch(() => {}); } catch (_e) {}
-    const mini = document.getElementById('ptd-checkin-mini');
-    if (mini) mini.outerHTML = '<div class="ptd-checkin-done"><span style="color:var(--teal,#2dd4bf)">\u2713</span><span>Check-in saved. Your care team will see your update.</span></div>';
+    const form = document.getElementById('pt-checkin-form');
+    if (form) form.outerHTML = '<div class="ptd-checkin-done"><span style="color:var(--teal,#2dd4bf)">\u2713</span><span>Check-in saved. Your care team will see your update.</span></div>';
+    const tile = document.getElementById('pt-tile-checkin');
+    if (tile) tile.style.display = 'none';
     if (typeof window._showNotifToast === 'function') window._showNotifToast({ title: 'Check-in saved', body: 'Good job \u2014 keep it up!', severity: 'success' });
   };
 
-  // Keyboard nav for cards
-  el.querySelectorAll('[role="button"]').forEach(card => {
-    card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); } });
+  // ── Homework tab filter ─────────────────────────────────────────────────────
+  window._ptdFilterHomework = function(mode) {
+    const listEl = document.getElementById('pt-homework-list');
+    if (!listEl) return;
+    const msDay = 86400000;
+    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+    let filtered = homeTasks;
+    if (mode === 'today') {
+      filtered = homeTasks.filter(t => {
+        if (t.completed || t.done) return true; // keep completed (show strike)
+        if (!t.due_on) return true;
+        const due = new Date(t.due_on); return due >= startOfToday && (due - startOfToday) < msDay;
+      });
+    } else if (mode === 'week') {
+      filtered = homeTasks.filter(t => {
+        if (!t.due_on) return true;
+        const due = new Date(t.due_on); return (due - startOfToday) < 7 * msDay && due >= startOfToday;
+      });
+    }
+    // Render using filtered subset
+    const html = filtered.length
+      ? filtered.slice(0, 8).map(t => {
+          const isDone = !!(t.completed || t.done);
+          const title = t.title || t.name || 'Home task';
+          const sub = t.category || t.task_type || (isDone ? 'Completed' : 'Pending');
+          const action = isDone
+            ? '<span class="chip green">\u2713 Done</span>'
+            : `<button class="btn btn-primary btn-sm" onclick="window._navPatient('pt-wellness')">Start</button>`;
+          return `<div class="homework-item">
+            <div class="homework-ico">${isDone ? '\u2713' : '\u25cb'}</div>
+            <div>
+              <div class="homework-title"${isDone ? ' style="text-decoration:line-through;color:var(--text-tertiary)"' : ''}>${esc(title)}</div>
+              <div class="homework-sub">${esc(sub)}</div>
+            </div>
+            <div class="homework-action">${action}</div>
+          </div>`;
+        }).join('')
+      : `<div class="pt-homework-empty" style="padding:12px"><div style="font-size:12.5px;color:var(--text-secondary)">No tasks in this range.</div></div>`;
+    listEl.innerHTML = html;
+  };
+  document.querySelectorAll('#pt-homework-tabs [data-pt-homework-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#pt-homework-tabs button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      window._ptdFilterHomework(btn.getAttribute('data-pt-homework-tab'));
+    });
   });
 }
 
