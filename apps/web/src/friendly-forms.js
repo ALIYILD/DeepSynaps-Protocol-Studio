@@ -273,21 +273,6 @@ export function ffStepper({ steps = [], current = 1 }) {
   </div>`;
 }
 
-// ── Page-level wrapper used for wizards / single-form pages ──────────────────
-export function ffFormPage({ title, subtitle, icon = '', children, footer = '' }) {
-  return `<div class="ff-page">
-    <div class="ff-page-inner">
-      <header class="ff-page-head">
-        ${icon ? `<div class="ff-page-icon" aria-hidden="true">${icon}</div>` : ''}
-        ${title ? `<h1 class="ff-page-title">${esc(title)}</h1>` : ''}
-        ${subtitle ? `<p class="ff-page-sub">${esc(subtitle)}</p>` : ''}
-      </header>
-      <div class="ff-page-body">${children}</div>
-      ${footer ? `<footer class="ff-page-foot">${footer}</footer>` : ''}
-    </div>
-  </div>`;
-}
-
 // ── Footer action row used at the bottom of a form step ──────────────────────
 export function ffActions({ primary, secondary, tertiary } = {}) {
   const btn = (b, cls) => b
@@ -307,29 +292,6 @@ export function ffNotice({ tone = 'info', text, icon }) {
     <span class="ff-notice-icon" aria-hidden="true">${i}</span>
     <span class="ff-notice-text">${esc(text)}</span>
   </div>`;
-}
-
-// ── Field error helpers (imperative, used by submit handlers) ────────────────
-export function ffShowError(fieldId, message) {
-  const err = document.getElementById(`${fieldId}-err`);
-  if (err) {
-    err.textContent = message || '';
-    err.hidden = !message;
-  }
-  const input = document.getElementById(fieldId);
-  if (input) {
-    input.setAttribute('aria-invalid', message ? 'true' : 'false');
-    const wrap = input.closest('.ff-field');
-    if (wrap) wrap.classList.toggle('has-error', Boolean(message));
-  }
-}
-
-export function ffClearErrors(scope) {
-  const root = typeof scope === 'string' ? document.getElementById(scope) : (scope || document);
-  if (!root) return;
-  root.querySelectorAll('.ff-field.has-error').forEach((el) => el.classList.remove('has-error'));
-  root.querySelectorAll('.ff-err').forEach((el) => { el.textContent = ''; el.hidden = true; });
-  root.querySelectorAll('[aria-invalid="true"]').forEach((el) => el.setAttribute('aria-invalid', 'false'));
 }
 
 // ── Window-scope event handlers (wired once per load) ────────────────────────

@@ -1,11 +1,5 @@
 // ── Render helpers ─────────────────────────────────────────────────────────
 
-// Role-based feature gating — returns content if role is allowed, fallback otherwise
-export function roleGate(allowedRoles, currentRole, content, fallback = '') {
-  if (!allowedRoles.includes(currentRole)) return fallback;
-  return content;
-}
-
 // Clinical-domain badges — explicit, scannable at a glance
 export function evidenceBadge(grade) {
   const map = {
@@ -61,11 +55,6 @@ export function registrySelect(id, label, options, selected = '') {
     <label class="form-label">${label}</label>
     <select id="${id}" class="form-control"><option value="">Select…</option>${opts}</select>
   </div>`;
-}
-
-// Section divider
-export function sectionDivider(title) {
-  return `<div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1.2px;padding:16px 0 8px;border-bottom:1px solid var(--border);margin-bottom:12px">${title}</div>`;
 }
 
 // Governance flag row
@@ -188,32 +177,6 @@ function bandColor(v, b) {
   return v > .6 ? '#ff6b6b' : v > .3 ? '#e04d4d' : '#6e1d1d';
 }
 
-// ── Loading Skeleton ──────────────────────────────────────────────────────────
-export function loadingSkeleton(count = 3) {
-  const cards = Array.from({ length: count }, () => `
-    <div class="ds-skeleton-card">
-      <div class="ds-skeleton-line" style="width:40%;height:14px;margin-bottom:12px"></div>
-      <div class="ds-skeleton-line" style="width:100%;height:10px;margin-bottom:8px"></div>
-      <div class="ds-skeleton-line" style="width:75%;height:10px;margin-bottom:8px"></div>
-      <div class="ds-skeleton-line" style="width:55%;height:10px"></div>
-    </div>
-  `).join('');
-  return `<div class="ds-skeleton-wrap">${cards}</div>`;
-}
-
-// ── Error State ──────────────────────────────────────────────────────────────
-export function errorState(message, retryFnName) {
-  const retryBtn = retryFnName
-    ? `<button class="btn btn-primary btn-sm" onclick="${retryFnName}()" style="margin-top:12px">Retry</button>`
-    : '';
-  return `<div class="ds-error-state">
-    <div class="ds-error-icon">⚠</div>
-    <div class="ds-error-title">Something went wrong</div>
-    <div class="ds-error-msg">${message || 'Something went wrong on our end. Try again in a moment.'}</div>
-    ${retryBtn}
-  </div>`;
-}
-
 // ── Toast Notifications ──────────────────────────────────────────────────────
 export function showToast(message, type = 'success') {
   const icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
@@ -259,32 +222,6 @@ export function statCard(icon, label, value, color = 'var(--teal)', trend = '') 
       <span style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">${label}</span>
     </div>
     <div style="font-size:24px;font-weight:700;color:var(--text-primary);font-family:var(--font-display)">${value}${trendHtml}</div>
-  </div>`;
-}
-
-// ── Activity Item ────────────────────────────────────────────────────────────
-export function activityItem(icon, title, subtitle, time) {
-  return `<div class="ds-activity-item">
-    <div style="width:28px;height:28px;border-radius:50%;background:var(--bg-surface-2);display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0">${icon}</div>
-    <div style="flex:1;min-width:0">
-      <div style="font-size:12.5px;color:var(--text-primary);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
-      <div style="font-size:11px;color:var(--text-tertiary)">${subtitle}</div>
-    </div>
-    <div style="font-size:10px;color:var(--text-tertiary);flex-shrink:0">${time}</div>
-  </div>`;
-}
-
-// ── Confirmation Modal ───────────────────────────────────────────────────────
-export function confirmModal(title, message, confirmLabel = 'Confirm', onConfirm = '') {
-  return `<div class="ds-modal-overlay" onclick="if(event.target===this)this.remove()">
-    <div class="ds-modal">
-      <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:8px">${title}</div>
-      <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:20px;line-height:1.6">${message}</div>
-      <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button class="btn btn-ghost btn-sm" onclick="this.closest('.ds-modal-overlay').remove()">Cancel</button>
-        <button class="btn btn-primary btn-sm" onclick="${onConfirm};this.closest('.ds-modal-overlay').remove()">${confirmLabel}</button>
-      </div>
-    </div>
   </div>`;
 }
 
