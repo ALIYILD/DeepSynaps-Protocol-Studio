@@ -4110,76 +4110,302 @@ export async function pgMonitorHub(setTopbar, navigate) {
   if (tab === 'monitoring') {
     setTopbar('Monitor', '');
     el.innerHTML = '<div class="ch-shell"><div class="ch-tab-bar">'+tabBar()+'</div><div class="ch-body">'+spinner()+'</div></div>';
-    let patients = [];
-    try { const r = await api.listPatients().catch(()=>({items:[]})); patients = r?.items||[]; } catch {}
-    const alerts = patients.filter(p=>p.has_adverse_event||p.wearable_disconnected).length || 2;
-    const active = patients.length || 8;
 
-    const ALERT_FEED = [
-      {icon:'⚠',msg:'Demo Patient A — PHQ-9 worsened (+4pts)',  time:'09:14', color:'var(--red)'},
-      {icon:'📱',msg:'Demo Patient C — Wearable disconnected',  time:'08:52', color:'var(--amber)'},
-      {icon:'⏰',msg:'Demo Patient B — Assessment overdue 3d',  time:'08:30', color:'var(--amber)'},
-      {icon:'✓', msg:'Demo Patient A — Session completed',      time:'Yesterday', color:'var(--green)'},
-      {icon:'📊',msg:'Demo Patient D — PHQ-9 improved 6pts',   time:'Yesterday', color:'var(--teal)'},
-    ];
+    // ── Fetch real data: patients, clinic-wide alert summary, per-patient wearables ────
+    const [patientsRes, alertSummaryRes] = await Promise.all([
+      api.listPatients().catch(() => ({ items: [] })),
+      api.getClinicAlertSummary?.().catch(() => null) || Promise.resolve(null),
+    ]);
+    const patients = patientsRes?.items || [];
+    const alertSummary = alertSummaryRes || { total_active: 0, urgent_count: 0, warning_count: 0, info_count: 0, patient_ids_with_alerts: [] };
+
+    // For the alert feed + wearable status panel, fetch per-patient summaries for
+    // patients known to have alerts (priority) plus the most-recent patients up
+    // to a cap. Each /summary payload carries connections + recent_alerts.
+    const ALERT_PATIENT_IDS = Array.isArray(alertSummary.patient_ids_with_alerts) ? alertSummary.patient_ids_with_alerts : [];
+    const PRIORITY_IDS = new Set(ALERT_PATIENT_IDS);
+    const otherIds = patients.map(p => p.id).filter(id => id && !PRIORITY_IDS.has(id)).slice(0, Math.max(0, 8 - PRIORITY_IDS.size));
+    const fetchIds = [...ALERT_PATIENT_IDS, ...otherIds].slice(0, 10);
+    const patientById = Object.fromEntries(patients.map(p => [p.id, p]));
+    const summaryResults = await Promise.all(
+      fetchIds.map(id => api.getPatientWearableSummary?.(id, 7).catch(() => null) || Promise.resolve(null))
+    );
+
+    // Flatten alerts from all fetched summaries + join patient names
+    const allAlerts = [];
+    const connectionsByPatient = {};
+    summaryResults.forEach((s, idx) => {
+      if (!s) return;
+      const pid = fetchIds[idx];
+      const pat = patientById[pid];
+      const patName = pat ? ((pat.first_name || '') + (pat.last_name ? ' ' + pat.last_name : '')).trim() : pid;
+      connectionsByPatient[pid] = { name: patName, connections: s.connections || [] };
+      (s.recent_alerts || []).forEach(a => {
+        allAlerts.push({ ...a, patient_name: patName });
+      });
+    });
+    allAlerts.sort((a, b) => (b.triggered_at || '').localeCompare(a.triggered_at || ''));
+    const alertsTop = allAlerts.slice(0, 8);
+
+    // KPIs from real data
+    const activeAlerts = alertSummary.total_active || 0;
+    const wearablesActive = Object.values(connectionsByPatient)
+      .reduce((n, v) => n + v.connections.filter(c => c.status === 'connected').length, 0);
+    const monitored = Object.values(connectionsByPatient).filter(v => v.connections.length > 0).length;
+    const needsReview = allAlerts.filter(a => !a.reviewed_at && !a.dismissed).length;
+
+    // Relative time helper (monitor-hub local)
+    const _relTime = (iso) => {
+      if (!iso) return '—';
+      const t = new Date(iso).getTime();
+      if (isNaN(t)) return '—';
+      const diff = Math.floor((Date.now() - t) / 1000);
+      if (diff < 60) return 'just now';
+      if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+      if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+      if (diff < 86400 * 7) return Math.floor(diff / 86400) + 'd ago';
+      return new Date(iso).toLocaleDateString();
+    };
+
+    // Alert severity → colour + glyph mapping
+    const _alertStyle = (a) => {
+      const sev = (a.severity || '').toLowerCase();
+      if (sev === 'urgent' || sev === 'severe') return { color: 'var(--red)', icon: '⚠' };
+      if (sev === 'warning' || sev === 'moderate') return { color: 'var(--amber)', icon: '◬' };
+      return { color: 'var(--blue)', icon: 'ℹ' };
+    };
+    const _flagLabel = (t) => (t || '').replace(/_/g, ' ');
+
+    // Wearable Status panel — one row per monitored patient showing aggregate
+    // connection state (connected / stale / disconnected / none).
+    const wearableRows = [];
+    Object.entries(connectionsByPatient).slice(0, 8).forEach(([pid, v]) => {
+      const conns = v.connections;
+      let label, color;
+      if (!conns.length) { label = 'No device connected'; color = 'var(--text-tertiary)'; }
+      else {
+        const any = conns[0];
+        const hrs = any.last_sync_at ? (Date.now() - new Date(any.last_sync_at).getTime()) / 3600000 : Infinity;
+        const connected = conns.some(c => c.status === 'connected');
+        if (!connected) { label = 'Disconnected'; color = 'var(--red)'; }
+        else if (hrs > 48) { label = 'Sync stale'; color = 'var(--amber)'; }
+        else { label = conns.map(c => c.source).join(', ') || 'Connected'; color = 'var(--green)'; }
+      }
+      wearableRows.push({ pid, name: v.name, label, color });
+    });
 
     el.innerHTML = `
     <div class="ch-shell">
       <div class="ch-tab-bar">${tabBar()}</div>
       <div class="ch-body">
         <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-          <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${alerts}</div><div class="ch-kpi-label">Active Alerts</div></div>
-          <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${Math.round(active*0.6)}</div><div class="ch-kpi-label">Wearables Active</div></div>
-          <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${Math.round(active*0.3)}</div><div class="ch-kpi-label">Needs Review</div></div>
-          <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${active}</div><div class="ch-kpi-label">Monitored Patients</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${activeAlerts}</div><div class="ch-kpi-label">Active Alerts</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${wearablesActive}</div><div class="ch-kpi-label">Wearables Connected</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${needsReview}</div><div class="ch-kpi-label">Needs Review</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${monitored}</div><div class="ch-kpi-label">Monitored Patients</div></div>
         </div>
         <div class="ch-two-col">
           <div class="ch-card">
-            <div class="ch-card-hd"><span class="ch-card-title">Alert Feed</span></div>
-            ${ALERT_FEED.map(a=>'<div class="rec-apt-row"><span style="font-size:16px">'+a.icon+'</span><div class="rec-apt-info"><div class="rec-apt-name" style="color:'+a.color+'">'+a.msg+'</div></div><span class="rec-apt-time">'+a.time+'</span></div>').join('')}
+            <div class="ch-card-hd"><span class="ch-card-title">Alert Feed</span><span style="font-size:11px;color:var(--text-tertiary)">Wearable flags · last 30 days</span></div>
+            ${alertsTop.length === 0 ? '<div class="ch-empty" style="padding:28px 16px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No active wearable alerts.</div>'
+              : alertsTop.map(a => {
+                  const st = _alertStyle(a);
+                  const safeDetail = (a.detail || _flagLabel(a.flag_type) || '').replace(/'/g, '&#39;');
+                  return '<div class="rec-apt-row" id="mh-alert-'+a.id+'">'+
+                    '<span style="font-size:16px;color:'+st.color+'">'+st.icon+'</span>'+
+                    '<div class="rec-apt-info">'+
+                      '<div class="rec-apt-name" style="color:'+st.color+'">'+a.patient_name+' — '+_flagLabel(a.flag_type)+'</div>'+
+                      (a.detail ? '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">'+safeDetail+'</div>' : '')+
+                    '</div>'+
+                    '<span class="rec-apt-time" title="'+(a.triggered_at||'')+'">'+_relTime(a.triggered_at)+'</span>'+
+                    '<button class="ch-btn-sm" style="margin-left:6px" onclick="window._mhDismissAlert(\''+a.id+'\')" title="Acknowledge and dismiss this flag">Dismiss</button>'+
+                  '</div>';
+                }).join('')}
           </div>
           <div class="ch-card">
-            <div class="ch-card-hd"><span class="ch-card-title">Wearable Status</span></div>
-            ${[...patients.slice(0,4), {first_name:'Demo',last_name:'D'},{first_name:'Demo',last_name:'E'}].slice(0,6).map((p,i)=>{
-              const nm=((p.first_name||'')+(p.last_name?' '+p.last_name:'')).trim()||'Patient '+(i+1);
-              const st=['Connected','Connected','Disconnected','Connected','Low Battery','Connected'][i];
-              const sc={'Connected':'var(--green)','Disconnected':'var(--red)','Low Battery':'var(--amber)'}[st];
-              return '<div class="rec-apt-row"><div class="rec-apt-info"><div class="rec-apt-name">'+nm+'</div></div><span style="font-size:11px;font-weight:600;color:'+sc+'">● '+st+'</span></div>';
-            }).join('')}
+            <div class="ch-card-hd"><span class="ch-card-title">Wearable Status</span><span style="font-size:11px;color:var(--text-tertiary)">${wearableRows.length} patient${wearableRows.length===1?'':'s'} · live API</span></div>
+            ${wearableRows.length === 0
+              ? '<div class="ch-empty" style="padding:28px 16px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No patients loaded yet. Wearable connections appear here once a patient connects a health source from their portal.</div>'
+              : wearableRows.map(r =>
+                  '<div class="rec-apt-row"><div class="rec-apt-info"><div class="rec-apt-name">'+r.name+'</div></div>'+
+                  '<span style="font-size:11px;font-weight:600;color:'+r.color+'">● '+r.label+'</span></div>'
+                ).join('')}
           </div>
         </div>
       </div>
     </div>`;
+
+    window._mhDismissAlert = async function(flagId) {
+      if (!flagId) return;
+      const row = document.getElementById('mh-alert-'+flagId);
+      if (row) row.style.opacity = '.4';
+      try {
+        await api.dismissAlertFlag(flagId);
+        window._dsToast?.({title:'Alert dismissed',severity:'success'});
+        window._nav('monitor-hub');
+      } catch (e) {
+        if (row) row.style.opacity = '';
+        window._dsToast?.({title:'Dismiss failed',body:e?.message||'Try again.',severity:'error'});
+      }
+    };
   }
   else if (tab === 'adverse') {
     setTopbar('Monitor', '<button class="btn btn-sm" onclick="window._nav(\'adverse-events-full\')">Full AE Log ↗</button>');
     el.innerHTML = '<div class="ch-shell"><div class="ch-tab-bar">'+tabBar()+'</div><div class="ch-body">'+spinner()+'</div></div>';
-    let aes = [];
-    try { const r = await (api.listAdverseEvents?.().catch(()=>({items:[]}))||Promise.resolve({items:[]})); aes = r?.items||[]; } catch {}
-    const display = aes.length ? aes : [
-      {id:'AE-001',patient_name:'Demo Patient A',type:'Headache',          severity:'mild',    date:'2026-04-14',status:'open',     notes:'Post-TMS, resolved in 2h'},
-      {id:'AE-002',patient_name:'Demo Patient C',type:'Scalp discomfort',  severity:'mild',    date:'2026-04-12',status:'resolved', notes:'Electrode irritation'},
-      {id:'AE-003',patient_name:'Marcus Webb',   type:'Dizziness',         severity:'moderate',date:'2026-04-10',status:'open',     notes:'Post-session, ongoing'},
-      {id:'AE-004',patient_name:'Demo Patient B',type:'Mood fluctuation',  severity:'mild',    date:'2026-04-08',status:'resolved', notes:'Expected side effect'},
-    ];
-    const sevC={mild:'var(--green)',moderate:'var(--amber)',severe:'var(--red)'};
-    const stC ={open:'var(--amber)',resolved:'var(--green)',monitoring:'var(--blue)'};
+
+    // Filter state (persists across tab re-renders)
+    const sevFilter = window._mhAeSevFilter || '';
+
+    const [aesRes, patsRes] = await Promise.all([
+      api.listAdverseEvents?.(sevFilter ? { severity: sevFilter } : {}).catch(() => ({ items: [] })) || Promise.resolve({ items: [] }),
+      api.listPatients().catch(() => ({ items: [] })),
+    ]);
+    const aes = aesRes?.items || [];
+    const patients = patsRes?.items || [];
+    const patById = Object.fromEntries(patients.map(p => [p.id, ((p.first_name||'')+(p.last_name?' '+p.last_name:'')).trim() || p.id]));
+
+    const sevC = { mild:'var(--green)', moderate:'var(--amber)', severe:'var(--red)', serious:'var(--red)' };
+    const _aeIsOpen = a => !a.resolved_at;
+    const _aeStatus = a => a.resolved_at ? 'resolved' : 'open';
+    const _aeDate = a => (a.reported_at || a.created_at || '').slice(0, 10) || '—';
+
+    const kpi = {
+      open:      aes.filter(_aeIsOpen).length,
+      modPlus:   aes.filter(a => ['moderate','severe','serious'].includes(a.severity)).length,
+      resolved:  aes.filter(a => a.resolved_at).length,
+      total:     aes.length,
+    };
+
     el.innerHTML = `
     <div class="ch-shell">
       <div class="ch-tab-bar">${tabBar()}</div>
       <div class="ch-body">
         <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-          <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${display.filter(a=>a.status==='open').length}</div><div class="ch-kpi-label">Open AEs</div></div>
-          <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${display.filter(a=>a.severity==='moderate'||a.severity==='severe').length}</div><div class="ch-kpi-label">Moderate+</div></div>
-          <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${display.filter(a=>a.status==='resolved').length}</div><div class="ch-kpi-label">Resolved</div></div>
-          <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${display.length}</div><div class="ch-kpi-label">Total</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${kpi.open}</div><div class="ch-kpi-label">Open AEs</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${kpi.modPlus}</div><div class="ch-kpi-label">Moderate+</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${kpi.resolved}</div><div class="ch-kpi-label">Resolved</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${kpi.total}</div><div class="ch-kpi-label">Total</div></div>
         </div>
         <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Adverse Events</span><button class="ch-btn-sm ch-btn-teal" onclick="window._nav?.('adverse-events')" title="Open the Adverse Events page to report a new AE">+ Report AE</button></div>
-          ${display.map(ae=>'<div class="book-row" id="ae-row-'+ae.id+'"><div class="book-datetime"><div class="book-date">'+ae.date+'</div></div><div class="book-info"><div class="book-patient">'+ae.patient_name+'</div><div class="book-clinician">'+ae.type+'</div>'+(ae.notes?'<div class="book-notes">'+ae.notes+'</div>':'')+'</div><div class="book-status-col"><span class="book-status-badge" style="color:'+(sevC[ae.severity]||'var(--text-tertiary)')+';background:'+(sevC[ae.severity]||'var(--text-tertiary)')+'22">'+ae.severity+'</span></div><div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[ae.status]||'var(--text-tertiary)')+';background:'+(stC[ae.status]||'var(--text-tertiary)')+'22">'+ae.status+'</span></div><div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'AE\',body:\''+ae.type+'\',severity:\'info\'})">View</button></div></div>').join('')}
+          <div class="ch-card-hd">
+            <span class="ch-card-title">Adverse Events</span>
+            <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <select id="mh-ae-sev-filter" class="ch-select" style="font-size:11.5px;height:26px" onchange="window._mhAeApplySevFilter(this.value)">
+                <option value=""${sevFilter===''?' selected':''}>All severities</option>
+                <option value="mild"${sevFilter==='mild'?' selected':''}>Mild</option>
+                <option value="moderate"${sevFilter==='moderate'?' selected':''}>Moderate</option>
+                <option value="severe"${sevFilter==='severe'?' selected':''}>Severe</option>
+                <option value="serious"${sevFilter==='serious'?' selected':''}>Serious</option>
+              </select>
+              <button class="ch-btn-sm ch-btn-teal" onclick="window._mhAeOpenReport()">+ Report AE</button>
+            </span>
+          </div>
+          ${aes.length === 0
+            ? '<div class="ch-empty" style="padding:40px 16px;text-align:center;color:var(--text-tertiary);font-size:12.5px">'+(sevFilter?'No adverse events match the <b>'+sevFilter+'</b> filter.':'No adverse events reported. Use <b>+ Report AE</b> to log a new event.')+'</div>'
+            : aes.map(ae => {
+                const sev = ae.severity || 'mild';
+                const st  = _aeStatus(ae);
+                const nm  = patById[ae.patient_id] || ae.patient_id || '—';
+                const desc = ae.description ? ae.description.replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
+                const stColor = st === 'resolved' ? 'var(--green)' : 'var(--amber)';
+                return '<div class="book-row" id="ae-row-'+ae.id+'">'+
+                  '<div class="book-datetime"><div class="book-date">'+_aeDate(ae)+'</div></div>'+
+                  '<div class="book-info"><div class="book-patient">'+nm+'</div><div class="book-clinician">'+(ae.event_type||'—')+'</div>'+
+                    (desc?'<div class="book-notes">'+desc+'</div>':'')+
+                  '</div>'+
+                  '<div class="book-status-col"><span class="book-status-badge" style="color:'+(sevC[sev]||'var(--text-tertiary)')+';background:'+(sevC[sev]||'var(--text-tertiary)')+'22">'+sev+'</span></div>'+
+                  '<div class="book-status-col"><span class="book-status-badge" style="color:'+stColor+';background:'+stColor+'22">'+st+'</span></div>'+
+                  '<div class="book-actions">'+
+                    (st === 'open' ? '<button class="ch-btn-sm" onclick="window._mhAeResolve(\''+ae.id+'\')" title="Mark this adverse event as resolved">Resolve</button>' : '')+
+                  '</div>'+
+                '</div>';
+              }).join('')}
         </div>
       </div>
     </div>`;
+
+    window._mhAeApplySevFilter = function(value) {
+      window._mhAeSevFilter = value;
+      window._monitorHubTab = 'adverse';
+      window._nav('monitor-hub');
+    };
+
+    window._mhAeResolve = async function(id) {
+      if (!id) return;
+      if (!confirm('Mark this adverse event as resolved?')) return;
+      try {
+        await api.resolveAdverseEvent(id, { resolution: 'resolved' });
+        window._dsToast?.({title:'AE resolved',severity:'success'});
+        window._nav('monitor-hub');
+      } catch (e) {
+        window._dsToast?.({title:'Resolve failed',body:e?.message||'Try again.',severity:'error'});
+      }
+    };
+
+    window._mhAeOpenReport = function() {
+      document.getElementById('mh-ae-report-modal')?.remove();
+      const patOpts = patients.map(p => {
+        const nm = ((p.first_name||'')+(p.last_name?' '+p.last_name:'')).trim() || p.id;
+        return '<option value="'+p.id+'">'+nm+'</option>';
+      }).join('');
+      const overlay = document.createElement('div');
+      overlay.id = 'mh-ae-report-modal';
+      overlay.className = 'ch-modal-overlay';
+      overlay.innerHTML =
+        '<div class="ch-modal" style="width:min(560px,95vw)">'+
+          '<div class="ch-modal-hd"><span>Report Adverse Event</span>'+
+            '<button class="ch-modal-close" onclick="document.getElementById(\'mh-ae-report-modal\')?.remove()">✕</button>'+
+          '</div>'+
+          '<div class="ch-modal-body">'+
+            '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Patient</label>'+
+              '<select id="mh-ae-patient" class="ch-select ch-select--full">'+(patOpts||'<option value="">(no patients)</option>')+'</select></div>'+
+            '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Event type</label>'+
+              '<input id="mh-ae-type" class="ch-select ch-select--full" placeholder="e.g. headache, scalp_discomfort" maxlength="40"></div>'+
+            '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Severity</label>'+
+              '<select id="mh-ae-sev" class="ch-select ch-select--full">'+
+                '<option value="mild">Mild</option>'+
+                '<option value="moderate">Moderate</option>'+
+                '<option value="severe">Severe</option>'+
+                '<option value="serious">Serious</option>'+
+              '</select></div>'+
+            '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Onset timing</label>'+
+              '<select id="mh-ae-onset" class="ch-select ch-select--full">'+
+                '<option value="">—</option>'+
+                '<option value="during">During session</option>'+
+                '<option value="immediately_after">Immediately after</option>'+
+                '<option value="24h_post">Within 24h</option>'+
+                '<option value="delayed">Delayed (>24h)</option>'+
+              '</select></div>'+
+            '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Description</label>'+
+              '<textarea id="mh-ae-desc" class="ch-textarea" rows="4" placeholder="What happened, what was done, patient state."></textarea></div>'+
+            '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">'+
+              '<button class="btn" onclick="document.getElementById(\'mh-ae-report-modal\')?.remove()">Cancel</button>'+
+              '<button class="btn btn-primary" onclick="window._mhAeSubmit()">Report</button>'+
+            '</div>'+
+          '</div>'+
+        '</div>';
+      document.body.appendChild(overlay);
+      setTimeout(() => document.getElementById('mh-ae-type')?.focus(), 50);
+    };
+
+    window._mhAeSubmit = async function() {
+      const patient_id = document.getElementById('mh-ae-patient')?.value;
+      const event_type = (document.getElementById('mh-ae-type')?.value || '').trim();
+      const severity   = document.getElementById('mh-ae-sev')?.value || 'mild';
+      const onset      = document.getElementById('mh-ae-onset')?.value || null;
+      const description= document.getElementById('mh-ae-desc')?.value || null;
+      if (!patient_id) { window._dsToast?.({title:'Patient required',severity:'warn'}); return; }
+      if (!event_type) { window._dsToast?.({title:'Event type required',severity:'warn'}); return; }
+      try {
+        await api.reportAdverseEvent({ patient_id, event_type, severity, onset_timing: onset, description });
+        document.getElementById('mh-ae-report-modal')?.remove();
+        window._dsToast?.({title:'Adverse event reported',severity:'success'});
+        window._nav('monitor-hub');
+      } catch (e) {
+        window._dsToast?.({title:'Report failed',body:e?.message||'Try again.',severity:'error'});
+      }
+    };
+
     const _aeDeepId = window._monitorHubAEId;
     if (_aeDeepId) {
       requestAnimationFrame(() => {
@@ -4198,10 +4424,20 @@ export async function pgMonitorHub(setTopbar, navigate) {
     setTopbar('Monitor', '');
     el.innerHTML = '<div class="ch-shell"><div class="ch-tab-bar">'+tabBar()+'</div><div class="ch-body">'+spinner()+'</div></div>';
     const NOTE_TYPES = ['Session Note','Assessment Note','Progress Summary','Prescription Note','Discharge Summary','Phone Call Note','Referral Letter'];
-    let patients = [];
-    try { const r = await api.listPatients().catch(()=>({items:[]})); patients = r?.items||[]; } catch {}
-    const patOpts = patients.map(p=>'<option value="'+p.id+'">'+ ((p.first_name||'')+' '+(p.last_name||'')).trim() +'</option>').join('') || '<option>Demo Patient A</option>';
-    const savedNotes = (() => { try { return JSON.parse(localStorage.getItem('ds_notes_v1')||'[]'); } catch { return []; } })();
+
+    // Fetch patients + real server-persisted notes (documents with doc_type=note).
+    const [patsRes, docsRes] = await Promise.all([
+      api.listPatients().catch(() => ({ items: [] })),
+      api.listDocuments?.().catch(() => ({ items: [] })) || Promise.resolve({ items: [] }),
+    ]);
+    const patients = patsRes?.items || [];
+    const patById  = Object.fromEntries(patients.map(p => [p.id, ((p.first_name||'')+(p.last_name?' '+p.last_name:'')).trim() || p.id]));
+    const serverNotes = (docsRes?.items || []).filter(d => (d.doc_type||'').toLowerCase() === 'note');
+
+    const patOpts = patients.length
+      ? patients.map(p => '<option value="'+p.id+'">'+(((p.first_name||'')+' '+(p.last_name||'')).trim() || p.id)+'</option>').join('')
+      : '<option value="">(no patients — add one first)</option>';
+    const draftNotes = (() => { try { return JSON.parse(localStorage.getItem('ds_notes_v1')||'[]'); } catch { return []; } })();
 
     el.innerHTML = `
     <div class="ch-shell">
@@ -4222,31 +4458,80 @@ export async function pgMonitorHub(setTopbar, navigate) {
                 </div>
                 <textarea id="note-text" class="ch-textarea" rows="9" placeholder="Type or dictate your clinical note…\n\nOr click AI Summarise for auto-generation.\nSOAP, BIRP, or free text — AI will structure it.">${window._noteText||''}</textarea>
               </div>
-              <div style="display:flex;gap:8px">
-                <button class="btn btn-primary" onclick="window._noteSave()">Save Note</button>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-primary" onclick="window._noteSave()" title="Saves to the patient record as a clinical document">Save to Patient Record</button>
+                <button class="btn" onclick="window._noteSaveDraft()" title="Saves locally on this device only — not visible server-side">Save as Draft</button>
                 <button class="btn" onclick="window._noteClear()">Clear</button>
               </div>
             </div>
           </div>
           <div class="ch-card">
-            <div class="ch-card-hd"><span class="ch-card-title">Recent Notes</span></div>
-            ${savedNotes.length ? savedNotes.slice(0,8).map(n=>'<div class="book-row"><div class="book-datetime"><div class="book-date">'+n.date+'</div><div class="book-time">'+n.type+'</div></div><div class="book-info"><div class="book-patient">'+n.patient+'</div><div class="book-notes">'+n.text.slice(0,60)+'…</div></div><div class="book-actions"><button class="ch-btn-sm" onclick="document.getElementById(\'note-text\').value=\''+n.text.replace(/['"]/g,'').slice(0,100)+'\'">Load</button></div></div>').join('') : '<div class="ch-empty">No notes saved yet.</div>'}
+            <div class="ch-card-hd"><span class="ch-card-title">Recent Notes</span><span style="font-size:11px;color:var(--text-tertiary)">${serverNotes.length} saved · ${draftNotes.length} draft${draftNotes.length===1?'':'s'}</span></div>
+            ${(serverNotes.length === 0 && draftNotes.length === 0)
+              ? '<div class="ch-empty" style="padding:28px 16px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No notes yet. Dictate or type above, then Save to Patient Record.</div>'
+              : [
+                  ...serverNotes.slice(0,6).map(n => {
+                    const patName = patById[n.patient_id] || n.patient_id || '—';
+                    const date = (n.updated_at||n.created_at||'').slice(0,10) || '—';
+                    const preview = (n.notes || n.title || '').slice(0,60);
+                    return '<div class="book-row"><div class="book-datetime"><div class="book-date">'+date+'</div><div class="book-time">'+(n.title||'Note')+'</div></div>'+
+                      '<div class="book-info"><div class="book-patient">'+patName+'</div><div class="book-notes">'+preview+(preview.length===60?'…':'')+'</div></div>'+
+                      '<div class="book-actions"><span style="font-size:10px;color:var(--green);font-weight:600;letter-spacing:0.5px">SAVED</span></div></div>';
+                  }),
+                  ...draftNotes.slice(0,4).map(n => {
+                    const safeLoad = (n.text||'').replace(/'/g,'&#39;').replace(/"/g,'&quot;').slice(0,400);
+                    return '<div class="book-row"><div class="book-datetime"><div class="book-date">'+n.date+'</div><div class="book-time">'+n.type+'</div></div>'+
+                      '<div class="book-info"><div class="book-patient">'+n.patient+'</div><div class="book-notes">'+(n.text||'').slice(0,60)+(n.text&&n.text.length>60?'…':'')+'</div></div>'+
+                      '<div class="book-actions"><button class="ch-btn-sm" onclick="window._noteLoadDraft(\''+safeLoad+'\')">Load</button><span style="margin-left:6px;font-size:10px;color:var(--amber);font-weight:600;letter-spacing:0.5px">DRAFT</span></div></div>';
+                  }),
+                ].join('')}
           </div>
         </div>
       </div>
     </div>`;
 
-    window._noteSave = () => {
+    window._noteLoadDraft = (text) => {
+      const ta = document.getElementById('note-text');
+      if (ta) ta.value = text;
+    };
+
+    window._noteSave = async () => {
       const text = document.getElementById('note-text')?.value?.trim();
-      const type = document.getElementById('note-type')?.value||'Session Note';
+      const type = document.getElementById('note-type')?.value || 'Session Note';
       const patEl = document.getElementById('note-patient');
-      const patient = patEl?.options[patEl?.selectedIndex]?.text||'Unknown';
+      const patient_id = patEl?.value || '';
+      const patient_label = patEl?.options[patEl?.selectedIndex]?.text || '';
+      if (!text) { window._dsToast?.({title:'Empty note',severity:'warn'}); return; }
+      if (!patient_id) { window._dsToast?.({title:'Pick a patient',body:'Add a patient first to save to the record.',severity:'warn'}); return; }
+      try {
+        await api.createDocument({
+          title: type + ' — ' + (patient_label || patient_id),
+          doc_type: 'note',
+          patient_id,
+          status: 'completed',
+          notes: text,
+        });
+        window._noteText = '';
+        window._dsToast?.({title:'Note saved to patient record',body:type+' for '+patient_label,severity:'success'});
+        window._monitorHubTab = 'notes';
+        window._nav('monitor-hub');
+      } catch (e) {
+        window._dsToast?.({title:'Save failed',body:e?.message||'Saved as draft instead.',severity:'error'});
+        window._noteSaveDraft();
+      }
+    };
+
+    window._noteSaveDraft = () => {
+      const text = document.getElementById('note-text')?.value?.trim();
+      const type = document.getElementById('note-type')?.value || 'Session Note';
+      const patEl = document.getElementById('note-patient');
+      const patient = patEl?.options[patEl?.selectedIndex]?.text || 'Unknown';
       if (!text) { window._dsToast?.({title:'Empty note',severity:'warn'}); return; }
       const notes = (() => { try { return JSON.parse(localStorage.getItem('ds_notes_v1')||'[]'); } catch { return []; } })();
-      notes.unshift({ id:'NOTE-'+Date.now(), patient, type, text, date: new Date().toISOString().slice(0,10) });
+      notes.unshift({ id:'DRAFT-'+Date.now(), patient, type, text, date: new Date().toISOString().slice(0,10) });
       try { localStorage.setItem('ds_notes_v1', JSON.stringify(notes.slice(0,50))); } catch {}
       window._noteText = '';
-      window._dsToast?.({title:'Note saved',body:type+' for '+patient,severity:'success'});
+      window._dsToast?.({title:'Draft saved locally',body:'Not synced to server.',severity:'info'});
       window._monitorHubTab='notes'; window._nav('monitor-hub');
     };
     window._noteClear = () => { const t=document.getElementById('note-text'); if(t){t.value=''; window._noteText='';} };
