@@ -2224,7 +2224,7 @@ export async function pgPatientCourse() {
     try { localStorage.setItem(personalKey, JSON.stringify(items)); } catch {}
   }
   // Local completion state for clinician-assigned tasks, synced to the backend
-  // via patientPortalCompleteHomeProgramTask. Keyed by server_task_id.
+  // via api.portalCompleteHomeProgramTask. Keyed by server_task_id.
   const assignedCompletionKey = 'ds_hp_task_done_' + (uid || 'default');
   function loadAssignedDone() {
     try { return JSON.parse(localStorage.getItem(assignedCompletionKey) || '{}'); } catch { return {}; }
@@ -2476,7 +2476,7 @@ export async function pgPatientCourse() {
       ${outcomePct >= 50 ? '<div class="ptcp-outcome-note">Clinically significant response — keep going</div>' : ''}
     </div>` : `
     <p class="ptcp-body-text ptcp-muted">Outcome data will appear here after your first formal assessment.</p>`}
-    <button class="ptcp-link-btn" style="margin-top:10px" onclick="window._navPatient('patient-outcomes')">View full progress charts</button>
+    <button class="ptcp-link-btn" style="margin-top:10px" onclick="window._navPatient('patient-reports')">View full progress charts</button>
   </div>
 
   <!-- ⑦ CLINICIAN FEEDBACK -->
@@ -2604,7 +2604,7 @@ export async function pgPatientCourse() {
     renderHW();
 
     try {
-      await api.patientPortalCompleteHomeProgramTask(item.server_task_id || id, { completed: nextDone });
+      await api.portalCompleteHomeProgramTask(item.server_task_id || id, { completed: nextDone });
     } catch (err) {
       // Roll back local state so the UI stays honest about what the backend has.
       const rollback = loadAssignedDone();
