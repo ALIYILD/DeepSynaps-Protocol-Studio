@@ -259,8 +259,17 @@ export const api = {
   getPatientAssessments: (patientId) => apiFetch(`/api/v1/patients/${patientId}/assessments`),
   getPatientReports: (patientId) => apiFetch(`/api/v1/patients/${patientId}/reports`),
   getPatientMessages: (patientId) => apiFetch(`/api/v1/patients/${patientId}/messages`),
-  sendPatientMessage: (patientId, message) =>
-    apiFetch(`/api/v1/patients/${patientId}/messages`, { method: 'POST', body: JSON.stringify({ body: message }) }),
+  sendPatientMessage: (patientId, messageOrPayload) => {
+    const payload = (messageOrPayload && typeof messageOrPayload === 'object')
+      ? messageOrPayload
+      : { body: String(messageOrPayload || '') };
+    return apiFetch(`/api/v1/patients/${patientId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+  markPatientMessageRead: (patientId, messageId) =>
+    apiFetch(`/api/v1/patients/${patientId}/messages/${encodeURIComponent(messageId)}/read`, { method: 'PATCH' }),
   submitAssessment: (patientId, assessmentData) =>
     apiFetch('/api/v1/assessments', { method: 'POST', body: JSON.stringify({ ...assessmentData, patient_id: patientId }) }),
 
@@ -792,6 +801,8 @@ export const api = {
   patientPortalMessages: () => apiFetch('/api/v1/patient-portal/messages'),
   patientPortalSendMessage: (data) =>
     apiFetch('/api/v1/patient-portal/messages', { method: 'POST', body: JSON.stringify(data) }),
+  patientPortalMarkMessageRead: (messageId) =>
+    apiFetch(`/api/v1/patient-portal/messages/${encodeURIComponent(messageId)}/read`, { method: 'PATCH' }),
 
   // ── Wearable monitoring ───────────────────────────────────────────────────
   patientPortalWearables: () => apiFetch('/api/v1/patient-portal/wearables'),

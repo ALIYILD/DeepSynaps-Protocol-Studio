@@ -7437,11 +7437,19 @@ function _vcInboxHTML() {
         ${_vcInboxMsgs.length === 0
           ? '<div class="vc-thread-ph">No messages yet. Start the conversation below.</div>'
           : _vcInboxMsgs.map(m => {
-              const out = m.sender_role !== 'patient';
+              // "out" = this message was sent BY the clinician viewing the thread.
+              // Prefer server-stamped sender_type; fall back to sender_id match.
+              const senderType = (m.sender_type || '').toLowerCase();
+              const out = senderType
+                ? senderType === 'clinician'
+                : (currentUser?.id && m.sender_id === currentUser.id);
               const ts  = m.created_at ? new Date(m.created_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : '';
+              const receipt = out
+                ? (m.is_read ? ' &middot; Read \u2713\u2713' : ' &middot; Sent \u2713')
+                : '';
               return `<div class="vc-msg${out?' vc-msg--out':''}">
-                <div class="vc-msg-bub">${e(m.body||m.message||m.content||'')}</div>
-                <div class="vc-msg-meta">${ts}${out?' &middot; Sent \u2713':''}</div>
+                <div class="vc-msg-bub">${e(m.body||'')}</div>
+                <div class="vc-msg-meta">${ts}${receipt}</div>
               </div>`;
             }).join('')}
       </div>
@@ -7701,6 +7709,19 @@ window._vcInboxSel = async function(pid) {
   _vcInboxPid = pid;
   try { const r = await api.getPatientMessages(pid); _vcInboxMsgs = Array.isArray(r) ? r : (r?.items||[]); } catch { _vcInboxMsgs = []; }
   _vcRender();
+  // Honest read receipts: only mark incoming patient messages as read,
+  // never the clinician's own sent messages.
+  const unreadFromPatient = (_vcInboxMsgs || []).filter(m =>
+    m && m.id
+    && m.is_read === false
+    && ((m.sender_type || '').toLowerCase() === 'patient'
+        || (currentUser?.id && m.sender_id && m.sender_id !== currentUser.id))
+  );
+  if (unreadFromPatient.length && api.markPatientMessageRead) {
+    Promise.all(unreadFromPatient.map(m =>
+      api.markPatientMessageRead(pid, m.id).catch(() => null)
+    )).then(() => { unreadFromPatient.forEach(m => { m.is_read = true; }); });
+  }
 };
 
 window._vcSendReply = async function(pid) {
@@ -7710,14 +7731,17 @@ window._vcSendReply = async function(pid) {
   ta.value = '';
   ta.disabled = true;
   try {
-    await api.sendPatientMessage(pid, msg);
-    const t = document.getElementById('vc-thread');
-    if (t) {
-      const d = document.createElement('div');
-      d.className = 'vc-msg vc-msg--out';
-      d.innerHTML = `<div class="vc-msg-bub">${_vcEsc(msg)}</div><div class="vc-msg-meta">${new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})} &middot; Sending\u2026</div>`;
-      t.appendChild(d); t.scrollTop = t.scrollHeight;
-    }
+    // Thread the reply to the first message's thread_id when available so the
+    // conversation stays grouped. Backend auto-stamps a new thread id if absent.
+    const firstThreadId = (_vcInboxMsgs || []).find(x => x && x.thread_id)?.thread_id || null;
+    await api.sendPatientMessage(pid, { body: msg, thread_id: firstThreadId });
+    // Refetch so the new message renders with its real id / timestamp /
+    // sender_type instead of a fake optimistic bubble.
+    try {
+      const r = await api.getPatientMessages(pid);
+      _vcInboxMsgs = Array.isArray(r) ? r : (r?.items || []);
+    } catch { /* surface nothing stale — keep existing list */ }
+    _vcRender();
   } catch {
     ta.value = msg;
     window._showNotifToast?.({title:'Send failed',body:'Message could not be sent. Please try again.',severity:'error'});

@@ -32,7 +32,6 @@ from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import (
     AssessmentRecord,
-    ClinicalSession,
     ClinicianHomeProgramTask,
     DeliveredSessionParameters,
     DeviceConnection,
@@ -123,34 +122,18 @@ class PortalCourseOut(BaseModel):
     clinician_notes: Optional[str]
     session_count: int
     total_sessions_planned: Optional[int]
-    # Patient-friendly schedule + protocol fields (read from the real model columns,
-    # not the protocol_json blob, so they are always populated once the course exists).
-    sessions_per_week: Optional[int] = None
-    session_duration_minutes: Optional[int] = None
-    planned_frequency_hz: Optional[str] = None
-    planned_intensity: Optional[str] = None
-    evidence_grade: Optional[str] = None
-    target_region: Optional[str] = None
     started_at: Optional[str]
     created_at: str
 
 
 class PortalSessionOut(BaseModel):
     id: str
-    course_id: Optional[str] = None  # ClinicalSession bookings have no course_id; DeliveredSessionParameters do
-    device_slug: Optional[str] = None
-    tolerance_rating: Optional[str] = None
-    post_session_notes: Optional[str] = None
-    duration_minutes: Optional[int] = None
-    # Booking-side fields (from ClinicalSession appointments) — empty for delivered-only rows
-    scheduled_at: Optional[str] = None
-    status: Optional[str] = None
-    session_number: Optional[int] = None
-    total_sessions: Optional[int] = None
-    modality: Optional[str] = None
-    location: Optional[str] = None  # populated from room_id when present
-    # Delivery-side timestamp (from DeliveredSessionParameters) — empty for upcoming bookings
-    delivered_at: Optional[str] = None
+    course_id: str
+    device_slug: Optional[str]
+    tolerance_rating: Optional[str]
+    post_session_notes: Optional[str]
+    duration_minutes: Optional[int]
+    delivered_at: str  # created_at of the session record
 
 
 class PortalAssessmentOut(BaseModel):
@@ -257,6 +240,7 @@ def get_portal_courses(
 
     # Batch-load all delivered sessions for these courses in one query to
     # avoid the N+1 pattern (one query per course).
+    import json as _json
     course_id_list = [c.id for c in courses]
     if course_id_list:
         all_sessions = (
@@ -272,6 +256,11 @@ def get_portal_courses(
 
     result = []
     for c in courses:
+        params = {}
+        try:
+            params = _json.loads(c.protocol_json or "{}")
+        except Exception:
+            pass
         result.append(PortalCourseOut(
             id=c.id,
             protocol_id=c.protocol_id,
@@ -280,14 +269,7 @@ def get_portal_courses(
             status=c.status,
             clinician_notes=c.clinician_notes,
             session_count=session_counts.get(c.id, 0),
-            # Prefer real column values — protocol_json often lacks these keys.
-            total_sessions_planned=c.planned_sessions_total,
-            sessions_per_week=c.planned_sessions_per_week,
-            session_duration_minutes=c.planned_session_duration_minutes,
-            planned_frequency_hz=c.planned_frequency_hz or None,
-            planned_intensity=c.planned_intensity or None,
-            evidence_grade=c.evidence_grade or None,
-            target_region=c.target_region or None,
+            total_sessions_planned=params.get("total_sessions_planned"),
             started_at=_dt(c.started_at) if c.started_at else None,
             created_at=_dt(c.created_at),
         ))
@@ -299,66 +281,38 @@ def get_portal_sessions(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> list[PortalSessionOut]:
-    """Patient-facing session list: real upcoming bookings (ClinicalSession)
-    plus historical delivered-session telemetry (DeliveredSessionParameters)
-    in one merged stream. The frontend Patient Dashboard filters this list to
-    compute "next session" and the past-sessions log."""
     if actor.role != "patient":
         raise ApiServiceError(code="forbidden", message="Patient portal access only.", status_code=403)
 
     patient = _require_patient(actor, db)
 
-    out: list[PortalSessionOut] = []
+    # Get all course IDs for this patient
+    course_ids = [
+        c.id for c in db.query(TreatmentCourse.id)
+        .filter(TreatmentCourse.patient_id == patient.id).all()
+    ]
+    if not course_ids:
+        return []
 
-    # Bookings — the source of truth for upcoming/active/cancelled sessions
-    # the patient can see on their dashboard. Includes completed bookings too,
-    # which carry session_number / total_sessions context the delivered-params
-    # rows lack.
-    bookings = (
-        db.query(ClinicalSession)
-        .filter(ClinicalSession.patient_id == patient.id)
-        .order_by(ClinicalSession.scheduled_at.desc())
+    sessions = (
+        db.query(DeliveredSessionParameters)
+        .filter(DeliveredSessionParameters.course_id.in_(course_ids))
+        .order_by(DeliveredSessionParameters.created_at.desc())
         .all()
     )
-    for b in bookings:
-        out.append(PortalSessionOut(
-            id=b.id,
-            course_id=None,
-            device_slug=b.device_id,
-            duration_minutes=b.duration_minutes,
-            scheduled_at=b.scheduled_at,
-            status=b.status,
-            session_number=b.session_number,
-            total_sessions=b.total_sessions,
-            modality=b.modality,
-            location=b.room_id,
-            delivered_at=_dt(b.completed_at) if getattr(b, "completed_at", None) else None,
-        ))
 
-    # Delivered telemetry — additional rows surface tolerance + notes from
-    # historical sessions that may not have a matching ClinicalSession row.
-    course_ids = [c.id for c in db.query(TreatmentCourse.id)
-                  .filter(TreatmentCourse.patient_id == patient.id).all()]
-    if course_ids:
-        delivered = (
-            db.query(DeliveredSessionParameters)
-            .filter(DeliveredSessionParameters.course_id.in_(course_ids))
-            .order_by(DeliveredSessionParameters.created_at.desc())
-            .all()
+    return [
+        PortalSessionOut(
+            id=s.id,
+            course_id=s.course_id,
+            device_slug=s.device_slug,
+            tolerance_rating=s.tolerance_rating,
+            post_session_notes=s.post_session_notes,
+            duration_minutes=s.duration_minutes,
+            delivered_at=_dt(s.created_at),
         )
-        for s in delivered:
-            out.append(PortalSessionOut(
-                id=s.id,
-                course_id=s.course_id,
-                device_slug=s.device_slug,
-                tolerance_rating=s.tolerance_rating,
-                post_session_notes=s.post_session_notes,
-                duration_minutes=s.duration_minutes,
-                delivered_at=_dt(s.created_at),
-                # status defaults to None — frontend treats absence as "delivered telemetry only"
-            ))
-
-    return out
+        for s in sessions
+    ]
 
 
 @router.get("/assessments", response_model=list[PortalAssessmentOut])
@@ -533,6 +487,9 @@ def send_portal_message(
         thread_id=body.thread_id,
         priority=body.priority,
     )
+    # Stamp thread_id on thread-starters so replies can group deterministically.
+    if not msg.thread_id:
+        msg.thread_id = msg.id
     db.add(msg)
     db.commit()
     db.refresh(msg)
@@ -552,6 +509,59 @@ def send_portal_message(
         created_at=_dt(msg.created_at),
         read_at=None,
         is_read=False,
+    )
+
+
+@router.patch("/messages/{message_id}/read", response_model=PortalMessageOut)
+def mark_portal_message_read(
+    message_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PortalMessageOut:
+    """Mark a message addressed to the authenticated patient as read.
+
+    Only the recipient may mark a message as read; honest receipts only.
+    """
+    if actor.role != "patient":
+        raise ApiServiceError(code="forbidden", message="Patient portal access only.", status_code=403)
+
+    patient = _require_patient(actor, db)
+    msg = db.query(Message).filter_by(id=message_id).first()
+    if msg is None:
+        raise ApiServiceError(code="not_found", message="Message not found.", status_code=404)
+    if msg.patient_id != patient.id:
+        raise ApiServiceError(
+            code="forbidden",
+            message="You may only access messages on your own thread.",
+            status_code=403,
+        )
+    if msg.recipient_id != actor.actor_id:
+        raise ApiServiceError(
+            code="forbidden",
+            message="You may only mark messages addressed to you as read.",
+            status_code=403,
+        )
+
+    if msg.read_at is None:
+        msg.read_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(msg)
+
+    return PortalMessageOut(
+        id=msg.id,
+        sender_id=msg.sender_id,
+        recipient_id=msg.recipient_id,
+        patient_id=msg.patient_id,
+        body=msg.body,
+        subject=msg.subject,
+        category=msg.category,
+        thread_id=msg.thread_id,
+        priority=msg.priority,
+        sender_type="patient" if msg.sender_id == actor.actor_id else "clinician",
+        sender_name=None,
+        created_at=_dt(msg.created_at),
+        read_at=_dt(msg.read_at) if msg.read_at else None,
+        is_read=msg.read_at is not None,
     )
 
 
