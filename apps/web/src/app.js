@@ -62,53 +62,35 @@ window._toggleHighContrast = function() {
 // Restore on boot
 if (localStorage.getItem('ds_high_contrast') === '1') document.body.classList.add('high-contrast');
 
-// ── Theme management ────────────────────────────────────────────────────────
+// ── Theme management (Dark mode only) ────────────────────────────────────────
 (function initTheme() {
-  const stored = localStorage.getItem('ds_theme');
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const theme = stored || (prefersDark ? 'dark' : 'light');
-  if (theme === 'light') document.body.classList.add('light-theme');
+  const theme = 'dark'; // Force dark mode always
+  localStorage.setItem('ds_theme', theme);
   document.documentElement.classList.remove('light-theme-pending');
+  document.body.classList.remove('light-theme');
   window._currentTheme = theme;
 
   window._setTheme = function(t) {
-    window._currentTheme = t;
-    localStorage.setItem('ds_theme', t);
-    document.body.classList.toggle('light-theme', t === 'light');
-    const btn = document.getElementById('theme-toggle-btn');
-    if (btn) btn.textContent = t === 'light' ? '🌙' : '☀️';
-    const settingsToggle = document.getElementById('settings-theme-label');
-    if (settingsToggle) settingsToggle.textContent = t === 'light' ? 'Switch to Dark' : 'Switch to Light';
-    window._announce?.(`${t === 'light' ? 'Light' : 'Dark'} theme activated`);
+    // Dark mode only — no-op
+    window._currentTheme = 'dark';
+    localStorage.setItem('ds_theme', 'dark');
+    document.body.classList.remove('light-theme');
   };
 
   window._toggleTheme = function() {
-    window._setTheme(window._currentTheme === 'dark' ? 'light' : 'dark');
+    // Theme toggle disabled — dark mode only
   };
-
-  // Set initial topbar button icon (button may not exist yet if script runs before DOM)
-  requestAnimationFrame(() => {
-    const btn = document.getElementById('theme-toggle-btn');
-    if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
-  });
-
-  // Respond to OS theme changes (only if user hasn't set a preference)
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-    if (!localStorage.getItem('ds_theme')) {
-      window._setTheme(e.matches ? 'dark' : 'light');
-    }
-  });
 })();
 
 (function initLangSwitcher() {
-  // Inject language switcher button into topbar after #theme-toggle-btn
-  const themeBtn = document.getElementById('theme-toggle-btn');
-  if (!themeBtn) return;
+  // Inject language switcher button into topbar
+  const searchBtn = document.getElementById('search-btn');
+  if (!searchBtn) return;
   const wrap = document.createElement('div');
   wrap.className = 'lang-switcher-wrap';
   wrap.style.cssText = 'position:relative;display:inline-block;';
   wrap.innerHTML = `
-    <button id="lang-btn" class="icon-btn" title="Language" aria-label="Switch language" onclick="window._toggleLangMenu()">
+    <button id="lang-btn" class="lang-btn" title="Language" aria-label="Switch language" onclick="window._toggleLangMenu()" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;width:34px;height:34px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:0.9rem;flex-shrink:0;gap:4px;font-size:11px;font-weight:500;padding:0 6px;width:auto;white-space:nowrap;">
       🌐 <span id="lang-btn-label">${getLocale().toUpperCase()}</span>
     </button>
     <div id="lang-menu" class="lang-menu" style="display:none;" role="menu">
@@ -117,7 +99,7 @@ if (localStorage.getItem('ds_high_contrast') === '1') document.body.classList.ad
       ).join('')}
     </div>
   `;
-  themeBtn.parentNode.insertBefore(wrap, themeBtn.nextSibling);
+  searchBtn.parentNode.insertBefore(wrap, searchBtn.nextSibling);
 
   window._toggleLangMenu = function() {
     const m = document.getElementById('lang-menu');
@@ -156,10 +138,14 @@ let _modHandbooks  = null;
 let _modProtocols  = null;
 let _modVirtualCare   = null;
 let _modConditions    = null;
+let _modClinicalTools = null;
+let _modClinicalHubs  = null;
 
 async function loadPublic()     { return (_modPublic    ??= await import('./pages-public.js')); }
 async function loadPatient()    { return (_modPatient   ??= await import('./pages-patient.js')); }
 async function loadClinical()   { return (_modClinical  ??= await import('./pages-clinical.js')); }
+async function loadClinicalTools() { return (_modClinicalTools ??= await import('./pages-clinical-tools.js')); }
+async function loadClinicalHubs()  { return (_modClinicalHubs  ??= await import('./pages-clinical-hubs.js')); }
 async function loadKnowledge()  { return (_modKnowledge ??= await import('./pages-knowledge.js')); }
 async function loadPractice()   { return (_modPractice  ??= await import('./pages-practice.js')); }
 async function loadCourses()    { return (_modCourses   ??= await import('./pages-courses.js')); }
@@ -170,6 +156,10 @@ async function loadHandbooks()  { return (_modHandbooks  ??= await import('./pag
 async function loadProtocols()   { return (_modProtocols   ??= await import('./pages-protocols.js')); }
 async function loadVirtualCare()  { return (_modVirtualCare  ??= await import('./pages-virtualcare.js')); }
 async function loadConditions()   { return (_modConditions   ??= await import('./pages-conditions.js')); }
+let _modResearch = null;
+async function loadResearch()     { return (_modResearch ??= await import('./pages-research.js')); }
+let _modBrainMap = null;
+async function loadBrainMap()     { return (_modBrainMap ??= await import('./pages-brainmap.js')); }
 
 // ── Helpers that delegate to the clinical module once loaded ──────────────────
 // Called synchronously in navigate() before renderPage(); safe to no-op until
@@ -438,88 +428,115 @@ let currentPage = 'dashboard';
 
 // ── Role-based nav visibility ─────────────────────────────────────────────────
 const ROLE_NAV_HIDE = {
-  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'population-analytics', 'brain-map-planner', 'handbook-generator', 'notes-dictation', 'assessments-hub'],
+  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'population-analytics', 'brain-map-planner', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
   reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'population-analytics', 'brain-map-planner'],
-  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-consent', 'reg-reports', 'reg-handbooks', 'reg-home-programs', 'reg-virtual-care'],
+  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
   clinician:  ['population-analytics'],
 };
 
-// ── Nav definition — organised around clinician workflow ──────────────────────
+// ── Nav definition — design-v2 grouping (CLINICAL / PROTOCOL / SESSIONS / ADMIN)
+// design-v2 nav IDs — new routes alongside legacy; per-phase migration reparents bodies.
 const NAV = [
-  // ── TODAY ────────────────────────────────────────────────────────────────────
-  { section: 'TODAY', sectionId: 'today' },
-  { id: 'dashboard',          label: 'Dashboard',          icon: '◈' },
-  { id: 'patient-queue',      label: 'Today\'s Queue',     icon: '◉' },
-  { id: 'session-execution',  label: 'Start Session',      icon: '◧' },
-  { id: 'messaging',          label: 'Virtual Care',       icon: '▫' },
-  { id: 'review-queue',       label: 'Review & Approvals', icon: '◱', badge: null },
+  // ── CLINICAL ─────────────────────────────────────────────────────────────────
+  { section: 'Clinical', sectionId: 'clinical', collapsed: false },
+  { id: 'home',               label: 'Dashboard',         icon: '🏠' },
+  { id: 'schedule-v2',        label: 'Schedule',          icon: '🗓️' },
+  { id: 'assessments-v2',     label: 'Assessments',       icon: '◉' },
+  { id: 'patients-v2',        label: 'Patients',          icon: '👥' },
 
-  // ── PATIENT CARE ─────────────────────────────────────────────────────────────
-  { section: 'PATIENT CARE', sectionId: 'patient-care' },
-  { id: 'patients',           label: 'Patients',           icon: '◉' },
-  { id: 'courses',            label: 'Treatment Courses',  icon: '◎', badge: null },
-  { id: 'medical-history',    label: 'Medical History',    icon: '◧' },
-  { id: 'documents',          label: 'Documents',          icon: '◩' },
-  { id: 'assessments-hub',    label: 'Assessments',        icon: '◈' },
-  { id: 'reports',            label: 'Reports',            icon: '◫' },
-  { id: 'outcomes',           label: 'Outcomes',           icon: '◫' },
-  { id: 'wearables',          label: 'Wearable Integrations', icon: '⌚' },
-  { id: 'home-task-manager',  label: 'Home Programs',      icon: '◩' },
+  // ── PROTOCOL ─────────────────────────────────────────────────────────────────
+  { section: 'Protocol', sectionId: 'protocol', collapsed: false },
+  { id: 'protocol-studio',    label: 'Studio',            icon: '🧪', ai: true },
+  { id: 'brainmap-v2',        label: 'Brain Map Planner', icon: '🧠' },
+  { id: 'handbooks-v2',       label: 'Handbooks',         icon: '📚' },
+  { id: 'library-v2',         label: 'Library',           icon: '📖' },
 
-  // ── PROTOCOLS ────────────────────────────────────────────────────────────────
-  { section: 'PROTOCOLS', sectionId: 'protocols' },
-  { id: 'protocol-wizard',    label: 'Protocol Search',    icon: '⬡', ai: true },
-  { id: 'condition-packages', label: 'Condition Packages', icon: '◈', badge: '20' },
-  { id: 'protocol-builder',   label: 'Protocol Builder',   icon: '◇' },
-  { id: 'condition-backlog',  label: 'Condition Backlog',  icon: '◈' },
-  { id: 'brain-map-planner',  label: 'Brain Map Planner',  icon: '◎' },
-  { id: 'handbooks',          label: 'Handbooks',          icon: '◩' },
-  { id: 'prescriptions',      label: 'Prescriptions',      icon: '◧' },
-  { id: 'protocols-registry', label: 'Protocol Registry',  icon: '◫' },
+  // ── SESSIONS ─────────────────────────────────────────────────────────────────
+  { section: 'Sessions', sectionId: 'sessions', collapsed: false },
+  { id: 'live-session',       label: 'Live Session',      icon: '📹', ai: true },
+  { id: 'home-tasks-v2',      label: 'Home Task Manager', icon: '🏠' },
 
-  // ── REGISTRIES ───────────────────────────────────────────────────────────────
-  { section: 'REGISTRIES', sectionId: 'registries', collapsed: true },
-  { id: 'reg-conditions',   label: 'Condition Registry',       icon: '◈' },
-  { id: 'reg-assessments',  label: 'Assessment Registry',      icon: '◇' },
-  { id: 'reg-protocols',    label: 'Protocol Templates',       icon: '◫' },
-  { id: 'reg-devices',      label: 'Device Registry',          icon: '◎' },
-  { id: 'reg-targets',      label: 'Brain Targets',            icon: '◉' },
-  { id: 'reg-consent',      label: 'Consent & Documents',      icon: '◩' },
-  { id: 'reg-reports',      label: 'Report Templates',         icon: '◧' },
-  { id: 'reg-handbooks',    label: 'Handbook Templates',       icon: '◩' },
-  { id: 'reg-home-programs',label: 'Home Program Templates',   icon: '◌' },
-  { id: 'reg-virtual-care', label: 'Virtual Care Templates',   icon: '▫' },
-
-  // ── CLINICAL TOOLS ───────────────────────────────────────────────────────────
-  { section: 'CLINICAL TOOLS', sectionId: 'clinical-tools', collapsed: true },
-  { id: 'scoring-calc',       label: 'Scales & Scores',    icon: '◇' },
-  { id: 'adverse-events',     label: 'Adverse Events',     icon: '⚠' },
-  { id: 'notes-dictation',    label: 'Notes & Dictation',  icon: '◧', ai: true },
-
-  // ── CLINIC ───────────────────────────────────────────────────────────────────
-  { section: 'CLINIC', sectionId: 'clinic', collapsed: true },
-  { id: 'scheduling',         label: 'Team & Schedule',    icon: '◎' },
-  { id: 'billing',            label: 'Billing / Plans',    icon: '◩' },
-  { id: 'wearable-integration', label: 'Integrations',     icon: '◌' },
-  { id: 'settings',           label: 'Settings',           icon: '◎' },
+  // ── ADMIN ────────────────────────────────────────────────────────────────────
+  { section: 'Admin', sectionId: 'admin', collapsed: false },
+  { id: 'documents-v2',       label: 'Documents',         icon: '📄' },
+  { id: 'reports-v2',         label: 'Reports',           icon: '📈' },
+  { id: 'finance-v2',         label: 'Finance',           icon: '💰' },
+  { id: 'ai-agent-v2',        label: 'AI Practice Agent', icon: '🤖', ai: true },
+  { id: 'research-v2',        label: 'Research',          icon: '🔬' },
+  { id: 'governance-v2',      label: 'Governance',        icon: '🛡️' },
 ];
+
+// ── Lucide-style SVG icons for nav items ──────────────────────────────────────
+const NAV_ICONS = {
+  'home':              `<svg viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
+  'patients':          `<svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+  'courses':           `<svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>`,
+  'clinical-hub':      `<svg viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M8 12h.01"/><path d="M12 12h4"/><path d="M8 16h.01"/><path d="M12 16h4"/></svg>`,
+  'assessments':       `<svg viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M8 12h.01"/><path d="M12 12h4"/><path d="M8 16h.01"/><path d="M12 16h4"/></svg>`,
+  'protocol-hub':      `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="m4.22 4.22 2.12 2.12"/><path d="m17.66 17.66 2.12 2.12"/><path d="M2 12h3"/><path d="M19 12h3"/><path d="m4.22 19.78 2.12-2.12"/><path d="m17.66 6.34 2.12-2.12"/></svg>`,
+  'scheduling-hub':    `<svg viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/></svg>`,
+  'library-hub':       `<svg viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>`,
+  'monitor-hub':       `<svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>`,
+  'virtual-care-hub':  `<svg viewBox="0 0 24 24"><path d="m22 8-6 4 6 4V8z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>`,
+  'documents-hub':     `<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`,
+  'reports-hub':       `<svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6"  y1="20" x2="6"  y2="14"/></svg>`,
+  'finance-hub':       `<svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>`,
+  'patients-hub':      `<svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+  'medical-history':   `<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`,
+  'assessments-hub':   `<svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
+  'outcomes':          `<svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>`,
+  'protocol-wizard':   `<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>`,
+  'brain-map-planner': `<svg viewBox="0 0 24 24"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-3 2.5 2.5 0 0 1 .49-4.78 2.5 2.5 0 0 1 1.5-4.58A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.07-3 2.5 2.5 0 0 0-.49-4.78 2.5 2.5 0 0 0-1.5-4.58A2.5 2.5 0 0 0 14.5 2Z"/></svg>`,
+  'prescriptions':     `<svg viewBox="0 0 24 24"><path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/></svg>`,
+  'protocols-registry':`<svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>`,
+  'handbooks':         `<svg viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>`,
+  'scoring-calc':      `<svg viewBox="0 0 24 24"><rect width="16" height="20" x="4" y="2" rx="2"/><line x1="8" x2="16" y1="6" y2="6"/><path d="M16 10h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M12 14h.01"/><path d="M8 14h.01"/><path d="M12 18h.01"/><path d="M8 18h.01"/></svg>`,
+  'adverse-events':    `<svg viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`,
+  'notes-dictation':   `<svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>`,
+  'wearables':         `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/><polyline points="12 10 12 12 13 13"/><path d="m16.13 7.66-.81-4.05a2 2 0 0 0-2-1.61h-2.68a2 2 0 0 0-2 1.61l-.78 4.05"/><path d="m7.88 16.36.8 4a2 2 0 0 0 2 1.61h2.72a2 2 0 0 0 2-1.61l.81-4.05"/></svg>`,
+  'protocol-builder':  `<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>`,
+  'condition-packages':`<svg viewBox="0 0 24 24"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>`,
+  'home-task-manager': `<svg viewBox="0 0 24 24"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg>`,
+  'reg-conditions':    `<svg viewBox="0 0 24 24"><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><path d="M7 7h.01"/></svg>`,
+  'reg-assessments':   `<svg viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/></svg>`,
+  'reg-protocols':     `<svg viewBox="0 0 24 24"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>`,
+  'reg-devices':       `<svg viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>`,
+  'reg-targets':       `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>`,
+  'reg-handbooks':     `<svg viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>`,
+  'reg-virtual-care':  `<svg viewBox="0 0 24 24"><path d="m22 8-6 4 6 4V8z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>`,
+  'scheduling':        `<svg viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>`,
+  'billing':           `<svg viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>`,
+  'settings':          `<svg viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`,
+  'patient-view':      `<svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+};
+// design-v2 nav IDs reuse legacy icon SVGs (same look during transition)
+NAV_ICONS['schedule-v2']     = NAV_ICONS['scheduling-hub'];
+NAV_ICONS['assessments-v2']  = NAV_ICONS['assessments-hub'];
+NAV_ICONS['patients-v2']     = NAV_ICONS['patients-hub'];
+NAV_ICONS['protocol-studio'] = NAV_ICONS['protocol-builder'];
+NAV_ICONS['brainmap-v2']     = NAV_ICONS['brain-map-planner'];
+NAV_ICONS['handbooks-v2']    = NAV_ICONS['handbooks'];
+NAV_ICONS['library-v2']      = NAV_ICONS['library-hub'];
+NAV_ICONS['live-session']    = NAV_ICONS['virtual-care-hub'];
+NAV_ICONS['home-tasks-v2']   = NAV_ICONS['home-task-manager'];
+NAV_ICONS['documents-v2']    = NAV_ICONS['documents-hub'];
+NAV_ICONS['reports-v2']      = NAV_ICONS['reports-hub'];
+NAV_ICONS['finance-v2']      = NAV_ICONS['finance-hub'];
+NAV_ICONS['ai-agent-v2']     = NAV_ICONS['protocol-hub'];
+NAV_ICONS['research-v2']     = NAV_ICONS['protocol-wizard'];
+NAV_ICONS['governance-v2']   = NAV_ICONS['adverse-events'];
 
 // ── Section labels ────────────────────────────────────────────────────────────
 const SECTION_LABELS = {
-  today:          'Today',
-  'patient-care': 'Patient Care',
-  protocols:      'Protocols',
-  'clinical-tools': 'Clinical Tools',
-  clinical:       'Clinical',
-  courses:        'Sessions & Courses',
-  practice:       'Practice',
-  knowledge:      'Knowledge & Analytics',
-  patient:        'Patient Portal',
-  admin:          'Administration',
-  research:       'Research',
-  more:           'More',
-  clinic:         'Clinic',
-  registries:     'Registries',
+  clinical:        'Clinical',
+  protocol:        'Protocol',
+  sessions:        'Sessions',
+  admin:           'Admin',
+  // Legacy section ids retained so any other consumer that looks them up still works.
+  'patient-care':  'Patient Care',
+  'clinical-tools':'Clinical Tools',
+  operations:      'Operations',
+  research:        'Research',
 };
 
 // ── Nav collapse state ────────────────────────────────────────────────────────
@@ -549,19 +566,74 @@ function renderNav() {
   if (!_navList) return;
   const hiddenForRole = ROLE_NAV_HIDE[currentUser?.role] || [];
 
-  // ── "+ New Course" quick-action (injected once above nav-list) ──────────────
+  // ── Primary action button + patient quick search ─────────────────────────────
   if (!document.getElementById('nav-new-course')) {
     const btn = document.createElement('div');
     btn.id = 'nav-new-course';
     btn.style.cssText = 'padding:10px 12px 6px;';
-    btn.innerHTML = `<button
-      onclick="window._nav('session-execution')"
-      style="width:100%;padding:9px 0;background:linear-gradient(135deg,var(--teal),var(--blue));color:#000;border:none;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;letter-spacing:0.2px;display:flex;align-items:center;justify-content:center;gap:7px;transition:opacity 0.15s"
-      onmouseover="this.style.opacity='0.88'" onmouseout="this.style.opacity='1'">
-      <span style="font-size:15px;line-height:1">◧</span> Start Session
-    </button>`;
+    btn.innerHTML = `
+      <button class="nav-start-btn" onclick="window._nav('session-execution')">
+        <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Start Session
+      </button>
+      <div style="position:relative">
+        <input id="nav-pt-search" type="text" placeholder="Search patients…" class="nav-pt-search-input"
+          oninput="window._navPtSearch(this.value)"
+          onfocus="this.style.borderColor='var(--teal)'"
+          onblur="this.style.borderColor='var(--border)'">
+        <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <div id="nav-pt-results" style="display:none;position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--bg-card);border:1px solid var(--border);border-radius:8px;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,0.3);overflow:hidden"></div>
+      </div>`;
     _navList.parentNode.insertBefore(btn, _navList);
   }
+
+  // ── Patient quick search handler ──────────────────────────────────────────────
+  window._navPtSearch = function(q) {
+    const box = document.getElementById('nav-pt-results');
+    if (!box) return;
+    const trimmed = (q || '').trim().toLowerCase();
+    if (!trimmed) { box.style.display = 'none'; return; }
+    const roster = window._patientRoster || [];
+    const matches = roster.filter(p => {
+      const name = ((p.first_name || '') + ' ' + (p.last_name || '')).toLowerCase();
+      const cond = (p.condition_slug || p.primary_condition || '').toLowerCase();
+      return name.includes(trimmed) || cond.includes(trimmed);
+    }).slice(0, 5);
+    if (!matches.length) {
+      box.innerHTML = `<div style="padding:10px 12px;font-size:12px;color:var(--text-tertiary)">No patients found</div>`;
+    } else {
+      box.innerHTML = matches.map(p => {
+        const name = ((p.first_name || '') + ' ' + (p.last_name || '')).trim();
+        const cond = (p.condition_slug || p.primary_condition || '').replace(/-/g, ' ') || '';
+        const ini  = ((p.first_name || '')[0] || '') + ((p.last_name || '')[0] || '');
+        return `<div onclick="window._navPtOpen('${p.id}')"
+          style="display:flex;align-items:center;gap:9px;padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.1s"
+          onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background=''">
+          <div style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--teal),var(--blue));display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#000;flex-shrink:0;text-transform:uppercase">${ini}</div>
+          <div style="min-width:0">
+            <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</div>
+            <div style="font-size:10.5px;color:var(--text-tertiary)">${cond}</div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+    box.style.display = 'block';
+  };
+  window._navPtOpen = function(id) {
+    window._selectedPatientId = id;
+    window._profilePatientId  = id;
+    const box = document.getElementById('nav-pt-results');
+    const inp = document.getElementById('nav-pt-search');
+    if (box) box.style.display = 'none';
+    if (inp) inp.value = '';
+    window._nav('patient-profile');
+  };
+  // Close search dropdown on outside click
+  document.addEventListener('click', function _navPtClose(e) {
+    const box = document.getElementById('nav-pt-results');
+    const inp = document.getElementById('nav-pt-search');
+    if (box && !box.contains(e.target) && e.target !== inp) box.style.display = 'none';
+  }, { once: false });
 
   // ── Build sections: group NAV items under their section entry ────────────────
   // Each section becomes: { sectionEntry, items[] }
@@ -645,9 +717,12 @@ function renderNav() {
             : `<span class="nav-badge">${n.badge}</span>`)
         : n.ai ? `<span class="nav-badge-ai">AI</span>` : '';
 
-      itemsHtml.push(`<div class="nav-item ${currentPage === n.id ? 'active' : ''}" onclick="window._nav('${n.id}')" role="menuitem" tabindex="0" aria-current="${currentPage === n.id ? 'page' : 'false'}">
-        <span class="nav-icon" aria-hidden="true">${n.icon}</span>
-        <span class="nav-label">${(()=>{ const _k='nav.'+n.id,_v=t(_k); return (_v&&_v!==_k)?_v:n.label; })()}</span>${badge}
+      const iconHtml = NAV_ICONS[n.id]
+        ? `<span class="nav-icon" aria-hidden="true">${NAV_ICONS[n.id]}</span>`
+        : `<span class="nav-icon" aria-hidden="true">${n.icon}</span>`;
+      itemsHtml.push(`<div class="nav-item ${currentPage === n.id ? 'active' : ''}" onclick="window._nav('${n.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window._nav('${n.id}')}" role="menuitem" tabindex="0" aria-current="${currentPage === n.id ? 'page' : 'false'}">
+        ${iconHtml}
+        <span class="nav-label">${n.label}</span>${badge}
       </div>`);
     });
 
@@ -661,10 +736,10 @@ function renderNav() {
   });
 
   // Patient View demo button (outside section groups, always visible)
-  html.push(`<div class="nav-section-group"><div class="nav-item" onclick="window._previewPatientPortal()" style="margin-top:4px;border:1px solid var(--border-blue);color:var(--blue);opacity:0.85">
-    <span class="nav-icon">◉</span>
+  html.push(`<div class="nav-section-group nav-section-group--patient-view"><div class="nav-item nav-item--patient-view" onclick="window._previewPatientPortal()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window._previewPatientPortal()}" role="menuitem" tabindex="0">
+    <span class="nav-icon" aria-hidden="true">${NAV_ICONS['patient-view']}</span>
     <span class="nav-label">Patient View</span>
-    <span style="font-size:10px;opacity:0.6">demo</span>
+    <span class="nav-badge-demo">demo</span>
   </div></div>`);
 
   _navList.innerHTML = html.join('');
@@ -729,7 +804,7 @@ const PAGE_TITLES = {
   courses: 'Treatment Courses', 'course-detail': 'Course Detail',
   'session-execution': 'Session Execution', 'review-queue': 'Clinical Review & Approvals',
   'protocol-wizard': 'Protocol Intelligence', 'protocols-registry': 'Protocol Registry',
-  outcomes: 'Outcomes & Progress', 'ai-assistant': 'AI Clinical Assistant', 'ai-agents': 'AI Practice Agent',
+  outcomes: 'Outcomes & Progress', 'ai-assistant': 'AI Clinical Assistant', 'ai-agents': 'AI Agents',
   braindata: 'qEEG / Brain Data', qeegmaps: 'qEEG Maps', assessments: 'Assessments',
   evidence: 'Evidence Library', devices: 'Device Registry', brainregions: 'Brain Regions',
   handbooks: 'Handbooks', 'report-builder': 'Report Builder & Exports', 'adverse-events': 'Adverse Events', audittrail: 'Audit Trail',
@@ -919,6 +994,8 @@ async function renderPatientPage() {
     case 'pt-home-session-log':  await m.pgPatientHomeSessionLog();             break;
     case 'pt-adherence-events':  await m.pgPatientAdherenceEvents();            break;
     case 'pt-adherence-history': await m.pgPatientAdherenceHistory();           break;
+    case 'pt-caregiver':         await m.pgPatientCaregiver();                  break;
+    case 'pt-help':              await m.pgPatientHelp();                       break;
     default:                     await m.pgPatientDashboard(currentUser);
   }
 }
@@ -1010,16 +1087,17 @@ async function renderPage() {
   switch (currentPage) {
     // ── Clinical ─────────────────────────────────────────────────────────
     case 'today':
+    case 'home':
     case 'dashboard': {
       const m = await loadClinical();
       await m.pgDash(setTopbar, navigate);
       break;
     }
-    case 'patients': {
-      const m = await loadClinical();
-      await m.pgPatients(setTopbar, navigate);
-      break;
-    }
+    case 'patients':     { window._patientHubTab = 'patients';     window._nav('patients-hub'); break; }
+    case 'courses-tab':  { window._patientHubTab = 'courses';      window._nav('patients-hub'); break; }
+    case 'rx-tab':       { window._patientHubTab = 'prescriptions'; window._nav('patients-hub'); break; }
+    case 'patients-hub': { const m = await loadClinicalHubs(); await m.pgPatientHub(setTopbar, navigate); break; }
+    case 'patients-full':{ const m = await loadClinical(); await m.pgPatients(setTopbar, navigate); break; }
     case 'patient':
     case 'patient-profile': { const m = await loadClinical(); await m.pgPatientProfile(setTopbar); break; }
     case 'homework-builder': { const m = await loadPatient(); await m.pgHomeworkBuilder(setTopbar); break; }
@@ -1033,11 +1111,8 @@ async function renderPage() {
       break;
     }
     // ── Courses / workflow pages ─────────────────────────────────────────
-    case 'courses': {
-      const m = await loadCourses();
-      await m.pgCourses(setTopbar, navigate);
-      break;
-    }
+    case 'courses': { window._patientHubTab = 'courses'; window._nav('patients-hub'); break; }
+    case 'courses-full': { const m = await loadCourses(); await m.pgCourses(setTopbar, navigate); break; }
     case 'course-detail': {
       window._cdTab = window._cdTab || 'overview';
       const m = await loadCourses();
@@ -1059,17 +1134,23 @@ async function renderPage() {
     case 'calendar': { const m = await loadCourses(); await m.pgCalendar(setTopbar); break; }
     // ── Protocol Intelligence ────────────────────────────────────────────
     case 'protocol-wizard':
-    case 'protocols': {
+    case 'protocols':       { window._protocolHubTab = 'search';   window._nav('protocol-hub'); break; }
+    case 'brain-map-planner':
+    case 'brain-map-full':
+    case 'protocols-registry':
+    case 'reg-protocols':   { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar); break; }
+    case 'handbooks':
+    case 'reg-handbooks':   { window._protocolHubTab = 'handbooks'; window._nav('protocol-hub'); break; }
+    case 'protocol-builder':{ window._protocolHubTab = 'builder';   window._nav('protocol-hub'); break; }
+    case 'protocol-hub':      { const { pgProtocolHub } = await loadClinicalHubs(); await pgProtocolHub(setTopbar, navigate); break; }
+    case 'personalized-protocol': { window._protocolHubTab = 'personalized'; window._nav('protocol-hub'); break; }
+    case 'brain-scan-protocol':   { window._protocolHubTab = 'brainscan';    window._nav('protocol-hub'); break; }
+    case 'protocol-search-full': {
       const m = await loadProtocols();
       await m.pgProtocolSearch(setTopbar, navigate);
       break;
     }
-    case 'protocol-detail': {
-      const m = await loadProtocols();
-      await m.pgProtocolDetail(setTopbar, navigate);
-      break;
-    }
-    case 'protocol-builder': {
+    case 'protocol-builder-full': {
       const m = await loadProtocols();
       await m.pgProtocolBuilderV2(setTopbar, navigate);
       break;
@@ -1084,12 +1165,8 @@ async function renderPage() {
       await m.pgDecisionSupport(setTopbar);
       break;
     }
-    case 'benchmark-library': { const m = await loadClinical(); await m.pgBenchmarkLibrary(setTopbar); break; }
-    case 'outcomes': {
-      const m = await loadCourses();
-      await m.pgOutcomes(setTopbar, navigate);
-      break;
-    }
+    case 'benchmark-library': { const m = await loadClinicalTools(); await m.pgBenchmarkLibrary(setTopbar); break; }
+    case 'outcomes': { window._clinicalHubTab = 'outcomes'; window._nav('clinical-hub'); break; }
     case 'outcome-prediction': { const m = await loadCourses(); await m.pgOutcomePrediction(setTopbar); break; }
     case 'rules-engine': { const m = await loadCourses(); await m.pgRulesEngine(setTopbar); break; }
     case 'braindata': {
@@ -1103,7 +1180,7 @@ async function renderPage() {
       await m.pgEvidence(setTopbar);
       break;
     }
-    case 'protocols-registry': {
+    case 'protocols-registry-full': {
       const m = await loadCourses();
       await m.pgProtocolRegistry(setTopbar);
       break;
@@ -1123,7 +1200,7 @@ async function renderPage() {
       await m.pgQEEGMaps(setTopbar);
       break;
     }
-    case 'handbooks': {
+    case 'handbooks-full': {
       const m = await loadHandbooks();
       await m.pgHandbooks(setTopbar);
       break;
@@ -1144,13 +1221,7 @@ async function renderPage() {
     case 'literature': { const { pgLiteratureLibrary } = await loadKnowledge(); await pgLiteratureLibrary(setTopbar); break; }
     case 'irb-manager': { const { pgIRBManager } = await loadKnowledge(); await pgIRBManager(setTopbar); break; }
     case 'longitudinal-report': { const { pgLongitudinalReport } = await loadKnowledge(); await pgLongitudinalReport(setTopbar); break; }
-    case 'scoring-calc': { const { pgClinicalScoringCalc } = await loadKnowledge(); await pgClinicalScoringCalc(setTopbar); break; }
-    // ── Legacy pages (kept functional) ───────────────────────────────────
-    case 'assessments': {
-      const m = await loadClinical();
-      await m.pgAssess(setTopbar);
-      break;
-    }
+    case 'scoring-calc': { window._clinicalHubTab = 'scoring'; window._nav('assessments'); break; }
     // ── Deprioritised scaffolds (kept functional, not in primary nav) ────
     case 'charting': {
       const m = await loadClinical();
@@ -1167,53 +1238,52 @@ async function renderPage() {
       await m.pgAgentChat(setTopbar);
       break;
     }
-    case 'scheduling': {
-      const m = await loadPractice();
-      el.innerHTML = m.pgSchedule(setTopbar);
-      break;
-    }
+    case 'scheduling':      { window._schedHubTab = 'calendar'; window._nav('scheduling-hub'); break; }
+    case 'scheduling-hub':  { const { pgSchedulingHub } = await loadClinicalHubs(); await pgSchedulingHub(setTopbar, navigate); break; }
+    case 'scheduling-full': { const m = await loadPractice(); el.innerHTML = m.pgSchedule(setTopbar); break; }
     case 'telehealth': {
       const m = await loadPractice();
       m.pgTelehealth(setTopbar);
       break;
     }
     case 'telehealth-recorder': { const m = await loadPractice(); await m.pgTelehealthRecorder(setTopbar); break; }
-    case 'monitoring': { const m = await loadClinical(); await m.pgMonitoring(setTopbar, navigate); break; }
-    case 'wearables': { const m = await loadPractice(); await m.pgWearableIntegration(setTopbar); break; }
-    case 'home-task-manager': { const m = await loadClinical(); await m.pgHomePrograms(setTopbar, navigate); break; }
+    case 'monitoring': { window._monitorHubTab = 'monitoring'; window._nav('monitor-hub'); break; }
+    case 'wearables':  { window._monitorHubTab = 'monitoring'; window._nav('monitor-hub'); break; }
+    case 'library-hub':    { const { pgLibraryHub }    = await loadClinicalHubs(); await pgLibraryHub(setTopbar, navigate);    break; }
+    case 'monitor-hub':    { const { pgMonitorHub }    = await loadClinicalHubs(); await pgMonitorHub(setTopbar, navigate);    break; }
+    case 'virtual-care-hub':{ const { pgVirtualCareHub } = await loadClinicalHubs(); await pgVirtualCareHub(setTopbar, navigate); break; }
+    case 'home-task-manager': { const m = await loadClinicalTools(); await m.pgHomePrograms(setTopbar, navigate); break; }
     case 'messaging': {
       const m = await loadVirtualCare();
       await m.pgVirtualCare(setTopbar, navigate);
       break;
     }
-    case 'advanced-search': { const m = await loadClinical(); await m.pgAdvancedSearch(setTopbar); break; }
+    case 'advanced-search': { const m = await loadClinicalTools(); await m.pgAdvancedSearch(setTopbar); break; }
     case 'programs': {
       const m = await loadPractice();
       m.pgPrograms(setTopbar);
       break;
     }
-    case 'billing': {
-      const m = await loadPractice();
-      await m.pgBilling(setTopbar);
-      break;
-    }
-    case 'insurance': { const m = await loadPractice(); await m.pgInsuranceVerification(setTopbar); break; }
-    case 'referrals': { const m = await loadPractice(); await m.pgReferrals(setTopbar); break; }
+    case 'billing':            { window._financeHubTab = 'invoices'; window._nav('finance-hub'); break; }
+    case 'finance-hub':        { const { pgFinanceHub }   = await loadClinicalHubs(); await pgFinanceHub(setTopbar, navigate);   break; }
+    case 'documents-hub':      { const { pgDocumentsHubNew } = await loadClinicalHubs(); await pgDocumentsHubNew(setTopbar, navigate); break; }
+    case 'reports-hub':        { const { pgReportsHubNew }   = await loadClinicalHubs(); await pgReportsHubNew(setTopbar, navigate); break; }
+    case 'insurance':          { window._financeHubTab = 'insurance'; window._nav('finance-hub'); break; }
+    case 'referrals':          { const m = await loadPractice(); await m.pgReferrals(setTopbar); break; }
     case 'reports': {
-      const { pgReportsHub } = await loadClinical();
+      const { pgReportsHub } = await loadClinicalTools();
       await pgReportsHub(setTopbar);
       break;
     }
     case 'population-reports': {
-      const m = await loadCourses();
-      await m.pgClinicalReports(setTopbar);
-      break;
+      window._reportsHubTab = 'analytics'; window._nav('reports-hub'); break;
     }
-    case 'media-queue': { const m = await loadClinical(); await m.pgMediaReviewQueue(setTopbar); break; }
-    case 'media-detail': { const m = await loadClinical(); await m.pgMediaDetail(setTopbar); break; }
-    case 'clinician-dictation': { const m = await loadClinical(); await m.pgClinicianDictation(setTopbar); break; }
-    case 'patient-queue': { const { pgPatientQueue } = await loadClinical(); await pgPatientQueue(setTopbar); break; }
-    case 'clinician-draft-review': { const m = await loadClinical(); await m.pgClinicianDraftReview(setTopbar); break; }
+    case 'media-queue': { const m = await loadClinicalTools(); await m.pgMediaReviewQueue(setTopbar); break; }
+    case 'media-detail': { const m = await loadClinicalTools(); await m.pgMediaDetail(setTopbar); break; }
+    case 'clinician-dictation': { const m = await loadClinicalTools(); await m.pgClinicianDictation(setTopbar); break; }
+    case 'clinic-day': { const { pgClinicDay } = await loadClinicalTools(); await pgClinicDay(setTopbar); break; }
+    case 'patient-queue': { const { pgPatientQueue } = await loadClinicalTools(); await pgPatientQueue(setTopbar); break; }
+    case 'clinician-draft-review': { const m = await loadClinicalTools(); await m.pgClinicianDraftReview(setTopbar); break; }
     case 'clinical-notes': {
       const m = await loadCourses();
       await m.pgClinicalNotes(setTopbar);
@@ -1241,19 +1311,16 @@ async function renderPage() {
       await pgOnboardingWizard(setTopbar);
       break;
     }
-    case 'adverse-events': {
-      const m = await loadCourses();
-      await m.pgAdverseEvents(setTopbar, navigate);
-      break;
-    }
+    case 'adverse-events':     { window._monitorHubTab = 'adverse'; window._nav('monitor-hub'); break; }
+    case 'adverse-events-full':{ const m = await loadCourses(); await m.pgAdverseEvents(setTopbar, navigate); break; }
     case 'audittrail': {
       const m = await loadKnowledge();
       await m.pgAuditTrail(setTopbar);
       break;
     }
-    case 'consent-automation': { const { pgConsentAutomation } = await loadClinical(); await pgConsentAutomation(setTopbar); break; }
-    case 'forms-builder': { const { pgFormsBuilder } = await loadClinical(); await pgFormsBuilder(setTopbar); break; }
-    case 'med-interactions': { const { pgMedInteractionChecker } = await loadClinical(); await pgMedInteractionChecker(setTopbar); break; }
+    case 'consent-automation': { const { pgConsentAutomation } = await loadClinicalTools(); await pgConsentAutomation(setTopbar); break; }
+    case 'forms-builder': { const { pgFormsBuilder } = await loadClinicalTools(); await pgFormsBuilder(setTopbar); break; }
+    case 'med-interactions': { const { pgMedInteractionChecker } = await loadClinicalTools(); await pgMedInteractionChecker(setTopbar); break; }
     case 'admin': {
       const m = await loadPractice();
       await m.pgAdmin(setTopbar, currentUser);
@@ -1268,29 +1335,46 @@ async function renderPage() {
       break;
     }
     case 'reminders': { const { pgReminderAutomation } = await loadPractice(); await pgReminderAutomation(setTopbar); break; }
-    case 'evidence-builder': { const { pgEvidenceBuilder } = await loadClinical(); await pgEvidenceBuilder(setTopbar); break; }
-    case 'medical-history': { const { pgMedicalHistory } = await loadClinical(); await pgMedicalHistory(setTopbar); break; }
-    case 'documents':       { const { pgDocumentsHub }   = await loadClinical(); await pgDocumentsHub(setTopbar);   break; }
-    case 'assessments-hub': { const { pgAssessmentsHub } = await loadClinical(); await pgAssessmentsHub(setTopbar); break; }
-    case 'brain-map-planner': { const { pgBrainMapPlanner } = await loadClinical(); await pgBrainMapPlanner(setTopbar); break; }
-    case 'prescriptions':       { const { pgPrescriptions }        = await loadClinical(); await pgPrescriptions(setTopbar);        break; }
-    case 'patient-protocol':    { const { pgPatientProtocolView }  = await loadClinical(); await pgPatientProtocolView(setTopbar); break; }
-    case 'protocol-detail':     { const { pgProtocolDetail }       = await loadClinical(); await pgProtocolDetail(setTopbar, navigate); break; }
-    case 'condition-packages':  { const { pgConditionBrowser }     = await loadKnowledge(); await pgConditionBrowser(setTopbar);            break; }
+    case 'evidence-builder': { const { pgEvidenceBuilder } = await loadClinicalTools(); await pgEvidenceBuilder(setTopbar); break; }
+    case 'medical-history':  { window._clinicalHubTab = 'history';     window._nav('assessments'); break; }
+    case 'assessments-hub':  { window._clinicalHubTab = 'assessments'; window._nav('assessments'); break; }
+    case 'outcomes-redirect':{ window._clinicalHubTab = 'outcomes';    window._nav('assessments'); break; }
+    case 'clinical-hub':
+    case 'assessments':      { const { pgClinicalHub } = await loadClinicalHubs(); await pgClinicalHub(setTopbar, navigate); break; }
+    case 'documents':        { const { pgDocumentsHubNew } = await loadClinicalHubs(); await pgDocumentsHubNew(setTopbar, navigate); break; }
+    case 'brain-map-full':    { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar); break; }
+    case 'prescriptions':        { window._patientHubTab = 'prescriptions'; window._nav('patients-hub'); break; }
+    case 'prescriptions-full':   { const { pgPrescriptions } = await loadClinicalTools(); await pgPrescriptions(setTopbar); break; }
+    case 'patient-protocol':    { const { pgPatientProtocolView }  = await loadClinicalTools(); await pgPatientProtocolView(setTopbar); break; }
+    case 'protocol-detail':     { const { pgProtocolDetail }       = await loadProtocols(); await pgProtocolDetail(setTopbar, navigate); break; }
+    case 'condition-packages':   { window._libraryHubTab = 'packages'; window._nav('library-hub'); break; }
     case 'condition-package':   { const { pgConditionPackage }     = await loadKnowledge(); await pgConditionPackage(setTopbar, navigate);  break; }
-    case 'notes-dictation': { const { pgNotesDictation } = await loadClinical(); await pgNotesDictation(setTopbar); break; }
+    case 'notes-dictation': { window._monitorHubTab = 'notes'; window._nav('monitor-hub'); break; }
     case 'wearable-integration': { const m = await loadPractice(); await m.pgWearableIntegration(setTopbar); break; }
     // ── Registries ─────────────────────────────────────────────────────────
-    case 'reg-conditions':    { const m = await loadRegistries(); await m.pgConditionRegistry(setTopbar);      break; }
-    case 'reg-assessments':   { const m = await loadRegistries(); await m.pgAssessmentRegistry(setTopbar);     break; }
-    case 'reg-protocols':     { const m = await loadRegistries(); await m.pgProtocolRegistryPage(setTopbar);   break; }
-    case 'reg-devices':       { const m = await loadRegistries(); await m.pgDeviceRegistry(setTopbar);         break; }
-    case 'reg-targets':       { const m = await loadRegistries(); await m.pgBrainTargetRegistry(setTopbar);    break; }
-    case 'reg-consent':       { const m = await loadRegistries(); await m.pgConsentRegistry(setTopbar);        break; }
-    case 'reg-reports':       { const m = await loadRegistries(); await m.pgReportTemplateRegistry(setTopbar); break; }
-    case 'reg-handbooks':     { const m = await loadRegistries(); await m.pgHandbookRegistry(setTopbar);       break; }
-    case 'reg-home-programs': { const m = await loadRegistries(); await m.pgHomeProgramRegistry(setTopbar);    break; }
-    case 'reg-virtual-care':  { const m = await loadRegistries(); await m.pgVirtualCareRegistry(setTopbar);    break; }
+    case 'reg-conditions':     { window._libraryHubTab = 'conditions'; window._nav('library-hub'); break; }
+    case 'reg-assessments':    { window._clinicalHubTab = 'registry'; window._nav('assessments'); break; }
+    case 'reg-protocols-full':{ const m = await loadRegistries(); await m.pgProtocolRegistryPage(setTopbar);   break; }
+    case 'reg-devices':        { window._libraryHubTab = 'devices'; window._nav('library-hub'); break; }
+    case 'reg-targets':        { window._libraryHubTab = 'targets'; window._nav('library-hub'); break; }
+    case 'reg-handbooks-full':{ const m = await loadRegistries(); await m.pgHandbookRegistry(setTopbar);       break; }
+    case 'reg-virtual-care':   { window._nav('virtual-care-hub'); break; }
+    // ── design-v2 routes — alias new IDs onto existing page renderers ────
+    case 'schedule-v2':        { const m = await loadClinicalHubs(); await m.pgSchedulingHub(setTopbar, navigate); break; }
+    case 'assessments-v2':     { const m = await loadClinicalHubs(); await m.pgAssessmentsHub(setTopbar, navigate); break; }
+    case 'patients-v2':        { const m = await loadClinicalHubs(); await m.pgPatientHub(setTopbar, navigate); break; }
+    case 'protocol-studio':    { const m = await loadClinicalHubs(); await m.pgProtocolHub(setTopbar, navigate); break; }
+    case 'brainmap-v2':        { const m = await loadBrainMap(); await m.pgBrainMapPlanner(setTopbar, navigate); break; }
+    case 'handbooks-v2':       { const m = await loadHandbooks(); await m.pgHandbooks(setTopbar); break; }
+    case 'library-v2':         { const m = await loadClinicalHubs(); await m.pgLibraryHub(setTopbar, navigate); break; }
+    case 'live-session':       { const m = await loadClinicalHubs(); await m.pgVirtualCareHub(setTopbar, navigate); break; }
+    case 'home-tasks-v2':      { const m = await loadClinicalTools(); await m.pgHomePrograms(setTopbar, navigate); break; }
+    case 'documents-v2':       { const m = await loadClinicalHubs(); await m.pgDocumentsHubNew(setTopbar, navigate); break; }
+    case 'reports-v2':         { const m = await loadClinicalHubs(); await m.pgReportsHubNew(setTopbar, navigate); break; }
+    case 'finance-v2':         { const m = await loadClinicalHubs(); await m.pgFinanceHub(setTopbar, navigate); break; }
+    case 'ai-agent-v2':        { const m = await loadAgents(); await m.pgAgentChat(setTopbar); break; }
+    case 'research-v2':        { const m = await loadResearch(); await m.pgResearch(setTopbar, navigate); break; }
+    case 'governance-v2':      { const m = await loadPractice(); await m.pgGovernance(setTopbar, navigate); break; }
     default:
       el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-tertiary)">Page not found.</div>`;
   }
@@ -1830,6 +1914,20 @@ async function bootApp() {
     const entry = ROLE_ENTRY_PAGE[role];
     if (entry && entry !== 'dashboard') currentPage = entry;
   }
+  // ── Deep-link: honour ?page= query param or #hash so reloads and bookmarks
+  //    land where the user expects. Falls back to role-based entry above if
+  //    the requested id doesn't pass a safe-slug check.
+  {
+    let deepLinkId = null;
+    try {
+      const qp = new URL(location.href).searchParams.get('page');
+      if (qp) deepLinkId = qp;
+      else if (location.hash && location.hash.length > 1) deepLinkId = location.hash.slice(1);
+    } catch {}
+    if (deepLinkId && /^[a-z0-9][a-z0-9-]{0,63}$/i.test(deepLinkId)) {
+      currentPage = deepLinkId;
+    }
+  }
   // Initialise clinic switcher for multi-clinic roles
   window._initClinicSwitcher(currentUser);
   renderNav();
@@ -2356,6 +2454,11 @@ window.addEventListener('popstate', (e) => {
     _renderResults('', defaultItems);
 
     _loadData(); // Warm cache in background
+
+    setTimeout(() => {
+      const modal = document.querySelector('.cmd-palette-modal');
+      if (modal && typeof window._trapFocus === 'function') window._trapFocus(modal);
+    }, 50);
   };
 
   window._closePalette = function(e) {

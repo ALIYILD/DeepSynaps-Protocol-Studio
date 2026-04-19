@@ -19,3 +19,35 @@ CON-017,Cognitive Impairment / TBI,Neurological — Cognitive,Memory impairment;
 CON-018,Autism Spectrum Disorder (ASD),Neurodevelopmental,Social communication deficits; restricted/repetitive behaviors; sensory sensitivities; executive dysfunction,High-functioning verbal; minimally verbal; sensory-dominant; anxiety-comorbid; ADHD-comorbid,Level 1 (requiring support); Level 2 (substantial support); Level 3 (very substantial support),Pediatric; Adult,"AQ; SRS-2; BRIEF; sensory profile; comorbidity screen (anxiety, ADHD, depression)",Behavioral distress during procedures; informed consent/assent; seizure comorbidity in ASD,TMS (experimental); tDCS (experimental); Neurofeedback (experimental),Experimental (all modalities),"ALL neuromodulation evidence in ASD is from small, often uncontrolled studies. No FDA clearance. No guideline support. Do not generalize to clinical practice.",Reviewed
 CON-019,Smoking Cessation,Behavioral / Addiction,Nicotine craving; withdrawal symptoms; habitual behavior patterns; relapse risk,High-craving; stress-triggered; social smoking; heavy/dependent,Nicotine dependence severity (Fagerström),Adult,Fagerström Test for Nicotine Dependence; exhaled CO monitoring; craving VAS,Standard TMS contraindications; psychiatric comorbidity screen,Deep TMS (BrainsWay H4-coil — FDA cleared),Guideline-supported (Deep TMS),BrainsWay first TMS device cleared for any addiction indication (2020). H4-coil targets bilateral insula/PFC.,Reviewed
 CON-020,Opioid Withdrawal,Addiction / Pain,Autonomic symptoms; myalgia; insomnia; anxiety; craving; GI symptoms; diaphoresis,Acute withdrawal phase; protracted withdrawal; comorbid pain; comorbid psychiatric,Mild; Moderate; Severe (COWS scale),Adult,COWS (Clinical Opiate Withdrawal Scale); SOWS; VAS craving; psychiatric comorbidity screen,Cardiac arrhythmias; implanted devices; active substance use risk assessment,taVNS (Sparrow Ascent — FDA cleared for opioid withdrawal),Literature-supported (taVNS for withdrawal),Sparrow Ascent FDA-cleared for opioid withdrawal symptom relief. Only cleared taVNS device in US.,Reviewed
+CON-021,Alzheimer's Disease / Dementia,Cognitive,,,,,,,,,JS slug: alzheimers-dementia,Unreviewed
+CON-022,Mild Cognitive Impairment,Cognitive,,,,,,,,,JS slug: mild-cognitive-impairment,Unreviewed
+CON-023,Schizophrenia (Negative Symptoms / AVH),Psychiatric — Psychotic,,,,,,,,,JS slug: schizophrenia-negative,Unreviewed
+CON-024,Bipolar Depression,Psychiatric — Mood,,,,,,,,,JS slug: bipolar-depression,Unreviewed
+CON-025,Dysthymia / Persistent Depressive Disorder,Psychiatric — Mood,,,,,,,,,JS slug: dysthymia,Unreviewed
+CON-026,Postpartum Depression,Psychiatric — Mood,,,,,,,,,JS slug: postpartum-depression,Unreviewed
+CON-027,Seasonal Affective Disorder,Psychiatric — Mood,,,,,,,,,JS slug: seasonal-affective-disorder,Unreviewed
+CON-028,Social Anxiety Disorder,Psychiatric — Anxiety,,,,,,,,,JS slug: social-anxiety,Unreviewed
+CON-029,Panic Disorder,Psychiatric — Anxiety,,,,,,,,,JS slug: panic-disorder,Unreviewed
+CON-030,Pediatric ADHD,Neurodevelopmental,,,,,,,,,JS slug: pediatric-adhd,Unreviewed
+CON-031,Tics / Tourette Syndrome,Neurodevelopmental,,,,,,,,,JS slug: tics-tourette,Unreviewed
+CON-032,Bipolar Disorder — Manic Phase,Psychiatric — Psychotic,,,,,,,,,JS slug: bipolar-mania,Unreviewed
+CON-033,Borderline Personality Disorder,Psychiatric — Personality,,,,,,,,,JS slug: borderline-personality,Unreviewed
+CON-034,Substance Use Disorder,Substance & Eating,,,,,,,,,JS slug: substance-use-disorder,Unreviewed
+CON-035,Alcohol Use Disorder,Substance & Eating,,,,,,,,,JS slug: alcohol-use-disorder,Unreviewed
+CON-036,Eating Disorders,Substance & Eating,,,,,,,,,JS slug: eating-disorders,Unreviewed
+CON-037,Neuropathic Pain,Pain,,,,,,,,,JS slug: neuropathic-pain,Unreviewed
+CON-038,Hypersomnia / Narcolepsy,Sleep,,,,,,,,,JS slug: hypersomnia,Unreviewed
+CON-039,Restless Leg Syndrome,Sleep,,,,,,,,,JS slug: restless-leg,Unreviewed
+CON-040,Multiple Sclerosis — Fatigue,Neurological,,,,,,,,,JS slug: ms-fatigue,Unreviewed
+CON-041,Post-COVID Cognitive Symptoms,Other,,,,,,,,,JS slug: post-covid-cognitive,Unreviewed
+CON-042,Long COVID Fatigue,Other,,,,,,,,,JS slug: long-covid-fatigue,Unreviewed
+CON-043,Burnout / Executive Dysfunction,Other,,,,,,,,,JS slug: burnout,Unreviewed
+CON-044,Chronic Fatigue Syndrome,Other,,,,,,,,,JS slug: chronic-fatigue,Unreviewed
+CON-045,Athletic Performance Optimization,Other,,,,,,,,,JS slug: athletic-performance,Unreviewed
+CON-046,ADHD + Anxiety (Comorbid),Comorbid & Special,,,,,,,,,JS slug: adhd-anxiety-comorbid,Unreviewed
+CON-047,Depression + Chronic Pain (Comorbid),Comorbid & Special,,,,,,,,,JS slug: depression-pain-comorbid,Unreviewed
+CON-048,PTSD + TBI (Comorbid),Comorbid & Special,,,,,,,,,JS slug: ptsd-tbi-comorbid,Unreviewed
+CON-049,Inflammatory Depression,Comorbid & Special,,,,,,,,,JS slug: inflammatory-depression,Unreviewed
+CON-050,Cognitive Enhancement — Healthy Aging,Cognitive,,,,,,,,,JS slug: cognitive-enhancement,Unreviewed
+CON-051,Pre-Surgical Anxiety,Psychiatric — Anxiety,,,,,,,,,JS slug: pre-surgical-anxiety,Unreviewed
+CON-052,Chemotherapy-Related Fatigue,Other,,,,,,,,,JS slug: chemo-fatigue,Unreviewed

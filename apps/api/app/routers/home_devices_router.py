@@ -610,15 +610,12 @@ def generate_home_therapy_summary(
         f"home_therapy:{assignment_id}:{actor.actor_id}".encode()
     ).hexdigest()[:32]
 
-    summary_text = (
-        "AI home therapy summary is not available (Anthropic API key not configured)."
-    )
+    summary_text = "AI home therapy summary is not available (no LLM provider configured)."
     model_used = "none"
 
-    if settings.anthropic_api_key:
+    if settings.glm_api_key or settings.anthropic_api_key:
         try:
-            import anthropic
-            client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            from app.services.chat_service import _llm_chat, _glm_model, _anthropic_fallback_model
             system = (
                 "You are a clinical AI assistant helping clinicians review home "
                 "neuromodulation therapy progress. Summarise adherence patterns, "
@@ -626,20 +623,15 @@ def generate_home_therapy_summary(
                 "that warrants clinical attention. Do NOT make diagnoses or "
                 "recommend parameter changes. Use plain clinical language."
             )
-            msg = client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=600,
+            summary_text = _llm_chat(
                 system=system,
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        f"Home therapy progress summary request.\n\n{context_str}\n\n"
-                        "Please provide a concise clinical summary (3-5 bullet points)."
-                    ),
-                }],
-            )
-            summary_text = msg.content[0].text if msg.content else summary_text
-            model_used = "claude-haiku-4-5-20251001"
+                messages=[{"role": "user", "content": (
+                    f"Home therapy progress summary request.\n\n{context_str}\n\n"
+                    "Please provide a concise clinical summary (3-5 bullet points)."
+                )}],
+                max_tokens=600,
+            ) or summary_text
+            model_used = _glm_model() if settings.glm_api_key else _anthropic_fallback_model()
         except Exception as exc:
             _logger.warning("AI summary generation failed: %s", exc)
             summary_text = "AI summary temporarily unavailable. Review session logs directly."

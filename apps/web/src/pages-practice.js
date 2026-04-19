@@ -1,5 +1,6 @@
 import { cardWrap, fr, pillSt, tag, initials, spinner } from './helpers.js';
 import { api } from './api.js';
+import { LOCALES, setLocale, getLocale } from './i18n.js';
 
 // ── Scheduling ────────────────────────────────────────────────────────────────
 export function pgSchedule(setTopbar) {
@@ -1020,20 +1021,335 @@ export async function pgSettings(setTopbar, currentUser) {
     telegramInstructions = tg?.instructions;
   } catch {}
 
+  // ── Pull server-side state (best-effort, fall back to localStorage) ─────────
+  const lsGet = (k) => { try { return (typeof localStorage !== 'undefined' && localStorage.getItem(k)) || ''; } catch { return ''; } };
+  let serverProfile = null, serverPrefs = null, serverClinical = null, serverClinic = null;
+  try { serverProfile  = await api.getProfile();          } catch (e) { console.debug('[settings] getProfile unavailable', e?.message); }
+  try { serverPrefs    = await api.getPreferences();      } catch (e) { console.debug('[settings] getPreferences unavailable', e?.message); }
+  try { serverClinical = await api.getClinicalDefaults(); } catch (e) { console.debug('[settings] getClinicalDefaults unavailable', e?.message); }
+  try { serverClinic   = await api.getClinic();           } catch (e) { console.debug('[settings] getClinic unavailable', e?.message); }
+
+  // Pick server value if present, otherwise localStorage, otherwise fallback.
+  const pref = (serverVal, lsKey, fallback = '') => {
+    if (serverVal !== undefined && serverVal !== null && serverVal !== '') return serverVal;
+    const v = lsGet(lsKey);
+    return v || fallback;
+  };
+
+  // One-time seed: push any existing ds_* client state to backend so users who
+  // had local-only settings don't lose them on first API-backed render.
+  (async () => {
+    try {
+      if (localStorage.getItem('ds_seed_prefs_complete')) return;
+      if (!serverPrefs) return; // only seed when prefs API is alive
+      const patch = {};
+      const pick = (k, apiKey) => { const v = lsGet(k); if (v) patch[apiKey] = v; };
+      pick('ds_lang',          'language');
+      pick('ds_date_format',   'date_format');
+      pick('ds_time_format',   'time_format');
+      pick('ds_first_day',     'first_day');
+      pick('ds_units',         'units');
+      pick('ds_number_format', 'number_format');
+      const dur = parseInt(lsGet('ds_session_default_duration'), 10);
+      if (Number.isFinite(dur)) patch.session_default_duration_min = dur;
+      const al = lsGet('ds_auto_logout');
+      if (al === 'never') patch.auto_logout_min = 0;
+      else { const n = parseInt(al, 10); if (Number.isFinite(n)) patch.auto_logout_min = n; }
+      try { const np = lsGet('ds_notification_prefs'); if (np) patch.notification_prefs = JSON.parse(np); } catch {}
+      try { const qh = lsGet('ds_quiet_hours');        if (qh) patch.quiet_hours        = JSON.parse(qh); } catch {}
+      const df = lsGet('ds_digest_freq'); if (df) patch.digest_freq = df;
+      try { const rt = lsGet('ds_reminder_timing');    if (rt) patch.reminder_timing    = JSON.parse(rt); } catch {}
+      const ai = lsGet('ds_analytics_opt_in');     if (ai === 'true' || ai === 'false') patch.analytics_opt_in     = (ai === 'true');
+      const er = lsGet('ds_error_reports_opt_in'); if (er === 'true' || er === 'false') patch.error_reports_opt_in = (er === 'true');
+      if (Object.keys(patch).length > 0) await api.updatePreferences(patch);
+      localStorage.setItem('ds_seed_prefs_complete', '1');
+    } catch (e) { /* silent — retry next session */ }
+  })();
+
+  // Server-preferred profile fields; localStorage fallback/mirror.
+  const savedAvatar      = pref(serverProfile?.avatar_url,      'ds_user_avatar');
+  const savedCredentials = pref(serverProfile?.credentials,     'ds_user_credentials');
+  const savedLicense     = pref(serverProfile?.license_number,  'ds_user_license');
+  const twoFAEnabled     = !!(serverProfile?.two_factor_enabled) || lsGet('ds_2fa_enabled') === 'true';
+  const savedSecret      = lsGet('ds_2fa_secret');
+
+  const browserTZ = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } });
+  const savedClinicName        = pref(serverClinic?.name,     'ds_clinic_name');
+  const savedClinicAddress     = pref(serverClinic?.address,  'ds_clinic_address');
+  const savedClinicPhone       = pref(serverClinic?.phone,    'ds_clinic_phone');
+  const savedClinicEmail       = pref(serverClinic?.email,    'ds_clinic_email');
+  const savedClinicWebsite     = pref(serverClinic?.website,  'ds_clinic_website');
+  const savedClinicTZ          = pref(serverClinic?.timezone, 'ds_clinic_tz') || browserTZ();
+  const savedClinicLogo        = pref(serverClinic?.logo_url, 'ds_clinic_logo');
+  const savedClinicSpecialties = (() => {
+    if (Array.isArray(serverClinic?.specialties)) return serverClinic.specialties.join(', ');
+    if (typeof serverClinic?.specialties === 'string') return serverClinic.specialties;
+    return lsGet('ds_clinic_specialties');
+  })();
+
+  // Timezone list — Intl.supportedValuesOf when available, else short fallback
+  const tzList = (() => {
+    try {
+      if (typeof Intl !== 'undefined' && typeof Intl.supportedValuesOf === 'function') {
+        return Intl.supportedValuesOf('timeZone');
+      }
+    } catch {}
+    return ['UTC', 'Europe/London', 'Europe/Istanbul', 'America/New_York', 'America/Los_Angeles', 'Asia/Dubai', 'Australia/Sydney'];
+  })();
+
+  // Working hours (7-day)
+  const defaultHours = {
+    mon: { open: true,  from: '09:00', to: '17:00' },
+    tue: { open: true,  from: '09:00', to: '17:00' },
+    wed: { open: true,  from: '09:00', to: '17:00' },
+    thu: { open: true,  from: '09:00', to: '17:00' },
+    fri: { open: true,  from: '09:00', to: '17:00' },
+    sat: { open: false, from: '09:00', to: '17:00' },
+    sun: { open: false, from: '09:00', to: '17:00' },
+  };
+  let savedHours = defaultHours;
+  if (serverClinic?.working_hours && typeof serverClinic.working_hours === 'object') {
+    savedHours = { ...defaultHours, ...serverClinic.working_hours };
+  } else {
+    try {
+      const raw = lsGet('ds_clinic_hours');
+      if (raw) { const parsed = JSON.parse(raw); if (parsed && typeof parsed === 'object') savedHours = { ...defaultHours, ...parsed }; }
+    } catch {}
+  }
+
+  // Team members — localStorage mock until api.listTeamMembers() is added
+  const defaultTeam = [
+    { id: 'u-self', name: (currentUser?.display_name || currentUser?.email || 'You'), email: (currentUser?.email || 'you@clinic.com'), role: 'admin',     last_active: 'Active now' },
+    { id: 'u-2',    name: 'Dr. Sarah Chen',   email: 'sarah.chen@clinic.com',   role: 'clinician',  last_active: '2 hours ago' },
+    { id: 'u-3',    name: 'Alex Morgan',      email: 'alex.morgan@clinic.com',  role: 'technician', last_active: 'Yesterday'   },
+  ];
+  let savedTeam = defaultTeam;
+  try {
+    const raw = lsGet('ds_team_members');
+    if (raw) { const parsed = JSON.parse(raw); if (Array.isArray(parsed) && parsed.length) savedTeam = parsed; }
+  } catch {}
+
+  const escAttr = (s) => String(s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+  // ── Notification preferences (server-backed with localStorage fallback) ───
+  const DEFAULT_NOTIF_PREFS = {
+    sessionReminders:   { email: true,  inapp: true,  telegram: false },
+    protocolAlerts:     { email: false, inapp: true,  telegram: false },
+    adverseEventAlerts: { email: true,  inapp: true,  telegram: true  },
+    reviewQueueDigest:  { email: false, inapp: true,  telegram: false },
+    weeklySummary:      { email: true,  inapp: false, telegram: false },
+    patientMessages:    { email: false, inapp: true,  telegram: false },
+    systemUpdates:      { email: false, inapp: true,  telegram: false },
+  };
+  let notifPrefs = { ...DEFAULT_NOTIF_PREFS };
+  const _applyNotifPrefs = (parsed) => {
+    if (!parsed || typeof parsed !== 'object') return;
+    notifPrefs = { ...DEFAULT_NOTIF_PREFS };
+    for (const k of Object.keys(DEFAULT_NOTIF_PREFS)) {
+      if (parsed[k] && typeof parsed[k] === 'object') {
+        notifPrefs[k] = { ...DEFAULT_NOTIF_PREFS[k], ...parsed[k] };
+      }
+    }
+  };
+  if (serverPrefs?.notification_prefs && typeof serverPrefs.notification_prefs === 'object') {
+    _applyNotifPrefs(serverPrefs.notification_prefs);
+  } else {
+    try { const raw = lsGet('ds_notification_prefs'); if (raw) _applyNotifPrefs(JSON.parse(raw)); } catch {}
+  }
+
+  const DEFAULT_QUIET_HOURS = { enabled: false, from: '22:00', to: '07:00' };
+  let quietHours = { ...DEFAULT_QUIET_HOURS };
+  if (serverPrefs?.quiet_hours && typeof serverPrefs.quiet_hours === 'object') {
+    quietHours = { ...DEFAULT_QUIET_HOURS, ...serverPrefs.quiet_hours };
+  } else {
+    try { const raw = lsGet('ds_quiet_hours'); if (raw) { const p = JSON.parse(raw); if (p && typeof p === 'object') quietHours = { ...DEFAULT_QUIET_HOURS, ...p }; } } catch {}
+  }
+
+  const digestFreq = serverPrefs?.digest_freq || lsGet('ds_digest_freq') || 'daily';
+
+  // ── Data & Privacy (server-backed with localStorage fallback) ──────────────
+  const lastExport         = lsGet('ds_last_export');
+  const analyticsOptIn     = (serverPrefs?.analytics_opt_in     != null) ? !!serverPrefs.analytics_opt_in     : ((lsGet('ds_analytics_opt_in')     || 'true') === 'true');
+  const errorReportsOptIn  = (serverPrefs?.error_reports_opt_in != null) ? !!serverPrefs.error_reports_opt_in : ((lsGet('ds_error_reports_opt_in') || 'true') === 'true');
+  const cookieFunctional   = (lsGet('ds_cookie_functional')     || 'true') === 'true';
+  const cookieAnalytics    = (lsGet('ds_cookie_analytics')      || 'true') === 'true';
+
+  // ── Clinical Defaults (server-backed with localStorage fallback) ───────────
+  const defaultProtocol         = pref(serverClinical?.default_protocol_id,          'ds_default_protocol')         || 'none';
+  const defaultSessionDuration  = String(serverClinical?.default_session_duration_min ?? lsGet('ds_default_session_duration') ?? '45');
+  const defaultFollowupWeeks    = String(serverClinical?.default_followup_weeks     ?? lsGet('ds_default_followup_weeks') ?? '4');
+  const defaultCourseLength     = String(serverClinical?.default_course_length      ?? lsGet('ds_default_course_length')  ?? '20');
+  const defaultConsentTemplate  = pref(serverClinical?.default_consent_template_id,  'ds_default_consent_template') || 'Standard TMS consent';
+  const customConsentText       = pref(serverClinical?.custom_consent_text,          'ds_custom_consent_text');
+  const DEFAULT_DISCLAIMER_TEXT = "This report is generated by DeepSynaps Protocol Studio based on current evidence and clinical guidelines. It is intended as clinical decision support only; final treatment decisions remain the clinician's responsibility.";
+  const defaultDisclaimer       = pref(serverClinical?.default_disclaimer,           'ds_default_disclaimer')       || DEFAULT_DISCLAIMER_TEXT;
+  const ASSESSMENT_OPTIONS      = ['PHQ-9', 'GAD-7', 'YBOCS', 'MADRS', 'HAM-D', 'PCL-5', 'AIMS', 'CGI-S'];
+  let defaultAssessments = ['PHQ-9', 'GAD-7'];
+  if (Array.isArray(serverClinical?.default_assessments)) {
+    defaultAssessments = serverClinical.default_assessments.filter(x => ASSESSMENT_OPTIONS.includes(x));
+  } else {
+    try { const raw = lsGet('ds_default_assessments'); if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) defaultAssessments = p.filter(x => ASSESSMENT_OPTIONS.includes(x)); } } catch {}
+  }
+  const aeProtocol = pref(serverClinical?.ae_protocol, 'ds_ae_protocol') || 'auto-notify';
+
+  const PROTOCOL_OPTIONS = [
+    ['none',              'None (choose per patient)'],
+    ['tms-depression',    'TMS — Depression (F3 10Hz)'],
+    ['tms-ocd',           'TMS — OCD (SMA 1Hz)'],
+    ['tdcs-depression',   'tDCS — Depression (F3 anode)'],
+    ['nfb-adhd',          'Neurofeedback — ADHD (Cz theta/beta)'],
+    ['tdcs-stroke',       'tDCS — Stroke (M1 anode)'],
+  ];
+  const CONSENT_OPTIONS = [
+    'Standard TMS consent',
+    'Standard tDCS consent',
+    'Standard Neurofeedback consent',
+    'Research protocol consent',
+    'Custom (edit below)',
+  ];
+  const AE_OPTIONS = [
+    ['auto-notify', 'Auto-notify supervising physician immediately'],
+    ['log-review',  'Log for next review'],
+    ['auto-pause',  'Auto-pause course until reviewed'],
+  ];
+
+  const REMINDER_SLOTS = [
+    { id: '24h',      label: '24h before' },
+    { id: '2h',       label: '2h before' },
+    { id: '15min',    label: '15min before' },
+    { id: 'day-of',   label: 'Day-of morning summary' },
+  ];
+  const DEFAULT_REMINDER_TIMING = ['24h', '2h'];
+  let reminderTiming = [...DEFAULT_REMINDER_TIMING];
+  if (Array.isArray(serverPrefs?.reminder_timing)) {
+    reminderTiming = serverPrefs.reminder_timing.filter(x => REMINDER_SLOTS.some(s => s.id === x));
+  } else {
+    try { const raw = lsGet('ds_reminder_timing'); if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) reminderTiming = p.filter(x => REMINDER_SLOTS.some(s => s.id === x)); } } catch {}
+  }
+
+  // ── User Preferences (server-backed with localStorage fallback) ─────────────
+  const currentLocale = (() => { try { return getLocale() || 'en'; } catch { return 'en'; } })();
+  const dateFormat    = pref(serverPrefs?.date_format,  'ds_date_format') || 'ISO';
+  const timeFormat    = pref(serverPrefs?.time_format,  'ds_time_format') || '24h';
+  const firstDay      = pref(serverPrefs?.first_day,    'ds_first_day')   || 'monday';
+  const measureUnits  = pref(serverPrefs?.units,        'ds_units')       || 'metric';
+  const autoDetectedNumberFormat = (() => {
+    try {
+      const parts = new Intl.NumberFormat(navigator.language || 'en-US').formatToParts(1234.56);
+      const group = parts.find(p => p.type === 'group')?.value || ',';
+      const decimal = parts.find(p => p.type === 'decimal')?.value || '.';
+      if (group === ' ' || group === '\u202f' || group === '\u00a0') return 'FR';
+      if (group === '.' && decimal === ',') return 'EU';
+      return 'US';
+    } catch { return 'US'; }
+  })();
+  const numberFormat = pref(serverPrefs?.number_format, 'ds_number_format') || autoDetectedNumberFormat;
+  const sessionDefaultDuration = String(serverPrefs?.session_default_duration_min ?? lsGet('ds_session_default_duration') ?? '45');
+  const autoLogout = (() => {
+    if (serverPrefs?.auto_logout_min != null) {
+      return serverPrefs.auto_logout_min === 0 ? 'never' : String(serverPrefs.auto_logout_min);
+    }
+    return lsGet('ds_auto_logout') || '30';
+  })();
+
+  const NOTIF_EVENTS = [
+    { id: 'sessionReminders',   label: 'Session Reminders'   },
+    { id: 'protocolAlerts',     label: 'Protocol Alerts'     },
+    { id: 'adverseEventAlerts', label: 'Adverse Event Alerts'},
+    { id: 'reviewQueueDigest',  label: 'Review Queue Digest' },
+    { id: 'weeklySummary',      label: 'Weekly Summary'      },
+    { id: 'patientMessages',    label: 'Patient Messages'    },
+    { id: 'systemUpdates',      label: 'System Updates'      },
+  ];
+  const NOTIF_CHANNELS = [
+    { id: 'email',    label: 'Email',    always: true },
+    { id: 'inapp',    label: 'In-App',   always: true },
+    { id: 'telegram', label: 'Telegram', always: false },
+  ];
+  const telegramLinked = !!telegramCode;
+
   el.innerHTML = `
-    <!-- Account Section -->
+    <!-- Account Section (editable) -->
     <div class="card" style="margin-bottom:16px">
       <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border)">
         <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Account</span>
       </div>
       <div class="card-body">
-        ${[
-          ['Display Name', currentUser?.display_name || '—'],
-          ['Email',        currentUser?.email || '—'],
-          ['Role',         `<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(0,212,188,0.1);color:var(--teal)">${currentUser?.role || 'guest'}</span>`],
-          ['Package',      `<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(74,158,255,0.1);color:var(--blue)">${currentUser?.package_id || 'explorer'}</span>`],
-          ['Verified',     currentUser?.is_verified ? '<span style="color:var(--green)">Yes ✓</span>' : '<span style="color:var(--amber)">Pending</span>'],
-        ].map(([k, v]) => fr(k, v)).join('')}
+        <!-- Avatar -->
+        <div class="form-group" style="display:flex;align-items:center;gap:16px">
+          <div id="acc-avatar-preview" style="width:64px;height:64px;border-radius:50%;background:${savedAvatar ? `url('${escAttr(savedAvatar)}') center/cover` : 'var(--surface-elev-1)'};border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--text-tertiary);flex-shrink:0">${savedAvatar ? '' : (initials ? initials(currentUser?.display_name || currentUser?.email || '?') : '?')}</div>
+          <div style="flex:1;min-width:0">
+            <label class="form-label">Avatar</label>
+            <input type="file" id="acc-avatar-input" accept="image/*" class="form-control" style="padding:6px 10px">
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">JPG/PNG, stored locally (cropped to 256×256). Clears with browser data.</div>
+          </div>
+          <button class="btn btn-sm" id="acc-avatar-clear" ${savedAvatar ? '' : 'disabled style="opacity:.5"'}>Remove</button>
+        </div>
+
+        <!-- Display Name -->
+        <div class="form-group">
+          <label class="form-label" for="acc-display-name">Display Name</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="acc-display-name" class="form-control" value="${escAttr(currentUser?.display_name || '')}" placeholder="Your full name" style="flex:1">
+            <button class="btn btn-primary btn-sm" id="acc-save-name">Save</button>
+          </div>
+          <div id="acc-name-msg" style="font-size:11px;color:var(--text-tertiary);margin-top:4px;min-height:14px"></div>
+        </div>
+
+        <!-- Email -->
+        <div class="form-group">
+          <label class="form-label" for="acc-email">Email</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="email" id="acc-email" class="form-control" value="${escAttr(currentUser?.email || '')}" placeholder="you@clinic.com" style="flex:1">
+            <button class="btn btn-primary btn-sm" id="acc-save-email">Save</button>
+          </div>
+          <div id="acc-email-msg" style="font-size:11px;color:var(--text-tertiary);margin-top:4px;min-height:14px">A verification email will be sent to the new address.</div>
+        </div>
+
+        <!-- Credentials / Title -->
+        <div class="form-group">
+          <label class="form-label" for="acc-credentials">Credentials / Title</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="acc-credentials" class="form-control" value="${escAttr(savedCredentials)}" placeholder="e.g. Dr., MD, PhD" style="flex:1">
+            <button class="btn btn-sm" id="acc-save-creds">Save</button>
+          </div>
+        </div>
+
+        <!-- Professional License / NPI -->
+        <div class="form-group">
+          <label class="form-label" for="acc-license">Professional License / NPI</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="acc-license" class="form-control" value="${escAttr(savedLicense)}" placeholder="License number or NPI" style="flex:1">
+            <button class="btn btn-sm" id="acc-save-license">Save</button>
+          </div>
+        </div>
+
+        <!-- Change Password -->
+        ${cardWrap('🔒 Change Password', `
+          <div class="form-group">
+            <label class="form-label" for="acc-pw-current">Current Password</label>
+            <input type="password" id="acc-pw-current" class="form-control" autocomplete="current-password">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="acc-pw-new">New Password</label>
+            <input type="password" id="acc-pw-new" class="form-control" autocomplete="new-password" placeholder="Minimum 10 characters">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="acc-pw-confirm">Confirm New Password</label>
+            <input type="password" id="acc-pw-confirm" class="form-control" autocomplete="new-password">
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-primary btn-sm" id="acc-save-password">Update Password</button>
+            <span id="acc-pw-msg" style="font-size:11.5px;color:var(--text-secondary)"></span>
+          </div>
+        `)}
+
+        <!-- Read-only chips below editable form -->
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+          <span style="font-size:11px;padding:3px 10px;border-radius:4px;background:rgba(0,212,188,0.1);color:var(--teal)">Role: ${currentUser?.role || 'guest'}</span>
+          <span style="font-size:11px;padding:3px 10px;border-radius:4px;background:rgba(74,158,255,0.1);color:var(--blue)">Package: ${currentUser?.package_id || 'explorer'}</span>
+          <span style="font-size:11px;padding:3px 10px;border-radius:4px;${currentUser?.is_verified ? 'background:rgba(34,197,94,0.1);color:var(--green)' : 'background:rgba(245,158,11,0.1);color:var(--amber)'}">${currentUser?.is_verified ? 'Verified ✓' : 'Verification Pending'}</span>
+        </div>
       </div>
     </div>
 
@@ -1059,19 +1375,163 @@ export async function pgSettings(setTopbar, currentUser) {
       </div>
     </div>
 
-    <!-- Clinic Section -->
+    <!-- Clinic Section (editable) -->
     <div class="card" style="margin-bottom:16px">
       <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border)">
         <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Clinic</span>
       </div>
       <div class="card-body">
-        ${[
-          ['Clinic Name',  '—'],
-          ['Address',      '—'],
-          ['Phone',        '—'],
-          ['Time Zone',    Intl.DateTimeFormat().resolvedOptions().timeZone || '—'],
-        ].map(([k, v]) => fr(k, v)).join('')}
-        <div style="margin-top:12px"><span style="font-size:11px;color:var(--text-tertiary);padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius-md);display:inline-block">Clinic profile editing — coming soon</span></div>
+        <!-- Clinic Logo -->
+        <div class="form-group" style="display:flex;align-items:center;gap:16px">
+          <div id="clinic-logo-preview" style="width:64px;height:64px;border-radius:10px;background:${savedClinicLogo ? `url('${escAttr(savedClinicLogo)}') center/cover` : 'var(--surface-elev-1)'};border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--text-tertiary);flex-shrink:0">${savedClinicLogo ? '' : '🏥'}</div>
+          <div style="flex:1;min-width:0">
+            <label class="form-label">Clinic Logo</label>
+            <input type="file" id="clinic-logo-input" accept="image/*" class="form-control" style="padding:6px 10px">
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">JPG/PNG, cropped to 512×512. Stored locally until backend endpoint exists.</div>
+          </div>
+          <button class="btn btn-sm" id="clinic-logo-clear" ${savedClinicLogo ? '' : 'disabled style="opacity:.5"'}>Remove</button>
+        </div>
+
+        <!-- Clinic Name -->
+        <div class="form-group">
+          <label class="form-label" for="clinic-name">Clinic Name</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="clinic-name" class="form-control" value="${escAttr(savedClinicName)}" placeholder="e.g. DeepSynaps Neuro Clinic" style="flex:1">
+            <button class="btn btn-primary btn-sm" id="clinic-save-name">Save</button>
+          </div>
+        </div>
+
+        <!-- Address -->
+        <div class="form-group">
+          <label class="form-label" for="clinic-address">Address</label>
+          <textarea id="clinic-address" class="form-control" rows="3" placeholder="Street, city, postcode, country" style="resize:vertical">${escAttr(savedClinicAddress)}</textarea>
+          <div style="display:flex;justify-content:flex-end;margin-top:6px">
+            <button class="btn btn-sm" id="clinic-save-address">Save Address</button>
+          </div>
+        </div>
+
+        <!-- Phone -->
+        <div class="form-group">
+          <label class="form-label" for="clinic-phone">Phone</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="tel" id="clinic-phone" class="form-control" value="${escAttr(savedClinicPhone)}" placeholder="+44 20 7123 4567" style="flex:1">
+            <button class="btn btn-sm" id="clinic-save-phone">Save</button>
+          </div>
+        </div>
+
+        <!-- Clinic Email -->
+        <div class="form-group">
+          <label class="form-label" for="clinic-email">Clinic Email</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="email" id="clinic-email" class="form-control" value="${escAttr(savedClinicEmail)}" placeholder="hello@clinic.com" style="flex:1">
+            <button class="btn btn-sm" id="clinic-save-email">Save</button>
+          </div>
+        </div>
+
+        <!-- Website -->
+        <div class="form-group">
+          <label class="form-label" for="clinic-website">Website</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="url" id="clinic-website" class="form-control" value="${escAttr(savedClinicWebsite)}" placeholder="https://clinic.com" style="flex:1">
+            <button class="btn btn-sm" id="clinic-save-website">Save</button>
+          </div>
+        </div>
+
+        <!-- Timezone -->
+        <div class="form-group">
+          <label class="form-label" for="clinic-tz">Timezone</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="clinic-tz" class="form-control" style="flex:1">
+              ${tzList.map(tz => `<option value="${escAttr(tz)}" ${tz === savedClinicTZ ? 'selected' : ''}>${escAttr(tz)}</option>`).join('')}
+            </select>
+            <button class="btn btn-sm" id="clinic-save-tz">Save</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Browser timezone: ${escAttr(browserTZ())}</div>
+        </div>
+
+        <!-- Practice Specialties -->
+        <div class="form-group">
+          <label class="form-label" for="clinic-specialties">Practice Specialties</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="clinic-specialties" class="form-control" value="${escAttr(savedClinicSpecialties)}" placeholder="TMS, Neurofeedback, Ketamine" style="flex:1">
+            <button class="btn btn-sm" id="clinic-save-specialties">Save</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Comma-separated list of modalities offered.</div>
+        </div>
+
+        <!-- Working Hours sub-card -->
+        ${cardWrap('🕒 Working Hours', `
+          <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+              <thead>
+                <tr style="text-align:left;color:var(--text-secondary)">
+                  <th style="padding:6px 8px;font-weight:500">Day</th>
+                  <th style="padding:6px 8px;font-weight:500">Open</th>
+                  <th style="padding:6px 8px;font-weight:500">From</th>
+                  <th style="padding:6px 8px;font-weight:500">To</th>
+                </tr>
+              </thead>
+              <tbody id="clinic-hours-body">
+                ${[['mon','Monday'],['tue','Tuesday'],['wed','Wednesday'],['thu','Thursday'],['fri','Friday'],['sat','Saturday'],['sun','Sunday']].map(([k,label]) => {
+                  const h = savedHours[k] || defaultHours[k];
+                  return `
+                    <tr data-day="${k}" style="border-top:1px solid var(--border)">
+                      <td style="padding:8px">${label}</td>
+                      <td style="padding:8px"><input type="checkbox" class="clinic-hours-open" ${h.open ? 'checked' : ''}></td>
+                      <td style="padding:8px"><input type="time" class="form-control clinic-hours-from" value="${escAttr(h.from)}" style="padding:4px 8px;max-width:120px"></td>
+                      <td style="padding:8px"><input type="time" class="form-control clinic-hours-to"   value="${escAttr(h.to)}"   style="padding:4px 8px;max-width:120px"></td>
+                    </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-top:10px">
+            <button class="btn btn-primary btn-sm" id="clinic-save-hours">Save Working Hours</button>
+          </div>
+        `)}
+
+        <!-- Save All -->
+        <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);gap:8px">
+          <span id="clinic-save-all-msg" style="font-size:11.5px;color:var(--text-secondary);align-self:center"></span>
+          <button class="btn btn-primary btn-sm" id="clinic-save-all">Save All Clinic Changes</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Team Members Section -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+        <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Team Members</span>
+        <span id="team-count-chip" style="font-size:11px;padding:2px 9px;border-radius:10px;background:rgba(0,212,188,0.1);color:var(--teal);font-weight:500">${savedTeam.length}</span>
+      </div>
+      <div class="card-body">
+        <div id="team-list"></div>
+
+        <!-- Invite Member -->
+        ${cardWrap('✉️ Invite Member', `
+          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+            <div class="form-group" style="flex:2;min-width:220px;margin:0">
+              <label class="form-label" for="team-invite-email">Email</label>
+              <input type="email" id="team-invite-email" class="form-control" placeholder="colleague@clinic.com">
+            </div>
+            <div class="form-group" style="flex:1;min-width:150px;margin:0">
+              <label class="form-label" for="team-invite-role">Role</label>
+              <select id="team-invite-role" class="form-control">
+                <option value="admin">Admin</option>
+                <option value="clinician" selected>Clinician</option>
+                <option value="technician">Technician</option>
+                <option value="read-only">Read-only</option>
+              </select>
+            </div>
+            <div>
+              <button class="btn btn-primary btn-sm" id="team-invite-btn">Send invite</button>
+            </div>
+          </div>
+          <div id="team-invite-msg" style="font-size:11.5px;color:var(--text-secondary);margin-top:8px;min-height:14px"></div>
+        `)}
+
+        <!-- Pending Invites -->
+        <div id="team-pending-wrap"></div>
       </div>
     </div>
 
@@ -1081,12 +1541,76 @@ export async function pgSettings(setTopbar, currentUser) {
         <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Notifications</span>
       </div>
       <div class="card-body">
-        ${[
-          ['Session Reminders', '24h + 2h before'],
-          ['Protocol Alerts',  'Enabled'],
-          ['AE Alerts',        'Immediate (Telegram + email)'],
-          ['Review Queue',     'Daily digest'],
-        ].map(([k, v]) => fr(k, v)).join('')}
+        <!-- Channel × Event matrix -->
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+            <thead>
+              <tr style="text-align:left;color:var(--text-secondary)">
+                <th style="padding:8px;font-weight:500">Event</th>
+                ${NOTIF_CHANNELS.map(ch => `<th style="padding:8px;font-weight:500;text-align:center;${!ch.always && !telegramLinked ? 'opacity:.5' : ''}">${escAttr(ch.label)}${!ch.always && !telegramLinked ? ' <span style="font-size:10px;color:var(--text-tertiary);font-weight:400">(link to enable)</span>' : ''}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody id="notif-matrix-body">
+              ${NOTIF_EVENTS.map(ev => `
+                <tr data-event="${ev.id}" style="border-top:1px solid var(--border)">
+                  <td style="padding:10px 8px;color:var(--text-primary)">${escAttr(ev.label)}</td>
+                  ${NOTIF_CHANNELS.map(ch => {
+                    const disabled = !ch.always && !telegramLinked;
+                    const checked = !!(notifPrefs[ev.id] && notifPrefs[ev.id][ch.id]);
+                    return `<td style="padding:10px 8px;text-align:center">
+                      <input type="checkbox" class="notif-cell" data-event="${ev.id}" data-channel="${ch.id}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
+                    </td>`;
+                  }).join('')}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div id="notif-matrix-msg" style="font-size:11px;color:var(--text-tertiary);margin-top:6px;min-height:14px"></div>
+
+        <!-- Quiet Hours -->
+        ${cardWrap('🌙 Quiet Hours', `
+          <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+            <div class="form-group" style="margin:0">
+              <label class="form-label" for="quiet-from">From</label>
+              <input type="time" id="quiet-from" class="form-control" value="${escAttr(quietHours.from)}" style="max-width:140px">
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label" for="quiet-to">To</label>
+              <input type="time" id="quiet-to" class="form-control" value="${escAttr(quietHours.to)}" style="max-width:140px">
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-primary);margin-bottom:6px">
+              <input type="checkbox" id="quiet-enabled" ${quietHours.enabled ? 'checked' : ''}>
+              Respect quiet hours (defer non-urgent)
+            </label>
+          </div>
+          <div style="margin-top:10px;font-size:11.5px;color:var(--text-tertiary)">AE alerts and emergencies bypass quiet hours.</div>
+        `)}
+
+        <!-- Digest Frequency -->
+        ${cardWrap('📰 Digest Frequency', `
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            ${[['daily','Daily'],['weekly','Weekly'],['off','Off']].map(([v,l]) => `
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-primary);cursor:pointer">
+                <input type="radio" name="digest-freq" value="${v}" ${digestFreq === v ? 'checked' : ''}>
+                ${l}
+              </label>
+            `).join('')}
+          </div>
+        `)}
+
+        <!-- Session Reminder Timing -->
+        ${cardWrap('⏰ Session Reminder Timing', `
+          <div style="display:flex;gap:8px;flex-wrap:wrap" id="reminder-chip-wrap">
+            ${REMINDER_SLOTS.map(s => {
+              const on = reminderTiming.includes(s.id);
+              return `<button type="button" class="btn btn-sm reminder-chip" data-slot="${s.id}" data-on="${on ? '1' : '0'}" style="padding:5px 12px;${on ? 'background:rgba(0,212,188,0.12);border-color:var(--border-teal);color:var(--teal)' : ''}">${on ? '✓ ' : ''}${escAttr(s.label)}</button>`;
+            }).join('')}
+          </div>
+          <div style="margin-top:8px;font-size:11.5px;color:var(--text-tertiary)">Select one or more reminder slots. Empty = no reminders.</div>
+        `)}
+
+        <!-- Telegram Integration (preserved) -->
         ${cardWrap('Telegram Integration',
           telegramCode
             ? fr('Link Code', `<code style="font-family:var(--font-mono);font-size:14px;color:var(--teal);background:rgba(0,212,188,0.08);padding:4px 10px;border-radius:4px;letter-spacing:2px">${telegramCode}</code>`) +
@@ -1100,6 +1624,120 @@ export async function pgSettings(setTopbar, currentUser) {
       </div>
     </div>
 
+    <!-- Preferences Section -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border)">
+        <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Preferences</span>
+      </div>
+      <div class="card-body">
+        <!-- Language -->
+        <div class="form-group">
+          <label class="form-label" for="pref-language">Language</label>
+          <select id="pref-language" class="form-control">
+            ${Object.entries(LOCALES).map(([code, label]) => `<option value="${escAttr(code)}" ${code === currentLocale ? 'selected' : ''}>${escAttr(label)}</option>`).join('')}
+          </select>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Changing language reloads the app so all labels update.</div>
+        </div>
+
+        <!-- Date Format -->
+        <div class="form-group">
+          <label class="form-label">Date Format</label>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            ${[
+              ['ISO','ISO (2026-04-17)'],
+              ['US', 'US (04/17/2026)'],
+              ['EU', 'EU (17/04/2026)'],
+            ].map(([v,l]) => `
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-primary);cursor:pointer">
+                <input type="radio" name="pref-date-format" value="${v}" ${dateFormat === v ? 'checked' : ''}>
+                ${l}
+              </label>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- Time Format -->
+        <div class="form-group">
+          <label class="form-label">Time Format</label>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            ${[['24h','24-hour'],['12h','12-hour']].map(([v,l]) => `
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-primary);cursor:pointer">
+                <input type="radio" name="pref-time-format" value="${v}" ${timeFormat === v ? 'checked' : ''}>
+                ${l}
+              </label>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- First Day of Week -->
+        <div class="form-group">
+          <label class="form-label">First Day of Week</label>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            ${[['monday','Monday'],['sunday','Sunday']].map(([v,l]) => `
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-primary);cursor:pointer">
+                <input type="radio" name="pref-first-day" value="${v}" ${firstDay === v ? 'checked' : ''}>
+                ${l}
+              </label>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- Measurement Units -->
+        <div class="form-group">
+          <label class="form-label">Measurement Units</label>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            ${[['metric','Metric (kg, cm)'],['imperial','Imperial (lb, in)']].map(([v,l]) => `
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-primary);cursor:pointer">
+                <input type="radio" name="pref-units" value="${v}" ${measureUnits === v ? 'checked' : ''}>
+                ${l}
+              </label>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- Number Format -->
+        <div class="form-group">
+          <label class="form-label">Number Format</label>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            ${[
+              ['US','1,234.56 (US)'],
+              ['EU','1.234,56 (EU)'],
+              ['FR','1 234,56 (FR)'],
+            ].map(([v,l]) => `
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-primary);cursor:pointer">
+                <input type="radio" name="pref-number-format" value="${v}" ${numberFormat === v ? 'checked' : ''}>
+                ${l}
+              </label>
+            `).join('')}
+          </div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Auto-detected from browser: ${escAttr(autoDetectedNumberFormat)}.</div>
+        </div>
+
+        <!-- Session Default Duration -->
+        <div class="form-group">
+          <label class="form-label" for="pref-session-duration">Session Default Duration (minutes)</label>
+          <input type="number" id="pref-session-duration" class="form-control" value="${escAttr(sessionDefaultDuration)}" min="5" max="240" step="5" style="max-width:160px">
+        </div>
+
+        <!-- Auto-logout -->
+        <div class="form-group">
+          <label class="form-label" for="pref-auto-logout">Auto-logout after inactivity</label>
+          <select id="pref-auto-logout" class="form-control" style="max-width:220px">
+            ${[
+              ['never','Never'],
+              ['15','15 min'],
+              ['30','30 min'],
+              ['60','1 hour'],
+              ['240','4 hours'],
+            ].map(([v,l]) => `<option value="${v}" ${autoLogout === v ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">TODO: wire ds_auto_logout to idle-session watchdog</div>
+        </div>
+
+        <div id="pref-save-msg" style="font-size:11.5px;color:var(--text-tertiary);margin-top:6px;min-height:14px"></div>
+      </div>
+    </div>
+
     <!-- Security Section -->
     <div class="card" style="margin-bottom:16px">
       <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border)">
@@ -1109,10 +1747,46 @@ export async function pgSettings(setTopbar, currentUser) {
         ${[
           ['HIPAA',      '<span style="color:var(--green)">Compliant ✓</span>'],
           ['GDPR',       '<span style="color:var(--green)">Compliant ✓</span>'],
-          ['2FA',        '<span style="color:var(--amber)">Recommended — not yet enabled</span>'],
+          ['2FA',        twoFAEnabled ? '<span style="color:var(--green)">Enabled ✓</span>' : '<span style="color:var(--amber)">Recommended — not yet enabled</span>'],
           ['Audit Logs', '7-year retention policy'],
           ['Encryption', 'AES-256 at rest · TLS 1.3 in transit'],
         ].map(([k, v]) => fr(k, v)).join('')}
+
+        <!-- Two-Factor Authentication -->
+        ${cardWrap('📱 Two-Factor Authentication (2FA)', `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:240px">
+              <div style="font-size:12.5px;color:var(--text-secondary)">
+                ${twoFAEnabled
+                  ? 'Two-factor authentication is active on this account. Your login requires a 6-digit code from your authenticator app.'
+                  : 'Add an extra layer of security to your account by requiring a 6-digit code from your authenticator app at login.'}
+              </div>
+            </div>
+            <div id="twofa-btn-wrap">
+              ${twoFAEnabled
+                ? `<span style="font-size:12px;color:var(--green);margin-right:8px">2FA Enabled ✓</span><button class="btn btn-sm" id="twofa-disable-btn">Disable</button>`
+                : `<button class="btn btn-primary btn-sm" id="twofa-enable-btn">Enable 2FA</button>`}
+            </div>
+          </div>
+          <div id="twofa-setup-panel" style="display:none;margin-top:14px;padding:14px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-elev-1)"></div>
+        `)}
+
+        <!-- Active Sessions -->
+        ${cardWrap('Active Sessions', `
+          <div id="sessions-list"></div>
+          <div style="margin-top:10px;display:flex;justify-content:flex-end">
+            <button class="btn btn-sm" id="sessions-signout-all">Sign out all other devices</button>
+          </div>
+        `)}
+
+        <!-- Audit Log -->
+        ${cardWrap('Audit Log', `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <div style="font-size:12.5px;color:var(--text-secondary)">Review a complete history of account and clinical actions. Required for HIPAA compliance; 7-year retention.</div>
+            <button class="btn btn-sm" id="audit-log-btn">View audit log →</button>
+          </div>
+        `)}
+
         ${cardWrap('Integrations', `
           ${[
             { name: 'DOCX Export',        desc: 'Generate clinical protocol documents',        active: true,  action: 'Configure →',  onClick: "window._nav('reports')" },
@@ -1134,6 +1808,186 @@ export async function pgSettings(setTopbar, currentUser) {
               <button class="btn btn-sm" onclick="${int.onClick}" ${int.action === 'Coming Soon' ? 'disabled style="opacity:.5"' : ''}>${int.action}</button>
             </div>`).join('')}
         `)}
+      </div>
+    </div>
+
+    <!-- Data & Privacy Section -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border)">
+        <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Data &amp; Privacy</span>
+      </div>
+      <div class="card-body">
+        <!-- Export My Data -->
+        ${cardWrap('📤 Export My Data (GDPR Article 20)', `
+          <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.6;margin-bottom:10px">
+            Download a complete copy of your account, patient, session, and protocol data in JSON format. Processing may take up to 24 hours for large accounts.
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" id="dp-export-btn">Download Data Export →</button>
+            <span id="dp-export-msg" style="font-size:11.5px;color:var(--text-tertiary)">${lastExport ? 'Last export: ' + escAttr(lastExport) : ''}</span>
+          </div>
+        `)}
+
+        <!-- Data Retention -->
+        ${cardWrap('🗄️ Data Retention', `
+          <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.6">
+            Patient data is retained per HIPAA default (<strong>7 years post-encounter</strong>). Clinical notes, audit logs, and assessments cannot be deleted before retention expiry.
+          </div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Read-only — retention policy is legally binding.</div>
+        `)}
+
+        <!-- Analytics & Telemetry -->
+        ${cardWrap('📊 Analytics &amp; Telemetry', `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12.5px;color:var(--text-primary)">Share anonymous usage data to help improve DeepSynaps</div>
+            </div>
+            <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" id="dp-analytics-opt" ${analyticsOptIn ? 'checked' : ''}>
+              <span style="font-size:11.5px;color:var(--text-secondary)">Opt-in</span>
+            </label>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--border)">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12.5px;color:var(--text-primary)">Share error reports for faster bug fixes</div>
+            </div>
+            <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" id="dp-errors-opt" ${errorReportsOptIn ? 'checked' : ''}>
+              <span style="font-size:11.5px;color:var(--text-secondary)">Opt-in</span>
+            </label>
+          </div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;line-height:1.5">We never share PHI or clinical data. Only anonymized interaction patterns.</div>
+        `)}
+
+        <!-- Consent & Privacy -->
+        ${cardWrap('📜 Consent &amp; Privacy', `
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <button class="btn btn-sm" id="dp-privacy-link" style="justify-content:flex-start;text-align:left">View Privacy Policy →</button>
+            <button class="btn btn-sm" id="dp-terms-link" style="justify-content:flex-start;text-align:left">View Terms of Service →</button>
+            <button class="btn btn-sm" id="dp-dpa-link" style="justify-content:flex-start;text-align:left">Data Processing Agreement (DPA) →</button>
+          </div>
+        `)}
+
+        <!-- Cookie Preferences -->
+        ${cardWrap('🍪 Cookie Preferences', `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12.5px;color:var(--text-primary)">Essential cookies</div>
+              <div style="font-size:11px;color:var(--text-tertiary)">Required for login and security — always on.</div>
+            </div>
+            <label style="display:inline-flex;align-items:center;gap:8px;opacity:.6;cursor:not-allowed">
+              <input type="checkbox" checked disabled>
+              <span style="font-size:11.5px;color:var(--text-secondary)">Always on</span>
+            </label>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--border)">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12.5px;color:var(--text-primary)">Functional cookies</div>
+              <div style="font-size:11px;color:var(--text-tertiary)">Remember your preferences and settings.</div>
+            </div>
+            <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" id="dp-cookie-functional" ${cookieFunctional ? 'checked' : ''}>
+              <span style="font-size:11.5px;color:var(--text-secondary)">Enabled</span>
+            </label>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--border)">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12.5px;color:var(--text-primary)">Analytics cookies</div>
+              <div style="font-size:11px;color:var(--text-tertiary)">Measure usage to improve the product.</div>
+            </div>
+            <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" id="dp-cookie-analytics" ${cookieAnalytics ? 'checked' : ''}>
+              <span style="font-size:11.5px;color:var(--text-secondary)">Enabled</span>
+            </label>
+          </div>
+        `)}
+
+        <div id="dp-save-msg" style="font-size:11.5px;color:var(--text-tertiary);margin-top:6px;min-height:14px"></div>
+      </div>
+    </div>
+
+    <!-- Clinical Defaults Section -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border)">
+        <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Clinical Defaults</span>
+      </div>
+      <div class="card-body">
+        <!-- Default Protocol Template -->
+        <div class="form-group">
+          <label class="form-label" for="cd-default-protocol">Default Protocol Template</label>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <select id="cd-default-protocol" class="form-control" style="flex:1;min-width:240px">
+              ${PROTOCOL_OPTIONS.map(([v, l]) => `<option value="${escAttr(v)}" ${defaultProtocol === v ? 'selected' : ''}>${escAttr(l)}</option>`).join('')}
+            </select>
+            <button class="btn btn-sm" onclick="window._nav('protocols')">Customize protocol defaults →</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">TODO: wire ds_default_protocol to intake flow's protocol picker</div>
+        </div>
+
+        <!-- Default Session Duration -->
+        <div class="form-group">
+          <label class="form-label" for="cd-session-duration">Default Session Duration (minutes)</label>
+          <input type="number" id="cd-session-duration" class="form-control" value="${escAttr(defaultSessionDuration)}" min="5" max="240" step="5" style="max-width:160px">
+        </div>
+
+        <!-- Default Follow-up Cadence -->
+        <div class="form-group">
+          <label class="form-label" for="cd-followup-weeks">Default Follow-up Cadence (weeks)</label>
+          <input type="number" id="cd-followup-weeks" class="form-control" value="${escAttr(defaultFollowupWeeks)}" min="1" max="52" step="1" style="max-width:160px">
+        </div>
+
+        <!-- Default Course Length -->
+        <div class="form-group">
+          <label class="form-label" for="cd-course-length">Default Course Length (sessions)</label>
+          <input type="number" id="cd-course-length" class="form-control" value="${escAttr(defaultCourseLength)}" min="1" max="200" step="1" style="max-width:160px">
+        </div>
+
+        <!-- Default Consent Template -->
+        <div class="form-group">
+          <label class="form-label" for="cd-consent-template">Default Consent Template</label>
+          <select id="cd-consent-template" class="form-control" style="max-width:360px">
+            ${CONSENT_OPTIONS.map(v => `<option value="${escAttr(v)}" ${defaultConsentTemplate === v ? 'selected' : ''}>${escAttr(v)}</option>`).join('')}
+          </select>
+          <div id="cd-custom-consent-wrap" style="margin-top:8px;display:${defaultConsentTemplate === 'Custom (edit below)' ? 'block' : 'none'}">
+            <label class="form-label" for="cd-custom-consent">Custom Consent Boilerplate</label>
+            <textarea id="cd-custom-consent" class="form-control" rows="5" placeholder="Enter your custom consent boilerplate…">${escAttr(customConsentText)}</textarea>
+          </div>
+        </div>
+
+        <!-- Default Disclaimer Text -->
+        <div class="form-group">
+          <label class="form-label" for="cd-disclaimer">Default Disclaimer Text</label>
+          <textarea id="cd-disclaimer" class="form-control" rows="4">${escAttr(defaultDisclaimer)}</textarea>
+        </div>
+
+        <!-- Assessment Battery -->
+        <div class="form-group">
+          <label class="form-label">Assessment Battery (auto-assign on intake)</label>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;padding:4px 0">
+            ${ASSESSMENT_OPTIONS.map(a => `
+              <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-primary);cursor:pointer;padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-elev-1)">
+                <input type="checkbox" class="cd-assessment" value="${escAttr(a)}" ${defaultAssessments.includes(a) ? 'checked' : ''}>
+                ${escAttr(a)}
+              </label>
+            `).join('')}
+          </div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">TODO: wire ds_default_assessments to intake auto-assign</div>
+        </div>
+
+        <!-- Adverse Event Protocol -->
+        <div class="form-group">
+          <label class="form-label">Adverse Event Protocol</label>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${AE_OPTIONS.map(([v, l]) => `
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-primary);cursor:pointer">
+                <input type="radio" name="cd-ae-protocol" value="${escAttr(v)}" ${aeProtocol === v ? 'checked' : ''}>
+                ${escAttr(l)}
+              </label>
+            `).join('')}
+          </div>
+        </div>
+
+        <div id="cd-save-msg" style="font-size:11.5px;color:var(--text-tertiary);margin-top:6px;min-height:14px"></div>
       </div>
     </div>
 
@@ -1228,6 +2082,1043 @@ export async function pgSettings(setTopbar, currentUser) {
       if (status) status.textContent = e.message || 'Portal unavailable.';
     }
   };
+
+  // ── Account editable wiring ────────────────────────────────────────────────
+  const toast = (msg, kind) => {
+    if (window._showToast) { window._showToast(msg, kind || 'success'); return; }
+    alert(msg);
+  };
+
+  // Avatar: upload via multipart to backend; on failure, keep client-side crop
+  // + localStorage mirror so the user still sees their image.
+  const avatarInput = document.getElementById('acc-avatar-input');
+  const avatarPreview = document.getElementById('acc-avatar-preview');
+  const avatarClear = document.getElementById('acc-avatar-clear');
+  if (avatarInput) {
+    avatarInput.addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = async () => {
+          let dataUrl = ev.target.result;
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            const side = Math.min(img.width, img.height);
+            const sx = (img.width - side) / 2;
+            const sy = (img.height - side) / 2;
+            ctx.drawImage(img, sx, sy, side, side, 0, 0, 256, 256);
+            dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          } catch {}
+          if (avatarPreview) { avatarPreview.style.background = `url('${dataUrl}') center/cover`; avatarPreview.textContent = ''; }
+          if (avatarClear) { avatarClear.disabled = false; avatarClear.style.opacity = ''; }
+          try {
+            const res = await api.uploadAvatar(file);
+            const remoteUrl = res?.avatar_url || res?.url;
+            if (remoteUrl) {
+              if (avatarPreview) { avatarPreview.style.background = `url('${remoteUrl}') center/cover`; }
+              try { localStorage.setItem('ds_user_avatar', remoteUrl); } catch {}
+            } else {
+              try { localStorage.setItem('ds_user_avatar', dataUrl); } catch {}
+            }
+            toast('Avatar updated.');
+          } catch (err) {
+            try { localStorage.setItem('ds_user_avatar', dataUrl); } catch {}
+            toast('Avatar saved locally (upload failed: ' + (err?.message || 'retry') + ')', 'warning');
+          }
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  if (avatarClear) {
+    avatarClear.addEventListener('click', async () => {
+      try { await api.deleteAvatar(); } catch {}
+      localStorage.removeItem('ds_user_avatar');
+      if (avatarPreview) {
+        avatarPreview.style.background = 'var(--surface-elev-1)';
+        avatarPreview.textContent = (initials ? initials(currentUser?.display_name || currentUser?.email || '?') : '?');
+      }
+      avatarClear.disabled = true;
+      avatarClear.style.opacity = '.5';
+      toast('Avatar removed.');
+    });
+  }
+
+  // Display name — server-first, localStorage mirror.
+  const saveNameBtn = document.getElementById('acc-save-name');
+  if (saveNameBtn) {
+    saveNameBtn.addEventListener('click', async () => {
+      const val = (document.getElementById('acc-display-name')?.value || '').trim();
+      const msg = document.getElementById('acc-name-msg');
+      if (!val) { if (msg) { msg.textContent = 'Display name cannot be empty.'; msg.style.color = 'var(--amber)'; } return; }
+      saveNameBtn.disabled = true;
+      try {
+        await api.updateProfile({ display_name: val });
+        try { localStorage.setItem('ds_user_display_name', val); } catch {}
+        if (currentUser) currentUser.display_name = val;
+        try { window.updateUserBar && window.updateUserBar(); } catch {}
+        if (msg) { msg.textContent = 'Saved.'; msg.style.color = 'var(--green)'; }
+        toast('Display name saved.');
+      } catch (e) {
+        if (msg) { msg.textContent = 'Not saved — retry. (' + (e?.message || 'network') + ')'; msg.style.color = 'var(--amber)'; }
+        toast('Could not save display name.', 'warning');
+      } finally {
+        saveNameBtn.disabled = false;
+      }
+    });
+  }
+
+  // Email — request verification via backend.
+  const saveEmailBtn = document.getElementById('acc-save-email');
+  if (saveEmailBtn) {
+    saveEmailBtn.addEventListener('click', async () => {
+      const val = (document.getElementById('acc-email')?.value || '').trim();
+      const msg = document.getElementById('acc-email-msg');
+      const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!re.test(val)) { if (msg) { msg.textContent = 'Enter a valid email address.'; msg.style.color = 'var(--amber)'; } return; }
+      const pw = prompt('Confirm your current password to change email:');
+      if (!pw) return;
+      saveEmailBtn.disabled = true;
+      try {
+        await api.requestEmailChange(val, pw);
+        try { localStorage.setItem('ds_user_pending_email', val); } catch {}
+        if (msg) { msg.textContent = 'Verification email sent to ' + val + '. Click the link to confirm.'; msg.style.color = 'var(--teal)'; }
+        toast('Verification email sent.', 'info');
+      } catch (e) {
+        if (msg) { msg.textContent = 'Not saved — ' + (e?.message || 'retry'); msg.style.color = 'var(--amber)'; }
+      } finally {
+        saveEmailBtn.disabled = false;
+      }
+    });
+  }
+
+  // Credentials — server-first, localStorage mirror.
+  const saveCredsBtn = document.getElementById('acc-save-creds');
+  if (saveCredsBtn) {
+    saveCredsBtn.addEventListener('click', async () => {
+      const val = (document.getElementById('acc-credentials')?.value || '').trim();
+      saveCredsBtn.disabled = true;
+      try {
+        await api.updateProfile({ credentials: val });
+        try { localStorage.setItem('ds_user_credentials', val); } catch {}
+        toast('Credentials saved.');
+      } catch (e) {
+        try { localStorage.setItem('ds_user_credentials', val); } catch {}
+        toast('Not saved to server — cached locally. (' + (e?.message || 'retry') + ')', 'warning');
+      } finally {
+        saveCredsBtn.disabled = false;
+      }
+    });
+  }
+
+  // License / NPI — server-first, localStorage mirror.
+  const saveLicenseBtn = document.getElementById('acc-save-license');
+  if (saveLicenseBtn) {
+    saveLicenseBtn.addEventListener('click', async () => {
+      const val = (document.getElementById('acc-license')?.value || '').trim();
+      saveLicenseBtn.disabled = true;
+      try {
+        await api.updateProfile({ license_number: val });
+        try { localStorage.setItem('ds_user_license', val); } catch {}
+        toast('License / NPI saved.');
+      } catch (e) {
+        try { localStorage.setItem('ds_user_license', val); } catch {}
+        toast('Not saved to server — cached locally. (' + (e?.message || 'retry') + ')', 'warning');
+      } finally {
+        saveLicenseBtn.disabled = false;
+      }
+    });
+  }
+
+  // Change password — real server call.
+  const savePwBtn = document.getElementById('acc-save-password');
+  if (savePwBtn) {
+    savePwBtn.addEventListener('click', async () => {
+      const cur = document.getElementById('acc-pw-current')?.value || '';
+      const n1  = document.getElementById('acc-pw-new')?.value || '';
+      const n2  = document.getElementById('acc-pw-confirm')?.value || '';
+      const msg = document.getElementById('acc-pw-msg');
+      const setMsg = (t, color) => { if (msg) { msg.textContent = t; msg.style.color = color || 'var(--text-secondary)'; } };
+      if (!cur)               return setMsg('Enter your current password.', 'var(--amber)');
+      if (n1.length < 10)     return setMsg('New password must be at least 10 characters.', 'var(--amber)');
+      if (n1 !== n2)          return setMsg('New passwords do not match.', 'var(--amber)');
+      savePwBtn.disabled = true;
+      try {
+        await api.changePassword(cur, n1);
+        try { localStorage.setItem('ds_user_password_updated_at', new Date().toISOString()); } catch {}
+        ['acc-pw-current','acc-pw-new','acc-pw-confirm'].forEach(id => { const f = document.getElementById(id); if (f) f.value = ''; });
+        setMsg('Password updated.', 'var(--green)');
+        toast('Password updated.');
+      } catch (e) {
+        setMsg('Not updated: ' + (e?.message || 'retry'), 'var(--red)');
+        toast('Password change failed.', 'warning');
+      } finally {
+        savePwBtn.disabled = false;
+      }
+    });
+  }
+
+  // ── Security: 2FA setup (real backend) ─────────────────────────────────────
+  async function render2FASetupPanel() {
+    const panel = document.getElementById('twofa-setup-panel');
+    if (!panel) return;
+    panel.style.display = '';
+    panel.innerHTML = `<div style="font-size:12px;color:var(--text-secondary)">Preparing setup…</div>`;
+    let setup;
+    try {
+      setup = await api.setup2FA();
+    } catch (e) {
+      panel.innerHTML = `<div style="font-size:12px;color:var(--red)">Could not start 2FA setup: ${escAttr(e?.message || 'retry')}</div>`;
+      return;
+    }
+    const secret = setup?.secret || setup?.otp_secret || '';
+    const qrUrl  = setup?.qr_url || setup?.otpauth_url || '';
+    const backupCodes = Array.isArray(setup?.backup_codes) ? setup.backup_codes : [];
+    if (secret) { try { localStorage.setItem('ds_2fa_secret', secret); } catch {} }
+    panel.innerHTML = `
+      <div style="font-size:12.5px;color:var(--text-primary);margin-bottom:8px;font-weight:600">Set up your authenticator</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">Scan the QR code with Google Authenticator / Authy / 1Password, or enter the secret manually.</div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+        <div style="width:120px;height:120px;background:${qrUrl ? `#fff url('${escAttr(qrUrl)}') center/contain no-repeat` : 'repeating-linear-gradient(45deg,var(--text-primary) 0 6px,var(--surface) 6px 12px)'};border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--surface);font-size:10px;text-align:center">${qrUrl ? '' : 'QR unavailable'}</div>
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-tertiary);margin-bottom:4px">OTP Secret</div>
+          <code style="font-family:var(--font-mono);font-size:13px;color:var(--teal);background:rgba(0,212,188,0.08);padding:6px 10px;border-radius:4px;letter-spacing:1px;display:inline-block;user-select:all">${escAttr(secret) || '—'}</code>
+        </div>
+      </div>
+      ${backupCodes.length ? `
+        <div style="margin-bottom:12px;padding:10px;background:rgba(245,158,11,0.08);border:1px solid var(--amber);border-radius:6px">
+          <div style="font-size:11.5px;font-weight:600;color:var(--amber);margin-bottom:6px">Backup Codes — save these now</div>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:4px;font-family:var(--font-mono);font-size:12px">
+            ${backupCodes.map(c => `<code style="padding:3px 6px;background:rgba(0,0,0,0.15);border-radius:3px;user-select:all">${escAttr(c)}</code>`).join('')}
+          </div>
+        </div>` : ''}
+      <div class="form-group">
+        <label class="form-label" for="twofa-code">Verification Code</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="twofa-code" class="form-control" maxlength="6" placeholder="6-digit code" style="flex:1;max-width:180px;letter-spacing:4px;font-family:var(--font-mono)">
+          <button class="btn btn-primary btn-sm" id="twofa-verify-btn">Verify & Enable</button>
+          <button class="btn btn-sm" id="twofa-cancel-btn">Cancel</button>
+        </div>
+        <div id="twofa-code-msg" style="font-size:11.5px;color:var(--text-secondary);margin-top:6px;min-height:14px"></div>
+      </div>
+    `;
+    const verifyBtn = document.getElementById('twofa-verify-btn');
+    const cancelBtn = document.getElementById('twofa-cancel-btn');
+    const codeInput = document.getElementById('twofa-code');
+    const codeMsg   = document.getElementById('twofa-code-msg');
+    if (verifyBtn) verifyBtn.addEventListener('click', async () => {
+      const code = (codeInput?.value || '').trim();
+      if (!/^\d{6}$/.test(code)) { if (codeMsg) { codeMsg.textContent = 'Enter a 6-digit numeric code.'; codeMsg.style.color = 'var(--amber)'; } return; }
+      verifyBtn.disabled = true;
+      try {
+        await api.verify2FA(code);
+        try { localStorage.setItem('ds_2fa_enabled', 'true'); } catch {}
+        const wrap = document.getElementById('twofa-btn-wrap');
+        if (wrap) wrap.innerHTML = '<span style="font-size:12px;color:var(--green);margin-right:8px">2FA Enabled ✓</span><button class="btn btn-sm" id="twofa-disable-btn">Disable</button>';
+        panel.style.display = 'none'; panel.innerHTML = '';
+        bindDisable2FA();
+        toast('Two-factor authentication enabled.');
+      } catch (e) {
+        if (codeMsg) { codeMsg.textContent = 'Verification failed: ' + (e?.message || 'retry'); codeMsg.style.color = 'var(--red)'; }
+      } finally {
+        verifyBtn.disabled = false;
+      }
+    });
+    if (cancelBtn) cancelBtn.addEventListener('click', () => { panel.style.display = 'none'; panel.innerHTML = ''; });
+  }
+
+  function bindEnable2FA() {
+    const btn = document.getElementById('twofa-enable-btn');
+    if (btn) btn.addEventListener('click', render2FASetupPanel);
+  }
+  function bindDisable2FA() {
+    const btn = document.getElementById('twofa-disable-btn');
+    if (btn) btn.addEventListener('click', async () => {
+      if (!confirm('Disable two-factor authentication? Your account will be less secure.')) return;
+      const pw = prompt('Confirm your password to disable 2FA:');
+      if (!pw) return;
+      const code = prompt('Enter a current 6-digit authenticator code:');
+      if (!code) return;
+      try {
+        await api.disable2FA(pw, code);
+        try { localStorage.setItem('ds_2fa_enabled', 'false'); } catch {}
+        try { localStorage.removeItem('ds_2fa_secret'); } catch {}
+        const wrap = document.getElementById('twofa-btn-wrap');
+        if (wrap) wrap.innerHTML = '<button class="btn btn-primary btn-sm" id="twofa-enable-btn">Enable 2FA</button>';
+        bindEnable2FA();
+        toast('Two-factor authentication disabled.', 'info');
+      } catch (e) {
+        toast('Could not disable 2FA: ' + (e?.message || 'retry'), 'warning');
+      }
+    });
+  }
+  bindEnable2FA();
+  bindDisable2FA();
+
+  // ── Security: Active sessions (API-backed with minimal fallback) ───────────
+  const _fallbackSessions = [
+    { id: 'cur', device: 'This device · ' + (navigator.platform || 'Browser'), ip: '—', last: 'Active now', current: true },
+  ];
+  function formatSessionRow(s) {
+    return {
+      id: s.id,
+      device:  s.device || s.user_agent || 'Unknown device',
+      ip:      s.ip || s.ip_address || '—',
+      last:    s.last || s.last_seen_at || s.last_seen || '—',
+      current: !!(s.current ?? s.is_current),
+    };
+  }
+  async function loadSessions() {
+    try {
+      const res = await api.listAuthSessions();
+      const list = Array.isArray(res) ? res : (res?.items || res?.sessions || []);
+      if (Array.isArray(list)) return list.map(formatSessionRow);
+    } catch {}
+    return _fallbackSessions.slice();
+  }
+
+  function renderSessions() {
+    const host = document.getElementById('sessions-list');
+    if (!host) return;
+    const list = window._dsSessions || [];
+    if (!list.length) { host.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary);padding:8px 0">No other active sessions.</div>'; return; }
+    host.innerHTML = list.map((s, i) => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;${i < list.length - 1 ? 'border-bottom:1px solid var(--border);' : ''}">
+        <div style="min-width:0;flex:1">
+          <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${escAttr(s.device)}${s.current ? ' <span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(0,212,188,0.1);color:var(--teal);margin-left:6px">Current</span>' : ''}</div>
+          <div style="font-size:11.5px;color:var(--text-secondary)">IP ${escAttr(s.ip)} · ${escAttr(s.last)}</div>
+        </div>
+        ${s.current ? '' : `<a href="#" data-sid="${escAttr(s.id)}" class="sess-signout" style="font-size:12px;color:var(--red);text-decoration:none">Sign out</a>`}
+      </div>
+    `).join('');
+    host.querySelectorAll('.sess-signout').forEach(a => {
+      a.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const sid = a.getAttribute('data-sid');
+        try {
+          await api.revokeAuthSession(sid);
+          window._dsSessions = (window._dsSessions || []).filter(x => x.id !== sid);
+          renderSessions();
+          toast('Session signed out.', 'info');
+        } catch (err) {
+          toast('Could not sign out session: ' + (err?.message || 'retry'), 'warning');
+        }
+      });
+    });
+  }
+  (async () => { window._dsSessions = await loadSessions(); renderSessions(); })();
+  const signoutAllBtn = document.getElementById('sessions-signout-all');
+  if (signoutAllBtn) signoutAllBtn.addEventListener('click', async () => {
+    if (!confirm('Sign out of all other devices? They will need to log in again.')) return;
+    try {
+      await api.revokeOtherAuthSessions();
+      window._dsSessions = (window._dsSessions || []).filter(s => s.current);
+      renderSessions();
+      toast('All other devices have been signed out.', 'success');
+    } catch (e) {
+      toast('Could not sign out other devices: ' + (e?.message || 'retry'), 'warning');
+    }
+  });
+
+  // ── Security: Audit log link ───────────────────────────────────────────────
+  const auditBtn = document.getElementById('audit-log-btn');
+  if (auditBtn) auditBtn.addEventListener('click', () => {
+    // Prefer dedicated audit trail route; fall back to reports if unavailable.
+    if (typeof window._nav === 'function') {
+      try { window._nav('audittrail'); }
+      catch { window._nav('reports'); }
+    }
+  });
+
+  // ── Clinic profile wiring (API-backed with localStorage mirror) ────────────
+  const persist = (key, val) => { try { localStorage.setItem(key, val); } catch {} };
+
+  // If server has no clinic row yet, create on first save.
+  let _clinicExists = !!(serverClinic?.id || serverClinic?.name);
+  async function _saveClinicField(fields) {
+    try {
+      if (_clinicExists) await api.updateClinic(fields);
+      else { await api.createClinic(fields); _clinicExists = true; }
+      return true;
+    } catch (e) {
+      console.warn('[settings] clinic save failed', e?.message);
+      toast(`Not saved to server — cached locally. (${e?.message || 'retry'})`, 'warning');
+      return false;
+    }
+  }
+
+  // Clinic Logo: upload via multipart to backend; fall back to client-side crop.
+  const clinicLogoInput   = document.getElementById('clinic-logo-input');
+  const clinicLogoPreview = document.getElementById('clinic-logo-preview');
+  const clinicLogoClear   = document.getElementById('clinic-logo-clear');
+  if (clinicLogoInput) {
+    clinicLogoInput.addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = async () => {
+          let dataUrl = ev.target.result;
+          try {
+            const MAX = 512;
+            const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+            const w = Math.round(img.width * scale);
+            const h = Math.round(img.height * scale);
+            const canvas = document.createElement('canvas');
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+            dataUrl = canvas.toDataURL('image/png');
+          } catch {}
+          if (clinicLogoPreview) { clinicLogoPreview.style.background = `url('${dataUrl}') center/cover`; clinicLogoPreview.textContent = ''; }
+          if (clinicLogoClear) { clinicLogoClear.disabled = false; clinicLogoClear.style.opacity = ''; }
+          try {
+            const res = await api.uploadClinicLogo(file);
+            const remoteUrl = res?.logo_url || res?.url;
+            if (remoteUrl) {
+              if (clinicLogoPreview) { clinicLogoPreview.style.background = `url('${remoteUrl}') center/cover`; }
+              persist('ds_clinic_logo', remoteUrl);
+            } else {
+              persist('ds_clinic_logo', dataUrl);
+            }
+            toast('Clinic logo updated.');
+          } catch (err) {
+            persist('ds_clinic_logo', dataUrl);
+            toast('Logo saved locally (upload failed: ' + (err?.message || 'retry') + ')', 'warning');
+          }
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  if (clinicLogoClear) {
+    clinicLogoClear.addEventListener('click', () => {
+      localStorage.removeItem('ds_clinic_logo');
+      if (clinicLogoPreview) { clinicLogoPreview.style.background = 'var(--surface-elev-1)'; clinicLogoPreview.textContent = '🏥'; }
+      clinicLogoClear.disabled = true; clinicLogoClear.style.opacity = '.5';
+      toast('Clinic logo removed.', 'info');
+    });
+  }
+
+  // Per-field inline saves — PATCH clinic, mirror to localStorage.
+  const bindFieldSave = (btnId, fieldId, lsKey, label, apiKey, transform) => {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      const raw = (document.getElementById(fieldId)?.value || '').trim();
+      const apiVal = transform ? transform(raw) : raw;
+      btn.disabled = true;
+      try {
+        await _saveClinicField({ [apiKey]: apiVal });
+        persist(lsKey, raw);
+        toast(`${label} saved.`);
+      } catch {
+        persist(lsKey, raw);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  };
+  bindFieldSave('clinic-save-name',        'clinic-name',        'ds_clinic_name',        'Clinic name',  'name');
+  bindFieldSave('clinic-save-address',     'clinic-address',     'ds_clinic_address',     'Address',      'address');
+  bindFieldSave('clinic-save-phone',       'clinic-phone',       'ds_clinic_phone',       'Phone',        'phone');
+  bindFieldSave('clinic-save-email',       'clinic-email',       'ds_clinic_email',       'Clinic email', 'email');
+  bindFieldSave('clinic-save-website',     'clinic-website',     'ds_clinic_website',     'Website',      'website');
+  bindFieldSave('clinic-save-tz',          'clinic-tz',          'ds_clinic_tz',          'Timezone',     'timezone');
+  // Specialties: CSV in UI → array on server.
+  bindFieldSave(
+    'clinic-save-specialties',
+    'clinic-specialties',
+    'ds_clinic_specialties',
+    'Specialties',
+    'specialties',
+    (csv) => csv.split(',').map(s => s.trim()).filter(Boolean),
+  );
+
+  // Working Hours: collect from table rows → JSON
+  const collectHours = () => {
+    const out = {};
+    document.querySelectorAll('#clinic-hours-body tr').forEach(tr => {
+      const day  = tr.getAttribute('data-day');
+      const open = tr.querySelector('.clinic-hours-open')?.checked || false;
+      const from = tr.querySelector('.clinic-hours-from')?.value || '09:00';
+      const to   = tr.querySelector('.clinic-hours-to')?.value   || '17:00';
+      if (day) out[day] = { open, from, to };
+    });
+    return out;
+  };
+  const saveHoursBtn = document.getElementById('clinic-save-hours');
+  if (saveHoursBtn) saveHoursBtn.addEventListener('click', async () => {
+    const data = collectHours();
+    saveHoursBtn.disabled = true;
+    try {
+      await api.updateWorkingHours(data);
+      persist('ds_clinic_hours', JSON.stringify(data));
+      toast('Working hours saved.');
+    } catch (e) {
+      persist('ds_clinic_hours', JSON.stringify(data));
+      toast('Working hours saved locally (server sync failed: ' + (e?.message || 'retry') + ')', 'warning');
+    } finally {
+      saveHoursBtn.disabled = false;
+    }
+  });
+
+  // Save All — PATCH whole clinic + working hours in parallel.
+  const saveAllBtn = document.getElementById('clinic-save-all');
+  if (saveAllBtn) saveAllBtn.addEventListener('click', async () => {
+    const g = (id) => (document.getElementById(id)?.value || '').trim();
+    const patch = {
+      name:        g('clinic-name'),
+      address:     g('clinic-address'),
+      phone:       g('clinic-phone'),
+      email:       g('clinic-email'),
+      website:     g('clinic-website'),
+      timezone:    g('clinic-tz'),
+      specialties: g('clinic-specialties').split(',').map(s => s.trim()).filter(Boolean),
+    };
+    persist('ds_clinic_name',        patch.name);
+    persist('ds_clinic_address',     patch.address);
+    persist('ds_clinic_phone',       patch.phone);
+    persist('ds_clinic_email',       patch.email);
+    persist('ds_clinic_website',     patch.website);
+    persist('ds_clinic_tz',          patch.timezone);
+    persist('ds_clinic_specialties', g('clinic-specialties'));
+    const hours = collectHours();
+    persist('ds_clinic_hours', JSON.stringify(hours));
+
+    saveAllBtn.disabled = true;
+    const msg = document.getElementById('clinic-save-all-msg');
+    let ok = true;
+    try {
+      if (_clinicExists) await api.updateClinic(patch);
+      else { await api.createClinic(patch); _clinicExists = true; }
+    } catch (e) {
+      ok = false;
+      if (msg) { msg.textContent = 'Clinic save failed: ' + (e?.message || 'retry'); msg.style.color = 'var(--amber)'; }
+    }
+    try { await api.updateWorkingHours(hours); } catch (e) { ok = false; if (msg) { msg.textContent = 'Hours save failed: ' + (e?.message || 'retry'); msg.style.color = 'var(--amber)'; } }
+    saveAllBtn.disabled = false;
+    if (ok) {
+      if (msg) { msg.textContent = 'All clinic settings saved.'; msg.style.color = 'var(--green)'; setTimeout(() => { if (msg) msg.textContent = ''; }, 3000); }
+      toast('All clinic settings saved.', 'success');
+    } else {
+      toast('Some clinic settings did not sync to server — cached locally.', 'warning');
+    }
+  });
+
+  // ── Team Members wiring (API-backed with localStorage fallback) ────────────
+  const roleChipStyle = (role) => {
+    switch (role) {
+      case 'admin':      return 'background:rgba(239,68,68,0.1);color:var(--red)';
+      case 'clinician':  return 'background:rgba(0,212,188,0.1);color:var(--teal)';
+      case 'technician': return 'background:rgba(74,158,255,0.1);color:var(--blue)';
+      case 'read-only':  return 'background:rgba(148,163,184,0.12);color:var(--text-secondary)';
+      default:           return 'background:var(--surface-elev-1);color:var(--text-secondary)';
+    }
+  };
+  const avatarCircle = (name) => {
+    const letter = String(name || '?').trim().charAt(0).toUpperCase() || '?';
+    const palette = ['#0ea5e9','#14b8a6','#f59e0b','#ef4444','#8b5cf6','#22c55e','#ec4899'];
+    let hash = 0; for (let i = 0; i < (name || '').length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+    const bg = palette[hash % palette.length];
+    return `<div style="width:34px;height:34px;border-radius:50%;background:${bg};color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;flex-shrink:0">${letter}</div>`;
+  };
+
+  async function loadTeam() {
+    try {
+      if (typeof api.listTeam === 'function') {
+        const res = await api.listTeam();
+        if (Array.isArray(res)) return res;
+        if (res && typeof res === 'object') {
+          const members = Array.isArray(res.members) ? res.members.map(m => ({ ...m, pending_invite: false })) : [];
+          const invites = Array.isArray(res.invites) ? res.invites.map(i => ({
+            id: i.id,
+            name: i.email,
+            email: i.email,
+            role: i.role || 'clinician',
+            pending_invite: true,
+            invited_at: i.invited_at || i.created_at || Date.now(),
+            last_active: 'Pending',
+          })) : [];
+          return [...members, ...invites];
+        }
+      }
+    } catch {}
+    return savedTeam;
+  }
+
+  function persistTeam(list) {
+    try { localStorage.setItem('ds_team_members', JSON.stringify(list)); } catch {}
+    savedTeam = list;
+    const chip = document.getElementById('team-count-chip');
+    if (chip) chip.textContent = String(list.length);
+  }
+
+  function renderTeam() {
+    const host = document.getElementById('team-list');
+    if (!host) return;
+    const active  = savedTeam.filter(m => !m.pending_invite);
+    const pending = savedTeam.filter(m => m.pending_invite);
+
+    host.innerHTML = active.length
+      ? active.map((m, i) => `
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 0;${i < active.length - 1 ? 'border-bottom:1px solid var(--border);' : ''}">
+            ${avatarCircle(m.name || m.email)}
+            <div style="min-width:0;flex:1">
+              <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${escAttr(m.name || m.email)}</div>
+              <div style="font-size:11.5px;color:var(--text-secondary)">${escAttr(m.email || '')} · ${escAttr(m.last_active || '—')}</div>
+            </div>
+            <span style="font-size:11px;padding:3px 10px;border-radius:10px;${roleChipStyle(m.role)};text-transform:capitalize">${escAttr(m.role || 'member')}</span>
+            <button class="btn btn-sm team-menu-btn" data-tid="${escAttr(m.id)}" style="padding:4px 10px">⋯</button>
+          </div>
+        `).join('')
+      : '<div style="font-size:12px;color:var(--text-tertiary);padding:8px 0">No team members yet.</div>';
+
+    // Team member menu — change role + remove, wired to real backend.
+    host.querySelectorAll('.team-menu-btn').forEach(btn => {
+      btn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        document.getElementById('team-member-menu')?.remove();
+        const tid = btn.getAttribute('data-tid');
+        if (!tid) return;
+        const rect = btn.getBoundingClientRect();
+        const menu = document.createElement('div');
+        menu.id = 'team-member-menu';
+        menu.style.cssText = 'position:fixed;z-index:1100;top:'+(rect.bottom+4)+'px;left:'+(Math.max(rect.right-180,8))+'px;width:180px;background:var(--bg-panel,#0d1b22);border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 32px rgba(0,0,0,0.45);overflow:hidden';
+        menu.innerHTML =
+          '<button data-role="clinician" style="width:100%;text-align:left;padding:8px 12px;border:0;background:transparent;color:var(--text-primary);font-size:12px;cursor:pointer">Set role: Clinician</button>'+
+          '<button data-role="admin"     style="width:100%;text-align:left;padding:8px 12px;border:0;background:transparent;color:var(--text-primary);font-size:12px;cursor:pointer">Set role: Admin</button>'+
+          '<button data-role="reviewer"  style="width:100%;text-align:left;padding:8px 12px;border:0;background:transparent;color:var(--text-primary);font-size:12px;cursor:pointer">Set role: Reviewer</button>'+
+          '<button data-act="remove"     style="width:100%;text-align:left;padding:8px 12px;border:0;border-top:1px solid var(--border);background:transparent;color:var(--red,#ef4444);font-size:12px;cursor:pointer">Remove from team</button>';
+        document.body.appendChild(menu);
+        const close = () => { menu.remove(); document.removeEventListener('click', close, true); };
+        setTimeout(() => document.addEventListener('click', close, true), 10);
+        menu.addEventListener('click', async (e) => {
+          const t = e.target.closest('button'); if (!t) return;
+          const role = t.getAttribute('data-role');
+          const act = t.getAttribute('data-act');
+          close();
+          try {
+            if (role) {
+              await api.updateTeamMemberRole(tid, role);
+              toast('Role updated', 'success');
+            } else if (act === 'remove') {
+              if (!window.confirm('Remove this team member? They will lose clinic access.')) return;
+              await api.removeTeamMember(tid);
+              toast('Team member removed', 'success');
+            }
+            loadTeam();
+          } catch (err) {
+            toast(err?.message || 'Action failed', 'error');
+          }
+        });
+      });
+    });
+
+    // Pending invites sub-section
+    const pendingWrap = document.getElementById('team-pending-wrap');
+    if (pendingWrap) {
+      if (!pending.length) { pendingWrap.innerHTML = ''; return; }
+      pendingWrap.innerHTML = cardWrap('⏳ Pending Invites', `
+        <div id="team-pending-list">
+          ${pending.map((p, i) => `
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 0;${i < pending.length - 1 ? 'border-bottom:1px solid var(--border);' : ''}">
+              ${avatarCircle(p.email)}
+              <div style="min-width:0;flex:1">
+                <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${escAttr(p.email)}</div>
+                <div style="font-size:11.5px;color:var(--text-secondary)">Invited ${p.invited_at ? new Date(p.invited_at).toLocaleString() : '—'}</div>
+              </div>
+              <span style="font-size:11px;padding:3px 10px;border-radius:10px;${roleChipStyle(p.role)};text-transform:capitalize">${escAttr(p.role)}</span>
+              <a href="#" data-tid="${escAttr(p.id)}" class="team-resend" style="font-size:12px;color:var(--teal);text-decoration:none">Resend</a>
+              <a href="#" data-tid="${escAttr(p.id)}" class="team-cancel" style="font-size:12px;color:var(--red);text-decoration:none">Cancel</a>
+            </div>
+          `).join('')}
+        </div>
+      `);
+      pendingWrap.querySelectorAll('.team-resend').forEach(a => a.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const id = a.getAttribute('data-tid');
+        const m = savedTeam.find(x => x.id === id);
+        if (!m) return;
+        try {
+          // "Resend" re-invites with same email+role; backend team router refreshes TTL.
+          await api.inviteTeamMember(m.email, m.role);
+          m.invited_at = Date.now();
+          persistTeam(savedTeam);
+          renderTeam();
+          toast(`Invite re-sent to ${m.email}.`);
+        } catch (err) {
+          toast('Could not resend invite: ' + (err?.message || 'retry'), 'warning');
+        }
+      }));
+      pendingWrap.querySelectorAll('.team-cancel').forEach(a => a.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const id = a.getAttribute('data-tid');
+        try { await api.revokeTeamInvite(id); } catch (err) {
+          toast('Could not revoke invite: ' + (err?.message || 'retry'), 'warning');
+          return;
+        }
+        const next = savedTeam.filter(x => x.id !== id);
+        persistTeam(next); renderTeam(); toast('Invite cancelled.', 'info');
+      }));
+    }
+  }
+
+  (async () => {
+    savedTeam = await loadTeam();
+    persistTeam(savedTeam);
+    renderTeam();
+  })();
+
+  const inviteBtn = document.getElementById('team-invite-btn');
+  if (inviteBtn) inviteBtn.addEventListener('click', async () => {
+    const emailEl = document.getElementById('team-invite-email');
+    const roleEl  = document.getElementById('team-invite-role');
+    const msgEl   = document.getElementById('team-invite-msg');
+    const email = (emailEl?.value || '').trim();
+    const role  = (roleEl?.value  || 'clinician').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      if (msgEl) { msgEl.textContent = 'Enter a valid email address.'; msgEl.style.color = 'var(--amber)'; }
+      return;
+    }
+    if (savedTeam.some(m => (m.email || '').toLowerCase() === email.toLowerCase())) {
+      if (msgEl) { msgEl.textContent = 'That email is already on the team.'; msgEl.style.color = 'var(--amber)'; }
+      return;
+    }
+    inviteBtn.disabled = true;
+    try {
+      const res = await api.inviteTeamMember(email, role);
+      const newId = res?.id || ('inv-' + Date.now().toString(36));
+      const entry = { id: newId, name: email, email, role, pending_invite: true, invited_at: Date.now(), last_active: 'Pending' };
+      savedTeam.push(entry);
+      persistTeam(savedTeam);
+      renderTeam();
+      if (emailEl) emailEl.value = '';
+      if (msgEl)   { msgEl.textContent = ''; msgEl.style.color = 'var(--text-secondary)'; }
+      toast(`Invite sent to ${email}.`);
+    } catch (err) {
+      if (msgEl) { msgEl.textContent = 'Invite failed: ' + (err?.message || 'retry'); msgEl.style.color = 'var(--red)'; }
+      toast('Invite failed.', 'warning');
+    } finally {
+      inviteBtn.disabled = false;
+    }
+  });
+
+  // ── Notifications wiring (API-backed with localStorage mirror) ─────────────
+  // Debounce: the matrix changes in bursts, so coalesce PATCH calls.
+  let _notifPatchTimer = null;
+  const persistNotifPrefs = () => {
+    try { localStorage.setItem('ds_notification_prefs', JSON.stringify(notifPrefs)); } catch {}
+    clearTimeout(_notifPatchTimer);
+    _notifPatchTimer = setTimeout(() => {
+      api.updatePreferences({ notification_prefs: notifPrefs }).catch((e) => {
+        console.warn('[settings] notif prefs sync failed', e?.message);
+      });
+    }, 400);
+  };
+  const notifMsg = document.getElementById('notif-matrix-msg');
+  const flashNotifSaved = () => {
+    if (!notifMsg) return;
+    notifMsg.textContent = 'Saved.';
+    notifMsg.style.color = 'var(--teal)';
+    clearTimeout(flashNotifSaved._t);
+    flashNotifSaved._t = setTimeout(() => { notifMsg.textContent = ''; notifMsg.style.color = 'var(--text-tertiary)'; }, 1400);
+  };
+  document.querySelectorAll('.notif-cell').forEach(box => {
+    box.addEventListener('change', () => {
+      const ev = box.getAttribute('data-event');
+      const ch = box.getAttribute('data-channel');
+      if (!ev || !ch) return;
+      if (!notifPrefs[ev]) notifPrefs[ev] = { email: false, inapp: false, telegram: false };
+      notifPrefs[ev][ch] = box.checked;
+      persistNotifPrefs();
+      flashNotifSaved();
+    });
+  });
+
+  let _quietPatchTimer = null;
+  const persistQuiet = () => {
+    try { localStorage.setItem('ds_quiet_hours', JSON.stringify(quietHours)); } catch {}
+    clearTimeout(_quietPatchTimer);
+    _quietPatchTimer = setTimeout(() => {
+      api.updatePreferences({ quiet_hours: quietHours }).catch((e) => {
+        console.warn('[settings] quiet hours sync failed', e?.message);
+      });
+    }, 400);
+  };
+  const quietFrom    = document.getElementById('quiet-from');
+  const quietTo      = document.getElementById('quiet-to');
+  const quietEnabled = document.getElementById('quiet-enabled');
+  if (quietFrom)    quietFrom.addEventListener('change',    () => { quietHours.from    = quietFrom.value || '22:00'; persistQuiet(); });
+  if (quietTo)      quietTo.addEventListener('change',      () => { quietHours.to      = quietTo.value   || '07:00'; persistQuiet(); });
+  if (quietEnabled) quietEnabled.addEventListener('change', () => { quietHours.enabled = !!quietEnabled.checked;    persistQuiet(); });
+
+  document.querySelectorAll('input[name="digest-freq"]').forEach(r => {
+    r.addEventListener('change', () => {
+      if (r.checked) {
+        try { localStorage.setItem('ds_digest_freq', r.value); } catch {}
+        api.updatePreferences({ digest_freq: r.value }).catch((e) => {
+          console.warn('[settings] digest_freq sync failed', e?.message);
+        });
+      }
+    });
+  });
+
+  const persistReminderTiming = () => {
+    try { localStorage.setItem('ds_reminder_timing', JSON.stringify(reminderTiming)); } catch {}
+    api.updatePreferences({ reminder_timing: reminderTiming }).catch((e) => {
+      console.warn('[settings] reminder_timing sync failed', e?.message);
+    });
+  };
+  document.querySelectorAll('.reminder-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const slot = btn.getAttribute('data-slot');
+      if (!slot) return;
+      const idx = reminderTiming.indexOf(slot);
+      const turningOn = idx === -1;
+      if (turningOn) reminderTiming.push(slot);
+      else reminderTiming.splice(idx, 1);
+      persistReminderTiming();
+      // Update visual state
+      const label = REMINDER_SLOTS.find(s => s.id === slot)?.label || slot;
+      btn.setAttribute('data-on', turningOn ? '1' : '0');
+      btn.textContent = `${turningOn ? '✓ ' : ''}${label}`;
+      btn.style.cssText = `padding:5px 12px;${turningOn ? 'background:rgba(0,212,188,0.12);border-color:var(--border-teal);color:var(--teal)' : ''}`;
+      btn.className = 'btn btn-sm reminder-chip';
+    });
+  });
+
+  // ── Preferences wiring (API-backed with localStorage mirror) ───────────────
+  const prefMsg = document.getElementById('pref-save-msg');
+  const flashPrefSaved = () => {
+    if (!prefMsg) return;
+    prefMsg.textContent = 'Saved.';
+    prefMsg.style.color = 'var(--teal)';
+    clearTimeout(flashPrefSaved._t);
+    flashPrefSaved._t = setTimeout(() => { prefMsg.textContent = ''; prefMsg.style.color = 'var(--text-tertiary)'; }, 1400);
+  };
+  const flashPrefFailed = (msg) => {
+    if (!prefMsg) return;
+    prefMsg.textContent = 'Not saved — retry. ' + (msg || '');
+    prefMsg.style.color = 'var(--amber)';
+  };
+  const _syncPref = (patch, lsKey, lsVal) => {
+    try { localStorage.setItem(lsKey, String(lsVal)); } catch {}
+    api.updatePreferences(patch).then(flashPrefSaved).catch((e) => flashPrefFailed(e?.message || ''));
+  };
+
+  const langSel = document.getElementById('pref-language');
+  if (langSel) langSel.addEventListener('change', () => {
+    const code = langSel.value;
+    try { localStorage.setItem('ds_lang', code); } catch {}
+    try {
+      if (typeof setLocale === 'function') setLocale(code);
+    } catch {}
+    // Fire-and-forget — reload below will re-fetch anyway.
+    api.updatePreferences({ language: code }).catch(() => {});
+    flashPrefSaved();
+    setTimeout(() => { try { window.location.reload(); } catch {} }, 300);
+  });
+
+  document.querySelectorAll('input[name="pref-date-format"]').forEach(r => {
+    r.addEventListener('change', () => { if (r.checked) _syncPref({ date_format: r.value }, 'ds_date_format', r.value); });
+  });
+  document.querySelectorAll('input[name="pref-time-format"]').forEach(r => {
+    r.addEventListener('change', () => { if (r.checked) _syncPref({ time_format: r.value }, 'ds_time_format', r.value); });
+  });
+  document.querySelectorAll('input[name="pref-first-day"]').forEach(r => {
+    r.addEventListener('change', () => { if (r.checked) _syncPref({ first_day: r.value }, 'ds_first_day', r.value); });
+  });
+  document.querySelectorAll('input[name="pref-units"]').forEach(r => {
+    r.addEventListener('change', () => { if (r.checked) _syncPref({ units: r.value }, 'ds_units', r.value); });
+  });
+  document.querySelectorAll('input[name="pref-number-format"]').forEach(r => {
+    r.addEventListener('change', () => { if (r.checked) _syncPref({ number_format: r.value }, 'ds_number_format', r.value); });
+  });
+
+  const durInput = document.getElementById('pref-session-duration');
+  if (durInput) durInput.addEventListener('change', () => {
+    const n = parseInt(durInput.value, 10);
+    if (Number.isFinite(n) && n >= 5 && n <= 240) {
+      _syncPref({ session_default_duration_min: n }, 'ds_session_default_duration', String(n));
+    }
+  });
+
+  const autoLogoutSel = document.getElementById('pref-auto-logout');
+  if (autoLogoutSel) autoLogoutSel.addEventListener('change', () => {
+    const v = autoLogoutSel.value;
+    const minutes = v === 'never' ? 0 : parseInt(v, 10);
+    _syncPref({ auto_logout_min: Number.isFinite(minutes) ? minutes : 30 }, 'ds_auto_logout', v);
+  });
+
+  // ── Data & Privacy wiring (API-backed) ─────────────────────────────────────
+  const dpMsg = document.getElementById('dp-save-msg');
+  const flashDpSaved = () => {
+    if (!dpMsg) return;
+    dpMsg.textContent = 'Saved.';
+    dpMsg.style.color = 'var(--teal)';
+    clearTimeout(flashDpSaved._t);
+    flashDpSaved._t = setTimeout(() => { dpMsg.textContent = ''; dpMsg.style.color = 'var(--text-tertiary)'; }, 1400);
+  };
+
+  const exportBtn = document.getElementById('dp-export-btn');
+  const exportMsg = document.getElementById('dp-export-msg');
+  if (exportBtn) exportBtn.addEventListener('click', async () => {
+    exportBtn.disabled = true;
+    const origLabel = exportBtn.textContent;
+    exportBtn.textContent = 'Preparing export…';
+    let usedApi = false;
+    try {
+      if (api && typeof api.requestDataExport === 'function') {
+        await api.requestDataExport();
+        usedApi = true;
+        if (exportMsg) exportMsg.textContent = 'Export requested — you will receive an email when ready.';
+      }
+    } catch { /* fall through to localStorage bundle */ }
+
+    if (!usedApi) {
+      try {
+        const data = { user: currentUser, exported_at: new Date().toISOString(), settings: {} };
+        Object.keys(localStorage).filter(k => k.startsWith('ds_')).forEach(k => { data.settings[k] = localStorage.getItem(k); });
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `deepsynaps-export-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        const ts = new Date().toISOString();
+        try { localStorage.setItem('ds_last_export', ts); } catch {}
+        if (exportMsg) exportMsg.textContent = 'Last export: ' + ts;
+      } catch (e) {
+        if (exportMsg) { exportMsg.textContent = 'Export failed: ' + (e?.message || 'unknown error'); exportMsg.style.color = 'var(--red)'; }
+      }
+    }
+    exportBtn.disabled = false;
+    exportBtn.textContent = origLabel;
+    flashDpSaved();
+  });
+
+  const analyticsOpt = document.getElementById('dp-analytics-opt');
+  if (analyticsOpt) analyticsOpt.addEventListener('change', () => {
+    try { localStorage.setItem('ds_analytics_opt_in', analyticsOpt.checked ? 'true' : 'false'); } catch {}
+    api.updatePreferences({ analytics_opt_in: !!analyticsOpt.checked }).catch((e) => console.warn('[settings] analytics opt-in sync failed', e?.message));
+    flashDpSaved();
+  });
+  const errorsOpt = document.getElementById('dp-errors-opt');
+  if (errorsOpt) errorsOpt.addEventListener('change', () => {
+    try { localStorage.setItem('ds_error_reports_opt_in', errorsOpt.checked ? 'true' : 'false'); } catch {}
+    api.updatePreferences({ error_reports_opt_in: !!errorsOpt.checked }).catch((e) => console.warn('[settings] error reports opt-in sync failed', e?.message));
+    flashDpSaved();
+  });
+
+  const openExternal = (url) => { try { window.open(url, '_blank', 'noopener,noreferrer'); } catch { window.location.href = url; } };
+  const privacyLink = document.getElementById('dp-privacy-link');
+  if (privacyLink) privacyLink.addEventListener('click', () => openExternal('https://deepsynaps.com/privacy'));
+  const termsLink = document.getElementById('dp-terms-link');
+  if (termsLink) termsLink.addEventListener('click', () => openExternal('https://deepsynaps.com/terms'));
+  const dpaLink = document.getElementById('dp-dpa-link');
+  if (dpaLink) dpaLink.addEventListener('click', () => { window.location.href = 'mailto:legal@deepsynaps.com?subject=DPA%20Request'; });
+
+  const cookieFn = document.getElementById('dp-cookie-functional');
+  if (cookieFn) cookieFn.addEventListener('change', () => {
+    try { localStorage.setItem('ds_cookie_functional', cookieFn.checked ? 'true' : 'false'); } catch {}
+    flashDpSaved();
+  });
+  const cookieAn = document.getElementById('dp-cookie-analytics');
+  if (cookieAn) cookieAn.addEventListener('change', () => {
+    try { localStorage.setItem('ds_cookie_analytics', cookieAn.checked ? 'true' : 'false'); } catch {}
+    flashDpSaved();
+  });
+
+  // ── Clinical Defaults wiring (API-backed with localStorage mirror) ─────────
+  const cdMsg = document.getElementById('cd-save-msg');
+  const flashCdSaved = () => {
+    if (!cdMsg) return;
+    cdMsg.textContent = 'Saved.';
+    cdMsg.style.color = 'var(--teal)';
+    clearTimeout(flashCdSaved._t);
+    flashCdSaved._t = setTimeout(() => { cdMsg.textContent = ''; cdMsg.style.color = 'var(--text-tertiary)'; }, 1400);
+  };
+  const flashCdFailed = (msg) => {
+    if (!cdMsg) return;
+    cdMsg.textContent = 'Not saved — retry. ' + (msg || '');
+    cdMsg.style.color = 'var(--amber)';
+  };
+  const _syncCd = (patch, lsKey, lsVal) => {
+    try { localStorage.setItem(lsKey, String(lsVal)); } catch {}
+    api.updateClinicalDefaults(patch).then(flashCdSaved).catch((e) => flashCdFailed(e?.message || ''));
+  };
+
+  const cdProto = document.getElementById('cd-default-protocol');
+  if (cdProto) cdProto.addEventListener('change', () => {
+    _syncCd({ default_protocol_id: cdProto.value }, 'ds_default_protocol', cdProto.value);
+  });
+
+  const cdDur = document.getElementById('cd-session-duration');
+  if (cdDur) cdDur.addEventListener('change', () => {
+    const n = parseInt(cdDur.value, 10);
+    if (Number.isFinite(n) && n >= 5 && n <= 240) {
+      _syncCd({ default_session_duration_min: n }, 'ds_default_session_duration', String(n));
+    }
+  });
+
+  const cdFup = document.getElementById('cd-followup-weeks');
+  if (cdFup) cdFup.addEventListener('change', () => {
+    const n = parseInt(cdFup.value, 10);
+    if (Number.isFinite(n) && n >= 1 && n <= 52) {
+      _syncCd({ default_followup_weeks: n }, 'ds_default_followup_weeks', String(n));
+    }
+  });
+
+  const cdCourse = document.getElementById('cd-course-length');
+  if (cdCourse) cdCourse.addEventListener('change', () => {
+    const n = parseInt(cdCourse.value, 10);
+    if (Number.isFinite(n) && n >= 1 && n <= 200) {
+      _syncCd({ default_course_length: n }, 'ds_default_course_length', String(n));
+    }
+  });
+
+  const cdConsent = document.getElementById('cd-consent-template');
+  const cdCustomWrap = document.getElementById('cd-custom-consent-wrap');
+  const cdCustom = document.getElementById('cd-custom-consent');
+  if (cdConsent) cdConsent.addEventListener('change', () => {
+    if (cdCustomWrap) cdCustomWrap.style.display = (cdConsent.value === 'Custom (edit below)') ? 'block' : 'none';
+    _syncCd({ default_consent_template_id: cdConsent.value }, 'ds_default_consent_template', cdConsent.value);
+  });
+  if (cdCustom) cdCustom.addEventListener('change', () => {
+    _syncCd({ custom_consent_text: cdCustom.value }, 'ds_custom_consent_text', cdCustom.value);
+  });
+
+  const cdDisclaimer = document.getElementById('cd-disclaimer');
+  if (cdDisclaimer) cdDisclaimer.addEventListener('change', () => {
+    _syncCd({ default_disclaimer: cdDisclaimer.value }, 'ds_default_disclaimer', cdDisclaimer.value);
+  });
+
+  document.querySelectorAll('.cd-assessment').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const selected = Array.from(document.querySelectorAll('.cd-assessment'))
+        .filter(x => x.checked)
+        .map(x => x.value);
+      try { localStorage.setItem('ds_default_assessments', JSON.stringify(selected)); } catch {}
+      api.updateClinicalDefaults({ default_assessments: selected }).then(flashCdSaved).catch((e) => flashCdFailed(e?.message || ''));
+    });
+  });
+
+  document.querySelectorAll('input[name="cd-ae-protocol"]').forEach(r => {
+    r.addEventListener('change', () => {
+      if (r.checked) _syncCd({ ae_protocol: r.value }, 'ds_ae_protocol', r.value);
+    });
+  });
 }
 
 // ── AI Clinical Assistant ─────────────────────────────────────────────────────
@@ -1968,7 +3859,8 @@ export async function pgReferrals(setTopbar) {
   let newTeamMembers = [{ name: '', role: 'Lead', assignedDate: new Date().toISOString().slice(0, 10) }];
   let editingTeamId = null;
 
-  const el = document.getElementById('page-content');
+  const el = document.getElementById('page-content') || document.getElementById('content');
+  if (!el) return;
 
   function renderKpis() {
     const refs = getReferrals();
@@ -2143,6 +4035,8 @@ export async function pgReferrals(setTopbar) {
   }
 
   function fullRender() {
+    // Guard: the page may have been unmounted between async callbacks.
+    if (!el) return;
     let tabContent = '';
     if (activeTab === 'referrals') tabContent = renderReferralsTab();
     else if (activeTab === 'providers') tabContent = renderProvidersTab();
@@ -7025,6 +8919,17 @@ export async function pgHomeTaskManager(setTopbar) {
     { title:'Screen-free Hour',    cat:'Screen',    freq:'Daily',   evidence:'Improved sleep onset (Chang et al., 2015)',            instructions:'No screens 1 hour before intended sleep time.' },
     { title:'Social Activity',     cat:'Social',    freq:'Weekly',  evidence:'Depression buffer (Holt-Lunstad et al., 2015)',        instructions:'Meaningful social interaction with friend or family member.' },
     { title:'Sleep Hygiene',       cat:'Sleep',     freq:'Daily',   evidence:'TMS outcome improvement (Philip et al., 2021)',        instructions:'Consistent sleep/wake schedule within 30 min. No caffeine after noon.' },
+    // ── Home Programs ──
+    { title:'Depression Management Program', cat:'Program', freq:'6 weeks', evidence:'Evidence-based for MDD treatment',           instructions:'8-week structured program with daily tasks. Focus on behavioral activation, mood tracking, and coping strategies.' },
+    { title:'Anxiety & Mindfulness Program', cat:'Program', freq:'4 weeks', evidence:'Mindfulness reduces anxiety symptoms',        instructions:'7-task program combining mindfulness, breathing, and exposure techniques. Daily 15-20 min commitment.' },
+    { title:'Pain Self-Management Program',  cat:'Program', freq:'8 weeks', evidence:'Reduces pain perception and disability',      instructions:'6-task comprehensive program including activity pacing, relaxation, and cognitive restructuring.' },
+    { title:'Sleep Hygiene Protocol',        cat:'Program', freq:'4 weeks', evidence:'Improves sleep onset and quality',            instructions:'5-task protocol addressing sleep environment, behavioral patterns, and sleep restriction therapy.' },
+    { title:'PTSD Grounding & Stabilisation', cat:'Program', freq:'6 weeks', evidence:'Trauma-informed stabilization approach',     instructions:'9-task program focusing on grounding techniques, emotional regulation, and safety planning.' },
+    { title:'Cognitive Stimulation Exercises', cat:'Program', freq:'6 weeks', evidence:'Enhances cognitive reserve',                 instructions:'7 structured exercises targeting memory, attention, and executive function with daily engagement.' },
+    { title:'OCD ERP Daily Practice',        cat:'Program', freq:'8 weeks', evidence:'Gold standard for OCD treatment',             instructions:'8-task exposure and response prevention program with graduated difficulty levels.' },
+    { title:'ADHD Attention Training',       cat:'Program', freq:'6 weeks', evidence:'Improves executive function',                 instructions:'6 focused exercises improving attention, impulse control, and organizational skills.' },
+    { title:'Mood Tracking & Journaling',    cat:'Program', freq:'12 weeks',evidence:'Builds emotional awareness and stability',    instructions:'3 ongoing tasks: daily mood log, weekly reflection, and symptom monitoring.' },
+    { title:'Post-TMS Wellness Routine',     cat:'Program', freq:'4 weeks', evidence:'Maintains treatment gains post-intervention',  instructions:'5-task routine optimizing sleep, activity, mood tracking, and relapse prevention.' },
     { title:'Custom',              cat:'Custom',    freq:'',        evidence:'',                                                     instructions:'' },
   ];
 
@@ -7356,3 +9261,389 @@ export async function pgHomeTaskManager(setTopbar) {
 
   render();
 }
+
+// ── Governance (Screen 12) ────────────────────────────────────────────────────
+export async function pgGovernance(setTopbar, _navigate) {
+  setTopbar(
+    'Governance',
+    `<span style="font-size:11px;color:var(--text-tertiary);margin-right:10px">Protocol approvals, evidence grading, compliance</span>
+     <button class="btn btn-ghost btn-sm" onclick="window._gvExportAudit?.()">Export audit ↗</button>
+     <button class="btn btn-primary btn-sm" onclick="window._gvOpenReview?.()">Open Q2 review →</button>`
+  );
+
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  const _escG = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+  let evidence = [];
+  let aes = [];
+  let approvals = null;
+  let compliance = null;
+  let audit = null;
+
+  try { const r = await api.listEvidence?.(); evidence = r?.items || r || []; } catch (_) { evidence = []; }
+  try { const r = await api.listAdverseEvents?.(); aes = r?.items || r || []; } catch (_) { aes = []; }
+  try { approvals = await api.listApprovals?.(); } catch (_) { approvals = null; }
+  try { compliance = await api.complianceScore?.(); } catch (_) { compliance = null; }
+  try { audit = await api.auditLog?.(); } catch (_) { audit = null; }
+
+  const _complianceScore = compliance?.score ?? 98.4;
+  const _auditEvents7d   = audit?.count ?? 2841;
+  const _evidenceCount   = Array.isArray(evidence) ? evidence.length : (evidence?.total ?? 214);
+  const _openReviews     = approvals?.openCount ?? 11;
+  const _aesQtd          = Array.isArray(aes) ? aes.length : (aes?.total ?? 3);
+
+  const _pipelineColumns = approvals?.columns || [
+    { key: 'draft', label: 'Draft', accent: 'var(--text-tertiary)', cards: [
+      { flag: 'min', title: 'Tinnitus TPJ · investigational v0.3', tag: 'SOP-TN-001 · pilot of n=6', owner: 'M. Takahashi', initials: 'MT', signers: '0 / 3' },
+      { flag: 'routine', title: 'Patient app walkthrough · training', tag: 'SOP-TR-004 · first pass', owner: 'L. Chen', initials: 'LC', signers: '0 / 2' },
+    ]},
+    { key: 'review', label: 'In review', accent: 'var(--amber)', cards: [
+      { flag: 'maj', title: 'Fibromyalgia · M1 anodal 2.5 mA', tag: 'SOP-PN-003 · dose uplift', owner: 'A. Kolmar', initials: 'AK', signers: '1 / 3' },
+      { flag: 'min', title: 'OCD SMA · skin-grade tightening', tag: 'SOP-OC-002 → v2.1', owner: 'J. Raines', initials: 'JR', signers: '2 / 3' },
+      { flag: 'min', title: 'PTSD mPFC · add session 12', tag: 'SOP-PT-001 → v1.6', owner: 'M. Takahashi', initials: 'MT', signers: '1 / 3' },
+      { flag: 'routine', title: 'Incident escalation tree refresh', tag: 'SOP-OP-005 → v1.2', owner: 'N. Bradley', initials: 'NB', signers: '1 / 2' },
+    ]},
+    { key: 'signoff', label: 'Sign-off', accent: 'var(--blue)', cards: [
+      { flag: 'maj', title: 'tDCS DLPFC-L · v3.2 tighten skin grade', tag: 'SOP-DP-007 · Kolmar sign pending', owner: 'A. Kolmar', initials: 'AK', signers: '2 / 3', signerColor: 'var(--blue)' },
+      { flag: 'min', title: 'GAD DLPFC-R · session window shift', tag: 'SOP-GA-002 → v1.4', owner: 'J. Raines', initials: 'JR', signers: '2 / 3', signerColor: 'var(--blue)' },
+      { flag: 'routine', title: 'Electrode prep · saline volume', tag: 'SOP-OP-003 → v1.6', owner: 'N. Bradley', initials: 'NB', signers: '1 / 2', signerColor: 'var(--blue)' },
+    ]},
+    { key: 'published', label: 'Published · 30d', accent: 'var(--teal)', cards: [
+      { title: 'Post-stroke M1 rehab · v2.0', tag: 'Apr 08 · SOP-ST-001', owner: 'J. Raines', initials: 'JR', signers: '3 / 3 ✓', complete: true },
+      { title: 'Contraindications matrix · v4.0', tag: 'Mar 30 · SOP-SF-001', owner: 'A. Kolmar', initials: 'AK', signers: '3 / 3 ✓', complete: true },
+      { title: '+ 3 more', tag: 'View archive →', archive: true },
+    ]},
+  ];
+
+  const _regChecklist = compliance?.regulatory || [
+    { label: 'HIPAA · BAA coverage', value: '6 / 6', ok: true },
+    { label: 'GDPR · Article 30 registry', value: 'Current', ok: true },
+    { label: 'ISO 13485 · QMS audit', value: 'Q3 due', warn: true },
+    { label: 'FDA 21 CFR 820 · DHF lock', value: 'Verified', ok: true },
+    { label: 'Protocol sign-off currency', value: '100 %', ok: true },
+    { label: 'Clinician certification', value: '97 %', ok: true },
+    { label: 'AE reporting within 24 h', value: '100 %', ok: true },
+    { label: 'Evidence review cycle', value: '92 %', warn: true },
+    { label: 'Next regulator review', value: 'Jun 18', warn: true },
+  ];
+
+  const _evidenceLedger = (Array.isArray(evidence) && evidence.length > 0)
+    ? evidence.slice(0, 6).map((e, i) => ({
+        grade: e.grade || ['A','A','B','C','D','B'][i] || 'B',
+        title: e.title || e.citation || `Citation ${i + 1}`,
+        meta:  e.meta  || e.doi || (e.journal ? `${e.journal} · ${e.year || ''}` : '—'),
+        trend: e.trendDir || ['up','flat','up','down','down','up'][i] || 'flat',
+        delta: e.confidenceDelta ?? ['+8.4','+0.6','+3.2','−1.8','retracted','+6.1'][i],
+        status: e.status || (i === 3 ? 'rev' : i === 4 ? 'down' : i === 5 ? 'rev' : 'ok'),
+        spark: e.spark || [
+          [40,55,60,70,78,82,88],
+          [68,70,72,75,77,78,80],
+          [50,48,52,55,60,62,64],
+          [36,40,42,44,42,40,38],
+          [70,65,48,35,18,10,6],
+          [30,38,45,52,60,64,66],
+        ][i],
+      }))
+    : [
+        { grade:'A', title:'Fregni et al. 2021 · RCT meta-analysis · TRD', meta:'DOI 10.1038/s41…74812 · n=1,092 · SOP-DP-007', trend:'up', delta:'+8.4', status:'ok', spark:[40,55,60,70,78,82,88] },
+        { grade:'A', title:'Lefaucheur 2022 · tDCS guidelines update', meta:'DOI 10.1016/j.clinph… · 23 SOPs', trend:'flat', delta:'+0.6', status:'ok', spark:[68,70,72,75,77,78,80] },
+        { grade:'B', title:'Brunoni 2019 · DLPFC + cognitive reappraisal', meta:'RCT · n=245 · SOP-DP-007, SOP-GA-002', trend:'up', delta:'+3.2', status:'ok', spark:[50,48,52,55,60,62,64] },
+        { grade:'C', title:'Bikson 2020 · F5 focality modeling', meta:'Modeling · n=32 · SOP-DP-007 (alt)', trend:'down', delta:'−1.8', status:'rev', spark:[36,40,42,44,42,40,38] },
+        { grade:'D', title:'Okamoto 2017 · tDCS + SSRI synergy', meta:'Retracted Mar 29', trend:'down', delta:'retracted', status:'down', spark:[70,65,48,35,18,10,6] },
+        { grade:'B', title:'Kuo 2023 · home-based tDCS adherence', meta:'Prospective · n=418 · candidate SOP-DP-008', trend:'up', delta:'+6.1', status:'rev', spark:[30,38,45,52,60,64,66] },
+      ];
+
+  const _reviewers = [
+    { name:'Dr. Amelia Kolmar',  initials:'AK', role:'Clinical Director · 4 reviews · 2 blocking', load:4, cap:5 },
+    { name:'Jordan Raines',      initials:'JR', role:'Senior clinician · 3 reviews',               load:3, cap:5, avClass:'p2' },
+    { name:'Mei Takahashi',      initials:'MT', role:'Research lead · 5 reviews · at cap',         load:5, cap:5, avClass:'p3', atCap:true },
+    { name:'Nate Bradley',       initials:'NB', role:'Ops lead · 2 reviews',                       load:2, cap:5, avClass:'p4' },
+    { name:'Lin Chen',           initials:'LC', role:'Clinician · 1 active',                       load:1, cap:5, avClass:'p2' },
+  ];
+
+  const _aeRows = (Array.isArray(aes) && aes.length > 0)
+    ? aes.slice(0, 5).map((a, i) => ({
+        id: a.id || a.event_id || `AE-${2604 - i}`,
+        title: a.title || a.summary || 'Event',
+        sub: a.sub || a.meta || [a.patient_name, a.protocol_id, a.reported_at].filter(Boolean).join(' · '),
+        sev: (a.severity || ['mod','mild','mild','mild','severe'][i] || 'mild').toLowerCase(),
+        state: a.status || (i <= 1 ? 'Under investigation' : 'Closed'),
+        closed: (a.status || '').toLowerCase() === 'closed' || i > 1,
+      }))
+    : [
+        { id:'AE-2604-03', title:'Persistent headache > 6 h post-session', sub:'Ben Ortiz · SOP-DP-007 · session 7 · Apr 14', sev:'mod',  state:'Under investigation', closed:false },
+        { id:'AE-2604-02', title:'Skin grade 2 at F3, session 8',           sub:'Samantha Li · SOP-DP-007 · Apr 09',           sev:'mild', state:'Protocol amended',    closed:false },
+        { id:'AE-2604-01', title:'Transient tingling > expected',           sub:'Rohan Patel · SOP-GA-002 · Apr 02',           sev:'mild', state:'Closed',               closed:true },
+        { id:'AE-2603-08', title:'Mild dizziness post-ramp-up',             sub:'Alex Huang · SOP-OC-002 · Mar 28',            sev:'mild', state:'Closed',               closed:true },
+      ];
+
+  const _auditLines = (Array.isArray(audit?.events) && audit.events.length > 0)
+    ? audit.events.slice(0, 12)
+    : [
+        { ts:'04:02:18', actor:'system', action:'audit hash verified · chain head <strong>0x8a4f…c219</strong>' },
+        { ts:'03:58:41', actor:'AK',     action:'signed protocol <strong>SOP-DP-007 v3.2</strong> · step 2/3' },
+        { ts:'03:12:07', actor:'MT',     action:'downgraded citation <strong style="color:var(--rose)">Okamoto 2017</strong> → D · retracted' },
+        { ts:'02:44:19', actor:'JR',     action:'commented on <strong>SOP-DP-007 v3.2</strong> · request clarification § 04' },
+        { ts:'01:35:02', actor:'system', action:'auto-ingested <strong>18 new citations</strong> from PubMed · 2 grade-A candidates' },
+        { ts:'Apr 15',   actor:'AK',     action:'opened <strong style="color:var(--amber)">AE-2604-03</strong> · triage moderate · assigned JR' },
+        { ts:'Apr 14',   actor:'JR',     action:'clinician attestation · <strong>SOP-ST-001 v2.0</strong> · certification +90d' },
+        { ts:'Apr 13',   actor:'system', action:'nightly export <strong>2,104 session records</strong> to regulatory archive' },
+        { ts:'Apr 12',   actor:'AK',     action:'published <strong>SOP-ST-001 v2.0</strong> · post-stroke M1 rehab' },
+        { ts:'Apr 11',   actor:'NB',     action:'acknowledged <strong style="color:var(--amber)">incident escalation tree</strong> minor update' },
+        { ts:'Apr 10',   actor:'system', action:'compliance score recomputed · <strong>98.4%</strong> · no regressions' },
+        { ts:'Apr 09',   actor:'AK',     action:'triggered <strong style="color:var(--amber)">AE-2604-02</strong> · skin grade 2 recurrence' },
+      ];
+
+  function _sparkSvg(points, color) {
+    const max = Math.max(...points, 1);
+    const w = 104, h = 28, step = w / (points.length - 1);
+    const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${(i * step).toFixed(1)} ${(h - (p / max) * (h - 4) - 2).toFixed(1)}`).join(' ');
+    return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block"><path d="${d}" stroke="${color}" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>`;
+  }
+
+  const _gradeColors = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)', D:'var(--rose)' };
+  const _trendColor  = { up:'var(--teal)', flat:'var(--text-tertiary)', down:'var(--rose)' };
+  const _sevBg       = { severe:'var(--rose)', sae:'var(--rose)', mod:'var(--amber)', moderate:'var(--amber)', mild:'var(--teal)' };
+  const _sevPill     = { severe:{bg:'rgba(255,107,157,0.18)',c:'var(--rose)'}, sae:{bg:'rgba(255,107,157,0.18)',c:'var(--rose)'}, mod:{bg:'rgba(255,181,71,0.18)',c:'var(--amber)'}, moderate:{bg:'rgba(255,181,71,0.18)',c:'var(--amber)'}, mild:{bg:'rgba(0,212,188,0.14)',c:'var(--teal)'} };
+  const _flagPill    = { maj:{bg:'rgba(255,107,157,0.2)',c:'var(--rose)',label:'Major'}, min:{bg:'rgba(74,158,255,0.2)',c:'var(--blue)',label:'Minor'}, routine:{bg:'rgba(139,151,168,0.18)',c:'var(--text-secondary)',label:'Routine'} };
+
+  // ── HTML ────────────────────────────────────────────────────────────────────
+  const _kpi = (lbl, num, sub, tone) => {
+    const accent = tone === 'warn' ? 'var(--amber)' : tone === 'crit' ? 'var(--rose)' : tone === 'info' ? 'var(--blue)' : 'var(--teal)';
+    return `<div class="dv2-gv-kpi" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;position:relative;overflow:hidden">
+      <div style="position:absolute;top:0;left:0;right:0;height:2px;background:${accent};opacity:.65"></div>
+      <div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;font-weight:600">${lbl}</div>
+      <div style="font-size:26px;font-weight:600;color:var(--text-primary);letter-spacing:-0.02em;line-height:1">${num}</div>
+      <div style="font-size:11px;color:var(--text-secondary);line-height:1.4">${sub}</div>
+    </div>`;
+  };
+
+  const _kpiStrip = `<div class="dv2-gv-kpis" style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:16px">
+    ${_kpi('Compliance · 30d', `${_complianceScore}<span style="font-size:13px;color:var(--text-tertiary)">%</span>`, 'All protocols with active sign-off', 'ok')}
+    ${_kpi('Reviews open', _openReviews, '2 drafts · 4 review · 5 sign-off', 'warn')}
+    ${_kpi('Adverse events · QTD', _aesQtd, '0 severe · 1 moderate · 2 mild', 'crit')}
+    ${_kpi('Audit events · 7d', (_auditEvents7d).toLocaleString(), 'Immutable chain · hash verified', 'info')}
+    ${_kpi('Evidence ledger', _evidenceCount, '124 A · 68 B · 18 C · 4 downgraded', 'ok')}
+  </div>`;
+
+  const _pcardHtml = (c) => {
+    const flag = c.flag ? `<span style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 7px;border-radius:4px;background:${_flagPill[c.flag].bg};color:${_flagPill[c.flag].c}">${_flagPill[c.flag].label}</span>` : '';
+    if (c.archive) {
+      return `<div class="dv2-gv-pcard" style="cursor:pointer;border:1px dashed var(--border);border-radius:10px;padding:10px 12px;background:transparent;opacity:.7">
+        <div style="font-size:12px;color:var(--text-secondary);font-weight:600">${_escG(c.title)}</div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">${_escG(c.tag || '')}</div>
+      </div>`;
+    }
+    return `<div class="dv2-gv-pcard" style="cursor:grab;background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:4px;transition:transform .12s,border-color .12s" onmouseover="this.style.borderColor='rgba(255,255,255,0.18)'" onmouseout="this.style.borderColor='var(--border)'">
+      ${flag ? `<div style="display:flex;gap:4px">${flag}</div>` : ''}
+      <div style="font-size:12px;color:var(--text-primary);font-weight:600;line-height:1.3">${_escG(c.title)}</div>
+      <div style="font-size:10.5px;color:var(--text-tertiary)">${_escG(c.tag || '')}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;gap:8px">
+        <div style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--text-secondary)">
+          <div style="width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,var(--teal),var(--blue));display:flex;align-items:center;justify-content:center;font-size:8.5px;font-weight:700;color:#04121c">${_escG(c.initials || '?')}</div>
+          ${_escG(c.owner || '')}
+        </div>
+        <span style="font-size:10.5px;color:${c.complete ? 'var(--teal)' : (c.signerColor || 'var(--text-tertiary)')};font-weight:600;font-family:var(--dv2-font-mono,ui-monospace,monospace)">${_escG(c.signers || '')}</span>
+      </div>
+    </div>`;
+  };
+
+  const _pipeCol = (col) => `<div style="display:flex;flex-direction:column;gap:8px;min-width:0">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:var(--bg-surface);border:1px solid var(--border);border-radius:8px">
+      <span style="display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em">
+        <span style="width:6px;height:6px;border-radius:50%;background:${col.accent}"></span>${_escG(col.label)}
+      </span>
+      <span style="font-size:11px;color:var(--text-tertiary);font-weight:600">${col.cards.length}</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">${col.cards.map(_pcardHtml).join('')}</div>
+  </div>`;
+
+  const _approvalPipeline = `<div class="dv2-gv-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Protocol approval pipeline</h3>
+      <span style="font-size:11px;color:var(--text-tertiary)">Q2 · ${_openReviews} in flight</span>
+      <div style="margin-left:auto;display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px">⚑ Major only</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px">Mine (3)</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
+      ${_pipelineColumns.map(_pipeCol).join('')}
+    </div>
+  </div>`;
+
+  const _dialArc = (Math.max(0, Math.min(100, _complianceScore)) / 100) * 385;
+  const _dialOffset = (385 - _dialArc).toFixed(1);
+  const _complianceDial = `<div class="dv2-gv-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Compliance &amp; regulatory</h3>
+      <span style="font-size:11px;color:var(--text-tertiary)">Apr 2026</span>
+    </div>
+    <div style="display:grid;grid-template-columns:150px 1fr;gap:18px;align-items:center">
+      <svg width="150" height="150" viewBox="0 0 150 150" style="display:block">
+        <defs><linearGradient id="_gvDialG" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#00d4bc"/><stop offset="60%" stop-color="#4a9eff"/><stop offset="100%" stop-color="#9b7fff"/>
+        </linearGradient></defs>
+        <circle cx="75" cy="75" r="62" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="12"/>
+        <circle cx="75" cy="75" r="62" fill="none" stroke="url(#_gvDialG)" stroke-width="12" stroke-dasharray="385" stroke-dashoffset="${_dialOffset}" stroke-linecap="round" transform="rotate(-90 75 75)"/>
+        <text x="75" y="72" text-anchor="middle" font-size="28" fill="var(--text-primary)" font-weight="600" letter-spacing="-0.02em">${_complianceScore}</text>
+        <text x="75" y="92" text-anchor="middle" font-size="10" fill="var(--text-tertiary)" font-family="ui-monospace,monospace" letter-spacing="0.06em">COMPLIANCE %</text>
+      </svg>
+      <div style="display:flex;flex-direction:column;gap:4px;max-height:190px;overflow-y:auto">
+        ${_regChecklist.map(r => `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:11.5px">
+          <span style="color:var(--text-secondary);display:flex;align-items:center;gap:7px">
+            <span style="width:6px;height:6px;border-radius:50%;background:${r.warn ? 'var(--amber)' : 'var(--teal)'}"></span>${_escG(r.label)}
+          </span>
+          <span style="color:${r.warn ? 'var(--amber)' : 'var(--text-primary)'};font-weight:600;font-family:var(--dv2-font-mono,ui-monospace,monospace);font-size:11px">${_escG(r.value)}</span>
+        </div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+
+  const _statusPill = (s) => {
+    const map = { ok:{bg:'rgba(0,212,188,0.16)',c:'var(--teal)',l:'Verified'}, rev:{bg:'rgba(255,181,71,0.16)',c:'var(--amber)',l:'Under review'}, down:{bg:'rgba(255,107,157,0.18)',c:'var(--rose)',l:'Downgraded'} };
+    const m = map[s] || map.ok;
+    return `<span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:${m.bg};color:${m.c};text-transform:uppercase;letter-spacing:.03em">${m.l}</span>`;
+  };
+
+  const _ledgerRow = (e) => {
+    const gColor = _gradeColors[e.grade] || 'var(--text-tertiary)';
+    const tColor = _trendColor[e.trend] || 'var(--text-tertiary)';
+    const arrow = e.trend === 'up' ? '▲' : e.trend === 'down' ? '▼' : '—';
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:10px 8px;vertical-align:top"><span style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;background:${gColor};color:#04121c;font-weight:700;font-size:12px">${_escG(e.grade)}</span></td>
+      <td style="padding:10px 8px;vertical-align:top">
+        <div style="font-size:12px;color:var(--text-primary);font-weight:600;line-height:1.3">${_escG(e.title)}</div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">${_escG(e.meta)}</div>
+      </td>
+      <td style="padding:10px 8px;vertical-align:middle;white-space:nowrap">
+        <div style="display:flex;align-items:center;gap:8px">
+          ${_sparkSvg(e.spark, tColor)}
+          <span style="font-size:10.5px;color:${tColor};font-weight:600;font-family:var(--dv2-font-mono,ui-monospace,monospace)">${arrow} ${_escG(e.delta)}</span>
+        </div>
+      </td>
+      <td style="padding:10px 8px;vertical-align:middle">${_statusPill(e.status)}</td>
+    </tr>`;
+  };
+
+  const _evidenceLedgerCard = `<div class="dv2-gv-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Evidence ledger</h3>
+      <span style="font-size:11px;color:var(--text-tertiary)">${_evidenceCount} citations · 4 downgraded · last ingest 2h ago</span>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:10.5px">⤵ Import DOI</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+      ${['All 214','Grade A · 124','Grade B · 68','Grade C · 18','Downgraded · 4','New since Mar · 18'].map((l,i) => `
+        <button style="background:${i===0?'rgba(0,212,188,0.16)':'transparent'};border:1px solid ${i===0?'var(--teal)':'var(--border)'};color:${i===0?'var(--teal)':(i===4?'var(--rose)':'var(--text-secondary)')};font-size:10.5px;padding:4px 10px;border-radius:12px;cursor:pointer">${_escG(l)}</button>
+      `).join('')}
+    </div>
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="border-bottom:1px solid var(--border)">
+        <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;font-weight:600;width:52px">Grade</th>
+        <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;font-weight:600">Citation &amp; linked protocols</th>
+        <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;font-weight:600">Confidence · 90d</th>
+        <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;font-weight:600">Status</th>
+      </tr></thead>
+      <tbody>${_evidenceLedger.map(_ledgerRow).join('')}</tbody>
+    </table>
+  </div>`;
+
+  const _reviewerRow = (r) => {
+    const pct = Math.round((r.load / r.cap) * 100);
+    const barBg = r.atCap ? 'linear-gradient(90deg,var(--amber),var(--rose))' : 'linear-gradient(90deg,var(--teal),var(--blue))';
+    return `<div style="display:grid;grid-template-columns:32px 1fr auto auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--teal),var(--blue));color:#04121c;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">${_escG(r.initials)}</div>
+      <div style="min-width:0">
+        <div style="font-size:12px;color:var(--text-primary);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escG(r.name)}</div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escG(r.role)}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-end;min-width:90px">
+        <span style="font-size:10.5px;color:var(--text-secondary);font-family:var(--dv2-font-mono,ui-monospace,monospace)">${r.load}/${r.cap}</span>
+        <div style="width:70px;height:4px;background:var(--bg-surface);border-radius:2px;overflow:hidden"><div style="width:${pct}%;height:100%;background:${barBg}"></div></div>
+      </div>
+      <button class="btn btn-ghost btn-sm" style="font-size:10px;color:${r.atCap ? 'var(--amber)' : 'var(--text-secondary)'}">${r.atCap ? '⚑ At cap' : 'Open'}</button>
+    </div>`;
+  };
+
+  const _reviewerCard = `<div class="dv2-gv-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+      <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Reviewer load</h3>
+      <span style="font-size:11px;color:var(--text-tertiary)">assigned to active reviews</span>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:10.5px">Rebalance →</button>
+    </div>
+    <div>${_reviewers.map(_reviewerRow).join('')}</div>
+  </div>`;
+
+  const _aeRow = (a) => {
+    const pill = _sevPill[a.sev] || _sevPill.mild;
+    return `<div style="display:grid;grid-template-columns:6px 1fr auto auto auto;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:6px;height:36px;border-radius:3px;background:${_sevBg[a.sev] || 'var(--teal)'}"></div>
+      <div style="min-width:0">
+        <div style="font-size:12px;color:var(--text-primary);font-weight:600">${_escG(a.id)} · ${_escG(a.title)}</div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">${_escG(a.sub)}</div>
+      </div>
+      <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:${pill.bg};color:${pill.c};text-transform:uppercase;letter-spacing:.03em">${_escG(a.sev === 'mod' ? 'Moderate' : a.sev === 'severe' || a.sev === 'sae' ? (a.sev === 'sae' ? 'SAE' : 'Severe') : 'Mild')}</span>
+      <span style="font-size:10.5px;color:${a.closed ? 'var(--text-tertiary)' : 'var(--amber)'};white-space:nowrap">${_escG(a.state)}</span>
+      <button class="btn btn-ghost btn-sm" style="font-size:10px">Open →</button>
+    </div>`;
+  };
+
+  const _aeCard = `<div class="dv2-gv-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Adverse event register</h3>
+      <span style="font-size:11px;color:var(--text-tertiary)">QTD · ${_aeRows.filter(x => !x.closed).length} open · ${_aeRows.filter(x => x.closed).length} closed · 0 reportable</span>
+      <div style="margin-left:auto;display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px">Filter · All</button>
+        <button class="btn btn-primary btn-sm" style="font-size:10.5px">+ Log event</button>
+      </div>
+    </div>
+    <div>${_aeRows.map(_aeRow).join('')}</div>
+  </div>`;
+
+  const _eventChip = (type) => {
+    const t = (type || '').toLowerCase();
+    const color = t === 'system' ? 'var(--text-tertiary)' : t === 'ak' ? 'var(--teal)' : t === 'jr' ? 'var(--blue)' : t === 'mt' ? 'var(--violet)' : 'var(--amber)';
+    return `<span style="display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:10px;background:rgba(255,255,255,0.05);color:${color};text-transform:uppercase;letter-spacing:.04em;min-width:46px;text-align:center">${_escG(type)}</span>`;
+  };
+
+  const _auditLine = (a) => `<div style="display:grid;grid-template-columns:72px 60px 1fr;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);font-size:11.5px">
+    <span style="font-family:var(--dv2-font-mono,ui-monospace,monospace);color:var(--text-tertiary);font-size:10.5px">${_escG(a.ts)}</span>
+    ${_eventChip(a.actor)}
+    <span style="color:var(--text-secondary);line-height:1.35">${a.action}</span>
+  </div>`;
+
+  const _auditCard = `<div class="dv2-gv-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Audit log</h3>
+      <span style="font-size:11px;color:var(--text-tertiary)">immutable · last 7 days</span>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:10.5px">Verify hash</button>
+    </div>
+    <div style="max-height:340px;overflow-y:auto">${_auditLines.map(_auditLine).join('')}</div>
+  </div>`;
+
+  el.innerHTML = `
+    <div style="padding:18px 22px;display:flex;flex-direction:column;gap:16px">
+      ${_kpiStrip}
+      <div style="display:grid;grid-template-columns:1.55fr 1fr;gap:14px">
+        ${_approvalPipeline}
+        ${_complianceDial}
+      </div>
+      <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:14px">
+        ${_evidenceLedgerCard}
+        ${_reviewerCard}
+      </div>
+      <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:14px">
+        ${_aeCard}
+        ${_auditCard}
+      </div>
+    </div>`;
+
+  window._gvExportAudit = async () => {
+    try { await api.exportData?.({ kind: 'audit' }); } catch (_) { /* TODO: wire export */ }
+    alert('Audit export queued.');
+  };
+  window._gvOpenReview = () => { window._nav?.('review-queue'); };
+}
+

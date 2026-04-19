@@ -44,11 +44,14 @@ export const SCALE_REGISTRY = {
     id: 'ISI',
     display_name: 'Insomnia Severity Index (ISI)',
     aliases: [],
-    entry_mode: 'item_checklist',
-    supported_in_app: true,
-    scoring_note: 'Sum of 7 items (0–28).',
-    licensing_note: 'ISI is copyrighted; obtain permission for commercial or large-scale use as required.',
-    official_links: [{ title: 'ISI — University of Pittsburgh (author site)', url: 'https://www.sleep.pitt.edu/instruments/' }],
+    // ISI item text is copyrighted by Morin; DeepSynaps now accepts clinician-
+    // entered total score only. Entry mode downgraded from item_checklist to
+    // numeric_total to match the licensed-content policy.
+    entry_mode: 'numeric_total',
+    supported_in_app: false,
+    scoring_note: 'Clinician enters the total ISI score (0–28). Administer ISI via an authorized licensed copy.',
+    licensing_note: 'ISI © Charles M. Morin. License required for redistribution of item text; DeepSynaps does not embed items.',
+    official_links: [{ title: 'ISI — Mapi / eProvide (licensed distribution)', url: 'https://eprovide.mapi-trust.org/instruments/insomnia-severity-index' }],
   },
   'PCL-5': {
     id: 'PCL-5',

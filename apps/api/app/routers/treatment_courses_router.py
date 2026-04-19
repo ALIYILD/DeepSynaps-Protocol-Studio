@@ -61,6 +61,22 @@ class CourseUpdate(BaseModel):
 
 class CourseActivate(BaseModel):
     notes: Optional[str] = None             # Optional approval note
+    # Safety-override acknowledgement (required when patient has blocking MH
+    # flags or has never been reviewed). See activate_course + safety_preflight.
+    override_safety: bool = False
+    override_reason: Optional[str] = None
+
+
+class SafetyPreflightResponse(BaseModel):
+    course_id: str
+    patient_id: str
+    requires_review: bool
+    structured_flags: dict
+    used_sections: list[str]
+    source_meta: dict
+    # True if the caller must pass override_safety=True + override_reason to activate.
+    override_required: bool
+    blocking_flags: list[str]
 
 
 class CourseOut(BaseModel):
@@ -522,6 +538,47 @@ def update_course(
     return CourseOut.from_record(course)
 
 
+_BLOCKING_SAFETY_FLAGS = {
+    "implanted_device", "intracranial_metal", "seizure_history", "pregnancy",
+    "severe_skull_defect", "recent_tbi", "unstable_psych",
+}
+
+
+@router.get("/{course_id}/safety-preflight", response_model=SafetyPreflightResponse)
+def course_safety_preflight(
+    course_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> SafetyPreflightResponse:
+    """Report whether the patient's medical-history clears this course for activation.
+
+    Safe to call repeatedly; does not modify state. Frontend should call this
+    before showing the Approve button and render the structured flags + reason
+    textarea when ``override_required`` is True.
+    """
+    require_minimum_role(actor, "clinician")
+    course = _get_course_or_404(db, course_id, actor)
+    from app.services.patient_context import build_patient_medical_context
+    ctx = build_patient_medical_context(db, actor, course.patient_id)
+    blocking = sorted(
+        fid for fid, v in (ctx.get("structured_flags") or {}).items()
+        if v is True and fid in _BLOCKING_SAFETY_FLAGS
+    )
+    # Only blocking structured flags trigger the hard override gate.
+    # `requires_review` (e.g. never-reviewed) stays as a soft advisory field.
+    override_required = bool(blocking)
+    return SafetyPreflightResponse(
+        course_id=course_id,
+        patient_id=course.patient_id,
+        requires_review=bool(ctx.get("requires_review")),
+        structured_flags=ctx.get("structured_flags") or {},
+        used_sections=ctx.get("used_sections") or [],
+        source_meta=ctx.get("source_meta") or {},
+        override_required=override_required,
+        blocking_flags=blocking,
+    )
+
+
 @router.patch("/{course_id}/activate", response_model=CourseOut)
 def activate_course(
     course_id: str,
@@ -529,10 +586,13 @@ def activate_course(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> CourseOut:
-    """Governance gate: run checks then approve and activate the course.
+    """Governance + patient-safety gate, then approve and activate the course.
 
-    Requires clinician role at minimum.  Re-runs governance rules and surfaces
-    any warnings.  Hard blocks (EV-D) prevent activation.
+    Requires clinician role. Blocks on EV-D evidence. Also blocks activation
+    when the patient's medical history has blocking safety flags set or has
+    never been reviewed, UNLESS the caller explicitly passes
+    ``override_safety=True`` + a non-empty ``override_reason``. Overrides are
+    audited.
     """
     require_minimum_role(actor, "clinician")
     course = _get_course_or_404(db, course_id, actor)
@@ -555,6 +615,31 @@ def activate_course(
             status_code=403,
         )
 
+    # Patient-safety gate — consult structured medical history.
+    # Hard-block only on structured blocking flags. "Never reviewed" is surfaced
+    # in the preflight response so the UI can prompt the clinician, but it does
+    # not block activation of a brand-new patient's first course.
+    from app.services.patient_context import build_patient_medical_context
+    mh_ctx = build_patient_medical_context(db, actor, course.patient_id)
+    blocking = sorted(
+        fid for fid, v in (mh_ctx.get("structured_flags") or {}).items()
+        if v is True and fid in _BLOCKING_SAFETY_FLAGS
+    )
+    override_reason_clean = (body.override_reason or "").strip()
+
+    if blocking:
+        if not body.override_safety or len(override_reason_clean) < 10:
+            raise ApiServiceError(
+                code="safety_block",
+                message=(
+                    "Patient has blocking safety flags set in medical history. "
+                    "Set override_safety=true and provide a justification of at least 10 characters "
+                    "(e.g. consult note ID, specialist clearance reference) to proceed."
+                ),
+                warnings=[f"blocking_flag:{f}" for f in blocking],
+                status_code=403,
+            )
+
     now = datetime.now(timezone.utc)
     course.status = "active"
     course.approved_by = actor.actor_id
@@ -570,6 +655,30 @@ def activate_course(
 
     db.commit()
     db.refresh(course)
+
+    # Audit: always record activation; include any safety override details.
+    try:
+        from app.repositories.audit import create_audit_event
+        if blocking and body.override_safety:
+            action = "course.activate.safety_override"
+            note = f"blocking={','.join(blocking)}; reason={override_reason_clean[:300]}"
+        else:
+            action = "course.activate"
+            note = f"gov_warnings={len(gov_warnings)}"
+        create_audit_event(
+            db,
+            event_id=f"course-activate-{course_id}-{int(now.timestamp())}",
+            target_id=course_id,
+            target_type="treatment_course",
+            action=action,
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=note,
+            created_at=now.isoformat(),
+        )
+    except Exception:
+        pass
+
     return CourseOut.from_record(course, gov_warnings)
 
 
@@ -870,3 +979,100 @@ def post_review_action(
         created_at=now.isoformat(),
         item_status=item.status,
     )
+
+
+# ── Course-scoped read endpoints (assessment severity, audit trail, AE summary) ─
+
+@router.get("/{course_id}/assessment-summary")
+def course_assessment_summary(
+    course_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """Normalized assessment severity for this course's patient.
+
+    Wraps `assessment_summary.get_patient_assessment_summary` so the Course
+    Detail page can render a single aggregated severity banner without
+    computing it client-side. Same permissions as course detail itself.
+    """
+    require_minimum_role(actor, "clinician")
+    course = _get_course_or_404(db, course_id, actor)
+    from app.services.assessment_summary import get_patient_assessment_summary
+    snapshot = get_patient_assessment_summary(db, course.patient_id, clinician_id=course.clinician_id)
+    data = snapshot.to_dict()
+    data["course_id"] = course_id
+    return data
+
+
+@router.get("/{course_id}/audit-trail")
+def course_audit_trail(
+    course_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """Return the structured audit timeline for a course.
+
+    Replaces the mock changelog on the Course Detail overview tab. Reads from
+    the `audit_events` table and matches on target_id==course_id.
+    """
+    require_minimum_role(actor, "clinician")
+    _get_course_or_404(db, course_id, actor)  # enforces ownership
+    from app.persistence.models import AuditEventRecord
+    rows = (
+        db.query(AuditEventRecord)
+        .filter(AuditEventRecord.target_id == course_id, AuditEventRecord.target_type == "treatment_course")
+        .order_by(AuditEventRecord.created_at.desc())
+        .all()
+    )
+    return {
+        "course_id": course_id,
+        "items": [
+            {
+                "event_id": r.event_id,
+                "action": r.action,
+                "role": r.role,
+                "actor_id": r.actor_id,
+                "note": r.note,
+                "created_at": r.created_at,
+            }
+            for r in rows
+        ],
+        "total": len(rows),
+    }
+
+
+@router.get("/{course_id}/adverse-events-summary")
+def course_adverse_events_summary(
+    course_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """Lightweight severity roll-up of course-linked adverse events.
+
+    Used by the Course Detail header to surface a safety banner without
+    re-fetching the full AE list.
+    """
+    require_minimum_role(actor, "clinician")
+    _get_course_or_404(db, course_id, actor)
+    from app.persistence.models import AdverseEvent  # noqa: PLC0415 — lazy import
+    rows = db.query(AdverseEvent).filter_by(course_id=course_id).all()
+    by_severity: dict[str, int] = {}
+    unresolved = 0
+    for r in rows:
+        sev = (getattr(r, "severity", None) or "unknown").lower()
+        by_severity[sev] = by_severity.get(sev, 0) + 1
+        if not getattr(r, "resolved", False):
+            unresolved += 1
+    # Aggregate "highest" severity using the same token set as assessment_summary.
+    order = {"unknown": -1, "mild": 1, "moderate": 2, "severe": 3, "critical": 4}
+    highest = "unknown"
+    for sev in by_severity:
+        if order.get(sev, -1) > order.get(highest, -1):
+            highest = sev
+    return {
+        "course_id": course_id,
+        "total": len(rows),
+        "unresolved": unresolved,
+        "by_severity": by_severity,
+        "highest_severity": highest,
+    }

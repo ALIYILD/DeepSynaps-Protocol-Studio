@@ -1,6 +1,7 @@
 import { api } from './api.js';
 import { setCurrentUser, showApp, showPatient, updateUserBar, updatePatientBar } from './auth.js';
 import { t, getLocale, setLocale, LOCALES } from './i18n.js';
+import { renderBrainMap10_20 } from './brain-map-svg.js';
 
 // ── Shared: public topbar ─────────────────────────────────────────────────────
 function _pubLangMenu() {
@@ -87,183 +88,249 @@ export function pgHome() {
   const el = document.getElementById('public-shell');
   el.scrollTop = 0;
 
-  // ── Evidence matrix data (sourced from Neuromodulation Master Database) ──────
+  // ── Evidence matrix data — sourced from DeepSynaps Evidence Pipeline (Excel 2026-04-15) ──
+  // Grades: S = Strong (Grade A: FDA-approved / multiple RCTs + meta-analysis)
+  //         M = Moderate (Grade B: RCT evidence)
+  //         E = Emerging (Grade C/D: open-label, pilot, or limited data)
   const _evMods = [
-    { id:'TMS',   label:'TMS',   color:'#00d4bc', full:'Transcranial Magnetic Stimulation',         papers:'1,000+', papersFull:'1,000+ published studies' },
-    { id:'tDCS',  label:'tDCS',  color:'#4a9eff', full:'Transcranial Direct Current Stimulation',   papers:'400+',   papersFull:'400+ published studies'    },
-    { id:'tACS',  label:'tACS',  color:'#7c3aed', full:'Transcranial Alternating Current Stim.',    papers:'150+',   papersFull:'150+ published studies'    },
-    { id:'CES',   label:'CES',   color:'#0284c7', full:'Cranial Electrotherapy Stimulation',         papers:'80+',    papersFull:'80+ published studies'     },
-    { id:'taVNS', label:'taVNS', color:'#d97706', full:'Transcranial Auricular Vagus Nerve Stim.',   papers:'60+',    papersFull:'60+ published studies'     },
-    { id:'TPS',   label:'TPS',   color:'#c026d3', full:'Transcranial Pulse Stimulation',             papers:'30+',    papersFull:'30+ published studies'     },
-    { id:'PBM',   label:'PBM',   color:'#fb923c', full:'Photobiomodulation (tPBM)',                  papers:'80+',    papersFull:'80+ published studies'     },
-    { id:'PEMF',  label:'PEMF',  color:'#f59e0b', full:'Pulsed Electromagnetic Field Therapy',       papers:'100+',   papersFull:'100+ published studies'    },
-    { id:'NF',    label:'NF',    color:'#059669', full:'Neurofeedback',                              papers:'300+',   papersFull:'300+ published studies'    },
-    { id:'LIFU',  label:'LIFU',  color:'#64748b', full:'Low-Intensity Focused Ultrasound',           papers:'40+',    papersFull:'40+ published studies'     },
-    { id:'tRNS',  label:'tRNS',  color:'#94a3b8', full:'Transcranial Random Noise Stimulation',      papers:'50+',    papersFull:'50+ published studies'     },
-  ];
-  // S = Strong (RCT + Meta-analysis) | M = Moderate (RCT) | E = Emerging (Open-label / Pilot)
-  const _evConds = [
-    { name:'Depression (MDD)',               cat:'Mood & Affective',      ev:{ TMS:'S', tDCS:'S', tACS:'E', CES:'S', taVNS:'M', TPS:'E', PBM:'M', PEMF:'E', NF:'M', LIFU:'E', tRNS:'E' } },
-    { name:'Treatment-Resistant Depression', cat:'Mood & Affective',      ev:{ TMS:'S', tDCS:'M', CES:'M', taVNS:'M', TPS:'E', LIFU:'E' } },
-    { name:'Bipolar Depression',             cat:'Mood & Affective',      ev:{ TMS:'M', tDCS:'E' } },
-    { name:'Postpartum Depression',          cat:'Mood & Affective',      ev:{ TMS:'M', tDCS:'E' } },
-    { name:'Persistent Depressive Disorder', cat:'Mood & Affective',      ev:{ TMS:'M', tDCS:'E', CES:'E' } },
-    { name:'Seasonal Affective Disorder',    cat:'Mood & Affective',      ev:{ tDCS:'E', PBM:'E' } },
-    { name:'PTSD',                           cat:'Anxiety & Trauma',      ev:{ TMS:'M', tDCS:'E', CES:'M', taVNS:'E', NF:'M' } },
-    { name:'Generalised Anxiety Disorder',   cat:'Anxiety & Trauma',      ev:{ tDCS:'M', CES:'S', taVNS:'M', NF:'M', PEMF:'E' } },
-    { name:'Social Anxiety Disorder',        cat:'Anxiety & Trauma',      ev:{ TMS:'M', tDCS:'E', CES:'E', NF:'E' } },
-    { name:'Panic Disorder',                 cat:'Anxiety & Trauma',      ev:{ tDCS:'E', CES:'E', NF:'E' } },
-    { name:'Complex PTSD',                   cat:'Anxiety & Trauma',      ev:{ TMS:'E', NF:'E' } },
-    { name:'OCD',                            cat:'OCD Spectrum',          ev:{ TMS:'S', tDCS:'E', LIFU:'E' } },
-    { name:'Body Dysmorphic Disorder',       cat:'OCD Spectrum',          ev:{ TMS:'E' } },
-    { name:'Trichotillomania',               cat:'OCD Spectrum',          ev:{ TMS:'E' } },
-    { name:'ADHD — Adult',                   cat:'Neurodevelopmental',    ev:{ TMS:'M', tDCS:'M', tACS:'E', TPS:'E', PEMF:'E', NF:'M', tRNS:'E' } },
-    { name:'ADHD — Paediatric',              cat:'Neurodevelopmental',    ev:{ tDCS:'M', NF:'M' } },
-    { name:'Autism Spectrum Disorder',       cat:'Neurodevelopmental',    ev:{ TMS:'M', tDCS:'E', TPS:'E', NF:'E' } },
-    { name:'Schizophrenia',                  cat:'Psychiatric',           ev:{ TMS:'S', tDCS:'M', tACS:'M', LIFU:'E', tRNS:'E' } },
-    { name:'Auditory Hallucinations',        cat:'Psychiatric',           ev:{ TMS:'S', tDCS:'M' } },
-    { name:'Alcohol Use Disorder',           cat:'Substance Use',         ev:{ TMS:'M', tDCS:'M' } },
-    { name:'Nicotine Addiction',             cat:'Substance Use',         ev:{ TMS:'M', tDCS:'E' } },
-    { name:'Cocaine / Opioid Addiction',     cat:'Substance Use',         ev:{ TMS:'M', tDCS:'M', LIFU:'E' } },
-    { name:'Cannabis Use Disorder',          cat:'Substance Use',         ev:{ TMS:'E', tDCS:'E' } },
-    { name:'Stroke Rehabilitation',          cat:'Neurological',          ev:{ TMS:'S', tDCS:'S', taVNS:'M', PEMF:'E' } },
-    { name:'Aphasia (post-stroke)',           cat:'Neurological',          ev:{ TMS:'M', tDCS:'M' } },
-    { name:'Parkinson\'s Disease',            cat:'Neurological',          ev:{ TMS:'S', tDCS:'E', tACS:'M', taVNS:'E', TPS:'E', PBM:'E', PEMF:'E', tRNS:'E' } },
-    { name:'Essential Tremor',               cat:'Neurological',          ev:{ TMS:'M', tACS:'M', LIFU:'E' } },
-    { name:'Epilepsy',                       cat:'Neurological',          ev:{ TMS:'M', tDCS:'M', taVNS:'M', PEMF:'E', LIFU:'E' } },
-    { name:'Multiple Sclerosis',             cat:'Neurological',          ev:{ tDCS:'M', PEMF:'M', tRNS:'M' } },
-    { name:'Dystonia',                       cat:'Neurological',          ev:{ TMS:'M', tDCS:'E' } },
-    { name:'Tourette Syndrome',              cat:'Neurological',          ev:{ TMS:'M', CES:'E' } },
-    { name:'Spinal Cord Injury Rehab',       cat:'Neurological',          ev:{ TMS:'E', tDCS:'E' } },
-    { name:'Alzheimer\'s Disease',            cat:'Cognitive & Memory',    ev:{ TMS:'M', tDCS:'M', tACS:'M', TPS:'M', PBM:'M', LIFU:'E' } },
-    { name:'Mild Cognitive Impairment',      cat:'Cognitive & Memory',    ev:{ TMS:'M', tDCS:'M', tACS:'E', TPS:'E', PBM:'E', PEMF:'E', tRNS:'E' } },
-    { name:'Traumatic Brain Injury',         cat:'Cognitive & Memory',    ev:{ TMS:'E', tDCS:'M', PBM:'M', PEMF:'E' } },
-    { name:'Vascular Dementia',              cat:'Cognitive & Memory',    ev:{ tDCS:'E', TPS:'E' } },
-    { name:'Post-COVID Brain Fog',           cat:'Cognitive & Memory',    ev:{ tDCS:'E', PBM:'E' } },
-    { name:'Chemo-Related Cognitive Impairment', cat:'Cognitive & Memory', ev:{ tDCS:'E', PBM:'E' } },
-    { name:'Chronic Pain',                   cat:'Pain',                  ev:{ TMS:'S', tDCS:'S', CES:'E', taVNS:'M', tACS:'E', PBM:'E', PEMF:'M', LIFU:'E' } },
-    { name:'Fibromyalgia',                   cat:'Pain',                  ev:{ TMS:'M', tDCS:'S', CES:'M', PEMF:'M', taVNS:'E' } },
-    { name:'Migraine / Headache',            cat:'Pain',                  ev:{ TMS:'M', tDCS:'E', taVNS:'M' } },
-    { name:'Neuropathic Pain',               cat:'Pain',                  ev:{ TMS:'M', tDCS:'M', PEMF:'M' } },
-    { name:'Complex Regional Pain Syndrome', cat:'Pain',                  ev:{ tDCS:'E', PEMF:'E' } },
-    { name:'Phantom Limb Pain',              cat:'Pain',                  ev:{ TMS:'E', tDCS:'E' } },
-    { name:'Low Back Pain',                  cat:'Pain',                  ev:{ PEMF:'M', tDCS:'E' } },
-    { name:'Tinnitus',                       cat:'Other & Emerging',      ev:{ TMS:'M', tDCS:'M', taVNS:'M', tACS:'E', tRNS:'M' } },
-    { name:'Insomnia',                       cat:'Other & Emerging',      ev:{ tDCS:'E', tACS:'M', CES:'S', taVNS:'M', PEMF:'E', NF:'E', tRNS:'E' } },
-    { name:'Chronic Fatigue / ME-CFS',       cat:'Other & Emerging',      ev:{ tDCS:'E', PBM:'E' } },
-    { name:'Eating Disorders',               cat:'Other & Emerging',      ev:{ TMS:'M', tDCS:'E' } },
-    { name:'Inflammatory / Rheumatoid Arthritis', cat:'Other & Emerging', ev:{ taVNS:'M', PEMF:'E' } },
-    { name:'Long COVID — Fatigue & Cognition', cat:'Other & Emerging',    ev:{ PBM:'E', tDCS:'E' } },
-    { name:'Disorders of Consciousness',     cat:'Other & Emerging',      ev:{ TMS:'E', tDCS:'E', TPS:'E' } },
-    { name:'Peak Performance / Cognitive Enhancement', cat:'Other & Emerging', ev:{ tDCS:'E', NF:'M', tRNS:'E', PBM:'E' } },
+    { id:'rTMS',   label:'rTMS',    color:'#00d4bc', full:'Repetitive Transcranial Magnetic Stimulation',  papers:'358', papersFull:'358 peer-reviewed papers' },
+    { id:'dTMS',   label:'dTMS',    color:'#0891b2', full:'Deep Transcranial Magnetic Stimulation',        papers:'348', papersFull:'348 peer-reviewed papers' },
+    { id:'tDCS',   label:'tDCS',    color:'#4a9eff', full:'Transcranial Direct Current Stimulation',       papers:'326', papersFull:'326 peer-reviewed papers' },
+    { id:'DBS',    label:'DBS',     color:'#7c3aed', full:'Deep Brain Stimulation',                        papers:'1,086',papersFull:'1,086 peer-reviewed papers'},
+    { id:'VNS',    label:'VNS',     color:'#d97706', full:'Vagus Nerve Stimulation',                       papers:'960', papersFull:'960 peer-reviewed papers'  },
+    { id:'SCS',    label:'SCS',     color:'#c026d3', full:'Spinal Cord Stimulation',                       papers:'606', papersFull:'606 peer-reviewed papers'  },
+    { id:'SNM',    label:'SNM',     color:'#0284c7', full:'Sacral Neuromodulation',                        papers:'380', papersFull:'380 peer-reviewed papers'  },
+    { id:'NFB',    label:'NFB',     color:'#059669', full:'Neurofeedback',                                 papers:'812', papersFull:'812 peer-reviewed papers'  },
+    { id:'PBM',    label:'PBM',     color:'#fb923c', full:'Photobiomodulation',                            papers:'862', papersFull:'862 peer-reviewed papers'  },
+    { id:'HNS',    label:'HNS',     color:'#64748b', full:'Hypoglossal Nerve Stimulation',                 papers:'322', papersFull:'322 peer-reviewed papers'  },
+    { id:'MRgFUS', label:'MRgFUS',  color:'#be185d', full:'MRI-guided Focused Ultrasound',                papers:'318', papersFull:'318 peer-reviewed papers'  },
+    { id:'RNS',    label:'RNS',     color:'#0e7490', full:'Responsive Neurostimulation',                   papers:'310', papersFull:'310 peer-reviewed papers'  },
+    { id:'DRG',    label:'DRG',     color:'#b45309', full:'Dorsal Root Ganglion Stimulation',              papers:'279', papersFull:'279 peer-reviewed papers'  },
+    { id:'ESWT',   label:'ESWT',    color:'#6d28d9', full:'Extracorporeal Shock Wave Therapy',             papers:'566', papersFull:'566 peer-reviewed papers'  },
+    { id:'TPS',    label:'TPS',     color:'#dc2626', full:'Transcranial Pulse Stimulation',                papers:'162', papersFull:'162 peer-reviewed papers'  },
+    { id:'BAT',    label:'BAT',     color:'#047857', full:'Baroreflex Activation Therapy',                 papers:'251', papersFull:'251 peer-reviewed papers'  },
+    { id:'PNS',    label:'PNS',     color:'#1d4ed8', full:'Phrenic Nerve Stimulation',                    papers:'221', papersFull:'221 peer-reviewed papers'  },
+    { id:'REN',    label:'REN',     color:'#9333ea', full:'Remote Electrical Neuromodulation',             papers:'182', papersFull:'182 peer-reviewed papers'  },
   ];
 
-  // ── Study counts — sourced from peer-reviewed meta-analyses & RCTs ──────────
-  // Format: 'Condition name|ModID' → 'N RCTs' or 'N studies' (cited from sources)
+  // S = Strong (Grade A) | M = Moderate (Grade B) | E = Emerging (Grade C/D)
+  // Source: DeepSynaps Evidence Pipeline — 8,699 papers, 1,922 trials, 29 indications
+  const _evConds = [
+    // ── Psychiatric ────────────────────────────────────────────────────────────
+    { name:'Major Depressive Disorder',              cat:'Psychiatric',      ev:{ rTMS:'S', VNS:'M', tDCS:'M', PBM:'E' } },
+    { name:'Treatment-Resistant Depression',         cat:'Psychiatric',      ev:{ VNS:'M', tDCS:'M' } },
+    { name:'Anxiety Disorders & PTSD',               cat:'Psychiatric',      ev:{ NFB:'E' } },
+    // ── OCD & Compulsive ───────────────────────────────────────────────────────
+    { name:'OCD',                                    cat:'OCD & Compulsive', ev:{ dTMS:'S', DBS:'M' } },
+    { name:'OCD (refractory)',                       cat:'OCD & Compulsive', ev:{ DBS:'M' } },
+    // ── Neurological ───────────────────────────────────────────────────────────
+    { name:'Parkinson\'s Disease',                   cat:'Neurological',     ev:{ DBS:'S' } },
+    { name:'Essential Tremor',                       cat:'Neurological',     ev:{ DBS:'S', MRgFUS:'S' } },
+    { name:'Refractory Epilepsy',                    cat:'Neurological',     ev:{ VNS:'S', DBS:'S' } },
+    { name:'Refractory Focal Epilepsy',              cat:'Neurological',     ev:{ DBS:'S', RNS:'S', NFB:'M' } },
+    { name:'Post-Stroke Motor Deficit',              cat:'Neurological',     ev:{ VNS:'S' } },
+    { name:'Migraine (acute)',                       cat:'Neurological',     ev:{ REN:'S' } },
+    // ── Pain ───────────────────────────────────────────────────────────────────
+    { name:'FBSS / Chronic Neuropathic Back Pain',   cat:'Pain',             ev:{ SCS:'S' } },
+    { name:'Painful Diabetic Neuropathy',            cat:'Pain',             ev:{ SCS:'S' } },
+    { name:'CRPS / Focal Neuropathic Pain',          cat:'Pain',             ev:{ DRG:'S' } },
+    { name:'CRPS / Myofascial Pain',                 cat:'Pain',             ev:{ ESWT:'E' } },
+    { name:'Spasticity (stroke, CP, MS)',            cat:'Pain',             ev:{ ESWT:'M' } },
+    // ── Cognitive & Memory ─────────────────────────────────────────────────────
+    { name:'Alzheimer\'s / MCI',                     cat:'Cognitive',        ev:{ TPS:'E', PBM:'E' } },
+    { name:'Traumatic Brain Injury',                 cat:'Cognitive',        ev:{ PBM:'E' } },
+    { name:'Depression (cognitive component)',       cat:'Cognitive',        ev:{ tDCS:'M', PBM:'E' } },
+    // ── Sleep & Autonomic ──────────────────────────────────────────────────────
+    { name:'Obstructive Sleep Apnea',                cat:'Sleep & Autonomic',ev:{ HNS:'S' } },
+    { name:'Central Sleep Apnea',                    cat:'Sleep & Autonomic',ev:{ PNS:'S' } },
+    // ── Neuro-developmental ────────────────────────────────────────────────────
+    { name:'ADHD',                                   cat:'Neurodevelopmental',ev:{ NFB:'M' } },
+    // ── Cardiovascular ─────────────────────────────────────────────────────────
+    { name:'Heart Failure (HFrEF)',                  cat:'Cardiovascular',   ev:{ BAT:'M' } },
+    // ── Urological ─────────────────────────────────────────────────────────────
+    { name:'Urge Incontinence / Urinary Retention',  cat:'Urological',       ev:{ SNM:'S' } },
+  ];
+
+  // ── Study counts — from DeepSynaps Evidence Pipeline (Excel 2026-04-15) ──────
+  // Format: 'Condition name|ModID' → count label shown in matrix cell tooltip
   const _evN = {
-    // TMS sources
-    'Depression (MDD)|TMS':                   '100+ RCTs',   // APA/CANMAT/NICE guidelines 2023
-    'Treatment-Resistant Depression|TMS':      '20+ RCTs',   // THREE-D trial + BRIGhTMIND + others
-    'OCD|TMS':                                 '8 RCTs',     // BrainsWay De Novo + SMA meta-analyses
-    'PTSD|TMS':                                '15 RCTs',    // PMC 2025 meta-analysis, n=760
-    'Parkinson\'s Disease|TMS':                '27 RCTs',    // JAMA Neurology 2015 meta-analysis
-    'Stroke Rehabilitation|TMS':               '22+ RCTs',   // PubMed 2024 meta-analysis (FMA-UE)
-    'Tinnitus|TMS':                            '16 RCTs',    // PMC 2025 meta-analysis, n=1105
-    'Chronic Pain|TMS':                        '12 RCTs',    // IFCN Level B (Lefaucheur 2020)
-    'Fibromyalgia|TMS':                        '10 RCTs',    // IFCN Level B meta-analysis
-    'Schizophrenia|TMS':                       '20 RCTs',    // auditory hallucinations meta-analyses
-    'Auditory Hallucinations|TMS':             '15 RCTs',    // IFCN Level A recommendation
-    // tDCS sources
-    'Depression (MDD)|tDCS':                   '32 studies', // Nature 2024 meta-analysis, SMD=−0.355
-    'Chronic Pain|tDCS':                       '11 RCTs',    // Sage 2024 home-based meta-analysis
-    'Fibromyalgia|tDCS':                       '10 RCTs',    // IFCN Level B, SMD=−0.95
-    'Stroke Rehabilitation|tDCS':              '14 RCTs',    // IFCN Level B motor recovery
-    // CES sources
-    'Generalised Anxiety Disorder|CES':        '11 RCTs',    // PubMed 2022 meta-analysis, n=794
-    'Insomnia|CES':                            '10 studies', // PMC 2021 critical review
-    'Fibromyalgia|CES':                        '6 RCTs',     // Cambridge meta-analysis
-    // taVNS sources
-    'Depression (MDD)|taVNS':                  '12 studies', // PubMed 2023 meta-analysis, n=838
-    'PTSD|taVNS':                              '5 RCTs',     // emerging evidence base
-    'Epilepsy|taVNS':                          '8 RCTs',     // VNS meta-analysis (PMC 2022)
-    // NF sources
-    'ADHD — Adult|NF':                         '38 RCTs',    // Cortese 2024 (JAMA Psychiatry), n=2,472
-    'ADHD — Paediatric|NF':                    '13 RCTs',    // Cortese 2016 original blinded analysis
-    'PTSD|NF':                                 '6 RCTs',     // emerging RCT base
-    // tDCS additional
-    'Alcohol Use Disorder|tDCS':               '8 RCTs',     // meta-analysis craving outcomes
-    'ADHD — Adult|tDCS':                       '8 RCTs',     // multiple RCTs
+    'Major Depressive Disorder|rTMS':              '358 papers · 150 trials',
+    'Major Depressive Disorder|VNS':               '333 papers · 150 trials',
+    'Major Depressive Disorder|tDCS':              '326 papers · 150 trials',
+    'Treatment-Resistant Depression|VNS':          '333 papers · 150 trials',
+    'Treatment-Resistant Depression|tDCS':         '326 papers',
+    'OCD|dTMS':                                    '348 papers · 65 trials · FDA cleared',
+    'OCD (refractory)|DBS':                        '348 papers · 84 trials',
+    'Parkinson\'s Disease|DBS':                    '397 papers · 150 trials · FDA approved',
+    'Essential Tremor|DBS':                        '344 papers · 115 trials · FDA approved',
+    'Essential Tremor|MRgFUS':                     '318 papers · 58 trials · FDA approved',
+    'Refractory Epilepsy|VNS':                     '361 papers · 85 trials · FDA approved',
+    'Refractory Focal Epilepsy|DBS':               '347 papers · 90 trials · FDA approved',
+    'Refractory Focal Epilepsy|RNS':               '310 papers · 17 trials · FDA approved',
+    'Refractory Focal Epilepsy|NFB':               '243 papers · 8 trials',
+    'Post-Stroke Motor Deficit|VNS':               '266 papers · 93 trials · FDA approved',
+    'Migraine (acute)|REN':                        '182 papers · 22 trials · FDA cleared',
+    'FBSS / Chronic Neuropathic Back Pain|SCS':    '324 papers · 80 trials · FDA approved',
+    'Painful Diabetic Neuropathy|SCS':             '282 papers · 14 trials · FDA approved',
+    'CRPS / Focal Neuropathic Pain|DRG':           '279 papers · 26 trials · FDA approved',
+    'CRPS / Myofascial Pain|ESWT':                 '281 papers · 78 trials',
+    'Spasticity (stroke, CP, MS)|ESWT':            '285 papers · 33 trials',
+    'Alzheimer\'s / MCI|TPS':                      '162 papers · 21 trials',
+    'Alzheimer\'s / MCI|PBM':                      '345 papers · 23 trials',
+    'Traumatic Brain Injury|PBM':                  '238 papers · 17 trials',
+    'Depression (cognitive component)|tDCS':       '326 papers',
+    'Depression (cognitive component)|PBM':        '279 papers · 60 trials',
+    'Obstructive Sleep Apnea|HNS':                 '322 papers · 44 trials · FDA approved',
+    'Central Sleep Apnea|PNS':                     '221 papers · 97 trials · FDA approved',
+    'ADHD|NFB':                                    '199 papers · 45 trials',
+    'Heart Failure (HFrEF)|BAT':                   '251 papers · 14 trials · FDA approved',
+    'Urge Incontinence / Urinary Retention|SNM':   '380 papers · 94 trials · FDA approved',
+    'Anxiety Disorders & PTSD|NFB':                '370 papers · 39 trials',
   };
 
   function _buildEvMatrix() {
-    const evLabel = { S:'Strong — RCT + Meta-analysis', M:'Moderate — RCT', E:'Emerging — Open-label / Pilot' };
-    const cats = [...new Set(_evConds.map(c => c.cat))];
-    const totalConds   = _evConds.length;
-    const totalEntries = _evConds.reduce((n, c) => n + Object.keys(c.ev).length, 0);
-    const strongCount  = _evConds.reduce((n, c) => n + Object.values(c.ev).filter(v => v === 'S').length, 0);
-    const withCounts   = Object.keys(_evN).length;
+    const cats       = [...new Set(_evConds.map(c => c.cat))];
+    const totalConds = _evConds.length;
+    const strongCount= _evConds.reduce((n,c) => n + Object.values(c.ev).filter(v=>v==='S').length, 0);
+    const fdaCount   = Object.values(_evN).filter(v => /fda/i.test(v)).length;
+    const totalLinks = _evConds.reduce((n,c) => n + Object.keys(c.ev).length, 0);
+    const _catColors = {
+      'Psychiatric':'#4a9eff','OCD & Compulsive':'#8b5cf6','Neurological':'#a855f7',
+      'Pain':'#f97316','Cognitive':'#06b6d4','Sleep & Autonomic':'#0ea5e9',
+      'Neurodevelopmental':'#ec4899','Cardiovascular':'#ef4444','Urological':'#84cc16',
+    };
 
-    const tabs = cats.map((cat, i) => {
-      const n = _evConds.filter(c => c.cat === cat).length;
-      return `<button class="pub-ev-tab${i===0?' active':''}" data-tab="${i}" onclick="window._evTab(${i})">
-        <span class="pub-ev-tab-name">${cat}</span>
-        <span class="pub-ev-tab-count">${n}</span>
-      </button>`;
-    }).join('');
+    // ── 1. CARDS VIEW (best — condition-first, scannable) ────────────────────
+    const cardFilterPills = [
+      `<button class="pub-ev3-pill active" data-cat="ALL" onclick="window._evCatFilter('ALL')">All conditions</button>`,
+      ...cats.map(cat => `<button class="pub-ev3-pill" data-cat="${cat}" style="--cat-col:${_catColors[cat]||'var(--teal)'}" onclick="window._evCatFilter('${cat}')">${cat}</button>`)
+    ].join('');
 
-    const panels = cats.map((cat, i) => {
-      const conds = _evConds.filter(c => c.cat === cat);
-      const rows = conds.map(c => `
-        <tr class="pub-ev-row">
-          <td class="pub-ev-cond-cell">${c.name}</td>
-          ${_evMods.map(m => {
-            const ev  = c.ev[m.id] || null;
-            const key = `${c.name}|${m.id}`;
-            const nStudies = _evN[key] || null;
-            const tip = ev
-              ? `${evLabel[ev]} · ${m.full}${nStudies ? ' · ' + nStudies : ''}`
-              : `No evidence · ${m.label}`;
-            return `<td class="pub-ev-cell" data-mod="${m.id}" data-ev="${ev||''}" title="${tip}">
-              ${ev
-                ? `<div class="pub-ev-cell-inner">
-                    <span class="pub-ev-dot pub-ev-${ev.toLowerCase()}" style="--ev-col:${m.color}"></span>
-                    ${nStudies ? `<span class="pub-ev-n">${nStudies.replace(/ ?(RCTs?|studies?)/i,'')}</span>` : ''}
-                  </div>`
-                : '<span class="pub-ev-none">—</span>'}
-            </td>`;
-          }).join('')}
-        </tr>`).join('');
-      return `<div class="pub-ev-panel${i===0?' active':''}" data-panel="${i}">
-        <table class="pub-ev-table">
-          <thead><tr>
-            <th class="pub-ev-cond-col">Condition</th>
-            ${_evMods.map(m => `<th class="pub-ev-mod-th" data-mod="${m.id}" style="--ev-col:${m.color}" title="${m.full}">${m.label}</th>`).join('')}
-          </tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
+    const condCards = _evConds.map(c => {
+      const color = _catColors[c.cat] || '#00d4bc';
+      const evMods = _evMods.filter(m => c.ev[m.id]).map(m => ({
+        ...m, grade: c.ev[m.id], nStudies: _evN[`${c.name}|${m.id}`] || null,
+      })).sort((a,b) => ({S:0,M:1,E:2}[a.grade]-{S:0,M:1,E:2}[b.grade]));
+      const hasFda = evMods.some(m => m.nStudies && /fda/i.test(m.nStudies));
+      const totalEv = evMods.length;
+      const bars = evMods.slice(0,4).map(m => {
+        const w = m.grade==='S'?100:m.grade==='M'?62:30;
+        return `<div class="pub-ev3-bar-row">
+          <span class="pub-ev3-bar-mod" style="color:${m.color}">${m.label}</span>
+          <div class="pub-ev3-bar-track"><div class="pub-ev3-bar-fill" style="width:${w}%;background:${m.color}"></div></div>
+          <span class="pub-ev3-grade pub-ev3-g${m.grade.toLowerCase()}">${m.grade}</span>
+        </div>`;
+      }).join('');
+      return `<div class="pub-ev3-card" data-cat="${c.cat}" style="--cc:${color}">
+        <div class="pub-ev3-card-top">
+          <span class="pub-ev3-cond">${c.name}</span>
+          ${hasFda?'<span class="pub-ev3-fda">FDA</span>':''}
+        </div>
+        ${bars}
+        <div class="pub-ev3-card-foot">${totalEv} modalities with evidence</div>
       </div>`;
     }).join('');
 
+    const cardsView = `
+      <div class="pub-ev3-pills">${cardFilterPills}</div>
+      <div class="pub-ev3-grid" id="ev-cards">${condCards}</div>`;
+
+    // ── 2. TREEMAP VIEW ───────────────────────────────────────────────────────
+    const treeCols = cats.map(cat => {
+      const conds = _evConds.filter(c=>c.cat===cat);
+      const catEv = conds.reduce((n,c)=>n+Object.keys(c.ev).length,0);
+      const catPct = Math.max(Math.round((catEv/totalLinks)*100), 4);
+      const color = _catColors[cat]||'#00d4bc';
+      const tiles = conds.map(c => {
+        const condEv = Object.keys(c.ev).length;
+        const condPct = Math.max(Math.round((condEv/catEv)*100), 10);
+        const topG = Object.values(c.ev).includes('S')?'S':Object.values(c.ev).includes('M')?'M':'E';
+        const op = topG==='S'?1:topG==='M'?0.6:0.3;
+        const hasFda = Object.keys(_evN).some(k=>k.startsWith(c.name+'|')&&/fda/i.test(_evN[k]));
+        return `<div class="pub-tm-tile" style="flex:${condPct};background:${color};opacity:${op}" title="${c.name} · ${condEv} evidence links · Grade ${topG}${hasFda?' · FDA':''}" onclick="window._evCatFilter('${cat}');window._evPickView('cards')">
+          <span class="pub-tm-tile-name">${c.name}</span>
+          ${hasFda?'<span class="pub-tm-tile-fda">FDA</span>':''}
+        </div>`;
+      }).join('');
+      return `<div class="pub-tm-col" style="flex:${catPct}" onclick="window._evPickView('cards');window._evCatFilter('${cat}')">
+        <div class="pub-tm-col-head" style="background:${color}">${cat}<br><small>${conds.length}</small></div>
+        <div class="pub-tm-tiles">${tiles}</div>
+      </div>`;
+    }).join('');
+    const treemapView = `
+      <p style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">Column width = evidence count. Cell brightness = grade strength. Click any block → condition cards.</p>
+      <div class="pub-tm-wrap">${treeCols}</div>`;
+
+    // ── 3. RADIAL DONUT VIEW ──────────────────────────────────────────────────
+    const SVG=360, cx=180, cy=180, R1=148, R2=100, R3=96, R4=72;
+    function _pt(deg,r){const a=(deg-90)*Math.PI/180;return{x:cx+r*Math.cos(a),y:cy+r*Math.sin(a)};}
+    function _arc(s,e,r1,r2){
+      const p1=_pt(s,r1),p2=_pt(e,r1),p3=_pt(e,r2),p4=_pt(s,r2);
+      const lg=(e-s)>180?1:0;
+      return `M${p1.x} ${p1.y} A${r1} ${r1} 0 ${lg} 1 ${p2.x} ${p2.y} L${p3.x} ${p3.y} A${r2} ${r2} 0 ${lg} 0 ${p4.x} ${p4.y}Z`;
+    }
+    let ang=0;
+    const outerSlices=[], innerSlices=[];
+    cats.forEach((cat,i)=>{
+      const conds=_evConds.filter(c=>c.cat===cat);
+      const catEv=conds.reduce((n,c)=>n+Object.keys(c.ev).length,0);
+      const span=Math.max((catEv/totalLinks)*354, 2);
+      const color=_catColors[cat]||'#00d4bc';
+      const s=_catStats2(cat);
+      outerSlices.push(`<path d="${_arc(ang,ang+span,R1,R2)}" fill="${color}" class="pub-rd-slice" onclick="window._evPickView('cards');window._evCatFilter('${cat}')"><title>${cat}: ${catEv} evidence links\n${s.s} Strong · ${s.m} Moderate · ${s.e} Emerging</title></path>`);
+      // inner ring: S/M/E breakdown within category
+      let ia=ang;
+      [[s.s,'S'],[s.m,'M'],[s.e,'E']].forEach(([n,g])=>{
+        if(!n)return;
+        const ispan=(n/(s.s+s.m+s.e))*span;
+        const op=g==='S'?1:g==='M'?0.55:0.25;
+        innerSlices.push(`<path d="${_arc(ia,ia+ispan,R3,R4)}" fill="${color}" opacity="${op}"><title>${g === 'S'?'Strong':g==='M'?'Moderate':'Emerging'}: ${n}</title></path>`);
+        ia+=ispan;
+      });
+      ang+=span+0.8;
+    });
+    function _catStats2(cat){
+      const conds=_evConds.filter(c=>c.cat===cat);
+      return{s:conds.reduce((n,c)=>n+Object.values(c.ev).filter(v=>v==='S').length,0),m:conds.reduce((n,c)=>n+Object.values(c.ev).filter(v=>v==='M').length,0),e:conds.reduce((n,c)=>n+Object.values(c.ev).filter(v=>v==='E').length,0)};
+    }
+    const rdLegend=cats.map(cat=>{
+      const color=_catColors[cat]||'#00d4bc';
+      const n=_evConds.filter(c=>c.cat===cat).length;
+      const s=_catStats2(cat);
+      return`<div class="pub-rd-leg" onclick="window._evPickView('cards');window._evCatFilter('${cat}')">
+        <span class="pub-rd-dot" style="background:${color}"></span>
+        <span class="pub-rd-leg-name">${cat}</span>
+        <span class="pub-rd-leg-n">${n} cond · ${s.s}S/${s.m}M</span>
+      </div>`;
+    }).join('');
+    const radialView=`
+      <p style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">Outer ring = categories by evidence volume. Inner ring = grade mix (bright=Strong). Click a slice → condition cards.</p>
+      <div class="pub-rd-wrap">
+        <svg viewBox="0 0 ${SVG} ${SVG}" class="pub-rd-svg" xmlns="http://www.w3.org/2000/svg">
+          ${outerSlices.join('')}${innerSlices.join('')}
+          <circle cx="${cx}" cy="${cy}" r="68" fill="var(--bg-card)" stroke="var(--border)" stroke-width="1"/>
+          <text x="${cx}" y="${cy-10}" class="pub-rd-cn">${totalConds}</text>
+          <text x="${cx}" y="${cy+10}" class="pub-rd-cl">conditions</text>
+          <text x="${cx}" y="${cy+26}" class="pub-rd-cs">${strongCount} strong</text>
+          <text x="${cx}" y="${cy+40}" style="fill:#22c55e" class="pub-rd-cl">${fdaCount} FDA</text>
+        </svg>
+        <div class="pub-rd-legend">${rdLegend}</div>
+      </div>`;
+
+    // ── VIEW PICKER WRAPPER ───────────────────────────────────────────────────
     return `
-      <div class="pub-ev-topbar">
-        <div class="pub-ev-filters" id="ev-filters">
-          <button class="pub-ev-filter-btn active" data-mod="ALL" onclick="window._evFilter('ALL')">All</button>
-          ${_evMods.map(m => `<button class="pub-ev-filter-btn" data-mod="${m.id}" style="--ev-col:${m.color}" onclick="window._evFilter('${m.id}')" title="${m.full} · ${m.papersFull}">${m.label}<span class="pub-ev-filter-count">${m.papers}</span></button>`).join('')}
-        </div>
-        <div class="pub-ev-legend">
-          <span class="pub-ev-legend-item"><span class="pub-ev-dot pub-ev-s" style="--ev-col:#00d4bc"></span>Strong</span>
-          <span class="pub-ev-legend-item"><span class="pub-ev-dot pub-ev-m" style="--ev-col:#4a9eff"></span>Moderate</span>
-          <span class="pub-ev-legend-item"><span class="pub-ev-dot pub-ev-e" style="--ev-col:#94a3b8"></span>Emerging</span>
-          <span class="pub-ev-legend-divider"></span>
-          <span style="font-size:10.5px;color:var(--text-tertiary)">${totalConds} conditions · ${strongCount} strong findings · <span style="color:var(--teal)">${withCounts} cited</span></span>
-        </div>
+      <div class="pub-ev3-picker">
+        <span class="pub-ev3-picker-label">View as</span>
+        <button class="pub-ev3-pick active" onclick="window._evPickView('cards')">★ Condition Cards</button>
+        <button class="pub-ev3-pick" onclick="window._evPickView('treemap')">Treemap</button>
+        <button class="pub-ev3-pick" onclick="window._evPickView('radial')">Radial Chart</button>
+        <span style="margin-left:auto;font-size:10.5px;color:var(--text-tertiary)">${totalConds} conditions · ${strongCount} strong · <span style="color:#22c55e">${fdaCount} FDA</span></span>
       </div>
-      <div class="pub-ev-layout">
-        <nav class="pub-ev-tabs" id="ev-tabs" aria-label="Condition categories">${tabs}</nav>
-        <div class="pub-ev-panels" id="ev-panels">${panels}</div>
-      </div>
-      <div style="font-size:11px;color:var(--text-tertiary);margin-top:10px;text-align:right">
-        ${totalEntries} condition–modality associations · ${withCounts} entries cite specific trial counts · Sources: CANMAT 2023, IFCN 2020, JAMA Psychiatry 2024, and 26 additional meta-analyses
+      <div id="ev-view-cards" class="pub-ev3-view active">${cardsView}</div>
+      <div id="ev-view-treemap" class="pub-ev3-view">${treemapView}</div>
+      <div id="ev-view-radial" class="pub-ev3-view">${radialView}</div>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:12px;text-align:right">
+        DeepSynaps Evidence Pipeline — 8,699 papers · 1,922 trials · 1,324 FDA device records
       </div>`;
   }
 
@@ -282,186 +349,442 @@ export function pgHome() {
   }
 
   el.innerHTML = `
+    <div class="public-bg"></div>
+    <div class="public-grid"></div>
     ${pubTopbar()}
 
-    <!-- ─── COMMERCIAL HERO ───────────────────────────────────────────────── -->
-    <section class="phome-hero">
-      <div class="phome-hero-overline">Neuromodulation Clinic Software</div>
-      <h1 class="phome-hero-headline">Run your TMS &amp; neurofeedback clinic &mdash;<br>from first session to proven outcome</h1>
-      <p class="phome-hero-sub">Today&rsquo;s Queue. Quick Outcome Capture. Course Completion Reports. Built for TMS, Neurofeedback, and multi-modal practices.</p>
-      <div class="phome-hero-ctas">
-        <button class="phome-cta-primary" onclick="window._startDemoTour()">Start Demo Tour &rarr;</button>
-        <button class="phome-cta-secondary" onclick="window._nav('pricing')">View Pricing &rarr;</button>
-      </div>
-      <div class="phome-trust-strip">
-        <span class="phome-trust-badge"><span class="phome-trust-badge-icon">🔒</span>HIPAA-Aligned</span>
-        <span class="phome-trust-badge"><span class="phome-trust-badge-icon">🇪🇺</span>GDPR-Conscious</span>
-        <span class="phome-trust-badge"><span class="phome-trust-badge-icon">🔐</span>TLS&nbsp;1.3 Encrypted</span>
-        <span class="phome-trust-badge"><span class="phome-trust-badge-icon">★</span>Evidence-Graded Protocols</span>
-      </div>
-    </section>
+    <div class="public-inner dv2-public" style="position:relative;z-index:1">
 
-    <!-- ─── Stats strip ────────────────────────────────────────────────────── -->
-    <div class="phome-stats-strip">
-      <div class="phome-stat-item">
-        <span class="phome-stat-num">53</span>
-        <span class="phome-stat-label">Clinical Conditions</span>
-      </div>
-      <div class="phome-stat-sep"></div>
-      <div class="phome-stat-item">
-        <span class="phome-stat-num">11</span>
-        <span class="phome-stat-label">Neuromodulation Modalities</span>
-      </div>
-      <div class="phome-stat-sep"></div>
-      <div class="phome-stat-item">
-        <span class="phome-stat-num">2,400+</span>
-        <span class="phome-stat-label">Evidence-Mapped Protocols</span>
-      </div>
-      <div class="phome-stat-sep"></div>
-      <div class="phome-stat-item">
-        <span class="phome-stat-num">12</span>
-        <span class="phome-stat-label">Compatible Devices</span>
-      </div>
-    </div>
-
-    <!-- ─── 3 FEATURE CARDS ───────────────────────────────────────────────── -->
-    <section class="phome-features-section">
-      <div class="phome-features-eyebrow">Why clinics choose DeepSynaps</div>
-      <div class="phome-features-grid">
-
-        <div class="phome-feature-card">
-          <div class="phome-feature-icon">&#9335;</div>
-          <div class="phome-feature-title">Today&rsquo;s Queue</div>
-          <div class="phome-feature-desc">See every patient, session status, overdue assessment, and missed homework in one screen. Start sessions in one click.</div>
-          <ul class="phome-feature-bullets">
-            <li>Waiting &middot; In Session &middot; Done status at a glance</li>
-            <li>Protocol adherence alerts surfaced automatically</li>
-            <li>Walk-in patients added in seconds</li>
-          </ul>
-          <button class="phome-feature-link" onclick="window._nav('patient-queue')">Open Queue &rarr;</button>
-          <div class="phome-feature-mockup queue-mock">
-            <div class="mock-bar">
-              <span class="mock-dot green"></span><span class="mock-label">3 Waiting</span>
-              <span class="mock-dot amber" style="margin-left:auto"></span><span class="mock-label">1 Overdue</span>
-            </div>
-            <div class="mock-row"><span class="mock-avatar">JD</span><span class="mock-name">J. Doe</span><span class="mock-tag tms">TMS</span><span class="mock-status waiting">Waiting</span></div>
-            <div class="mock-row"><span class="mock-avatar">SM</span><span class="mock-name">S. Miller</span><span class="mock-tag nf">NF</span><span class="mock-status session">In Session</span></div>
-            <div class="mock-row"><span class="mock-avatar">AK</span><span class="mock-name">A. Khan</span><span class="mock-tag tdcs">tDCS</span><span class="mock-status done">Done</span></div>
+    <!-- ─── HERO (design-v2) ─────────────────────────────────────────────── -->
+    <section class="pub-hero dv2-hero">
+      <div class="pub-hero-inner">
+        <div>
+          <div class="pub-hero-overline">${t('pub.hero.overline')}</div>
+          <h1>Run your TMS &amp; neurofeedback clinic — <em>from first session to proven outcome.</em></h1>
+          <p class="pub-hero-sub">${t('pub.hero.sub')}</p>
+          <div class="pub-hero-ctas">
+            <button class="btn btn-primary btn-lg" onclick="window._startDemoTour()">${t('pub.hero.cta.tour')}</button>
+            <button class="btn btn-ghost btn-lg" onclick="window._nav('pricing')">${t('pub.hero.cta.pricing')}</button>
+          </div>
+          <div class="dv2-trust-chips">
+            <span class="dv2-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>HIPAA-Aligned</span>
+            <span class="dv2-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 010 20M12 2a15 15 0 000 20"/></svg>GDPR-Conscious</span>
+            <span class="dv2-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>TLS 1.3</span>
+            <span class="dv2-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/></svg>Evidence-Graded</span>
           </div>
         </div>
 
-        <div class="phome-feature-card">
-          <div class="phome-feature-icon">&#9649;</div>
-          <div class="phome-feature-title">Outcome Proof. In 30 Seconds.</div>
-          <div class="phome-feature-desc">Record PHQ-9, GAD-7, MADRS, and 6 other validated scales during or after sessions. Auto-generate a printable treatment summary with trend charts, responder status, and SOAP notes.</div>
-          <ul class="phome-feature-bullets">
-            <li>9 validated outcome measures built in</li>
-            <li>Responder / Partial Responder / Non-Responder classification</li>
-            <li>Export PDF for insurance and EMR documentation</li>
-          </ul>
-          <button class="phome-feature-link" onclick="window._nav('outcomes')">View Outcome Reports &rarr;</button>
-          <div class="phome-feature-mockup outcome-mock">
-            <div class="mock-bar"><span class="mock-label" style="font-weight:600;color:var(--teal)">PHQ-9 Trend</span><span class="mock-label" style="margin-left:auto;color:#22c55e;font-weight:700">Responder ✓</span></div>
-            <div class="mock-trend-line">
-              <svg viewBox="0 0 160 48" fill="none" style="width:100%;height:48px">
-                <polyline points="8,40 28,36 48,30 68,22 88,18 108,12 128,8 148,6" stroke="var(--teal)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <polyline points="8,40 28,36 48,30 68,22 88,18 108,12 128,8 148,6" stroke="rgba(0,212,188,0.15)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </div>
-            <div class="mock-bar" style="margin-top:4px"><span class="mock-label" style="color:var(--text-tertiary)">Baseline: 18</span><span class="mock-label" style="margin-left:auto;color:var(--text-tertiary)">Session 20: 6</span></div>
+        <div class="pub-hero-visual">
+          <div class="chrome">
+            <div><span class="chrome-dot"></span>brainmap.live / session_218</div>
+            <div>10-20 · DLPFC-L</div>
+          </div>
+          <div class="brain-wrap" id="dv2-hero-brain"></div>
+          <div class="readouts">
+            <div class="readout"><div class="readout-lbl">Anode</div><div class="readout-val"><em>F3</em></div></div>
+            <div class="readout"><div class="readout-lbl">Cathode</div><div class="readout-val rose"><em>FP2</em></div></div>
+            <div class="readout"><div class="readout-lbl">Current</div><div class="readout-val blue"><em>2.0</em><span style="font-size:11px;color:var(--text-tertiary);font-weight:500"> mA</span></div></div>
           </div>
         </div>
-
-        <div class="phome-feature-card">
-          <div class="phome-feature-icon">&#9671;</div>
-          <div class="phome-feature-title">Clinical Scoring Calculator</div>
-          <div class="phome-feature-desc">Compute PHQ-9, GAD-7, PCL-5, HAM-D, MADRS, MoCA, and more with live scoring, severity interpretation, and crisis flagging.</div>
-          <ul class="phome-feature-bullets">
-            <li>All 12 validated scales &mdash; full item entry</li>
-            <li>PHQ-9 item 9 crisis flag with 988 Lifeline prompt</li>
-            <li>Decision support &mdash; not autonomous diagnosis</li>
-          </ul>
-          <button class="phome-feature-link" onclick="window._nav('scoring-calc')">Open Calculator &rarr;</button>
-          <div class="phome-feature-mockup calc-mock">
-            <div class="mock-bar"><span class="mock-label" style="font-weight:600;">PHQ-9</span><span class="mock-label mock-score severe" style="margin-left:auto;">Score: 18 · Severe</span></div>
-            <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;">
-              ${[2,3,2,1,2,3,2,1,2].map((v,i) => `<div class="mock-item-chip">${i+1}<span>${v}</span></div>`).join('')}
-            </div>
-            <div class="mock-bar" style="margin-top:8px;"><span class="mock-crisis">⚠ Item 9 flagged — crisis screening prompted</span></div>
-          </div>
-        </div>
-
       </div>
     </section>
 
-    <!-- ─── POSITIONING STRIP ──────────────────────────────────────────────── -->
-    <div class="phome-proof-strip">
-      <div class="phome-proof-headline">Purpose-built for neuromodulation &mdash; not adapted from generic EHR software.</div>
-      <div class="phome-proof-points">
-        <div class="phome-proof-point">TMS + Neurofeedback + tDCS + 8 more modalities</div>
-        <div class="phome-proof-sep">|</div>
-        <div class="phome-proof-point">PHQ-9, GAD-7, PCL-5, HAM-D, MADRS &mdash; validated and scored</div>
-        <div class="phome-proof-sep">|</div>
-        <div class="phome-proof-point">Treatment courses, sessions, outcomes &mdash; all connected</div>
+    <!-- ─── Trust stats row (4 big numbers, design-v2) ───────────────────── -->
+    <div class="dv2-trust-stats">
+      <div class="dv2-tstat">
+        <div class="dv2-tstat-num" id="strip-stat-papers">8,699</div>
+        <div class="dv2-tstat-lbl">Peer-Reviewed Papers</div>
+      </div>
+      <div class="dv2-tstat">
+        <div class="dv2-tstat-num" id="strip-stat-trials">1,922</div>
+        <div class="dv2-tstat-lbl">Clinical Trials Indexed</div>
+      </div>
+      <div class="dv2-tstat">
+        <div class="dv2-tstat-num">1,324</div>
+        <div class="dv2-tstat-lbl">FDA Device Records</div>
+      </div>
+      <div class="dv2-tstat">
+        <div class="dv2-tstat-num">18</div>
+        <div class="dv2-tstat-lbl">Neuromodulation Modalities</div>
       </div>
     </div>
 
-    <!-- ─── EVIDENCE MATRIX (Section 4) ───────────────────────────────────── -->
-    <section id="evidence-matrix" class="pub-section pub-ev-section phome-ev-section">
-      <div class="phome-ev-header">
-        <div class="phome-ev-title">Evidence Base: What the research shows by modality</div>
-        <div class="phome-ev-subtitle">Sourced from peer-reviewed RCTs and meta-analyses. For reference &mdash; not a clinical recommendation.</div>
+    <!-- ─── FEATURES (4 cards w/ inline SVG icons) ──────────────────────── -->
+    <section class="pub-section dv2-features-section">
+      <div class="pub-section-head">
+        <div class="pub-section-kicker">${t('pub.section.features')}</div>
+        <h2>Everything a neuromodulation practice needs.</h2>
+        <p class="lead">Conditions, modalities, devices and safety rules live in one registry — every protocol, assessment, and patient guide stays consistent.</p>
       </div>
-      <!-- Live counts from /api/v1/evidence/stats (public endpoint). Static
-           fallback numbers from the 2026-04-13 ingest if the call fails. -->
-      <div id="phome-ev-live-stats" class="phome-ev-live-stats" style="display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin:14px auto 22px;max-width:880px">
-        <div class="phome-ev-stat" style="flex:1;min-width:180px;padding:14px 18px;border:1px solid var(--border,#1f2e4a);border-radius:10px;background:var(--surface-1,#0d1a2b);text-align:center">
-          <div class="phome-ev-stat-n" id="phome-ev-stat-papers" style="font-size:28px;font-weight:700;color:var(--teal,#00d4bc)">8,166</div>
-          <div class="phome-ev-stat-l" style="font-size:12px;color:var(--text-secondary,#b7c4d9);margin-top:4px">peer-reviewed papers</div>
+      <div class="pub-features dv2-features-4">
+        <div class="pub-feature" onclick="window._nav('patient-queue')" style="cursor:pointer">
+          <div class="pub-feature-tag">Live</div>
+          <div class="pub-feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h12"/></svg></div>
+          <div class="pub-feature-title">Today&rsquo;s Queue</div>
+          <div class="pub-feature-body">Every patient, session status, overdue assessment, and missed homework in one screen. Start sessions in one click.</div>
         </div>
-        <div class="phome-ev-stat" style="flex:1;min-width:180px;padding:14px 18px;border:1px solid var(--border,#1f2e4a);border-radius:10px;background:var(--surface-1,#0d1a2b);text-align:center">
-          <div class="phome-ev-stat-n" id="phome-ev-stat-trials" style="font-size:28px;font-weight:700;color:var(--teal,#00d4bc)">1,766</div>
-          <div class="phome-ev-stat-l" style="font-size:12px;color:var(--text-secondary,#b7c4d9);margin-top:4px">registered clinical trials</div>
+        <div class="pub-feature" onclick="window._nav('protocols')" style="cursor:pointer">
+          <div class="pub-feature-tag">10-20 · fMRI</div>
+          <div class="pub-feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg></div>
+          <div class="pub-feature-title">Protocol Studio</div>
+          <div class="pub-feature-body">DLPFC, SMA, mPFC — every target mapped to anchor electrodes with a live 10-20 preview that updates as you change montage.</div>
         </div>
-        <div class="phome-ev-stat" style="flex:1;min-width:180px;padding:14px 18px;border:1px solid var(--border,#1f2e4a);border-radius:10px;background:var(--surface-1,#0d1a2b);text-align:center">
-          <div class="phome-ev-stat-n" id="phome-ev-stat-indications" style="font-size:28px;font-weight:700;color:var(--teal,#00d4bc)">29</div>
-          <div class="phome-ev-stat-l" style="font-size:12px;color:var(--text-secondary,#b7c4d9);margin-top:4px">indications indexed</div>
+        <div class="pub-feature" onclick="window._nav('scoring-calc')" style="cursor:pointer">
+          <div class="pub-feature-tag">42 instruments</div>
+          <div class="pub-feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 7h6M9 11h6M9 15h4"/></svg></div>
+          <div class="pub-feature-title">Assessments</div>
+          <div class="pub-feature-body">PHQ-9, GAD-7, AQ-10, ACE-Q and 38 more — automated scoring, longitudinal views, and patient-portal form delivery.</div>
+        </div>
+        <div class="pub-feature" onclick="window._nav('outcomes')" style="cursor:pointer">
+          <div class="pub-feature-tag">Course-level</div>
+          <div class="pub-feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg></div>
+          <div class="pub-feature-title">Reports</div>
+          <div class="pub-feature-body">Auto-generated treatment summaries with trend charts, responder status, and SOAP notes — exportable for insurance and EMR.</div>
         </div>
       </div>
-      <div id="phome-ev-stat-note" style="text-align:center;font-size:10.5px;color:var(--text-tertiary,#7a8aa5);margin-bottom:6px">PubMed · OpenAlex · ClinicalTrials.gov · FDA · Unpaywall</div>
-      ${_buildEvMatrix()}
     </section>
 
-    <!-- ─── Mid-page CTA band ──────────────────────────────────────────────── -->
-    <div class="phome-mid-cta-band">
-      <div class="phome-mid-cta-text">Built on the same evidence base you just reviewed.</div>
-      <div class="phome-mid-cta-actions">
-        <button class="phome-cta-primary" onclick="window._navPublic('signup-professional')">Start Free Trial &rarr;</button>
-        <button class="phome-cta-secondary" onclick="window._nav('pricing')">See Pricing &rarr;</button>
+    <!-- ─── EVIDENCE PREVIEW: bars + protocol code snippet ────────────────── -->
+    <section class="pub-section dv2-split-section" style="padding-top:0">
+      <div class="pub-section-head">
+        <div class="pub-section-kicker">Evidence graded</div>
+        <h2>From condition to current. Every decision, traced.</h2>
+        <p class="lead">Protocols surface their evidence grade inline. Clinicians see not just what to do — but why, where the evidence comes from, and what changed.</p>
       </div>
-      <div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;">No credit card required &middot; 14-day free trial</div>
-    </div>
 
-    <!-- ─── PAGE FOOTER STRIP ─────────────────────────────────────────────── -->
-    <div class="phome-footer-strip">
-      <span class="phome-footer-copy">DeepSynaps Protocol Studio &nbsp;&middot;&nbsp; Questions? <a href="mailto:team@deepsynaps.com" class="phome-footer-link">team@deepsynaps.com</a></span>
-      <div class="phome-footer-actions">
-        <button class="phome-footer-btn" onclick="window._nav('login')">Sign In &rarr;</button>
-        <button class="phome-footer-btn" onclick="window._nav('pricing')">Pricing &rarr;</button>
+      <div class="pub-split">
+        <div class="pub-split-panel">
+          <div class="panel-hd">
+            <div class="panel-hd-label">Evidence matrix · Major Depressive Disorder</div>
+            <div class="chip teal">A / B grade</div>
+          </div>
+          <div class="evidence-chart">
+            <div class="evidence-bars">
+              <div class="evidence-row"><span class="evidence-row-lbl">tDCS · DLPFC-L</span><div class="evidence-row-bar"><div class="evidence-row-fill" style="width:92%"></div></div><span class="evidence-row-val">A · 32</span></div>
+              <div class="evidence-row"><span class="evidence-row-lbl">rTMS · DLPFC-L</span><div class="evidence-row-bar"><div class="evidence-row-fill" style="width:96%"></div></div><span class="evidence-row-val">A · 41</span></div>
+              <div class="evidence-row"><span class="evidence-row-lbl">tACS · 10Hz</span><div class="evidence-row-bar"><div class="evidence-row-fill" style="width:68%"></div></div><span class="evidence-row-val">B · 12</span></div>
+              <div class="evidence-row"><span class="evidence-row-lbl">Neurofeedback</span><div class="evidence-row-bar"><div class="evidence-row-fill" style="width:54%"></div></div><span class="evidence-row-val">B · 9</span></div>
+              <div class="evidence-row"><span class="evidence-row-lbl">HD-tDCS</span><div class="evidence-row-bar"><div class="evidence-row-fill" style="width:38%"></div></div><span class="evidence-row-val">C · 4</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pub-split-panel code-snippet">
+          <div class="panel-hd">
+            <div class="panel-dots"><span></span><span></span><span></span></div>
+            <div class="panel-hd-label">protocol.generate() · v2.4</div>
+          </div>
+          <div>
+            <div class="code-line"><span class="code-muted">// canonical schema, validated pre-render</span></div>
+            <div class="code-line"><span class="code-key">const</span> <span style="color:var(--text-primary)">protocol</span> = <span class="code-key">generate</span>({</div>
+            <div class="code-line" style="padding-left:18px"><span class="code-key">condition</span>: <span class="code-str">'mdd.treatment_resistant'</span>,</div>
+            <div class="code-line" style="padding-left:18px"><span class="code-key">phenotype</span>:  <span class="code-str">'anxious_depression'</span>,</div>
+            <div class="code-line" style="padding-left:18px"><span class="code-key">modality</span>:   <span class="code-str">'tDCS'</span>,</div>
+            <div class="code-line" style="padding-left:18px"><span class="code-key">target</span>:     <span class="code-str">'DLPFC-L'</span>, <span class="code-muted">// → F3 anchor</span></div>
+            <div class="code-line" style="padding-left:18px"><span class="code-key">device</span>:     <span class="code-str">'soterix.mini1x1'</span>,</div>
+            <div class="code-line" style="padding-left:18px"><span class="code-key">current_ma</span>: <span class="code-num">2.0</span>,</div>
+            <div class="code-line" style="padding-left:18px"><span class="code-key">duration_min</span>: <span class="code-num">20</span>,</div>
+            <div class="code-line" style="padding-left:18px"><span class="code-key">sessions</span>:    <span class="code-num">20</span>,</div>
+            <div class="code-line"><span style="color:var(--text-primary)">});</span></div>
+            <div class="code-line" style="margin-top:10px"><span class="code-muted">// ✓ safety_engine: 0 violations</span></div>
+            <div class="code-line"><span class="code-muted">// ✓ evidence_grade: A</span></div>
+            <div class="code-line"><span class="code-muted">// → renders: clinician_pdf, patient_guide</span></div>
+          </div>
+        </div>
       </div>
+    </section>
+
+    <!-- ─── CONDITION BROWSER (tabs) ─────────────────────────────────────── -->
+    <section class="pub-section dv2-cond-section" id="evidence-matrix">
+      <div class="pub-section-head">
+        <div class="pub-section-kicker">${t('pub.section.conditions')}</div>
+        <h2>Browse by condition.</h2>
+        <p class="lead">${t('pub.section.conditions.sub')}</p>
+      </div>
+      <div class="dv2-cond-tabs" role="tablist">
+        <button class="dv2-cond-tab active" data-cond="ALL" onclick="window._dv2CondFilter('ALL', this)">All</button>
+        <button class="dv2-cond-tab" data-cond="Psychiatric" onclick="window._dv2CondFilter('Psychiatric', this)">Psychiatric</button>
+        <button class="dv2-cond-tab" data-cond="OCD &amp; Compulsive" onclick="window._dv2CondFilter('OCD &amp; Compulsive', this)">OCD</button>
+        <button class="dv2-cond-tab" data-cond="Neurological" onclick="window._dv2CondFilter('Neurological', this)">Neurological</button>
+        <button class="dv2-cond-tab" data-cond="Pain" onclick="window._dv2CondFilter('Pain', this)">Pain</button>
+        <button class="dv2-cond-tab" data-cond="Cognitive" onclick="window._dv2CondFilter('Cognitive', this)">Cognitive</button>
+        <button class="dv2-cond-tab" data-cond="Sleep &amp; Autonomic" onclick="window._dv2CondFilter('Sleep &amp; Autonomic', this)">Sleep</button>
+      </div>
+
+      <!-- Live counts from /api/v1/evidence/stats (public endpoint) -->
+      <div id="phome-ev-live-stats" class="dv2-ev-mini-stats">
+        <div class="dv2-ev-mini">
+          <div class="dv2-ev-mini-n" id="phome-ev-stat-papers">8,699</div>
+          <div class="dv2-ev-mini-l">peer-reviewed papers</div>
+        </div>
+        <div class="dv2-ev-mini">
+          <div class="dv2-ev-mini-n" id="phome-ev-stat-trials">1,922</div>
+          <div class="dv2-ev-mini-l">registered clinical trials</div>
+        </div>
+        <div class="dv2-ev-mini">
+          <div class="dv2-ev-mini-n" id="phome-ev-stat-indications">1,324</div>
+          <div class="dv2-ev-mini-l">FDA device records</div>
+        </div>
+      </div>
+      <div id="phome-ev-stat-note" style="text-align:center;font-size:10.5px;color:var(--text-tertiary);margin-bottom:18px">PubMed · OpenAlex · ClinicalTrials.gov · FDA · Unpaywall</div>
+
+      <div class="pub-ev-section phome-ev-section">
+        ${_buildEvMatrix()}
+      </div>
+    </section>
+
+    <!-- ─── FOOTER CTA panel + footer ────────────────────────────────────── -->
+    <section class="pub-section" style="padding-top:0">
+      <div class="pub-cta">
+        <div class="pub-section-kicker" style="display:inline-block">${t('pub.cta.headline').toUpperCase ? '' : ''}Ready when you are</div>
+        <h2>${t('pub.cta.headline')}</h2>
+        <p>${t('pub.cta.sub')} 14-day trial on production-parity infrastructure. No credit card required.</p>
+        <div class="pub-cta-ctas">
+          <button class="btn btn-primary btn-lg" onclick="window._navPublic('signup-professional')">${t('pub.cta.trial')}</button>
+          <button class="btn btn-ghost btn-lg" onclick="window._nav('pricing')">${t('pub.cta.demo')}</button>
+        </div>
+      </div>
+
+      <div class="pub-footer">
+        <div>© 2026 DeepSynaps. ${t('pub.footer.tagline')}</div>
+        <div class="pub-footer-links">
+          <a href="#" onclick="window._nav('pricing');return false">Pricing</a>
+          <a href="#" onclick="window._showSignIn();return false">Sign In</a>
+          <a href="mailto:team@deepsynaps.com">Contact</a>
+          <a href="#" onclick="window._navPublic('signup-patient');return false">Patient portal</a>
+        </div>
+      </div>
+    </section>
+
     </div>
   `;
 
+  // ── Inject design-v2 landing styles (one-time, scoped to .dv2-public + .pub-*) ──
+  if (!document.getElementById('dv2-landing-styles')) {
+    const style = document.createElement('style');
+    style.id = 'dv2-landing-styles';
+    style.textContent = `
+      #public-shell { font-family: var(--font-body, 'DM Sans', system-ui, sans-serif); }
+      .public-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none;
+        background:
+          radial-gradient(ellipse 70% 60% at 20% 10%, rgba(0,212,188,0.10) 0%, transparent 55%),
+          radial-gradient(ellipse 50% 50% at 90% 30%, rgba(74,158,255,0.08) 0%, transparent 55%),
+          radial-gradient(ellipse 60% 40% at 60% 90%, rgba(155,127,255,0.05) 0%, transparent 55%); }
+      .public-grid { position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: 0.35;
+        background-image:
+          linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+        background-size: 80px 80px;
+        mask-image: radial-gradient(ellipse 80% 80% at 50% 30%, black 40%, transparent 90%); }
+      .dv2-public { max-width: 1280px; margin: 0 auto; padding: 0 40px; }
+      @media (max-width: 768px) { .dv2-public { padding: 0 20px; } }
+
+      .dv2-hero { padding: 70px 0 80px; position: relative; }
+      .dv2-hero .pub-hero-inner { display: grid; grid-template-columns: 1.15fr 1fr; gap: 56px; align-items: center; }
+      @media (max-width: 900px) { .dv2-hero .pub-hero-inner { grid-template-columns: 1fr; gap: 40px; } }
+      .dv2-hero .pub-hero-overline { display: inline-flex; align-items: center; gap: 8px;
+        font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 11px; font-weight: 500;
+        color: var(--teal); letter-spacing: 1.2px; text-transform: uppercase;
+        padding: 6px 12px; border-radius: 999px;
+        background: var(--teal-ghost, rgba(0,212,188,0.06)); border: 1px solid var(--border-teal);
+        margin-bottom: 22px; }
+      .dv2-hero .pub-hero-overline::before { content:''; width:6px; height:6px; border-radius:50%;
+        background: var(--teal); box-shadow: 0 0 8px var(--teal); }
+      .dv2-hero h1 { font-family: var(--font-display, 'Outfit', system-ui, sans-serif); font-weight: 600;
+        font-size: clamp(38px, 5vw, 64px); line-height: 1.02; letter-spacing: -2.4px;
+        color: var(--text-primary); margin-bottom: 22px; }
+      .dv2-hero h1 em { font-style: normal;
+        background: linear-gradient(135deg, var(--teal) 0%, var(--blue) 70%, var(--violet, #9b7fff) 100%);
+        -webkit-background-clip: text; background-clip: text; color: transparent; }
+      .dv2-hero .pub-hero-sub { font-size: 17px; line-height: 1.55; color: var(--text-secondary);
+        max-width: 540px; margin: 0 0 32px; }
+      .dv2-hero .pub-hero-ctas { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+      .dv2-trust-chips { margin-top: 28px; display: flex; gap: 10px; flex-wrap: wrap; }
+      .dv2-chip { display: inline-flex; align-items: center; gap: 6px;
+        padding: 6px 12px; border-radius: 999px; font-size: 11.5px; font-weight: 500;
+        background: var(--bg-surface, rgba(255,255,255,0.04)); color: var(--text-secondary);
+        border: 1px solid var(--border); }
+      .dv2-chip svg { color: var(--teal); }
+
+      .dv2-hero .pub-hero-visual { position: relative; aspect-ratio: 1/1; border-radius: 24px;
+        background: linear-gradient(160deg, rgba(14,22,40,0.9), rgba(8,13,26,0.95));
+        border: 1px solid var(--border); padding: 28px; overflow: hidden;
+        box-shadow: 0 40px 120px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06); }
+      .dv2-hero .chrome { display: flex; align-items: center; justify-content: space-between;
+        font-family: var(--font-mono, monospace); font-size: 10.5px; color: var(--text-tertiary);
+        letter-spacing: 0.8px; position: relative; z-index: 2; }
+      .dv2-hero .chrome-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+        margin-right: 5px; background: var(--teal); box-shadow: 0 0 8px var(--teal);
+        animation: dv2pulse 2s infinite; }
+      @keyframes dv2pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.4 } }
+      .dv2-hero .brain-wrap { position: absolute; inset: 50px 28px 90px; z-index: 2;
+        display: flex; align-items: center; justify-content: center; }
+      .dv2-hero .brain-wrap svg { width: 100%; height: 100%; max-width: 100%; max-height: 100%; }
+      .dv2-hero .readouts { position: absolute; bottom: 24px; left: 28px; right: 28px; z-index: 2;
+        display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+      .dv2-hero .readout { padding: 10px 12px; border-radius: 10px;
+        background: rgba(255,255,255,0.03); border: 1px solid var(--border); }
+      .dv2-hero .readout-lbl { font-family: var(--font-mono, monospace); font-size: 9.5px;
+        color: var(--text-tertiary); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; }
+      .dv2-hero .readout-val { font-family: var(--font-display, sans-serif); font-size: 18px;
+        font-weight: 600; letter-spacing: -0.4px; }
+      .dv2-hero .readout-val em { font-style: normal; color: var(--teal); }
+      .dv2-hero .readout-val.blue em { color: var(--blue); }
+      .dv2-hero .readout-val.rose em { color: var(--rose, #ff6b9d); }
+
+      .dv2-trust-stats { padding: 32px 0; margin-top: -10px;
+        border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+        display: grid; grid-template-columns: repeat(4, 1fr); gap: 28px; }
+      @media (max-width: 700px) { .dv2-trust-stats { grid-template-columns: repeat(2, 1fr); } }
+      .dv2-tstat-num { font-family: var(--font-mono, monospace); font-size: 32px; font-weight: 600;
+        letter-spacing: -1px; color: var(--text-primary); line-height: 1; }
+      .dv2-tstat-lbl { margin-top: 8px; font-size: 11px; color: var(--text-tertiary);
+        letter-spacing: 0.8px; text-transform: uppercase; }
+
+      .pub-section { padding: 96px 0; position: relative; }
+      .pub-section-head { max-width: 680px; margin-bottom: 52px; }
+      .pub-section-kicker { font-family: var(--font-mono, monospace); font-size: 11px;
+        color: var(--teal); letter-spacing: 1.6px; text-transform: uppercase; margin-bottom: 14px; display:block; }
+      .pub-section h2 { font-family: var(--font-display, sans-serif); font-size: clamp(28px,3.4vw,44px);
+        font-weight: 500; line-height: 1.1; letter-spacing: -1.4px; }
+      .pub-section p.lead { font-size: 16px; color: var(--text-secondary); margin-top: 16px; line-height: 1.55; }
+
+      .pub-features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+      .dv2-features-4 { grid-template-columns: repeat(4, 1fr); }
+      @media (max-width: 1100px) { .dv2-features-4 { grid-template-columns: repeat(2, 1fr); } }
+      @media (max-width: 600px)  { .dv2-features-4 { grid-template-columns: 1fr; } }
+      .pub-feature { padding: 28px 26px; border-radius: var(--radius-xl, 20px);
+        background: var(--bg-card); border: 1px solid var(--border);
+        position: relative; overflow: hidden; transition: all 0.2s ease; }
+      .pub-feature:hover { border-color: var(--border-teal); transform: translateY(-2px); }
+      .pub-feature-icon { width: 40px; height: 40px; border-radius: 11px; margin-bottom: 22px;
+        background: linear-gradient(135deg, rgba(0,212,188,0.2), rgba(74,158,255,0.12));
+        border: 1px solid var(--border-teal);
+        display: flex; align-items: center; justify-content: center; color: var(--teal); }
+      .pub-feature-title { font-family: var(--font-display, sans-serif); font-size: 18px;
+        font-weight: 600; letter-spacing: -0.3px; margin-bottom: 10px; }
+      .pub-feature-body { font-size: 13.5px; line-height: 1.6; color: var(--text-secondary); }
+      .pub-feature-tag { position: absolute; top: 20px; right: 20px;
+        font-family: var(--font-mono, monospace); font-size: 9px; letter-spacing: 1px;
+        text-transform: uppercase; padding: 3px 7px; border-radius: 5px;
+        background: var(--bg-surface, rgba(255,255,255,0.04)); color: var(--text-tertiary); }
+
+      .pub-split { display: grid; grid-template-columns: 1fr 1.1fr; gap: 56px; align-items: stretch; }
+      @media (max-width: 900px) { .pub-split { grid-template-columns: 1fr; gap: 24px; } }
+      .pub-split-panel { border-radius: 20px; background: var(--bg-card); border: 1px solid var(--border);
+        padding: 26px; position: relative; overflow: hidden; }
+      .pub-split-panel .panel-hd { display: flex; align-items: center; justify-content: space-between;
+        padding-bottom: 14px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+      .panel-hd-label { font-family: var(--font-mono, monospace); font-size: 10.5px;
+        letter-spacing: 1.3px; text-transform: uppercase; color: var(--text-tertiary); }
+      .panel-dots { display: flex; gap: 6px; }
+      .panel-dots span { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.15); }
+      .panel-dots span:first-child { background: var(--rose, #ff6b9d); }
+      .panel-dots span:nth-child(2) { background: var(--amber, #ffb547); }
+      .panel-dots span:last-child { background: var(--green, #4ade80); }
+      .code-snippet .code-line { font-family: var(--font-mono, monospace); font-size: 12.5px; line-height: 1.8; }
+      .code-muted { color: var(--text-tertiary); }
+      .code-key { color: var(--violet, #9b7fff); }
+      .code-str { color: var(--teal); }
+      .code-num { color: var(--amber, #ffb547); }
+      .evidence-bars { display: grid; grid-template-rows: repeat(5, 1fr); gap: 18px; padding: 6px 0; }
+      .evidence-row { display: grid; grid-template-columns: 120px 1fr 48px; gap: 14px; align-items: center; }
+      .evidence-row-lbl { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+      .evidence-row-bar { height: 10px; border-radius: 5px; background: rgba(255,255,255,0.04); overflow: hidden; }
+      .evidence-row-fill { height: 100%; border-radius: 5px;
+        background: linear-gradient(90deg, var(--teal), var(--blue)); }
+      .evidence-row-val { font-family: var(--font-mono, monospace); font-size: 11px;
+        color: var(--text-secondary); text-align: right; }
+
+      .dv2-cond-tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px;
+        background: var(--bg-surface, rgba(255,255,255,0.04)); border: 1px solid var(--border);
+        border-radius: 12px; margin-bottom: 20px; max-width: max-content; }
+      .dv2-cond-tab { padding: 8px 14px; border-radius: 9px; font-size: 12.5px; font-weight: 600;
+        color: var(--text-secondary); transition: all 0.15s ease; }
+      .dv2-cond-tab:hover { color: var(--text-primary); }
+      .dv2-cond-tab.active { background: linear-gradient(135deg, rgba(0,212,188,0.15), rgba(74,158,255,0.08));
+        color: var(--text-primary); border: 1px solid var(--border-teal); }
+      .dv2-ev-mini-stats { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center;
+        margin: 14px auto 8px; max-width: 880px; }
+      .dv2-ev-mini { flex: 1; min-width: 180px; padding: 14px 18px;
+        border: 1px solid var(--border); border-radius: 10px;
+        background: var(--bg-card); text-align: center; }
+      .dv2-ev-mini-n { font-family: var(--font-mono, monospace); font-size: 28px;
+        font-weight: 700; color: var(--teal); }
+      .dv2-ev-mini-l { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+
+      .pub-cta { padding: 64px; border-radius: 28px;
+        background:
+          radial-gradient(ellipse 60% 80% at 20% 20%, rgba(0,212,188,0.12), transparent 60%),
+          radial-gradient(ellipse 50% 80% at 80% 80%, rgba(74,158,255,0.10), transparent 60%),
+          linear-gradient(160deg, var(--navy-800, #0e1628), var(--navy-850, #0b1120));
+        border: 1px solid var(--border); margin: 40px 0; text-align: center; }
+      @media (max-width: 700px) { .pub-cta { padding: 36px 24px; } }
+      .pub-cta h2 { font-family: var(--font-display, sans-serif); font-size: clamp(26px,3vw,40px);
+        font-weight: 500; letter-spacing: -1.2px; margin-bottom: 14px; }
+      .pub-cta p { color: var(--text-secondary); max-width: 520px; margin: 0 auto 28px;
+        font-size: 15px; line-height: 1.55; }
+      .pub-cta-ctas { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+      .pub-footer { padding: 36px 0 56px; border-top: 1px solid var(--border); margin-top: 40px;
+        display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;
+        color: var(--text-tertiary); font-size: 12px; }
+      .pub-footer-links { display: flex; gap: 24px; flex-wrap: wrap; }
+      .pub-footer a { color: inherit; }
+      .pub-footer a:hover { color: var(--text-primary); }
+
+      /* btn-lg used by hero CTAs */
+      .dv2-public .btn-lg { padding: 13px 22px; font-size: 14px; border-radius: 12px; }
+    `;
+    document.head.appendChild(style);
+  }
+
+  // ── Inject 10-20 brain map into hero panel (graceful fallback if module fails) ──
+  try {
+    const wrap = document.getElementById('dv2-hero-brain');
+    if (wrap) {
+      wrap.innerHTML = renderBrainMap10_20({
+        anode: 'F3',
+        cathode: 'FP2',
+        targetRegion: 'DLPFC-L',
+        size: 360,
+        showZones: true,
+        showConnection: true,
+        showEarsAndNose: true,
+      });
+    }
+  } catch (_) {
+    // brain-map module unavailable — leave hero panel empty rather than block render
+  }
+
+  // ── Condition browser tab handler ────────────────────────────────────────
+  window._dv2CondFilter = function(cat, btn) {
+    document.querySelectorAll('.dv2-cond-tab').forEach(b => b.classList.toggle('active', b === btn));
+    // Reuse evidence-matrix filter if it's mounted
+    if (typeof window._evCatFilter === 'function') {
+      const norm = (cat === 'OCD &amp; Compulsive') ? 'OCD & Compulsive'
+                 : (cat === 'Sleep &amp; Autonomic') ? 'Sleep & Autonomic'
+                 : cat;
+      window._evCatFilter(norm);
+    }
+  };
+
   // ── Live evidence counts for the landing Evidence Matrix header ──────────────
-  // Hits /api/v1/evidence/health. If the call fails (unauth'd, offline, or DB
+  // Hits /api/v1/evidence/stats. If the call fails (unauth'd, offline, or DB
   // not ingested yet) we silently keep the baked-in fallback numbers.
+  // NOTE: the browser itself logs "Failed to load resource: 500" on non-2xx
+  // responses and that cannot be suppressed from JS — but our own code must
+  // never emit console.error/console.warn on this path.
   (async () => {
     try {
       const res = await fetch('/api/v1/evidence/stats', {
         headers: { 'Accept': 'application/json' },
         cache: 'no-store',
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        console.debug('[evidence/stats] non-OK response; using fallback', res.status);
+        return;
+      }
       const body = await res.json();
       const c = (body && body.counts) || {};
       const fmt = n => Number(n).toLocaleString('en-US');
@@ -472,7 +795,17 @@ export function pgHome() {
       setN('phome-ev-stat-papers', c.papers);
       setN('phome-ev-stat-trials', c.trials);
       setN('phome-ev-stat-indications', c.indications);
-    } catch (_) { /* keep fallback */ }
+      // Also update the stats strip
+      const setStrip = (id, v, suffix) => {
+        const el = document.getElementById(id);
+        if (el && Number.isFinite(v)) el.textContent = fmt(v) + (suffix || '');
+      };
+      setStrip('strip-stat-papers', c.papers, '+');
+      setStrip('strip-stat-trials', c.trials, '');
+    } catch (_) {
+      // Silently keep fallback numbers; console.debug is filtered by default.
+      console.debug('[evidence/stats] fetch failed; using fallback');
+    }
   })();
 
   // ── FAQ accordion ──────────────────────────────────────────────────────────
@@ -484,6 +817,9 @@ export function pgHome() {
     a.style.display    = open ? 'none' : 'block';
     chev.style.transform = open ? '' : 'rotate(180deg)';
     chev.style.color     = open ? '' : 'var(--teal)';
+    const btn = document.getElementById(`faq-btn-${i}`);
+    if (btn) btn.setAttribute('aria-expanded', String(!open));
+    a.setAttribute('aria-hidden', String(open));
   };
 
   // ── Demo Tour ─────────────────────────────────────────────────────────────
@@ -1246,11 +1582,11 @@ export function pgHome() {
           },
         ].map((faq, i) => `
           <div class="pub-faq-item" id="faq-${i}">
-            <button class="pub-faq-q" onclick="window._faqToggle(${i})">
+            <button class="pub-faq-q" id="faq-btn-${i}" onclick="window._faqToggle(${i})" aria-expanded="false" aria-controls="faq-a-${i}">
               <span>${faq.q}</span>
               <span class="pub-faq-chevron" id="faq-chev-${i}">▾</span>
             </button>
-            <div class="pub-faq-a" id="faq-a-${i}" style="display:none">${faq.a}</div>
+            <div class="pub-faq-a" id="faq-a-${i}" style="display:none" role="region" aria-labelledby="faq-btn-${i}" aria-hidden="true">${faq.a}</div>
           </div>
         `).join('')}
       </div>
@@ -1560,30 +1896,24 @@ export function pgHome() {
     a.style.display    = open ? 'none' : 'block';
     chev.style.transform = open ? '' : 'rotate(180deg)';
     chev.style.color     = open ? '' : 'var(--teal)';
+    const btn = document.getElementById(`faq-btn-${i}`);
+    if (btn) btn.setAttribute('aria-expanded', String(!open));
+    a.setAttribute('aria-hidden', String(open));
   };
 
-  // ── Evidence matrix interactivity ─────────────────────────────────────────
-  window._evTab = function(idx) {
-    document.querySelectorAll('.pub-ev-tab').forEach((t, i)   => t.classList.toggle('active', i === idx));
-    document.querySelectorAll('.pub-ev-panel').forEach((p, i) => p.classList.toggle('active', i === idx));
-    // re-apply active filter to newly visible panel
-    const activeBtn = document.querySelector('.pub-ev-filter-btn.active');
-    if (activeBtn && activeBtn.dataset.mod !== 'ALL') window._evFilter(activeBtn.dataset.mod);
+  // ── Evidence section interactivity ────────────────────────────────────────
+  window._evPickView = function(view) {
+    document.querySelectorAll('.pub-ev3-pick').forEach(b =>
+      b.classList.toggle('active', b.id === 'ev-pick-'+view || b.textContent.toLowerCase().includes(view.slice(0,4))));
+    document.querySelectorAll('.pub-ev3-view').forEach(v =>
+      v.classList.toggle('active', v.id === 'ev-view-'+view));
   };
 
-  window._evFilter = function(modId) {
-    document.querySelectorAll('.pub-ev-filter-btn').forEach(btn =>
-      btn.classList.toggle('active', btn.dataset.mod === modId));
-    const all = modId === 'ALL';
-    document.querySelectorAll('.pub-ev-mod-th').forEach(th =>
-      (th.style.opacity = all || th.dataset.mod === modId ? '1' : '0.2'));
-    document.querySelectorAll('.pub-ev-cell').forEach(td =>
-      (td.style.opacity = all || td.dataset.mod === modId ? '1' : '0.08'));
-    document.querySelectorAll('tr.pub-ev-row').forEach(tr => {
-      if (all) { tr.style.opacity = '1'; return; }
-      const cell = tr.querySelector(`.pub-ev-cell[data-mod="${modId}"]`);
-      tr.style.opacity = cell && cell.dataset.ev ? '1' : '0.25';
-    });
+  window._evCatFilter = function(cat) {
+    document.querySelectorAll('.pub-ev3-pill').forEach(b =>
+      b.classList.toggle('active', b.dataset.cat === cat));
+    document.querySelectorAll('.pub-ev3-card').forEach(c =>
+      (c.style.display = (cat==='ALL' || c.dataset.cat===cat) ? '' : 'none'));
   };
 
   // ── Inject unified contact launcher ───────────────────────────────────────
@@ -2056,35 +2386,25 @@ export function pgSignupProfessional() {
     const email    = document.getElementById('prof-email').value.trim();
     const password = document.getElementById('prof-password').value;
 
-    let user = null;
     try {
       const res = await api.register(email, name, password);
-      if (res?.access_token) {
-        api.setToken(res.access_token);
-        user = res.user || { email, display_name: name, role: 'clinician', package_id: 'clinician_pro' };
-      }
-    } catch (_) {}
+      if (!res?.access_token) throw new Error('Registration failed. Please try again.');
+      api.setToken(res.access_token);
+      if (res.refresh_token) api.setRefreshToken(res.refresh_token);
+      const user = res.user || { email, display_name: name, role: 'clinician', package_id: 'clinician_pro' };
 
-    // Offline demo fallback — dev only
-    if (!user && import.meta.env.DEV) {
-      api.setToken('clinician-demo-token');
-      user = { email, display_name: name, role: 'clinician', package_id: 'clinician_pro' };
-    }
+      document.getElementById('prof-step-3').style.display = 'none';
+      document.getElementById('prof-step-done').style.display = '';
+      document.getElementById('pip-3').className = 'step-pip done';
 
-    if (!user) {
-      err.textContent = 'Registration failed. Please try again or contact support.';
+      setCurrentUser(user);
+      setTimeout(() => { localStorage.removeItem('ds_onboarding_done'); showApp(); updateUserBar(); window._bootApp(); }, 1200);
+    } catch (e) {
+      err.textContent = e.message || 'Registration failed. Please check your details and try again.';
       err.style.display = '';
-      btn.textContent = 'Create Account \u2192';
+      btn.textContent = 'Create Account →';
       btn.disabled = false;
-      return;
     }
-
-    document.getElementById('prof-step-3').style.display = 'none';
-    document.getElementById('prof-step-done').style.display = '';
-    document.getElementById('pip-3').className = 'step-pip done';
-
-    setCurrentUser(user);
-    setTimeout(() => { localStorage.removeItem('ds_onboarding_done'); showApp(); updateUserBar(); window._bootApp(); }, 1200);
   };
 }
 

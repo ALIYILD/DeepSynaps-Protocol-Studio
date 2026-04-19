@@ -42,6 +42,11 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     patient_context: str | None = None  # optional patient info for clinician context
+    # When `patient_id` is provided and `patient_context` is empty, the clinician
+    # chat endpoint auto-populates patient_context with a clinician-authored
+    # assessment snapshot so the LLM always sees current severity. Never used
+    # to fetch content for a patient-facing endpoint.
+    patient_id: str | None = None
     dashboard_context: str | None = None  # optional patient-portal dashboard snapshot for /patient
     language: str = "en"               # BCP-47 locale code for patient responses
 
@@ -141,11 +146,25 @@ def agent_chat(
 def clinician_chat(
     body: ChatRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> ChatResponse:
     from app.auth import require_minimum_role
     require_minimum_role(actor, "clinician")
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
-    reply = chat_clinician(msgs, body.patient_context)
+    # Auto-inject clinician-authored assessment context so the LLM sees current
+    # severity without the caller having to stringify it manually. If
+    # patient_context is already supplied (caller provided custom text), we
+    # keep it — explicit caller intent wins.
+    patient_context = body.patient_context
+    if not patient_context and body.patient_id:
+        try:
+            from app.services.assessment_summary import extract_ai_assessment_context
+            patient_context = extract_ai_assessment_context(
+                db, body.patient_id, clinician_id=actor.actor_id
+            )
+        except Exception:
+            patient_context = None  # chat continues without snapshot
+    reply = chat_clinician(msgs, patient_context)
     return ChatResponse(reply=reply)
 
 
@@ -154,6 +173,8 @@ def patient_chat(
     body: ChatRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> ChatResponse:
+    from app.auth import require_minimum_role
+    require_minimum_role(actor, "patient")
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
     reply = chat_patient(
         msgs,

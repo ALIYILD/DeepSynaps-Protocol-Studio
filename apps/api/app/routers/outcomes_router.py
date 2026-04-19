@@ -8,7 +8,7 @@ GET   /api/v1/outcomes/summary/{course_id}  Compute pre/post delta and responder
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import OutcomeSeries
+from app.persistence.models import OutcomeSeries, TreatmentCourse
 
 router = APIRouter(prefix="/api/v1/outcomes", tags=["Outcomes"])
 
@@ -288,10 +288,27 @@ def aggregate_outcomes(
     if total_records > 0:
         assessment_completion_pct = round(scored_records / total_records * 100, 1)
 
+    # Assessments overdue: active-course patients with no outcome in the last 7 days
+    course_q = db.query(TreatmentCourse.patient_id).filter(TreatmentCourse.status == "active")
+    if actor.role != "admin":
+        course_q = course_q.filter(TreatmentCourse.clinician_id == actor.actor_id)
+    active_patient_ids = {row[0] for row in course_q.distinct().all()}
+
+    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    outcome_q = db.query(OutcomeSeries.patient_id).filter(
+        OutcomeSeries.administered_at >= seven_days_ago,
+    )
+    if actor.role != "admin":
+        outcome_q = outcome_q.filter(OutcomeSeries.clinician_id == actor.actor_id)
+    recently_assessed_ids = {row[0] for row in outcome_q.distinct().all()}
+
+    assessments_overdue_count = len(active_patient_ids - recently_assessed_ids)
+
     return {
         "courses_with_outcomes": course_count,
         "responders": responder_count,
         "avg_phq9_drop": avg_phq9_drop,
         "responder_rate_pct": responder_rate_pct,
         "assessment_completion_pct": assessment_completion_pct,
+        "assessments_overdue_count": assessments_overdue_count,
     }

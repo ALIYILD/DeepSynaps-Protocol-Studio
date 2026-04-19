@@ -1,6 +1,6 @@
 import { parseHomeProgramTaskMutationResponse } from './home-program-task-sync.js';
 
-const API_BASE = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
+const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const TOKEN_KEY = 'ds_access_token';
 const REFRESH_KEY = 'ds_refresh_token';
 
@@ -33,9 +33,15 @@ function _extractTransport(res, extractor) {
 async function apiFetch(path, opts = {}) {
   let res;
   const fetchFn = opts._fetch || globalThis.fetch;
+  // Detect multipart uploads: when body is FormData, omit the JSON content-type
+  // so the browser can set the correct multipart/form-data boundary automatically.
+  const _isFormData = (typeof FormData !== 'undefined') && (opts.body instanceof FormData);
   try {
     const token = getToken();
-    const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+    const headers = { ...(opts.headers || {}) };
+    if (!_isFormData && !('Content-Type' in headers) && !('content-type' in headers)) {
+      headers['Content-Type'] = 'application/json';
+    }
     if (token) headers['Authorization'] = `Bearer ${token}`;
     res = await fetchFn(`${API_BASE}${path}`, { ...opts, headers });
   } catch (networkErr) {
@@ -60,7 +66,10 @@ async function apiFetch(path, opts = {}) {
         setToken(refreshResult.access_token);
         if (refreshResult.refresh_token) setRefreshToken(refreshResult.refresh_token);
         // Retry original request once with new token
-        const retryHeaders = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+        const retryHeaders = { ...(opts.headers || {}) };
+        if (!_isFormData && !('Content-Type' in retryHeaders) && !('content-type' in retryHeaders)) {
+          retryHeaders['Content-Type'] = 'application/json';
+        }
         retryHeaders['Authorization'] = `Bearer ${refreshResult.access_token}`;
         let retryRes;
         try {
@@ -200,6 +209,7 @@ export const api = {
   resetPassword: (token, new_password) =>
     apiFetch('/api/v1/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, new_password }) }),
   me: () => apiFetch('/api/v1/auth/me'),
+  demoLogin: (token) => apiFetch('/api/v1/auth/demo-login', { method: 'POST', body: JSON.stringify({ token }) }),
 
   // ── Patients ────────────────────────────────────────────────────────────
   listPatients: () => apiFetchWithRetry('/api/v1/patients'),
@@ -209,6 +219,8 @@ export const api = {
   deletePatient: (id) => apiFetch(`/api/v1/patients/${id}`, { method: 'DELETE' }),
   generateInviteCode: (patientData) =>
     apiFetch('/api/v1/patients/invite', { method: 'POST', body: JSON.stringify(patientData) }),
+  generatePatientInvite: (data) =>
+    apiFetch('/api/v1/patients/invite', { method: 'POST', body: JSON.stringify(data) }),
   getPatientSessions: (patientId) => apiFetch(`/api/v1/patients/${patientId}/sessions`),
   getPatientCourse: (patientId) => apiFetch(`/api/v1/patients/${patientId}/courses`),
   getPatientAssessments: (patientId) => apiFetch(`/api/v1/patients/${patientId}/assessments`),
@@ -227,14 +239,101 @@ export const api = {
   deleteSession: (id) => apiFetch(`/api/v1/sessions/${id}`, { method: 'DELETE' }),
 
   // ── Assessments ─────────────────────────────────────────────────────────
-  listAssessments: () => apiFetchWithRetry('/api/v1/assessments'),
+  listAssessments: (patientId) => apiFetchWithRetry(`/api/v1/assessments${patientId ? `?patient_id=${encodeURIComponent(patientId)}` : ''}`),
   createAssessment: (data) => apiFetch('/api/v1/assessments', { method: 'POST', body: JSON.stringify(data) }),
   updateAssessment: (id, data) => apiFetch(`/api/v1/assessments/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteAssessment: (id) => apiFetch(`/api/v1/assessments/${id}`, { method: 'DELETE' }),
+  assignAssessment: (patientId, data) => apiFetch('/api/v1/assessments/assign', { method: 'POST', body: JSON.stringify({ patient_id: patientId, ...data }) }),
+  bulkAssignAssessments: (data) => apiFetch('/api/v1/assessments/bulk-assign', { method: 'POST', body: JSON.stringify(data) }),
+  listAssessmentTemplates: () => apiFetchWithRetry('/api/v1/assessments/templates'),
+  listAssessmentScales: () => apiFetchWithRetry('/api/v1/assessments/scales'),
+  getPatientAssessmentSummary: (patientId) => apiFetch(`/api/v1/assessments/summary/${encodeURIComponent(patientId)}`),
+  getPatientAssessmentAIContext: (patientId) => apiFetch(`/api/v1/assessments/ai-context/${encodeURIComponent(patientId)}`),
+  approveAssessment: (id, body) => apiFetch(`/api/v1/assessments/${id}/approve`, { method: 'POST', body: JSON.stringify(body || { approved: true }) }),
+  // Best-effort stubs consumed by the design-v2 Assessments Hub. The hub wraps
+  // every call in try/catch and falls back to mock/local state if the endpoint
+  // is missing, so these reject cleanly on a 404.
+  generateAssessmentSummary: (id) => apiFetch(`/api/v1/assessments/${encodeURIComponent(id)}/ai-summary`, { method: 'POST' }),
+  exportAssessmentsCSV: (params) => apiFetch(`/api/v1/assessments/export${params ? '?' + new URLSearchParams(params).toString() : ''}`),
+  getAssessmentDetail: (id) => apiFetch(`/api/v1/assessments/${encodeURIComponent(id)}`),
+  escalateCrisis: (patientId, payload) => apiFetch(`/api/v1/crisis-escalations`, { method: 'POST', body: JSON.stringify({ patient_id: patientId, ...(payload || {}) }) }),
+  listCohorts: () => apiFetchWithRetry('/api/v1/cohorts'),
+
+  // ── Course-scoped reads (assessment severity, audit trail, AE roll-up) ──
+  getCourseAssessmentSummary: (courseId) => apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/assessment-summary`),
+  getCourseAuditTrail: (courseId) => apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/audit-trail`),
+  getCourseAdverseEventsSummary: (courseId) => apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/adverse-events-summary`),
+
+  // ── Medical History ─────────────────────────────────────────────────────
+  // Soft-fail load: returns null on error so non-critical consumers can keep rendering.
+  getPatientMedicalHistory: (patientId) => apiFetch(`/api/v1/patients/${patientId}/medical-history`).catch(() => null),
+  // Soft-fail legacy write (kept for fire-and-forget autosave from non-critical pages).
+  savePatientMedicalHistory: (patientId, historyData) => apiFetch(`/api/v1/patients/${patientId}/medical-history`, { method: 'PATCH', body: JSON.stringify({ medical_history: historyData, mode: 'replace' }) }).catch(e => { console.warn('Medical history sync failed:', e?.message); }),
+  // Fail-loud merge save: used by the Patients Hub MH form so save failures surface.
+  patchPatientMedicalHistorySections: (patientId, payload) =>
+    apiFetch(`/api/v1/patients/${patientId}/medical-history`, {
+      method: 'PATCH',
+      body: JSON.stringify({ mode: 'merge_sections', ...payload }),
+    }),
+  // Fail-loud replace save: full-record save path (Save All).
+  replacePatientMedicalHistory: (patientId, payload) =>
+    apiFetch(`/api/v1/patients/${patientId}/medical-history`, {
+      method: 'PATCH',
+      body: JSON.stringify({ mode: 'replace', ...payload }),
+    }),
+  // Prompt-safe medical-history context preview for AI consumers.
+  // Permission-gated server-side (clinician + ownership). Returns null on error.
+  getPatientMedicalHistoryAIContext: (patientId) =>
+    apiFetch(`/api/v1/patients/${patientId}/medical-history/ai-context`).catch(() => null),
+
+  // ── Documents Hub ───────────────────────────────────────────────────────
+  listDocuments: (patientId) => apiFetchWithRetry(`/api/v1/documents${patientId ? '?patient_id=' + patientId : ''}`),
+  createDocument: (data) => apiFetch('/api/v1/documents', { method: 'POST', body: JSON.stringify(data) }),
+  updateDocument: (id, data) => apiFetch(`/api/v1/documents/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getDocument: (id) => apiFetch(`/api/v1/documents/${id}`),
+  deleteDocument: (id) => apiFetch(`/api/v1/documents/${id}`, { method: 'DELETE' }),
+  listPatientDocuments: (patientId) => apiFetchWithRetry(`/api/v1/patients/${patientId}/documents`),
+
+  // Multipart upload for clinician-owned document files. Pass in a FormData
+  // holding at minimum `file` and optionally `title`, `doc_type`, `patient_id`,
+  // `notes`. Returns the created DocumentOut.
+  uploadDocument: (formData) => {
+    const token = getToken();
+    const headers = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return fetch(`${API_BASE}/api/v1/documents/upload`, { method: 'POST', headers, body: formData })
+      .then(r => { if (!r.ok) throw new Error(`API error ${r.status}`); return r.json(); });
+  },
+
+  // Absolute URL for a document's stored file — used as <a href=> for downloads.
+  documentDownloadUrl: (id) => `${API_BASE}/api/v1/documents/${encodeURIComponent(id)}/download`,
 
   // ── Clinical Knowledge ──────────────────────────────────────────────────
-  listEvidence: () => apiFetchWithRetry('/api/v1/evidence'),
-  listDevices: () => apiFetchWithRetry('/api/v1/devices'),
+  // Retargeted: the legacy stub endpoints were never implemented. These now
+  // point at the real curated sources so callers keep working.
+  listEvidence: () => apiFetchWithRetry('/api/v1/literature'),
+  listDevices: () => apiFetchWithRetry('/api/v1/registry/devices'),
+
+  // ── Library Hub (page-scoped aggregate, includes trust/eligibility) ─────
+  libraryOverview: () => apiFetchWithRetry('/api/v1/library/overview'),
+  libraryConditionSummary: (conditionId) =>
+    apiFetch(`/api/v1/library/conditions/${encodeURIComponent(conditionId)}/summary`),
+  libraryExternalSearch: ({ q, condition_id = null, limit = 15 } = {}) =>
+    apiFetch('/api/v1/library/external-search', {
+      method: 'POST',
+      body: JSON.stringify({ q, condition_id, limit }),
+    }),
+  librarySummarizeEvidence: ({ paper_ids, focus = null } = {}) =>
+    apiFetch('/api/v1/library/ai/summarize-evidence', {
+      method: 'POST',
+      body: JSON.stringify({ paper_ids, focus }),
+    }),
+
+  // Literature list alias for the Library page (same endpoint as getLiterature).
+  listLiterature: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/literature${q ? '?' + q : ''}`);
+  },
 
   // ── Live evidence pipeline (PubMed + OpenAlex + CT.gov + FDA) ───────────
   // Hits services/evidence-pipeline via the api's evidence_router.
@@ -276,6 +375,25 @@ export const api = {
   adminRefreshEvidenceStatus: () =>
     apiFetch('/api/v1/evidence/admin/refresh/status'),
 
+  // ── Live Literature Watch (spec: docs/SPEC-live-literature-watch.md) ────
+  // Per-protocol on-demand refresh + cross-protocol review queue + monthly
+  // spend gauge. PubMed is free; Consensus/Apify are stubs in v1.
+  litWatchRefresh: (protocolId, { source = 'pubmed', requested_by = null } = {}) =>
+    apiFetch(`/api/v1/protocols/${encodeURIComponent(protocolId)}/refresh-literature`, {
+      method: 'POST',
+      body: JSON.stringify({ source, requested_by }),
+    }),
+  litWatchJobs: (protocolId) =>
+    apiFetch(`/api/v1/protocols/${encodeURIComponent(protocolId)}/refresh-literature/jobs`),
+  litWatchPending: ({ limit = 50, offset = 0 } = {}) =>
+    apiFetch(`/api/v1/literature-watch/pending?limit=${limit}&offset=${offset}`),
+  litWatchReview: (pmid, { verdict, protocol_id }) =>
+    apiFetch(`/api/v1/literature-watch/${encodeURIComponent(pmid)}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ verdict, protocol_id }),
+    }),
+  litWatchSpend: () => apiFetch('/api/v1/literature-watch/spend'),
+
   listBrainRegions: () => apiFetchWithRetry('/api/v1/brain-regions'),
   listQEEGBiomarkers: () => apiFetch('/api/v1/qeeg/biomarkers'),
   listQEEGConditionMap: () => apiFetch('/api/v1/qeeg/condition-map'),
@@ -285,6 +403,11 @@ export const api = {
     apiFetch('/api/v1/intake/preview', { method: 'POST', body: JSON.stringify(data) }),
   generateProtocol: (data) =>
     apiFetch('/api/v1/protocols/generate-draft', { method: 'POST', body: JSON.stringify(data) }),
+
+  // ── Protocol Persistence ────────────────────────────────────────────────
+  saveProtocol: (data) => apiFetch('/api/v1/protocols/saved', { method: 'POST', body: JSON.stringify(data) }),
+  listSavedProtocols: (patientId) => apiFetchWithRetry(`/api/v1/protocols/saved${patientId ? '?patient_id=' + patientId : ''}`),
+  updateSavedProtocol: (id, data) => apiFetch(`/api/v1/protocols/saved/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   generateHandbook: (data) =>
     apiFetch('/api/v1/handbooks/generate', { method: 'POST', body: JSON.stringify(data) }),
   caseSummary: (data) =>
@@ -362,6 +485,10 @@ export const api = {
   updateCourse: (id, data) => apiFetch(`/api/v1/treatment-courses/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   activateCourse: (id, data = {}) =>
     apiFetch(`/api/v1/treatment-courses/${id}/activate`, { method: 'PATCH', body: JSON.stringify(data) }),
+  // Safety preflight — returns requires_review / blocking_flags / override_required so the
+  // UI can render a structured override modal instead of guessing.
+  courseSafetyPreflight: (id) =>
+    apiFetch(`/api/v1/treatment-courses/${id}/safety-preflight`),
   logSession: (courseId, data) =>
     apiFetch(`/api/v1/treatment-courses/${courseId}/sessions`, { method: 'POST', body: JSON.stringify(data) }),
   listCourseSessions: (courseId) => apiFetch(`/api/v1/treatment-courses/${courseId}/sessions`),
@@ -748,8 +875,161 @@ export const api = {
   aiSummarizeReport: (reportId) =>
     apiFetch(`/api/v1/reports/${encodeURIComponent(reportId)}/ai-summary`, { method: 'POST' }),
 
+  // AI draft generator for Reports hub. Defaults to GLM-4.5-Flash (free tier)
+  // via BigModel/Z.AI. Returns structured sections.
+  generateReport: (payload) =>
+    apiFetch('/api/v1/reports/generate', { method: 'POST', body: JSON.stringify(payload) }),
+
   // ── Patient outcomes (portal alias) ─────────────────────────────────────
   patientOutcomes: () => apiFetch('/api/v1/patient-portal/outcomes'),
+
+  // ── Leads & Reception ──────────────────────────────────────────────────
+  listLeads: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/leads${q ? '?' + q : ''}`);
+  },
+  createLead: (data) => apiFetchWithRetry('/api/v1/leads', { method: 'POST', body: JSON.stringify(data) }),
+  updateLead: (id, data) => apiFetchWithRetry(`/api/v1/leads/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteLead: (id) => apiFetchWithRetry(`/api/v1/leads/${id}`, { method: 'DELETE' }),
+  listReceptionCalls: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/reception/calls${q ? '?' + q : ''}`);
+  },
+  createReceptionCall: (data) => apiFetchWithRetry('/api/v1/reception/calls', { method: 'POST', body: JSON.stringify(data) }),
+  listReceptionTasks: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/reception/tasks${q ? '?' + q : ''}`);
+  },
+  createReceptionTask: (data) => apiFetchWithRetry('/api/v1/reception/tasks', { method: 'POST', body: JSON.stringify(data) }),
+  updateReceptionTask: (id, data) => apiFetchWithRetry(`/api/v1/reception/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // ── Finance Hub ─────────────────────────────────────────────────────────
+  // Invoices, payments, insurance claims, and analytics. All endpoints are
+  // auth-gated and clinician-scoped server-side.
+  finance: {
+    listInvoices: (params = {}) => {
+      const q = new URLSearchParams(
+        Object.entries(params).filter(([, v]) => v != null && v !== '')
+      ).toString();
+      return apiFetch('/api/v1/finance/invoices' + (q ? '?' + q : ''));
+    },
+    createInvoice: (body) =>
+      apiFetch('/api/v1/finance/invoices', { method: 'POST', body: JSON.stringify(body) }),
+    getInvoice: (id) =>
+      apiFetch('/api/v1/finance/invoices/' + encodeURIComponent(id)),
+    updateInvoice: (id, body) =>
+      apiFetch('/api/v1/finance/invoices/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(body) }),
+    deleteInvoice: (id) =>
+      apiFetch('/api/v1/finance/invoices/' + encodeURIComponent(id), { method: 'DELETE' }),
+    markInvoicePaid: (id, body) =>
+      apiFetch('/api/v1/finance/invoices/' + encodeURIComponent(id) + '/mark-paid', { method: 'POST', body: JSON.stringify(body) }),
+
+    listPayments: () => apiFetch('/api/v1/finance/payments'),
+    createPayment: (body) =>
+      apiFetch('/api/v1/finance/payments', { method: 'POST', body: JSON.stringify(body) }),
+
+    listClaims: (params = {}) => {
+      const q = new URLSearchParams(
+        Object.entries(params).filter(([, v]) => v != null && v !== '')
+      ).toString();
+      return apiFetch('/api/v1/finance/claims' + (q ? '?' + q : ''));
+    },
+    createClaim: (body) =>
+      apiFetch('/api/v1/finance/claims', { method: 'POST', body: JSON.stringify(body) }),
+    getClaim: (id) =>
+      apiFetch('/api/v1/finance/claims/' + encodeURIComponent(id)),
+    updateClaim: (id, body) =>
+      apiFetch('/api/v1/finance/claims/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(body) }),
+    deleteClaim: (id) =>
+      apiFetch('/api/v1/finance/claims/' + encodeURIComponent(id), { method: 'DELETE' }),
+
+    summary: () => apiFetch('/api/v1/finance/summary'),
+    monthlyAnalytics: (months = 6) =>
+      apiFetch('/api/v1/finance/analytics/monthly?months=' + encodeURIComponent(months)),
+  },
+
+  // ── Profile ────────────────────────────────────────────────────────────────
+  getProfile: () => apiFetch('/api/v1/profile'),
+  updateProfile: (data) => apiFetch('/api/v1/profile', { method: 'PATCH', body: JSON.stringify(data) }),
+  requestEmailChange: (new_email, current_password) =>
+    apiFetch('/api/v1/profile/email', { method: 'PATCH', body: JSON.stringify({ new_email, current_password }) }),
+  verifyEmailChange: (token) =>
+    apiFetch('/api/v1/profile/email/verify', { method: 'POST', body: JSON.stringify({ token }) }),
+  uploadAvatar: (file) => {  // multipart
+    const form = new FormData();
+    form.append('file', file);
+    return apiFetch('/api/v1/profile/avatar', { method: 'POST', body: form });
+  },
+  deleteAvatar: () => apiFetch('/api/v1/profile/avatar', { method: 'DELETE' }),
+
+  // ── Auth extensions (password, 2FA, sessions) ─────────────────────────────
+  changePassword: (current_password, new_password) =>
+    apiFetch('/api/v1/auth/password', { method: 'PATCH', body: JSON.stringify({ current_password, new_password }) }),
+  setup2FA: () => apiFetch('/api/v1/auth/2fa/setup', { method: 'POST', body: '{}' }),
+  verify2FA: (code) =>
+    apiFetch('/api/v1/auth/2fa/verify', { method: 'POST', body: JSON.stringify({ code }) }),
+  disable2FA: (password, code) =>
+    apiFetch('/api/v1/auth/2fa/disable', { method: 'POST', body: JSON.stringify({ password, code }) }),
+  // NOTE: named `listAuthSessions` (not `listSessions`) to avoid colliding with the
+  // existing `listSessions(patient_id)` method used for treatment sessions.
+  listAuthSessions: () => apiFetch('/api/v1/auth/sessions'),
+  revokeAuthSession: (sid) => apiFetch(`/api/v1/auth/sessions/${encodeURIComponent(sid)}`, { method: 'DELETE' }),
+  revokeOtherAuthSessions: () => apiFetch('/api/v1/auth/sessions/others', { method: 'DELETE' }),
+
+  // ── Clinic ─────────────────────────────────────────────────────────────────
+  getClinic: () => apiFetch('/api/v1/clinic').catch(() => null),  // 404 if no clinic
+  createClinic: (data) => apiFetch('/api/v1/clinic', { method: 'POST', body: JSON.stringify(data) }),
+  updateClinic: (data) => apiFetch('/api/v1/clinic', { method: 'PATCH', body: JSON.stringify(data) }),
+  uploadClinicLogo: (file) => {
+    const form = new FormData();
+    form.append('file', file);
+    return apiFetch('/api/v1/clinic/logo', { method: 'POST', body: form });
+  },
+  updateWorkingHours: (hours) =>
+    apiFetch('/api/v1/clinic/working-hours', { method: 'PUT', body: JSON.stringify(hours) }),
+
+  // ── Team ───────────────────────────────────────────────────────────────────
+  listTeam: () => apiFetch('/api/v1/team'),
+  inviteTeamMember: (email, role) =>
+    apiFetch('/api/v1/team/invite', { method: 'POST', body: JSON.stringify({ email, role }) }),
+  revokeTeamInvite: (id) => apiFetch(`/api/v1/team/invite/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  updateTeamMemberRole: (user_id, role) =>
+    apiFetch(`/api/v1/team/${encodeURIComponent(user_id)}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
+  removeTeamMember: (user_id) =>
+    apiFetch(`/api/v1/team/${encodeURIComponent(user_id)}`, { method: 'DELETE' }),
+  acceptTeamInvite: (token, password, display_name) =>
+    apiFetch('/api/v1/team/accept-invite', { method: 'POST', body: JSON.stringify({ token, password, display_name }) }),
+
+  // ── Preferences ────────────────────────────────────────────────────────────
+  getPreferences: () => apiFetch('/api/v1/preferences'),
+  updatePreferences: (data) => apiFetch('/api/v1/preferences', { method: 'PATCH', body: JSON.stringify(data) }),
+  getClinicalDefaults: () => apiFetch('/api/v1/preferences/clinical-defaults'),
+  updateClinicalDefaults: (data) =>
+    apiFetch('/api/v1/preferences/clinical-defaults', { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // ── Privacy / Data Export ──────────────────────────────────────────────────
+  requestDataExport: () => apiFetch('/api/v1/privacy/export', { method: 'POST', body: '{}' }),
+  listDataExports: () => apiFetch('/api/v1/privacy/exports'),
+  getDataExport: (id) => apiFetch(`/api/v1/privacy/exports/${encodeURIComponent(id)}`),
+  deleteDataExport: (id) => apiFetch(`/api/v1/privacy/exports/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  // ── Schedule stubs (endpoints not yet implemented in backend) ───────────
+  // These return rejecting promises so callers can try/catch and fall back
+  // to demo/seed data. When the real endpoint ships, replace the stub.
+  listClinicians: () => Promise.reject(new Error('not_implemented')),
+  listRooms: () => Promise.reject(new Error('not_implemented')),
+  listReferrals: () => Promise.reject(new Error('not_implemented')),
+  listStaffSchedule: (_params) => Promise.reject(new Error('not_implemented')),
+  createStaffShift: (_data) => Promise.reject(new Error('not_implemented')),
+  checkSlotConflicts: (_slot) => Promise.reject(new Error('not_implemented')),
+  cancelSession: (_id, _data) => Promise.reject(new Error('not_implemented')),
+  bookSession: (_data) => Promise.reject(new Error('not_implemented')),
+  triageReferral: (_id, _data) => Promise.reject(new Error('not_implemented')),
+  dismissReferral: (_id) => Promise.reject(new Error('not_implemented')),
+
+  // ── Home program task notifications (stub — endpoint not yet implemented) ──
+  remindHomeProgramTask: (_taskId, _payload) => Promise.reject(new Error('not_implemented')),
+  listHomeProgramTaskTemplates: () => Promise.reject(new Error('not_implemented')),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).

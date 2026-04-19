@@ -148,8 +148,8 @@ export const ROLE_LABELS = {
 
 // Role-based nav entry points (first page shown after login)
 export const ROLE_ENTRY_PAGE = {
-  admin:          'dashboard',
-  clinician:      'dashboard',
+  admin:          'home',
+  clinician:      'home',
   resident:       'courses',
   'clinic-admin': 'patients',
   reviewer:       'review-queue',

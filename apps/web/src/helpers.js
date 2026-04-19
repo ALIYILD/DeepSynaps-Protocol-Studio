@@ -209,7 +209,7 @@ export function errorState(message, retryFnName) {
   return `<div class="ds-error-state">
     <div class="ds-error-icon">⚠</div>
     <div class="ds-error-title">Something went wrong</div>
-    <div class="ds-error-msg">${message || 'An unexpected error occurred. Please try again.'}</div>
+    <div class="ds-error-msg">${message || 'Something went wrong on our end. Try again in a moment.'}</div>
     ${retryBtn}
   </div>`;
 }

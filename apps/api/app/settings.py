@@ -10,6 +10,18 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
+# Auto-load apps/api/.env for local development. Never overrides values already
+# set in the shell — os.environ wins so production (Fly secrets) is not
+# clobbered by a stale .env.
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _API_ROOT = Path(__file__).resolve().parents[1]
+    for _env_path in (_API_ROOT / ".env", REPO_ROOT / ".env"):
+        if _env_path.exists():
+            _load_dotenv(_env_path, override=False)
+except ImportError:
+    pass
+
 # The known-bad placeholder shipped in .env.example.
 # Any deployment that hasn't changed this is misconfigured.
 _INSECURE_JWT_DEFAULT = "CHANGE-THIS-IN-PRODUCTION-use-openssl-rand-hex-32"
@@ -23,6 +35,7 @@ def _parse_cors_origins(value: str | None) -> list[str]:
             "http://127.0.0.1:5175", "http://localhost:5175",
             "http://127.0.0.1:5176", "http://localhost:5176",
             "http://127.0.0.1:5177", "http://localhost:5177",
+            "https://deepsynaps-web.fly.dev",
         ]
     return [item.strip() for item in value.split(",") if item.strip()]
 
@@ -42,6 +55,7 @@ class AppSettings(BaseModel):
             "http://127.0.0.1:5175", "http://localhost:5175",
             "http://127.0.0.1:5176", "http://localhost:5176",
             "http://127.0.0.1:5177", "http://localhost:5177",
+            "https://deepsynaps-web.fly.dev",
         ]
     )
     clinical_data_root: Path = REPO_ROOT / "data" / "imports" / "clinical-database"
@@ -87,11 +101,22 @@ class AppSettings(BaseModel):
     # OpenAI (optional — doctors can bring their own key)
     openai_api_key: str = Field(default="")
 
+    # GLM-4 (Zhipu AI free tier — OpenAI-compatible API)
+    glm_api_key: str = Field(default="")
+
     # Wearable token encryption (Fernet key — generate with:
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     # Required before enabling real OAuth device connections. If absent, tokens
     # are stored as plaintext and a warning is logged on every write.)
     wearable_token_enc_key: str = Field(default="")
+
+    # Settings API secrets key (Fernet — encrypts TOTP secrets and 2FA backup
+    # codes at rest in user_2fa_secrets). Generate with:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # If empty in non-production, load_settings() generates an ephemeral key
+    # and logs a warning — 2FA secrets will not survive process restart.
+    # MUST be set in production/staging via DEEPSYNAPS_SECRETS_KEY env.
+    secrets_key: str = Field(default="")
 
     # App URL (used for Stripe redirect URLs)
     app_url: str = Field(default="http://localhost:5173")
@@ -139,6 +164,29 @@ def load_settings() -> AppSettings:
                 f"{_app_env} environments. "
                 "Generate one with: openssl rand -hex 32"
             )
+
+    # Settings API: Fernet key for TOTP/2FA secret encryption. In dev/test we
+    # fall back to an ephemeral key (with a stderr warning) so local boot works
+    # without DEEPSYNAPS_SECRETS_KEY set. In staging/production this must be a
+    # stable env-provided key — otherwise restarts invalidate every user's 2FA.
+    _secrets_key = os.getenv("DEEPSYNAPS_SECRETS_KEY", "")
+    if not _secrets_key:
+        if _app_env in ("production", "staging"):
+            raise RuntimeError(
+                "DEEPSYNAPS_SECRETS_KEY must be set to a Fernet key (32-byte "
+                f"base64) in {_app_env} environments. Generate one with: "
+                "python -c 'from cryptography.fernet import Fernet; "
+                "print(Fernet.generate_key().decode())'"
+            )
+        # Dev/test fallback — ephemeral key, printed warning only.
+        import sys
+        from cryptography.fernet import Fernet
+        _secrets_key = Fernet.generate_key().decode()
+        print(
+            "DEEPSYNAPS_SECRETS_KEY not set — using ephemeral key; "
+            "2FA secrets will not survive restart",
+            file=sys.stderr,
+        )
 
     try:
         return AppSettings.model_validate(
@@ -210,8 +258,12 @@ def load_settings() -> AppSettings:
                 "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
                 # OpenAI
                 "openai_api_key": os.getenv("OPENAI_API_KEY", ""),
+                # GLM-4
+                "glm_api_key": os.getenv("GLM_API_KEY", ""),
                 # Wearable token encryption
                 "wearable_token_enc_key": os.getenv("WEARABLE_TOKEN_ENC_KEY", ""),
+                # Settings API Fernet key (TOTP secret encryption)
+                "secrets_key": _secrets_key,
                 # App URL
                 "app_url": os.getenv("APP_URL", "http://localhost:5173"),
                 # Media storage

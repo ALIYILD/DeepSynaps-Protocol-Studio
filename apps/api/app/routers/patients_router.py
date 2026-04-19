@@ -14,7 +14,16 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import PatientInvite
+from app.persistence.models import (
+    AdverseEvent,
+    AssessmentRecord,
+    ClinicalSession,
+    DeviceSessionLog,
+    OutcomeSeries,
+    PatientInvite,
+    TreatmentCourse,
+)
+from app.repositories.audit import create_audit_event
 from app.repositories.patients import (
     create_patient,
     delete_patient,
@@ -87,14 +96,29 @@ class PatientOut(BaseModel):
     notes: Optional[str]
     created_at: str
     updated_at: str
+    # Enrichment fields (computed from related tables; optional / default None)
+    active_courses_count: int = 0
+    needs_review: bool = False
+    has_adverse_event: bool = False
+    adverse_event_flag: bool = False
+    off_label_flag: bool = False
+    pending_assessments: int = 0
+    assessment_overdue: bool = False
+    last_session_date: Optional[str] = None
+    home_adherence: Optional[float] = None
+    outcome_trend: Optional[str] = None  # improved | stable | worsened
+    sessions_today: int = 0
+    next_session_date: Optional[str] = None
+    demo_seed: bool = False
 
     @classmethod
-    def from_record(cls, r) -> "PatientOut":
+    def from_record(cls, r, enrichment: Optional[dict] = None) -> "PatientOut":
         secondary = []
         try:
             secondary = json.loads(r.secondary_conditions or "[]")
         except Exception:
             pass
+        enrichment = enrichment or {}
         return cls(
             id=r.id,
             clinician_id=r.clinician_id,
@@ -116,7 +140,168 @@ class PatientOut(BaseModel):
             notes=r.notes,
             created_at=r.created_at.isoformat(),
             updated_at=r.updated_at.isoformat(),
+            active_courses_count=enrichment.get("active_courses_count", 0),
+            needs_review=enrichment.get("needs_review", False),
+            has_adverse_event=enrichment.get("has_adverse_event", False),
+            adverse_event_flag=enrichment.get("has_adverse_event", False),
+            off_label_flag=enrichment.get("off_label_flag", False),
+            pending_assessments=enrichment.get("pending_assessments", 0),
+            assessment_overdue=enrichment.get("assessment_overdue", False),
+            last_session_date=enrichment.get("last_session_date"),
+            home_adherence=enrichment.get("home_adherence"),
+            outcome_trend=enrichment.get("outcome_trend"),
+            sessions_today=enrichment.get("sessions_today", 0),
+            next_session_date=enrichment.get("next_session_date"),
+            demo_seed=bool((r.notes or "").startswith("[DEMO]")),
         )
+
+
+def _as_aware_utc(dt):
+    """Coerce a naive datetime (e.g. from SQLite) to a tz-aware UTC datetime.
+
+    FastAPI/SQLAlchemy persist tz-aware values but SQLite strips the tzinfo on
+    roundtrip. Any comparison with `datetime.now(timezone.utc)` will TypeError
+    unless we coerce. No-op for values that are already aware.
+    """
+    if dt is None:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+def _build_patient_enrichment(session: Session, patient_ids: list[str]) -> dict:
+    """Bulk-compute attention/enrichment signals for a batch of patient ids.
+
+    Uses related tables (TreatmentCourse, AssessmentRecord, AdverseEvent,
+    DeviceSessionLog, OutcomeSeries). Returns {patient_id: enrichment_dict}.
+    """
+    if not patient_ids:
+        return {}
+    now = datetime.now(timezone.utc)
+    today = now.date().isoformat()
+    thirty_ago = now - timedelta(days=30)
+    out: dict[str, dict] = {pid: {} for pid in patient_ids}
+
+    # Treatment courses → active count, off-label, needs_review
+    courses = session.execute(
+        select(TreatmentCourse).where(TreatmentCourse.patient_id.in_(patient_ids))
+    ).scalars().all()
+    for c in courses:
+        e = out.setdefault(c.patient_id, {})
+        if c.status in ("active", "in_progress", "approved"):
+            e["active_courses_count"] = e.get("active_courses_count", 0) + 1
+        if c.on_label is False:
+            e["off_label_flag"] = True
+        if c.review_required:
+            e["needs_review"] = True
+
+    # Adverse events
+    aes = session.execute(
+        select(AdverseEvent.patient_id, AdverseEvent.resolved_at)
+        .where(AdverseEvent.patient_id.in_(patient_ids))
+    ).all()
+    for pid, resolved in aes:
+        e = out.setdefault(pid, {})
+        e["has_adverse_event"] = True
+        if resolved is None:
+            e["needs_review"] = True
+
+    # Assessments: pending count + overdue
+    assess_rows = session.execute(
+        select(
+            AssessmentRecord.patient_id,
+            AssessmentRecord.status,
+            AssessmentRecord.due_date,
+        ).where(AssessmentRecord.patient_id.in_(patient_ids))
+    ).all()
+    for pid, status, due in assess_rows:
+        e = out.setdefault(pid, {})
+        if status in ("draft", "pending"):
+            e["pending_assessments"] = e.get("pending_assessments", 0) + 1
+            due_cmp = _as_aware_utc(due)
+            if due_cmp is not None and due_cmp < now:
+                e["assessment_overdue"] = True
+
+    # Device session logs: last session + 30d adherence + sessions_today
+    log_rows = session.execute(
+        select(
+            DeviceSessionLog.patient_id,
+            DeviceSessionLog.session_date,
+            DeviceSessionLog.completed,
+            DeviceSessionLog.logged_at,
+        ).where(DeviceSessionLog.patient_id.in_(patient_ids))
+    ).all()
+    last_seen: dict[str, str] = {}
+    window: dict[str, list[bool]] = {}
+    today_count: dict[str, int] = {}
+    for pid, sess_date, completed, logged_at in log_rows:
+        if pid not in last_seen or (sess_date or "") > last_seen[pid]:
+            last_seen[pid] = sess_date or ""
+        logged_cmp = _as_aware_utc(logged_at)
+        if logged_cmp is not None and logged_cmp >= thirty_ago:
+            window.setdefault(pid, []).append(bool(completed))
+        if sess_date == today:
+            today_count[pid] = today_count.get(pid, 0) + 1
+    for pid, d in last_seen.items():
+        if d:
+            out.setdefault(pid, {})["last_session_date"] = d
+    for pid, bools in window.items():
+        if bools:
+            out.setdefault(pid, {})["home_adherence"] = round(
+                sum(1 for b in bools if b) / len(bools), 2
+            )
+    for pid, n in today_count.items():
+        out.setdefault(pid, {})["sessions_today"] = n
+
+    # ClinicalSession: next scheduled session + count scheduled today.
+    sess_rows = session.execute(
+        select(
+            ClinicalSession.patient_id,
+            ClinicalSession.scheduled_at,
+            ClinicalSession.status,
+        ).where(ClinicalSession.patient_id.in_(patient_ids))
+    ).all()
+    today_iso = today
+    now_iso = now.isoformat()
+    for pid, sched_at, status in sess_rows:
+        if not sched_at:
+            continue
+        # sessions_today counts anything scheduled for today that hasn't been cancelled/no-showed.
+        if sched_at.startswith(today_iso) and status not in ("cancelled", "no_show"):
+            out.setdefault(pid, {})["sessions_today"] = out.setdefault(pid, {}).get("sessions_today", 0) + 1
+        # next_session_date = earliest future scheduled/confirmed session.
+        if sched_at >= now_iso and status in ("scheduled", "confirmed"):
+            e = out.setdefault(pid, {})
+            cur = e.get("next_session_date")
+            if cur is None or sched_at < cur:
+                e["next_session_date"] = sched_at
+
+    # Outcome trend: compare latest two OutcomeSeries score_numeric per patient
+    outcome_rows = session.execute(
+        select(
+            OutcomeSeries.patient_id,
+            OutcomeSeries.score_numeric,
+            OutcomeSeries.administered_at,
+        )
+        .where(OutcomeSeries.patient_id.in_(patient_ids))
+        .order_by(OutcomeSeries.administered_at.desc())
+    ).all()
+    by_pat: dict[str, list[float]] = {}
+    for pid, score, _ in outcome_rows:
+        if score is None:
+            continue
+        by_pat.setdefault(pid, []).append(float(score))
+    for pid, scores in by_pat.items():
+        if len(scores) >= 2:
+            latest, prior = scores[0], scores[1]
+            # Lower score typically = better on most depression/anxiety scales.
+            if latest < prior - 1:
+                out.setdefault(pid, {})["outcome_trend"] = "improved"
+            elif latest > prior + 1:
+                out.setdefault(pid, {})["outcome_trend"] = "worsened"
+            else:
+                out.setdefault(pid, {})["outcome_trend"] = "stable"
+
+    return out
 
 
 class PatientListResponse(BaseModel):
@@ -133,7 +318,8 @@ def list_patients_endpoint(
 ) -> PatientListResponse:
     require_minimum_role(actor, "clinician")
     patients = list_patients(session, actor.actor_id)
-    items = [PatientOut.from_record(p) for p in patients]
+    enrichment = _build_patient_enrichment(session, [p.id for p in patients])
+    items = [PatientOut.from_record(p, enrichment.get(p.id)) for p in patients]
     return PatientListResponse(items=items, total=len(items))
 
 
@@ -158,7 +344,8 @@ def get_patient_endpoint(
     patient = get_patient(session, patient_id, actor.actor_id)
     if patient is None:
         raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
-    return PatientOut.from_record(patient)
+    enrichment = _build_patient_enrichment(session, [patient.id])
+    return PatientOut.from_record(patient, enrichment.get(patient.id))
 
 
 @router.patch("/{patient_id}", response_model=PatientOut)
@@ -173,7 +360,8 @@ def update_patient_endpoint(
     patient = update_patient(session, patient_id, actor.actor_id, **updates)
     if patient is None:
         raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
-    return PatientOut.from_record(patient)
+    enrichment = _build_patient_enrichment(session, [patient.id])
+    return PatientOut.from_record(patient, enrichment.get(patient.id))
 
 
 @router.delete("/{patient_id}", status_code=204)
@@ -540,6 +728,241 @@ def get_patient_messages(
         for r in rows
     ]
     return PatientMessagesResponse(items=items, total=len(items))
+
+
+# ── Medical History ───────────────────────────────────────────────────────────
+#
+# Storage model: patient.medical_history holds a JSON blob shaped as
+#   {
+#     "sections": { <section_id>: { "notes": str, ... } },
+#     "safety":   { "acknowledged": bool, "acknowledged_by": str,
+#                   "acknowledged_at": iso, "flags": { <flag_id>: bool } },
+#     "meta":     { "version": int, "updated_at": iso, "updated_by": str,
+#                   "reviewed_by": str | null, "reviewed_at": iso | null,
+#                   "requires_review": bool }
+#   }
+#
+# PATCH supports partial updates via `mode`:
+#   - "replace" (default legacy): replaces entire blob with body.medical_history
+#   - "merge_sections": merges body.sections into existing .sections, touching
+#     only named sections. Other sections preserved.
+# Both modes:
+#   - bump meta.version
+#   - stamp meta.updated_at / meta.updated_by
+#   - optionally stamp safety.acknowledged_{by,at} when body.safety.acknowledged=true
+#   - optionally stamp meta.reviewed_{by,at} when body.mark_reviewed=true
+#   - create an AuditEventRecord (action="medical_history.update")
+#
+# All sections remain optional and strings stay free-text; the structured
+# shell is additive so legacy blobs continue to load without migration.
+
+_MH_VALID_SECTIONS = {
+    "presenting", "diagnoses", "safety", "psychiatric", "neurological",
+    "medications", "allergies", "prior_tx", "family", "lifestyle",
+    "goals", "summary",
+}
+
+
+class MedicalHistorySafetyBody(BaseModel):
+    acknowledged: Optional[bool] = None
+    flags: Optional[dict] = None
+
+
+class MedicalHistoryBody(BaseModel):
+    medical_history: Optional[dict] = None
+    # Merge-mode inputs (preferred for partial saves):
+    sections: Optional[dict] = None
+    safety: Optional[MedicalHistorySafetyBody] = None
+    mode: Optional[str] = None  # "replace" | "merge_sections"
+    mark_reviewed: Optional[bool] = None
+
+
+class MedicalHistoryResponse(BaseModel):
+    patient_id: str
+    medical_history: Optional[dict] = None
+
+
+def _parse_mh(raw: Optional[str]) -> dict:
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
+def _normalize_mh(data: dict) -> dict:
+    """Ensure shape {sections, safety, meta} exists without destroying legacy keys."""
+    out = dict(data) if isinstance(data, dict) else {}
+    if "sections" not in out or not isinstance(out.get("sections"), dict):
+        # Legacy blobs may store section notes at top level — fold them into sections.
+        legacy = {k: v for k, v in out.items()
+                  if k in _MH_VALID_SECTIONS and isinstance(v, (dict, str))}
+        sections = {}
+        for k, v in legacy.items():
+            sections[k] = v if isinstance(v, dict) else {"notes": str(v)}
+        out["sections"] = sections
+    if "safety" not in out or not isinstance(out.get("safety"), dict):
+        out["safety"] = {"acknowledged": False, "flags": {}}
+    if "meta" not in out or not isinstance(out.get("meta"), dict):
+        out["meta"] = {"version": 0, "requires_review": False}
+    return out
+
+
+@router.get("/{patient_id}/medical-history", response_model=MedicalHistoryResponse)
+def get_medical_history(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> MedicalHistoryResponse:
+    """Return structured medical history for a patient."""
+    require_minimum_role(actor, "clinician")
+    patient = get_patient(session, patient_id, actor.actor_id)
+    if patient is None:
+        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+    data = _parse_mh(patient.medical_history)
+    if not data:
+        return MedicalHistoryResponse(patient_id=patient_id, medical_history=None)
+    return MedicalHistoryResponse(patient_id=patient_id, medical_history=_normalize_mh(data))
+
+
+@router.patch("/{patient_id}/medical-history", response_model=MedicalHistoryResponse)
+def update_medical_history(
+    patient_id: str,
+    body: MedicalHistoryBody,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> MedicalHistoryResponse:
+    """Persist structured medical history for a patient.
+
+    Supports two save modes:
+      - ``replace`` (default when ``medical_history`` provided): replaces blob.
+      - ``merge_sections``: merges body.sections into existing sections.
+
+    Also stamps safety acknowledgement and reviewer metadata, and writes an
+    audit event for every update.
+    """
+    require_minimum_role(actor, "clinician")
+    patient = get_patient(session, patient_id, actor.actor_id)
+    if patient is None:
+        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+
+    current = _normalize_mh(_parse_mh(patient.medical_history))
+    mode = (body.mode or ("merge_sections" if body.sections is not None else "replace")).lower()
+    changed_fields: list[str] = []
+
+    if mode == "replace":
+        if body.medical_history is None:
+            raise ApiServiceError(
+                code="invalid_body",
+                message="medical_history is required for replace mode.",
+                status_code=400,
+            )
+        next_data = _normalize_mh(body.medical_history)
+        # Preserve version lineage on replace.
+        next_data.setdefault("meta", {})
+        next_data["meta"]["version"] = int(current.get("meta", {}).get("version", 0)) + 1
+        changed_fields.append("replace")
+    else:
+        # merge_sections path
+        next_data = current
+        if body.sections and isinstance(body.sections, dict):
+            sec = dict(next_data.get("sections") or {})
+            for sid, payload in body.sections.items():
+                if sid not in _MH_VALID_SECTIONS:
+                    continue
+                if isinstance(payload, dict):
+                    sec[sid] = {**(sec.get(sid) or {}), **payload}
+                elif isinstance(payload, str):
+                    sec[sid] = {**(sec.get(sid) or {}), "notes": payload}
+                changed_fields.append(f"section:{sid}")
+            next_data["sections"] = sec
+
+    # Safety stamping (applies in either mode).
+    if body.safety is not None:
+        safety = dict(next_data.get("safety") or {})
+        if body.safety.flags is not None:
+            safety["flags"] = {**(safety.get("flags") or {}), **body.safety.flags}
+            changed_fields.append("safety:flags")
+        if body.safety.acknowledged is True:
+            safety["acknowledged"] = True
+            safety["acknowledged_by"] = actor.actor_id
+            safety["acknowledged_at"] = datetime.now(timezone.utc).isoformat()
+            changed_fields.append("safety:acknowledged")
+        elif body.safety.acknowledged is False:
+            safety["acknowledged"] = False
+            safety.pop("acknowledged_by", None)
+            safety.pop("acknowledged_at", None)
+            changed_fields.append("safety:unacknowledged")
+        next_data["safety"] = safety
+
+    meta = dict(next_data.get("meta") or {})
+    if mode != "replace":
+        meta["version"] = int(meta.get("version", 0)) + 1
+    meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+    meta["updated_by"] = actor.actor_id
+    if body.mark_reviewed:
+        meta["reviewed_by"] = actor.actor_id
+        meta["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+        meta["requires_review"] = False
+        changed_fields.append("reviewed")
+    next_data["meta"] = meta
+
+    patient.medical_history = json.dumps(next_data)
+    session.commit()
+
+    # Audit trail — never block the save on audit failure.
+    try:
+        create_audit_event(
+            session,
+            event_id=f"mh-{patient_id}-{meta['version']}-{int(datetime.now(timezone.utc).timestamp())}",
+            target_id=patient_id,
+            target_type="patient.medical_history",
+            action="medical_history.update",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=f"mode={mode}; fields={','.join(changed_fields) or 'none'}; version={meta['version']}",
+            created_at=meta["updated_at"],
+        )
+    except Exception:
+        pass
+
+    return MedicalHistoryResponse(patient_id=patient_id, medical_history=next_data)
+
+
+# ── AI-safe medical-history context ──────────────────────────────────────────
+
+class MedicalHistoryAIContextResponse(BaseModel):
+    patient_id: str
+    summary_md: str
+    structured_flags: dict
+    requires_review: bool
+    used_sections: list[str]
+    source_meta: dict
+    patient_first_name: str
+    patient_condition: str
+
+
+@router.get(
+    "/{patient_id}/medical-history/ai-context",
+    response_model=MedicalHistoryAIContextResponse,
+)
+def get_medical_history_ai_context(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> MedicalHistoryAIContextResponse:
+    """Return a prompt-safe, permission-scoped medical-history context.
+
+    Mirrors what ``services.patient_context.build_patient_medical_context``
+    would hand to an LLM. Clinicians can preview this before running
+    AI summarization or report generation so they know exactly what the
+    model sees.
+    """
+    from app.services.patient_context import build_patient_medical_context
+    ctx = build_patient_medical_context(session, actor, patient_id)
+    return MedicalHistoryAIContextResponse(patient_id=patient_id, **ctx)
 
 
 @router.post("/{patient_id}/messages", response_model=MessageOut, status_code=201)

@@ -4,6 +4,15 @@
  * into the patient detail switchPT('home-therapy') case.
  */
 
+const SEV_COLORS = {
+  info:     'var(--blue)',
+  warning:  'var(--amber)',
+  urgent:   'var(--red)',
+  low:      'var(--green)',
+  moderate: 'var(--amber)',
+  high:     '#f97316',
+};
+
 export async function renderHomeTherapyTab(patientId, apiObj) {
   const a = apiObj;
   const [assignRes, logsRes, eventsRes, flagsRes] = await Promise.all([
@@ -14,99 +23,157 @@ export async function renderHomeTherapyTab(patientId, apiObj) {
   ]);
   const assignments     = Array.isArray(assignRes) ? assignRes : [];
   const pendingLogs     = Array.isArray(logsRes)   ? logsRes   : [];
-  const openEvents      = Array.isArray(eventsRes)  ? eventsRes : [];
-  const activeFlags     = Array.isArray(flagsRes)   ? flagsRes  : [];
+  const openEvents      = Array.isArray(eventsRes) ? eventsRes : [];
+  const activeFlags     = Array.isArray(flagsRes)  ? flagsRes  : [];
   const activeAssignment = assignments.find(a2 => a2.status === 'active');
 
-  const sevBg = { info: 'rgba(74,158,255,0.10)', warning: 'rgba(255,181,71,0.10)', urgent: 'rgba(255,107,107,0.10)' };
-  const sevBorder = { info: 'rgba(74,158,255,0.30)', warning: 'rgba(255,181,71,0.30)', urgent: 'rgba(255,107,107,0.30)' };
-  const sevText = { info: 'var(--blue)', warning: 'var(--amber)', urgent: 'var(--red)' };
+  // ── KPI strip ──
+  const totalSessions = activeAssignment?.planned_total_sessions || 0;
+  const completedLogs = pendingLogs.filter(l => l.completed).length;
+  const kpiStrip = `
+    <div class="ht-kpi-strip">
+      <div class="ht-kpi" style="--kpi-color:var(--teal)">
+        <div class="ht-kpi-val">${assignments.filter(a2 => a2.status === 'active').length}</div>
+        <div class="ht-kpi-label">Active Devices</div>
+      </div>
+      <div class="ht-kpi" style="--kpi-color:var(--amber)">
+        <div class="ht-kpi-val">${pendingLogs.length}</div>
+        <div class="ht-kpi-label">Pending Review</div>
+      </div>
+      <div class="ht-kpi" style="--kpi-color:var(--red)">
+        <div class="ht-kpi-val">${activeFlags.length}</div>
+        <div class="ht-kpi-label">Active Flags</div>
+      </div>
+      <div class="ht-kpi" style="--kpi-color:var(--blue)">
+        <div class="ht-kpi-val">${openEvents.length}</div>
+        <div class="ht-kpi-label">Open Reports</div>
+      </div>
+    </div>`;
 
-  const assignCard = activeAssignment
-    ? `<div class="card" style="margin-bottom:16px;padding:14px 16px">
-        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--teal);margin-bottom:3px">${activeAssignment.device_category}</div>
-        <div style="font-size:15px;font-weight:700;color:var(--text-primary)">${activeAssignment.device_name}</div>
-        ${activeAssignment.device_model ? `<div style="font-size:11.5px;color:var(--text-tertiary)">${activeAssignment.device_model}</div>` : ''}
-        <div style="font-size:11.5px;color:var(--text-tertiary);margin-top:6px">${activeAssignment.session_frequency_per_week ? activeAssignment.session_frequency_per_week + 'x/wk' : ''} ${activeAssignment.planned_total_sessions ? '· Total: ' + activeAssignment.planned_total_sessions : ''}</div>
-        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-          <button class="btn btn-sm btn-ghost" onclick="window._htAssignDevice('${patientId}')">+ Assign New Device</button>
-          <button class="btn btn-sm btn-ghost" onclick="window._htPauseAssignment('${activeAssignment.id}')">Pause</button>
-          <button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="window._htRevokeAssignment('${activeAssignment.id}')">Revoke</button>
+  // ── Device assignment card ──
+  const deviceCard = activeAssignment
+    ? `<div class="ht-device-card">
+        <div class="ht-device-header">
+          <span class="ht-device-header-title">Active Device Assignment</span>
+          <span class="ch-assess-pill ch-pill--done">Active</span>
+        </div>
+        <div class="ht-device-body">
+          <div class="ht-device-category">${activeAssignment.device_category}</div>
+          <div class="ht-device-name">${activeAssignment.device_name}</div>
+          ${activeAssignment.device_model ? `<div class="ht-device-model">${activeAssignment.device_model}</div>` : ''}
+          <div class="ht-device-schedule">
+            ${activeAssignment.session_frequency_per_week ? `<span>${activeAssignment.session_frequency_per_week}x / week</span>` : ''}
+            ${activeAssignment.session_frequency_per_week && totalSessions ? '<span style="opacity:0.4">·</span>' : ''}
+            ${totalSessions ? `<span>Total: ${totalSessions} sessions</span>` : ''}
+          </div>
+          <div class="ht-device-actions">
+            <button class="btn btn-primary btn-sm" onclick="window._htAssignDevice('${patientId}')">+ Assign New Device</button>
+            <button class="btn btn-ghost btn-sm" onclick="window._htPauseAssignment('${activeAssignment.id}')">Pause</button>
+            <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="window._htRevokeAssignment('${activeAssignment.id}')">Revoke</button>
+          </div>
         </div>
       </div>`
-    : `<div class="card" style="margin-bottom:16px;padding:16px 18px;text-align:center">
-        <div style="font-size:13px;color:var(--text-tertiary);margin-bottom:10px">No active home device assignment</div>
-        <button class="btn btn-primary btn-sm" onclick="window._htAssignDevice('${patientId}')">+ Assign Home Device</button>
+    : `<div class="ht-device-card">
+        <div class="ht-device-header">
+          <span class="ht-device-header-title">Device Assignment</span>
+        </div>
+        <div class="ht-device-empty">
+          <div class="ht-device-empty-text">No active home device assignment</div>
+          <button class="btn btn-primary btn-sm" onclick="window._htAssignDevice('${patientId}')">+ Assign Home Device</button>
+        </div>
       </div>`;
 
-  const flagRows = activeFlags.slice(0, 5).map(f => {
-    const bg = sevBg[f.severity] || 'rgba(255,255,255,0.04)';
-    const bo = sevBorder[f.severity] || 'rgba(255,255,255,0.12)';
-    const tx = sevText[f.severity] || 'var(--text-tertiary)';
-    return `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--radius-md);background:${bg};border:1px solid ${bo};margin-bottom:6px">
-      <div style="flex:1;min-width:0">
-        <div style="font-size:12.5px;font-weight:600;color:var(--text-primary)">${f.flag_type.replace(/_/g, ' ')}</div>
-        <div style="font-size:11.5px;color:var(--text-tertiary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.detail}</div>
+  // ── Active flags card ──
+  const flagsCard = activeFlags.length > 0 ? `
+    <div class="ht-section">
+      <div class="ht-section-hd">
+        <span class="ht-section-title">Active Flags <span class="ht-section-count ht-count--red">${activeFlags.length}</span></span>
       </div>
-      <span style="font-size:10.5px;color:${tx};flex-shrink:0">${f.severity}</span>
-      <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px" onclick="window._htDismissFlag('${f.id}')">Dismiss</button>
-    </div>`;
-  }).join('');
-
-  const pendingRows = pendingLogs.slice(0, 8).map(l => `
-    <tr>
-      <td style="padding:8px 12px;color:var(--text-primary)">${l.session_date}</td>
-      <td style="padding:8px 12px;color:var(--text-secondary)">${l.duration_minutes ? l.duration_minutes + 'm' : '—'}</td>
-      <td style="padding:8px 12px">${l.completed ? '✓' : '~'}</td>
-      <td style="padding:8px 12px;color:var(--teal)">${l.tolerance_rating ? l.tolerance_rating + '/5' : '—'}</td>
-      <td style="padding:8px 12px;color:var(--text-secondary);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.side_effects_during || '—'}</td>
-      <td style="padding:8px 12px">
-        <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px;margin-right:4px" onclick="window._htReviewLog('${l.id}','reviewed')">Review</button>
-        <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px;color:var(--red)" onclick="window._htReviewLog('${l.id}','flagged')">Flag</button>
-      </td>
-    </tr>`).join('');
-
-  const eventRows = openEvents.slice(0, 5).map(e => {
-    const sc = { low: 'var(--green)', moderate: 'var(--amber)', high: '#f97316', urgent: 'var(--red)' }[e.severity] || 'var(--text-tertiary)';
-    return `<div style="background:var(--bg-page);border:1px solid var(--border);border-radius:var(--radius-md);padding:10px 14px;margin-bottom:8px;display:flex;align-items:flex-start;gap:10px">
-      <div style="flex:1;min-width:0">
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
-          <span style="font-size:12.5px;font-weight:600;color:var(--text-primary);text-transform:capitalize">${e.event_type.replace(/_/g, ' ')}</span>
-          ${e.severity ? `<span style="font-size:10.5px;color:${sc};padding:2px 8px;border-radius:20px;background:${sc}1a">${e.severity}</span>` : ''}
-          <span style="font-size:11px;color:var(--text-tertiary);margin-left:auto">${e.report_date}</span>
-        </div>
-        ${e.body ? `<div style="font-size:12px;color:var(--text-secondary);line-height:1.5">${e.body.slice(0, 120)}${e.body.length > 120 ? '...' : ''}</div>` : ''}
+      <div class="ht-section-body">
+        ${activeFlags.slice(0, 5).map(f => {
+          const sevClass = f.severity === 'urgent' ? 'ht-sev--urgent' : f.severity === 'warning' ? 'ht-sev--warning' : 'ht-sev--info';
+          const dotColor = SEV_COLORS[f.severity] || 'var(--amber)';
+          return `<div class="ht-flag-row">
+            <div class="ht-flag-indicator" style="--flag-color:${dotColor}"></div>
+            <div class="ht-flag-info">
+              <div class="ht-flag-type">${f.flag_type.replace(/_/g, ' ')}</div>
+              <div class="ht-flag-detail">${f.detail}</div>
+            </div>
+            <span class="ht-flag-severity ${sevClass}">${f.severity}</span>
+            <button class="btn btn-ghost btn-sm" onclick="window._htDismissFlag('${f.id}')">Dismiss</button>
+          </div>`;
+        }).join('')}
       </div>
-      <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px;flex-shrink:0" onclick="window._htAckEvent('${e.id}')">Acknowledge</button>
-    </div>`;
-  }).join('');
+    </div>` : '';
 
-  return `<div style="padding:16px">
-    ${assignCard}
-    ${activeFlags.length > 0 ? `<div class="card" style="margin-bottom:16px;padding:14px 16px">
-      <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text-tertiary);margin-bottom:10px">
-        Active Flags <span style="color:var(--red);margin-left:6px">${activeFlags.length}</span>
-      </div>${flagRows}</div>` : ''}
-    ${pendingLogs.length > 0
-      ? `<div class="card" style="margin-bottom:16px;padding:0;overflow:hidden">
-          <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-            <span style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text-tertiary)">
-              Session Review Queue <span style="color:var(--amber)">(${pendingLogs.length})</span>
-            </span>
-            ${activeAssignment ? `<button class="btn btn-ghost btn-sm" onclick="window._htGenerateAISummary('${activeAssignment.id}')">AI Summary</button>` : ''}
-          </div>
-          <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">
-            <thead><tr style="border-bottom:1px solid var(--border)">
-              ${['Date', 'Duration', 'Done', 'Tol.', 'Side effects', 'Actions'].map(h => `<th style="padding:8px 12px;text-align:left;font-weight:600;color:var(--text-tertiary)">${h}</th>`).join('')}
-            </tr></thead>
-            <tbody>${pendingRows}</tbody>
-          </table></div>
-        </div>`
-      : `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:14px 16px;margin-bottom:16px;font-size:12.5px;color:var(--text-tertiary)">No session logs pending review.</div>`}
-    ${openEvents.length > 0 ? `<div class="card" style="margin-bottom:16px;padding:14px 16px">
-      <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text-tertiary);margin-bottom:10px">
-        Open Reports <span style="color:var(--amber);margin-left:6px">${openEvents.length}</span>
-      </div>${eventRows}</div>` : ''}
+  // ── Session review queue ──
+  const sessionQueue = pendingLogs.length > 0 ? `
+    <div class="ht-section">
+      <div class="ht-section-hd">
+        <span class="ht-section-title">Session Review Queue <span class="ht-section-count ht-count--amber">${pendingLogs.length}</span></span>
+        ${activeAssignment ? `<button class="btn btn-ghost btn-sm" onclick="window._htGenerateAISummary('${activeAssignment.id}')">AI Summary</button>` : ''}
+      </div>
+      <div class="ht-section-body" style="overflow-x:auto">
+        <table class="ht-table">
+          <thead><tr>
+            <th>Date</th><th>Duration</th><th>Done</th><th>Tolerance</th><th>Side Effects</th><th>Actions</th>
+          </tr></thead>
+          <tbody>
+            ${pendingLogs.slice(0, 8).map(l => `<tr>
+              <td class="ht-cell-primary">${l.session_date}</td>
+              <td>${l.duration_minutes ? l.duration_minutes + ' min' : '—'}</td>
+              <td class="${l.completed ? 'ht-cell-check' : 'ht-cell-partial'}">${l.completed ? '✓ Yes' : '~ Partial'}</td>
+              <td class="ht-cell-teal">${l.tolerance_rating ? l.tolerance_rating + '/5' : '—'}</td>
+              <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.side_effects_during || '—'}</td>
+              <td>
+                <div class="ht-cell-actions">
+                  <button class="btn btn-ghost btn-sm" onclick="window._htReviewLog('${l.id}','reviewed')">Review</button>
+                  <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="window._htReviewLog('${l.id}','flagged')">Flag</button>
+                </div>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>` : `
+    <div class="ht-section">
+      <div class="ht-section-hd">
+        <span class="ht-section-title">Session Review Queue</span>
+      </div>
+      <div class="ht-empty">No session logs pending review.</div>
+    </div>`;
+
+  // ── Open reports/events ──
+  const eventsCard = openEvents.length > 0 ? `
+    <div class="ht-section">
+      <div class="ht-section-hd">
+        <span class="ht-section-title">Open Reports <span class="ht-section-count ht-count--amber">${openEvents.length}</span></span>
+      </div>
+      <div class="ht-section-body">
+        ${openEvents.slice(0, 5).map(e => {
+          const sc = SEV_COLORS[e.severity] || 'var(--text-tertiary)';
+          const sevClass = e.severity === 'urgent' ? 'ht-sev--urgent' : e.severity === 'high' ? 'ht-sev--warning' : 'ht-sev--info';
+          return `<div class="ht-event-row">
+            <div class="ht-event-info">
+              <div class="ht-event-top">
+                <span class="ht-event-type">${e.event_type.replace(/_/g, ' ')}</span>
+                ${e.severity ? `<span class="ht-flag-severity ${sevClass}">${e.severity}</span>` : ''}
+                <span class="ht-event-date">${e.report_date}</span>
+              </div>
+              ${e.body ? `<div class="ht-event-body">${e.body.slice(0, 140)}${e.body.length > 140 ? '…' : ''}</div>` : ''}
+            </div>
+            <button class="btn btn-ghost btn-sm" style="flex-shrink:0" onclick="window._htAckEvent('${e.id}')">Acknowledge</button>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>` : '';
+
+  return `<div class="ht-wrap">
+    ${kpiStrip}
+    ${deviceCard}
+    ${flagsCard}
+    ${sessionQueue}
+    ${eventsCard}
     <div id="ht-ai-summary-area"></div>
   </div>`;
 }
@@ -139,9 +206,12 @@ export function bindHomeTherapyActions(patientId, apiObj) {
   };
 
   window._htRevokeAssignment = async function(id) {
-    const reason = prompt('Reason for revoking (required):');
-    if (!reason) return;
-    try { await a.updateHomeAssignment(id, { status: 'revoked', revoke_reason: reason }); window.switchPT('home-therapy'); }
+    const reason = prompt('Revoke home therapy assignment?\n\nThe patient will lose access to their home device program.\nPlease provide a clinical reason (minimum 10 characters):');
+    if (!reason || reason.trim().length < 10) {
+      alert('A clinical reason of at least 10 characters is required.');
+      return;
+    }
+    try { await a.updateHomeAssignment(id, { status: 'revoked', revoke_reason: reason.trim() }); window.switchPT('home-therapy'); }
     catch (_e) { alert('Could not revoke: ' + (_e?.message || '')); }
   };
 
@@ -168,18 +238,18 @@ export function bindHomeTherapyActions(patientId, apiObj) {
     if (_htAiInProgress) return;
     _htAiInProgress = true;
     const area = document.getElementById('ht-ai-summary-area');
-    if (area) area.innerHTML = '<div style="padding:14px;text-align:center;color:var(--text-tertiary);font-size:13px">Generating AI summary...</div>';
+    if (area) area.innerHTML = '<div class="ht-empty">Generating AI summary…</div>';
     try {
       const result = await a.generateHomeTherapySummary(assignmentId);
       if (area) {
-        area.innerHTML = `<div class="card" style="padding:14px 16px">
-          <div style="font-size:11.5px;font-weight:600;color:var(--text-tertiary);margin-bottom:8px">
-            AI Home Therapy Summary
-            <span style="color:var(--amber);font-weight:400;margin-left:8px">logged for audit</span>
+        area.innerHTML = `<div class="ht-ai-card">
+          <div class="ht-ai-header">
+            <span class="ht-ai-title">AI Home Therapy Summary</span>
+            <span class="ht-ai-audit">logged for audit</span>
           </div>
-          <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;white-space:pre-wrap">${result.summary || 'No summary available.'}</div>
-          <div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Model: ${result.model} · Sessions reviewed: ${result.sessions_reviewed}</div>
-          <div style="font-size:11px;color:var(--amber);margin-top:4px">${result.warning || ''}</div>
+          <div class="ht-ai-body">${result.summary || 'No summary available.'}</div>
+          <div class="ht-ai-meta">Model: ${result.model} · Sessions reviewed: ${result.sessions_reviewed}</div>
+          ${result.warning ? `<div class="ht-ai-warning">${result.warning}</div>` : ''}
         </div>`;
       }
     } catch (_e) {
@@ -187,7 +257,7 @@ export function bindHomeTherapyActions(patientId, apiObj) {
         const msg = _e?.message?.includes('review_required')
           ? 'At least one session must be reviewed before generating an AI summary.'
           : 'Could not generate AI summary.';
-        area.innerHTML = `<div style="padding:12px;color:var(--red);font-size:12.5px">${msg}</div>`;
+        area.innerHTML = `<div class="ht-section"><div class="ht-empty" style="color:var(--red)">${msg}</div></div>`;
       }
     } finally { _htAiInProgress = false; }
   };

@@ -105,11 +105,18 @@ def list_devices() -> list[dict]:
             "regulatory_status": row.get("Regulatory_Status", ""),
             "regulatory_pathway": row.get("Regulatory_Pathway", ""),
             "official_indication": row.get("Official_Indication", ""),
+            "intended_use_text": row.get("Intended_Use_Text", ""),
+            "approved_use_only": (row.get("Approved_Use_Only_Flag", "") or "").strip().lower() in {"true", "yes", "1", "y"},
             "home_vs_clinic": row.get("Home_vs_Clinic", ""),
+            "contraindications": row.get("Contraindications", ""),
+            "adverse_event_notes": row.get("Adverse_Event_Notes", ""),
+            "source_url_primary": row.get("Source_URL_Primary", ""),
+            "source_url_secondary": row.get("Source_URL_Secondary", ""),
             "market": row.get("Regulatory_Status", ""),  # no Market column — use regulatory status
             "setting": row.get("Home_vs_Clinic", ""),
             "notes": row.get("Notes", ""),
             "review_status": row.get("Review_Status", ""),
+            "last_reviewed_at": (row.get("Last_Reviewed", "") or "").strip() or None,
         }
         for row in _load_devices()
     ]

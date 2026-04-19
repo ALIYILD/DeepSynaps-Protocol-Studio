@@ -11,6 +11,7 @@ import {
   ffActions,
   ffNotice,
 } from './friendly-forms.js';
+import { SUPPORTED_FORMS, getAssessmentConfig } from './assessment-forms.js';
 
 // ── Nav definition ────────────────────────────────────────────────────────────
 function _patientNav() {
@@ -1872,7 +1873,9 @@ export async function pgPatientCourse() {
     if (!s) return HW_DEFAULTS.map(h => ({ ...h }));
     const map = {}; s.forEach(h => { map[h.id] = h; });
     const merged = HW_DEFAULTS.map(h => map[h.id] ? { ...h, ...map[h.id] } : { ...h });
-    return [...merged, ...s.filter(h => h.personal && !merged.find(m => m.id === h.id))];
+    // Include: personal tasks added by patient + clinician-assigned tasks (have assignedAt/status)
+    const extras = s.filter(h => !merged.find(m => m.id === h.id) && (h.personal || h.assignedAt || h.status === 'active' || h.status === 'pending'));
+    return [...merged, ...extras];
   }
   function saveHW(items) { try { localStorage.setItem(hwKey, JSON.stringify(items)); } catch (_e) {} }
 
@@ -1902,6 +1905,45 @@ export async function pgPatientCourse() {
       </div>`;
   }
 
+  // ── Full modality labels (patient-friendly) ───────────────────────────────
+  const MODALITY_LABELS = {
+    tms: 'Transcranial Magnetic Stimulation (TMS)',
+    tdcs: 'Transcranial Direct Current Stimulation (tDCS)',
+    tacs: 'Transcranial Alternating Current Stimulation (tACS)',
+    ces: 'Cranial Electrotherapy Stimulation (CES)',
+    tavns: 'Transcutaneous Auricular Vagus Nerve Stimulation (tAVNS)',
+    pbm: 'Photobiomodulation (PBM)',
+    pemf: 'Pulsed Electromagnetic Field Therapy (PEMF)',
+    neurofeedback: 'Neurofeedback',
+    rtms: 'Repetitive Transcranial Magnetic Stimulation (rTMS)',
+    dtms: 'Deep Transcranial Magnetic Stimulation (Deep TMS)',
+    trns: 'Transcranial Random Noise Stimulation (tRNS)',
+    nfb: 'Neurofeedback',
+    heg: 'HEG Neurofeedback',
+    lens: 'LENS Neurofeedback',
+  };
+  const modalityFullLabel = MODALITY_LABELS[mSlug] || modality || 'Neuromodulation';
+
+  // ── Protocol rationale (from protocol_json if available, else whyInfo) ────
+  let protocolRationale = null;
+  if (course.protocol_json) {
+    try {
+      const pj = typeof course.protocol_json === 'string' ? JSON.parse(course.protocol_json) : course.protocol_json;
+      protocolRationale = pj?.rationale || pj?.description || null;
+    } catch (_e) {}
+  }
+  if (!protocolRationale && whyInfo) protocolRationale = whyInfo.body;
+  if (!protocolRationale) {
+    protocolRationale = `Your clinician selected ${modalityFullLabel} based on your symptoms, history, and the best available clinical evidence for ${condition || 'your condition'}.`;
+  }
+
+  // ── Schedule summary ──────────────────────────────────────────────────────
+  const sessPerWeek = (course.sessions_per_week ?? Math.round(total / 6)) || 2;
+  const weeksTotal  = sessPerWeek > 0 ? Math.ceil(total / sessPerWeek) : null;
+  const scheduleText = sessPerWeek && weeksTotal
+    ? `You'll attend ${sessPerWeek} session${sessPerWeek !== 1 ? 's' : ''} per week for ${weeksTotal} week${weeksTotal !== 1 ? 's' : ''} — ${total} sessions in total.`
+    : `Your plan includes ${total} sessions in total.`;
+
   // ── Build HTML ────────────────────────────────────────────────────────────
   el.innerHTML = `
 <div class="ptcp-wrap">
@@ -1926,6 +1968,63 @@ export async function pgPatientCourse() {
         ${progressRing(pct)}
       </div>
       <div class="ptcp-ring-detail">${delivered} of ${total} sessions done · ${remaining} remaining</div>
+    </div>
+  </div>
+
+  <!-- ① b  YOUR TREATMENT PLAN DETAILS -->
+  <div class="ptcp-section" style="background:rgba(0,212,188,0.04);border:1px solid rgba(0,212,188,0.14);border-radius:12px;padding:20px 22px">
+    <div class="ptcp-section-header" style="margin-bottom:16px">
+      <h3 class="ptcp-section-title" style="font-size:1rem;color:var(--teal,#00d4bc)">Your Treatment Plan</h3>
+      <span style="display:inline-flex;align-items:center;gap:5px;background:rgba(0,212,188,0.1);color:var(--teal,#00d4bc);border:1px solid rgba(0,212,188,0.25);border-radius:20px;padding:3px 11px;font-size:11px;font-weight:700;letter-spacing:0.02em">
+        &#10003; Evidence-Based Protocol
+      </span>
+    </div>
+
+    <div style="display:grid;gap:14px">
+
+      <!-- What we're treating -->
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div style="flex-shrink:0;width:36px;height:36px;border-radius:10px;background:rgba(0,212,188,0.1);display:flex;align-items:center;justify-content:center;font-size:16px">&#127775;</div>
+        <div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary,#94a3b8);margin-bottom:3px">What we're treating</div>
+          <div style="font-size:0.95rem;font-weight:600;color:var(--text-primary,#f1f5f9)">${esc(condition || 'Your condition')}</div>
+        </div>
+      </div>
+
+      <!-- How we're treating it -->
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div style="flex-shrink:0;width:36px;height:36px;border-radius:10px;background:rgba(96,165,250,0.1);display:flex;align-items:center;justify-content:center;font-size:16px">&#9889;</div>
+        <div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary,#94a3b8);margin-bottom:3px">How we're treating it</div>
+          <div style="font-size:0.95rem;font-weight:600;color:var(--text-primary,#f1f5f9)">${esc(modalityFullLabel)}</div>
+        </div>
+      </div>
+
+      <!-- What to expect -->
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div style="flex-shrink:0;width:36px;height:36px;border-radius:10px;background:rgba(167,139,250,0.1);display:flex;align-items:center;justify-content:center;font-size:16px">&#128161;</div>
+        <div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary,#94a3b8);margin-bottom:3px">What to expect</div>
+          <div style="font-size:0.88rem;color:var(--text-secondary,#94a3b8);line-height:1.55">${esc(protocolRationale)}</div>
+        </div>
+      </div>
+
+      <!-- Your schedule -->
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div style="flex-shrink:0;width:36px;height:36px;border-radius:10px;background:rgba(251,191,36,0.1);display:flex;align-items:center;justify-content:center;font-size:16px">&#128197;</div>
+        <div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary,#94a3b8);margin-bottom:3px">Your schedule</div>
+          <div style="font-size:0.88rem;color:var(--text-secondary,#94a3b8);line-height:1.55">${esc(scheduleText)}</div>
+          <div style="margin-top:6px;font-size:0.82rem;color:var(--text-secondary,#94a3b8)">${delivered} of ${total} sessions completed &nbsp;·&nbsp; ${remaining} remaining</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Evidence basis note -->
+    <div style="margin-top:18px;padding:12px 14px;background:rgba(0,212,188,0.06);border-radius:10px;border-left:3px solid var(--teal,#00d4bc)">
+      <div style="font-size:11px;font-weight:700;color:var(--teal,#00d4bc);margin-bottom:4px">Evidence-Based &amp; Clinically Reviewed</div>
+      <div style="font-size:0.81rem;color:var(--text-secondary,#94a3b8);line-height:1.5">This protocol was selected based on peer-reviewed clinical evidence and personalised to your needs by your care team. If you have questions about why this approach was chosen, your clinician is happy to talk it through.</div>
     </div>
   </div>
 
@@ -2063,7 +2162,7 @@ export async function pgPatientCourse() {
       <div class="ptcp-bio-tile"><div class="ptcp-bio-val">${esc(wearable.steps)}</div><div class="ptcp-bio-lbl">Steps today</div></div>
       <div class="ptcp-bio-tile"><div class="ptcp-bio-val">${esc(wearable.stress)}</div><div class="ptcp-bio-lbl">Stress level</div></div>
     </div>
-    <button class="ptcp-link-btn" style="margin-top:10px" onclick="window._navPatient('patient-devices')">Manage connected devices</button>
+    <button class="ptcp-link-btn" style="margin-top:10px" onclick="window._navPatient('patient-wearables')">Manage connected devices</button>
   </div>
 
   <!-- ⑩ CARE ASSISTANT -->
@@ -2094,22 +2193,38 @@ export async function pgPatientCourse() {
     if (!listEl) return;
     const done   = items.filter(h => h.done).length;
     if (badge) badge.textContent = `${done}/${items.length} done today`;
-    listEl.innerHTML = items.map(item => `
-      <div class="ptcp-hw-item ${item.done ? 'ptcp-hw-item--done' : ''}">
+    listEl.innerHTML = items.map(item => {
+      const desc = item.description || item.instructions || '';
+      const freq = item.freq || item.frequency || '';
+      const isAssigned = !!(item.assignedAt || item.status);
+      const overdueFlag = !item.done && item.dueDate && item.dueDate < new Date().toISOString().slice(0,10);
+      return `<div class="ptcp-hw-item ${item.done ? 'ptcp-hw-item--done' : ''}${overdueFlag ? ' ptcp-hw-item--overdue' : ''}">
         <input type="checkbox" class="ptcp-hw-check" ${item.done ? 'checked' : ''} onchange="window._ptcpToggleHW('${item.id}')">
         <div class="ptcp-hw-body">
-          <div class="ptcp-hw-title">${esc(item.title)}</div>
-          <div class="ptcp-hw-desc">${esc(item.description)}</div>
+          <div class="ptcp-hw-title">${esc(item.title)}${isAssigned ? '<span class="ptcp-hw-assigned-tag">Assigned by clinic</span>' : ''}</div>
+          ${desc ? '<div class="ptcp-hw-desc">' + esc(desc) + '</div>' : ''}
+          ${item.dueDate ? '<div class="ptcp-hw-due' + (overdueFlag ? ' ptcp-hw-due--overdue' : '') + '">Due: ' + esc(item.dueDate) + '</div>' : ''}
         </div>
-        <span class="ptcp-hw-freq">${esc(item.freq || item.frequency || '')}</span>
-      </div>`).join('');
+        <span class="ptcp-hw-freq">${esc(freq)}</span>
+      </div>`;
+    }).join('');
   }
 
   window._ptcpToggleHW = function(id) {
     const items = loadHW();
     const item  = items.find(h => h.id === id);
-    if (item) item.done = !item.done;
+    if (!item) return;
+    item.done = !item.done;
+    item.completedAt = item.done ? new Date().toISOString() : null;
     saveHW(items);
+    // Write completion back so doctor's Adherence view sees it
+    try {
+      const compKey = 'ds_task_completions_' + (uid || 'default');
+      const comps = JSON.parse(localStorage.getItem(compKey) || '{}');
+      if (item.done) comps[id] = { completedAt: item.completedAt, source: 'patient' };
+      else delete comps[id];
+      localStorage.setItem(compKey, JSON.stringify(comps));
+    } catch {}
     renderHW();
   };
   window._ptcpShowAddHW = function() {
@@ -2160,35 +2275,58 @@ function getPHQ9Options() {
   ];
 }
 
-function phq9Severity(score) {
-  if (score <= 4)  return { label: t('patient.phq9.sev.minimal'),    color: 'var(--green)' };
-  if (score <= 9)  return { label: t('patient.phq9.sev.mild'),       color: 'var(--teal)'  };
-  if (score <= 14) return { label: t('patient.phq9.sev.moderate'),   color: 'var(--blue)'  };
-  if (score <= 19) return { label: t('patient.phq9.sev.mod_severe'), color: 'var(--amber)' };
-  return               { label: t('patient.phq9.sev.severe'),       color: '#ff6b6b'      };
-}
-
-function renderPHQ9Form(containerId, patientId) {
+// Generic Likert-scale form renderer — PHQ-9, GAD-7, PCL-5, DASS-21, ISI, etc.
+// Reuses the pt-phq9-* CSS classes (they are visually correct for any
+// Likert grid, and renaming would churn the stylesheet without benefit).
+//
+// Per-form state is kept on window under a namespaced key so multiple forms
+// can coexist (in theory — the portal only opens one at a time, but scoping
+// is still the right call).
+function renderLikertForm(containerId, patientId, config) {
   const formEl = document.getElementById(containerId);
   if (!formEl) return;
-  const _phq9Questions = getPHQ9Questions();
-  const _phq9Options   = getPHQ9Options();
+  if (!config || !Array.isArray(config.questions) || !Array.isArray(config.options)) return;
+
+  const key       = config.formKey;
+  const questions = config.questions;
+  const options   = config.options;
+  const maxScore  = config.maxScore != null
+    ? config.maxScore
+    : questions.length * (options[options.length - 1]?.value ?? 0);
+  const severityFn = typeof config.severityFn === 'function'
+    ? config.severityFn
+    : () => ({ label: 'Recorded', color: 'var(--teal)' });
+
+  // IDs are namespaced by formKey so two rendered forms cannot collide.
+  const qId  = (i)        => `${key}-q${i}`;
+  const rId  = (i, v)     => `${key}-r${i}-${v}`;
+  const liveId  = `${key}-live-score`;
+  const resId   = `${key}-result`;
+  const wrapId  = `${key}-form-wrap`;
+
+  // Running-score label: reuse the PHQ-9 i18n string when available, fall
+  // back to a neutral English label for the other scales.
+  const runLabel = (key === 'phq9') ? t('patient.phq9.running_score') : 'Your score so far';
+  const submitLabel = (key === 'phq9') ? t('patient.phq9.submit') : 'Submit';
+  const headerText  = config.header || '';
+
   formEl.innerHTML = `
-    <div class="pt-assessment-form" id="phq9-form-wrap">
-      <div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:14px">
-        ${t('patient.phq9.header')}
-      </div>
-      ${_phq9Questions.map((q, i) => `
-        <div class="pt-phq9-question" id="phq9-q${i}">
+    <div class="pt-assessment-form" id="${wrapId}">
+      ${headerText ? `
+        <div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:14px">
+          ${headerText}
+        </div>` : ''}
+      ${questions.map((q, i) => `
+        <div class="pt-phq9-question" id="${qId(i)}">
           <div style="font-size:12.5px;color:var(--text-primary);margin-bottom:8px;line-height:1.5">
             <span style="color:var(--text-tertiary);margin-right:6px">${i + 1}.</span>${q}
           </div>
           <div class="pt-phq9-options">
-            ${_phq9Options.map((opt, v) => `
-              <label class="pt-phq9-option" onclick="window._ptPHQ9Pick(${i}, ${v})">
-                <input type="radio" name="phq9_q${i}" value="${v}" style="display:none">
-                <span class="pt-phq9-radio" id="phq9-r${i}-${v}"></span>
-                <span style="font-size:11.5px;color:var(--text-secondary)">${opt}</span>
+            ${options.map((opt) => `
+              <label class="pt-phq9-option" onclick="window._ptLikertPick('${key}', ${i}, ${opt.value})">
+                <input type="radio" name="${key}_q${i}" value="${opt.value}" style="display:none">
+                <span class="pt-phq9-radio" id="${rId(i, opt.value)}"></span>
+                <span style="font-size:11.5px;color:var(--text-secondary)">${opt.label}</span>
               </label>
             `).join('')}
           </div>
@@ -2196,79 +2334,140 @@ function renderPHQ9Form(containerId, patientId) {
       `).join('')}
       <div style="display:flex;align-items:center;gap:16px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
         <div style="flex:1">
-          <div style="font-size:11px;color:var(--text-tertiary)">${t('patient.phq9.running_score')}</div>
-          <div style="font-size:20px;font-weight:700;font-family:var(--font-display);color:var(--teal)" id="phq9-live-score">0 / 27</div>
+          <div style="font-size:11px;color:var(--text-tertiary)">${runLabel}</div>
+          <div style="font-size:20px;font-weight:700;font-family:var(--font-display);color:var(--teal)" id="${liveId}">0 / ${maxScore}</div>
         </div>
-        <button class="btn btn-primary" onclick="window._ptPHQ9Submit()">${t('patient.phq9.submit')}</button>
+        <button class="btn btn-primary" onclick="window._ptLikertSubmit('${key}')">${submitLabel}</button>
       </div>
-      <div id="phq9-result" style="display:none"></div>
+      <div id="${resId}" style="display:none"></div>
     </div>
   `;
 
-  window._phq9Answers = new Array(9).fill(null);
-
-  window._ptPHQ9Pick = function(q, v) {
-    window._phq9Answers[q] = v;
-    for (let opt = 0; opt < 4; opt++) {
-      const r = document.getElementById(`phq9-r${q}-${opt}`);
-      if (r) r.classList.toggle('selected', opt === v);
-    }
-    const qEl = document.getElementById(`phq9-q${q}`);
-    if (qEl) qEl.classList.add('answered');
-    const score  = window._phq9Answers.reduce((sum, a) => sum + (a ?? 0), 0);
-    const liveEl = document.getElementById('phq9-live-score');
-    if (liveEl) liveEl.textContent = `${score} / 27`;
+  // Per-form state registry on window.
+  window._likertState = window._likertState || {};
+  window._likertState[key] = {
+    answers:    new Array(questions.length).fill(null),
+    options,
+    questions,
+    maxScore,
+    severityFn,
+    templateId: config.templateId || key,
+    patientId,
   };
 
-  window._ptPHQ9Submit = async function() {
-    const unanswered = window._phq9Answers.findIndex(a => a === null);
-    if (unanswered !== -1) {
-      const qEl = document.getElementById(`phq9-q${unanswered}`);
-      if (qEl) { qEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); qEl.classList.add('pt-phq9-highlight'); }
-      return;
-    }
-    const score    = window._phq9Answers.reduce((sum, a) => sum + a, 0);
-    const severity = phq9Severity(score);
-    const pct      = Math.round((score / 27) * 100);
+  // Keep the legacy PHQ-9 mirror so any external code or tests that still
+  // read window._phq9Answers continue to work.
+  if (key === 'phq9') window._phq9Answers = window._likertState.phq9.answers;
 
-    // Submit to API
-    const resultEl = document.getElementById('phq9-result');
-    if (!patientId) {
-      if (resultEl) { resultEl.style.display = ''; resultEl.innerHTML = '<div class="notice notice-error" style="margin-top:12px">Unable to identify patient. Please refresh and try again.</div>'; }
-      return;
-    }
-    try {
-      await api.submitAssessment(patientId, {
-        template_id:       'PHQ-9',
-        score,
-        measurement_point: 'post',
-        notes:             '',
-      });
-    } catch (_e) {
-      if (resultEl) { resultEl.style.display = ''; resultEl.innerHTML = `<div class="notice notice-error" style="margin-top:12px">Submission failed: ${_e?.message || 'Please try again.'}</div>`; }
-      return;
-    }
+  if (typeof window._ptLikertPick !== 'function') {
+    window._ptLikertPick = function(formKey, q, v) {
+      const st = window._likertState && window._likertState[formKey];
+      if (!st) return;
+      st.answers[q] = v;
+      for (const opt of st.options) {
+        const r = document.getElementById(`${formKey}-r${q}-${opt.value}`);
+        if (r) r.classList.toggle('selected', opt.value === v);
+      }
+      const qEl = document.getElementById(`${formKey}-q${q}`);
+      if (qEl) qEl.classList.add('answered');
+      const score  = st.answers.reduce((sum, a) => sum + (a ?? 0), 0);
+      const liveEl = document.getElementById(`${formKey}-live-score`);
+      if (liveEl) liveEl.textContent = `${score} / ${st.maxScore}`;
+      if (formKey === 'phq9') window._phq9Answers = st.answers;
+    };
+  }
 
-    if (!resultEl) return;
-    resultEl.style.display = '';
-    resultEl.innerHTML = `
-      <div style="margin-top:20px;padding:20px;border-radius:var(--radius-lg);border:1px solid var(--border-teal);background:rgba(0,212,188,0.04)">
-        <div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px">${t('patient.assess.result.title')}</div>
-        <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px">
-          <div style="font-size:32px;font-weight:700;font-family:var(--font-display);color:${severity.color}">${score}</div>
-          <div style="font-size:13px;color:var(--text-secondary)">${t('patient.assess.result.out_of')}</div>
-          <div style="margin-left:auto;font-size:14px;font-weight:600;color:${severity.color}">${severity.label}</div>
+  if (typeof window._ptLikertSubmit !== 'function') {
+    window._ptLikertSubmit = async function(formKey) {
+      const st = window._likertState && window._likertState[formKey];
+      if (!st) return;
+      const unanswered = st.answers.findIndex(a => a === null);
+      const resultEl   = document.getElementById(`${formKey}-result`);
+      if (unanswered !== -1) {
+        const qEl = document.getElementById(`${formKey}-q${unanswered}`);
+        if (qEl) { qEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); qEl.classList.add('pt-phq9-highlight'); }
+        return;
+      }
+      const score    = st.answers.reduce((sum, a) => sum + a, 0);
+      const severity = st.severityFn(score);
+      const pct      = Math.round((score / st.maxScore) * 100);
+
+      if (!st.patientId) {
+        if (resultEl) { resultEl.style.display = ''; resultEl.innerHTML = '<div class="notice notice-error" style="margin-top:12px">Unable to identify patient. Please refresh and try again.</div>'; }
+        return;
+      }
+      try {
+        await api.submitAssessment(st.patientId, {
+          template_id:       st.templateId,
+          score,
+          measurement_point: 'post',
+          notes:             '',
+        });
+      } catch (_e) {
+        if (resultEl) { resultEl.style.display = ''; resultEl.innerHTML = `<div class="notice notice-error" style="margin-top:12px">Submission failed: ${_e?.message || 'Please try again.'}</div>`; }
+        return;
+      }
+
+      if (!resultEl) return;
+      resultEl.style.display = '';
+      // Result body text: keep the PHQ-9 translated copy; fall back to a
+      // generic message for other scales (it talks about clinician review,
+      // which applies to any measure).
+      const bodyText = (formKey === 'phq9')
+        ? t('patient.assess.result.body')
+        : 'Your score has been recorded. Your care team will review these results before your next session. If you are experiencing thoughts of self-harm, please contact your clinician immediately or call a crisis line.';
+      const titleText = (formKey === 'phq9')
+        ? t('patient.assess.result.title')
+        : 'Assessment Result';
+      resultEl.innerHTML = `
+        <div style="margin-top:20px;padding:20px;border-radius:var(--radius-lg);border:1px solid var(--border-teal);background:rgba(0,212,188,0.04)">
+          <div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px">${titleText}</div>
+          <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px">
+            <div style="font-size:32px;font-weight:700;font-family:var(--font-display);color:${severity.color}">${score}</div>
+            <div style="font-size:13px;color:var(--text-secondary)">out of ${st.maxScore}</div>
+            <div style="margin-left:auto;font-size:14px;font-weight:600;color:${severity.color}">${severity.label}</div>
+          </div>
+          <div class="progress-bar" style="height:8px;margin-bottom:8px">
+            <div style="height:100%;width:${pct}%;background:${severity.color};border-radius:4px;transition:width 0.8s ease"></div>
+          </div>
+          <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.6;margin-top:12px">
+            ${bodyText}
+          </div>
         </div>
-        <div class="progress-bar" style="height:8px;margin-bottom:8px">
-          <div style="height:100%;width:${pct}%;background:${severity.color};border-radius:4px;transition:width 0.8s ease"></div>
-        </div>
-        <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.6;margin-top:12px">
-          ${t('patient.assess.result.body')}
-        </div>
-      </div>
-    `;
-    setTimeout(() => resultEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
-  };
+      `;
+      setTimeout(() => resultEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+    };
+  }
+}
+
+// Dispatcher — map a formKey to its config and render. Used by the
+// assessments page to open the right form inline.
+function renderAssessmentForm(formKey, containerId, patientId) {
+  if (!SUPPORTED_FORMS[formKey]) return;
+  // Prefer the shared config bank. PHQ-9 overrides questions/header with
+  // the i18n-backed runtime versions so existing translations still apply.
+  const base = getAssessmentConfig(formKey);
+  if (!base) return;
+  const config = (formKey === 'phq9')
+    ? { ...base,
+        header:    t('patient.phq9.header'),
+        questions: getPHQ9Questions(),
+        options:   base.options.map((o, i) => ({ value: o.value, label: getPHQ9Options()[i] || o.label })),
+        severityFn: (score) => {
+          if (score <= 4)  return { label: t('patient.phq9.sev.minimal'),    color: 'var(--green)' };
+          if (score <= 9)  return { label: t('patient.phq9.sev.mild'),       color: 'var(--teal)'  };
+          if (score <= 14) return { label: t('patient.phq9.sev.moderate'),   color: 'var(--blue)'  };
+          if (score <= 19) return { label: t('patient.phq9.sev.mod_severe'), color: 'var(--amber)' };
+          return               { label: t('patient.phq9.sev.severe'),       color: '#ff6b6b'      };
+        },
+      }
+    : base;
+  renderLikertForm(containerId, patientId, config);
+}
+
+// Thin PHQ-9 wrapper — kept so any older call site (and tests) still works.
+function renderPHQ9Form(containerId, patientId) {
+  renderAssessmentForm('phq9', containerId, patientId);
 }
 
 // ── Assessments ────────────────────────────────────────────────────────────────
@@ -2339,7 +2538,7 @@ export async function pgPatientAssessments() {
       timeMin: 2,
       whyItMatters: 'A fast check to catch any mood concerns between fuller assessments.',
       scoreRanges: [],
-      formKey: null,
+      formKey: 'phq2',
     },
     gad7: {
       name: 'Anxiety Check-In (GAD-7)',
@@ -2347,7 +2546,7 @@ export async function pgPatientAssessments() {
       timeMin: 5,
       whyItMatters: 'Helps your care team understand how anxiety is affecting you and whether your treatment is helping.',
       scoreRanges: [{max:4,label:'Minimal',note:'Low anxiety levels'},{max:9,label:'Mild',note:'Mild anxiety \u2014 your team is tracking this'},{max:14,label:'Moderate',note:'Moderate anxiety \u2014 your clinician is monitoring closely'},{max:99,label:'Severe',note:'Significant anxiety \u2014 your team is focused on this'}],
-      formKey: null,
+      formKey: 'gad7',
     },
     gad2: {
       name: 'Quick Anxiety Check (GAD-2)',
@@ -2355,7 +2554,7 @@ export async function pgPatientAssessments() {
       timeMin: 2,
       whyItMatters: 'A fast check on anxiety levels.',
       scoreRanges: [],
-      formKey: null,
+      formKey: 'gad2',
     },
     pcl5: {
       name: 'Stress & Trauma Check-In (PCL-5)',
@@ -2363,7 +2562,7 @@ export async function pgPatientAssessments() {
       timeMin: 10,
       whyItMatters: 'Tracks how past experiences may be affecting your sleep, mood, and daily life so your team can tailor your treatment.',
       scoreRanges: [],
-      formKey: null,
+      formKey: 'pcl5',
     },
     hdrs: {
       name: 'Depression Assessment (HDRS)',
@@ -2411,7 +2610,7 @@ export async function pgPatientAssessments() {
       timeMin: 10,
       whyItMatters: 'Gives your care team a broad view of how you have been feeling across three areas.',
       scoreRanges: [],
-      formKey: null,
+      formKey: 'dass21',
     },
     isi: {
       name: 'Sleep Check (ISI)',
@@ -2419,7 +2618,7 @@ export async function pgPatientAssessments() {
       timeMin: 5,
       whyItMatters: 'Tracks how much sleep problems are affecting your daily life.',
       scoreRanges: [],
-      formKey: null,
+      formKey: 'isi',
     },
     qids: {
       name: 'Depression Check (QIDS)',
@@ -2584,7 +2783,7 @@ export async function pgPatientAssessments() {
 
     let ctaHtml = '';
     const ctaLabel = isInProgress ? 'Continue →' : 'Start →';
-    if (item.formKey === 'phq9') {
+    if (SUPPORTED_FORMS[item.formKey]) {
       ctaHtml = '<button class="btn btn-primary btn-sm" id="pt-assess-cta-' + esc(item.id) + '"' +
         ' onclick="window._ptToggleAssessForm(\'' + esc(item.id) + '\')"' +
         ' aria-expanded="false" aria-controls="pt-assess-form-' + esc(item.id) + '">' + ctaLabel + '</button>';
@@ -2807,7 +3006,7 @@ export async function pgPatientAssessments() {
     // CTA
     let ctaHtml = '';
     if (isDue) {
-      if (item.formKey === 'phq9') {
+      if (SUPPORTED_FORMS[item.formKey]) {
         ctaHtml = `<button class="btn btn-primary btn-sm pt-assess-cta"
                            id="pt-assess-cta-${esc(item.id)}"
                            onclick="window._ptToggleAssessForm('${esc(item.id)}')"
@@ -2823,7 +3022,7 @@ export async function pgPatientAssessments() {
                            aria-label="Ask about ${esc(item.name)}">Ask your clinic \u2192</button>`;
       }
     } else if (isInProgress) {
-      if (item.formKey === 'phq9') {
+      if (SUPPORTED_FORMS[item.formKey]) {
         ctaHtml = `<button class="btn btn-primary btn-sm pt-assess-cta"
                            id="pt-assess-cta-${esc(item.id)}"
                            onclick="window._ptToggleAssessForm('${esc(item.id)}')"
@@ -2903,7 +3102,9 @@ export async function pgPatientAssessments() {
     if (opening) {
       formEl.removeAttribute('hidden');
       if (btn) { btn.textContent = 'Close ×'; btn.setAttribute('aria-expanded', 'true'); }
-      if (item.formKey === 'phq9') renderPHQ9Form('pt-assess-form-' + CSS.escape(itemId), currentUser?.id);
+      if (SUPPORTED_FORMS[item.formKey]) {
+        renderAssessmentForm(item.formKey, 'pt-assess-form-' + CSS.escape(itemId), currentUser?.id);
+      }
       setTimeout(function() { formEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 50);
     } else {
       formEl.setAttribute('hidden', '');
@@ -9820,6 +10021,46 @@ async function _ptoLoadLive() {
   }
 }
 
+// ── SVG Sparkline trend chart ─────────────────────────────────────────────────
+function _sparkline(scores, width, height) {
+  width = width || 300; height = height || 120;
+  if (!scores || scores.length < 2) return '<div style="color:var(--text-tertiary,#64748b);font-size:12px;padding:12px 0">Not enough data yet for trend chart.</div>';
+  var max = Math.max.apply(null, scores.concat([1]));
+  var min = 0;
+  var pad = 16;
+  var w = width - pad * 2, h = height - pad * 2;
+  var pts = scores.map(function(s, i) {
+    var x = pad + (i / (scores.length - 1)) * w;
+    var y = pad + (1 - (s - min) / (max - min || 1)) * h;
+    return { x: x, y: y, s: s };
+  });
+  var path = pts.map(function(p, i) { return (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1); }).join(' ');
+  var fill = pts.map(function(p, i) {
+    return (i === 0 ? 'M' + p.x.toFixed(1) + ',' + (height - pad) + ' ' : '') + 'L' + p.x.toFixed(1) + ',' + p.y.toFixed(1);
+  }).join(' ') + ' L' + pts[pts.length - 1].x.toFixed(1) + ',' + (height - pad) + ' Z';
+  var last = scores[scores.length - 1], first = scores[0];
+  var trend = last < first - 1 ? '\u2193 Improving' : last > first + 1 ? '\u2191 Increased' : '\u2192 Stable';
+  var trendColor = last < first - 1 ? '#00d4bc' : last > first + 1 ? '#f87171' : '#94a3b8';
+  var uid = 'sg' + Math.random().toString(36).slice(2, 8);
+  return '<div style="position:relative">' +
+    '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" style="display:block;max-width:100%">' +
+      '<defs><linearGradient id="' + uid + '" x1="0" y1="0" x2="0" y2="1">' +
+        '<stop offset="0%" stop-color="#00d4bc" stop-opacity="0.25"/>' +
+        '<stop offset="100%" stop-color="#00d4bc" stop-opacity="0"/>' +
+      '</linearGradient></defs>' +
+      '<path d="' + fill + '" fill="url(#' + uid + ')" stroke="none"/>' +
+      '<path d="' + path + '" stroke="#00d4bc" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+      pts.map(function(p) { return '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="4" fill="#00d4bc" stroke="var(--card,#0f172a)" stroke-width="1.5"/>'; }).join('') +
+    '</svg>' +
+    '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--text-tertiary,#64748b);padding:0 ' + pad + 'px;margin-top:2px">' +
+      '<span>Earlier</span>' +
+      '<span style="color:' + trendColor + ';font-weight:600">' + trend + '</span>' +
+      '<span>Recent</span>' +
+    '</div>' +
+    '<div style="font-size:10px;color:var(--text-tertiary,#64748b);text-align:center;margin-top:4px">Lower score = fewer symptoms</div>' +
+  '</div>';
+}
+
 // ── Patient Progress page render ───────────────────────────────────────────────
 function _renderProgressPage() {
   var el = document.getElementById('patient-content');
@@ -9908,6 +10149,22 @@ function _renderProgressPage() {
     baselineHTML = '<div class="pgp-empty-block">Your baseline comparison will appear after your first completed assessment.</div>';
   }
 
+  // 2b. Sparkline score trend card
+  var _sparkScores = phq9pts.slice(-8).map(function(pt) { return pt.score; });
+  var _sparkLabel  = phq9m ? phq9m.label : (measures.length ? measures[0].label : 'PHQ-9');
+  var _sparkMax    = phq9m ? (phq9m.max || 27) : 27;
+  var sparklineHTML =
+    '<div style="background:rgba(0,212,188,0.04);border:1px solid rgba(0,212,188,0.13);border-radius:12px;padding:16px 18px">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">' +
+        '<div>' +
+          '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary,#94a3b8);margin-bottom:3px">Score Trend</div>' +
+          '<div style="font-size:0.92rem;font-weight:600;color:var(--text-primary,#f1f5f9)">' + _sparkLabel + ' over time</div>' +
+        '</div>' +
+        '<div style="font-size:10.5px;color:var(--text-secondary,#94a3b8)">Scale: 0\u2013' + _sparkMax + ' &nbsp;\u00b7&nbsp; Lower = fewer symptoms</div>' +
+      '</div>' +
+      _sparkline(_sparkScores, 320, 120) +
+    '</div>';
+
   // 3. Trend Over Time
   var trendHTML = _pgpTrendChart(phq9m, data.sessions) +
     _pgpAccordion('pgp-acc-trend', 'What this chart shows',
@@ -9940,6 +10197,7 @@ function _renderProgressPage() {
     '<div class="pgp-page">' +
     demoBanner +
     _pgpSection('Am I getting better?',          heroHTML) +
+    _pgpSection('Score Trend',                    sparklineHTML) +
     _pgpSection('Then vs Now',                    baselineHTML) +
     _pgpSection('Trend Over Time',                trendHTML) +
     _pgpSection('What Changed This Week',         weeklyHTML) +
@@ -11185,6 +11443,81 @@ export async function pgPatientAdherenceHistory() {
       <button class="btn btn-ghost btn-sm" style="flex:1;min-width:130px" onclick="window._navPatient('pt-home-session-log')">Log New Session →</button>
     </div>
   `;
+}
+
+// ── Caregiver Access ─────────────────────────────────────────────────────────
+
+export async function pgPatientCaregiver() {
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+  el.innerHTML = `
+    <div style="max-width:640px;margin:0 auto;padding:24px 16px">
+      <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 6px">Caregiver &amp; Supporter Access</h2>
+      <p style="font-size:13px;color:var(--text-secondary);margin:0 0 20px;line-height:1.55">
+        A trusted caregiver or family member can be granted view-only access to your sessions, tasks, and progress updates.
+        This feature is managed by your clinic and requires your written consent.
+      </p>
+      <div class="pt-portal-empty" style="padding:20px 24px;text-align:left;background:rgba(0,212,188,0.04);border:1px solid rgba(0,212,188,0.15);border-radius:12px;margin-bottom:20px">
+        <div style="font-size:13.5px;font-weight:600;color:var(--text-primary);margin-bottom:6px">How it works</div>
+        <ul style="margin:0;padding-left:18px;font-size:12.5px;color:var(--text-secondary);line-height:1.7">
+          <li>Speak with your care coordinator to add a caregiver</li>
+          <li>Your caregiver will receive a secure invite link</li>
+          <li>They can view your progress and session notes (read-only)</li>
+          <li>You can revoke access at any time by contacting your clinic</li>
+        </ul>
+      </div>
+      <div style="background:rgba(251,113,133,0.08);border:1px solid rgba(251,113,133,0.2);border-radius:10px;padding:14px 16px;margin-bottom:20px;font-size:12px;color:var(--text-secondary);line-height:1.5">
+        <strong style="color:var(--text-primary)">Your privacy matters.</strong> Caregiver access is entirely optional and requires your consent. You control who can see your information.
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="window._navPatient('patient-messages')">Contact Your Care Team</button>
+    </div>`;
+}
+
+// ── Help & Support ───────────────────────────────────────────────────────────
+
+export async function pgPatientHelp() {
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+  const faqs = [
+    { q: 'How do I complete an assessment?', a: 'Go to <strong>Assessments</strong> in the menu. Click on any due assessment, answer each question, and press Submit. Your responses are sent securely to your care team.' },
+    { q: 'How do I contact my care team?', a: 'Use the <strong>Messages</strong> section to send a secure message. Your clinic typically responds within 1 business day. For urgent concerns, call your clinic directly.' },
+    { q: 'What if I feel unwell after a session?', a: 'Contact your clinic immediately or call your local crisis line. <strong>UK: 111 or 999 in emergencies. US: 988 (crisis line) or 911 in emergencies.</strong> Do not use this app for medical emergencies.' },
+    { q: 'How do I view my treatment progress?', a: 'Go to the <strong>Progress</strong> section in the menu. You can see your scores over time, session history, and how your symptoms are changing.' },
+    { q: 'How do I update my profile?', a: 'Go to <strong>Profile</strong> in the menu. Contact your clinic directly if you need to update personal or medical details they hold.' },
+  ];
+  el.innerHTML = `
+    <div style="max-width:640px;margin:0 auto;padding:24px 16px">
+      <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 6px">Help &amp; Support</h2>
+      <p style="font-size:13px;color:var(--text-secondary);margin:0 0 20px;line-height:1.55">Quick answers to common questions about using your patient portal.</p>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:24px">
+        ${faqs.map((f, i) => `
+          <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden">
+            <button onclick="
+              var b=this.parentElement.querySelector('.pt-help-body');
+              var open=b.style.display!=='none';
+              b.style.display=open?'none':'block';
+              this.querySelector('.pt-help-chev').style.transform=open?'rotate(0deg)':'rotate(180deg)'
+            " style="width:100%;text-align:left;background:transparent;border:none;padding:13px 16px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;font-weight:600;color:var(--text-primary)">
+              ${f.q}
+              <svg class="pt-help-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" style="flex-shrink:0;transition:transform 0.2s"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div class="pt-help-body" style="display:none;padding:0 16px 14px;font-size:12.5px;color:var(--text-secondary);line-height:1.6">${f.a}</div>
+          </div>`).join('')}
+      </div>
+      <div style="background:rgba(220,38,38,0.08);border:1.5px solid rgba(220,38,38,0.3);border-radius:12px;padding:16px 18px">
+        <div style="font-size:13px;font-weight:700;color:#ef4444;margin-bottom:5px">⚠ If you are in crisis</div>
+        <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.55">
+          If you are experiencing thoughts of self-harm or a mental health emergency, <strong style="color:var(--text-primary)">call your local emergency services or a crisis line immediately.</strong>
+          <br><br>
+          <strong>UK:</strong> 999 (emergency) · 111 (urgent non-emergency) · 116 123 (Samaritans)<br>
+          <strong>US:</strong> 911 (emergency) · 988 (Suicide &amp; Crisis Lifeline)<br>
+          <strong>International:</strong> <a href="https://www.befrienders.org" target="_blank" style="color:var(--teal)">befrienders.org</a>
+        </div>
+      </div>
+      <div style="margin-top:20px">
+        <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">Message your care team</button>
+      </div>
+    </div>`;
 }
 
 export async function pgGuardianPortal(setTopbarFn) {

@@ -47,9 +47,9 @@ export function mountSalesChatWidget() {
 
         <div class="ds-chat-tabpanel" data-tabpanel="sales">
           <div class="ds-chat-form">
-            <input id="ds-sales-name" class="form-control" placeholder="Name (optional)">
-            <input id="ds-sales-email" class="form-control" placeholder="Email (optional)">
-            <textarea id="ds-sales-msg" class="form-control" rows="4" placeholder="How can we help?"></textarea>
+            <input id="ds-sales-name" class="form-control" placeholder="Name (optional)" aria-label="Your name">
+            <input id="ds-sales-email" class="form-control" placeholder="Email (optional)" aria-label="Email">
+            <textarea id="ds-sales-msg" class="form-control" rows="4" placeholder="How can we help?" aria-label="Message"></textarea>
             <div id="ds-sales-status" class="ds-chat-status" style="display:none"></div>
             <button id="ds-sales-send" class="btn btn-primary btn-sm" type="button" style="width:100%">Send</button>
           </div>

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, and_, or_, func
 from sqlalchemy.orm import Session
 
 from app.persistence.models import ClinicalSession
@@ -21,6 +22,9 @@ def create_session(
     total_sessions: Optional[int] = None,
     status: str = "scheduled",
     billing_code: Optional[str] = None,
+    appointment_type: str = "session",
+    room_id: Optional[str] = None,
+    device_id: Optional[str] = None,
 ) -> ClinicalSession:
     record = ClinicalSession(
         patient_id=patient_id,
@@ -33,6 +37,9 @@ def create_session(
         total_sessions=total_sessions,
         status=status,
         billing_code=billing_code,
+        appointment_type=appointment_type,
+        room_id=room_id,
+        device_id=device_id,
     )
     session.add(record)
     session.commit()
@@ -91,3 +98,63 @@ def delete_session(session: Session, session_id: str, clinician_id: str) -> bool
     session.delete(record)
     session.commit()
     return True
+
+
+def check_conflicts(
+    session: Session,
+    clinician_id: str,
+    scheduled_at: str,
+    duration_minutes: int,
+    room_id: Optional[str] = None,
+    device_id: Optional[str] = None,
+    exclude_id: Optional[str] = None,
+) -> list[ClinicalSession]:
+    """Check for overlapping appointments for clinician, room, or device.
+
+    Uses string-based ISO datetime comparison (works with SQLite).
+    Returns list of conflicting sessions.
+    """
+    # Parse the proposed time window
+    proposed_start = datetime.fromisoformat(scheduled_at)
+    proposed_end = proposed_start + timedelta(minutes=duration_minutes)
+    proposed_start_str = proposed_start.isoformat()
+    proposed_end_str = proposed_end.isoformat()
+
+    # Active statuses — cancelled / no_show sessions don't block
+    active_statuses = ("scheduled", "confirmed", "checked_in", "in_progress")
+
+    # Base overlap condition: existing.start < proposed.end AND existing.end > proposed.start
+    # Since we store scheduled_at as ISO string and duration as int, we can't do
+    # end-time arithmetic in SQLite easily.  Instead we fetch candidates and filter in Python.
+    candidates_query = (
+        select(ClinicalSession)
+        .where(
+            ClinicalSession.status.in_(active_statuses),
+            # Quick pre-filter: scheduled_at must be within a reasonable window
+            ClinicalSession.scheduled_at < proposed_end_str,
+        )
+    )
+
+    if exclude_id:
+        candidates_query = candidates_query.where(ClinicalSession.id != exclude_id)
+
+    # Build resource overlap conditions
+    resource_conditions = [ClinicalSession.clinician_id == clinician_id]
+    if room_id:
+        resource_conditions.append(ClinicalSession.room_id == room_id)
+    if device_id:
+        resource_conditions.append(ClinicalSession.device_id == device_id)
+
+    candidates_query = candidates_query.where(or_(*resource_conditions))
+
+    candidates = list(session.scalars(candidates_query).all())
+
+    # Filter in Python for actual overlap
+    conflicts = []
+    for c in candidates:
+        c_start = datetime.fromisoformat(c.scheduled_at)
+        c_end = c_start + timedelta(minutes=c.duration_minutes)
+        if c_start < proposed_end and c_end > proposed_start:
+            conflicts.append(c)
+
+    return conflicts

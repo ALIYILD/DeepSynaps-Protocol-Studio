@@ -62,6 +62,13 @@ class User(Base):
     clinic_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     is_verified: Mapped[bool] = mapped_column(Boolean(), default=False)
     is_active: Mapped[bool] = mapped_column(Boolean(), default=True)
+    # Settings API — profile extensions (migration 024_settings_schema)
+    credentials: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    license_number: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    avatar_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    pending_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    pending_email_token: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    pending_email_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -122,6 +129,9 @@ class Patient(Base):
     consent_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="active")  # active, on_hold, discharged
     notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    # Structured medical-history blob — see routers/patients_router.py for shape.
+    # Holds sections, safety flags/ack, and meta (version, reviewed_by/at).
+    medical_history: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -143,12 +153,22 @@ class ClinicalSession(Base):
     protocol_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     session_number: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     total_sessions: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
-    status: Mapped[str] = mapped_column(String(30), default="scheduled")  # scheduled, completed, cancelled, no_show
+    appointment_type: Mapped[str] = mapped_column(String(50), default='session')  # session, assessment, new_patient, follow_up, phone, consultation
+    status: Mapped[str] = mapped_column(String(30), default="scheduled")  # scheduled, confirmed, checked_in, in_progress, completed, cancelled, no_show
     outcome: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)  # positive, neutral, negative
     session_notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     adverse_events: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    room_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    device_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    confirmed_at: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    checked_in_at: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    completed_at: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    cancelled_at: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    cancel_reason: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    rescheduled_from: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     billing_code: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     billing_status: Mapped[str] = mapped_column(String(30), default='unbilled')
+    recurrence_group: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -162,8 +182,34 @@ class AssessmentRecord(Base):
     template_title: Mapped[str] = mapped_column(String(255), nullable=False)
     data_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
     clinician_notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    status: Mapped[str] = mapped_column(String(30), default="draft")  # draft, completed
+    status: Mapped[str] = mapped_column(String(30), default="draft")  # draft, pending, completed
     score: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    # Governance fields (migration 020): respondent type, phase, due date, scale version,
+    # bundle linkage, clinician approval trail, AI provenance, and source label.
+    respondent_type: Mapped[str] = mapped_column(String(30), nullable=False, default="patient")
+    phase: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, index=True)
+    due_date: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True, index=True)
+    scale_version: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    bundle_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    approved_status: Mapped[str] = mapped_column(String(30), nullable=False, default="unreviewed")
+    reviewed_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    ai_generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="manual")
+    # Go-live additions (migration 026_assessments_golive) — all nullable for backward compatibility.
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True, index=True)
+    score_numeric: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    severity: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    subscales_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # JSON obj, e.g. Y-BOCS {obsessions:..., compulsions:...}
+    items_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # JSON {item_id: response}
+    interpretation: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    ai_summary: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    ai_model: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    ai_confidence: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    escalated: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False, index=True)
+    escalated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    escalation_reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    escalated_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -1113,3 +1159,246 @@ class SalesInquiry(Base):
     message: Mapped[str] = mapped_column(Text(), nullable=False)
     source: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)  # landing | dashboard | patient_portal | other
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), index=True)
+
+
+# ── Leads & Reception Models ─────────────────────────────────────────────────
+
+
+class ClinicLead(Base):
+    __tablename__ = "clinic_leads"
+    id: Mapped[str] = mapped_column(String(100), primary_key=True, default=lambda: "LEAD-" + str(uuid.uuid4())[:8])
+    clinician_id: Mapped[str] = mapped_column(String(100), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    source: Mapped[str] = mapped_column(String(50), default='phone')  # phone, website, referral, walk-in
+    condition: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    stage: Mapped[str] = mapped_column(String(50), default='new', index=True)  # new, contacted, qualified, booked, lost
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    follow_up: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # ISO date
+    converted_appointment_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(50), default=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
+    updated_at: Mapped[str] = mapped_column(String(50), default=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"), onupdate=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
+
+
+class ReceptionCall(Base):
+    __tablename__ = "reception_calls"
+    id: Mapped[str] = mapped_column(String(100), primary_key=True, default=lambda: "CALL-" + str(uuid.uuid4())[:8])
+    clinician_id: Mapped[str] = mapped_column(String(100), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    direction: Mapped[str] = mapped_column(String(20), default='inbound')  # inbound, outbound
+    duration: Mapped[int] = mapped_column(Integer(), default=0)
+    outcome: Mapped[str] = mapped_column(String(50), default='info-given')
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    call_time: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    call_date: Mapped[str] = mapped_column(String(20), index=True)
+    created_at: Mapped[str] = mapped_column(String(50), default=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
+
+
+class ReceptionTask(Base):
+    __tablename__ = "reception_tasks"
+    id: Mapped[str] = mapped_column(String(100), primary_key=True, default=lambda: "TASK-" + str(uuid.uuid4())[:8])
+    clinician_id: Mapped[str] = mapped_column(String(100), index=True)
+    text: Mapped[str] = mapped_column(String(500))
+    due: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    done: Mapped[bool] = mapped_column(Boolean(), default=False)
+    priority: Mapped[str] = mapped_column(String(20), default='medium')
+    created_at: Mapped[str] = mapped_column(String(50), default=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
+
+
+# ── Settings API Models (migration 024_settings_schema) ────────────────────────
+# See apps/api/SETTINGS_API_DESIGN.md for the full contract.
+
+
+class Clinic(Base):
+    """Owning organization for multi-user accounts.
+
+    Users link via `users.clinic_id` (FK added in migration 024 with
+    ON DELETE SET NULL so orphaning a clinic doesn't delete users).
+    """
+    __tablename__ = "clinics"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    address: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)  # E.164
+    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    website: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")  # IANA TZ
+    logo_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    specialties: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # JSON array
+    working_hours: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # JSON map
+    retention_days: Mapped[int] = mapped_column(Integer(), default=2555)  # 7y HIPAA default
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class ClinicTeamInvite(Base):
+    """Pending team invitations (48h TTL, single-use token)."""
+    __tablename__ = "clinic_team_invites"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinic_id: Mapped[str] = mapped_column(String(36), ForeignKey("clinics.id", ondelete="CASCADE"), nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(32), nullable=False)  # admin/clinician/technician/read-only
+    token: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    invited_by: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    invited_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
+    accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+
+
+class User2FASecret(Base):
+    """TOTP secret (one row per user). Fernet-encrypted at rest.
+
+    `enabled=False` until the user completes the verify step in /auth/2fa/verify.
+    """
+    __tablename__ = "user_2fa_secrets"
+
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    secret_encrypted: Mapped[str] = mapped_column(String(255), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean(), default=False)
+    backup_codes_encrypted: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # JSON of hashed codes
+    enabled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+
+
+class UserSession(Base):
+    """Active refresh-token session (for 'log out other devices')."""
+    __tablename__ = "user_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    refresh_token_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    user_agent: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+
+
+class UserPreferences(Base):
+    """Per-user UI + notification + clinical workflow preferences.
+
+    Schema mirrors the design doc. Notification prefs / quiet hours /
+    reminder timing are JSON-encoded Text columns (SQLite-compatible).
+    """
+    __tablename__ = "user_preferences"
+
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    notification_prefs: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")  # JSON matrix
+    quiet_hours: Mapped[str] = mapped_column(Text(), nullable=False, default='{"enabled":false,"from":"22:00","to":"07:00"}')
+    digest_freq: Mapped[str] = mapped_column(String(16), default="daily")  # daily/weekly/off
+    reminder_timing: Mapped[str] = mapped_column(Text(), nullable=False, default="[]")  # JSON array
+    language: Mapped[str] = mapped_column(String(8), default="en")
+    date_format: Mapped[str] = mapped_column(String(8), default="ISO")  # ISO/US/EU
+    time_format: Mapped[str] = mapped_column(String(4), default="24h")
+    first_day: Mapped[str] = mapped_column(String(8), default="monday")
+    units: Mapped[str] = mapped_column(String(16), default="metric")  # metric/imperial
+    number_format: Mapped[str] = mapped_column(String(16), default="US")
+    session_default_duration_min: Mapped[int] = mapped_column(Integer(), default=45)
+    auto_logout_min: Mapped[int] = mapped_column(Integer(), default=30)  # 0 = never
+    analytics_opt_in: Mapped[bool] = mapped_column(Boolean(), default=True)
+    error_reports_opt_in: Mapped[bool] = mapped_column(Boolean(), default=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class ClinicDefaults(Base):
+    """Per-clinic clinical defaults (one row per clinic)."""
+    __tablename__ = "clinic_defaults"
+
+    clinic_id: Mapped[str] = mapped_column(String(36), ForeignKey("clinics.id", ondelete="CASCADE"), primary_key=True)
+    default_protocol_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    default_session_duration_min: Mapped[int] = mapped_column(Integer(), default=45)
+    default_followup_weeks: Mapped[int] = mapped_column(Integer(), default=4)
+    default_course_length: Mapped[int] = mapped_column(Integer(), default=20)
+    default_consent_template_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    custom_consent_text: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    default_disclaimer: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    default_assessments: Mapped[str] = mapped_column(Text(), nullable=False, default="[]")  # JSON array
+    ae_protocol: Mapped[str] = mapped_column(String(32), default="auto-notify")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class DataExport(Base):
+    """Async GDPR Article 20 data-export job."""
+    __tablename__ = "data_exports"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    clinic_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("clinics.id", ondelete="SET NULL"), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(16), default="queued")  # queued/running/ready/failed/expired
+    file_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    file_bytes: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+
+
+# ── Clinical Finance Hub ────────────────────────────────────────────────────────
+# Invoices, patient payments, and insurance claims. See migration
+# 025_finance_hub_tables.py. The router at apps/api/app/routers/finance_router.py
+# exposes these under /api/v1/finance for the web Clinical Finance Hub.
+
+
+class Invoice(Base):
+    __tablename__ = "invoices"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    invoice_number: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # e.g. INV-00123
+    patient_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("patients.id", ondelete="SET NULL"), nullable=True, index=True)
+    patient_name: Mapped[str] = mapped_column(String(255), nullable=False)  # denormalized
+    service: Mapped[str] = mapped_column(String(500), nullable=False)
+    amount: Mapped[float] = mapped_column(Float(), nullable=False)  # ex-VAT
+    vat_rate: Mapped[float] = mapped_column(Float(), nullable=False, default=0.20)  # e.g. 0.20
+    vat: Mapped[float] = mapped_column(Float(), nullable=False, default=0.0)
+    total: Mapped[float] = mapped_column(Float(), nullable=False)  # amount + vat
+    paid: Mapped[float] = mapped_column(Float(), nullable=False, default=0.0)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="GBP")
+    issue_date: Mapped[str] = mapped_column(String(20), nullable=False)  # YYYY-MM-DD
+    due_date: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")  # draft|sent|paid|overdue|partial|void
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    __table_args__ = (
+        CheckConstraint("status IN ('draft','sent','paid','overdue','partial','void')", name='ck_invoices_status'),
+        UniqueConstraint("clinician_id", "invoice_number", name='uq_invoices_clinician_number'),
+    )
+
+
+class PatientPayment(Base):
+    __tablename__ = "patient_payments"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    invoice_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("invoices.id", ondelete="SET NULL"), nullable=True, index=True)
+    patient_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    amount: Mapped[float] = mapped_column(Float(), nullable=False)
+    method: Mapped[str] = mapped_column(String(30), nullable=False, default="card")  # card|bacs|cash|cheque|stripe|manual
+    reference: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    payment_date: Mapped[str] = mapped_column(String(20), nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class InsuranceClaim(Base):
+    __tablename__ = "insurance_claims"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    claim_number: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # INS-00123
+    patient_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("patients.id", ondelete="SET NULL"), nullable=True, index=True)
+    patient_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    insurer: Mapped[str] = mapped_column(String(120), nullable=False)
+    policy_number: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
+    description: Mapped[str] = mapped_column(String(500), nullable=False)  # e.g. "TMS Pre-auth"
+    amount: Mapped[float] = mapped_column(Float(), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")  # draft|submitted|pending|approved|rejected|paid
+    submitted_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    decision_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    __table_args__ = (
+        CheckConstraint("status IN ('draft','submitted','pending','approved','rejected','paid')", name='ck_insurance_status'),
+    )
