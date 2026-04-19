@@ -1892,7 +1892,15 @@ export async function pgPatientCourse() {
 
   const coursesArr  = Array.isArray(coursesRaw)  ? coursesRaw  : [];
   const sessionsArr = Array.isArray(sessionsRaw)  ? sessionsRaw : [];
-  const course      = coursesArr.find(c => c.status === 'active') || coursesArr[0] || null;
+  let   course      = coursesArr.find(c => c.status === 'active') || coursesArr[0] || null;
+
+  // Demo-mode overlay — when the patient demo account has no live course
+  // (preview build, fresh API DB, seed not yet run), surface the bundled
+  // DEMO_PATIENT.activeCourse so reviewers see the full Treatment Plan UI
+  // instead of the empty state. Same pattern the Patient Dashboard hero uses.
+  if (!course && isDemoPatient(user, { getToken: api.getToken })) {
+    course = { ...DEMO_PATIENT.activeCourse, _isDemoData: true };
+  }
 
   if (!course) {
     el.innerHTML = `
