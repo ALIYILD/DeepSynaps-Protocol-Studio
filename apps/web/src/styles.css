@@ -20210,3 +20210,97 @@ details > summary::marker { display: none; }
 .ch-assess-result-card .ch-result-band {
   font-size: 14px; font-weight: 600; margin-left: auto;
 }
+
+/* ─── design-v2 tokens (Clinical OS shell) ─── */
+:root {
+  /* Existing --navy-*, --teal*, --blue*, --violet, --rose, --amber, --green, --red,
+     --bg-base, --bg-sidebar, --bg-card, --text-*, --border, --border-hover, --border-teal,
+     --radius-*, --font-display, --font-body all match design-v2 spec — reused as-is.
+     Below: ONLY net-new values OR values that would change existing tokens. */
+
+  --dv2-bg-card:        rgba(14,22,40,0.8);
+  --dv2-bg-surface:     rgba(255,255,255,0.04);
+  --dv2-bg-surface-2:   rgba(255,255,255,0.07);
+  --dv2-text-tertiary:  #7c8699;
+  --dv2-radius-xl:      20px;
+  --dv2-sidebar-w:      232px;
+  --dv2-topbar-h:       58px;
+  --dv2-font-mono:      'JetBrains Mono', monospace;
+  --dv2-accent:         var(--teal);
+  --dv2-accent-2:       var(--blue);
+}
+body.dv2-accent-blue   { --dv2-accent: var(--blue);   --dv2-accent-2: var(--violet); }
+body.dv2-accent-violet { --dv2-accent: var(--violet); --dv2-accent-2: var(--rose); }
+body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose); }
+
+/* Shell classes (prefixed to avoid collision with legacy .app, .screen, .sidebar) */
+.dv2-app { display: flex; height: 100vh; position: relative; }
+.dv2-sidebar {
+  width: var(--dv2-sidebar-w); background: var(--bg-sidebar);
+  border-right: 1px solid var(--border); display: flex; flex-direction: column;
+  flex-shrink: 0; position: relative; z-index: 5;
+}
+.dv2-topbar {
+  height: var(--dv2-topbar-h); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 20px; gap: 16px;
+  background: var(--bg-base);
+}
+.dv2-screen {
+  flex: 1; min-width: 0; height: 100vh; overflow-y: auto;
+  background: var(--bg-base); position: relative;
+}
+
+/* Dev-only bottom screen switcher */
+.dv2-screen-switcher {
+  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+  z-index: 900; background: rgba(11, 17, 32, 0.92); backdrop-filter: blur(16px);
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 6px; display: flex; gap: 4px; box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+  font-family: var(--font-body);
+}
+.dv2-screen-switcher button {
+  padding: 7px 14px; border-radius: 999px; font-size: 11.5px; font-weight: 600;
+  color: var(--text-secondary); letter-spacing: 0.2px; border: none;
+  background: none; cursor: pointer; transition: all 0.15s ease;
+}
+.dv2-screen-switcher button.active {
+  background: linear-gradient(135deg, var(--dv2-accent), var(--dv2-accent-2));
+  color: #04121c;
+}
+.dv2-screen-switcher button:hover:not(.active) {
+  background: rgba(255,255,255,0.06); color: var(--text-primary);
+}
+.dv2-screen-switcher .divider { width: 1px; background: var(--border); margin: 4px 2px; }
+
+/* Tweaks panel */
+.dv2-tweaks {
+  position: fixed; right: 16px; bottom: 70px; z-index: 901;
+  width: 280px; background: rgba(11,17,32,0.96); backdrop-filter: blur(16px);
+  border: 1px solid var(--border-hover); border-radius: var(--dv2-radius-xl);
+  padding: 16px; box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+  display: none; font-family: var(--font-body);
+}
+.dv2-tweaks.open { display: block; }
+.dv2-tweaks-hd {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px;
+}
+.dv2-tweaks-title {
+  font-family: var(--font-display); font-size: 13px; font-weight: 600;
+  color: var(--text-primary); letter-spacing: 0.3px;
+}
+.dv2-tweaks-close {
+  background: none; border: none; cursor: pointer; color: var(--dv2-text-tertiary);
+  font-size: 18px; line-height: 1;
+}
+.dv2-tweaks-field { margin-bottom: 12px; }
+.dv2-tweaks-lbl {
+  font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--dv2-text-tertiary); font-weight: 600; margin-bottom: 6px;
+}
+.dv2-tweaks-color { display: flex; gap: 6px; }
+.dv2-tweaks-color button {
+  width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+  border: 2px solid transparent; transition: border-color 0.15s ease;
+}
+.dv2-tweaks-color button.active { border-color: rgba(255,255,255,0.7); }
