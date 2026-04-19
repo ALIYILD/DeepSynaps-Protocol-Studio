@@ -11155,8 +11155,21 @@ export async function pgPatientHomeDevice() {
   if (!el) return;
   el.innerHTML = spinner();
 
+  // Backend returns { assignment: {...} | null }. Unwrap so the empty state fires honestly.
   let assignment = null;
-  try { assignment = await api.portalGetHomeDevice(); } catch (_e) { assignment = null; }
+  let adherence  = null;
+  try {
+    const res = await api.portalGetHomeDevice();
+    if (res && typeof res === 'object' && 'assignment' in res) {
+      assignment = res.assignment || null;
+    } else {
+      assignment = res || null;
+    }
+  } catch (_e) { assignment = null; }
+  try {
+    const sum = await api.portalHomeAdherenceSummary();
+    adherence = (sum && typeof sum === 'object') ? (sum.adherence || null) : null;
+  } catch (_e) { adherence = null; }
 
   if (!assignment) {
     el.innerHTML = `
@@ -11171,14 +11184,25 @@ export async function pgPatientHomeDevice() {
 
   const deviceName   = _hdEsc(assignment.device_name || assignment.device_slug || 'Home Device');
   const category     = _hdEsc(assignment.device_category || assignment.modality_slug || '');
-  const frequency    = _hdEsc(assignment.prescribed_frequency || assignment.frequency || '');
-  const instructions = _hdEsc(assignment.instructions || assignment.notes || '');
-  const startDate    = fmtDate(assignment.start_date || assignment.assigned_at || assignment.created_at);
+  const freqPerWeek  = assignment.session_frequency_per_week ?? assignment.frequency_per_week ?? null;
+  const frequency    = _hdEsc(
+    freqPerWeek != null
+      ? `${freqPerWeek}x / week`
+      : (assignment.prescribed_frequency || assignment.frequency || '')
+  );
+  const instructions = _hdEsc(assignment.instructions_text || assignment.instructions || assignment.notes || '');
+  const startDate    = fmtDate(assignment.assigned_at || assignment.start_date || assignment.created_at);
   const endDate      = assignment.end_date ? fmtDate(assignment.end_date) : null;
-  const totalSessions    = assignment.total_sessions_prescribed ?? null;
-  const completedSessions = assignment.sessions_completed ?? assignment.session_count ?? 0;
-  const adherencePct = (totalSessions && completedSessions != null)
-    ? Math.min(100, Math.round((completedSessions / totalSessions) * 100)) : null;
+  const totalSessions    = assignment.planned_total_sessions ?? assignment.total_sessions_prescribed ?? null;
+  const completedSessions = adherence?.sessions_logged
+    ?? assignment.sessions_completed
+    ?? assignment.session_count
+    ?? 0;
+  const adherencePct = (adherence?.adherence_rate_pct != null)
+    ? Math.min(100, Math.round(adherence.adherence_rate_pct))
+    : ((totalSessions && completedSessions != null)
+        ? Math.min(100, Math.round((completedSessions / totalSessions) * 100))
+        : null);
 
   // Adherence ring SVG
   function adherenceRingSVG(pct) {
@@ -11257,11 +11281,34 @@ export async function pgPatientHomeSessionLog() {
   if (!el) return;
   el.innerHTML = spinner();
 
+  // Check assignment so we can honestly tell the patient if no device is assigned.
+  // Backend will 404 on POST /home-sessions with no_active_assignment — surface it up front.
+  let hasAssignment = false;
+  try {
+    const res = await api.portalGetHomeDevice();
+    const a = (res && typeof res === 'object' && 'assignment' in res) ? res.assignment : res;
+    hasAssignment = !!a;
+  } catch (_e) { hasAssignment = false; }
+
   let sessions = [];
   try {
     const raw = await api.portalListHomeSessions();
     sessions = Array.isArray(raw) ? raw : [];
   } catch (_e) { sessions = []; }
+
+  if (!hasAssignment) {
+    el.innerHTML = `
+      <div class="pt-portal-empty" style="padding:60px 24px">
+        <div class="pt-portal-empty-ico" aria-hidden="true" style="font-size:32px">⚡</div>
+        <div class="pt-portal-empty-title">No Active Home Device</div>
+        <div class="pt-portal-empty-body">You cannot log a session yet — your care team has not assigned a home device. Session logs are linked to an active assignment.</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:18px">
+          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('pt-home-device')">Home Device →</button>
+          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">Contact Care Team</button>
+        </div>
+      </div>`;
+    return;
+  }
 
   const todayStr = new Date().toISOString().slice(0, 10);
 
@@ -11345,7 +11392,7 @@ export async function pgPatientHomeSessionLog() {
                 <div style="flex:1">
                   <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${fmtDate(s.session_date||s.created_at)}</div>
                   <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px">${[dur, tol].filter(Boolean).join(' · ') || 'No details'}</div>
-                  ${s.side_effects ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${_hdEsc(s.side_effects)}</div>` : ''}
+                  ${(s.side_effects_during || s.side_effects) ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${_hdEsc(s.side_effects_during || s.side_effects)}</div>` : ''}
                 </div>
                 <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:${done ? 'rgba(0,212,188,0.1)' : 'rgba(148,163,184,0.1)'};color:${done ? 'var(--teal)' : 'var(--text-tertiary)'}">${done ? 'Done' : 'Partial'}</span>
               </div>`;
@@ -11396,7 +11443,7 @@ export async function pgPatientHomeSessionLog() {
       tolerance_rating: tolEl?.value ? parseInt(tolEl.value, 10) : null,
       mood_before:      moodBeforeEl?.value ? parseInt(moodBeforeEl.value, 10) : null,
       mood_after:       moodAfterEl?.value ? parseInt(moodAfterEl.value, 10) : null,
-      side_effects:     sideEl?.value?.trim() || null,
+      side_effects_during: sideEl?.value?.trim() || null,
       notes:            notesEl?.value?.trim() || null,
       completed:        completedEl?.checked !== false,
     };
@@ -11506,7 +11553,7 @@ export async function pgPatientAdherenceEvents() {
               const sev   = ev.severity || 'low';
               const color = SEVERITY_COLORS[sev] || 'var(--text-secondary)';
               const label = EVENT_TYPE_LABELS[ev.event_type] || _hdEsc(ev.event_type || 'Report');
-              const ack   = ev.acknowledged ? ' · Acknowledged' : '';
+              const ack   = (ev.status && ev.status !== 'open') ? ` · ${ev.status.charAt(0).toUpperCase() + ev.status.slice(1)}` : '';
               return `<div style="padding:12px 18px;border-bottom:1px solid var(--border)">
                 <div style="display:flex;align-items:flex-start;gap:10px">
                   <div style="flex:1">
@@ -11669,7 +11716,7 @@ export async function pgPatientAdherenceHistory() {
 
   const noAssignmentNotice = !hasAssignment ? `
     <div class="notice notice-info" style="margin-bottom:16px;font-size:12.5px;line-height:1.6">
-      No active home device assignment — the stats below show any sessions you have already logged.
+      No active home device assignment — the stats below reflect any sessions you have already logged.
     </div>` : '';
 
   el.innerHTML = `
