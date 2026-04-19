@@ -5,6 +5,7 @@ from typing import Optional
 import stripe
 
 from ..auth import AuthenticatedActor, get_authenticated_actor
+from ..packages import PACKAGES, PACKAGE_ORDER
 from ..services.stripe_service import (
     create_customer,
     create_checkout_session,
@@ -28,51 +29,82 @@ PACKAGE_ROLE_MAP = {
     "resident": "clinician",
     "clinician_pro": "clinician",
     "clinic_team": "clinician",
-    # Current pricing page plan IDs
-    "clinic-starter": "clinician",
-    "clinic-pro": "clinician",
     "enterprise": "admin",
 }
 
-PACKAGE_INFO = [
-    {
-        "id": "clinic-starter",
-        "name": "Clinic Starter",
-        "price_monthly": 299,
-        "features": ["Up to 3 clinicians", "Full protocol access", "Outcome tracking", "PDF & DOCX export"],
-    },
-    {
-        "id": "clinic-pro",
-        "name": "Clinic Pro",
-        "price_monthly": 599,
-        "features": ["Unlimited clinicians", "Full protocol access", "Outcome tracking", "PDF & DOCX export", "Wearable integrations", "Priority support"],
-    },
-    {
-        "id": "enterprise",
-        "name": "Enterprise",
-        "price_monthly": None,
-        "features": ["Custom seats", "White-label options", "EHR integration", "Dedicated support", "Custom SLA"],
-    },
-    # Legacy plan IDs kept for backward-compatibility
-    {
-        "id": "resident",
-        "name": "Resident (legacy)",
-        "price_monthly": 29,
-        "features": ["1 seat", "Full protocol access", "PDF & DOCX export"],
-    },
-    {
-        "id": "clinician_pro",
-        "name": "Clinician Pro (legacy)",
-        "price_monthly": 79,
-        "features": ["Up to 3 seats", "Full protocol access", "PDF & DOCX export", "Priority support"],
-    },
-    {
-        "id": "clinic_team",
-        "name": "Clinic Team (legacy)",
-        "price_monthly": 199,
-        "features": ["Up to 20 seats", "Full protocol access", "PDF & DOCX export", "Priority support", "Team management"],
-    },
-]
+
+def _build_package_info() -> list[dict]:
+    """Derive the public package list from the canonical ``PACKAGES`` registry.
+
+    Source of truth is ``apps/api/app/packages.py``. We never hand-roll feature
+    lists or pricing here — that caused drift between the pricing page, the
+    payments config, and the backend entitlement model. Public feature labels
+    live alongside each package definition below (display-only copy).
+    """
+    # Display-only feature bullets; they complement (not replace) the
+    # authoritative Feature enum membership on each Package. Keep these short
+    # so the pricing page UI renders cleanly without truncation.
+    display_features: dict[str, list[str]] = {
+        "explorer": [
+            "Evidence library — read",
+            "Device registry — limited",
+            "Conditions & modalities — limited",
+        ],
+        "resident": [
+            "Full evidence library",
+            "Protocol generation (EV-A/B)",
+            "Assessment builder — limited",
+            "Handbook generation — limited",
+            "PDF export",
+        ],
+        "clinician_pro": [
+            "Full protocol generator (EV-C override)",
+            "Uploads (qEEG / MRI / PDFs)",
+            "Personalized case summaries",
+            "Full assessment + handbook builders",
+            "PDF + DOCX export",
+            "Personal review queue & audit trail",
+            "Monthly monitoring digest",
+            "Add-on: Phenotype mapping",
+        ],
+        "clinic_team": [
+            "Everything in Clinician Pro",
+            "Phenotype mapping included",
+            "Shared team review queue",
+            "Team audit trail & governance",
+            "Team templates & comments",
+            "Seat management (up to 10)",
+            "Basic white-label branding",
+        ],
+        "enterprise": [
+            "Everything in Clinic Team",
+            "Unlimited seats",
+            "Advanced governance rules",
+            "Full white-label branding",
+            "API / integrations",
+            "Automated monitoring workspace",
+            "SSO-ready structure",
+        ],
+    }
+    out: list[dict] = []
+    for pid in PACKAGE_ORDER:
+        pkg = PACKAGES[pid]
+        out.append(
+            {
+                "id": pkg.id,
+                "name": pkg.display_name,
+                "price_monthly": pkg.monthly_price_usd,
+                "price_annual": pkg.annual_price_usd,
+                "seat_limit": pkg.seat_limit,
+                "custom_pricing": pkg.custom_pricing,
+                "best_for": pkg.best_for,
+                "features": display_features.get(pid, []),
+            }
+        )
+    return out
+
+
+PACKAGE_INFO = _build_package_info()
 
 
 
@@ -111,13 +143,12 @@ def create_checkout(
     if body.package_id == "enterprise":
         return {"checkout_url": None, "contact_us": True, "message": "Contact us at hello@deepsynaps.com to set up an Enterprise plan."}
 
-    # Map package_id → Stripe price ID (new IDs fall back to legacy price env vars if new ones unset)
+    # Map package_id → Stripe price ID. Only canonical package IDs from
+    # ``apps/api/app/packages.py`` are accepted.
     price_map = {
         "resident": s.stripe_price_resident,
         "clinician_pro": s.stripe_price_clinician_pro,
         "clinic_team": s.stripe_price_clinic_team,
-        "clinic-starter": s.stripe_price_clinic_starter or s.stripe_price_clinician_pro,
-        "clinic-pro": s.stripe_price_clinic_pro or s.stripe_price_clinic_team,
     }
     price_id = price_map.get(body.package_id)
     if not price_id:
@@ -211,8 +242,6 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db_session)
                     s.stripe_price_resident: "resident",
                     s.stripe_price_clinician_pro: "clinician_pro",
                     s.stripe_price_clinic_team: "clinic_team",
-                    s.stripe_price_clinic_starter: "clinic-starter",
-                    s.stripe_price_clinic_pro: "clinic-pro",
                 }
                 # Remove empty-string key that maps unset prices to explorer
                 price_map_rev = {k: v for k, v in price_map_rev.items() if k}
@@ -268,8 +297,6 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db_session)
             s.stripe_price_resident: "resident",
             s.stripe_price_clinician_pro: "clinician_pro",
             s.stripe_price_clinic_team: "clinic_team",
-            s.stripe_price_clinic_starter: "clinic-starter",
-            s.stripe_price_clinic_pro: "clinic-pro",
         }
         # Remove empty-string key that maps unset prices to explorer
         price_map_rev = {k: v for k, v in price_map_rev.items() if k}

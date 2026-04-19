@@ -1376,92 +1376,77 @@ export async function pgAuditTrail(setTopbar) {
 }
 
 // ── Pricing ───────────────────────────────────────────────────────────────────
+// Tiers are rendered from ``/api/v1/payments/config`` (source of truth is
+// apps/api/app/packages.py). The fallback below mirrors the canonical package
+// IDs and is only used when the config endpoint is unreachable.
 export async function pgPricing(setTopbar) {
   setTopbar('Plans & Pricing', '');
   const el = document.getElementById('content');
   el.innerHTML = `<div class="spinner">${Array.from({length:5},(_,i)=>`<div class="ai-dot" style="animation-delay:${i*.12}s"></div>`).join('')}</div>`;
 
-  let packages = [];
+  let serverPackages = [];
   try {
     const res = await api.paymentConfig();
-    packages = res?.packages || [];
+    serverPackages = Array.isArray(res?.packages) ? res.packages : [];
   } catch {}
 
-  const fallbackPackages = packages.length > 0 ? packages : [
-    { id: 'explorer', name: 'Explorer', price: 'Free', description: 'Evidence library, device registry (read-only)', features: ['Evidence library', 'Device registry', 'Brain regions reference'] },
-    { id: 'resident', name: 'Resident / Fellow', price: '$99/mo', description: 'Protocol generation, assessment builder, DOCX export', features: ['Full evidence library', 'Protocol generation (EV-A/B)', 'Assessment builder', 'Handbook generation', 'PDF export'] },
-    { id: 'clinician', name: 'Clinician Pro', price: '$199/mo', description: 'Full platform access, patient management, case summaries', features: ['All Resident features', 'Patient management (CRM)', 'AI case summaries', 'DOCX export', 'Audit trail', 'Chat assistant'] },
-    { id: 'clinic', name: 'Clinic Team', price: '$699/mo', description: 'Multi-seat team access, team review queue', features: ['All Clinician Pro features', 'Up to 10 seats', 'Team review queue', 'Team audit trail', 'Basic white-label'] },
-    { id: 'enterprise', name: 'Enterprise', price: 'Custom', description: 'Unlimited seats, API access, full white-label', features: ['All Clinic Team features', 'Unlimited seats', 'API access', 'Full white-label', 'Dedicated support'] },
+  // Canonical fallback (matches apps/api/app/packages.py). Only used if the
+  // payments/config endpoint is unavailable.
+  const CANONICAL_FALLBACK = [
+    { id: 'explorer',      name: 'Explorer',          price_monthly: 0,    price_annual: 0,    seat_limit: 1,    custom_pricing: false, best_for: 'Evaluators exploring the platform', features: ['Evidence library — read', 'Device registry — limited', 'Conditions & modalities — limited'] },
+    { id: 'resident',      name: 'Resident / Fellow', price_monthly: 99,   price_annual: 990,  seat_limit: 1,    custom_pricing: false, best_for: 'Trainees and early-career clinicians', features: ['Full evidence library', 'Protocol generation (EV-A/B)', 'Assessment builder — limited', 'Handbook generation — limited', 'PDF export'] },
+    { id: 'clinician_pro', name: 'Clinician Pro',     price_monthly: 199,  price_annual: 1990, seat_limit: 1,    custom_pricing: false, best_for: 'Independent clinicians', features: ['Full protocol generator (EV-C override)', 'Uploads (qEEG / MRI / PDFs)', 'Personalized case summaries', 'Full assessment + handbook builders', 'PDF + DOCX export', 'Personal review queue & audit trail', 'Add-on: Phenotype mapping'] },
+    { id: 'clinic_team',   name: 'Clinic Team',       price_monthly: 699,  price_annual: 6990, seat_limit: 10,   custom_pricing: false, best_for: 'Clinical teams', features: ['Everything in Clinician Pro', 'Phenotype mapping included', 'Shared team review queue', 'Team audit trail & governance', 'Team templates & comments', 'Seat management (up to 10)', 'Basic white-label branding'] },
+    { id: 'enterprise',    name: 'Enterprise',        price_monthly: 2500, price_annual: null, seat_limit: null, custom_pricing: true,  best_for: 'Multi-site organizations', features: ['Everything in Clinic Team', 'Unlimited seats', 'Advanced governance rules', 'Full white-label branding', 'API / integrations', 'Automated monitoring workspace', 'SSO-ready structure'] },
   ];
+
+  const packages = serverPackages.length > 0 ? serverPackages : CANONICAL_FALLBACK;
+  // Tier that gets the "RECOMMENDED" badge.
+  const RECOMMENDED_ID = 'clinician_pro';
 
   let _pricingAnnual = false;
 
+  function _formatPrice(pkg) {
+    if (pkg.custom_pricing) return 'Custom';
+    const monthly = Number(pkg.price_monthly || 0);
+    if (monthly === 0) return 'Free';
+    if (_pricingAnnual && pkg.price_annual) {
+      // Show equivalent monthly for annual billing (price_annual / 12).
+      const perMo = Math.round(Number(pkg.price_annual) / 12);
+      return '$' + perMo + '/mo';
+    }
+    return '$' + monthly + '/mo';
+  }
+
+  function _seatLine(pkg) {
+    if (pkg.seat_limit == null) return 'Unlimited seats';
+    return pkg.seat_limit === 1 ? '1 seat' : ('Up to ' + pkg.seat_limit + ' seats');
+  }
+
   function _pricingHTML() {
-    const starterMo = _pricingAnnual ? '$249' : '$299';
-    const proMo     = _pricingAnnual ? '$499' : '$599';
     const billingNote = _pricingAnnual
-      ? '<span style="font-size:11px;color:var(--teal);margin-left:6px">Annual — 20% off</span>'
+      ? '<span style="font-size:11px;color:var(--teal);margin-left:6px">Annual — 17% off</span>'
       : '<span style="font-size:11px;color:var(--text-secondary);margin-left:6px">Monthly</span>';
 
-    const plans = [
-      {
-        id: 'clinic-starter',
-        name: 'Clinic Starter',
-        price: starterMo + '/mo',
-        forLine: 'Single-clinician practices',
-        recommended: false,
-        features: [
-          'Today\'s Queue — manage the full patient day',
-          'Quick Outcome Capture — PHQ-9, GAD-7, MADRS, 9 validated scales',
-          'Course Completion Reports — printable, PDF-ready',
-          'Patient Portal — homework, progress, session log',
-          'Clinical Scoring Calculator — with crisis flagging',
-          '50 active courses',
-          'Email support',
-        ],
-        cta: 'Start Free Trial \u2192',
-        ctaPrimary: false,
-      },
-      {
-        id: 'clinic-pro',
-        name: 'Clinic Pro',
-        price: proMo + '/mo',
-        forLine: 'Multi-clinician practices (up to 5 seats)',
-        recommended: true,
-        features: [
-          'Everything in Clinic Starter',
-          'Wearable Biosensor Dashboard',
-          'Home Task Manager — assign and track between sessions',
-          'Protocol Adherence Alerts',
-          'Longitudinal Population Reports',
-          'Guardian & Caregiver Portal',
-          'Validated Forms Builder',
-          'Unlimited active courses',
-          'Priority support',
-        ],
-        cta: 'Start Free Trial \u2192',
-        ctaPrimary: true,
-      },
-      {
-        id: 'enterprise',
-        name: 'Enterprise',
-        price: 'Custom pricing',
-        forLine: 'Multi-site networks and research institutions',
-        recommended: false,
-        features: [
-          'Everything in Clinic Pro',
-          'Multi-site dashboard',
-          'API access for EHR integration',
-          'Research & IRB module',
-          'White-label options',
-          'Dedicated onboarding and training',
-          'SLA and compliance support',
-        ],
-        cta: 'Book a Demo \u2192',
-        ctaPrimary: false,
-      },
-    ];
+    const plans = packages.map(pkg => {
+      const recommended   = pkg.id === RECOMMENDED_ID;
+      const isEnterprise  = pkg.id === 'enterprise' || pkg.custom_pricing;
+      const isFree        = Number(pkg.price_monthly || 0) === 0 && !isEnterprise;
+      let cta;
+      if (isEnterprise)      cta = 'Book a Demo \u2192';
+      else if (isFree)       cta = 'Get Started \u2192';
+      else                   cta = 'Start Free Trial \u2192';
+      return {
+        id: pkg.id,
+        name: pkg.name,
+        price: _formatPrice(pkg),
+        forLine: pkg.best_for || _seatLine(pkg),
+        recommended,
+        features: [_seatLine(pkg), ...(Array.isArray(pkg.features) ? pkg.features : [])],
+        cta,
+        ctaPrimary: recommended,
+      };
+    });
 
     const planCards = plans.map(p => {
       const border = p.recommended ? 'border-color:var(--border-teal);' : '';
@@ -1542,6 +1527,8 @@ export async function pgPricing(setTopbar) {
 
   window.subscribe = async function(pkg) {
     if (pkg === 'enterprise') { window._showEnterpriseModal(); return; }
+    // Explorer is free — no Stripe checkout. Route to the app shell.
+    if (pkg === 'explorer') { window._nav && window._nav('knowledge'); return; }
     try {
       const res = await api.createCheckout(pkg);
       if (res?.checkout_url) {
