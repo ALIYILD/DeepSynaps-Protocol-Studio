@@ -1649,6 +1649,13 @@ export async function pgProtocolStudio(setTopbar, navigate) {
         '<div class="studio-render-item">⚑  Consent form · v2.4</div>' +
         '<div class="studio-render-item">◈  Session worksheet · 20 copies</div>' +
       '</div>' +
+      '<div class="card" style="padding:16px;">' +
+        '<div class="studio-h-lbl" style="display:flex;align-items:center;gap:8px">' +
+          '<span>My Drafts</span>' +
+          '<button class="ch-btn-sm" style="margin-left:auto;font-size:11px" onclick="window._studioRefreshDrafts()">↻</button>' +
+        '</div>' +
+        '<div id="studio-drafts-list" style="font-size:12px;color:var(--text-tertiary)">Loading…</div>' +
+      '</div>' +
     '</div>';
   }
 
@@ -1798,6 +1805,8 @@ export async function pgProtocolStudio(setTopbar, navigate) {
           rightColumn() +
         '</div>' +
       '</div>';
+
+    try { window._studioRenderDrafts?.(); } catch {}
   }
 
   window._studioGo = (n) => { S.step = Math.max(1, Math.min(5, n | 0)); paint(); };
@@ -1821,7 +1830,54 @@ export async function pgProtocolStudio(setTopbar, navigate) {
         });
       }
       try { alert('Protocol saved.'); } catch {}
+      // Surface the saved draft in the right-column drafts panel so the user
+      // sees their save land without having to reload.
+      window._studioDraftsCache = null;
+      try { window._studioRenderDrafts?.(); } catch {}
     } catch { try { alert('Could not save (endpoint offline). State preserved locally.'); } catch {} }
+  };
+
+  // ── My Drafts panel — /api/v1/protocols/saved ─────────────────────────────
+  // Shows the last 5 saved drafts for the clinician, tagged by
+  // governance_state. Click to reload a draft into the wizard state.
+  window._studioDraftsCache = window._studioDraftsCache || null;
+  window._studioRenderDrafts = async () => {
+    const host = document.getElementById('studio-drafts-list');
+    if (!host) return;
+    if (!window._studioDraftsCache) {
+      try {
+        const r = await api.listSavedProtocols();
+        window._studioDraftsCache = r?.items || [];
+      } catch { window._studioDraftsCache = []; }
+    }
+    const drafts = (window._studioDraftsCache || []).slice(-5).reverse();
+    if (!drafts.length) {
+      host.innerHTML = '<div style="padding:6px 0;color:var(--text-tertiary);font-size:11.5px">No saved drafts yet. Complete the wizard and click <b>Save</b>.</div>';
+      return;
+    }
+    host.innerHTML = drafts.map(d => {
+      const state = d.governance_state || 'draft';
+      const stateColor = state === 'approved' ? 'var(--teal)' : state === 'submitted' ? 'var(--amber)' : 'var(--text-tertiary)';
+      const label = (d.name || d.condition || 'Draft').toString().replace(/[<>&"]/g, '');
+      return '<div class="studio-render-item" style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="window._studioLoadDraft(\'' + (d.id||'').replace(/['"<>&]/g,'') + '\')" title="Load this draft into the wizard">' +
+        '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + label + '</span>' +
+        '<span style="color:' + stateColor + ';font-size:10px;text-transform:uppercase;letter-spacing:0.3px">' + state + '</span>' +
+      '</div>';
+    }).join('');
+  };
+  window._studioRefreshDrafts = () => { window._studioDraftsCache = null; window._studioRenderDrafts(); };
+  window._studioLoadDraft = (id) => {
+    const d = (window._studioDraftsCache || []).find(x => x.id === id);
+    if (!d) return;
+    const pj = d.parameters_json || {};
+    if (d.condition) S.condition = d.condition;
+    if (pj.phenotype || d.phenotype) S.phenotype = pj.phenotype || d.phenotype;
+    if (d.modality || pj.modality)   S.modality  = d.modality || pj.modality;
+    if (d.device_slug || pj.device)  S.device    = d.device_slug || pj.device;
+    if (pj.target)   S.target   = pj.target;
+    if (pj.montage)  S.montage  = pj.montage;
+    S.step = 5;
+    paint();
   };
   window._studioExport = async () => {
     try {
@@ -1835,6 +1891,7 @@ export async function pgProtocolStudio(setTopbar, navigate) {
   };
 
   paint();
+  try { window._studioRenderDrafts(); } catch {}
 }
 
 // Compat alias so existing protocol-hub route keeps working.
