@@ -1961,15 +1961,19 @@ async function _pgPatientCourseImpl() {
   };
 
   // ── Data loading ─────────────────────────────────────────────────────────
-  // Every endpoint is wrapped in .catch() so a dead/slow Fly backend never
-  // rejects the Promise.all — worst case each promise resolves to null.
-  // `api.patientOutcomes?.()` guards against the legacy method name not
-  // existing on the bundled api object; the ?.() result is `undefined` in
-  // that case, so fall back to `Promise.resolve(null)` before chaining .catch.
+  // Every endpoint is wrapped in .catch() + a hard 3s timeout so a dead or
+  // half-open Fly connection never leaves the spinner hanging. If any call
+  // doesn't complete in time, we treat it as "no data" and fall through to
+  // the demo overlay below.
+  const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _raceNull = (p) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    _timeout(3000),
+  ]);
   const [coursesRaw, sessionsRaw, outcomesRaw] = await Promise.all([
-    api.patientPortalCourses().catch(() => null),
-    api.patientPortalSessions().catch(() => null),
-    (api.patientOutcomes?.() || Promise.resolve(null)).catch(() => null),
+    _raceNull(api.patientPortalCourses()),
+    _raceNull(api.patientPortalSessions()),
+    _raceNull(api.patientOutcomes?.() || null),
   ]);
 
   const coursesArr  = Array.isArray(coursesRaw)  ? coursesRaw  : [];
@@ -2692,40 +2696,45 @@ export async function pgPatientAssessments() {
       .replace(/'/g, '&#x27;');
   }
 
-  // ── Fetch in parallel ────────────────────────────────────────────────────
+  // ── Fetch in parallel (3s hard timeout on each) ──────────────────────────
+  // Half-open connections to Fly would otherwise leave the spinner visible
+  // forever. Race each call against a 3s timeout that resolves to null.
+  const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _raceNull = (p) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    _timeout(3000),
+  ]);
   let assessmentsRaw, coursesRaw, sessionsRaw;
   try {
     [assessmentsRaw, coursesRaw, sessionsRaw] = await Promise.all([
-      api.patientPortalAssessments().catch(() => null),
-      api.patientPortalCourses().catch(() => null),
-      api.patientPortalSessions().catch(() => null),
+      _raceNull(api.patientPortalAssessments()),
+      _raceNull(api.patientPortalCourses()),
+      _raceNull(api.patientPortalSessions()),
     ]);
   } catch (_e) {
     assessmentsRaw = null;
   }
 
-  if (assessmentsRaw === null) {
-    el.innerHTML = `
-      <div class="pt-assess-empty">
-        <div class="pt-assess-empty-ico" aria-hidden="true">&#9673;</div>
-        <div class="pt-assess-empty-title">Could not load your assessments</div>
-        <div class="pt-assess-empty-body">Please check your connection and try again.</div>
-        <button class="btn btn-ghost btn-sm" style="margin-top:14px"
-                onclick="window._navPatient('patient-assessments')">Try again \u2192</button>
-      </div>`;
-    return;
-  }
+  // If the assessments call errored or timed out, `assessmentsRaw` is null.
+  // We let it fall through to the empty/demo path rather than showing a
+  // scary error card — the empty state already has Message/Home CTAs, and
+  // the demo overlay below handles the preview-build case.
+  let rawItems   = Array.isArray(assessmentsRaw) ? assessmentsRaw : [];
+  const courses  = Array.isArray(coursesRaw)     ? coursesRaw     : [];
+  const sessions = Array.isArray(sessionsRaw)    ? sessionsRaw    : [];
 
-  let rawItems  = Array.isArray(assessmentsRaw) ? assessmentsRaw : [];
-  const courses   = Array.isArray(coursesRaw)     ? coursesRaw     : [];
-  const sessions  = Array.isArray(sessionsRaw)    ? sessionsRaw    : [];
-
-  // Demo overlay — when the demo patient's assessments list is empty
-  // (preview build, fresh API DB, seed not yet run), surface the bundled
-  // demoAssessmentSeed() so reviewers see a populated page instead of
-  // the "nothing here" empty state. Same pattern as the Treatment Plan
-  // fallback.
-  if (rawItems.length === 0 && isDemoPatient(currentUser, { getToken: api.getToken })) {
+  // Demo overlay — when the list is empty AND this is either a demo
+  // patient or a demo-flagged build (Netlify preview), surface the
+  // bundled demoAssessmentSeed() so reviewers see a populated page
+  // instead of the "nothing here" empty state.
+  const _assessDemoBuild =
+    (typeof import.meta !== 'undefined'
+      && import.meta.env
+      && (import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'));
+  const _assessLooksDemo = _assessDemoBuild
+    || isDemoPatient(currentUser, { getToken: api.getToken })
+    || (() => { try { return String(api.getToken?.() || '').includes('demo'); } catch { return false; } })();
+  if (rawItems.length === 0 && _assessLooksDemo) {
     rawItems = demoAssessmentSeed();
   }
 
