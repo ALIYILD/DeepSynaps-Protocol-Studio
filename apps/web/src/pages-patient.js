@@ -14,33 +14,36 @@ import {
 import { SUPPORTED_FORMS, getAssessmentConfig } from './assessment-forms.js';
 
 // ── Nav definition ────────────────────────────────────────────────────────────
+// Patient nav: each item is tagged with a `tone` so the sidebar renders
+// colour-tiled icons. Tones map to CSS variables in styles.css via the
+// .pt-nav-tile--<tone> classes. Emojis (rather than monochrome unicode)
+// give patients an immediately recognisable visual anchor for each area.
 function _patientNav() {
   return [
-    // Main
-    { id: 'patient-portal',      label: 'Home',                 icon: '⌂',  group: 'main' },
-    { id: 'patient-sessions',    label: 'Sessions',             icon: '◧',  group: 'main' },
-    { id: 'patient-course',      label: 'Treatment Plan',       icon: '◎',  group: 'main' },
-    { id: 'pt-outcomes',         label: 'Progress',             icon: '📈', group: 'main' },
-    { id: 'pt-wellness',         label: 'Tasks',                icon: '✓',  group: 'main' },
-    { id: 'patient-assessments', label: 'Assessments',          icon: '◉',  group: 'main' },
-    { id: 'patient-reports',     label: 'My Reports',           icon: '◱',  group: 'main' },
-    { id: 'patient-messages',    label: 'Messages',             icon: '◫',  group: 'main' },
-    { id: 'patient-wearables',   label: 'Devices & Wearables',  icon: '◌',  group: 'main' },
-    { id: 'patient-profile',     label: 'Profile',              icon: '◇',  group: 'main' },
+    { id: 'patient-portal',      label: 'Home',                 icon: '🏠', tone: 'teal',   group: 'main' },
+    { id: 'patient-sessions',    label: 'Sessions',             icon: '📅', tone: 'blue',   group: 'main' },
+    { id: 'patient-course',      label: 'Treatment Plan',       icon: '🧠', tone: 'violet', group: 'main' },
+    { id: 'pt-outcomes',         label: 'Progress',             icon: '📈', tone: 'green',  group: 'main' },
+    { id: 'pt-wellness',         label: 'Tasks',                icon: '✅', tone: 'amber',  group: 'main' },
+    { id: 'patient-assessments', label: 'Assessments',          icon: '📋', tone: 'rose',   group: 'main' },
+    { id: 'patient-reports',     label: 'My Reports',           icon: '📄', tone: 'blue',   group: 'main' },
+    { id: 'patient-messages',    label: 'Messages',             icon: '💬', tone: 'teal',   group: 'main' },
+    { id: 'patient-wearables',   label: 'Devices & Wearables',  icon: '⌚', tone: 'violet', group: 'main' },
+    { id: 'patient-profile',     label: 'Profile',              icon: '👤', tone: 'amber',  group: 'main' },
     // Optional
-    { id: 'pt-caregiver',        label: 'Caregiver Access',     icon: '👤', group: 'optional' },
+    { id: 'pt-caregiver',        label: 'Caregiver Access',     icon: '👥', tone: 'rose',   group: 'optional' },
     // Always at bottom
-    { id: 'pt-help',             label: 'Help',                 icon: '?',  group: 'bottom' },
+    { id: 'pt-help',             label: 'Help',                 icon: '❓', tone: 'slate',  group: 'bottom' },
   ];
 }
 
 function _patientBottomNav() {
   return [
-    { id: 'patient-portal',      label: 'Home',        icon: '⌂' },
-    { id: 'patient-sessions',    label: 'Sessions',    icon: '◧' },
-    { id: 'pt-wellness',         label: 'Tasks',       icon: '✓' },
-    { id: 'patient-messages',    label: 'Messages',    icon: '◫' },
-    { id: 'patient-profile',     label: 'Profile',     icon: '◇' },
+    { id: 'patient-portal',      label: 'Home',        icon: '🏠', tone: 'teal'   },
+    { id: 'patient-sessions',    label: 'Sessions',    icon: '📅', tone: 'blue'   },
+    { id: 'pt-wellness',         label: 'Tasks',       icon: '✅', tone: 'amber'  },
+    { id: 'patient-messages',    label: 'Messages',    icon: '💬', tone: 'teal'   },
+    { id: 'patient-profile',     label: 'Profile',     icon: '👤', tone: 'violet' },
   ];
 }
 
@@ -54,9 +57,10 @@ export function renderPatientNav(currentPage) {
 
     const renderItem = n => {
       const badge = n.badge ? `<span class="nav-badge">${n.badge}</span>` : '';
-      return `<div class="nav-item ${currentPage === n.id ? 'active' : ''}" onclick="window._navPatient('${n.id}')">
-        <span class="nav-icon">${n.icon}</span>
-        <span style="flex:1">${n.label}</span>${badge}
+      const tone = n.tone || 'teal';
+      return `<div class="nav-item pt-nav-item ${currentPage === n.id ? 'active' : ''}" onclick="window._navPatient('${n.id}')">
+        <span class="pt-nav-tile pt-nav-tile--${tone}" aria-hidden="true">${n.icon}</span>
+        <span class="pt-nav-label">${n.label}</span>${badge}
       </div>`;
     };
 
@@ -82,8 +86,9 @@ export function renderPatientNav(currentPage) {
   if (bottomNav) {
     bottomNav.innerHTML = _patientBottomNav().map(n => {
       const active = currentPage === n.id;
+      const tone   = n.tone || 'teal';
       return `<button class="pt-bottom-nav-item${active ? ' active' : ''}" onclick="window._navPatient('${n.id}')">
-        <span style="font-size:18px">${n.icon}</span>
+        <span class="pt-bottom-nav-tile pt-nav-tile--${tone}" aria-hidden="true">${n.icon}</span>
         <span>${n.label}</span>
       </button>`;
     }).join('');
