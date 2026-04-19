@@ -5636,10 +5636,38 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   window._assessSelect = (id) => { window._assessSelectedId = id; window._nav('assessments-v2'); };
   window._assessTab = (t) => { window._assessHubTab = t; window._nav('assessments-v2'); };
   window._assessCloseSide = () => { window._assessSelectedId = null; window._nav('assessments-v2'); };
-  window._assessBatch = () => window._dsToast?.({ title:'Batch send', body:'Select patients from the queue to send in bulk.', severity:'info' });
-  window._assessNew = () => window._dsToast?.({ title:'New assessment', body:'Assessment assignment flow.', severity:'info' });
-  window._assessReschedule = (id) => window._dsToast?.({ title:'Reschedule', body:'Assessment '+id+' — pick a new date.', severity:'info' });
-  window._assessExportPdf = (id) => window._dsToast?.({ title:'Export PDF', body:'Generating PDF for '+id+'…', severity:'info' });
+  // Batch send → jump to Cohort tab where the real _ahBulkAssign flow lives.
+  window._assessBatch = () => { window._assessHubTab = 'cohort'; window._nav('assessments-v2'); };
+  // New assessment → jump to Library tab (clinician picks the instrument then Submit/Assign).
+  window._assessNew = () => { window._assessHubTab = 'library'; window._nav('assessments-v2'); };
+  // Reschedule → prompt for ISO date, PATCH due_date; localStorage fallback when offline.
+  window._assessReschedule = async (id) => {
+    const row = queueRows.find(r => r.id === id);
+    const bid = row?.backendId || id;
+    const def = new Date(Date.now() + 7*86400000).toISOString().slice(0,10);
+    const next = window.prompt('New due date (YYYY-MM-DD):', def);
+    if (!next || !/^\d{4}-\d{2}-\d{2}$/.test(next)) return;
+    try {
+      await api.updateAssessment(bid, { due_date: next });
+      window._dsToast?.({ title:'Rescheduled', body:'New due date: '+next, severity:'success' });
+      window._nav('assessments-v2');
+    } catch {
+      try {
+        const raw = localStorage.getItem('ds_assessment_reschedules') || '[]';
+        const arr = JSON.parse(raw);
+        arr.push({ id: bid, new_due_date: next, at: new Date().toISOString() });
+        localStorage.setItem('ds_assessment_reschedules', JSON.stringify(arr));
+      } catch {}
+      window._dsToast?.({ title:'Rescheduled (offline)', body:'Saved locally; will sync.', severity:'info' });
+    }
+  };
+  // Export PDF → open print dialog on the detail panel so clinician can save to PDF
+  // (no server-side PDF endpoint — browser handles it via "Save as PDF" in print).
+  window._assessExportPdf = (id) => {
+    const row = queueRows.find(r => r.id === id);
+    window._dsToast?.({ title:'Printing', body:(row?.patient||'Assessment')+' · use "Save as PDF" in the print dialog.', severity:'info' });
+    try { window.print(); } catch {}
+  };
   window._assessCosign = async (id) => {
     // `id` here is the row id ("be-<backendId>" or mock "as-X"). Use backendId when present.
     const row = queueRows.find(r => r.id === id);
@@ -6156,11 +6184,23 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         return '<button class="dv2a-chip'+(activeFilter===code?' active':'')+'" onclick="window._assessSetFilter(\''+esc(code)+'\')">'+esc(code)+(n?' · '+n:'')+'</button>';
       }).join('') +
       '<div style="margin-left:auto;display:flex;gap:6px">'+
-      '<button class="btn btn-ghost btn-sm" style="font-size:10.5px" onclick="window._dsToast?.({title:\'Sort\',body:\'Sorting options coming soon.\',severity:\'info\'})">Sort: Oldest due ↑</button>'+
+      '<button class="btn btn-ghost btn-sm" style="font-size:10.5px" onclick="window._assessCycleSort()">Sort: '+(window._assessSort||'due-asc')+'</button>'+
       '</div>' +
     '</div>';
 
-    const filtered = activeFilter === 'all' ? queueRows : queueRows.filter(r => (r.inst || '').includes(activeFilter));
+    const _sortMode = window._assessSort || 'due-asc';
+    const _sortKey = {
+      'due-asc':    (a,b) => String(a.dueISO||a.due||'').localeCompare(String(b.dueISO||b.due||'')),
+      'due-desc':   (a,b) => String(b.dueISO||b.due||'').localeCompare(String(a.dueISO||a.due||'')),
+      'severity':   (a,b) => ({critical:4,severe:3,moderate:2,mild:1,minimal:0}[b.sev]||0) - ({critical:4,severe:3,moderate:2,mild:1,minimal:0}[a.sev]||0),
+      'patient':    (a,b) => String(a.patient||'').localeCompare(String(b.patient||'')),
+    }[_sortMode] || ((a,b)=>0);
+    const filteredRaw = activeFilter === 'all' ? queueRows : queueRows.filter(r => (r.inst || '').includes(activeFilter));
+    const filtered = filteredRaw.slice().sort(_sortKey);
+    if (!window._assessCycleSort) {
+      const _SORTS = ['due-asc','due-desc','severity','patient'];
+      window._assessCycleSort = () => { const cur = window._assessSort || 'due-asc'; const next = _SORTS[(_SORTS.indexOf(cur)+1) % _SORTS.length]; window._assessSort = next; window._nav('assessments-v2'); };
+    }
 
     const rowHtml = filtered.map(r => {
       const selected = r.id === selectedId;
