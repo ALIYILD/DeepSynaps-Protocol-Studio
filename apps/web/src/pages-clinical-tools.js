@@ -22,6 +22,7 @@ import { COND_HUB_META } from './registries/condition-assessment-hub-meta.js';
 import {
   getScaleMeta,
   enumerateBundleScales,
+  resolveScaleCanonical,
 } from './registries/scale-assessment-registry.js';
 import {
   formatScaleWithImplementationBadgeHtml,
@@ -37,6 +38,39 @@ function _dsToast(msg, type = 'success') {
   t.textContent = msg;
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 3500);
+}
+
+// Assessments-hub helpers — referenced by pgAssessmentsHub. Mirror the sibling
+// copy in pages-clinical.js; both intentionally share the same semantics.
+function _hubResolveRegistryScale(scaleId) {
+  const mapped = resolveScaleCanonical(scaleId);
+  return ASSESS_REGISTRY.find(r => r.id === mapped || r.id === scaleId) || null;
+}
+
+function _hubEscHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function _hubInterpretScore(scaleId, score, extraScalesMap) {
+  if (score === null || score === undefined || Number.isNaN(Number(score))) return '';
+  const n = Number(score);
+  const reg = _hubResolveRegistryScale(scaleId);
+  if (reg && typeof reg.interpret === 'function') {
+    const o = reg.interpret(n);
+    return (o && o.label) || '';
+  }
+  const canon = resolveScaleCanonical(scaleId);
+  const ex = (extraScalesMap || {})[scaleId] || (extraScalesMap || {})[canon];
+  if (ex && Array.isArray(ex.interpretation)) {
+    for (const r of ex.interpretation) {
+      if (n <= r.max) return r.label;
+    }
+  }
+  return '';
 }
 
 const _TYPE_COLORS = {
@@ -5625,7 +5659,9 @@ export async function pgAssessmentsHub(setTopbar) {
     { id:'PTSD-BDL',title:'PTSD Protocol Bundle', cat:'Condition Bundle', catKey:'bundle', conditions:['PTSD'], time:null, fill:'In-Platform',
       desc:'PCL-5 + Side Effect Monitor + PSQI — recommended battery for TMS PTSD treatment monitoring.' },
   ];
-  const ASSESS_FILTER_CHIPS = ['All','Validated Scales','Structured Forms','Condition Bundles','Side Effects','Caregiver'];
+  // "Caregiver" chip removed — no template carries a caregiver catKey, so it
+  // always rendered zero results. Remove, not disable.
+  const ASSESS_FILTER_CHIPS = ['All','Validated Scales','Structured Forms','Condition Bundles','Side Effects'];
   const ASSESS_CAT_MAP = { 'Validated Scales':'validated', 'Structured Forms':'form', 'Condition Bundles':'bundle' };
 
   function renderTemplateLibrary() {
@@ -5653,7 +5689,6 @@ export async function pgAssessmentsHub(setTopbar) {
         '<div class="tlib-card-actions">' +
           '<button class="tlib-btn-assign" onclick="window._ah2TlibAssign(\'' + item.id + '\',\'' + item.title.replace(/'/g,"\\'") + '\')">Assign</button>' +
           '<button class="tlib-btn-preview" onclick="window._ah2TlibPreview(\'' + item.id + '\')">Preview</button>' +
-          '<button class="tlib-btn-secondary" onclick="window._ah2TlibBundle(\'' + item.id + '\',\'' + item.title.replace(/'/g,"\\'") + '\')">Add to Bundle</button>' +
         '</div>' +
       '</div>';
     }).join('') : '<div class="tlib-empty"><div class="tlib-empty-icon">&#128269;</div><div class="tlib-empty-msg">No templates match your search</div></div>';
@@ -5798,11 +5833,23 @@ export async function pgAssessmentsHub(setTopbar) {
       templateId: id,
       templateType: 'assessment',
       onAssign: async (patientId, patientName) => {
+        // Backend AssessmentAssignRequest expects the normalized template id
+        // (lowercase, alphanumeric-only — e.g. PHQ-9 → phq9). Non-normalized
+        // ids fail server-side template lookup and create an assessment with
+        // no embedded sections. Match the bulk-assign path's normalization.
+        const normalized = String(id || '').toLowerCase().replace(/[^a-z0-9]/g, '') || String(id || '').toLowerCase();
         try {
-          if (api.assignAssessment) {
-            await api.assignAssessment({ patient_id: patientId, template_id: id });
+          await api.assignAssessment(patientId, { template_id: normalized });
+        } catch (err) {
+          const msg = (err && err.message) || 'Network error';
+          if (window._showNotifToast) {
+            window._showNotifToast({ title: 'Assignment failed', body: msg, severity: 'critical' });
+          } else {
+            _dsToast('Assignment failed: ' + msg, 'error');
           }
-        } catch {}
+          return;
+        }
+        try { await hydrate(); render(); } catch {}
         if (window._showNotifToast) {
           window._showNotifToast({ title: 'Assessment Assigned', body: '\u201c' + title + '\u201d assigned to ' + patientName, severity: 'success' });
         } else {
@@ -5813,14 +5860,53 @@ export async function pgAssessmentsHub(setTopbar) {
   };
   window._ah2TlibPreview = function(id) {
     const item = ASSESS_TEMPLATES.find(x => x.id === id);
-    if (item) window._showNotifToast?.({ title: item.title, body: (item.desc || '') + (item.time ? ' · ' + item.time : ''), severity: 'info' });
-  };
-  window._ah2TlibBundle = function(id, title) {
-    const t = document.createElement('div');
-    t.className = 'notice notice-ok';
-    t.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:360px;padding:12px 16px;border-radius:8px;background:rgba(74,158,255,.12);border:1px solid rgba(74,158,255,.3);color:#4a9eff;font-size:13px';
-    t.textContent = '\u201c' + title + '\u201d added to bundle';
-    document.body.appendChild(t); setTimeout(() => t.remove(), 3000);
+    if (!item) return;
+    // Resolve the instrument registry entry for real items (PHQ-9, GAD-7,
+    // PCL-5, etc. carry full questions + options). Licensed instruments
+    // have no embedded items; we surface licensing instead.
+    const reg = ASSESS_REGISTRY.find(r => r.id === id) || null;
+    const esc = s => String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+    let body = '';
+    body += '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:10px">' + esc(item.desc || '') + '</div>';
+    body += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">';
+    body += '<span class="tlib-badge tlib-badge--form">' + esc(item.cat) + '</span>';
+    if (item.time) body += '<span class="tlib-badge tlib-badge--form">\u23F1 ' + esc(item.time) + '</span>';
+    (item.conditions || []).slice(0, 4).forEach(c => {
+      body += '<span class="tlib-badge tlib-badge--form">' + esc(c) + '</span>';
+    });
+    body += '</div>';
+
+    if (reg && Array.isArray(reg.questions) && reg.questions.length) {
+      body += '<h4 style="margin:0 0 6px;font-size:12.5px;font-weight:700">Items</h4>';
+      body += '<ol style="margin:0 0 14px;padding-left:20px;font-size:12.5px;line-height:1.55;color:var(--text-primary)">';
+      reg.questions.forEach(q => { body += '<li style="margin-bottom:4px">' + esc(q) + '</li>'; });
+      body += '</ol>';
+      if (Array.isArray(reg.options) && reg.options.length) {
+        body += '<h4 style="margin:0 0 6px;font-size:12.5px;font-weight:700">Response options</h4>';
+        body += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px">';
+        body += reg.options.map(o => esc(o)).join(' &middot; ');
+        body += '</div>';
+      }
+    } else if (reg) {
+      body += '<div role="note" style="font-size:12px;color:var(--amber,#ffb547);background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.25);border-radius:6px;padding:8px 10px;margin-bottom:14px;line-height:1.5">'
+        + 'Licensed instrument \u2014 item text must be administered via an authorized copy. DeepSynaps stores total score and interpretation only.'
+        + '</div>';
+    } else {
+      body += '<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:14px">Structured form \u2014 full layout rendered when the form is opened for a patient.</div>';
+    }
+
+    if (reg && reg.scoringKey) {
+      body += '<div style="font-size:11.5px;color:var(--text-tertiary);line-height:1.5">Scoring: interpretation is computed from the total per the published rubric.</div>';
+    }
+
+    const title = document.getElementById('ah2-preview-title');
+    const bd = document.getElementById('ah2-preview-body');
+    if (title) title.textContent = item.title;
+    if (bd) bd.innerHTML = body;
+    document.getElementById('ah2-preview-modal')?.classList.remove('ah2-hidden');
   };
 
   window._ah2PreviewBundle = function() {
@@ -6176,6 +6262,16 @@ export async function pgAssessmentsHub(setTopbar) {
       '</div>' +
     '</div>';
 
+  const previewModalHtml =
+    '<div class="ah2-modal-overlay ah2-hidden" id="ah2-preview-modal">' +
+      '<div class="ah2-modal-box" style="max-width:560px">' +
+        '<div class="ah2-modal-header"><h2 id="ah2-preview-title">Preview</h2>' +
+        '<button class="ah2-modal-close" onclick="document.getElementById(\'ah2-preview-modal\').classList.add(\'ah2-hidden\')">&times;</button></div>' +
+        '<div class="ah2-modal-body" id="ah2-preview-body"></div>' +
+        '<div class="ah2-modal-footer"><button class="ah2-btn ah2-btn-ghost" onclick="document.getElementById(\'ah2-preview-modal\').classList.add(\'ah2-hidden\')">Close</button></div>' +
+      '</div>' +
+    '</div>';
+
   window._ah2CondInfo = function(condId) {
     const cond = COND_BUNDLES.find(c => c.id === condId);
     if (!cond) return;
@@ -6290,7 +6386,7 @@ export async function pgAssessmentsHub(setTopbar) {
 
   const el = document.getElementById('content');
   if (!el) return;
-  el.innerHTML = '<div class="ah2-wrap" id="ah2-root"></div>' + assignModalHtml + scoreModalHtml + detailModalHtml + condInfoModalHtml;
+  el.innerHTML = '<div class="ah2-wrap" id="ah2-root"></div>' + assignModalHtml + scoreModalHtml + detailModalHtml + condInfoModalHtml + previewModalHtml;
   render();          // shows loading skeleton immediately
   await hydrate();   // fetches live data from /api/v1/assessments
   render();          // swaps in real assignments
@@ -6584,16 +6680,131 @@ export async function pgBrainMapPlanner(setTopbar) {
   }
 
   let conds = [], protos = [];
+  let _libProtos = [], _libConditions = [], _libDevices = [];
   try {
     const apiObj = window._api || window.api;
-    const [cd, pd] = await Promise.all([
+    const [cd, pd, lib] = await Promise.all([
       apiObj ? apiObj.conditions().catch(function() { return null; }) : Promise.resolve(null),
       apiObj ? apiObj.protocols().catch(function()  { return null; }) : Promise.resolve(null),
+      import('./protocols-data.js').catch(function() { return null; }),
     ]);
     conds  = (cd && cd.items)  ? cd.items  : [];
     protos = (pd && pd.items)  ? pd.items  : [];
+    if (lib) {
+      _libProtos     = lib.PROTOCOL_LIBRARY || [];
+      _libConditions = lib.CONDITIONS       || [];
+      _libDevices    = lib.DEVICES          || [];
+    }
   } catch (_) {}
   if (!conds.length) conds = FALLBACK_CONDITIONS.map(function(n) { return { name: n }; });
+
+  function _devToModality(dev, subtype) {
+    const s = String(subtype || '').toLowerCase();
+    if (dev === 'tms' || dev === 'deep_tms') {
+      if (s.indexOf('itbs') !== -1) return 'iTBS';
+      if (s.indexOf('ctbs') !== -1) return 'cTBS';
+      if (s.indexOf('deep') !== -1 || s.indexOf('h-coil') !== -1) return 'Deep TMS';
+      return 'TMS/rTMS';
+    }
+    const M = { tdcs:'tDCS', tacs:'tACS', ces:'CES', tavns:'taVNS', tps:'TPS',
+                pbm:'PBM', pemf:'PBM', nf:'Neurofeedback', tus:'TPS' };
+    return M[dev] || 'TMS/rTMS';
+  }
+
+  function _inferElectrodes(p) {
+    const name    = (p && (p.name || '')       || '').toLowerCase();
+    const summary = (p && (p.notes || p.summary || '') || '').toLowerCase();
+    const target  = (p && (p.target || '')     || '').toLowerCase();
+    const blob = name + ' ' + summary + ' ' + target;
+    if (/anode\s*f3[\s\S]*cathode\s*f4/i.test(blob)) return { anode:'F3', cathode:'F4', targetRegion:'DLPFC-L' };
+    if (/left dlpfc|\(f3\)|\bf3\b/.test(blob))   return { anode:'F3', targetRegion:'DLPFC-L' };
+    if (/right dlpfc|\(f4\)|\bf4\b/.test(blob))  return { anode:'F4', targetRegion:'DLPFC-R' };
+    if (/\bsma\b|\bfcz\b/.test(blob))            return { anode:'FCz', targetRegion:'SMA' };
+    if (/dmpfc|dorsomedial/.test(blob))          return { anode:'Fz', targetRegion:'DMPFC' };
+    if (/mpfc|medial pfc|\bfz\b/.test(blob))     return { anode:'Fz', targetRegion:'mPFC' };
+    if (/ifg|\bf7\b|broca/.test(blob))           return { anode:'F7', targetRegion:'IFG-L' };
+    if (/vertex|\bcz\b/.test(blob))              return { anode:'Cz', targetRegion:'Cz' };
+    if (/occipital|\boz\b|\bo1\b|\bo2\b/.test(blob)) return { anode:'Oz', targetRegion:'V1' };
+    if (/alpha.?theta|\bpz\b/.test(blob))        return { anode:'Pz', targetRegion:'Pz' };
+    if (/left m1|m1-l|motor.*left|\bc3\b/.test(blob)) return { anode:'C3', targetRegion:'M1-L' };
+    if (/right m1|m1-r|motor.*right|\bc4\b/.test(blob)) return { anode:'C4', targetRegion:'M1-R' };
+    if (/temporal.*left|\bt7\b|\bt5\b/.test(blob)) return { anode:'T7', targetRegion:'TEMPORAL-L' };
+    if (/temporal.*right|\bt8\b|\bt6\b/.test(blob)) return { anode:'T8', targetRegion:'TEMPORAL-R' };
+    if (p && (p.device === 'tms' || p.device === 'deep_tms')) return { anode:'F3', targetRegion:'DLPFC-L' };
+    if (p && p.device === 'tdcs')  return { anode:'F3', cathode:'F4', targetRegion:'DLPFC-L' };
+    if (p && p.device === 'nf')    return { anode:'Cz', targetRegion:'Cz' };
+    return { anode: 'F3', targetRegion: 'DLPFC-L' };
+  }
+
+  // Unified protocol catalog: curated (exact params) wins, library fills bulk,
+  // backend registry fills gaps. Dedup by id.
+  const _catalog = [];
+  const _seen = new Set();
+  Object.keys(BMP_PROTO_MAP).forEach(function(id) {
+    _seen.add(id);
+    const m = BMP_PROTO_MAP[id];
+    const rs = BMP_REGION_SITES[m.region];
+    _catalog.push({
+      id: id,
+      name: BMP_PROTO_LABELS[id] || id,
+      conditionId: '',
+      device: '',
+      modality: m.modality,
+      evidenceGrade: 'A',
+      summary: '',
+      anode:   rs && rs.primary && rs.primary.length ? rs.primary[0] : null,
+      cathode: rs && rs.ref && rs.ref.length ? rs.ref[0] : null,
+      targetRegion: m.region,
+      parameters: { frequency_hz: m.freq, intensity: m.intensity, pulses_per_session: m.pulses, sessions_total: m.sessions },
+      source: 'curated',
+    });
+  });
+  _libProtos.forEach(function(p) {
+    if (!p || !p.id || _seen.has(p.id)) return;
+    _seen.add(p.id);
+    const inf = _inferElectrodes(p);
+    _catalog.push({
+      id: p.id, name: p.name || p.id,
+      conditionId: p.conditionId || '',
+      device: p.device || '',
+      subtype: p.subtype || '',
+      modality: _devToModality(p.device, p.subtype),
+      evidenceGrade: p.evidenceGrade || '?',
+      summary: p.notes || '',
+      anode: inf.anode || null,
+      cathode: inf.cathode || null,
+      targetRegion: inf.targetRegion || null,
+      parameters: p.parameters || {},
+      source: 'library',
+    });
+  });
+  (protos || []).forEach(function(row) {
+    if (!row || !row.id || _seen.has(row.id)) return;
+    _seen.add(row.id);
+    const inf = _inferElectrodes({
+      name: row.name, notes: row.evidence_summary || row.coil_or_electrode_placement || '',
+      target: row.target_region || '', device: (row.modality_id || '').toLowerCase(),
+    });
+    _catalog.push({
+      id: row.id, name: row.name || row.id,
+      conditionId: row.condition_id || '',
+      device: (row.modality_id || '').toLowerCase(),
+      subtype: row.subtype || '',
+      modality: _devToModality((row.modality_id||'').toLowerCase(), row.subtype),
+      evidenceGrade: String(row.evidence_grade || '').replace(/^EV-/, '') || '?',
+      summary: row.evidence_summary || '',
+      anode: inf.anode || null,
+      cathode: inf.cathode || null,
+      targetRegion: inf.targetRegion || null,
+      parameters: { frequency_hz: row.frequency_hz || '', intensity: row.intensity || '', total_course: row.total_course || '' },
+      source: 'backend',
+    });
+  });
+
+  const _catalogById = {};
+  _catalog.forEach(function(e) { _catalogById[e.id] = e; });
+
+  const _bmpProtoFilter = { q: '', cond: '', ev: '', site: '' };
 
   function _esc(s) {
     return String(s || '').replace(/[&<>"']/g, function(c) {
@@ -6799,12 +7010,43 @@ export async function pgBrainMapPlanner(setTopbar) {
     }
     const altSites = (siteRegion && BMP_REGION_SITES[siteRegion]) ? BMP_REGION_SITES[siteRegion].alt : [];
     const linkedProtos = [];
-    Object.keys(BMP_PROTO_MAP).forEach(function(pid) {
-      const rs = BMP_REGION_SITES[BMP_PROTO_MAP[pid].region];
-      if (rs && (rs.primary.indexOf(site) !== -1 || rs.ref.indexOf(site) !== -1) && linkedProtos.length < 6)
-        linkedProtos.push(pid);
+    const _linkSeen = new Set();
+    _catalog.forEach(function(p) {
+      if (linkedProtos.length >= 8 || _linkSeen.has(p.id)) return;
+      if (p.anode === site || p.cathode === site) { linkedProtos.push(p.id); _linkSeen.add(p.id); }
     });
+    if (linkedProtos.length < 8) {
+      Object.keys(BMP_PROTO_MAP).forEach(function(pid) {
+        if (linkedProtos.length >= 8 || _linkSeen.has(pid)) return;
+        const rs = BMP_REGION_SITES[BMP_PROTO_MAP[pid].region];
+        if (rs && (rs.primary.indexOf(site) !== -1 || rs.ref.indexOf(site) !== -1)) {
+          linkedProtos.push(pid); _linkSeen.add(pid);
+        }
+      });
+    }
     let h = '<div class="bmp-detail-card">';
+    const activeCat = bmpState.protoId ? _catalogById[bmpState.protoId] : null;
+    if (activeCat) {
+      const evC = { A:'#00d4bc', B:'#4a9eff', C:'#ffb547', D:'var(--text-tertiary)', E:'var(--text-tertiary)' };
+      const evColor = evC[activeCat.evidenceGrade] || 'var(--text-tertiary)';
+      h += '<div style="font-size:12px;font-weight:700;color:var(--text-primary);line-height:1.3">' + _esc(activeCat.name) + '</div>';
+      h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 8px">';
+      h += '<span style="font-size:10.5px;padding:2px 8px;border-radius:6px;border:1px solid ' + evColor + '44;color:' + evColor + '">Ev. ' + _esc(activeCat.evidenceGrade) + '</span>';
+      if (activeCat.modality) h += '<span style="font-size:10.5px;padding:2px 8px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-secondary)">' + _esc(activeCat.modality) + '</span>';
+      if (activeCat.targetRegion) h += '<span style="font-size:10.5px;padding:2px 8px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-secondary)">◎ ' + _esc(activeCat.targetRegion) + '</span>';
+      h += '</div>';
+      if (activeCat.summary) {
+        h += '<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5;margin-bottom:10px">' + _esc(activeCat.summary.slice(0, 220)) + (activeCat.summary.length > 220 ? '\u2026' : '') + '</div>';
+      }
+      // Heuristic-target caveat: only curated entries carry exact anchors.
+      if (activeCat.source !== 'curated') {
+        h += '<div role="note" style="display:flex;gap:6px;align-items:flex-start;font-size:10.5px;color:var(--amber,#ffb547);background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.25);border-radius:6px;padding:6px 8px;margin-bottom:10px;line-height:1.4">'
+          + '<span aria-hidden="true" style="flex-shrink:0">⚠</span>'
+          + '<span>Target electrode inferred from protocol text. Verify anatomical placement before prescribing.</span>'
+          + '</div>';
+      }
+      h += '<div style="height:1px;background:var(--border);margin:4px 0 10px"></div>';
+    }
     h += '<div class="bmp-detail-site-name">' + _esc(site) + '</div>';
     h += '<div class="bmp-detail-region">' + _esc(anat) + '</div>';
     h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">';
@@ -6831,7 +7073,7 @@ export async function pgBrainMapPlanner(setTopbar) {
       h += '<div style="display:flex;flex-direction:column;gap:5px">';
       linkedProtos.forEach(function(pid) {
         h += '<button class="bmp-proto-link" data-proto="' + _esc(pid) + '">'
-          + _esc(BMP_PROTO_LABELS[pid] || pid) + '</button>';
+          + _esc(BMP_PROTO_LABELS[pid] || (_catalogById[pid] && _catalogById[pid].name) || pid) + '</button>';
       });
       h += '</div>';
     }
@@ -6857,43 +7099,107 @@ export async function pgBrainMapPlanner(setTopbar) {
   }
 
   function _loadProtocol(pid) {
-    const pm = BMP_PROTO_MAP[pid]; if (!pm) return;
-    bmpState.protoId   = pid;
-    bmpState.region    = pm.region;
-    bmpState.modality  = pm.modality;
-    bmpState.lat       = pm.lat;
-    bmpState.freq      = pm.freq;
-    bmpState.intensity = pm.intensity;
-    bmpState.pulses    = pm.pulses;
-    bmpState.sessions  = pm.sessions;
-    bmpState.duration  = pm.duration || bmpState.duration;
+    const pm = BMP_PROTO_MAP[pid];
+    const cat = _catalogById[pid];
+    if (!pm && !cat) return;
+
+    bmpState.protoId = pid;
+    if (pm) {
+      bmpState.region    = pm.region;
+      bmpState.modality  = pm.modality;
+      bmpState.lat       = pm.lat;
+      bmpState.freq      = pm.freq;
+      bmpState.intensity = pm.intensity;
+      bmpState.pulses    = pm.pulses;
+      bmpState.sessions  = pm.sessions;
+      bmpState.duration  = pm.duration || bmpState.duration;
+    } else {
+      bmpState.modality = cat.modality || bmpState.modality;
+      bmpState.region   = cat.targetRegion
+        || (cat.anode ? _inferRegionFromSite(cat.anode) : '')
+        || bmpState.region;
+      bmpState.lat      = cat.targetRegion && /-R$/.test(cat.targetRegion) ? 'right'
+                       : cat.targetRegion && /-B$/.test(cat.targetRegion) ? 'bilateral'
+                       : 'left';
+      const P = cat.parameters || {};
+      bmpState.freq      = P.frequency_hz != null ? String(P.frequency_hz) : '';
+      bmpState.intensity = P.intensity_pct_rmt != null ? (String(P.intensity_pct_rmt) + '% MT')
+                         : P.intensity != null ? String(P.intensity) : '';
+      bmpState.pulses    = P.pulses_per_session != null ? String(P.pulses_per_session) : '';
+      bmpState.duration  = P.session_duration_min != null ? String(P.session_duration_min) : bmpState.duration;
+      bmpState.sessions  = P.sessions_total != null ? String(P.sessions_total)
+                         : P.total_course != null ? String(P.total_course) : '';
+    }
+
     const modSel = document.getElementById('bmp-mod-sel');
-    if (modSel) modSel.value = pm.modality;
+    if (modSel) modSel.value = bmpState.modality;
     const regSel = document.getElementById('bmp-region-sel');
-    if (regSel) regSel.value = pm.region;
+    if (regSel) regSel.value = bmpState.region || '';
     document.querySelectorAll('.bmp-lat-btn').forEach(function(b) {
-      b.classList.toggle('bmp-lat-active', b.dataset.lat === pm.lat);
+      b.classList.toggle('bmp-lat-active', b.dataset.lat === bmpState.lat);
     });
     ['freq','intensity','pulses','duration','sessions'].forEach(function(k) {
       const inp = document.getElementById('bmp-param-' + k);
-      if (inp) inp.value = pm[k] || '';
+      if (inp) inp.value = bmpState[k] || '';
     });
     const ps = document.getElementById('bmp-proto-sel');
     if (ps) ps.value = pid;
-    const rs = BMP_REGION_SITES[pm.region];
+
+    const rs = BMP_REGION_SITES[bmpState.region];
     if (rs && rs.primary.length) bmpState.selectedSite = rs.primary[0];
+    else if (cat && cat.anode)   bmpState.selectedSite = cat.anode;
+
     _updateMap(); _updateDetail(); _updateParams();
     _persist();
   }
 
-  const protoOptions = Object.keys(BMP_PROTO_LABELS).map(function(id) {
-    return '<option value="' + _esc(id) + '">' + _esc(BMP_PROTO_LABELS[id]) + '</option>';
+  const _condSet = {};
+  _libConditions.forEach(function(c) { if (c && c.id) _condSet[c.id] = c.label || c.id; });
+  (conds || []).forEach(function(c) {
+    const id = c.id || c.slug || c.name;
+    if (id && !_condSet[id]) _condSet[id] = c.label || c.name || id;
+  });
+  const _condEntries = Object.keys(_condSet).map(function(id) { return { id: id, label: _condSet[id] }; })
+    .sort(function(a, b) { return a.label.localeCompare(b.label); });
+
+  const condOptions = _condEntries.map(function(c) {
+    return '<option value="' + _esc(c.id) + '">' + _esc(c.label) + '</option>';
   }).join('');
 
-  const condOptions = conds.map(function(c) {
-    const n = c.name || c;
-    return '<option value="' + _esc(n) + '">' + _esc(n) + '</option>';
-  }).join('');
+  function _filteredCatalog() {
+    const q    = (_bmpProtoFilter.q || '').toLowerCase();
+    const cond = _bmpProtoFilter.cond;
+    const ev   = _bmpProtoFilter.ev;
+    const site = _bmpProtoFilter.site;
+    return _catalog.filter(function(p) {
+      if (cond && p.conditionId !== cond) return false;
+      if (ev   && (p.evidenceGrade || '?') !== ev) return false;
+      if (site && p.anode !== site && p.cathode !== site) return false;
+      if (q) {
+        const blob = (p.name + ' ' + (p.summary || '') + ' ' + (p.conditionId || '')).toLowerCase();
+        if (blob.indexOf(q) === -1) return false;
+      }
+      return true;
+    });
+  }
+
+  function _renderProtoSelect() {
+    const sel = document.getElementById('bmp-proto-sel');
+    if (!sel) return;
+    const list = _filteredCatalog();
+    const capped = list.slice(0, 200);
+    const opts = ['<option value="">\u2014 select protocol \u2014</option>']
+      .concat(capped.map(function(p) {
+        const ev = p.evidenceGrade && p.evidenceGrade !== '?' ? ' [' + p.evidenceGrade + ']' : '';
+        return '<option value="' + _esc(p.id) + '">' + _esc(p.name + ev) + '</option>';
+      }));
+    sel.innerHTML = opts.join('');
+    if (bmpState.protoId && list.some(function(p) { return p.id === bmpState.protoId; })) {
+      sel.value = bmpState.protoId;
+    }
+    const cntEl = document.getElementById('bmp-proto-count');
+    if (cntEl) cntEl.textContent = list.length + ' protocol' + (list.length === 1 ? '' : 's');
+  }
 
   const regionOptions = Object.keys(BMP_REGION_SITES).map(function(k) {
     const pretty = k.replace(/[-_]/g, ' ');
@@ -6925,11 +7231,24 @@ export async function pgBrainMapPlanner(setTopbar) {
         + '</div>'
       + '</div>'
       + '<div class="bmp-section-card">'
-        + '<div class="bmp-section-title">Load Protocol</div>'
+        + '<div class="bmp-section-title" style="display:flex;align-items:center;gap:8px">'
+          + '<span>Load Protocol</span>'
+          + '<span id="bmp-proto-count" style="margin-left:auto;font-size:10.5px;color:var(--text-tertiary);font-weight:400">0 protocols</span>'
+        + '</div>'
+        + '<input id="bmp-proto-q" class="form-input" type="text" placeholder="Search protocols\u2026"'
+          + ' style="width:100%;font-size:12px;box-sizing:border-box;margin-bottom:6px"'
+          + ' oninput="window._bmpSetProtoFilter(\'q\', this.value)" />'
+        + '<div style="display:flex;gap:6px;margin-bottom:6px">'
+          + '<select id="bmp-proto-ev" class="form-select" style="flex:1;font-size:11.5px" onchange="window._bmpSetProtoFilter(\'ev\', this.value)">'
+            + '<option value="">All evidence</option>'
+            + '<option value="A">Grade A</option>'
+            + '<option value="B">Grade B</option>'
+            + '<option value="C">Grade C</option>'
+          + '</select>'
+        + '</div>'
         + '<select id="bmp-proto-sel" class="form-select" style="width:100%;font-size:12px"'
           + ' onchange="window._bmpLoadProto(this.value)">'
           + '<option value="">\u2014 select protocol \u2014</option>'
-          + protoOptions
         + '</select>'
       + '</div>'
       + '<div class="bmp-section-card">'
@@ -6948,8 +7267,9 @@ export async function pgBrainMapPlanner(setTopbar) {
       + '</div>'
       + '<div class="bmp-section-card">'
         + '<div class="bmp-section-title">Condition</div>'
-        + '<select id="bmp-cond-sel" class="form-select" style="width:100%;font-size:12px">'
-          + '<option value="">\u2014 select \u2014</option>' + condOptions
+        + '<select id="bmp-cond-sel" class="form-select" style="width:100%;font-size:12px"'
+          + ' onchange="window._bmpSetProtoFilter(\'cond\', this.value)">'
+          + '<option value="">\u2014 all conditions \u2014</option>' + condOptions
         + '</select>'
       + '</div>'
       + '<div class="bmp-section-card">'
@@ -7078,7 +7398,8 @@ export async function pgBrainMapPlanner(setTopbar) {
     setVal('bmp-param-notes', bmpState.notes);
   } catch (_) {}
 
-  // Ensure param section visibility is correct on first load
+  _renderProtoSelect();
+
   _updateParams();
   if (bmpState.selectedSite) { _updateDetail(); }
   _updateMap();
@@ -7369,6 +7690,12 @@ export async function pgBrainMapPlanner(setTopbar) {
   // ── global handlers ───────────────────────────────────────────────────────
   window._bmpLoadProto = function(pid) { if (pid) _loadProtocol(pid); };
 
+  window._bmpSetProtoFilter = function(key, value) {
+    if (key !== 'q' && key !== 'cond' && key !== 'ev' && key !== 'site') return;
+    _bmpProtoFilter[key] = String(value == null ? '' : value);
+    _renderProtoSelect();
+  };
+
   window._bmpSetModality = function(m) {
     bmpState.modality = m; _updateMap(); _updateParams();
     _persist();
@@ -7422,6 +7749,10 @@ export async function pgBrainMapPlanner(setTopbar) {
       }
     }
     bmpState.selectedSite = name;
+    // Bidirectional: click a site → filter protocol list to that electrode.
+    // Click the same site again → clear the filter.
+    _bmpProtoFilter.site = (_bmpProtoFilter.site === name) ? '' : name;
+    _renderProtoSelect();
     _updateDetail(); _updateMap(); _updateParams();
     _persist();
   };
@@ -7430,17 +7761,18 @@ export async function pgBrainMapPlanner(setTopbar) {
   window._bmpUseInWizard = function() { window._nav('protocol-wizard'); };
 
   window._bmpViewDetail = function() {
-    if (bmpState.protoId && protos && protos.find) {
-      const p = protos.find(function(pr) { return (pr.id || '') === bmpState.protoId; });
-      if (p) window._pilDetailProto = p;
-    }
+    if (bmpState.protoId) window._protDetailId = bmpState.protoId;
     window._nav('protocol-detail');
   };
 
   window._bmpPrescribeProto = function(pid) {
-    if (pid && protos && protos.find) {
-      const p = protos.find(function(pr) { return (pr.id || '').replace(/['"<>&]/g, '') === pid; });
-      if (p) window._rxPrefilledProto = p;
+    const safe = String(pid || '').replace(/['"<>&]/g, '');
+    if (safe) {
+      if (protos && protos.find) {
+        const p = protos.find(function(pr) { return (pr.id || '') === safe; });
+        if (p) window._rxPrefilledProto = p;
+      }
+      window._protDetailId = safe;
     }
     window._nav('prescriptions');
   };
