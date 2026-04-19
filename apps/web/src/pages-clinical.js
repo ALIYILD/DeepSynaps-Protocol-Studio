@@ -1,6 +1,5 @@
 import { api, downloadBlob } from './api.js';
 import { cardWrap, fr, evBar, pillSt, initials, tag, spinner, emptyState, spark, brainMapSVG, evidenceBadge, labelBadge, approvalBadge, safetyBadge, govFlag } from './helpers.js';
-import { renderBrainMap10_20 } from './brain-map-svg.js';
 import { currentUser } from './auth.js';
 import { FALLBACK_CONDITIONS, FALLBACK_MODALITIES, FALLBACK_ASSESSMENT_TEMPLATES, COURSE_STATUS_COLORS } from './constants.js';
 import { renderHomeTherapyTab, bindHomeTherapyActions } from './pages-home-therapy.js';
@@ -660,34 +659,17 @@ export async function pgDash(setTopbar, navigate) {
       navigate('patient-profile');
     };
   }
+  // Always wire up course session launcher so Execute buttons work from dashboard
   window._startCourseSession = function(courseId) {
     if (courseId) window._selectedCourseId = courseId;
     window._nav('session-execution');
   };
 
-  const _today = new Date();
-  const _weekday = _today.toLocaleDateString('en-GB', { weekday: 'long' });
-  const _todayHuman = _today.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-  setTopbar(
-    `<div class="dv2-topbar-title">Home <span class="dv2-crumb-sep">·</span> <span class="dv2-crumb-day">${_weekday}</span> <span class="dv2-crumb-sep">·</span> <span class="dv2-crumb-date">${_todayHuman}</span></div>`,
-    `<div class="dv2-topbar-actions" style="display:flex;align-items:center;gap:8px">
-      <select class="dv2-clinic-select" aria-label="Clinic" onchange="window._dv2ClinicChange?.(this.value)" style="background:var(--bg-surface,#10182280);border:1px solid var(--border);color:var(--text-primary);font-size:12px;padding:5px 10px;border-radius:6px;font-family:var(--dv2-font-display,inherit)">
-        <option>Main Clinic</option>
-        <option>Satellite — North</option>
-        <option>Tele-clinic</option>
-      </select>
-      <div class="dv2-search" style="display:flex;align-items:center;gap:6px;background:var(--bg-surface,#10182280);border:1px solid var(--border);border-radius:6px;padding:4px 10px;min-width:220px">
-        <span style="color:var(--text-tertiary);font-size:12px">&#x1F50D;</span>
-        <input type="search" placeholder="Search patients, protocols&hellip;" aria-label="Search" style="background:transparent;border:0;outline:0;color:var(--text-primary);font-size:12px;flex:1;font-family:inherit"/>
-        <span style="color:var(--text-tertiary);font-size:10px;font-family:var(--dv2-font-mono,monospace);border:1px solid var(--border);border-radius:3px;padding:1px 4px">&#8984;K</span>
-      </div>
-      <select class="dv2-lang" aria-label="Language" style="background:var(--bg-surface,#10182280);border:1px solid var(--border);color:var(--text-secondary);font-size:11px;padding:4px 8px;border-radius:6px">
-        <option>EN</option><option>TR</option><option>DE</option>
-      </select>
-      <button class="btn btn-sm btn-ghost" onclick="window._cdAddWalkin?.() || window._nav('clinic-day')" style="white-space:nowrap">+ Walk-in</button>
-      <button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')" style="white-space:nowrap">&#9654; Start Session</button>
-      <button class="btn btn-sm" aria-label="Report adverse event" onclick="window._nav('adverse-events')" style="white-space:nowrap;border-color:var(--red);color:var(--red)">&#9888; Report AE</button>
-    </div>`
+  const _todayDateStr = new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'short', year:'numeric' });
+  setTopbar('Dashboard \u2014 ' + _todayDateStr,
+    `<button class="btn btn-sm btn-ghost" onclick="window._cdAddWalkin?.() || window._nav('clinic-day')" style="white-space:nowrap">+ Walk-in</button>` +
+    `<button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')" style="white-space:nowrap;margin-left:6px">&#9654; Start Session</button>` +
+    `<button class="btn btn-sm" aria-label="Report adverse event during active session" onclick="window._nav('adverse-events')" style="white-space:nowrap;margin-left:6px;border-color:var(--red);color:var(--red)">&#9888; Report Adverse Event</button>`
   );
 
   const el = document.getElementById('content');
@@ -698,30 +680,23 @@ export async function pgDash(setTopbar, navigate) {
   const _onLeave = () => _abortCtrl.abort();
   window.addEventListener('hashchange', _onLeave, { once: true });
 
-  // ── Load all data in parallel (each call self-guarded; page renders even if some 404) ──
-  let allPatients = [], allCourses = [], pendingQueue = [], aes = [], outcomeSummary = null, allConsents = [];
+  // ── Load all data in parallel ──────────────────────────────────────────────
+  let allPatients = [], allCourses = [], pendingQueue = [], aes = [], outcomeSummary = null, allProtocols = [], allConsents = [];
   let allMediaItems = [];
   let wearableAlertSummary = null;
-  let todaySessionsRaw = null;       // TODO: wire when api.listTodaySessions exists
-  let activityFeedRaw = null;        // TODO: wire when api.listActivityFeed exists
   const _withTimeout = (promise, ms = 8000) =>
     Promise.race([promise, new Promise(resolve => setTimeout(() => resolve(null), ms))]);
   let _apiFailCount = 0;
   try {
-    const _safe = (fn) => {
-      try { return fn(); } catch { return Promise.resolve(null); }
-    };
-    const [ptsRes, coursesRes, queueRes, aeRes, outRes, consentsRes, mediaQueueRes, wearableAlertsRes, todayRes, feedRes] = await Promise.all([
-      _withTimeout(_safe(() => api.listPatients?.().catch(() => null) ?? null)),
-      _withTimeout(_safe(() => api.listCourses?.({}).catch(() => null) ?? null)),
-      _withTimeout(_safe(() => api.listReviewQueue?.({ status: 'pending' }).catch(() => null) ?? null)),
-      _withTimeout(_safe(() => api.listAdverseEvents?.().catch(() => null) ?? null)),
-      _withTimeout(_safe(() => api.aggregateOutcomes?.().catch(() => null) ?? null)),
-      _withTimeout(_safe(() => api.listConsents?.().catch(() => null) ?? null)),
-      _withTimeout(_safe(() => api.listMediaQueue?.().catch(() => null) ?? null)),
-      _withTimeout(_safe(() => api.getClinicAlertSummary?.().catch(() => null) ?? null)),
-      _withTimeout(_safe(() => api.listTodaySessions?.().catch(() => null) ?? null)),       // optional
-      _withTimeout(_safe(() => api.listActivityFeed?.().catch(() => null) ?? null)),        // optional
+    const [ptsRes, coursesRes, queueRes, aeRes, outRes, consentsRes, mediaQueueRes, wearableAlertsRes] = await Promise.all([
+      _withTimeout(api.listPatients().catch(() => null)),
+      _withTimeout(api.listCourses().catch(() => null)),
+      _withTimeout(api.listReviewQueue({ status: 'pending' }).catch(() => null)),
+      _withTimeout(api.listAdverseEvents().catch(() => null)),
+      _withTimeout(api.aggregateOutcomes().catch(() => null)),
+      _withTimeout(api.listConsents().catch(() => null)),
+      _withTimeout(api.listMediaQueue().catch(() => null)),
+      _withTimeout(api.getClinicAlertSummary().catch(() => null)),
     ]);
     if (ptsRes)       allPatients    = ptsRes.items || []; else _apiFailCount++;
     if (coursesRes)   allCourses     = coursesRes.items || []; else _apiFailCount++;
@@ -731,10 +706,34 @@ export async function pgDash(setTopbar, navigate) {
     if (consentsRes)  allConsents    = consentsRes.items || []; else _apiFailCount++;
     if (mediaQueueRes) allMediaItems = Array.isArray(mediaQueueRes) ? mediaQueueRes : (mediaQueueRes.items || []); else _apiFailCount++;
     if (wearableAlertsRes) wearableAlertSummary = wearableAlertsRes; else _apiFailCount++;
-    if (todayRes)     todaySessionsRaw = Array.isArray(todayRes) ? todayRes : (todayRes.items || null);
-    if (feedRes)      activityFeedRaw  = Array.isArray(feedRes)  ? feedRes  : (feedRes.items  || null);
   } catch (e) { console.error('[Dashboard] Data load failed:', e); _apiFailCount = 8; }
-  if (_apiFailCount >= 8) {
+
+  // ── Demo-mode fallback ────────────────────────────────────────────────────
+  // When clinic has no data (fresh install or API down), seed demo content so
+  // the dashboard always shows something. _isDemo drives the DEMO badge.
+  let _isDemo = false;
+  if (allPatients.length === 0 && allCourses.length === 0) {
+    _isDemo = true;
+    allPatients = [
+      { id: 'P-DEMO-1', first_name: 'Samantha', last_name: 'Li',       dob: '1985-03-12' },
+      { id: 'P-DEMO-2', first_name: 'Marcus',   last_name: 'Reilly',   dob: '1978-07-22' },
+      { id: 'P-DEMO-3', first_name: 'Priya',    last_name: 'Nambiar',  dob: '1990-11-04' },
+      { id: 'P-DEMO-4', first_name: 'Jamal',    last_name: 'Thompson', dob: '2011-05-30' },
+      { id: 'P-DEMO-5', first_name: 'Elena',    last_name: 'Okafor',   dob: '1992-08-19' },
+      { id: 'P-DEMO-6', first_name: 'Terence',  last_name: 'Wu',       dob: '1980-02-14' },
+    ];
+    const _nowIso = new Date().toISOString();
+    allCourses = [
+      { id: 'C-DEMO-1', patient_id: 'P-DEMO-1', condition_slug: 'mdd',                 modality_slug: 'tDCS',          status: 'active',           sessions_delivered: 12, planned_sessions_total: 20, planned_sessions_per_week: 3, on_label: true,  evidence_grade: 'A', updated_at: _nowIso },
+      { id: 'C-DEMO-2', patient_id: 'P-DEMO-2', condition_slug: 'anxious-depression',  modality_slug: 'rTMS-iTBS',     status: 'active',           sessions_delivered: 6,  planned_sessions_total: 20, planned_sessions_per_week: 5, on_label: true,  evidence_grade: 'A', updated_at: _nowIso },
+      { id: 'C-DEMO-3', patient_id: 'P-DEMO-3', condition_slug: 'gad',                 modality_slug: 'tACS',          status: 'active',           sessions_delivered: 18, planned_sessions_total: 30, planned_sessions_per_week: 3, on_label: true,  evidence_grade: 'B', updated_at: _nowIso },
+      { id: 'C-DEMO-4', patient_id: 'P-DEMO-4', condition_slug: 'adhd-pediatric',      modality_slug: 'Neurofeedback', status: 'active',           sessions_delivered: 8,  planned_sessions_total: 20, planned_sessions_per_week: 2, on_label: false, evidence_grade: 'C', governance_warnings: ['Off-label pediatric use · guardian consent required'], updated_at: _nowIso },
+      { id: 'C-DEMO-5', patient_id: 'P-DEMO-6', condition_slug: 'ptsd',                modality_slug: 'tDCS',          status: 'active',           sessions_delivered: 19, planned_sessions_total: 20, planned_sessions_per_week: 3, on_label: true,  evidence_grade: 'B', updated_at: _nowIso },
+      { id: 'C-DEMO-6', patient_id: 'P-DEMO-5', condition_slug: 'adhd-adult',          modality_slug: 'Intake',        status: 'pending_approval', sessions_delivered: 0,  planned_sessions_total: 0,  planned_sessions_per_week: 0, on_label: true,  evidence_grade: 'B', updated_at: _nowIso },
+    ];
+    if (!outcomeSummary) outcomeSummary = { responder_rate_pct: 64, assessment_completion_pct: 87, mean_phq9_delta: -6.2 };
+    _apiFailCount = 0; // suppress fail banner — demo is intentional
+  } else if (_apiFailCount >= 8) {
     if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
     el.innerHTML = `<div style="padding:48px 24px;text-align:center">
       <div style="font-size:24px;margin-bottom:12px;opacity:0.4">&#9888;</div>
@@ -748,6 +747,7 @@ export async function pgDash(setTopbar, navigate) {
 
   const patCount = allPatients.length;
 
+  // ── Patient lookup map + enrich courses with patient name ─────────────────
   const patientMap = {};
   allPatients.forEach(p => { patientMap[p.id] = p; });
   allCourses.forEach(c => {
@@ -755,17 +755,27 @@ export async function pgDash(setTopbar, navigate) {
     if (pt) c._patientName = (`${pt.first_name || ''} ${pt.last_name || ''}`).trim();
   });
 
+  // ── Derived metrics ────────────────────────────────────────────────────────
   const activeCourses    = allCourses.filter(c => c.status === 'active');
   const pendingCourses   = allCourses.filter(c => c.status === 'pending_approval');
+  const approvedCourses  = allCourses.filter(c => c.status === 'approved');
   const pausedCourses    = allCourses.filter(c => c.status === 'paused');
   const completedCourses = allCourses.filter(c => c.status === 'completed');
   const flaggedCourses   = allCourses.filter(c => (c.governance_warnings || []).length > 0);
+  const offLabelPending  = allCourses.filter(c => c.on_label === false && (c.status === 'pending_approval' || c.status === 'approved'));
+
+  const _riskScore = c => (c.on_label === false ? 30 : 0) + (c.governance_warnings || []).length * 15 + ({ A: 0, B: 10, C: 25, D: 40 }[c.evidence_grade] ?? 20);
+  const atRiskCourses   = allCourses.filter(c => _riskScore(c) >= 50);
+  const blindTreatments = activeCourses.filter(c => (c.sessions_delivered || 0) >= 10);
 
   const openAEs    = aes.filter(a => !a.resolved_at);
   const seriousAEs = aes.filter(a => (a.severity === 'serious' || a.severity === 'severe') && !a.resolved_at);
 
+  const wearableAlertCount  = wearableAlertSummary?.total_active || 0;
   const wearableUrgentCount = wearableAlertSummary?.urgent_count || 0;
+  const alertFlags      = Math.max(flaggedCourses.length + seriousAEs.length, atRiskCourses.length);
   const sessionsPerWeek = activeCourses.reduce((s, c) => s + (c.planned_sessions_per_week || 0), 0);
+  const totalDelivered  = allCourses.reduce((s, c) => s + (c.sessions_delivered || 0), 0);
 
   const _dashConsentToday = new Date(); _dashConsentToday.setHours(0, 0, 0, 0);
   const consentAlertCount = allConsents.filter(c => {
@@ -775,70 +785,83 @@ export async function pgDash(setTopbar, navigate) {
     return exp < _dashConsentToday || (exp - _dashConsentToday) < 30 * 86400000;
   }).length;
 
-  const responderRateNum = (() => {
-    if (!outcomeSummary) return null;
+  const responderRate = (() => {
+    if (!outcomeSummary) return '—';
     const r = outcomeSummary.responder_rate_pct ?? outcomeSummary.responder_rate;
-    return r != null ? Math.round(r) : null;
+    return r != null ? Math.round(r) + '%' : '—';
   })();
-  const responderRate = responderRateNum != null ? responderRateNum + '%' : '—';
-  const phqDelta = (() => {
-    const v = outcomeSummary?.phq9_delta_avg ?? outcomeSummary?.phq9_avg_delta ?? null;
-    return v != null ? (v > 0 ? '+' : '') + Number(v).toFixed(1) : null;
-  })();
-  const reviewQueuePending = pendingQueue.length;
-  const mediaUrgent = allMediaItems.filter(i => i.flagged_urgent).length;
-  const mediaNeedsAttention = allMediaItems.filter(i => i.flagged_urgent || i.status === 'pending_review' || i.status === 'reupload_requested');
+  const assessCompletionPct = outcomeSummary?.assessment_completion_pct != null
+    ? Math.round(outcomeSummary.assessment_completion_pct) + '%' : '—';
 
   const activePatientIds = [...new Set(activeCourses.map(c => c.patient_id).filter(Boolean))];
-  const utilizationPct = (() => {
-    const planned = sessionsPerWeek || 0;
-    const capacity = Math.max(planned, 110);
-    return planned ? Math.round((planned / capacity) * 100) : 0;
-  })();
 
-  // Today's schedule rows: prefer real endpoint, otherwise localStorage queue, otherwise courses-of-the-day fallback.
-  const _todayKey = new Date().toISOString().slice(0, 10);
-  let scheduleRows = [];
-  if (Array.isArray(todaySessionsRaw) && todaySessionsRaw.length) {
-    scheduleRows = todaySessionsRaw.slice(0, 8).map(s => ({
-      time: s.start_time || s.time || '—',
-      patientId: s.patient_id || '',
-      patientName: s.patient_name || patientMap[s.patient_id]?.first_name + ' ' + (patientMap[s.patient_id]?.last_name || ''),
-      condition: (s.condition_slug || s.condition || '—').replace(/-/g, ' '),
-      protocol: (s.modality_slug || s.protocol || '—'),
-      sessionNum: s.session_num ?? s.sessions_delivered ?? '—',
-      sessionTotal: s.session_total ?? s.planned_sessions_total ?? '—',
-      status: s.status || 'scheduled',
-    }));
-  } else {
-    let lsQueue = [];
-    try { lsQueue = JSON.parse(localStorage.getItem('ds_today_queue') || '[]'); } catch { lsQueue = []; }
-    if (lsQueue.length) {
-      scheduleRows = lsQueue.slice(0, 8).map(p => ({
-        time: p.time || '—',
-        patientId: p.patientId || '',
-        patientName: p.patientName || '—',
-        condition: (p.condition || '—').replace(/-/g, ' '),
-        protocol: p.protocol || '—',
-        sessionNum: p.sessionNum ?? '—',
-        sessionTotal: p.sessionTotal ?? '—',
-        status: p.status || 'scheduled',
-      }));
-    } else {
-      scheduleRows = activeCourses.slice(0, 8).map((c, i) => ({
-        time: ['09:00','09:30','10:00','10:30','11:00','11:30','12:00','12:30'][i] || '—',
-        patientId: c.patient_id || '',
-        patientName: c._patientName || 'Patient',
-        condition: (c.condition_slug || '—').replace(/-/g, ' '),
-        protocol: c.modality_slug || '—',
-        sessionNum: c.sessions_delivered || 0,
-        sessionTotal: c.planned_sessions_total || '?',
-        status: 'scheduled',
-      }));
-    }
-  }
+  // ── Assessments due (active patients without an assessment in 7+ days) ──────
+  // Prefer backend-computed count; fall back to localStorage if unavailable.
+  const _localStorageAssessmentsDue = () => {
+    try {
+      const _assessRuns = JSON.parse(localStorage.getItem('ds_assessment_runs') || '[]');
+      const _now = Date.now();
+      const _weekMs = 7 * 24 * 3600 * 1000;
+      const _lastAssessMap = {};
+      _assessRuns.forEach(r => {
+        const key = r.patient_id || 'unknown';
+        const t = r.completed_at ? new Date(r.completed_at).getTime() : 0;
+        if (!_lastAssessMap[key] || t > _lastAssessMap[key]) _lastAssessMap[key] = t;
+      });
+      return activePatientIds.filter(id => {
+        const last = _lastAssessMap[id] || 0;
+        return (_now - last) > _weekMs;
+      }).length;
+    } catch { return 0; }
+  };
+  const assessmentsDueCount = outcomeSummary?.assessments_overdue_count ?? _localStorageAssessmentsDue();
 
-  // Caseload table (active courses, ranked by urgency)
+  const modalityCount = {};
+  activeCourses.forEach(c => { const m = c.modality_slug || 'Unknown'; modalityCount[m] = (modalityCount[m] || 0) + 1; });
+  const topModalities = Object.entries(modalityCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const recentCourses = [...allCourses]
+    .sort((a, b) => ((b.updated_at || b.created_at || '') > (a.updated_at || a.created_at || '') ? 1 : -1))
+    .slice(0, 10);
+
+  // ── Media queue metrics ────────────────────────────────────────────────────
+  const mediaUrgent     = allMediaItems.filter(i => i.flagged_urgent).length;
+  const mediaNeedsAttention = allMediaItems.filter(i => i.flagged_urgent || i.status === 'pending_review' || i.status === 'reupload_requested');
+
+  // ── Patients Needing Attention (ranked by clinical urgency) ───────────────
+  const _attentionScore = patId => {
+    let score = 0;
+    const ptAEs = openAEs.filter(a => a.patient_id === patId);
+    const ptCourses = allCourses.filter(c => c.patient_id === patId);
+    if (ptAEs.some(a => a.severity === 'serious' || a.severity === 'severe')) score += 100;
+    if (ptAEs.length) score += 40;
+    if (ptCourses.some(c => c.status === 'paused')) score += 60;
+    if (ptCourses.some(c => (c.governance_warnings || []).length > 0)) score += 50;
+    if (ptCourses.some(c => c.on_label === false && c.status === 'pending_approval')) score += 30;
+    return score;
+  };
+  const _attentionReason = patId => {
+    const ptAEs = openAEs.filter(a => a.patient_id === patId);
+    const ptCourses = allCourses.filter(c => c.patient_id === patId);
+    if (ptAEs.some(a => a.severity === 'serious' || a.severity === 'severe')) return { label: 'Serious adverse event', color: 'var(--red)' };
+    if (ptAEs.length) return { label: 'Open adverse event', color: 'var(--amber)' };
+    if (ptCourses.some(c => c.status === 'paused')) return { label: 'Course paused', color: 'var(--amber)' };
+    if (ptCourses.some(c => (c.governance_warnings || []).length > 0)) return { label: 'Safety flag', color: 'var(--red)' };
+    if (ptCourses.some(c => c.on_label === false && c.status === 'pending_approval')) return { label: 'Off-label pending', color: 'var(--amber)' };
+    return { label: 'Needs review', color: 'var(--text-secondary)' };
+  };
+  const patientsNeedingAttention = [...new Set([
+    ...seriousAEs.map(a => a.patient_id),
+    ...openAEs.map(a => a.patient_id),
+    ...pausedCourses.map(c => c.patient_id),
+    ...flaggedCourses.map(c => c.patient_id),
+    ...offLabelPending.map(c => c.patient_id),
+  ].filter(Boolean))]
+    .map(id => ({ id, pt: patientMap[id], score: _attentionScore(id) }))
+    .filter(x => x.pt)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8);
+
+  // ── Clinic Queue (ranked: urgent first, then active, paused, pending) ─────
   const _courseUrgency = c => {
     let s = 0;
     if (seriousAEs.some(a => a.patient_id === c.patient_id)) s += 100;
@@ -847,61 +870,15 @@ export async function pgDash(setTopbar, navigate) {
     if (c.on_label === false) s += 40;
     return s;
   };
-  const caseloadRows = [...activeCourses, ...pausedCourses]
-    .sort((a, b) => _courseUrgency(b) - _courseUrgency(a))
-    .slice(0, 6);
+  const clinicQueue = [
+    ...activeCourses.map(c => ({ ...c, _qStatus: 'active' })),
+    ...pausedCourses.map(c => ({ ...c, _qStatus: 'paused' })),
+    ...pendingCourses.map(c => ({ ...c, _qStatus: 'pending' })),
+    ...approvedCourses.map(c => ({ ...c, _qStatus: 'approved' })),
+  ].sort((a, b) => _courseUrgency(b) - _courseUrgency(a)).slice(0, 12);
 
-  // Activity feed: prefer real endpoint, else synthesize from recent course updates + AEs
-  let activityFeed = [];
-  if (Array.isArray(activityFeedRaw) && activityFeedRaw.length) {
-    activityFeed = activityFeedRaw.slice(0, 5);
-  } else {
-    const recentCourses = [...allCourses]
-      .filter(c => c.updated_at || c.created_at)
-      .sort((a, b) => ((b.updated_at || b.created_at || '') > (a.updated_at || a.created_at || '') ? 1 : -1));
-    const aeRecent = openAEs.slice(0, 2).map(ae => ({
-      kind: 'ae',
-      icon: '&#9888;',
-      color: 'amber',
-      ts_label: _humanAgo(ae.reported_at || ae.created_at),
-      html: `<strong>${(patientMap[ae.patient_id]?.first_name || 'Patient')}.</strong> AE logged: ${(ae.event_type || 'event').replace(/_/g, ' ')} <strong style="color:var(--amber)">${ae.severity || 'open'}</strong>.`,
-    }));
-    const courseRecent = recentCourses.slice(0, 3).map(c => ({
-      kind: 'course',
-      icon: '&#10004;',
-      color: 'teal',
-      ts_label: _humanAgo(c.updated_at || c.created_at),
-      html: `<strong>${c._patientName || 'Patient'}</strong> · ${(c.modality_slug || 'course')} updated · session ${c.sessions_delivered || 0}/${c.planned_sessions_total || '?'}.`,
-    }));
-    const consentRecent = consentAlertCount > 0 ? [{
-      kind: 'consent',
-      icon: '&#9678;',
-      color: 'blue',
-      ts_label: 'today',
-      html: `<strong>${consentAlertCount}</strong> consent${consentAlertCount === 1 ? '' : 's'} expiring within 30 days.`,
-    }] : [];
-    const reviewRecent = reviewQueuePending > 0 ? [{
-      kind: 'review',
-      icon: '&#9649;',
-      color: 'violet',
-      ts_label: 'queue',
-      html: `<strong>${reviewQueuePending}</strong> protocol${reviewQueuePending === 1 ? '' : 's'} pending review.`,
-    }] : [];
-    activityFeed = [...aeRecent, ...reviewRecent, ...courseRecent, ...consentRecent].slice(0, 5);
-  }
-  function _humanAgo(iso) {
-    if (!iso) return '—';
-    const ms = Date.now() - new Date(iso).getTime();
-    if (!Number.isFinite(ms) || ms < 0) return '—';
-    const m = Math.floor(ms / 60000);
-    if (m < 60) return m + 'm';
-    const h = Math.floor(m / 60);
-    if (h < 24) return h + 'h';
-    const d = Math.floor(h / 24);
-    return d + 'd';
-  }
-
-  const _isFirstRun = patCount === 0 && allCourses.length === 0 && !localStorage.getItem('ds_setup_dismissed');
+  // ── Fresh install card (suppressed in demo mode) ──────────────────────
+  const _isFirstRun = false;
   const getStartedCard = _isFirstRun ? `
 <div data-setup-card style="background:linear-gradient(135deg,rgba(0,212,188,0.07),rgba(59,130,246,0.07));border:1px solid rgba(0,212,188,0.18);border-radius:12px;padding:20px 24px;margin-bottom:16px">
   <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px">
@@ -915,7 +892,7 @@ export async function pgDash(setTopbar, navigate) {
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
     ${[
       { icon: '&#9673;', title: 'Add First Patient', sub: 'Register a patient to get started', nav: 'patients', color: 'var(--blue)' },
-      { icon: '&#9678;', title: 'Create Treatment Course', sub: 'Set up an evidence-based treatment plan', nav: 'protocol-studio', color: 'var(--teal)' },
+      { icon: '&#9678;', title: 'Create Treatment Course', sub: 'Set up an evidence-based treatment plan', nav: 'protocol-wizard', color: 'var(--teal)' },
       { icon: '&#9671;', title: 'Browse Protocols', sub: 'Explore the evidence registry', nav: 'protocols-registry', color: 'var(--violet)' },
       { icon: '&#9881;', title: 'Configure Clinic', sub: 'Settings, branding, team members', nav: 'settings', color: 'var(--text-secondary)' },
     ].map(s => `<div onclick="window._nav('${s.nav}')" style="padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--teal)'" onmouseout="this.style.borderColor='var(--border)'">
@@ -932,519 +909,680 @@ export async function pgDash(setTopbar, navigate) {
     `Active courses: ${activeCourses.length}; pending approval: ${pendingCourses.length}; paused: ${pausedCourses.length}; completed: ${completedCourses.length}`,
     `Pending review queue items: ${pendingQueue.length}`,
     `Open adverse events: ${openAEs.length}; serious unresolved: ${seriousAEs.length}`,
-    `Responder rate (aggregate): ${responderRate}; PHQ-9 delta avg: ${phqDelta || '—'}`,
-    `Sessions per week (planned sum): ${sessionsPerWeek}; utilization estimate: ${utilizationPct}%`,
-    `Wearable urgent alerts: ${wearableUrgentCount}; media flagged: ${mediaNeedsAttention.length}`,
+    `Responder rate (aggregate): ${responderRate}; assessment completion: ${assessCompletionPct}`,
+    `Sessions per week (planned sum): ${sessionsPerWeek}`,
+    `Wearable alerts: ${wearableAlertCount} (${wearableUrgentCount} urgent); media items needing attention: ${mediaNeedsAttention.length}`,
+    `Patients flagged for attention: ${patientsNeedingAttention.length}`,
+    `Today's clinic queue (courses): ${clinicQueue.length}`,
   ].join('\n');
 
-  // ── Inject design-v2 dashboard CSS (once) ──────────────────────────────────
-  if (!document.getElementById('dv2-dash-styles')) {
-    const _s = document.createElement('style'); _s.id = 'dv2-dash-styles';
+  const _dashPrompts = [
+    { icon: '📋', q: 'What should I prioritize in the review queue today?' },
+    { icon: '&#9888;', q: 'Summarize open safety items I should know about' },
+    { icon: '📅', q: 'How should I plan sessions this week given the active caseload?' },
+    { icon: '📈', q: 'Explain responder rate and outcomes snapshot in plain language' },
+  ];
+  const dashAgentStrip = `<div class="dash-agent-strip card" style="margin-bottom:12px">
+  <div class="dash-agent-strip__inner">
+    <div class="dash-agent-strip__copy">
+      <div class="dash-agent-strip__title">Clinic specialist agents</div>
+      <div class="dash-agent-strip__sub">Ask about queue, protocols, and workflow. A snapshot of this dashboard is sent with each question — not a substitute for clinical judgment.</div>
+    </div>
+    <button type="button" class="btn btn-primary btn-sm" onclick="window._dashAgentOpen()">Open agents</button>
+  </div>
+</div>
+<div id="dash-agent-modal" class="dash-agent-modal" style="display:none" role="dialog" aria-label="Clinic specialist agents">
+  <div class="dash-agent-modal__backdrop" onclick="window._dashAgentClose()"></div>
+  <div class="dash-agent-modal__panel card">
+    <div class="dash-agent-modal__head">
+      <span class="dash-agent-modal__title">Clinic specialist agents</span>
+      <button type="button" class="dash-agent-modal__close" onclick="window._dashAgentClose()" aria-label="Close">&#x2715;</button>
+    </div>
+    <div class="dash-agent-modal__body">
+      <div class="dash-agent-modal__intro">Operational Q&amp;A for your practice. Answers use the dashboard snapshot below. For patient-specific decisions, use the chart.</div>
+      <div class="ptd-asst-prompts">
+        ${_dashPrompts.map(p => `<button type="button" class="ptd-asst-prompt" onclick="window._dashAgentAsk(${JSON.stringify(p.q)})">${p.icon} ${p.q}</button>`).join('')}
+      </div>
+      <div class="ptd-asst-input-row">
+        <input id="dash-agent-inp" class="ptd-asst-inp" type="text" placeholder="Type your question…" onkeydown="if(event.key==='Enter')window._dashAgentSend()">
+        <button type="button" class="ptd-asst-send" onclick="window._dashAgentSend()">&#x2192;</button>
+      </div>
+      <div id="dash-agent-resp" class="ptd-asst-resp" style="display:none"></div>
+    </div>
+  </div>
+</div>`;
+
+  // ── Inject home CSS (once) ────────────────────────────────────────────────────
+  if (!document.getElementById('dh-styles')) {
+    const _s = document.createElement('style'); _s.id = 'dh-styles';
     _s.textContent = `
-.dv2-dash { padding: 20px 24px; max-width: 1500px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
-.dv2-dash-pagehd { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; }
-.dv2-dash-greet { font-family: var(--dv2-font-display, 'Outfit', system-ui, sans-serif); font-size: 22px; font-weight: 600; color: var(--text-primary); letter-spacing: -0.01em; line-height: 1.1; }
-.dv2-dash-sub { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
-.dv2-dash-tabs { display:flex; gap:2px; background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:6px; padding:2px; }
-.dv2-dash-tabs button { background:transparent; border:0; color:var(--text-tertiary); font-size:11.5px; font-weight:600; padding:5px 12px; border-radius:4px; cursor:pointer; font-family:inherit; }
-.dv2-dash-tabs button.active { background:var(--bg-surface, rgba(0,0,0,0.4)); color:var(--text-primary); }
-
-/* Alert strip */
-.dv2-alert-strip { display:flex; align-items:center; gap:14px; padding:14px 18px; background:rgba(255,181,71,0.06); border:1px solid rgba(255,181,71,0.22); border-radius:10px; }
-.dv2-alert-strip .dv2-alert-ico { width:34px;height:34px;border-radius:8px;background:rgba(255,181,71,0.14);color:#ffb547;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0; }
-.dv2-alert-strip .dv2-alert-title { font-size:13px;font-weight:600;color:var(--text-primary); }
-.dv2-alert-strip .dv2-alert-sub { font-size:11.5px;color:var(--text-secondary);margin-top:2px; }
-.dv2-alert-strip > div:nth-child(2) { flex:1; }
-
-/* KPI grid */
-.dv2-kpi-grid { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:12px; }
-.dv2-kpi { position:relative; background:var(--bg-card, rgba(15,23,32,0.6)); border:1px solid var(--border); border-radius:10px; padding:14px 16px 12px; overflow:hidden; }
-.dv2-kpi-lbl { font-size:10.5px; font-weight:600; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:0.07em; display:flex; align-items:center; gap:6px; margin-bottom:8px; }
-.dv2-kpi-lbl .dv2-kpi-dot { width:6px; height:6px; border-radius:50%; background:#00d4bc; }
-.dv2-kpi-lbl.blue   .dv2-kpi-dot { background:#4a9eff; }
-.dv2-kpi-lbl.violet .dv2-kpi-dot { background:#9b7fff; }
-.dv2-kpi-lbl.amber  .dv2-kpi-dot { background:#ffb547; }
-.dv2-kpi-num { font-family: var(--dv2-font-display, 'Outfit', system-ui, sans-serif); font-size:30px; font-weight:600; color:var(--text-primary); line-height:1; letter-spacing:-0.02em; }
-.dv2-kpi-num .dv2-kpi-unit { font-size:13px; color:var(--text-tertiary); font-weight:400; margin-left:4px; font-family: var(--dv2-font-mono, 'JetBrains Mono', monospace); }
-.dv2-kpi-delta { font-family: var(--dv2-font-mono, 'JetBrains Mono', monospace); font-size:10.5px; color:var(--text-secondary); margin-top:6px; }
-.dv2-kpi-delta.up   { color:#4ade80; }
-.dv2-kpi-delta.down { color:#ff6b9d; }
-.dv2-kpi-spark { position:absolute; right:8px; top:42px; width:90px; height:36px; opacity:0.7; }
-
-/* Row layouts */
-.dv2-row-2-1 { display:grid; grid-template-columns:1.6fr 1fr; gap:14px; }
-.dv2-row-3-2 { display:grid; grid-template-columns:1.55fr 1fr; gap:14px; }
-.dv2-row-1-1 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
-@media(max-width:1100px){ .dv2-row-2-1, .dv2-row-3-2, .dv2-row-1-1 { grid-template-columns:1fr; } .dv2-kpi-grid { grid-template-columns:repeat(2, 1fr); } }
-
-/* Card primitive (matches prototype .card) */
-.dv2-card { background:var(--bg-card, rgba(15,23,32,0.6)); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
-.dv2-card-hd { padding:14px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
-.dv2-card-title { font-family:var(--dv2-font-display, 'Outfit', system-ui, sans-serif); font-size:14px; font-weight:600; color:var(--text-primary); letter-spacing:-0.005em; }
-.dv2-card-sub { font-size:11px; color:var(--text-tertiary); margin-top:2px; }
-
-/* Chip */
-.dv2-chip { display:inline-flex; align-items:center; gap:5px; padding:2px 8px; font-size:10.5px; font-weight:600; border-radius:10px; background:rgba(255,255,255,0.05); color:var(--text-secondary); border:1px solid rgba(255,255,255,0.06); white-space:nowrap; font-family:var(--dv2-font-mono, monospace); }
-.dv2-chip.teal   { background:rgba(0,212,188,0.10); color:#5fe9d3; border-color:rgba(0,212,188,0.18); }
-.dv2-chip.blue   { background:rgba(74,158,255,0.10); color:#86baff; border-color:rgba(74,158,255,0.18); }
-.dv2-chip.violet { background:rgba(155,127,255,0.10); color:#bba8ff; border-color:rgba(155,127,255,0.18); }
-.dv2-chip.amber  { background:rgba(255,181,71,0.10); color:#ffd28a; border-color:rgba(255,181,71,0.20); }
-.dv2-chip.red    { background:rgba(255,107,157,0.10); color:#ff9bbd; border-color:rgba(255,107,157,0.20); }
-.dv2-chip.green  { background:rgba(74,222,128,0.10); color:#9beab2; border-color:rgba(74,222,128,0.18); }
-
-/* Schedule block */
-.dv2-sched { display:grid; grid-template-columns:60px 1fr; gap:8px 14px; padding:14px 18px; align-items:center; }
-.dv2-sched-time { font-family:var(--dv2-font-mono, monospace); font-size:11px; color:var(--text-tertiary); font-weight:600; }
-.dv2-sched-slot { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border-radius:8px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.04); transition:background 0.15s, border-color 0.15s; }
-.dv2-sched-slot:hover { background:rgba(255,255,255,0.05); border-color:rgba(0,212,188,0.25); }
-.dv2-sched-slot.teal   { border-left:3px solid #00d4bc; }
-.dv2-sched-slot.blue   { border-left:3px solid #4a9eff; }
-.dv2-sched-slot.violet { border-left:3px solid #9b7fff; }
-.dv2-sched-slot.amber  { border-left:3px solid #ffb547; }
-.dv2-sched-slot.empty  { color:var(--text-tertiary); font-size:11.5px; font-style:italic; justify-content:flex-start; padding:8px 12px; }
-.dv2-sched-pt { display:flex; align-items:center; gap:10px; min-width:0; flex:1; }
-.dv2-pt-av { width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;color:#04121c;flex-shrink:0;text-transform:uppercase;font-family:var(--dv2-font-display, system-ui); }
-.dv2-pt-av.a { background:linear-gradient(135deg,#00d4bc,#4a9eff); }
-.dv2-pt-av.b { background:linear-gradient(135deg,#4a9eff,#9b7fff); }
-.dv2-pt-av.c { background:linear-gradient(135deg,#9b7fff,#ff6b9d); }
-.dv2-pt-av.d { background:linear-gradient(135deg,#ffb547,#ff6b9d); }
-.dv2-pt-av.e { background:linear-gradient(135deg,#4ade80,#00a896); }
-.dv2-sched-pt-name { font-size:12.5px; font-weight:600; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.dv2-sched-pt-proto { display:flex; gap:5px; margin-top:3px; flex-wrap:wrap; }
-
-/* Brain map card */
-.dv2-brainmap-wrap { display:flex; align-items:center; justify-content:center; padding:14px; min-height:280px; }
-.dv2-brainmap-wrap svg { max-width:100%; height:auto; }
-.dv2-brainmap-legend { display:flex; gap:14px; padding:8px 18px 14px; flex-wrap:wrap; border-top:1px solid var(--border); justify-content:center; }
-.dv2-brainmap-legend-item { display:inline-flex; align-items:center; gap:6px; font-size:10.5px; color:var(--text-tertiary); }
-.dv2-leg-dot { width:9px; height:9px; border-radius:50%; }
-.dv2-leg-dot.anode { background:#00d4bc; }
-.dv2-leg-dot.cathode { background:#ff6b9d; }
-.dv2-leg-dot.target { background:transparent; border:1.5px dashed #4a9eff; }
-.dv2-leg-dot.passive { background:rgba(255,255,255,0.18); }
-
-/* Caseload table (queue rows) */
-.dv2-queue-row { display:grid; grid-template-columns:2fr 1.2fr 1.4fr 1.4fr 36px; gap:10px; align-items:center; padding:11px 18px; border-bottom:1px solid var(--border); transition:background 0.12s; }
-.dv2-queue-row.head { font-size:9.5px; font-weight:600; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:0.07em; padding:8px 18px; background:rgba(0,0,0,0.15); border-bottom:1px solid var(--border); }
-.dv2-queue-row.pt-row, .dv2-queue-row[data-row] { cursor:pointer; }
-.dv2-queue-row.pt-row:hover, .dv2-queue-row[data-row]:hover { background:rgba(255,255,255,0.05); }
-.dv2-queue-row:last-child { border-bottom:none; }
-.dv2-queue-pt { display:flex; align-items:center; gap:10px; min-width:0; }
-.dv2-queue-pt-name { font-size:12.5px; font-weight:600; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.dv2-queue-pt-cond { font-size:10.5px; color:var(--text-tertiary); margin-top:2px; }
-.dv2-queue-progress { display:flex; align-items:center; gap:8px; min-width:0; }
-.dv2-queue-progress-bar { flex:1; min-width:60px; height:4px; background:rgba(255,255,255,0.06); border-radius:2px; overflow:hidden; }
-.dv2-queue-progress-bar > div { height:100%; background:linear-gradient(90deg,#00d4bc,#4a9eff); border-radius:2px; }
-.dv2-queue-progress-num { font-family:var(--dv2-font-mono, monospace); font-size:10px; color:var(--text-tertiary); }
-.dv2-arrow-btn { width:26px; height:26px; border-radius:6px; background:transparent; border:1px solid transparent; color:var(--text-tertiary); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; font-size:12px; }
-.dv2-arrow-btn:hover { color:var(--text-primary); background:rgba(255,255,255,0.06); border-color:var(--border); }
-
-/* Evidence list */
-.dv2-evidence-list { padding:10px 14px 14px; display:flex; flex-direction:column; gap:6px; }
-.dv2-evidence-item { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.04); transition:background 0.12s; }
-.dv2-evidence-item:hover { background:rgba(255,255,255,0.05); }
-.dv2-evidence-grade { width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:var(--dv2-font-display, system-ui);font-weight:700;font-size:13px;flex-shrink:0; }
-.dv2-evidence-grade.a { background:rgba(74,222,128,0.14); color:#4ade80; }
-.dv2-evidence-grade.b { background:rgba(74,158,255,0.14); color:#4a9eff; }
-.dv2-evidence-grade.c { background:rgba(255,181,71,0.16); color:#ffb547; }
-.dv2-evidence-grade.d { background:rgba(255,107,157,0.16); color:#ff6b9d; }
-.dv2-evidence-name { font-size:12.5px; font-weight:600; color:var(--text-primary); }
-.dv2-evidence-meta { font-size:10.5px; color:var(--text-tertiary); margin-top:1px; font-family:var(--dv2-font-mono, monospace); }
-.dv2-evidence-item > div:nth-child(2) { flex:1; min-width:0; }
-
-/* Activity feed */
-.dv2-feed-item { display:grid; grid-template-columns:28px 1fr auto; gap:10px; align-items:center; padding:10px 18px; border-bottom:1px solid var(--border); }
-.dv2-feed-item:last-child { border-bottom:none; }
-.dv2-feed-ico { width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:rgba(0,212,188,0.12);color:#00d4bc;font-size:12px;flex-shrink:0; }
-.dv2-feed-ico.violet { background:rgba(155,127,255,0.12); color:#9b7fff; }
-.dv2-feed-ico.amber  { background:rgba(255,181,71,0.12); color:#ffb547; }
-.dv2-feed-ico.blue   { background:rgba(74,158,255,0.12); color:#4a9eff; }
-.dv2-feed-ico.rose   { background:rgba(255,107,157,0.12); color:#ff6b9d; }
-.dv2-feed-text { font-size:12px; color:var(--text-secondary); line-height:1.45; }
-.dv2-feed-time { font-family:var(--dv2-font-mono, monospace); font-size:10px; color:var(--text-tertiary); }
-
-/* Outcomes mini chart */
-.dv2-outcomes-card { padding:10px 18px 14px; }
-
-/* Banner */
-.dv2-data-banner { padding:9px 14px; background:rgba(255,181,71,0.08); border:1px solid rgba(255,181,71,0.22); border-radius:8px; font-size:11.5px; color:#ffd28a; display:flex; align-items:center; gap:8px; }
+.dh-wrap { padding: 20px 24px; max-width: 1400px; }
+.dh-stats-bar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
+.dh-stat { background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:10px 18px; display:flex; align-items:center; gap:10px; cursor:pointer; transition:border-color 0.12s; min-width:110px; }
+.dh-stat:hover { border-color:var(--teal); }
+.dh-stat--warn  { border-color:#f59e0b40; }
+.dh-stat--danger{ border-color:#f8717160; }
+.dh-stat-val { font-size:22px; font-weight:800; color:var(--text-primary); line-height:1; }
+.dh-stat--warn  .dh-stat-val { color:#f59e0b; }
+.dh-stat--danger .dh-stat-val { color:#f87171; }
+.dh-stat-info { display:flex; flex-direction:column; }
+.dh-stat-lbl { font-size:10.5px; font-weight:700; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.4px; }
+.dh-stat-sub { font-size:10px; color:var(--text-secondary); margin-top:1px; }
+.dh-main-grid { display:grid; grid-template-columns:1fr 340px; gap:16px; align-items:start; }
+@media(max-width:1024px){ .dh-main-grid { grid-template-columns:1fr; } }
+@media(max-width:768px){
+  .dh-btn { min-height:44px; padding:10px 14px; font-size:13px; }
+  .dh-btn--start { min-height:44px; padding:10px 16px; }
+  .dh-urgent-row { min-height:44px; }
+  .dh-qa-item { min-height:44px; }
+  .dh-qa-grid { grid-template-columns:1fr; }
+  .dh-wrap { padding:12px 14px; }
+}
+.dh-appt-card { background:var(--bg-card); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+.dh-appt-hd { padding:14px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+.dh-appt-hd-left { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.dh-appt-title { font-size:14px; font-weight:700; color:var(--text-primary); }
+.dh-appt-meta { font-size:11.5px; color:var(--text-secondary); }
+.dh-appt-badge { font-size:11px; font-weight:700; padding:2px 8px; border-radius:10px; white-space:nowrap; }
+.dh-appt-badge--active { background:rgba(96,165,250,0.15); color:#60a5fa; }
+.dh-appt-badge--wait   { background:rgba(245,158,11,0.15);  color:#f59e0b; }
+.dh-appt-badge--done   { background:rgba(34,197,94,0.12);   color:#22c55e; }
+.dh-appt-table { width:100%; border-collapse:collapse; }
+.dh-appt-table th { padding:9px 14px; font-size:10.5px; font-weight:700; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.4px; text-align:left; background:var(--bg-sidebar); border-bottom:1px solid var(--border); white-space:nowrap; }
+.dh-appt-table td { padding:12px 14px; border-bottom:1px solid var(--border); vertical-align:middle; }
+.dh-appt-row { transition:background 0.1s; }
+.dh-appt-row:last-child td { border-bottom:none; }
+.dh-appt-row:hover td { background:var(--bg-card-hover, rgba(255,255,255,0.025)); }
+.dh-appt-row--active td { background:rgba(96,165,250,0.04); }
+.dh-appt-row--done   td { opacity:0.72; }
+.dh-appt-row--noshow td { opacity:0.55; }
+.dh-appt-time   { font-size:12px; color:var(--text-tertiary); font-weight:600; white-space:nowrap; }
+.dh-appt-name   { font-size:13px; font-weight:700; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:160px; }
+.dh-appt-cond   { font-size:11.5px; background:rgba(255,255,255,0.07); border-radius:4px; padding:2px 8px; color:var(--text-secondary); white-space:nowrap; display:inline-block; }
+.dh-appt-ses    { font-size:12px; color:var(--text-secondary); white-space:nowrap; }
+.dh-appt-proto  { font-size:11.5px; color:var(--text-tertiary); max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dh-appt-status { white-space:nowrap; }
+.dh-appt-status-badge { font-size:11px; font-weight:700; padding:3px 9px; border-radius:12px; white-space:nowrap; display:inline-flex; align-items:center; gap:4px; }
+.dh-st-wait   { background:rgba(245,158,11,0.15);  color:#f59e0b; }
+.dh-st-active { background:rgba(96,165,250,0.15);  color:#60a5fa; }
+.dh-st-done   { background:rgba(34,197,94,0.12);   color:#22c55e; }
+.dh-st-noshow { background:rgba(248,113,113,0.12); color:#f87171; }
+.dh-pulse { width:6px; height:6px; border-radius:50%; background:#60a5fa; animation:dh-pulse 1.4s infinite; }
+@keyframes dh-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
+.dh-appt-actions { display:flex; gap:4px; align-items:center; }
+.dh-btn { padding:4px 12px; border-radius:5px; font-size:11.5px; font-weight:600; cursor:pointer; border:1px solid var(--border); background:var(--bg-input, #1e2235); color:var(--text-secondary); font-family:inherit; transition:all 0.12s; white-space:nowrap; }
+.dh-btn:hover { color:var(--text-primary); border-color:var(--teal); }
+.dh-btn--start { background:linear-gradient(135deg,var(--teal),var(--blue)); color:#000; border:none; font-weight:700; font-size:12px; padding:5px 14px; }
+.dh-btn--start:hover { opacity:0.88; color:#000; }
+.dh-appt-empty { padding:40px 20px; text-align:center; }
+.dh-appt-empty-ico { font-size:32px; margin-bottom:12px; opacity:0.4; }
+.dh-appt-empty-txt { font-size:13px; color:var(--text-tertiary); margin-bottom:12px; }
+.dh-right-panel { display:flex; flex-direction:column; gap:12px; }
+.dh-panel-card { background:var(--bg-card); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+.dh-panel-hd { padding:12px 15px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; }
+.dh-panel-title { font-size:12.5px; font-weight:700; color:var(--text-primary); }
+.dh-urgent-badge { font-size:10px; font-weight:700; color:#fff; background:#f87171; border-radius:10px; padding:1px 7px; }
+.dh-urgent-row { display:flex; align-items:center; gap:10px; padding:9px 15px; border-bottom:1px solid var(--border); cursor:pointer; transition:background 0.1s; }
+.dh-urgent-row:last-child { border-bottom:none; }
+.dh-urgent-row:hover { background:rgba(255,255,255,0.02); }
+.dh-urgent-ico { font-size:14px; flex-shrink:0; width:18px; text-align:center; }
+.dh-urgent-lbl { flex:1; font-size:12px; font-weight:500; color:var(--text-primary); }
+.dh-urgent-cnt { font-size:13px; font-weight:800; font-family:var(--font-mono,monospace); }
+.dh-urgent-arr { color:var(--text-tertiary); font-size:11px; }
+.dh-all-clear { padding:16px 15px; font-size:12px; color:var(--text-tertiary); text-align:center; }
+.dh-qa-grid { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--border); }
+.dh-qa-item { background:var(--bg-card); padding:12px 14px; cursor:pointer; display:flex; align-items:center; gap:9px; transition:background 0.1s; }
+.dh-qa-item:hover { background:var(--bg-card-hover, rgba(255,255,255,0.03)); }
+.dh-qa-ico { font-size:16px; flex-shrink:0; }
+.dh-qa-lbl { font-size:12px; font-weight:500; color:var(--text-primary); }
+.dh-attn-list { display:flex; flex-direction:column; }
+.dh-attn-row { display:flex; align-items:center; gap:10px; padding:9px 15px; border-bottom:1px solid var(--border); cursor:pointer; transition:background 0.1s; }
+.dh-attn-row:last-child { border-bottom:none; }
+.dh-attn-row:hover { background:rgba(255,255,255,0.02); }
+.dh-attn-avatar { width:26px; height:26px; border-radius:50%; background:linear-gradient(135deg,var(--teal),var(--blue)); display:flex; align-items:center; justify-content:center; font-size:9.5px; font-weight:700; color:#000; flex-shrink:0; text-transform:uppercase; }
+.dh-attn-name { font-size:12px; font-weight:600; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dh-attn-reason { font-size:10.5px; font-weight:600; }
+.dh-gov-strip { background:var(--bg-card); border:1px solid #f8717140; border-radius:10px; overflow:hidden; margin-top:16px; }
+.dh-gov-hd { padding:11px 16px; background:rgba(248,113,113,0.06); border-bottom:1px solid #f8717130; display:flex; align-items:center; gap:8px; }
+.dh-gov-title { font-size:12px; font-weight:700; color:#f87171; }
+.dh-gov-items { display:flex; flex-wrap:wrap; gap:8px; padding:12px 16px; }
+.dh-gov-item { background:rgba(248,113,113,0.08); border:1px solid rgba(248,113,113,0.2); border-radius:6px; padding:6px 12px; cursor:pointer; transition:background 0.1s; }
+.dh-gov-item:hover { background:rgba(248,113,113,0.14); }
+.dh-gov-item-lbl { font-size:11.5px; font-weight:600; color:var(--text-primary); }
+.dh-gov-item-sub { font-size:10px; color:#fca5a5; margin-top:1px; }
+.dh-hero-card { background:linear-gradient(135deg,rgba(0,212,188,0.08),rgba(59,130,246,0.06)); border:2px solid rgba(0,212,188,0.25); border-radius:14px; overflow:hidden; margin-bottom:20px; }
+.dh-hero-hd { padding:20px 24px; border-bottom:1px solid rgba(0,212,188,0.15); display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+.dh-hero-title { font-size:18px; font-weight:800; color:var(--text-primary); margin-bottom:4px; }
+.dh-hero-sub { font-size:13px; color:var(--text-secondary); }
+.dh-hero-body { max-height:360px; overflow-y:auto; }
+.light-theme .dh-stat { background:#fff; }
+.light-theme .dh-appt-card, .light-theme .dh-panel-card { background:#fff; }
+.light-theme .dh-appt-cond { background:#f0f4f8; }
+.light-theme .dh-btn { background:#f0f4f8; color:#374151; border-color:#d1d5db; }
+.light-theme .dh-appt-table th { background:#f8fafc; }
     `;
     document.head.appendChild(_s);
   }
 
-  // ── Build pieces ──────────────────────────────────────────────────────────
-  const _esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g, '&#39;');
-  // Use _idSafe for any value that lands inside a single-quoted JS string in an inline onclick
-  const _idSafe = s => String(s ?? '').replace(/[^A-Za-z0-9_-]/g, '');
-  const _initials = (first, last) => ((first || '')[0] || '') + ((last || '')[0] || '');
+  // ── ROW 1 data (kept for backward compat internal calcs) ──────────────────────
+  const _todayStr = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
+  const _totalUrgent = seriousAEs.length + (wearableUrgentCount || 0) + mediaNeedsAttention.filter(i => i.flagged_urgent).length;
+  const _totalActions = pendingQueue.length + openAEs.length + consentAlertCount + mediaNeedsAttention.length + patientsNeedingAttention.length;
 
-  // ── Dashboard filter state (persist in-memory across re-renders) ──────────
-  window._cdPeriod   = window._cdPeriod   || 'Week';
-  window._cdRoom     = window._cdRoom     || 'All';
-  window._cdCohort   = window._cdCohort   || 'All';
-  window._cdOutcomes = window._cdOutcomes || '4W';
-  if (!window._cdSetFilter) {
-    window._cdSetFilter = (key, val) => { window['_cd' + key] = val; window._nav('home'); };
+  // ── glanceCard removed (replaced by compact stats bar) ───────────────────────
+
+  const _urgentItems = [
+    // Tier 1: CRITICAL (Red) — Stop-work items
+    { show: seriousAEs.length > 0,              icon: '&#x26A1;', label: 'Serious Adverse Events',  count: seriousAEs.length,              color: 'var(--red)',   nav: 'adverse-events', tier: 1 },
+    { show: wearableUrgentCount > 0,             icon: '&#9676;',  label: 'Urgent Wearable Alerts', count: wearableUrgentCount,            color: 'var(--red)',   nav: 'wearables', tier: 1 },
+    { show: mediaUrgent > 0,                     icon: '&#9873;',  label: 'Urgent Media',           count: mediaUrgent,                    color: 'var(--red)',   nav: 'media-queue', tier: 1 },
+    // Tier 2: HIGH (Amber) — Require attention today
+    { show: pendingQueue.length > 0,             icon: '&#9649;',  label: 'Pending Approvals',      count: pendingQueue.length,            color: 'var(--amber)', nav: 'review-queue', tier: 2 },
+    { show: flaggedCourses.length > 0,           icon: '&#9888;',  label: 'Safety Flags',           count: flaggedCourses.length,          color: 'var(--amber)', nav: 'review-queue', tier: 2 },
+    // Tier 3: MEDIUM (Blue) — Monitoring
+    { show: openAEs.length > 0,                  icon: '&#9888;',  label: 'Open Adverse Events',    count: openAEs.length,                 color: 'var(--blue)',  nav: 'adverse-events', tier: 3 },
+    { show: consentAlertCount > 0,               icon: '&#9678;',  label: 'Consent Expiring',       count: consentAlertCount,              color: 'var(--blue)',  nav: 'patients', tier: 3 },
+    { show: patientsNeedingAttention.length > 0, icon: '&#9888;',  label: 'Patients Flagged',       count: patientsNeedingAttention.length, color: 'var(--blue)',  nav: 'patients', tier: 3 },
+  ].filter(i => i.show)
+   .filter(i => _isFullAccess || i.tier === 1)   // technician/viewer: critical safety only
+   .sort((a, b) => a.tier - b.tier);
+
+  // ── V2 DASHBOARD LAYOUT ───────────────────────────────────────────────────────
+  const _kb = 'tabindex="0" role="button" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click()}"';
+  const _esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+  // ── V2 CSS (once) ─────────────────────────────────────────────────────────────
+  if (!document.getElementById('dh2-styles')) {
+    const _s2 = document.createElement('style'); _s2.id = 'dh2-styles';
+    _s2.textContent = `
+.dh2-wrap { padding: 24px 28px; max-width: 1480px; margin: 0 auto; }
+.dh2-demo-banner { display:flex; align-items:center; gap:10px; padding:8px 14px; margin-bottom:16px;
+  background:linear-gradient(90deg,rgba(155,127,255,0.12),rgba(74,158,255,0.08));
+  border:1px solid rgba(155,127,255,0.28); border-radius:10px;
+  font-size:12px; color:var(--text-secondary); }
+.dh2-demo-pill { font-size:10px; font-weight:800; letter-spacing:0.8px; text-transform:uppercase;
+  background:rgba(155,127,255,0.22); color:var(--violet); padding:2px 8px; border-radius:4px; }
+.dh2-fail-banner { padding:8px 14px; margin-bottom:12px; background:rgba(245,158,11,0.08);
+  border:1px solid rgba(245,158,11,0.2); border-radius:8px; font-size:12px; color:#f59e0b;
+  display:flex; align-items:center; gap:8px; }
+
+.dh2-page-head { display:flex; align-items:flex-end; justify-content:space-between; gap:16px;
+  margin-bottom:20px; flex-wrap:wrap; }
+.dh2-greet { font-family:var(--font-display,'Outfit',system-ui,sans-serif); font-size:26px;
+  font-weight:600; letter-spacing:-0.6px; color:var(--text-primary); margin-bottom:4px; }
+.dh2-greet-sub { font-size:13px; color:var(--text-secondary); }
+.dh2-greet-sub strong { color:var(--text-primary); font-weight:600; }
+.dh2-head-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.dh2-tabrow { display:flex; gap:4px; background:var(--bg-surface); padding:3px;
+  border-radius:8px; border:1px solid var(--border); }
+.dh2-tabrow button { padding:6px 12px; font-size:11.5px; font-weight:600; color:var(--text-secondary);
+  background:transparent; border:0; border-radius:5px; cursor:pointer; font-family:inherit; }
+.dh2-tabrow button.dh2-active { background:rgba(255,255,255,0.08); color:var(--text-primary); }
+
+.dh2-alert-strip { padding:12px 16px; margin-bottom:16px; border-radius:12px;
+  background:linear-gradient(90deg,rgba(255,181,71,0.10),rgba(255,107,107,0.05));
+  border:1px solid rgba(255,181,71,0.24);
+  display:flex; align-items:center; gap:14px; }
+.dh2-alert-ico { width:32px; height:32px; border-radius:9px; background:rgba(255,181,71,0.18);
+  color:var(--amber); display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  font-size:16px; }
+.dh2-alert-body { flex:1; min-width:0; }
+.dh2-alert-title { font-size:13px; font-weight:600; color:var(--text-primary); }
+.dh2-alert-sub { font-size:11.5px; color:var(--text-secondary); margin-top:2px; }
+
+.dh2-kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:18px; }
+@media(max-width:980px){ .dh2-kpi-grid { grid-template-columns:repeat(2,1fr); } }
+@media(max-width:520px){ .dh2-kpi-grid { grid-template-columns:1fr; } }
+.dh2-kpi { padding:18px 18px 16px; border-radius:16px; background:var(--bg-card);
+  border:1px solid var(--border); position:relative; overflow:hidden; cursor:pointer;
+  transition:border-color 0.12s, transform 0.12s; }
+.dh2-kpi:hover { border-color:var(--border-hover,rgba(255,255,255,0.14)); transform:translateY(-1px); }
+.dh2-kpi-lbl { font-size:11px; color:var(--text-tertiary); letter-spacing:0.5px;
+  text-transform:uppercase; font-weight:600; margin-bottom:14px; display:flex; align-items:center; gap:7px; }
+.dh2-kpi-dot { width:6px; height:6px; border-radius:50%; }
+.dh2-kpi-dot.teal   { background:var(--teal);   box-shadow:0 0 6px var(--teal);   }
+.dh2-kpi-dot.blue   { background:var(--blue);   box-shadow:0 0 6px var(--blue);   }
+.dh2-kpi-dot.violet { background:var(--violet); box-shadow:0 0 6px var(--violet); }
+.dh2-kpi-dot.amber  { background:var(--amber);  box-shadow:0 0 6px var(--amber);  }
+.dh2-kpi-num { font-family:var(--font-display,'Outfit',system-ui,sans-serif);
+  font-size:30px; font-weight:600; letter-spacing:-0.9px; line-height:1; color:var(--text-primary); }
+.dh2-kpi-num .unit { font-size:14px; color:var(--text-tertiary); font-weight:500; margin-left:4px; }
+.dh2-kpi-delta { display:inline-flex; align-items:center; gap:5px; margin-top:10px;
+  font-family:var(--font-mono,'JetBrains Mono',monospace); font-size:11px; padding:2px 7px; border-radius:4px; }
+.dh2-kpi-delta.up   { color:var(--green); background:rgba(74,222,128,0.10); }
+.dh2-kpi-delta.down { color:var(--red);   background:rgba(255,107,107,0.10); }
+.dh2-kpi-delta.flat { color:var(--text-tertiary); background:rgba(255,255,255,0.04); }
+.dh2-kpi-spark { position:absolute; right:0; bottom:0; width:100px; height:40px; opacity:0.75; }
+
+.dh2-row-2-1 { display:grid; grid-template-columns:2fr 1fr; gap:16px; margin-bottom:16px; }
+.dh2-row-3-2 { display:grid; grid-template-columns:3fr 2fr; gap:16px; margin-bottom:16px; }
+@media(max-width:1100px){ .dh2-row-2-1, .dh2-row-3-2 { grid-template-columns:1fr; } }
+
+.dh2-card { background:var(--bg-card); border:1px solid var(--border); border-radius:16px;
+  padding:20px; position:relative; }
+.dh2-card-hd { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; gap:12px; flex-wrap:wrap; }
+.dh2-card-title { font-family:var(--font-display,'Outfit',system-ui,sans-serif);
+  font-size:14.5px; font-weight:600; letter-spacing:-0.2px; color:var(--text-primary); }
+.dh2-card-sub { font-size:11.5px; color:var(--text-tertiary); margin-top:2px; }
+.dh2-card-actions { display:flex; gap:6px; align-items:center; }
+
+.dh2-chip { padding:4px 9px; border-radius:5px; font-size:11px; font-weight:600;
+  background:var(--bg-surface); color:var(--text-secondary); display:inline-block; }
+.dh2-chip.teal   { background:rgba(0,212,188,0.12); color:var(--teal);   }
+.dh2-chip.blue   { background:rgba(74,158,255,0.12); color:var(--blue);  }
+.dh2-chip.amber  { background:rgba(255,181,71,0.12); color:var(--amber); }
+.dh2-chip.rose   { background:rgba(255,107,157,0.12); color:var(--rose); }
+.dh2-chip.green  { background:rgba(74,222,128,0.12); color:var(--green); }
+.dh2-chip.violet { background:rgba(155,127,255,0.12); color:var(--violet); }
+.dh2-chip.red    { background:rgba(255,107,107,0.14); color:var(--red);   }
+
+.dh2-sched { display:grid; grid-template-columns:60px 1fr; gap:8px; }
+.dh2-sched-time { font-family:var(--font-mono,'JetBrains Mono',monospace); font-size:11px;
+  color:var(--text-tertiary); padding-top:14px; text-align:right; padding-right:4px; }
+.dh2-sched-slot { background:rgba(255,255,255,0.025); border:1px solid var(--border);
+  border-left:3px solid var(--teal); padding:10px 12px; border-radius:10px;
+  display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center;
+  cursor:pointer; transition:background 0.12s; }
+.dh2-sched-slot:hover { background:rgba(255,255,255,0.045); }
+.dh2-sched-slot.blue   { border-left-color:var(--blue);   }
+.dh2-sched-slot.violet { border-left-color:var(--violet); }
+.dh2-sched-slot.amber  { border-left-color:var(--amber);  }
+.dh2-sched-slot.rose   { border-left-color:var(--rose);   }
+.dh2-sched-slot.empty  { border-style:dashed; border-left-style:dashed;
+  border-left-color:rgba(255,255,255,0.1); color:var(--text-tertiary); text-align:center;
+  padding:14px; cursor:pointer; }
+.dh2-sched-pt { display:flex; align-items:center; gap:10px; min-width:0; }
+.dh2-pt-av { width:28px; height:28px; border-radius:50%; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center; font-size:10.5px; font-weight:600; color:#04121c; }
+.dh2-pt-av.a { background:linear-gradient(135deg,#00d4bc,#00a896); }
+.dh2-pt-av.b { background:linear-gradient(135deg,#4a9eff,#2d7fe0); color:#fff; }
+.dh2-pt-av.c { background:linear-gradient(135deg,#9b7fff,#7c5fe0); color:#fff; }
+.dh2-pt-av.d { background:linear-gradient(135deg,#ff6b9d,#e04880); color:#fff; }
+.dh2-pt-av.e { background:linear-gradient(135deg,#ffb547,#e69524); }
+.dh2-sched-pt-name { font-size:12.5px; font-weight:600; color:var(--text-primary);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.dh2-sched-pt-proto { font-size:10.5px; color:var(--text-tertiary); margin-top:2px;
+  display:flex; gap:6px; flex-wrap:wrap; }
+.dh2-launch-btn { padding:5px 10px; font-size:11px; font-weight:600; border-radius:6px;
+  background:transparent; color:var(--text-secondary); border:1px solid var(--border);
+  cursor:pointer; font-family:inherit; transition:all 0.12s; white-space:nowrap; }
+.dh2-launch-btn:hover { color:var(--teal); border-color:var(--teal); }
+.dh2-launch-btn.primary { background:linear-gradient(135deg,var(--teal),var(--blue));
+  color:#04121c; border-color:transparent; }
+.dh2-launch-btn.primary:hover { opacity:0.9; color:#04121c; }
+
+.dh2-queue-row { display:grid; grid-template-columns:1.6fr 1fr 1fr 1fr 80px; gap:12px;
+  align-items:center; padding:12px 4px; border-bottom:1px solid var(--border); font-size:12.5px;
+  cursor:pointer; transition:background 0.12s; }
+.dh2-queue-row:last-child { border-bottom:none; }
+.dh2-queue-row:hover { background:rgba(255,255,255,0.02); }
+.dh2-queue-row.head { color:var(--text-tertiary); font-size:10.5px; letter-spacing:1px;
+  text-transform:uppercase; font-weight:600; padding:4px 4px 10px; cursor:default; }
+.dh2-queue-row.head:hover { background:transparent; }
+.dh2-queue-pt { display:flex; align-items:center; gap:10px; min-width:0; }
+.dh2-queue-pt-name { font-weight:600; color:var(--text-primary); white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; }
+.dh2-queue-pt-cond { font-size:10.5px; color:var(--text-tertiary); margin-top:1px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.dh2-queue-prog { display:flex; align-items:center; gap:8px; }
+.dh2-queue-prog-bar { flex:1; height:5px; border-radius:3px;
+  background:rgba(255,255,255,0.06); overflow:hidden; min-width:40px; }
+.dh2-queue-prog-bar > div { height:100%; background:linear-gradient(90deg,var(--teal),var(--blue)); border-radius:3px; }
+.dh2-queue-prog-num { font-family:var(--font-mono,'JetBrains Mono',monospace);
+  font-size:10.5px; color:var(--text-tertiary); min-width:36px; text-align:right; }
+.dh2-iconbtn { width:26px; height:26px; border-radius:7px; border:1px solid var(--border);
+  background:transparent; color:var(--text-secondary); cursor:pointer; display:inline-flex;
+  align-items:center; justify-content:center; font-size:13px; }
+.dh2-iconbtn:hover { color:var(--teal); border-color:var(--teal); }
+@media(max-width:780px){ .dh2-queue-row { grid-template-columns:1fr; gap:6px; } }
+
+.dh2-evidence-list { display:flex; flex-direction:column; gap:8px; }
+.dh2-evidence-item { display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:center;
+  padding:10px 12px; border-radius:10px; background:rgba(255,255,255,0.02);
+  border:1px solid var(--border); cursor:pointer; transition:background 0.12s; }
+.dh2-evidence-item:hover { background:rgba(255,255,255,0.04); }
+.dh2-evidence-grade { font-family:var(--font-display,'Outfit',system-ui,sans-serif); font-size:13px;
+  font-weight:700; width:32px; height:32px; border-radius:9px;
+  display:flex; align-items:center; justify-content:center; }
+.dh2-evidence-grade.a { background:rgba(0,212,188,0.14); color:var(--teal); }
+.dh2-evidence-grade.b { background:rgba(74,158,255,0.14); color:var(--blue); }
+.dh2-evidence-grade.c { background:rgba(255,181,71,0.14); color:var(--amber); }
+.dh2-evidence-grade.d { background:rgba(255,107,107,0.14); color:var(--red); }
+.dh2-evidence-name { font-size:12.5px; font-weight:600; color:var(--text-primary); }
+.dh2-evidence-meta { font-size:10.5px; color:var(--text-tertiary); margin-top:2px; }
+
+.dh2-qa-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.dh2-qa-item { background:rgba(255,255,255,0.02); border:1px solid var(--border); border-radius:10px;
+  padding:12px 14px; cursor:pointer; display:flex; align-items:center; gap:10px;
+  transition:all 0.12s; font-family:inherit; text-align:left; color:inherit; }
+.dh2-qa-item:hover { background:rgba(255,255,255,0.04); border-color:var(--teal); }
+.dh2-qa-ico { font-size:16px; }
+.dh2-qa-lbl { font-size:12.5px; font-weight:600; color:var(--text-primary); }
+
+.dh2-bm-wrap { position:relative; aspect-ratio:1/1; max-width:100%;
+  background:radial-gradient(ellipse 60% 50% at 50% 50%, rgba(0,212,188,0.08), transparent 65%);
+  border-radius:16px; margin:6px 0; display:flex; align-items:center; justify-content:center; }
+.dh2-bm-wrap svg { width:100%; height:100%; max-width:280px; }
+.dh2-bm-legend { display:flex; flex-wrap:wrap; gap:14px; margin-top:14px; padding-top:14px;
+  border-top:1px solid var(--border); font-size:11.5px; color:var(--text-secondary); }
+.dh2-bm-legend-item { display:flex; align-items:center; gap:7px; }
+.dh2-bm-leg-dot { width:10px; height:10px; border-radius:50%; border:1.5px solid rgba(255,255,255,0.3); }
+.dh2-bm-leg-dot.anode   { background:var(--teal);  border-color:rgba(255,255,255,0.6); }
+.dh2-bm-leg-dot.cathode { background:var(--rose);  border-color:rgba(255,255,255,0.6); }
+.dh2-bm-leg-dot.target  { background:rgba(74,158,255,0.3); border-color:var(--blue); border-style:dashed; }
+
+.dh2-attn-row { display:flex; align-items:center; gap:10px; padding:10px 0;
+  border-bottom:1px solid var(--border); cursor:pointer; transition:background 0.12s; }
+.dh2-attn-row:last-child { border-bottom:none; }
+.dh2-attn-row:hover { background:rgba(255,255,255,0.02); }
+.dh2-attn-name { font-size:12.5px; font-weight:600; color:var(--text-primary); }
+.dh2-attn-reason { font-size:10.5px; font-weight:600; margin-top:2px; }
+    `;
+    document.head.appendChild(_s2);
   }
-  const _cdActive = (key, val) => window['_cd' + key] === val ? 'active' : '';
 
-  // Banner if some endpoints failed
-  const _dataBanner = _apiFailCount > 0
-    ? `<div class="dv2-data-banner">&#9888; Some live data could not be loaded. Showing available information.</div>` : '';
+  // ── Greeting ──────────────────────────────────────────────────────────────────
+  const _hr = new Date().getHours();
+  const _greetWord = _hr < 12 ? 'Good morning' : _hr < 18 ? 'Good afternoon' : 'Good evening';
+  const _userName = (currentUser?.display_name || currentUser?.email || 'Clinician').split(/[\s@]/)[0];
+  const _todaySessions = activeCourses.length;
+  const _greetSub = `<strong style="color:var(--teal)">${_todaySessions} session${_todaySessions!==1?'s':''}</strong> in your active caseload · `
+    + (pendingQueue.length > 0
+        ? `<strong style="color:var(--amber)">${pendingQueue.length} item${pendingQueue.length!==1?'s':''}</strong> pending review`
+        : `queue is clear`);
 
-  // Page head greeting
-  const _firstName = currentUser?.first_name || currentUser?.name?.split(' ')[0] || 'Clinician';
-  const _todayCount = scheduleRows.length;
-  const _reviewSub = _isFullAccess && reviewQueuePending > 0
-    ? `<strong style="color:var(--amber)">${reviewQueuePending} item${reviewQueuePending === 1 ? '' : 's'}</strong> need your review`
-    : `<strong style="color:var(--green,#4ade80)">queue clear</strong>`;
-  const _pageHead = `<div class="dv2-dash-pagehd">
+  // ── Demo banner ───────────────────────────────────────────────────────────────
+  const _demoBanner = _isDemo ? `<div class="dh2-demo-banner">
+    <span class="dh2-demo-pill">DEMO</span>
+    <span>Showing sample data so you can explore the dashboard. Add a patient or course to see your own data here.</span>
+    <button class="dh2-launch-btn" style="margin-left:auto" onclick="window._nav('patients')">Add Patient →</button>
+  </div>` : '';
+  const _failBanner = _apiFailCount > 0 ? `<div class="dh2-fail-banner">&#9888; Some live data could not be loaded. Showing what we have.</div>` : '';
+
+  // ── Page head: greeting + week tab + export ───────────────────────────────────
+  const _pageHead = `<div class="dh2-page-head">
     <div>
-      <div class="dv2-dash-greet">Good morning, ${_esc(_firstName)}.</div>
-      <div class="dv2-dash-sub">You have <strong style="color:var(--teal,#00d4bc)">${_todayCount} session${_todayCount === 1 ? '' : 's'}</strong> scheduled today &middot; ${_reviewSub}.</div>
+      <div class="dh2-greet">${_greetWord}, ${_esc(_userName)}.</div>
+      <div class="dh2-greet-sub">${_greetSub}</div>
     </div>
-    <div class="dv2-dash-tabs" role="tablist" aria-label="Period">
-      <button role="tab" class="${_cdActive('Period','Day')}"     onclick="window._cdSetFilter('Period','Day')">Day</button>
-      <button role="tab" class="${_cdActive('Period','Week')}"    onclick="window._cdSetFilter('Period','Week')">Week</button>
-      <button role="tab" class="${_cdActive('Period','Month')}"   onclick="window._cdSetFilter('Period','Month')">Month</button>
-      <button role="tab" class="${_cdActive('Period','Quarter')}" onclick="window._cdSetFilter('Period','Quarter')">Quarter</button>
-    </div>
-  </div>`;
-
-  // Evidence-governance alert (only if downgrades present, otherwise hide)
-  const _hasDowngrade = flaggedCourses.length > 0 || (outcomeSummary?.evidence_downgrades_count > 0);
-  const _alertStrip = _hasDowngrade
-    ? `<div class="dv2-alert-strip">
-        <div class="dv2-alert-ico">&#9888;</div>
-        <div>
-          <div class="dv2-alert-title">Evidence governance &middot; ${flaggedCourses.length} active protocol${flaggedCourses.length === 1 ? '' : 's'} flagged</div>
-          <div class="dv2-alert-sub">Review affected protocols and re-render before the next session.</div>
-        </div>
-        <button class="btn btn-ghost btn-sm" onclick="window._nav('review-queue')">Review now</button>
-      </div>` : '';
-
-  // KPI strip — 4 cards
-  const _utilColor = utilizationPct >= 80 ? '#4ade80' : utilizationPct >= 60 ? '#4a9eff' : '#ffb547';
-  const _phqClass = phqDelta && phqDelta.startsWith('-') ? 'up' : 'down';
-  const _kpiStrip = `<div class="dv2-kpi-grid">
-    <div class="dv2-kpi" tabindex="0" onclick="window._nav('patients')">
-      <div class="dv2-kpi-lbl"><span class="dv2-kpi-dot"></span>Active caseload</div>
-      <div class="dv2-kpi-num">${activePatientIds.length}</div>
-      <div class="dv2-kpi-delta up">&uarr; ${activeCourses.length} active course${activeCourses.length === 1 ? '' : 's'}</div>
-      <svg class="dv2-kpi-spark" viewBox="0 0 100 40" fill="none" aria-hidden="true"><path d="M0 30 L14 24 L28 28 L42 18 L56 22 L70 12 L84 15 L100 6" stroke="#00d4bc" stroke-width="1.5"/></svg>
-    </div>
-    <div class="dv2-kpi" tabindex="0" onclick="window._nav('clinic-day')">
-      <div class="dv2-kpi-lbl blue"><span class="dv2-kpi-dot"></span>Device utilization</div>
-      <div class="dv2-kpi-num">${sessionsPerWeek}<span class="dv2-kpi-unit">/ wk</span></div>
-      <div class="dv2-kpi-delta" style="color:${_utilColor}">${utilizationPct}% capacity</div>
-      <svg class="dv2-kpi-spark" viewBox="0 0 100 40" fill="none" aria-hidden="true"><path d="M0 18 L14 20 L28 14 L42 22 L56 12 L70 16 L84 10 L100 14" stroke="#4a9eff" stroke-width="1.5"/></svg>
-    </div>
-    <div class="dv2-kpi" tabindex="0" onclick="window._nav('outcomes')">
-      <div class="dv2-kpi-lbl violet"><span class="dv2-kpi-dot"></span>PHQ-9 &Delta; trend</div>
-      <div class="dv2-kpi-num">${phqDelta != null ? phqDelta : (responderRateNum != null ? responderRateNum + '%' : '&mdash;')}<span class="dv2-kpi-unit">${phqDelta != null ? 'pts' : 'resp'}</span></div>
-      <div class="dv2-kpi-delta ${_phqClass}">${responderRateNum != null ? responderRateNum + '% responder rate' : 'cohort tracking'}</div>
-      <svg class="dv2-kpi-spark" viewBox="0 0 100 40" fill="none" aria-hidden="true"><path d="M0 10 L14 14 L28 18 L42 22 L56 20 L70 26 L84 30 L100 34" stroke="#9b7fff" stroke-width="1.5"/></svg>
-    </div>
-    <div class="dv2-kpi" tabindex="0" onclick="window._nav('review-queue')">
-      <div class="dv2-kpi-lbl amber"><span class="dv2-kpi-dot"></span>Review queue</div>
-      <div class="dv2-kpi-num">${reviewQueuePending}</div>
-      <div class="dv2-kpi-delta ${reviewQueuePending > 0 ? 'down' : 'up'}">${flaggedCourses.length} re-render${flaggedCourses.length === 1 ? '' : 's'} pending</div>
-      <svg class="dv2-kpi-spark" viewBox="0 0 100 40" fill="none" aria-hidden="true"><path d="M0 28 L14 24 L28 26 L42 18 L56 22 L70 16 L84 12 L100 14" stroke="#ffb547" stroke-width="1.5"/></svg>
+    <div class="dh2-head-actions">
+      <div class="dh2-tabrow" role="tablist" aria-label="Time range">
+        <button role="tab" onclick="window._nav('clinic-day')">Day</button>
+        <button role="tab" class="dh2-active" aria-selected="true">Week</button>
+        <button role="tab" onclick="window._nav('reports-hub')">Month</button>
+        <button role="tab" onclick="window._nav('reports-hub')">Quarter</button>
+      </div>
+      <button class="dh2-launch-btn" onclick="window._nav('reports-hub')">Export</button>
     </div>
   </div>`;
 
-  // Today's schedule card
-  const _statusFlavor = (idx) => ['', 'blue', 'violet', '', 'amber', '', 'blue', 'violet'][idx % 8];
-  const _avFlavor = (idx) => ['a', 'b', 'c', 'd', 'e'][idx % 5];
-  const _scheduleBody = scheduleRows.length === 0
-    ? `<div style="padding:32px 18px;text-align:center;color:var(--text-tertiary);font-size:12px">No sessions scheduled for today. <button class="btn btn-ghost btn-sm" style="margin-left:8px" onclick="window._cdAddWalkin?.() || window._nav('clinic-day')">+ Walk-in</button></div>`
-    : scheduleRows.map((s, idx) => {
-        const flav = _statusFlavor(idx);
-        const ini = (s.patientName || 'P P').split(/\s+/).map(t => t[0] || '').slice(0, 2).join('').toUpperCase() || '??';
-        const condChip = `<span class="dv2-chip">${_esc(s.condition || '—')}</span>`;
-        const protoChip = `<span class="dv2-chip ${flav || 'teal'}">${_esc(s.protocol || '—')}${s.sessionNum !== '—' && s.sessionTotal !== '—' ? ' &middot; ' + _esc(s.sessionNum) + '/' + _esc(s.sessionTotal) : ''}</span>`;
-        const startBtn = `<button class="btn btn-ghost btn-sm" onclick="window._selectedPatientId='${_idSafe(s.patientId)}';window._nav('session-execution')" style="font-size:11px;padding:4px 10px">Launch &rarr;</button>`;
-        return `<div class="dv2-sched-time">${_esc(s.time)}</div>
-          <div class="dv2-sched-slot ${flav}">
-            <div class="dv2-sched-pt">
-              <div class="dv2-pt-av ${_avFlavor(idx)}">${_esc(ini)}</div>
-              <div style="min-width:0;flex:1">
-                <div class="dv2-sched-pt-name">${_esc(s.patientName || '—')}</div>
-                <div class="dv2-sched-pt-proto">${protoChip}${condChip}</div>
-              </div>
-            </div>
-            ${startBtn}
-          </div>`;
-      }).join('');
+  // ── Alert strip (highest-tier urgent item if any) ─────────────────────────────
+  const _topAlert = _urgentItems[0];
+  const _alertStrip = !_topAlert ? '' : `<div class="dh2-alert-strip">
+    <div class="dh2-alert-ico">&#9888;</div>
+    <div class="dh2-alert-body">
+      <div class="dh2-alert-title">${_esc(_topAlert.label)} · ${_topAlert.count} active</div>
+      <div class="dh2-alert-sub">${_topAlert.tier === 1 ? 'Critical — stop-work item, action required now.' : _topAlert.tier === 2 ? 'High priority — review before next session.' : 'Monitoring — flagged for attention.'}</div>
+    </div>
+    <button class="dh2-launch-btn primary" onclick="window._nav('${_topAlert.nav}')">Review now</button>
+  </div>`;
 
-  const _scheduleCard = `<div class="dv2-card">
-    <div class="dv2-card-hd">
+  // ── KPI grid ──────────────────────────────────────────────────────────────────
+  const _phqDelta = outcomeSummary?.mean_phq9_delta != null ? outcomeSummary.mean_phq9_delta : null;
+  const _phqDeltaStr = _phqDelta != null ? (_phqDelta > 0 ? '+' : '') + _phqDelta.toFixed(1) : '—';
+  const _utilPct = sessionsPerWeek > 0 && activeCourses.length > 0
+    ? Math.min(100, Math.round((totalDelivered / Math.max(1, activeCourses.reduce((s,c)=>s+(c.planned_sessions_total||0),0))) * 100))
+    : 0;
+  const _kpiGrid = `<div class="dh2-kpi-grid">
+    <div class="dh2-kpi" ${_kb} onclick="window._nav('patients')">
+      <div class="dh2-kpi-lbl"><span class="dh2-kpi-dot teal"></span>Active caseload</div>
+      <div class="dh2-kpi-num">${activePatientIds.length || patCount}</div>
+      <div class="dh2-kpi-delta ${activeCourses.length > 0 ? 'up' : 'flat'}">${activeCourses.length} active course${activeCourses.length!==1?'s':''}</div>
+      <svg class="dh2-kpi-spark" viewBox="0 0 100 40" fill="none"><path d="M0 30 L14 24 L28 28 L42 18 L56 22 L70 12 L84 15 L100 6" stroke="#00d4bc" stroke-width="1.5"/></svg>
+    </div>
+    <div class="dh2-kpi" ${_kb} onclick="window._nav('courses')">
+      <div class="dh2-kpi-lbl blue"><span class="dh2-kpi-dot blue"></span>Sessions delivered</div>
+      <div class="dh2-kpi-num">${totalDelivered}<span class="unit">/ wk ${sessionsPerWeek}</span></div>
+      <div class="dh2-kpi-delta ${_utilPct >= 70 ? 'up' : 'flat'}">${_utilPct}% utilization</div>
+      <svg class="dh2-kpi-spark" viewBox="0 0 100 40" fill="none"><path d="M0 18 L14 20 L28 14 L42 22 L56 12 L70 16 L84 10 L100 14" stroke="#4a9eff" stroke-width="1.5"/></svg>
+    </div>
+    <div class="dh2-kpi" ${_kb} onclick="window._nav('outcomes')">
+      <div class="dh2-kpi-lbl violet"><span class="dh2-kpi-dot violet"></span>Responder rate</div>
+      <div class="dh2-kpi-num">${responderRate}</div>
+      <div class="dh2-kpi-delta ${_phqDelta != null && _phqDelta < 0 ? 'up' : 'flat'}">PHQ-9 Δ ${_phqDeltaStr}</div>
+      <svg class="dh2-kpi-spark" viewBox="0 0 100 40" fill="none"><path d="M0 10 L14 14 L28 18 L42 22 L56 20 L70 26 L84 30 L100 34" stroke="#9b7fff" stroke-width="1.5"/></svg>
+    </div>
+    <div class="dh2-kpi" ${_kb} onclick="window._nav('${pendingQueue.length > 0 ? 'review-queue' : 'outcomes'}')">
+      <div class="dh2-kpi-lbl amber"><span class="dh2-kpi-dot amber"></span>Pending review</div>
+      <div class="dh2-kpi-num">${pendingQueue.length}</div>
+      <div class="dh2-kpi-delta ${flaggedCourses.length > 0 ? 'down' : 'flat'}">${flaggedCourses.length > 0 ? flaggedCourses.length + ' need re-render' : 'all current'}</div>
+      <svg class="dh2-kpi-spark" viewBox="0 0 100 40" fill="none"><path d="M0 28 L14 24 L28 26 L42 18 L56 22 L70 16 L84 12 L100 14" stroke="#ffb547" stroke-width="1.5"/></svg>
+    </div>
+  </div>`;
+
+  // ── Today's schedule (derived from courses if no localStorage queue) ─────────
+  const _avClass = i => ['a','b','c','d','e'][i % 5];
+  const _slotColor = i => ['','blue','violet','amber','rose'][i % 5];
+  const _initialsOf = pt => ((pt?.first_name||'?')[0] + (pt?.last_name||'?')[0]).toUpperCase();
+  const _dhApptQueue = (() => { try { return JSON.parse(localStorage.getItem('ds_today_queue') || '[]'); } catch { return []; } })();
+  const _baseHour = 9;
+  const _scheduleSlots = (_dhApptQueue.length > 0 ? _dhApptQueue.map((p, i) => ({
+    time: p.time || `${String(_baseHour + i).padStart(2,'0')}:00`,
+    name: p.patientName || 'Patient',
+    initials: (p.patientName || 'PT').split(' ').map(s => s[0]).slice(0,2).join('').toUpperCase(),
+    chips: [
+      { cls: ['teal','blue','violet','amber'][i % 4], txt: p.protocol || 'Session' },
+      { cls: '', txt: p.condition || '' },
+    ].filter(c => c.txt),
+    patientId: p.patientId,
+    courseId: '',
+    slotClass: _slotColor(i),
+    avClass: _avClass(i),
+  })) : activeCourses.slice(0, 6).map((c, i) => {
+    const pt = patientMap[c.patient_id];
+    const pName = pt ? `${pt.first_name||''} ${pt.last_name||''}`.trim() : (c._patientName || 'Patient');
+    return {
+      time: `${String(_baseHour + i).padStart(2,'0')}:${i % 2 === 0 ? '00' : '30'}`,
+      name: pName,
+      initials: _initialsOf(pt),
+      chips: [
+        { cls: ['teal','blue','violet','amber','rose'][i % 5], txt: `${c.modality_slug || 'Session'} · ${c.sessions_delivered||0}/${c.planned_sessions_total||'?'}` },
+        { cls: '', txt: (c.condition_slug || '').replace(/-/g,' ') },
+      ].filter(c => c.txt),
+      patientId: c.patient_id,
+      courseId: c.id,
+      slotClass: _slotColor(i),
+      avClass: _avClass(i),
+    };
+  }));
+
+  const _scheduleCard = `<div class="dh2-card">
+    <div class="dh2-card-hd">
       <div>
-        <div class="dv2-card-title">Today's schedule</div>
-        <div class="dv2-card-sub">${scheduleRows.length} session${scheduleRows.length === 1 ? '' : 's'}${activeCourses.length ? ' &middot; ' + activeCourses.length + ' active course' + (activeCourses.length === 1 ? '' : 's') : ''}</div>
+        <div class="dh2-card-title">Today's schedule</div>
+        <div class="dh2-card-sub">${_scheduleSlots.length} session${_scheduleSlots.length!==1?'s':''} · ${new Date().toLocaleDateString('en-GB',{weekday:'long', day:'numeric', month:'short'})}</div>
       </div>
-      <div class="dv2-dash-tabs" role="tablist">
-        <button class="${_cdActive('Room','All')}"    onclick="window._cdSetFilter('Room','All')">All</button>
-        <button class="${_cdActive('Room','Room A')}" onclick="window._cdSetFilter('Room','Room A')">Room A</button>
-        <button class="${_cdActive('Room','Room B')}" onclick="window._cdSetFilter('Room','Room B')">Room B</button>
-        <button class="${_cdActive('Room','Remote')}" onclick="window._cdSetFilter('Room','Remote')">Remote</button>
+      <div class="dh2-card-actions">
+        <button class="dh2-launch-btn" onclick="window._nav('scheduling-hub')">Open schedule →</button>
       </div>
     </div>
-    <div class="dv2-sched">${_scheduleBody}</div>
-  </div>`;
-
-  // Brain map card
-  const _brainSvg = (() => {
-    try {
-      return renderBrainMap10_20({
-        anode: 'F3',
-        cathode: 'Fp2',
-        targetAnchor: 'F3',
-        highlightSites: ['F4', 'Cz', 'Pz', 'C3', 'C4'],
-        size: 280,
-      });
-    } catch (e) { console.error('[Dashboard] brain map render failed:', e); return ''; }
-  })();
-  const _activeMontages = Math.max(1, new Set(activeCourses.map(c => c.modality_slug).filter(Boolean)).size);
-  const _brainMapCard = `<div class="dv2-card">
-    <div class="dv2-card-hd">
-      <div>
-        <div class="dv2-card-title">Live brain-map targets</div>
-        <div class="dv2-card-sub">10-20 overlay &middot; ${scheduleRows.length} session${scheduleRows.length === 1 ? '' : 's'} &middot; ${_activeMontages} montage${_activeMontages === 1 ? '' : 's'}</div>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="window._nav('brainmap-v2')" style="font-size:11px;padding:4px 10px">Open planner &rarr;</button>
-    </div>
-    <div class="dv2-brainmap-wrap">${_brainSvg || '<div style="color:var(--text-tertiary);font-size:12px">Brain map unavailable</div>'}</div>
-    <div class="dv2-brainmap-legend">
-      <div class="dv2-brainmap-legend-item"><span class="dv2-leg-dot anode"></span>Anode</div>
-      <div class="dv2-brainmap-legend-item"><span class="dv2-leg-dot cathode"></span>Cathode</div>
-      <div class="dv2-brainmap-legend-item"><span class="dv2-leg-dot target"></span>Target ring</div>
-      <div class="dv2-brainmap-legend-item"><span class="dv2-leg-dot passive"></span>Available</div>
-    </div>
-  </div>`;
-
-  // Caseload table
-  const _caseloadBody = caseloadRows.length === 0
-    ? `<div style="padding:24px 18px;text-align:center;color:var(--text-tertiary);font-size:12px">No active cases &middot; <button class="btn btn-ghost btn-sm" style="margin-left:8px" onclick="window._nav('protocol-studio')">+ Create course</button></div>`
-    : caseloadRows.map((c, idx) => {
-        const pt = patientMap[c.patient_id] || {};
-        const ini = _initials(pt.first_name, pt.last_name).toUpperCase() || '??';
-        const pct = c.planned_sessions_total > 0 ? Math.min(100, Math.round((c.sessions_delivered || 0) / c.planned_sessions_total * 100)) : 0;
-        const flav = ['teal','amber','blue','violet','rose','green'][idx % 6];
-        const statusChip = c.status === 'paused'
-          ? `<span class="dv2-chip amber">Paused</span>`
-          : (c.governance_warnings || []).length
-            ? `<span class="dv2-chip red">Safety flag</span>`
-            : (c.sessions_delivered || 0) >= (c.planned_sessions_total || 999) - 1
-              ? `<span class="dv2-chip green">Discharge plan</span>`
-              : pct >= 50
-                ? `<span class="dv2-chip green">On track</span>`
-                : `<span class="dv2-chip">In progress</span>`;
-        const cid = _idSafe(c.id);
-        const pidSafe = _idSafe(c.patient_id);
-        return `<div class="dv2-queue-row pt-row" data-row onclick="window.openPatient('${pidSafe}')">
-          <div class="dv2-queue-pt">
-            <div class="dv2-pt-av ${_avFlavor(idx)}">${_esc(ini)}</div>
+    <div class="dh2-sched">
+      ${_scheduleSlots.map(s => `
+        <div class="dh2-sched-time">${_esc(s.time)}</div>
+        <div class="dh2-sched-slot ${s.slotClass}" onclick="${s.patientId ? `window._selectedPatientId='${_esc(s.patientId)}';window._nav('patient-profile')` : `window._nav('scheduling-hub')`}">
+          <div class="dh2-sched-pt">
+            <div class="dh2-pt-av ${s.avClass}">${_esc(s.initials)}</div>
             <div style="min-width:0">
-              <div class="dv2-queue-pt-name">${_esc(((pt.first_name || '') + ' ' + (pt.last_name || '')).trim() || 'Patient')}</div>
-              <div class="dv2-queue-pt-cond">${_esc((c.condition_slug || '—').replace(/-/g, ' '))}</div>
+              <div class="dh2-sched-pt-name">${_esc(s.name)}</div>
+              <div class="dh2-sched-pt-proto">${s.chips.map(c => `<span class="dh2-chip ${c.cls}">${_esc(c.txt)}</span>`).join('')}</div>
             </div>
           </div>
-          <div><span class="dv2-chip ${flav}">${_esc(c.modality_slug || '—')}</span></div>
-          <div class="dv2-queue-progress">
-            <div class="dv2-queue-progress-bar"><div style="width:${pct}%"></div></div>
-            <span class="dv2-queue-progress-num">${c.sessions_delivered || 0}/${c.planned_sessions_total || '?'}</span>
+          <button class="dh2-launch-btn primary" onclick="event.stopPropagation();${s.patientId ? `window._selectedPatientId='${_esc(s.patientId)}';` : ''}${s.courseId ? `window._startCourseSession('${_esc(s.courseId)}')` : `window._nav('session-execution')`}">Launch →</button>
+        </div>`).join('')}
+      ${_scheduleSlots.length === 0 ? `
+        <div class="dh2-sched-time">—</div>
+        <div class="dh2-sched-slot empty" onclick="window._cdAddWalkin?.() || window._nav('clinic-day')">Open schedule · add session</div>
+      ` : ''}
+    </div>
+  </div>`;
+
+  // ── Brain map card ───────────────────────────────────────────────────────────
+  let _brainSvg = '';
+  try { _brainSvg = brainMapSVG('alpha'); } catch { _brainSvg = ''; }
+  const _brainCard = `<div class="dh2-card">
+    <div class="dh2-card-hd">
+      <div>
+        <div class="dh2-card-title">Active targets · today</div>
+        <div class="dh2-card-sub">10-20 overlay · ${activeCourses.length} course${activeCourses.length!==1?'s':''}</div>
+      </div>
+      <button class="dh2-launch-btn" onclick="window._nav('brain-map-planner')">Open planner →</button>
+    </div>
+    <div class="dh2-bm-wrap">${_brainSvg || '<div style="color:var(--text-tertiary);font-size:12px">No targets</div>'}</div>
+    <div class="dh2-bm-legend">
+      <div class="dh2-bm-legend-item"><span class="dh2-bm-leg-dot anode"></span>Anode</div>
+      <div class="dh2-bm-legend-item"><span class="dh2-bm-leg-dot cathode"></span>Cathode</div>
+      <div class="dh2-bm-legend-item"><span class="dh2-bm-leg-dot target"></span>Target</div>
+    </div>
+  </div>`;
+
+  // ── Caseload table ───────────────────────────────────────────────────────────
+  const _caseRows = clinicQueue.length === 0
+    ? `<div class="dh2-queue-row" style="cursor:default"><div style="color:var(--text-tertiary);font-size:12px">No active caseload yet.</div></div>`
+    : clinicQueue.slice(0, 8).map((c, i) => {
+        const pt = patientMap[c.patient_id];
+        const pName = pt ? `${pt.first_name||''} ${pt.last_name||''}`.trim() : (c._patientName || 'Patient');
+        const pct = c.planned_sessions_total > 0 ? Math.min(100, Math.round((c.sessions_delivered || 0) / c.planned_sessions_total * 100)) : 0;
+        const hasFlag = (c.governance_warnings || []).length > 0;
+        const stage = c._qStatus === 'paused' ? { cls: 'amber', txt: 'Paused' }
+                    : c._qStatus === 'pending' ? { cls: 'blue', txt: 'Pending review' }
+                    : c._qStatus === 'approved' ? { cls: 'violet', txt: 'Approved · ready' }
+                    : hasFlag ? { cls: 'amber', txt: 'Safety flag' }
+                    : pct >= 90 ? { cls: 'green', txt: 'Discharge plan ready' }
+                    : { cls: 'green', txt: 'On track' };
+        const cid = (c.id || '').replace(/['"]/g,'');
+        return `<div class="dh2-queue-row" onclick="window._openCourse('${_esc(cid)}')">
+          <div class="dh2-queue-pt">
+            <div class="dh2-pt-av ${_avClass(i)}">${_esc(_initialsOf(pt) || pName.slice(0,2).toUpperCase())}</div>
+            <div style="min-width:0">
+              <div class="dh2-queue-pt-name">${_esc(pName)}</div>
+              <div class="dh2-queue-pt-cond">${_esc((c.condition_slug || '').replace(/-/g,' ') || '—')}</div>
+            </div>
           </div>
-          <div>${statusChip}</div>
-          <div style="text-align:right"><button class="dv2-arrow-btn" aria-label="Open" onclick="event.stopPropagation();window._openCourse('${cid}')">&rarr;</button></div>
+          <div><span class="dh2-chip ${['teal','blue','violet','amber','rose'][i % 5]}">${_esc(c.modality_slug || '—')}</span></div>
+          <div class="dh2-queue-prog">
+            <div class="dh2-queue-prog-bar"><div style="width:${pct}%"></div></div>
+            <span class="dh2-queue-prog-num">${c.sessions_delivered || 0}/${c.planned_sessions_total || '—'}</span>
+          </div>
+          <div><span class="dh2-chip ${stage.cls}">${_esc(stage.txt)}</span></div>
+          <div style="text-align:right"><button class="dh2-iconbtn" onclick="event.stopPropagation();window._openCourse('${_esc(cid)}')">→</button></div>
         </div>`;
       }).join('');
 
-  const _caseloadCard = `<div class="dv2-card">
-    <div class="dv2-card-hd">
+  const _caseCard = `<div class="dh2-card">
+    <div class="dh2-card-hd">
       <div>
-        <div class="dv2-card-title">Active patient caseload</div>
-        <div class="dv2-card-sub">Sorted by next-action urgency</div>
+        <div class="dh2-card-title">Active patient caseload</div>
+        <div class="dh2-card-sub">Sorted by clinical urgency</div>
       </div>
-      <div class="dv2-dash-tabs" role="tablist">
-        <button class="${_cdActive('Cohort','All')}"         onclick="window._cdSetFilter('Cohort','All')">All</button>
-        <button class="${_cdActive('Cohort','Urgent')}"      onclick="window._cdSetFilter('Cohort','Urgent')">Urgent</button>
-        <button class="${_cdActive('Cohort','New')}"         onclick="window._cdSetFilter('Cohort','New')">New</button>
-        <button class="${_cdActive('Cohort','Discharging')}" onclick="window._cdSetFilter('Cohort','Discharging')">Discharging</button>
+      <div class="dh2-card-actions">
+        <button class="dh2-launch-btn" onclick="window._nav('patients')">All patients →</button>
       </div>
     </div>
-    <div class="dv2-queue-row head">
-      <div>Patient &middot; Condition</div>
+    <div class="dh2-queue-row head">
+      <div>Patient · Condition</div>
       <div>Protocol</div>
       <div>Progress</div>
       <div>Next step</div>
       <div></div>
     </div>
-    ${_caseloadBody}
+    ${_caseRows}
   </div>`;
 
-  // Evidence governance card
-  const _evidenceItems = (() => {
-    const out = [];
-    const seen = new Set();
-    activeCourses.forEach(c => {
-      const key = (c.modality_slug || '') + '|' + (c.condition_slug || '');
-      if (seen.has(key) || out.length >= 4) return;
-      seen.add(key);
-      const grade = (c.evidence_grade || 'B').toUpperCase();
-      const flagged = (c.governance_warnings || []).length > 0;
-      out.push({
-        grade: ['A','B','C','D'].includes(grade) ? grade : 'B',
-        name: ((c.modality_slug || 'protocol') + ' &middot; ' + (c.condition_slug || '')).replace(/-/g, ' '),
-        meta: c.sessions_delivered ? (c.sessions_delivered + ' sessions delivered') : 'pinned',
-        flagged,
-      });
-    });
-    if (out.length === 0) {
-      out.push(
-        { grade: 'A', name: 'rTMS &middot; DLPFC-L &middot; 10Hz', meta: '41 RCTs &middot; pinned v2.4.1' },
-        { grade: 'A', name: 'tDCS &middot; DLPFC-L &middot; 2mA', meta: '32 RCTs &middot; updated 3d ago' },
-        { grade: 'B', name: 'tACS &middot; 10Hz &middot; mPFC', meta: '12 RCTs &middot; GAD secondary' },
-      );
-    }
-    return out;
-  })();
-
-  const _evidenceCard = `<div class="dv2-card">
-    <div class="dv2-card-hd">
+  // ── Evidence governance card ─────────────────────────────────────────────────
+  const _modalitiesShown = topModalities.length > 0
+    ? topModalities.slice(0, 4)
+    : (allCourses.length > 0 ? [['mixed', allCourses.length]] : []);
+  const _evGrade = m => allCourses.find(c => c.modality_slug === m)?.evidence_grade || 'B';
+  const _evidenceCard = `<div class="dh2-card">
+    <div class="dh2-card-hd">
       <div>
-        <div class="dv2-card-title">Evidence governance</div>
-        <div class="dv2-card-sub">Active registry grades${_hasDowngrade ? ' &middot; downgrade alert' : ''}</div>
+        <div class="dh2-card-title">Evidence governance</div>
+        <div class="dh2-card-sub">Active modalities · grade snapshot</div>
       </div>
-      <span class="dv2-chip ${_hasDowngrade ? 'amber' : 'teal'}">${_hasDowngrade ? 'Downgrade alert' : 'All current'}</span>
+      <span class="dh2-chip ${flaggedCourses.length === 0 ? 'teal' : 'amber'}">${flaggedCourses.length === 0 ? 'All current' : flaggedCourses.length + ' flagged'}</span>
     </div>
-    <div class="dv2-evidence-list">
-      ${_evidenceItems.map(ev => `<div class="dv2-evidence-item"${ev.flagged ? ' style="background:rgba(255,181,71,0.05);border-color:rgba(255,181,71,0.18)"' : ''}>
-        <div class="dv2-evidence-grade ${ev.grade.toLowerCase()}">${ev.grade}</div>
-        <div>
-          <div class="dv2-evidence-name"${ev.flagged ? ' style="color:#ffb547"' : ''}>${ev.name}</div>
-          <div class="dv2-evidence-meta">${ev.meta}</div>
-        </div>
-        ${ev.flagged
-          ? `<button class="btn btn-ghost btn-sm" onclick="window._nav('review-queue')" style="font-size:11px;padding:4px 10px">Re-render</button>`
-          : `<button class="dv2-arrow-btn" aria-label="Open" onclick="window._nav('protocols-registry')">&rarr;</button>`}
-      </div>`).join('')}
-    </div>
-  </div>`;
-
-  // Activity feed card
-  const _feedBody = activityFeed.length === 0
-    ? `<div style="padding:24px 18px;text-align:center;color:var(--text-tertiary);font-size:12px">No recent activity</div>`
-    : activityFeed.map(it => {
-        const html = it.html || (it.message ? _esc(it.message) : '&mdash;');
-        const ico = it.icon || '&#10004;';
-        const colorCls = it.color || 'teal';
-        const ts = it.ts_label || it.time || '';
-        return `<div class="dv2-feed-item">
-          <div class="dv2-feed-ico ${colorCls === 'teal' ? '' : colorCls}">${ico}</div>
-          <div class="dv2-feed-text">${html}</div>
-          <div class="dv2-feed-time">${_esc(ts)}</div>
-        </div>`;
-      }).join('');
-
-  const _feedCard = `<div class="dv2-card">
-    <div class="dv2-card-hd">
-      <div>
-        <div class="dv2-card-title">Clinic activity</div>
-        <div class="dv2-card-sub">Last 24 hours</div>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="window._nav('audit-log')" style="font-size:11px;padding:4px 10px">View audit log</button>
-    </div>
-    ${_feedBody}
-  </div>`;
-
-  // Outcomes mini chart
-  const _outcomesCard = `<div class="dv2-card">
-    <div class="dv2-card-hd">
-      <div>
-        <div class="dv2-card-title">Outcomes &middot; cohort &Delta;</div>
-        <div class="dv2-card-sub">PHQ-9 trend &middot; lower is better</div>
-      </div>
-      <div class="dv2-dash-tabs" role="tablist">
-        <button class="${_cdActive('Outcomes','4W')}"  onclick="window._cdSetFilter('Outcomes','4W')">4W</button>
-        <button class="${_cdActive('Outcomes','12W')}" onclick="window._cdSetFilter('Outcomes','12W')">12W</button>
-        <button class="${_cdActive('Outcomes','1Y')}"  onclick="window._cdSetFilter('Outcomes','1Y')">1Y</button>
-      </div>
-    </div>
-    <div class="dv2-outcomes-card">
-      <svg viewBox="0 0 520 200" style="width:100%;height:200px" aria-hidden="true">
-        <defs>
-          <linearGradient id="dv2cg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#00d4bc" stop-opacity="0.30"/><stop offset="100%" stop-color="#00d4bc" stop-opacity="0"/></linearGradient>
-        </defs>
-        <g stroke="rgba(255,255,255,0.05)">
-          <line x1="0" y1="40" x2="520" y2="40"/><line x1="0" y1="90" x2="520" y2="90"/>
-          <line x1="0" y1="140" x2="520" y2="140"/><line x1="0" y1="180" x2="520" y2="180"/>
-        </g>
-        <line x1="0" y1="120" x2="520" y2="120" stroke="rgba(255,107,157,0.4)" stroke-width="1" stroke-dasharray="4,4"/>
-        <text x="6" y="116" font-family="JetBrains Mono,monospace" font-size="9" fill="#ff6b9d">Responder threshold</text>
-        <path d="M0 60 L65 72 L130 68 L195 90 L260 110 L325 130 L390 150 L455 162 L520 168 L520 200 L0 200 Z" fill="url(#dv2cg1)"/>
-        <path d="M0 60 L65 72 L130 68 L195 90 L260 110 L325 130 L390 150 L455 162 L520 168" stroke="#00d4bc" stroke-width="2" fill="none"/>
-        <g fill="#00d4bc"><circle cx="0" cy="60" r="3"/><circle cx="130" cy="68" r="3"/><circle cx="260" cy="110" r="3"/><circle cx="390" cy="150" r="3"/><circle cx="520" cy="168" r="3"/></g>
-        <g font-family="JetBrains Mono,monospace" font-size="9.5" fill="#7c8699">
-          <text x="0" y="195">W1</text><text x="128" y="195">W2</text>
-          <text x="258" y="195">W3</text><text x="388" y="195">W4</text>
-          <text x="500" y="195">now</text>
-        </g>
-      </svg>
-      <div style="display:flex;gap:18px;margin-top:6px;font-size:11px;color:var(--text-secondary)">
-        <div style="display:flex;align-items:center;gap:6px"><span style="width:9px;height:9px;border-radius:50%;background:#00d4bc"></span>PHQ-9 &middot; <strong style="font-family:var(--dv2-font-mono, monospace);color:#5fe9d3">${responderRate}</strong> responder rate</div>
-        <div style="display:flex;align-items:center;gap:6px;color:var(--text-tertiary)"><span style="width:9px;height:9px;border-radius:50%;background:#ff6b9d;opacity:0.6"></span>responder &ge; 50%</div>
-      </div>
+    <div class="dh2-evidence-list">
+      ${_modalitiesShown.length === 0
+        ? `<div style="color:var(--text-tertiary);font-size:12px;padding:8px 0">No active modalities yet.</div>`
+        : _modalitiesShown.map(([mod, n]) => {
+            const grade = _evGrade(mod);
+            return `<div class="dh2-evidence-item" onclick="window._nav('protocol-hub')">
+              <div class="dh2-evidence-grade ${grade.toLowerCase()}">${_esc(grade)}</div>
+              <div>
+                <div class="dh2-evidence-name">${_esc(mod)}</div>
+                <div class="dh2-evidence-meta">${n} active course${n!==1?'s':''} · registry pinned</div>
+              </div>
+              <button class="dh2-iconbtn" onclick="event.stopPropagation();window._nav('protocol-hub')">→</button>
+            </div>`;
+          }).join('')}
     </div>
   </div>`;
 
-  // Dashboard agent strip (kept from original wiring)
-  const _dashPrompts = [
-    { icon: '&#x1F4C2;', q: 'What should I prioritize in the review queue today?' },
-    { icon: '&#9888;',   q: 'Summarize open safety items I should know about' },
-    { icon: '&#x1F4C5;', q: 'How should I plan sessions this week given the active caseload?' },
-    { icon: '&#x1F4C8;', q: 'Explain responder rate and outcomes snapshot in plain language' },
-  ];
-  const _dashAgentStrip = !_isFullAccess ? '' : `<div class="dash-agent-strip dv2-card" style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+  // ── Quick actions card ───────────────────────────────────────────────────────
+  const _qaItems = [
+    { ico: '＋', lbl: 'Add Patient',     nav: 'patients',        show: !_isReadonly },
+    { ico: '✎',  lbl: 'New Course',      nav: 'protocol-wizard', show: _isFullAccess },
+    { ico: '◉',  lbl: 'Assessments',     nav: 'assessments-hub', show: !_isReadonly },
+    { ico: '🧠', lbl: 'Brain Map',       nav: 'brain-map-planner', show: !_isReadonly },
+    { ico: '◎',  lbl: 'Review Queue',    nav: 'review-queue',    show: _isFullAccess },
+    { ico: '📊', lbl: 'Reports',         nav: 'reports-hub',     show: true },
+  ].filter(a => a.show);
+  const _qaCard = _isReadonly ? '' : `<div class="dh2-card">
+    <div class="dh2-card-hd"><div><div class="dh2-card-title">Quick actions</div></div></div>
+    <div class="dh2-qa-grid">
+      ${_qaItems.map(a => `<button class="dh2-qa-item" onclick="window._nav('${a.nav}')">
+        <span class="dh2-qa-ico">${a.ico}</span>
+        <span class="dh2-qa-lbl">${a.lbl}</span>
+      </button>`).join('')}
+    </div>
+  </div>`;
+
+  // ── Needs attention card ─────────────────────────────────────────────────────
+  const _attnCard = (!_isFullAccess || patientsNeedingAttention.length === 0) ? '' : `<div class="dh2-card">
+    <div class="dh2-card-hd">
+      <div><div class="dh2-card-title">Needs attention</div><div class="dh2-card-sub">${patientsNeedingAttention.length} flagged</div></div>
+      <button class="dh2-launch-btn" onclick="window._nav('patients')">All →</button>
+    </div>
     <div>
-      <div style="font-family:var(--dv2-font-display, system-ui);font-size:13px;font-weight:600;color:var(--text-primary)">Clinic specialist agents</div>
-      <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px">Operational Q&amp;A backed by this dashboard's snapshot. Not a substitute for clinical judgment.</div>
-    </div>
-    <button type="button" class="btn btn-primary btn-sm" onclick="window._dashAgentOpen()">Open agents</button>
-  </div>
-  <div id="dash-agent-modal" class="dash-agent-modal" style="display:none" role="dialog" aria-label="Clinic specialist agents">
-    <div class="dash-agent-modal__backdrop" onclick="window._dashAgentClose()"></div>
-    <div class="dash-agent-modal__panel card">
-      <div class="dash-agent-modal__head">
-        <span class="dash-agent-modal__title">Clinic specialist agents</span>
-        <button type="button" class="dash-agent-modal__close" onclick="window._dashAgentClose()" aria-label="Close">&#x2715;</button>
-      </div>
-      <div class="dash-agent-modal__body">
-        <div class="dash-agent-modal__intro">Operational Q&amp;A for your practice. Answers use the dashboard snapshot. For patient-specific decisions, use the chart.</div>
-        <div class="ptd-asst-prompts">
-          ${_dashPrompts.map(p => `<button type="button" class="ptd-asst-prompt" onclick="window._dashAgentAsk(${JSON.stringify(p.q)})">${p.icon} ${p.q}</button>`).join('')}
-        </div>
-        <div class="ptd-asst-input-row">
-          <input id="dash-agent-inp" class="ptd-asst-inp" type="text" placeholder="Type your question&hellip;" onkeydown="if(event.key==='Enter')window._dashAgentSend()">
-          <button type="button" class="ptd-asst-send" onclick="window._dashAgentSend()">&#x2192;</button>
-        </div>
-        <div id="dash-agent-resp" class="ptd-asst-resp" style="display:none"></div>
-      </div>
+      ${patientsNeedingAttention.slice(0, 5).map(({id, pt}) => {
+        const r = _attentionReason(id);
+        return `<div class="dh2-attn-row" onclick="window.openPatient('${_esc(id)}')">
+          <div class="dh2-pt-av a">${_esc(_initialsOf(pt))}</div>
+          <div style="flex:1;min-width:0">
+            <div class="dh2-attn-name">${_esc((pt.first_name||'') + ' ' + (pt.last_name||''))}</div>
+            <div class="dh2-attn-reason" style="color:${r.color}">${_esc(r.label)}</div>
+          </div>
+          <span style="color:var(--text-tertiary);font-size:13px">→</span>
+        </div>`;
+      }).join('')}
     </div>
   </div>`;
 
+  // ── Final V2 layout ──────────────────────────────────────────────────────────
   if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
-  el.innerHTML = `<div class="dv2-dash">` +
-    _dataBanner +
-    getStartedCard +
-    _pageHead +
-    _alertStrip +
-    _kpiStrip +
-    `<div class="dv2-row-2-1">` + _scheduleCard + _brainMapCard + `</div>` +
-    `<div class="dv2-row-3-2">` + _caseloadCard + _evidenceCard + `</div>` +
-    `<div class="dv2-row-1-1">` + _feedCard + _outcomesCard + `</div>` +
-    _dashAgentStrip +
-  `</div>`;
+  el.innerHTML = `<div class="dh2-wrap">`
+    + _demoBanner
+    + _failBanner
+    + _pageHead
+    + _alertStrip
+    + _kpiGrid
+    + `<div class="dh2-row-2-1">` + _scheduleCard + _brainCard + `</div>`
+    + `<div class="dh2-row-3-2">`
+      + _caseCard
+      + `<div style="display:flex;flex-direction:column;gap:16px">` + _evidenceCard + _qaCard + _attnCard + `</div>`
+    + `</div>`
+    + (_isFullAccess ? dashAgentStrip : '')
+  + `</div>`;
   window.removeEventListener('hashchange', _onLeave);
 
   window._dashAgentOpen = function() {
@@ -1474,7 +1612,7 @@ export async function pgDash(setTopbar, navigate) {
     const resp = document.getElementById('dash-agent-resp');
     if (!resp) return;
     resp.style.display = 'block';
-    resp.innerHTML = '<div class="ptd-asst-thinking">Thinking&hellip;</div>';
+    resp.innerHTML = '<div class="ptd-asst-thinking">Thinking…</div>';
     try {
       const result = await api.chatAgent(
         [{ role: 'user', content: q }],
@@ -9055,502 +9193,271 @@ function _ppBuildPage(profile, tab, editMode) {
     </div>`;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// pgPatientProfile — Clinician view of patient detail (design-v2 screen 08)
-// Portal-style dashboard: hero, quick tiles, progress bars + mood grid,
-// wellness ring, brain-map target, today's homework, care team roster.
-// ═══════════════════════════════════════════════════════════════════════════
-function _d2p8Esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-
-function _d2p8MoodGrid(timeline) {
-  const today = new Date();
-  const cells = [];
-  for (let i = 27; i >= 0; i--) {
-    const d = new Date(today); d.setDate(d.getDate() - i);
-    const key = d.toISOString().slice(0,10);
-    let level = 0;
-    if (timeline && timeline[key] != null) level = Math.max(0, Math.min(5, Number(timeline[key])));
-    else if (timeline && Array.isArray(timeline)) {
-      const hit = timeline.find(e => (e.date||'').slice(0,10) === key);
-      if (hit) level = Math.max(0, Math.min(5, Number(hit.level ?? hit.mood ?? 0)));
-    } else {
-      // Procedural stub so the grid isn't empty when there's no data
-      const seed = (d.getDate() * 31 + d.getMonth() * 7) % 10;
-      level = seed < 2 ? 0 : Math.min(5, Math.max(1, ((seed + i) % 5) + 1));
-    }
-    const isToday = i === 0;
-    cells.push('<span class="d2p8-mood-cell" data-level="' + level + '"' + (isToday ? ' data-today="1"' : '') + ' title="' + key + ' · level ' + level + '"></span>');
-  }
-  return cells.join('');
-}
-
-function _d2p8OutcomeBar(label, sub, value, goal, widthPct, markerPct) {
-  const w = Math.max(0, Math.min(100, Number(widthPct) || 0));
-  const m = Math.max(0, Math.min(100, Number(markerPct) || 0));
-  return '<div class="d2p8-outcome-row">' +
-    '<div class="d2p8-outcome-top">' +
-      '<div><div class="d2p8-outcome-name">' + _d2p8Esc(label) + '</div>' +
-      '<div class="d2p8-outcome-sub">' + _d2p8Esc(sub) + '</div></div>' +
-      '<div class="d2p8-outcome-val">' + _d2p8Esc(value) + (goal ? ' <em>→ goal ' + _d2p8Esc(goal) + '</em>' : '') + '</div>' +
-    '</div>' +
-    '<div class="d2p8-outcome-bar"><span style="width:' + w + '%"></span>' +
-      (markerPct != null ? '<span class="d2p8-outcome-marker" style="left:' + m + '%"></span>' : '') +
-    '</div>' +
-  '</div>';
-}
-
-function _d2p8QuickTile(tone, icon, title, sub, meta) {
-  return '<button class="d2p8-tile ' + (tone||'') + '">' +
-    '<div class="d2p8-tile-ico">' + icon + '</div>' +
-    '<div><div class="d2p8-tile-title">' + _d2p8Esc(title) + '</div>' +
-      '<div class="d2p8-tile-sub">' + _d2p8Esc(sub) + '</div></div>' +
-    (meta ? '<div class="d2p8-tile-meta">' + _d2p8Esc(meta) + '</div>' : '') +
-  '</button>';
-}
-
-function _d2p8AvatarInit(name) {
-  const parts = String(name||'').trim().split(/\s+/);
-  return ((parts[0]||'?')[0] + (parts[1]||'')[0] || '?').toUpperCase();
-}
-
 export async function pgPatientProfile(setTopbar) {
-  const patientId = (() => {
-    try { return sessionStorage.getItem('ds_pat_selected_id') || window._profilePatientId || window._selectedPatientId || null; }
-    catch { return window._profilePatientId || window._selectedPatientId || null; }
-  })();
+  _ppSeedProfiles();
 
-  setTopbar('Patient', `<button class="btn btn-sm" onclick="window._nav('patients-hub')">&#8592; All Patients</button>`);
+  const requestedId = window._profilePatientId || window._selectedPatientId || null;
+  const profiles    = getPatientProfiles();
+  const profile     = (requestedId ? getPatientProfile(requestedId) : null) || profiles[0];
+
+  if (!profile) {
+    const _el = document.getElementById('content');
+    if (_el) _el.innerHTML = `<div style="padding:48px;text-align:center;color:var(--text-tertiary)">No patient profile found.</div>`;
+    return;
+  }
+
+  _ppCurrentId  = profile.id;
+  _ppCurrentTab = 'demographics';
+  _ppEditMode   = false;
+
+  setTopbar('Patient Profile', `<button class="btn btn-sm" onclick="window._nav('patients')">&#8592; All Patients</button>`);
+
   const el = document.getElementById('content');
-  if (!el) return;
-  el.innerHTML = '<div style="padding:60px 20px;color:var(--text-tertiary);text-align:center">' + spinner() + '</div>';
+  el.innerHTML = _ppBuildPage(profile, _ppCurrentTab, _ppEditMode);
 
-  // Load all data in parallel with graceful fallbacks.
-  let patient = null, courses = [], assessments = [], homework = [], sessions = [], moodTimeline = null;
-  try { patient = patientId ? await api.getPatient(patientId) : null; } catch { patient = null; }
-  try { courses = (await (api.listPatientCourses ? api.listPatientCourses(patientId) : Promise.resolve({items:[]})))?.items || []; } catch { courses = []; }
-  try { assessments = (await (api.listPatientAssessments ? api.listPatientAssessments(patientId) : Promise.resolve({items:[]})))?.items || []; } catch { assessments = []; }
-  try { homework = (await (api.listPatientHomeTasks ? api.listPatientHomeTasks(patientId) : Promise.resolve({items:[]})))?.items || []; } catch { homework = []; }
-  try { sessions = (await (api.listPatientSessions ? api.listPatientSessions(patientId) : Promise.resolve({items:[]})))?.items || []; } catch { sessions = []; }
-  try { moodTimeline = await (api.getPatientOutcomesTimeline ? api.getPatientOutcomesTimeline(patientId) : Promise.resolve(null)); } catch { moodTimeline = null; }
+  // ── Global handlers ──────────────────────────────────────────────────────
 
-  if (!patient) {
-    // Minimal stub so the screen still renders when backend lookup fails.
-    patient = {
-      id: patientId || 'demo',
-      first_name: 'Patient',
-      last_name: '',
-      condition_slug: 'mdd',
-      primary_modality: 'tdcs',
-    };
-  }
-
-  const fname = patient.first_name || '';
-  const lname = patient.last_name || '';
-  const fullName = (fname + ' ' + lname).trim() || 'Patient';
-  const condition = (patient.condition_slug || '').replace(/-/g,' ') || '—';
-  const modality  = (patient.primary_modality || '').replace(/-/g,' ') || '—';
-
-  const activeCourse = courses.find(c => c.status === 'active') || courses[0] || null;
-  const delivered = activeCourse?.sessions_delivered ?? patient.sessions_delivered ?? 9;
-  const planned   = activeCourse?.planned_sessions_total ?? patient.planned_sessions_total ?? 20;
-  const pctDone   = planned > 0 ? Math.round(delivered / planned * 100) : 0;
-
-  // Countdown to next session
-  const nextSession = (() => {
-    const upcoming = (sessions || [])
-      .filter(s => s && s.start_at && new Date(s.start_at) > new Date())
-      .sort((a,b) => new Date(a.start_at) - new Date(b.start_at))[0];
-    if (upcoming) return upcoming;
-    if (patient.next_session_at) return { start_at: patient.next_session_at, room: patient.next_session_room };
-    const fake = new Date(); fake.setDate(fake.getDate() + 2); fake.setHours(9,0,0,0);
-    return { start_at: fake.toISOString(), _stub: true };
-  })();
-  const nextDate = new Date(nextSession.start_at);
-  const daysToGo = Math.max(0, Math.ceil((nextDate - new Date()) / (1000*60*60*24)));
-  const nextTime = nextDate.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
-  const nextDow  = nextDate.toLocaleDateString(undefined, { weekday:'long' });
-
-  // Outcomes — find by scale code
-  function findAssess(scale) {
-    const up = scale.toUpperCase();
-    return (assessments || []).find(a => (a.scale||a.scale_code||'').toUpperCase().includes(up));
-  }
-  const phq = findAssess('PHQ-9');
-  const gad = findAssess('GAD-7');
-  const psqi = findAssess('PSQI');
-  const phqBaseline = phq?.baseline_score ?? 14;
-  const phqCurrent  = phq?.current_score ?? 9;
-  const phqGoal     = phq?.goal ?? 5;
-  const phqPct      = Math.min(100, Math.max(0, Math.round((phqBaseline - phqCurrent) / Math.max(1, phqBaseline - phqGoal) * 100)));
-  const gadBaseline = gad?.baseline_score ?? 13;
-  const gadCurrent  = gad?.current_score ?? 7;
-  const gadGoal     = gad?.goal ?? 4;
-  const gadPct      = Math.min(100, Math.max(0, Math.round((gadBaseline - gadCurrent) / Math.max(1, gadBaseline - gadGoal) * 100)));
-  const psqiCur     = psqi?.current_score ?? 8;
-  const psqiGoal    = psqi?.goal ?? 5;
-  const psqiPct     = Math.max(0, Math.min(100, Math.round(((10 - psqiCur) / Math.max(1, 10 - psqiGoal)) * 100)));
-
-  // Homework
-  const todayHw = (homework || []).filter(h => !h.due_at || (new Date(h.due_at).toDateString() === new Date().toDateString()));
-  const hwList  = todayHw.length ? todayHw : [
-    { title:'Breath pacing · 8 min', sub:'Completed · streak 6 days', status:'done', icon:'wave' },
-    { title:'Daily mood log',        sub:'Logged: "Better than yesterday"', status:'done', icon:'clipboard' },
-    { title:'Read: "Why DLPFC?"',    sub:'3 min · explains your target region', status:'open', icon:'book' },
-    { title:'Evening check-in',      sub:'Reminder · 8:00 PM', status:'pending', icon:'heart' },
-  ];
-  const hwDone = hwList.filter(h=>h.status==='done').length;
-
-  // Adherence
-  const adherence = patient.home_adherence != null ? Math.round(patient.home_adherence*100) : 86;
-
-  // Care team (stubs if absent)
-  const careTeam = patient.care_team || [
-    { name:'Dr. Amelia Kolmar', role:'Clinical Director · Primary', status:'online', tone:'a' },
-    { name:'Raquel Ortiz, NP',  role:'Nurse Practitioner',          status:'online', tone:'d' },
-    { name:'Jordan Hale',       role:'tDCS Technician',             status:'offline', tone:'e' },
-  ];
-
-  // Upcoming appointments (first 2)
-  const upcoming = (sessions || [])
-    .filter(s => s && s.start_at && new Date(s.start_at) > new Date())
-    .sort((a,b) => new Date(a.start_at) - new Date(b.start_at))
-    .slice(0, 2);
-  const upcomingList = upcoming.length ? upcoming : [
-    { start_at: nextDate.toISOString(), title:'tDCS session · ' + (delivered+1) + '/' + planned, room:'Room A', duration:30, kind:'confirmed' },
-    { start_at: new Date(nextDate.getTime() + 3*24*60*60*1000).toISOString(), title:'Check-in w/ Dr. Kolmar', room:'Video', duration:20, kind:'video' },
-  ];
-
-  // Brain map target
-  const targetMap = {
-    'dlpfc-l': { anode:'F3', cathode:'Fp2', region:'DLPFC-L', desc:'Left DLPFC · mood regulation' },
-    'dlpfc-r': { anode:'F4', cathode:'Fp1', region:'DLPFC-R', desc:'Right DLPFC · anxiety/rumination' },
-    'm1':      { anode:'C3', cathode:'Fp2', region:'M1-L',    desc:'Primary motor · chronic pain' },
-  };
-  const primeModality = (patient.primary_modality||'').toLowerCase();
-  const targetKey = /r/.test(primeModality) && /dlpfc/.test(primeModality) ? 'dlpfc-r'
-                  : /m1/.test(primeModality) ? 'm1' : 'dlpfc-l';
-  const target = targetMap[targetKey];
-  let brainMapHTML;
-  try {
-    brainMapHTML = renderBrainMap10_20({
-      anode: target.anode, cathode: target.cathode, targetRegion: target.region,
-      size: 180, showZones: true, showConnection: true, showEarsAndNose: true,
+  window._profileTab = function(name) {
+    _ppCurrentTab = name;
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    document.getElementById('pp-tab-content').innerHTML = _ppRenderTab(p, name, _ppEditMode);
+    // Re-sync tab button active states
+    document.querySelectorAll('[role="tab"]').forEach(btn => {
+      const active = btn.textContent.toLowerCase().includes(name) ||
+        (name === 'history' && btn.textContent.includes('History')) ||
+        (name === 'demographics' && btn.textContent === 'Demographics') ||
+        (name === 'insurance' && btn.textContent === 'Insurance') ||
+        (name === 'medications' && btn.textContent === 'Medications') ||
+        (name === 'allergies' && btn.textContent === 'Allergies') ||
+        (name === 'notes' && btn.textContent === 'Notes') ||
+        (name === 'assessments' && btn.textContent === 'Assessments');
+      btn.style.borderBottomColor = active ? 'var(--accent-teal)' : 'transparent';
+      btn.style.fontWeight        = active ? '600' : '400';
+      btn.style.color             = active ? 'var(--accent-teal)' : 'var(--text-secondary)';
     });
-  } catch (e) {
-    brainMapHTML = '<div style="padding:20px;color:var(--text-tertiary);text-align:center;font-size:11px">Brain map unavailable</div>';
-  }
+  };
 
-  const avInit = _d2p8AvatarInit(fullName);
-  const heroSubFragment = phq?.current_score != null && phq?.baseline_score != null
-    ? `${fullName.split(' ')[0]} is <strong style="color:var(--teal)">${pctDone}%</strong> through ${condition} treatment. PHQ-9 dropped from <strong style="color:var(--teal)">${phqBaseline}→${phqCurrent}</strong> — a meaningful shift.`
-    : `${fullName.split(' ')[0]} is <strong style="color:var(--teal)">${pctDone}%</strong> through ${condition} treatment (session ${delivered} of ${planned}).`;
+  window._profileToggleEdit = function() {
+    _ppEditMode = !_ppEditMode;
+    _ppRerender();
+  };
 
-  // Icon helpers (inline SVG, self-contained)
-  const icoClip   = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/></svg>';
-  const icoVideo  = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>';
-  const icoBook   = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>';
-  const icoMail   = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>';
-  const icoHwWave = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-6 6-6 6 12 12 12"/></svg>';
-  const icoHwClip = icoClip.replace('18','16');
-  const icoHwBook = icoBook.replace('18','16');
-  const icoHwHeart= '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
+  window._profileUploadPhoto = function() {
+    document.getElementById('pp-photo-input')?.click();
+  };
 
-  el.innerHTML = `
-  <div class="d2p8-root">
-    <style>
-      .d2p8-root { color: var(--text-primary); padding: 20px 22px 40px; max-width: 1320px; margin: 0 auto; }
-      .d2p8-hero { position:relative; padding: 22px 24px; margin-bottom: 20px; border-radius: 20px;
-        border: 1px solid var(--border); overflow:hidden;
-        background: linear-gradient(135deg, rgba(0,212,188,0.14), rgba(74,158,255,0.06)), var(--bg-card); }
-      .d2p8-hero-top { display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; justify-content:space-between; }
-      .d2p8-hero-left { display:flex; gap:14px; align-items:flex-start; min-width:0; flex:1; }
-      .d2p8-hero-av { width:56px; height:56px; border-radius:50%; display:flex; align-items:center; justify-content:center;
-        background: linear-gradient(135deg,#ff6b9d,#9b7fff); color:#04121c; font-weight:700; font-size:18px; flex-shrink:0; }
-      .d2p8-hero-greet { font-family: var(--font-display,inherit); font-size: 22px; font-weight:600; letter-spacing:-0.3px; }
-      .d2p8-hero-meta { margin-top:4px; font-size:12px; color:var(--text-secondary); }
-      .d2p8-hero-sub { margin-top:10px; font-size:13.5px; line-height:1.55; color:var(--text-secondary); max-width:620px; }
-      .d2p8-hero-next { display:flex; align-items:center; gap:14px; padding:12px 16px; border-radius:14px;
-        border:1px solid var(--border); background: rgba(255,255,255,0.04); }
-      .d2p8-hero-cd { text-align:center; padding:0 10px; border-right:1px solid var(--border); }
-      .d2p8-hero-cd-num { font-family: var(--font-display,inherit); font-size:30px; font-weight:700; color:var(--teal); line-height:1; }
-      .d2p8-hero-cd-lbl { font-size:10px; letter-spacing:1px; text-transform:uppercase; color:var(--text-tertiary); margin-top:4px; font-weight:600; }
-      .d2p8-hero-next-title { font-weight:600; font-size:13px; }
-      .d2p8-hero-next-sub { font-size:11.5px; color:var(--text-tertiary); margin-top:2px; }
+  window._profileHandlePhoto = function(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const p = getPatientProfile(_ppCurrentId);
+      if (!p) return;
+      p.photoDataUrl = e.target.result;
+      savePatientProfile(p);
+      const wrap = document.getElementById('pp-avatar-wrap');
+      if (wrap) wrap.innerHTML = _ppAvatarHTML(p);
+    };
+    reader.readAsDataURL(file);
+  };
 
-      .d2p8-tiles { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }
-      .d2p8-tile { display:flex; gap:12px; align-items:flex-start; padding:14px; text-align:left; cursor:pointer;
-        background: var(--bg-surface-2,var(--bg-surface)); border:1px solid var(--border); border-radius:14px; color:inherit;
-        transition: transform .12s ease, border-color .12s ease; }
-      .d2p8-tile:hover { transform: translateY(-1px); border-color: var(--border-teal); }
-      .d2p8-tile > div:nth-child(2) { flex:1; min-width:0; }
-      .d2p8-tile-ico { width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center;
-        background: rgba(0,212,188,0.12); color: var(--teal); flex-shrink:0; }
-      .d2p8-tile.blue   .d2p8-tile-ico { background: rgba(74,158,255,0.12);  color: var(--blue); }
-      .d2p8-tile.violet .d2p8-tile-ico { background: rgba(155,127,255,0.14); color: var(--violet); }
-      .d2p8-tile.rose   .d2p8-tile-ico { background: rgba(255,107,157,0.14); color: var(--rose); }
-      .d2p8-tile-title { font-family: var(--font-display,inherit); font-size:14px; font-weight:600; }
-      .d2p8-tile-sub { font-size:11.5px; color:var(--text-tertiary); line-height:1.4; margin-top:2px; }
-      .d2p8-tile-meta { font-family: var(--font-mono,inherit); font-size:10.5px; color:var(--text-secondary);
-        padding:3px 6px; border-radius:4px; background: var(--bg-surface); display:inline-block; align-self:flex-start; flex-shrink:0; }
+  window._profileHandleCardScan = function(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const p = getPatientProfile(_ppCurrentId);
+      if (!p) return;
+      p.insurance = p.insurance || {};
+      p.insurance.scanDataUrl = e.target.result;
+      savePatientProfile(p);
+      const preview = document.getElementById('pp-card-preview');
+      if (preview) preview.innerHTML = `<img src="${e.target.result}" alt="Insurance card" style="width:100%;height:100%;object-fit:contain">`;
+    };
+    reader.readAsDataURL(file);
+  };
 
-      .d2p8-grid { display:grid; grid-template-columns: 3fr 2fr; gap:16px; margin-bottom:16px; }
-      @media (max-width: 1060px) { .d2p8-grid { grid-template-columns: 1fr; } .d2p8-tiles { grid-template-columns: repeat(2, 1fr); } }
-      .d2p8-card { background: var(--bg-card); border:1px solid var(--border); border-radius:16px; padding:18px; }
-      .d2p8-card-hd { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:14px; }
-      .d2p8-card-title { font-family: var(--font-display,inherit); font-size:15px; font-weight:600; }
-      .d2p8-card-sub { font-size:11.5px; color:var(--text-tertiary); margin-top:2px; }
+  window._profileSaveDemographics = async function() {
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.name    = document.getElementById('pp-d-name')?.value  || p.name;
+    p.dob     = document.getElementById('pp-d-dob')?.value   || p.dob;
+    p.gender  = document.getElementById('pp-d-gender')?.value || p.gender;
+    p.phone   = document.getElementById('pp-d-phone')?.value || p.phone;
+    p.email   = document.getElementById('pp-d-email')?.value || p.email;
+    p.address = document.getElementById('pp-d-address')?.value || '';
+    p.emergencyContact = {
+      name:         document.getElementById('pp-d-ec-name')?.value  || '',
+      phone:        document.getElementById('pp-d-ec-phone')?.value || '',
+      relationship: document.getElementById('pp-d-ec-rel')?.value   || '',
+    };
+    savePatientProfile(p);
+    _ppEditMode = false;
+    _ppRerender();
+    window._announce?.('Demographics saved');
+    // ── Sync core fields to backend ────────────────────────────────────────
+    const nameParts = (p.name || '').trim().split(/\s+/);
+    const backendData = {
+      first_name: nameParts[0] || '',
+      last_name:  nameParts.slice(1).join(' ') || '',
+      dob:        p.dob    || undefined,
+      email:      p.email  || undefined,
+      phone:      p.phone  || undefined,
+      gender:     p.gender || undefined,
+    };
+    try {
+      await api.updatePatient(_ppCurrentId, backendData);
+      window._showNotifToast?.({ title: 'Saved', body: 'Patient profile updated.', severity: 'success' });
+    } catch(e) {
+      window._showNotifToast?.({ title: 'Save failed', body: e.message || 'Could not sync to server.', severity: 'warn' });
+    }
+  };
 
-      .d2p8-outcome-list { display:flex; flex-direction:column; gap:14px; }
-      .d2p8-outcome-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px; }
-      .d2p8-outcome-name { font-size:12.5px; font-weight:600; }
-      .d2p8-outcome-sub { font-size:11px; color:var(--text-tertiary); margin-top:1px; }
-      .d2p8-outcome-val { font-family: var(--font-mono,inherit); font-size:12px; color:var(--teal); font-weight:600; }
-      .d2p8-outcome-val em { font-style:normal; color:var(--text-tertiary); font-weight:400; }
-      .d2p8-outcome-bar { height:7px; border-radius:4px; background:rgba(255,255,255,0.05); overflow:visible; position:relative; }
-      .d2p8-outcome-bar > span { position:absolute; inset:0; border-radius:4px; background: linear-gradient(90deg,var(--teal),var(--blue)); }
-      .d2p8-outcome-marker { position:absolute; top:-3px; width:2px; height:13px; background:var(--text-primary); border-radius:1px; opacity:.55; }
+  window._profileSaveInsurance = function() {
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.insurance = {
+      ...(p.insurance || {}),
+      payer:    document.getElementById('pp-i-payer')?.value  || '',
+      memberId: document.getElementById('pp-i-member')?.value || '',
+      groupId:  document.getElementById('pp-i-group')?.value  || '',
+      copay:    document.getElementById('pp-i-copay')?.value  || '',
+    };
+    savePatientProfile(p);
+    _ppEditMode = false;
+    _ppRerender();
+    window._announce?.('Insurance saved');
+  };
 
-      .d2p8-mood-wrap { margin-top:18px; padding-top:16px; border-top:1px solid var(--border); }
-      .d2p8-mood-head { font-size:11px; letter-spacing:1px; text-transform:uppercase; color:var(--text-tertiary); font-weight:600; margin-bottom:10px; }
-      .d2p8-mood-grid { display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; }
-      .d2p8-mood-cell { aspect-ratio:1/1; border-radius:6px; background:rgba(255,255,255,0.04); border:1px solid var(--border); position:relative; }
-      .d2p8-mood-cell[data-level="1"] { background: rgba(255,107,107,0.30); border-color:transparent; }
-      .d2p8-mood-cell[data-level="2"] { background: rgba(255,107,157,0.35); border-color:transparent; }
-      .d2p8-mood-cell[data-level="3"] { background: linear-gradient(135deg,#ffb547,#ff6b9d); border-color:transparent; }
-      .d2p8-mood-cell[data-level="4"] { background: linear-gradient(135deg,#4a9eff,#00d4bc); border-color:transparent; }
-      .d2p8-mood-cell[data-level="5"] { background: linear-gradient(135deg,#00d4bc,#4ade80); border-color:transparent; }
-      .d2p8-mood-cell[data-today="1"] { outline: 2px solid var(--teal); outline-offset:1px; }
+  window._profileAddMedication = function() {
+    const form = document.getElementById('pp-med-add-form');
+    if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  };
 
-      .d2p8-wellness { display:flex; gap:18px; align-items:center; }
-      .d2p8-ring { position:relative; width:150px; height:150px; flex-shrink:0; }
-      .d2p8-ring-center { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
-      .d2p8-ring-num { font-family: var(--font-display,inherit); font-size:28px; font-weight:700; color:var(--text-primary); line-height:1; }
-      .d2p8-ring-lbl { font-size:10px; letter-spacing:1px; text-transform:uppercase; color:var(--text-tertiary); margin-top:4px; font-weight:600; }
+  window._profileSaveMedication = function() {
+    const name = document.getElementById('pp-m-name')?.value?.trim();
+    if (!name) return;
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.medications = p.medications || [];
+    p.medications.push({
+      name,
+      dose:      document.getElementById('pp-m-dose')?.value  || '',
+      frequency: document.getElementById('pp-m-freq')?.value  || '',
+      startDate: document.getElementById('pp-m-start')?.value || '',
+      notes:     document.getElementById('pp-m-notes')?.value || '',
+    });
+    savePatientProfile(p);
+    document.getElementById('pp-tab-content').innerHTML = _ppRenderMedications(p, _ppEditMode);
+    window._announce?.('Medication added');
+  };
 
-      .d2p8-hw-item { display:flex; gap:12px; align-items:center; padding:10px 12px; border:1px solid var(--border); border-radius:12px; background:rgba(255,255,255,0.02); }
-      .d2p8-hw-item:hover { border-color: var(--border-hover); }
-      .d2p8-hw-ico { width:32px; height:32px; border-radius:10px; background:rgba(0,212,188,0.12); color:var(--teal); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-      .d2p8-hw-ico.violet { background:rgba(155,127,255,0.14); color:var(--violet); }
-      .d2p8-hw-ico.amber  { background:rgba(255,181,71,0.14);  color:var(--amber); }
-      .d2p8-hw-title { font-size:12.5px; font-weight:600; }
-      .d2p8-hw-sub { font-size:11px; color:var(--text-tertiary); margin-top:1px; }
+  window._profileDeleteMedication = function(idx) {
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.medications = (p.medications || []).filter((_, i) => i !== idx);
+    savePatientProfile(p);
+    document.getElementById('pp-tab-content').innerHTML = _ppRenderMedications(p, _ppEditMode);
+  };
 
-      .d2p8-chip { display:inline-block; padding:4px 9px; border-radius:5px; font-size:11px; font-weight:600; background:var(--bg-surface); color:var(--text-secondary); }
-      .d2p8-chip.green  { background:rgba(74,222,128,0.14);  color:var(--green); }
-      .d2p8-chip.teal   { background:rgba(0,212,188,0.12);   color:var(--teal); }
-      .d2p8-chip.blue   { background:rgba(74,158,255,0.14);  color:var(--blue); }
+  window._profileAddAllergy = function() {
+    const form = document.getElementById('pp-allergy-add-form');
+    if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  };
 
-      .d2p8-care-mem { display:flex; gap:12px; align-items:center; padding:10px 0; border-bottom:1px solid var(--border); }
-      .d2p8-care-mem:last-child { border-bottom:none; }
-      .d2p8-care-av { width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center;
-        font-size:12px; font-weight:700; color:#04121c; flex-shrink:0; }
-      .d2p8-care-av.a { background:linear-gradient(135deg,#00d4bc,#4a9eff); }
-      .d2p8-care-av.b { background:linear-gradient(135deg,#4a9eff,#9b7fff); }
-      .d2p8-care-av.c { background:linear-gradient(135deg,#9b7fff,#ff6b9d); }
-      .d2p8-care-av.d { background:linear-gradient(135deg,#9b7fff,#ff6b9d); }
-      .d2p8-care-av.e { background:linear-gradient(135deg,#ffb547,#e69524); }
-      .d2p8-care-name { font-size:12.5px; font-weight:600; }
-      .d2p8-care-role { font-size:11px; color:var(--text-tertiary); margin-top:1px; }
-      .d2p8-care-status { margin-left:auto; font-size:11px; color:var(--green); font-weight:600; }
-      .d2p8-care-status.offline { color:var(--text-tertiary); }
+  window._profileSaveAllergy = function() {
+    const substance = document.getElementById('pp-a-substance')?.value?.trim();
+    if (!substance) return;
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.allergies = p.allergies || [];
+    p.allergies.push({
+      substance,
+      reaction: document.getElementById('pp-a-reaction')?.value  || '',
+      severity: document.getElementById('pp-a-severity')?.value  || 'Mild',
+    });
+    savePatientProfile(p);
+    document.getElementById('pp-tab-content').innerHTML = _ppRenderAllergies(p, _ppEditMode);
+    window._announce?.('Allergy added');
+  };
 
-      .d2p8-appt { display:flex; gap:12px; padding:10px; border-radius:10px; background:rgba(255,255,255,0.02); border:1px solid var(--border); align-items:center; }
-      .d2p8-appt-date { width:42px; text-align:center; font-family: var(--font-display,inherit); line-height:1.1; }
-      .d2p8-appt-dow { font-size:9.5px; color:var(--text-tertiary); letter-spacing:.8px; text-transform:uppercase; }
-      .d2p8-appt-day { font-size:22px; font-weight:600; }
+  window._profileDeleteAllergy = function(idx) {
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.allergies = (p.allergies || []).filter((_, i) => i !== idx);
+    savePatientProfile(p);
+    document.getElementById('pp-tab-content').innerHTML = _ppRenderAllergies(p, _ppEditMode);
+  };
 
-      .d2p8-brain-wrap { display:flex; gap:14px; align-items:center; padding:12px; background:rgba(0,212,188,0.05);
-        border:1px solid rgba(0,212,188,0.18); border-radius:12px; margin-top:16px; }
-      .d2p8-brain-wrap svg { flex-shrink:0; }
-    </style>
+  window._profileAddHistory = function() {
+    const form = document.getElementById('pp-history-add-form');
+    if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  };
 
-    <!-- Hero -->
-    <div class="d2p8-hero">
-      <div class="d2p8-hero-top">
-        <div class="d2p8-hero-left">
-          <div class="d2p8-hero-av">${_d2p8Esc(avInit)}</div>
-          <div style="min-width:0;flex:1">
-            <div class="d2p8-hero-greet">${_d2p8Esc(fullName)}</div>
-            <div class="d2p8-hero-meta">${_d2p8Esc(condition)} · ${_d2p8Esc(modality)} · Session ${delivered} of ${planned}${patient.mrn ? ' · MRN ' + _d2p8Esc(patient.mrn) : ''}</div>
-            <div class="d2p8-hero-sub">${heroSubFragment}</div>
-          </div>
-        </div>
-        <div class="d2p8-hero-next">
-          <div class="d2p8-hero-cd">
-            <div class="d2p8-hero-cd-num">${daysToGo}</div>
-            <div class="d2p8-hero-cd-lbl">days to go</div>
-          </div>
-          <div>
-            <div class="d2p8-hero-next-title">Next session · ${_d2p8Esc(nextDow)} ${_d2p8Esc(nextTime)}</div>
-            <div class="d2p8-hero-next-sub">${_d2p8Esc(nextSession.room || 'Room A')} · ${modality === '—' ? 'tDCS' : _d2p8Esc(modality)} session ${delivered+1}/${planned}</div>
-          </div>
-        </div>
-      </div>
-    </div>
+  window._profileSaveHistory = function() {
+    const date = document.getElementById('pp-h-date')?.value;
+    if (!date) return;
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.treatmentHistory = p.treatmentHistory || [];
+    p.treatmentHistory.push({
+      date,
+      type:     document.getElementById('pp-h-type')?.value     || 'consultation',
+      provider: document.getElementById('pp-h-provider')?.value || '',
+      notes:    document.getElementById('pp-h-notes')?.value    || '',
+      outcome:  parseInt(document.getElementById('pp-h-outcome')?.value || '70', 10),
+    });
+    savePatientProfile(p);
+    document.getElementById('pp-tab-content').innerHTML = _ppRenderHistory(p, _ppEditMode);
+    window._announce?.('Treatment entry added');
+  };
 
-    <!-- Quick tiles -->
-    <div class="d2p8-tiles">
-      ${_d2p8QuickTile('',       icoClip,  'Weekly check-in', 'PHQ-9 + mood · 2 min', 'Due today')}
-      ${_d2p8QuickTile('blue',   icoVideo, "Today's exercise", 'Breath pacing · 8 min guided', 'Home practice')}
-      ${_d2p8QuickTile('violet', icoBook,  'Read: Why DLPFC?', '3 min · target region', 'New')}
-      ${_d2p8QuickTile('rose',   icoMail,  'DM clinician',     'Message Dr. Kolmar', (patient.unread_messages||1)+' unread')}
-    </div>
+  window._profileSaveNotes = function() {
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.notes = document.getElementById('pp-notes-area')?.value || '';
+    savePatientProfile(p);
+    _ppEditMode = false;
+    _ppRerender();
+    window._announce?.('Notes saved');
+  };
 
-    <!-- Row: Progress + Wellness -->
-    <div class="d2p8-grid">
-      <div class="d2p8-card">
-        <div class="d2p8-card-hd">
-          <div>
-            <div class="d2p8-card-title">Progress</div>
-            <div class="d2p8-card-sub">Outcome scores vs. course start · lower = better</div>
-          </div>
-        </div>
+  window._profileAddFlag = function(flag) {
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.flags = p.flags || [];
+    if (!p.flags.includes(flag)) {
+      p.flags.push(flag);
+      savePatientProfile(p);
+      _ppRerender();
+    }
+  };
 
-        <div class="d2p8-outcome-list">
-          ${_d2p8OutcomeBar('PHQ-9 · Depression', 'Goal: ≤ ' + phqGoal + ' (minimal)', phqCurrent, phqGoal, phqPct, 50)}
-          ${_d2p8OutcomeBar('GAD-7 · Anxiety',    'Goal: ≤ ' + gadGoal + ' (minimal)', gadCurrent, gadGoal, gadPct, 55)}
-          ${_d2p8OutcomeBar('Sleep quality · PSQI', 'Goal: ≤ ' + psqiGoal, psqiCur, psqiGoal, psqiPct, 62)}
-          ${_d2p8OutcomeBar('Homework adherence', 'This week', adherence + '%', null, adherence, null)}
-        </div>
+  window._profileRemoveFlag = function(flag) {
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.flags = (p.flags || []).filter(f => f !== flag);
+    savePatientProfile(p);
+    _ppRerender();
+  };
 
-        <div class="d2p8-mood-wrap">
-          <div class="d2p8-mood-head">Weekly mood · last 28 days</div>
-          <div class="d2p8-mood-grid">${_d2p8MoodGrid(moodTimeline)}</div>
-          <div style="display:flex;gap:14px;margin-top:12px;font-size:10.5px;color:var(--text-tertiary);flex-wrap:wrap;align-items:center">
-            <div style="display:flex;align-items:center;gap:5px"><span class="d2p8-mood-cell" style="width:12px;height:12px" data-level="1"></span>Low</div>
-            <div style="display:flex;align-items:center;gap:5px"><span class="d2p8-mood-cell" style="width:12px;height:12px" data-level="3"></span>Okay</div>
-            <div style="display:flex;align-items:center;gap:5px"><span class="d2p8-mood-cell" style="width:12px;height:12px" data-level="5"></span>Great</div>
-            <div style="margin-left:auto">Today is marked with a ring</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="d2p8-card">
-        <div class="d2p8-card-hd">
-          <div>
-            <div class="d2p8-card-title">This week's wellness</div>
-            <div class="d2p8-card-sub">From wearable + self-report</div>
-          </div>
-        </div>
-
-        <div class="d2p8-wellness">
-          <div class="d2p8-ring">
-            <svg width="150" height="150" viewBox="0 0 150 150">
-              <circle cx="75" cy="75" r="62" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="10"/>
-              <circle cx="75" cy="75" r="62" fill="none" stroke="url(#d2p8-wgrad)" stroke-width="10" stroke-linecap="round"
-                stroke-dasharray="389" stroke-dashoffset="${389 - Math.round(389 * ((patient.wellness_score||74)/100))}" transform="rotate(-90 75 75)"/>
-              <defs>
-                <linearGradient id="d2p8-wgrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stop-color="#00d4bc"/><stop offset="100%" stop-color="#9b7fff"/>
-                </linearGradient>
-              </defs>
-            </svg>
-            <div class="d2p8-ring-center">
-              <div class="d2p8-ring-num">${patient.wellness_score || 74}</div>
-              <div class="d2p8-ring-lbl">Wellness</div>
-            </div>
-          </div>
-          <div style="flex:1;display:flex;flex-direction:column;gap:12px;min-width:0">
-            <div>
-              <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px"><span style="color:var(--text-secondary)">Sleep</span><span style="font-family:var(--font-mono,inherit);color:var(--teal)">${patient.sleep_hours||7.4}h</span></div>
-              <div class="d2p8-outcome-bar"><span style="width:${Math.round(((patient.sleep_hours||7.4)/9)*100)}%;background:linear-gradient(90deg,var(--teal),var(--blue))"></span></div>
-            </div>
-            <div>
-              <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px"><span style="color:var(--text-secondary)">HRV</span><span style="font-family:var(--font-mono,inherit);color:var(--violet)">${patient.hrv_ms||48}ms</span></div>
-              <div class="d2p8-outcome-bar"><span style="width:${Math.min(100,Math.round(((patient.hrv_ms||48)/80)*100))}%;background:linear-gradient(90deg,var(--violet),var(--blue))"></span></div>
-            </div>
-            <div>
-              <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px"><span style="color:var(--text-secondary)">Steps</span><span style="font-family:var(--font-mono,inherit);color:var(--amber)">${(patient.steps||7800).toLocaleString()} / 10k</span></div>
-              <div class="d2p8-outcome-bar"><span style="width:${Math.min(100,Math.round(((patient.steps||7800)/10000)*100))}%;background:linear-gradient(90deg,var(--amber),var(--teal))"></span></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="d2p8-brain-wrap">
-          ${brainMapHTML}
-          <div style="min-width:0">
-            <div style="font-size:12.5px;font-weight:600">${_d2p8Esc((modality === '—' ? 'tDCS' : modality))} · ${_d2p8Esc(target.region)} target</div>
-            <div style="font-size:11px;color:var(--text-secondary);margin-top:3px;line-height:1.5">
-              ${_d2p8Esc(target.anode)} (anode) ↔ ${_d2p8Esc(target.cathode)} (cathode) · ${patient.stim_ma || 2.0} mA · ${patient.stim_min || 20} min. ${_d2p8Esc(target.desc)}.
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Row: Homework + Care team -->
-    <div class="d2p8-grid">
-      <div class="d2p8-card">
-        <div class="d2p8-card-hd">
-          <div>
-            <div class="d2p8-card-title">Today's homework</div>
-            <div class="d2p8-card-sub">${hwList.length} tasks · ${hwDone} complete</div>
-          </div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          ${hwList.map(h => {
-            const done = h.status === 'done';
-            const tone = h.icon === 'book' ? 'violet' : (h.icon === 'heart' ? 'amber' : '');
-            const ico = h.icon === 'book' ? icoHwBook : h.icon === 'heart' ? icoHwHeart : h.icon === 'clipboard' ? icoHwClip : icoHwWave;
-            return '<div class="d2p8-hw-item">' +
-              '<div class="d2p8-hw-ico ' + tone + '">' + ico + '</div>' +
-              '<div style="flex:1;min-width:0">' +
-                '<div class="d2p8-hw-title" style="' + (done ? 'text-decoration:line-through;color:var(--text-tertiary)' : '') + '">' + _d2p8Esc(h.title) + '</div>' +
-                '<div class="d2p8-hw-sub">' + _d2p8Esc(h.sub || '') + '</div>' +
-              '</div>' +
-              '<div>' + (done
-                ? '<span class="d2p8-chip green">✓ Done</span>'
-                : (h.status==='pending'
-                    ? '<button class="btn btn-primary btn-sm">Start</button>'
-                    : '<button class="btn btn-ghost btn-sm">Open</button>')) + '</div>' +
-            '</div>';
-          }).join('')}
-        </div>
-      </div>
-
-      <div class="d2p8-card">
-        <div class="d2p8-card-hd">
-          <div>
-            <div class="d2p8-card-title">Care team</div>
-            <div class="d2p8-card-sub">Kolmar Neuromodulation Clinic</div>
-          </div>
-          <button class="btn btn-ghost btn-sm">Message</button>
-        </div>
-        <div>
-          ${careTeam.map(m => (
-            '<div class="d2p8-care-mem">' +
-              '<div class="d2p8-care-av ' + (m.tone||'a') + '">' + _d2p8Esc(_d2p8AvatarInit(m.name)) + '</div>' +
-              '<div style="min-width:0;flex:1"><div class="d2p8-care-name">' + _d2p8Esc(m.name) + '</div>' +
-                '<div class="d2p8-care-role">' + _d2p8Esc(m.role || '') + '</div></div>' +
-              '<div class="d2p8-care-status ' + (m.status==='offline'?'offline':'') + '">' + (m.status==='offline'?'Off today':'Online') + '</div>' +
-            '</div>'
-          )).join('')}
-        </div>
-
-        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
-          <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-tertiary);font-weight:600;margin-bottom:10px">Upcoming</div>
-          <div style="display:flex;flex-direction:column;gap:8px">
-            ${upcomingList.map(u => {
-              const d = new Date(u.start_at);
-              const dow = d.toLocaleDateString(undefined,{weekday:'short'});
-              const day = d.getDate();
-              const t   = d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-              const kind = (u.kind||'').toLowerCase();
-              const chipCls = kind==='video' ? 'blue' : 'teal';
-              const chipLabel = kind==='video' ? 'Video' : 'Confirmed';
-              return '<div class="d2p8-appt">' +
-                '<div class="d2p8-appt-date"><div class="d2p8-appt-dow">' + _d2p8Esc(dow) + '</div>' +
-                  '<div class="d2p8-appt-day">' + day + '</div></div>' +
-                '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600">' + _d2p8Esc(u.title || 'Session') + '</div>' +
-                  '<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">' + _d2p8Esc(t) + ' · ' + _d2p8Esc(u.room||'Room A') + ' · ' + (u.duration||30) + ' min</div></div>' +
-                '<span class="d2p8-chip ' + chipCls + '">' + chipLabel + '</span>' +
-              '</div>';
-            }).join('')}
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>`;
+  // ── Quick "Add Note" action from profile header ──────────────────────────
+  window._ppAddNoteQuick = function(patientId) {
+    _ppCurrentTab = 'notes';
+    _ppEditMode   = true;
+    const p = getPatientProfile(patientId || _ppCurrentId);
+    if (!p) return;
+    document.getElementById('pp-tab-content').innerHTML = _ppRenderTab(p, 'notes', true);
+    document.querySelectorAll('[role="tab"]').forEach(btn => {
+      const isNotes = btn.textContent.trim() === 'Notes';
+      btn.style.borderBottomColor = isNotes ? 'var(--accent-teal)' : 'transparent';
+      btn.style.fontWeight        = isNotes ? '600' : '400';
+      btn.style.color             = isNotes ? 'var(--accent-teal)' : 'var(--text-secondary)';
+    });
+    document.getElementById('pp-notes-area')?.focus();
+    window._announce?.('Notes tab open — begin typing');
+  };
 }
 
 // ── Advanced Search ──────────────────────────────────────────────────────────
