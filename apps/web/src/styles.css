@@ -21902,14 +21902,15 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 }
 .ptmsg-thread-top {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   margin-bottom: 2px;
 }
 .ptmsg-thread-sender {
+  flex: 1; min-width: 0;
   font-weight: 600; font-size: 13px;
   color: var(--text-primary, #0f172a);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ptmsg-thread-date {
   font-size: 11px;
@@ -22281,6 +22282,65 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   background: var(--_tile-bg-active, rgba(0,212,188,0.22));
   border-color: var(--_tile-border-active, rgba(0,212,188,0.55));
   transform: scale(1.05);
+}
+
+/* Page-body tile — same tone variables as the sidebar nav, just a bit
+   larger so it reads as a card-header icon. Reuse any
+   .pt-nav-tile--<tone> class on an element that also has .pt-page-tile
+   to pick up the palette. */
+.pt-page-tile {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px;
+  border-radius: 10px;
+  font-size: 17px;
+  line-height: 1;
+  background: var(--_tile-bg, rgba(0,212,188,0.10));
+  border: 1px solid var(--_tile-border, rgba(0,212,188,0.25));
+  color: var(--text-primary);
+  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.pt-page-tile--sm {
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.pt-page-tile--lg {
+  width: 44px; height: 44px;
+  border-radius: 12px;
+  font-size: 22px;
+}
+.pt-page-tile--initials {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+/* Reports category chip — an interactive tile for the top-of-page chips. */
+.pt-reports-cat-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 12px 6px 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
+  color: var(--text-secondary);
+  font-size: 0.78rem; font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+}
+.pt-reports-cat-chip:hover {
+  background: var(--_tile-bg, rgba(255,255,255,0.06));
+  border-color: var(--_tile-border, rgba(255,255,255,0.18));
+  transform: translateY(-1px);
+}
+.pt-reports-cat-chip .pt-page-tile {
+  width: 26px; height: 26px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.pt-reports-cat-chips {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 4px 0 14px;
 }
 
 /* Light-theme tweaks — patient portal isn't primarily light-mode, but the
