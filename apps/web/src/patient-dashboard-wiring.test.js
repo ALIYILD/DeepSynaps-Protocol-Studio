@@ -159,6 +159,21 @@ test('groupOutcomesByTemplate: drops entries with no template_name', () => {
   assert.equal(groups[0].template_name, 'X');
 });
 
+// Regression: portal API returns `template_title` — group on that too.
+test('groupOutcomesByTemplate: accepts API template_title field', () => {
+  const outcomes = [
+    { template_title: 'PHQ-9', score_numeric: 14, administered_at: '2026-03-01T10:00:00Z' },
+    { template_title: 'PHQ-9', score_numeric:  9, administered_at: '2026-04-10T10:00:00Z' },
+    { template_title: 'GAD-7', score_numeric:  7, administered_at: '2026-04-12T10:00:00Z' },
+  ];
+  const groups = groupOutcomesByTemplate(outcomes);
+  assert.equal(groups.length, 2);
+  const phq = groups.find(g => g.template_name === 'PHQ-9');
+  assert.ok(phq, 'PHQ-9 group exists when only template_title is provided');
+  assert.equal(phq.latest.score_numeric, 9);
+  assert.equal(phq.baseline.score_numeric, 14);
+});
+
 // ── pickTodaysFocus ──────────────────────────────────────────────────────────
 
 test('pickTodaysFocus: session ≤ 24h wins over every other signal', () => {

@@ -39,11 +39,13 @@ export function phaseLabel(pct) {
  * Outcome goal-marker math for the patient-dashboard progress bars.
  * Returns { goal, fillPct, markerPct, down, maxRange } for a given outcome.
  * `down` = lower-is-better (true for PHQ-9 / GAD-7 / PSQI).
- * @param {{template_name?:string, score_numeric?:number|null}} latest
- * @param {{template_name?:string, score_numeric?:number|null}|null} [baseline]
+ *
+ * API returns `template_title`; legacy/demo code may pass `template_name`.
+ * @param {{template_title?:string, template_name?:string, score_numeric?:number|null}} latest
+ * @param {{template_title?:string, template_name?:string, score_numeric?:number|null}|null} [baseline]
  */
 export function outcomeGoalMarker(latest, baseline) {
-  const name = String(latest?.template_name || '').toLowerCase();
+  const name = String(latest?.template_title || latest?.template_name || '').toLowerCase();
   const current = Number(latest?.score_numeric ?? 0);
   const THRESHOLDS = { phq: 5, gad: 4, psqi: 5 };
   let goal = null;
@@ -395,7 +397,8 @@ export function groupOutcomesByTemplate(outcomes, limit = 4) {
   if (!Array.isArray(outcomes) || outcomes.length === 0) return [];
   const byT = new Map();
   for (const o of outcomes) {
-    const k = String(o?.template_name || '').trim();
+    // API returns `template_title`; demo/legacy rows may only have `template_name`.
+    const k = String(o?.template_title || o?.template_name || '').trim();
     if (!k) continue;
     if (!byT.has(k)) byT.set(k, []);
     byT.get(k).push(o);
@@ -408,6 +411,7 @@ export function groupOutcomesByTemplate(outcomes, limit = 4) {
     const latest = sorted[sorted.length - 1] || null;
     groups.push({
       template_name: name,
+      template_title: name,
       baseline,
       latest,
       lastAt: latest?.administered_at || null,

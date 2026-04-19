@@ -10245,10 +10245,10 @@ async function _ptoLoadLive() {
     const items = Array.isArray(resp) ? resp : (resp && Array.isArray(resp.items) ? resp.items : null);
     if (!items || !items.length) return _ptoSeed();
 
-    // Group by template_name
+    // Group by template_title (API field); legacy template_name retained as fallback.
     const groups = {};
     items.forEach(function(item) {
-      const raw = (item.template_name || '').trim();
+      const raw = (item.template_title || item.template_name || '').trim();
       if (!raw) return;
       if (!groups[raw]) groups[raw] = [];
       groups[raw].push(item);
