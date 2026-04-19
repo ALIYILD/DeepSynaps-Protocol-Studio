@@ -26,7 +26,9 @@ import sqlalchemy as sa
 
 
 revision = "031_agent_skills"
-down_revision = "029_home_task_templates"
+# Chained onto 030 (session_recordings) instead of 029 to resolve a parallel-
+# development collision: 030 and 031 both originally branched off 029.
+down_revision = "030_session_recordings"
 branch_labels = None
 depends_on = None
 
