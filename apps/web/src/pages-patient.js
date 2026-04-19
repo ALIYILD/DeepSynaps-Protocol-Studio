@@ -309,8 +309,20 @@ import {
   isDemoPatient,
   DEMO_PATIENT,
   demoOverlay,
+  classifyAssessmentStatus,
+  scoreContext as scoreContextHelper,
+  draftStorageKey,
+  loadDraft,
+  saveDraft,
+  clearDraft,
+  demoAssessmentSeed,
 } from './patient-dashboard-helpers.js';
-export { computeCountdown, phaseLabel, outcomeGoalMarker, groupOutcomesByTemplate, pickTodaysFocus, isDemoPatient, DEMO_PATIENT, demoOverlay };
+export {
+  computeCountdown, phaseLabel, outcomeGoalMarker, groupOutcomesByTemplate,
+  pickTodaysFocus, isDemoPatient, DEMO_PATIENT, demoOverlay,
+  classifyAssessmentStatus, scoreContextHelper, draftStorageKey,
+  loadDraft, saveDraft, clearDraft, demoAssessmentSeed,
+};
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────────────────
 export async function pgPatientDashboard(user) {
@@ -2860,12 +2872,26 @@ export async function pgPatientAssessments() {
         <div class="pt-assess-empty-title">Could not load your assessments</div>
         <div class="pt-assess-empty-body">Please check your connection and try again.</div>
         <button class="btn btn-ghost btn-sm" style="margin-top:14px"
-                onclick="window._navPatient('patient-assessments')">Try again \u2192</button>
+                id="pt-assess-retry-btn"
+                aria-label="Reload your assessments">Try again \u2192</button>
       </div>`;
+    const retry = el.querySelector('#pt-assess-retry-btn');
+    if (retry) retry.addEventListener('click', function() { pgPatientAssessments(); });
     return;
   }
 
-  const rawItems  = Array.isArray(assessmentsRaw) ? assessmentsRaw : [];
+  // ── Demo parity: when demo mode is ON and real API returned [], overlay
+  //    a 3-row seed (due today, completed yesterday, upcoming in 3 days).
+  //    Uses isDemoPatient() from PR #42 and never mutates the demo flag.
+  const _inDemoAssess = isDemoPatient(currentUser, { getToken: api.getToken });
+  let _assessDemoUsed = false;
+  let rawItems;
+  if (Array.isArray(assessmentsRaw) && assessmentsRaw.length === 0 && _inDemoAssess) {
+    rawItems = demoAssessmentSeed();
+    _assessDemoUsed = true;
+  } else {
+    rawItems = Array.isArray(assessmentsRaw) ? assessmentsRaw : [];
+  }
   const courses   = Array.isArray(coursesRaw)     ? coursesRaw     : [];
   const sessions  = Array.isArray(sessionsRaw)    ? sessionsRaw    : [];
 
@@ -2993,32 +3019,11 @@ export async function pgPatientAssessments() {
     return ASSESS_META[key] || null;
   }
 
-  function scoreContext(meta, score) {
-    if (score == null || score === '' || !meta || !meta.scoreRanges || !meta.scoreRanges.length) return null;
-    const n = Number(score);
-    if (!Number.isFinite(n)) return null;
-    for (const band of meta.scoreRanges) {
-      if (n <= band.max) return { label: band.label, note: band.note };
-    }
-    return null;
-  }
-
-  // ── Status classification ────────────────────────────────────────────────
-  // Extension point: backend can supply status field directly.
-  // Falls back to date-based inference.
+  // Thin wrappers around the shared pure helpers (imported from
+  // patient-dashboard-helpers.js so node --test can exercise them directly).
+  function scoreContext(meta, score) { return scoreContextHelper(meta, score); }
   const now = Date.now();
-  function statusClassify(a) {
-    const st = (a.status || '').toLowerCase().replace(/[^a-z_]/g, '');
-    if (['completed','done','submitted'].includes(st))          return 'completed';
-    if (['in_progress','inprogress','started','partial'].includes(st)) return 'in-progress';
-    if (a.completed_at || a.administered_at)                    return 'completed';
-    if (['scheduled','upcoming'].includes(st))                  return 'upcoming';
-    if (a.due_date) {
-      return new Date(a.due_date).getTime() <= now ? 'due' : 'upcoming';
-    }
-    // No due date and no status → treat as due
-    return 'due';
-  }
+  function statusClassify(a) { return classifyAssessmentStatus(a, now); }
 
   // ── Normalise assessments ────────────────────────────────────────────────
   const items = rawItems.map(a => {
@@ -3120,6 +3125,13 @@ export async function pgPatientAssessments() {
     '</div>';
   }
 
+  // Small "(demo)" chip reused from PR #42 when the row came from the seed.
+  function demoTagHTML(item) {
+    return item && item.raw && item.raw._demo
+      ? '<span class="pth-demo-tag" title="Demo data shown while real data is unavailable">demo</span>'
+      : '';
+  }
+
   // ── Due / in-progress card ───────────────────────────────────────────────
   function dueCardHTML(item) {
     const cat = itemCat(item);
@@ -3163,14 +3175,14 @@ export async function pgPatientAssessments() {
         '<div class="pt-assess-cta-col">' + ctaHtml + '</div>' +
       '</div>' +
       '<div class="pt-assess-card-body">' +
-        '<div class="pt-assess-name">' + esc(item.name) + '</div>' +
+        '<div class="pt-assess-name">' + esc(item.name) + demoTagHTML(item) + '</div>' +
         (item.whyItMatters
           ? '<div class="pt-assess-why-inline">' + esc(item.whyItMatters) + '</div>'
           : (item.purpose ? '<div class="pt-assess-why-inline">' + esc(item.purpose) + '</div>' : '')) +
         (chips ? '<div class="pt-assess-chips">' + chips + '</div>' : '') +
         progressHtml +
       '</div>' +
-      '<div class="pt-assess-inline-form" id="pt-assess-form-' + esc(item.id) + '" hidden></div>' +
+      '<div class="pt-assess-inline-form" id="pt-assess-form-' + esc(item.id) + '" hidden aria-live="polite"></div>' +
     '</div>';
   }
 
@@ -3192,7 +3204,7 @@ export async function pgPatientAssessments() {
         '</div>' +
       '</div>' +
       '<div class="pt-assess-card-body">' +
-        '<div class="pt-assess-name" style="font-size:.85rem">' + esc(item.name) + '</div>' +
+        '<div class="pt-assess-name" style="font-size:.85rem">' + esc(item.name) + demoTagHTML(item) + '</div>' +
         (item.purpose ? '<div class="pt-assess-purpose">' + esc(item.purpose) + '</div>' : '') +
         (chips ? '<div class="pt-assess-chips">' + chips + '</div>' : '') +
       '</div>' +
@@ -3227,18 +3239,26 @@ export async function pgPatientAssessments() {
       resultHtml = '<div class="pt-assess-result-row"><span class="pt-assess-reviewed-badge">✓ Reviewed by your team</span></div>';
     }
 
+    // Completed cards hide the "View details" link for demo rows (reports
+    // page would show real data, so the link would mislead).
+    const reviewCta = (item.raw && item.raw._demo)
+      ? ''
+      : '<div class="pt-assess-cta-col">' +
+          '<button class="btn btn-ghost btn-sm"' +
+          ' onclick="window._ptAssessReview(\'' + esc(item.id) + '\')"' +
+          ' aria-label="View details for ' + esc(item.name) + '">View details</button>' +
+        '</div>';
+
     return '<div class="pt-assess-card pt-assess-card-done" data-id="' + esc(item.id) + '" data-status="completed">' +
       '<div class="pt-assess-card-hd">' +
         '<div class="pt-assess-card-hd-left">' +
           '<span class="pt-assess-cat-chip" style="background:' + catBg + ';color:' + cat.color + '">' + cat.icon + ' ' + cat.label + '</span>' +
           '<span class="pt-assess-pill pt-assess-pill-done">Completed</span>' +
         '</div>' +
-        '<div class="pt-assess-cta-col">' +
-          '<button class="btn btn-ghost btn-sm" onclick="window._ptAssessReview(\'' + esc(item.id) + '\')">Review result</button>' +
-        '</div>' +
+        reviewCta +
       '</div>' +
       '<div class="pt-assess-card-body">' +
-        '<div class="pt-assess-name" style="font-size:.85rem">' + esc(item.name) + '</div>' +
+        '<div class="pt-assess-name" style="font-size:.85rem">' + esc(item.name) + demoTagHTML(item) + '</div>' +
         resultHtml +
         (chips ? '<div class="pt-assess-chips" style="margin-top:8px">' + chips + '</div>' : '') +
       '</div>' +
@@ -3290,128 +3310,8 @@ export async function pgPatientAssessments() {
     '</div>';
   }
 
-  // ── DEAD CODE kept for reference — replaced below ─────────────────────────
-  // Old assessCardHTML is replaced by dueCardHTML / upcomingCardHTML / completedCardHTML.
-  // Old whyCalloutHTML is replaced by whySection().
-  // Old sectionHTML is replaced by inline section builders + sectionHd().
-  function assessCardHTML(item) {
-    const isDue       = item.status === 'due';
-    const isInProgress = item.status === 'in-progress';
-    const isUpcoming  = item.status === 'upcoming';
-    const isCompleted = item.status === 'completed';
-
-    // Status pill
-    let pillHtml = '';
-    if (isDue)        pillHtml = `<span class="pt-assess-pill pt-assess-pill-due">Due now</span>`;
-    else if (isInProgress) pillHtml = `<span class="pt-assess-pill pt-assess-pill-progress">In progress</span>`;
-    else if (isUpcoming)   pillHtml = `<span class="pt-assess-pill pt-assess-pill-upcoming">Upcoming</span>`;
-    else if (isCompleted)  pillHtml = `<span class="pt-assess-pill pt-assess-pill-done">Completed</span>`;
-
-    // Time estimate
-    const timeHtml = item.timeMin
-      ? `<span class="pt-assess-chip">~${item.timeMin} min</span>`
-      : '';
-
-    // Due date
-    const dueDateHtml = item.dueDate && !isCompleted
-      ? `<span class="pt-assess-chip">Due ${esc(fmtDate(item.dueDate))}</span>`
-      : '';
-
-    // Completed date
-    const completedHtml = isCompleted && item.completedAt
-      ? `<span class="pt-assess-chip">Done ${esc(fmtDate(item.completedAt))}</span>`
-      : '';
-
-    // Measurement point
-    const mpHtml = item.measurePoint
-      ? `<span class="pt-assess-chip">${esc(item.measurePoint)}</span>`
-      : '';
-
-    // Course / session context
-    const courseChip = item.courseRef
-      ? `<span class="pt-assess-chip">${esc(item.courseRef.title)}</span>`
-      : '';
-    const sessionChip = item.sessionRef
-      ? `<span class="pt-assess-chip">Session${item.sessionRef.number ? ' #' + item.sessionRef.number : ''} \u00b7 ${esc(item.sessionRef.date)}</span>`
-      : '';
-
-    const chips = [timeHtml, dueDateHtml, completedHtml, mpHtml, courseChip, sessionChip].filter(Boolean).join('');
-
-    // Progress bar for in-progress
-    const progressHtml = isInProgress && item.progress != null
-      ? `<div class="pt-assess-progress-bar" role="progressbar" aria-valuenow="${item.progress}" aria-valuemin="0" aria-valuemax="100" aria-label="Assessment ${item.progress}% complete">
-           <div class="pt-assess-progress-fill" style="width:${Math.min(100, item.progress)}%"></div>
-         </div>`
-      : '';
-
-    // Score for completed (patient-friendly, not alarming)
-    let scoreHtml = '';
-    if (isCompleted && item.score != null) {
-      const ctx = item.scoreCtx;
-      scoreHtml = `
-        <div class="pt-assess-score-row">
-          <span class="pt-assess-score-label">Your result</span>
-          ${ctx
-            ? `<span class="pt-assess-score-band ${esc(ctx.label.toLowerCase().replace(/\s+/g,'-'))}">${esc(ctx.label)}</span>`
-            : `<span class="pt-assess-score-num">${(item.score != null && !isNaN(Number(item.score))) ? esc(String(item.score)) : '—'}</span>`}
-        </div>
-        ${ctx ? `<div class="pt-assess-score-note">${esc(ctx.note)}</div>` : ''}`;
-    }
-
-    // CTA
-    let ctaHtml = '';
-    if (isDue) {
-      if (SUPPORTED_FORMS[item.formKey]) {
-        ctaHtml = `<button class="btn btn-primary btn-sm pt-assess-cta"
-                           id="pt-assess-cta-${esc(item.id)}"
-                           onclick="window._ptToggleAssessForm('${esc(item.id)}')"
-                           aria-expanded="false"
-                           aria-controls="pt-assess-form-${esc(item.id)}">Start \u2192</button>`;
-      } else if (item.formUrl) {
-        ctaHtml = `<a class="btn btn-primary btn-sm pt-assess-cta"
-                      href="${esc(item.formUrl)}" target="_blank" rel="noopener noreferrer"
-                      aria-label="Open ${esc(item.name)} form">Start \u2192</a>`;
-      } else {
-        ctaHtml = `<button class="btn btn-ghost btn-sm pt-assess-cta"
-                           onclick="window._ptAssessContactClinic('${esc(item.id)}')"
-                           aria-label="Ask about ${esc(item.name)}">Ask your clinic \u2192</button>`;
-      }
-    } else if (isInProgress) {
-      if (SUPPORTED_FORMS[item.formKey]) {
-        ctaHtml = `<button class="btn btn-primary btn-sm pt-assess-cta"
-                           id="pt-assess-cta-${esc(item.id)}"
-                           onclick="window._ptToggleAssessForm('${esc(item.id)}')"
-                           aria-expanded="false"
-                           aria-controls="pt-assess-form-${esc(item.id)}">Continue \u2192</button>`;
-      } else if (item.formUrl) {
-        ctaHtml = `<a class="btn btn-primary btn-sm pt-assess-cta"
-                      href="${esc(item.formUrl)}" target="_blank" rel="noopener noreferrer">Continue \u2192</a>`;
-      }
-    } else if (isCompleted) {
-      ctaHtml = `<button class="btn btn-ghost btn-sm pt-assess-cta"
-                         onclick="window._ptAssessReview('${esc(item.id)}')"
-                         aria-label="Review ${esc(item.name)}">Review</button>`;
-    }
-
-    return `
-      <div class="pt-assess-card${isDue || isInProgress ? ' pt-assess-card-due' : isCompleted ? ' pt-assess-card-done' : ''}"
-           data-id="${esc(item.id)}" data-status="${esc(item.status)}">
-        <div class="pt-assess-card-top">
-          <div class="pt-assess-main">
-            <div class="pt-assess-name-row">
-              <span class="pt-assess-name">${esc(item.name)}</span>
-              ${pillHtml}
-            </div>
-            ${item.purpose ? `<div class="pt-assess-purpose">${esc(item.purpose)}</div>` : ''}
-            ${chips ? `<div class="pt-assess-chips">${chips}</div>` : ''}
-            ${progressHtml}
-            ${scoreHtml}
-          </div>
-          ${ctaHtml ? `<div class="pt-assess-cta-col">${ctaHtml}</div>` : ''}
-        </div>
-        <div class="pt-assess-inline-form" id="pt-assess-form-${esc(item.id)}" hidden></div>
-      </div>`;
-  }
+  // (Legacy assessCardHTML has been removed — it was dead code replaced by
+  //  dueCardHTML / upcomingCardHTML / completedCardHTML.)
 
   // ── Empty page state ─────────────────────────────────────────────────────
   if (items.length === 0) {
@@ -3447,6 +3347,57 @@ export async function pgPatientAssessments() {
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
+  // Hydrate existing likert state from a draft (per assessment id).
+  function _hydrateDraft(item) {
+    if (!item || !item.formKey) return;
+    const draft = loadDraft(item.id);
+    if (!draft || !draft.answers) return;
+    try {
+      const st = window._likertState && window._likertState[item.formKey];
+      if (!st || !Array.isArray(st.answers)) return;
+      const arr = Array.isArray(draft.answers)
+        ? draft.answers
+        : Object.keys(draft.answers)
+            .map(function(k) { return [Number(k), draft.answers[k]]; })
+            .reduce(function(acc, [k, v]) { acc[k] = v; return acc; }, []);
+      for (let i = 0; i < st.answers.length; i++) {
+        const v = arr[i];
+        if (v != null && typeof window._ptLikertPick === 'function') {
+          window._ptLikertPick(item.formKey, i, v);
+        }
+      }
+      _showDraftSaved(item.id, draft.savedAt);
+    } catch (_e) { /* ignore corrupt drafts */ }
+  }
+
+  // Debounce map per assessment id.
+  const _draftDebounce = Object.create(null);
+  function _saveDraftDebounced(item) {
+    if (!item || item.raw?._demo) return; // never persist demo drafts
+    if (_draftDebounce[item.id]) clearTimeout(_draftDebounce[item.id]);
+    _draftDebounce[item.id] = setTimeout(function() {
+      const st = window._likertState && window._likertState[item.formKey];
+      if (!st) return;
+      const ok = saveDraft(item.id, st.answers);
+      if (ok) _showDraftSaved(item.id, new Date().toISOString());
+    }, 600);
+  }
+
+  function _showDraftSaved(itemId, iso) {
+    const card = el.querySelector('[data-id="' + CSS.escape(itemId) + '"]');
+    if (!card) return;
+    let badge = card.querySelector('.pt-assess-draft-saved');
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.className = 'pt-assess-draft-saved';
+      badge.setAttribute('aria-live', 'polite');
+      const formEl = card.querySelector('.pt-assess-inline-form');
+      if (formEl && formEl.parentNode) formEl.parentNode.insertBefore(badge, formEl);
+    }
+    badge.textContent = '\u2713 Saved just now';
+    if (iso) badge.setAttribute('title', 'Last saved ' + iso);
+  }
+
   window._ptToggleAssessForm = function(itemId) {
     const item = items.find(function(i) { return i.id === itemId; });
     if (!item) return;
@@ -3456,19 +3407,102 @@ export async function pgPatientAssessments() {
     const opening = formEl.hasAttribute('hidden');
     if (opening) {
       formEl.removeAttribute('hidden');
-      if (btn) { btn.textContent = 'Close ×'; btn.setAttribute('aria-expanded', 'true'); }
+      if (btn) { btn.textContent = 'Close \u00D7'; btn.setAttribute('aria-expanded', 'true'); }
       if (SUPPORTED_FORMS[item.formKey]) {
-        renderAssessmentForm(item.formKey, 'pt-assess-form-' + CSS.escape(itemId), currentUser?.id);
+        const cid = 'pt-assess-form-' + CSS.escape(itemId);
+        // Demo rows: render a read-only banner instead of collecting live data.
+        if (item.raw && item.raw._demo) {
+          formEl.innerHTML = '<div class="pt-assess-demo-form-note">'
+            + 'This is a demo assessment. Submitting isn\u2019t wired to your clinic in demo mode.'
+            + '</div>';
+        } else {
+          renderAssessmentForm(item.formKey, cid, currentUser?.id);
+          // Hydrate from a saved draft (if any) and wrap the picker to save
+          // a draft on every answer change.
+          _hydrateDraft(item);
+          const origPick = window._ptLikertPick;
+          window._ptLikertPick = function(formKey, q, v) {
+            origPick(formKey, q, v);
+            if (formKey === item.formKey) _saveDraftDebounced(item);
+          };
+          // Wrap submit to clear the draft + show confirmation in-place.
+          const origSubmit = window._ptLikertSubmit;
+          window._ptLikertSubmit = async function(formKey) {
+            await origSubmit(formKey);
+            // After the generic submit runs, detect success by looking for
+            // the result block we just populated.
+            const resultEl = document.getElementById(formKey + '-result');
+            if (resultEl && resultEl.style.display !== 'none'
+                && !resultEl.querySelector('.notice-error')) {
+              // Success: clear draft + swap card into the completed bucket.
+              clearDraft(item.id);
+              _renderCompletionConfirm(item, resultEl);
+            }
+          };
+        }
       }
       setTimeout(function() { formEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 50);
     } else {
       formEl.setAttribute('hidden', '');
-      if (btn) { btn.textContent = (item.status === 'in-progress' ? 'Continue' : 'Start') + ' →'; btn.setAttribute('aria-expanded', 'false'); }
+      if (btn) {
+        btn.textContent = (item.status === 'in-progress' ? 'Continue' : 'Start') + ' \u2192';
+        btn.setAttribute('aria-expanded', 'false');
+      }
     }
   };
 
-  window._ptAssessReview = function(_itemId) { window._navPatient('patient-reports'); };
-  window._ptAssessContactClinic = function(_itemId) { window._navPatient('patient-messages'); };
+  // After a successful submit, replace the form area with a friendly
+  // confirmation card and move the card into the Completed section without
+  // a hard navigation. On refresh, the real API will reflect the new state.
+  function _renderCompletionConfirm(item, resultEl) {
+    const card = el.querySelector('[data-id="' + CSS.escape(item.id) + '"]');
+    if (!card) return;
+    // Replace the form body with the confirmation card.
+    const confirmHTML =
+      '<div class="pt-assess-confirm" role="status" aria-live="polite">' +
+        '<div class="pt-assess-confirm-ico" aria-hidden="true">\u2713</div>' +
+        '<div class="pt-assess-confirm-body">' +
+          '<div class="pt-assess-confirm-title">Thanks \u2014 your answers are with your care team</div>' +
+          '<div class="pt-assess-confirm-sub">You\u2019ll hear from your clinician if anything needs follow-up. Check the Completed list below for your result.</div>' +
+        '</div>' +
+      '</div>';
+    const formEl = card.querySelector('.pt-assess-inline-form');
+    if (formEl) {
+      formEl.innerHTML = confirmHTML + (resultEl ? resultEl.outerHTML : '');
+    }
+    // Repaint the card as completed: swap pill, strip CTA, drop draft badge.
+    card.classList.remove('pt-assess-card-due');
+    card.classList.add('pt-assess-card-done');
+    card.setAttribute('data-status', 'completed');
+    const pill = card.querySelector('.pt-assess-pill-due, .pt-assess-pill-progress');
+    if (pill) {
+      pill.classList.remove('pt-assess-pill-due', 'pt-assess-pill-progress');
+      pill.classList.add('pt-assess-pill-done');
+      pill.textContent = 'Completed';
+    }
+    const cta = card.querySelector('.pt-assess-cta-col');
+    if (cta) cta.remove();
+    const draftBadge = card.querySelector('.pt-assess-draft-saved');
+    if (draftBadge) draftBadge.remove();
+    // Move to completed section if present; else fall back to a soft refresh.
+    const sections = el.querySelectorAll('.pt-assess-section');
+    let completedSection = null;
+    for (const s of sections) {
+      const t = s.querySelector('.pt-assess-section-title');
+      if (t && /completed/i.test(t.textContent || '')) { completedSection = s; break; }
+    }
+    if (completedSection) completedSection.appendChild(card);
+  }
+
+  window._ptAssessReview = function(itemId) {
+    const item = items.find(function(i) { return i.id === itemId; });
+    // Demo rows have no real record in the reports page — keep them local.
+    if (item && item.raw && item.raw._demo) return;
+    if (typeof window._navPatient === 'function') window._navPatient('patient-reports');
+  };
+  window._ptAssessContactClinic = function(_itemId) {
+    if (typeof window._navPatient === 'function') window._navPatient('patient-messages');
+  };
 
   window._assessAskAI = function(prompt) {
     if (typeof window._navPatient === 'function') {
