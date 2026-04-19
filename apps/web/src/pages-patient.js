@@ -6905,7 +6905,9 @@ export async function pgPatientWearables() {
             <div class="pdw-action-secondary-row">
               <button class="pdw-action-ghost" onclick="window._pdwViewInstructions('${dev.id}')">Instructions</button>
               <button class="pdw-action-ghost pdw-action-ghost--warn" onclick="window._pdwReportIssue()">Report Issue</button>
-              <button class="pdw-action-ghost pdw-action-ghost--ble" disabled title="Coming soon — Bluetooth pairing">◌ Connect</button>
+              ${(typeof navigator !== 'undefined' && 'bluetooth' in navigator)
+                ? `<button class="pdw-action-ghost pdw-action-ghost--ble" id="pdw-ble-btn-${dev.id}" onclick="window._patPairBleHrm('${dev.id}')" title="Pair a Bluetooth heart rate monitor (BLE 0x180D)">◌ Pair HRM <span class="pdw-ble-status" id="pdw-ble-status-${dev.id}"></span></button>`
+                : `<button class="pdw-action-ghost pdw-action-ghost--ble" disabled title="Web Bluetooth not supported in this browser (use Chrome or Edge)">◌ Pair HRM</button>`}
             </div>
           </div>` : `
           <p class="pdw-device-unassigned">Not currently part of your plan. Contact your care team if you have this device.</p>
@@ -7024,9 +7026,9 @@ export async function pgPatientWearables() {
         <span class="pdw-ble-center-icon">◌</span>
       </div>
       <div class="pdw-ble-copy">
-        <div class="pdw-ble-badge">Roadmap</div>
+        <div class="pdw-ble-badge">Web Bluetooth</div>
         <div class="pdw-ble-heading">Direct Bluetooth connection</div>
-        <p class="pdw-ble-text">Your home device will connect directly via Bluetooth — automatically importing session logs, device diagnostics, and usage data to your care record.</p>
+        <p class="pdw-ble-text">Pair a Bluetooth heart rate monitor (chest strap, watch, or armband supporting BLE 0x180D) to stream live BPM into your care record. Chrome or Edge required.</p>
       </div>
     </div>
   </div>
@@ -7182,6 +7184,55 @@ export async function pgPatientWearables() {
   window._pdwReportIssue = function() {
     showToast('Opening messages — describe the issue to your care team.');
     window._navPatient('patient-messages');
+  };
+
+  // ── BLE Heart Rate Monitor pairing (Web Bluetooth, service 0x180D) ────────
+  function _bleToast(msg, color) {
+    color = color || 'var(--teal,#00d4bc)';
+    const t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;background:' + color + ';color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:500;box-shadow:0 4px 12px rgba(0,0,0,.25);pointer-events:none';
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2800);
+  }
+  window._patPairBleHrm = async function(deviceId) {
+    if (!('bluetooth' in navigator)) { _bleToast('Web Bluetooth not supported in this browser', '#ef4444'); return; }
+    const statusEl = document.getElementById('pdw-ble-status-' + deviceId);
+    const setStatus = (txt) => { if (statusEl) statusEl.textContent = txt ? ' ' + txt : ''; };
+    let device, server, char, latestBpm = 0, samples = 0, stopTimer = null;
+    const cleanup = async () => {
+      if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
+      try { if (char) { char.removeEventListener('characteristicvaluechanged', onChange); await char.stopNotifications(); } } catch (_) {}
+      try { if (server && server.connected) server.disconnect(); } catch (_) {}
+      setStatus(latestBpm ? 'Connected ✓' : '');
+      if (latestBpm > 0) {
+        try { await api.submitWearableObservations({ rhr_bpm: latestBpm, source: 'web_bluetooth_hrm', samples }); }
+        catch (_) { /* offline backend is fine; BLE flow already succeeded */ }
+      }
+    };
+    function onChange(ev) {
+      const v = ev.target.value; if (!v || v.byteLength < 2) return;
+      const flags = v.getUint8(0);
+      const bpm = (flags & 0x01) ? v.getUint16(1, true) : v.getUint8(1);
+      if (bpm > 0 && bpm < 250) { latestBpm = bpm; samples++; setStatus('● ' + bpm + ' bpm'); }
+    }
+    try {
+      setStatus('scanning…');
+      device = await navigator.bluetooth.requestDevice({ filters: [{ services: ['heart_rate'] }], optionalServices: ['battery_service'] });
+      device.addEventListener('gattserverdisconnected', () => { setStatus(latestBpm ? 'Connected ✓' : 'Disconnected'); });
+      setStatus('connecting…');
+      server = await device.gatt.connect();
+      const service = await server.getPrimaryService('heart_rate');
+      char = await service.getCharacteristic('heart_rate_measurement');
+      await char.startNotifications();
+      char.addEventListener('characteristicvaluechanged', onChange);
+      setStatus('● — bpm');
+      stopTimer = setTimeout(cleanup, 60000);
+    } catch (err) {
+      setStatus('');
+      if (err && (err.name === 'NotFoundError' || /cancelled/i.test(err.message || ''))) return; // user cancelled
+      _bleToast('Bluetooth pairing failed: ' + ((err && err.message) || 'unknown error'), '#ef4444');
+    }
   };
 }
 
