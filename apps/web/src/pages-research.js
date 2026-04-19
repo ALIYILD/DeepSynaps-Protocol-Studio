@@ -440,43 +440,45 @@ export async function pgResearch(setTopbar, _navigate) {
   window._researchSetFormat = (v) => { window._researchExportFormat = v; };
   window._researchSetConsent= (v) => { window._researchExportConsent = v; };
 
+  // Toast helper that surfaces real backend success/failure instead of fake
+  // success alerts. Only claims success when the API method actually exists
+  // and the call resolves; otherwise reports an honest unavailable / failed.
+  const _toast = (title, body, severity) =>
+    (window._dsToast?.({ title, body, severity }) || alert(`${title}: ${body}`));
+  const _runApi = async (label, fn) => {
+    if (typeof fn !== 'function') { _toast(label, 'Endpoint not available on this build.', 'warn'); return false; }
+    try { await fn(); _toast(label, 'Submitted.', 'ok'); return true; }
+    catch (e) { _toast(label, (e?.body?.message || e?.message || 'Request failed.'), 'warn'); return false; }
+  };
+
   window._researchMarkReviewed = async (id) => {
-    try { await api.markProtocolReviewed?.(id); } catch (_) { /* TODO */ }
-    alert(`Protocol ${id} marked reviewed.`);
+    await _runApi(`Protocol ${id} reviewed`, api.markProtocolReviewed && (() => api.markProtocolReviewed(id)));
   };
   window._researchExportIndividual = async () => {
     const mrn = document.getElementById('_researchPtMrn')?.value?.trim();
-    if (!mrn) { alert('Enter a patient MRN.'); return; }
-    try { await api.dataPrivacyExport?.(mrn); } catch (_) { /* TODO */ }
-    alert(`GDPR export for ${mrn} queued.`);
+    if (!mrn) { _toast('Patient MRN required', 'Enter a patient MRN before exporting.', 'warn'); return; }
+    await _runApi(`GDPR export · ${mrn}`, api.dataPrivacyExport && (() => api.dataPrivacyExport(mrn)));
   };
   window._researchBuildDataset = async () => {
-    try {
-      await api.exportData?.({
-        consent: window._researchExportConsent || 'research',
-        format:  window._researchExportFormat  || 'CSV',
-      });
-    } catch (_) { /* TODO */ }
-    alert('Dataset export queued.');
+    await _runApi('Dataset export', api.exportData && (() => api.exportData({
+      consent: window._researchExportConsent || 'research',
+      format:  window._researchExportFormat  || 'CSV',
+    })));
   };
   window._researchCreateIrb = async () => {
     const title = document.getElementById('_irbTitle')?.value?.trim();
     const pi    = document.getElementById('_irbPI')?.value?.trim();
-    if (!title || !pi) { alert('Title and PI are required.'); return; }
-    try {
-      await api.createIrbProtocol?.({
-        title, pi,
-        sites: document.getElementById('_irbSites')?.value || '',
-        target_n: Number(document.getElementById('_irbN')?.value || 0),
-        inclusion: document.getElementById('_irbIncl')?.value || '',
-        exclusion: document.getElementById('_irbExcl')?.value || '',
-      });
-    } catch (_) { /* TODO */ }
-    alert(`IRB draft "${title}" saved.`);
+    if (!title || !pi) { _toast('Required fields missing', 'Title and PI are required.', 'warn'); return; }
+    await _runApi(`IRB draft "${title}"`, api.createIrbProtocol && (() => api.createIrbProtocol({
+      title, pi,
+      sites: document.getElementById('_irbSites')?.value || '',
+      target_n: Number(document.getElementById('_irbN')?.value || 0),
+      inclusion: document.getElementById('_irbIncl')?.value || '',
+      exclusion: document.getElementById('_irbExcl')?.value || '',
+    })));
   };
   window._researchExportAll = async () => {
-    try { await api.exportData?.({ kind: 'research-bundle' }); } catch (_) { /* TODO */ }
-    alert('Research bundle export queued.');
+    await _runApi('Research bundle export', api.exportData && (() => api.exportData({ kind: 'research-bundle' })));
   };
 
   await render();

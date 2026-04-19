@@ -4025,9 +4025,9 @@ export async function pgLibraryHub(setTopbar, navigate) {
             '<div class="lib-feature" style="width:100%;color:var(--text-tertiary)" title="When Literature Watch first saw this paper">⏱ First seen ' + seen + '</div>' +
           '</div>' +
           '<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">' +
-            '<button class="ch-btn-sm ch-btn-teal" onclick="window._litPaperAction(\'mark-relevant\',\'' + esc(pmid) + '\')" title="TODO: mark this paper relevant (not yet wired to backend)">Mark relevant</button>' +
-            '<button class="ch-btn-sm" onclick="window._litPaperAction(\'promote\',\'' + esc(pmid) + '\')" title="TODO: promote to protocol references (not yet wired)">Promote to references</button>' +
-            '<button class="ch-btn-sm" onclick="window._litPaperAction(\'not-relevant\',\'' + esc(pmid) + '\')" title="TODO: mark not relevant (not yet wired)">Not relevant</button>' +
+            '<button class="ch-btn-sm ch-btn-teal" disabled title="Literature curation actions require literature-watch backend (not yet wired)" style="opacity:.55;cursor:not-allowed">Mark relevant</button>' +
+            '<button class="ch-btn-sm" disabled title="Promotion to protocol references requires literature-watch backend (not yet wired)" style="opacity:.55;cursor:not-allowed">Promote to references</button>' +
+            '<button class="ch-btn-sm" disabled title="Literature curation actions require literature-watch backend (not yet wired)" style="opacity:.55;cursor:not-allowed">Not relevant</button>' +
           '</div>' +
         '</article>'
       );
@@ -4162,7 +4162,7 @@ export async function pgMonitorHub(setTopbar, navigate) {
           <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${display.length}</div><div class="ch-kpi-label">Total</div></div>
         </div>
         <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Adverse Events</span><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'New AE',body:'Adverse event form coming soon.',severity:'info'})">+ Report AE</button></div>
+          <div class="ch-card-hd"><span class="ch-card-title">Adverse Events</span><button class="ch-btn-sm ch-btn-teal" onclick="window._nav?.('adverse-events')" title="Open the Adverse Events page to report a new AE">+ Report AE</button></div>
           ${display.map(ae=>'<div class="book-row"><div class="book-datetime"><div class="book-date">'+ae.date+'</div></div><div class="book-info"><div class="book-patient">'+ae.patient_name+'</div><div class="book-clinician">'+ae.type+'</div>'+(ae.notes?'<div class="book-notes">'+ae.notes+'</div>':'')+'</div><div class="book-status-col"><span class="book-status-badge" style="color:'+(sevC[ae.severity]||'var(--text-tertiary)')+';background:'+(sevC[ae.severity]||'var(--text-tertiary)')+'22">'+ae.severity+'</span></div><div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[ae.status]||'var(--text-tertiary)')+';background:'+(stC[ae.status]||'var(--text-tertiary)')+'22">'+ae.status+'</span></div><div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'AE\',body:\''+ae.type+'\',severity:\'info\'})">View</button></div></div>').join('')}
         </div>
       </div>
@@ -4290,7 +4290,7 @@ export async function pgMonitorHub(setTopbar, navigate) {
           <div class="ch-card">
             <div class="ch-card-hd"><span class="ch-card-title">Session Recordings</span></div>
             <div id="rec-log-list">
-              ${window._recLogs.length ? window._recLogs.map(r=>'<div class="book-row"><div class="book-datetime"><div class="book-date">'+r.date+'</div><div class="book-time">'+r.dur+'s · '+r.type+'</div></div><div class="book-info"><div class="book-patient">'+r.patient+'</div>'+(r.transcript?'<div class="book-notes">'+r.transcript.slice(0,55)+'…</div>':'')+'</div><div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Playback\',body:\'Playback coming soon.\',severity:\'info\'})">▶</button></div></div>').join('') : '<div class="ch-empty">No recordings yet.</div>'}
+              ${window._recLogs.length ? window._recLogs.map(r=>'<div class="book-row"><div class="book-datetime"><div class="book-date">'+r.date+'</div><div class="book-time">'+r.dur+'s · '+r.type+'</div></div><div class="book-info"><div class="book-patient">'+r.patient+'</div>'+(r.transcript?'<div class="book-notes">'+r.transcript.slice(0,55)+'…</div>':'')+'</div><div class="book-actions"><button class="ch-btn-sm" disabled title="Recording playback requires media-storage backend (not yet wired)" style="opacity:.55;cursor:not-allowed">▶</button></div></div>').join('') : '<div class="ch-empty">No recordings yet.</div>'}
             </div>
           </div>
         </div>
@@ -4606,7 +4606,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       <div class="ch-card">
         <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">
           <span class="ch-card-title">Document Templates — ${TEMPLATES.length}</span>
-          <button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'New Template',body:'Custom template builder coming soon.',severity:'info'})">+ New Template</button>
+          <button class="ch-btn-sm ch-btn-teal" disabled title="Custom template builder requires document-template editor (not yet wired)" style="opacity:.55;cursor:not-allowed">+ New Template</button>
         </div>
         <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
           ${cats.map(c=>'<button class="reg-domain-pill'+(c===filt?' active':'')+'" onclick="window._tplFilter=\''+c+'\';window._nav(\'documents-hub\')">'+c+'</button>').join('')}
