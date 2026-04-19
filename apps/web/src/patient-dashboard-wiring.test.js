@@ -15,6 +15,7 @@ import {
   phaseLabel,
   outcomeGoalMarker,
   groupOutcomesByTemplate,
+  pickTodaysFocus,
 } from './patient-dashboard-helpers.js';
 
 // ── computeCountdown ─────────────────────────────────────────────────────────
@@ -153,4 +154,126 @@ test('groupOutcomesByTemplate: drops entries with no template_name', () => {
   const groups = groupOutcomesByTemplate(outcomes);
   assert.equal(groups.length, 1);
   assert.equal(groups[0].template_name, 'X');
+});
+
+// ── pickTodaysFocus ──────────────────────────────────────────────────────────
+
+test('pickTodaysFocus: session ≤ 24h wins over every other signal', () => {
+  const now = Date.parse('2026-04-19T18:00:00Z');
+  const focus = pickTodaysFocus({
+    now,
+    nextSessionAt: '2026-04-20T09:00:00Z', // ~15h away
+    nextSessionTimeLabel: '9:00 AM',
+    checkedInToday: false, // would normally trigger #2
+    openTasks: [{ title: 'Breathing exercise' }], // would normally trigger #3
+    unreadMessage: { sender_name: 'Dr. Reyes', body: 'Hello' },
+    lastNightSleepHours: 4.5,
+  });
+  assert.equal(focus.kind, 'session');
+  assert.ok(focus.headline.includes('9:00 AM'), 'session card shows session time');
+  assert.equal(focus.primary.target, 'patient-sessions');
+  assert.equal(focus.secondaryLabel, 'Later');
+  assert.equal(focus.eyebrow, "TODAY'S FOCUS");
+});
+
+test('pickTodaysFocus: session further than 24h does NOT trigger session card', () => {
+  const now = Date.parse('2026-04-19T10:00:00Z');
+  const focus = pickTodaysFocus({
+    now,
+    nextSessionAt: '2026-04-25T10:00:00Z', // 6 days away
+    checkedInToday: false,
+  });
+  assert.equal(focus.kind, 'checkin');
+});
+
+test('pickTodaysFocus: check-in not done today → checkin card', () => {
+  const focus = pickTodaysFocus({
+    checkedInToday: false,
+    openTasks: [{ title: 'Walk 10 min' }], // lower priority
+    unreadMessage: { sender_name: 'Dr. X', body: 'hi' },
+  });
+  assert.equal(focus.kind, 'checkin');
+  assert.equal(focus.primary.target, 'pt-wellness');
+  assert.ok(/2-minute/i.test(focus.headline));
+});
+
+test('pickTodaysFocus: pending task → task card with streak caption', () => {
+  const focus = pickTodaysFocus({
+    checkedInToday: true,
+    openTasks: [{ title: 'Breathing exercise' }],
+    streakDays: 5,
+  });
+  assert.equal(focus.kind, 'task');
+  assert.ok(focus.headline.includes('Breathing exercise'));
+  assert.ok(focus.caption.includes('5-day streak'));
+  assert.equal(focus.primary.target, 'pt-wellness');
+});
+
+test('pickTodaysFocus: pending task with no streak → generic caption', () => {
+  const focus = pickTodaysFocus({
+    checkedInToday: true,
+    openTasks: [{ title: 'Journal entry' }],
+    streakDays: 0,
+  });
+  assert.equal(focus.kind, 'task');
+  assert.ok(!/\d+-day streak/.test(focus.caption));
+});
+
+test('pickTodaysFocus: unread clinician message → message card with truncated preview', () => {
+  const longBody = 'This is a very long clinician message body intended to exceed the sixty character soft limit for the focus card preview.';
+  const focus = pickTodaysFocus({
+    checkedInToday: true,
+    openTasks: [],
+    unreadMessage: { sender_name: 'Dr. Reyes', body: longBody },
+  });
+  assert.equal(focus.kind, 'message');
+  assert.ok(focus.headline.includes('Dr. Reyes'));
+  assert.ok(focus.caption.length <= 60);
+  assert.equal(focus.primary.target, 'patient-messages');
+});
+
+test('pickTodaysFocus: low sleep (<6h) → sleep card', () => {
+  const focus = pickTodaysFocus({
+    checkedInToday: true,
+    openTasks: [],
+    unreadMessage: null,
+    lastNightSleepHours: 4.8,
+  });
+  assert.equal(focus.kind, 'sleep');
+  assert.ok(/wind-down/i.test(focus.caption));
+});
+
+test('pickTodaysFocus: fallback when nothing pending', () => {
+  const focus = pickTodaysFocus({
+    checkedInToday: true,
+    openTasks: [],
+    unreadMessage: null,
+    lastNightSleepHours: 7.5,
+  });
+  assert.equal(focus.kind, 'fallback');
+  assert.equal(focus.hide, false);
+  assert.equal(focus.primary.target, 'pt-outcomes');
+});
+
+test('pickTodaysFocus: fallback is HIDDEN when snoozed for today', () => {
+  const focus = pickTodaysFocus({
+    checkedInToday: true,
+    openTasks: [],
+    unreadMessage: null,
+    lastNightSleepHours: 7.5,
+    snoozed: true,
+  });
+  assert.equal(focus.kind, 'fallback');
+  assert.equal(focus.hide, true);
+});
+
+test('pickTodaysFocus: snooze does NOT hide a real actionable card', () => {
+  // Snooze only hides the fallback — a real task card should still render.
+  const focus = pickTodaysFocus({
+    checkedInToday: true,
+    openTasks: [{ title: 'Read article' }],
+    snoozed: true,
+  });
+  assert.equal(focus.kind, 'task');
+  assert.equal(focus.hide, false);
 });

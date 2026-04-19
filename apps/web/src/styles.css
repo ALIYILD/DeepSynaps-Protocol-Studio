@@ -21102,3 +21102,319 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   .bm-shell-v2 { grid-template-columns: 1fr; }
   .bm-shell-v2 .bm-left, .bm-shell-v2 .bm-right { border: 0; max-height: none; }
 }
+
+/* ═════════════════════════════════════════════════════════════════════════
+   Patient Home v2 (.pth-*)
+   Namespaced styles for the simplified Patient Dashboard home. Introduced
+   alongside the "Today's focus" recommendation card; coexists with the
+   legacy .pt-* / .ptd-* rules above — do not collapse without migrating
+   call sites in pages-patient.js::pgPatientDashboard.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+.pth-dashboard { display: flex; flex-direction: column; gap: 16px; }
+
+/* ── Hero (simpler, shorter) ────────────────────────────────────────────── */
+.pth-hero {
+  padding: 22px 26px; border-radius: 20px; position: relative; overflow: hidden;
+  background: linear-gradient(135deg, rgba(0,212,188,0.14), rgba(74,158,255,0.08) 60%, rgba(155,127,255,0.06));
+  border: 1px solid rgba(0,212,188,0.18);
+}
+.pth-hero::before {
+  content: ''; position: absolute; inset: 0;
+  background-image: radial-gradient(ellipse 45% 70% at 90% 50%, rgba(0,212,188,0.14), transparent 70%);
+  pointer-events: none;
+}
+.pth-hero-greet {
+  font-family: var(--font-display); font-size: 24px; font-weight: 600;
+  letter-spacing: -0.6px; margin-bottom: 4px; position: relative;
+}
+.pth-hero-wave { font-size: 20px; margin-left: 4px; }
+.pth-hero-date {
+  font-size: 12px; color: var(--text-tertiary); position: relative;
+  margin-bottom: 10px;
+}
+.pth-hero-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 999px;
+  background: rgba(0,212,188,0.08); color: var(--teal);
+  border: 1px solid rgba(0,212,188,0.22);
+  font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.5px;
+  position: relative;
+}
+
+/* ── Today's focus card (the ALT-inspired soft-glow recommendation) ─────── */
+.pth-focus {
+  position: relative; overflow: hidden;
+  border-radius: 20px; padding: 26px 28px;
+  background:
+    radial-gradient(ellipse 55% 80% at 85% 10%, rgba(0,212,188,0.18), transparent 60%),
+    radial-gradient(ellipse 50% 80% at 15% 90%, rgba(155,127,255,0.12), transparent 60%),
+    linear-gradient(135deg, rgba(15,26,42,0.92), rgba(5,12,24,0.92));
+  border: 1px solid rgba(0,212,188,0.28);
+  box-shadow:
+    0 0 36px rgba(0,212,188,0.12),
+    inset 0 1px 0 rgba(255,255,255,0.06),
+    inset 0 0 0 1px rgba(255,255,255,0.02);
+  transition: opacity 0.24s ease, transform 0.24s ease;
+}
+.pth-focus--snoozing { opacity: 0; transform: scale(0.98); }
+.pth-focus-glow {
+  position: absolute; top: -40%; right: -20%;
+  width: 60%; height: 140%; pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(0,212,188,0.22), transparent 65%);
+  filter: blur(4px);
+}
+.pth-focus-body { position: relative; }
+.pth-focus-eyebrow {
+  font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 2px;
+  color: var(--teal); font-weight: 700; text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.pth-focus-headline {
+  font-family: var(--font-display); font-size: 20px; font-weight: 600;
+  letter-spacing: -0.4px; line-height: 1.3; color: var(--text-primary);
+  max-width: 640px; margin-bottom: 8px;
+}
+.pth-focus-caption {
+  font-size: 13px; color: rgba(45,212,191,0.85); line-height: 1.5;
+  max-width: 640px; margin-bottom: 18px;
+}
+.pth-focus-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.pth-focus-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border-radius: 10px;
+  font-family: inherit; font-size: 12.5px; font-weight: 600;
+  cursor: pointer; transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+  background: transparent;
+}
+.pth-focus-btn--primary {
+  color: var(--teal); border: 1px solid rgba(0,212,188,0.45);
+  background: rgba(0,212,188,0.08);
+  box-shadow: 0 2px 12px rgba(0,212,188,0.12), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.pth-focus-btn--primary:hover {
+  background: rgba(0,212,188,0.16);
+  box-shadow: 0 4px 18px rgba(0,212,188,0.22), inset 0 1px 0 rgba(255,255,255,0.08);
+  transform: translateY(-1px);
+}
+.pth-focus-btn--ghost {
+  color: var(--text-tertiary); border: 1px solid rgba(255,255,255,0.08);
+}
+.pth-focus-btn--ghost:hover {
+  color: var(--text-secondary); background: rgba(255,255,255,0.03);
+}
+.pth-focus-btn-arrow { font-size: 13px; opacity: 0.85; }
+.pth-focus-alt {
+  margin-top: 16px; padding-top: 14px;
+  border-top: 1px solid rgba(155,127,255,0.18);
+  font-size: 11.5px; color: rgba(167,139,250,0.85); line-height: 1.5;
+}
+
+/* ── Quick tiles (3-up) ─────────────────────────────────────────────────── */
+.pth-tiles {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.pth-tile {
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+  padding: 16px; border-radius: 14px; cursor: pointer;
+  background: var(--bg-card, rgba(15,23,42,0.6));
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
+  color: var(--text-primary); text-align: left;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.pth-tile:hover { border-color: rgba(0,212,188,0.35); transform: translateY(-1px); }
+.pth-tile--pending { border-color: rgba(0,212,188,0.28); }
+.pth-tile-ico {
+  width: 34px; height: 34px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 15px;
+}
+.pth-tile-ico--teal  { background: rgba(0,212,188,0.12);  color: var(--teal); }
+.pth-tile-ico--blue  { background: rgba(74,158,255,0.12); color: var(--blue); }
+.pth-tile-ico--rose  { background: rgba(255,107,157,0.12); color: var(--rose); }
+.pth-tile-title { font-family: var(--font-display); font-size: 13.5px; font-weight: 600; }
+.pth-tile-meta {
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-secondary);
+  padding: 2px 7px; border-radius: 4px;
+  background: rgba(255,255,255,0.04);
+}
+
+/* ── Inline check-in form ───────────────────────────────────────────────── */
+.pth-checkin-form {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 14px; padding: 16px 18px;
+}
+.pth-checkin-title { font-family: var(--font-display); font-size: 13.5px; font-weight: 600; margin-bottom: 10px; }
+
+/* ── Shared card ─────────────────────────────────────────────────────────── */
+.pth-card {
+  background: var(--bg-card, rgba(15,23,42,0.6));
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
+  border-radius: 14px; padding: 20px;
+  backdrop-filter: blur(8px);
+}
+.pth-card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px; gap: 10px; flex-wrap: wrap;
+}
+.pth-card-title {
+  font-family: var(--font-display); font-size: 14px; font-weight: 600;
+  letter-spacing: -0.2px;
+}
+.pth-ghost-btn {
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text-secondary); padding: 5px 10px; border-radius: 8px;
+  font-size: 11.5px; cursor: pointer;
+}
+.pth-ghost-btn:hover { background: rgba(255,255,255,0.03); color: var(--text-primary); }
+.pth-inline-btn {
+  background: rgba(0,212,188,0.08); border: 1px solid rgba(0,212,188,0.22);
+  color: var(--teal); padding: 8px 12px; border-radius: 8px;
+  font-size: 12px; cursor: pointer; margin-top: 10px;
+  align-self: flex-start;
+}
+.pth-inline-btn:hover { background: rgba(0,212,188,0.14); }
+
+/* ── Progress card ──────────────────────────────────────────────────────── */
+.pth-card--progress .pth-progress-metric {
+  font-family: var(--font-display); font-size: 17px; font-weight: 500;
+  letter-spacing: -0.2px; line-height: 1.5; color: var(--text-primary);
+}
+.pth-progress-delta {
+  margin-top: 12px; font-size: 13px; color: var(--text-secondary);
+  line-height: 1.5;
+}
+.pth-progress-delta--muted { color: var(--text-tertiary); }
+.pth-target-line {
+  margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px; color: var(--text-tertiary); line-height: 1.5;
+}
+
+/* ── 2-col grid (homework + care team) ──────────────────────────────────── */
+.pth-grid-2 {
+  display: grid; grid-template-columns: 3fr 2fr; gap: 14px;
+}
+
+/* ── Homework card ──────────────────────────────────────────────────────── */
+.pth-hw-list { display: flex; flex-direction: column; gap: 8px; }
+.pth-hw-row {
+  display: grid; grid-template-columns: 12px 1fr auto;
+  gap: 12px; align-items: center;
+  padding: 12px; border-radius: 10px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
+}
+.pth-hw-row:hover { border-color: rgba(0,212,188,0.25); }
+.pth-hw-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: rgba(0,212,188,0.5); box-shadow: 0 0 6px rgba(0,212,188,0.4);
+}
+.pth-hw-title { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
+.pth-hw-sub { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
+.pth-hw-btn {
+  background: rgba(0,212,188,0.12); border: 1px solid rgba(0,212,188,0.3);
+  color: var(--teal); padding: 6px 12px; border-radius: 8px;
+  font-size: 11.5px; font-weight: 600; cursor: pointer;
+}
+.pth-hw-btn:hover { background: rgba(0,212,188,0.2); }
+
+/* ── Care team (avatars only) ───────────────────────────────────────────── */
+.pth-team-avatars {
+  display: flex; gap: -4px; margin-bottom: 14px;
+}
+.pth-avatar { margin-right: -8px; }
+.pth-avatar:last-child { margin-right: 0; }
+.pth-avatar-inner {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; border-radius: 50%;
+  border: 2px solid var(--bg-card, #0f172a);
+  color: #fff; font-weight: 600; font-size: 12px;
+}
+.pth-team-btn {
+  width: 100%; text-align: center;
+  background: transparent; border: 1px solid var(--border);
+  color: var(--teal); padding: 8px 12px; border-radius: 8px;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.pth-team-btn:hover { background: rgba(0,212,188,0.06); border-color: rgba(0,212,188,0.3); }
+
+/* ── Wellness snapshot ──────────────────────────────────────────────────── */
+.pth-card--wellness .pth-wellness-body {
+  display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: center;
+}
+.pth-ring { position: relative; width: 110px; height: 110px; flex-shrink: 0; }
+.pth-ring svg { transform: rotate(-90deg); }
+.pth-ring-center {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.pth-ring-num {
+  font-family: var(--font-display); font-size: 26px; font-weight: 600;
+  letter-spacing: -0.8px; color: var(--text-primary); line-height: 1;
+}
+.pth-ring-lbl {
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 1.4px;
+  text-transform: uppercase; color: var(--text-tertiary); margin-top: 4px;
+}
+.pth-wellness-stats {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.pth-wellness-stat {
+  font-size: 12.5px; color: var(--text-secondary);
+  padding: 5px 10px; border-radius: 8px;
+  background: rgba(255,255,255,0.02); border: 1px solid var(--border);
+}
+
+/* ── Empty state ────────────────────────────────────────────────────────── */
+.pth-empty {
+  padding: 18px; border: 1px dashed var(--border); border-radius: 10px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+}
+.pth-empty-title { font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
+.pth-empty-sub { font-size: 11px; color: var(--text-tertiary); line-height: 1.5; }
+
+/* ── Need-help footer ───────────────────────────────────────────────────── */
+.pth-footer {
+  margin-top: 4px; padding: 16px 20px; border-radius: 14px;
+  background: rgba(255,255,255,0.02); border: 1px solid var(--border);
+}
+.pth-footer-title {
+  font-size: 11px; font-family: var(--font-mono); letter-spacing: 1.4px;
+  text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 10px;
+}
+.pth-footer-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.pth-footer-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-radius: 10px;
+  background: rgba(0,212,188,0.06); border: 1px solid rgba(0,212,188,0.2);
+  color: var(--teal); font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.pth-footer-btn:hover { background: rgba(0,212,188,0.14); }
+.pth-footer-btn-ico { font-size: 13px; }
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .pth-tiles { grid-template-columns: 1fr; }
+  .pth-grid-2 { grid-template-columns: 1fr; }
+  .pth-card--wellness .pth-wellness-body { grid-template-columns: 1fr; }
+  .pth-focus { padding: 22px; }
+  .pth-focus-headline { font-size: 18px; }
+}
+
+/* ── Light-theme tweaks (mirrors existing pt-* pattern) ─────────────────── */
+@media (prefers-color-scheme: light) {
+  .pth-focus {
+    background:
+      radial-gradient(ellipse 55% 80% at 85% 10%, rgba(0,212,188,0.12), transparent 60%),
+      radial-gradient(ellipse 50% 80% at 15% 90%, rgba(155,127,255,0.08), transparent 60%),
+      linear-gradient(135deg, #ffffff, #f8fafc);
+    border-color: rgba(0,212,188,0.24);
+    box-shadow:
+      0 4px 24px rgba(0,212,188,0.08),
+      inset 0 1px 0 rgba(255,255,255,0.6);
+  }
+  .pth-focus-caption { color: #2dd4bf; }
+  .pth-focus-btn--ghost { color: #475569; border-color: rgba(0,0,0,0.12); }
+}
