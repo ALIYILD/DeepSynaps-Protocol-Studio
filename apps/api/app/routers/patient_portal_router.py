@@ -58,14 +58,25 @@ def _require_patient(actor: AuthenticatedActor, db: Session) -> Patient:
     """Find the Patient record linked to this user account by email match."""
     from app.persistence.models import User
 
-    # Demo patient actor — look up by email directly (no DB user row)
+    # Demo patient actor — look up by any of the known demo emails (no DB
+    # user row exists). The seed script uses patient@deepsynaps.com; older
+    # deployments used patient@demo.com. Accept either so the portal works
+    # on any seeded environment.
     if actor.actor_id == _DEMO_PATIENT_ACTOR_ID:
-        patient = db.query(Patient).filter(Patient.email == "patient@demo.com").first()
+        patient = (
+            db.query(Patient)
+            .filter(Patient.email.in_(["patient@deepsynaps.com", "patient@demo.com"]))
+            .first()
+        )
         if patient:
             return patient
         raise ApiServiceError(
             code="patient_not_linked",
-            message="No demo patient record found. Ask a clinician to create one with email patient@demo.com.",
+            message=(
+                "No demo patient record found. Run `python apps/api/scripts/seed_demo.py` "
+                "against the target database (or have a clinician create a patient with "
+                "email patient@deepsynaps.com)."
+            ),
             status_code=404,
         )
 
@@ -172,13 +183,20 @@ def get_portal_me(
     if actor.role != "patient":
         raise ApiServiceError(code="forbidden", message="Patient portal access only.", status_code=403)
 
-    # Demo patient actor
+    # Demo patient actor — accept either demo email; see _require_patient.
     if actor.actor_id == _DEMO_PATIENT_ACTOR_ID:
-        patient = db.query(Patient).filter(Patient.email == "patient@demo.com").first()
+        patient = (
+            db.query(Patient)
+            .filter(Patient.email.in_(["patient@deepsynaps.com", "patient@demo.com"]))
+            .first()
+        )
         if patient is None:
             raise ApiServiceError(
                 code="patient_not_linked",
-                message="No demo patient record. Ask a clinician to create a patient with email patient@demo.com.",
+                message=(
+                    "No demo patient record. Run `python apps/api/scripts/seed_demo.py` "
+                    "or have a clinician create a patient with email patient@deepsynaps.com."
+                ),
                 status_code=404,
             )
         return PatientPortalMe(
