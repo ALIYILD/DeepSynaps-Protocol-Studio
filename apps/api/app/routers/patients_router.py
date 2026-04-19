@@ -14,7 +14,15 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import PatientInvite
+from app.persistence.models import (
+    AdverseEvent,
+    AssessmentRecord,
+    ClinicalSession,
+    DeviceSessionLog,
+    OutcomeSeries,
+    PatientInvite,
+    TreatmentCourse,
+)
 from app.repositories.audit import create_audit_event
 from app.repositories.patients import (
     create_patient,
@@ -88,14 +96,29 @@ class PatientOut(BaseModel):
     notes: Optional[str]
     created_at: str
     updated_at: str
+    # Enrichment fields (computed from related tables; optional / default None)
+    active_courses_count: int = 0
+    needs_review: bool = False
+    has_adverse_event: bool = False
+    adverse_event_flag: bool = False
+    off_label_flag: bool = False
+    pending_assessments: int = 0
+    assessment_overdue: bool = False
+    last_session_date: Optional[str] = None
+    home_adherence: Optional[float] = None
+    outcome_trend: Optional[str] = None  # improved | stable | worsened
+    sessions_today: int = 0
+    next_session_date: Optional[str] = None
+    demo_seed: bool = False
 
     @classmethod
-    def from_record(cls, r) -> "PatientOut":
+    def from_record(cls, r, enrichment: Optional[dict] = None) -> "PatientOut":
         secondary = []
         try:
             secondary = json.loads(r.secondary_conditions or "[]")
         except Exception:
             pass
+        enrichment = enrichment or {}
         return cls(
             id=r.id,
             clinician_id=r.clinician_id,
@@ -117,7 +140,168 @@ class PatientOut(BaseModel):
             notes=r.notes,
             created_at=r.created_at.isoformat(),
             updated_at=r.updated_at.isoformat(),
+            active_courses_count=enrichment.get("active_courses_count", 0),
+            needs_review=enrichment.get("needs_review", False),
+            has_adverse_event=enrichment.get("has_adverse_event", False),
+            adverse_event_flag=enrichment.get("has_adverse_event", False),
+            off_label_flag=enrichment.get("off_label_flag", False),
+            pending_assessments=enrichment.get("pending_assessments", 0),
+            assessment_overdue=enrichment.get("assessment_overdue", False),
+            last_session_date=enrichment.get("last_session_date"),
+            home_adherence=enrichment.get("home_adherence"),
+            outcome_trend=enrichment.get("outcome_trend"),
+            sessions_today=enrichment.get("sessions_today", 0),
+            next_session_date=enrichment.get("next_session_date"),
+            demo_seed=bool((r.notes or "").startswith("[DEMO]")),
         )
+
+
+def _as_aware_utc(dt):
+    """Coerce a naive datetime (e.g. from SQLite) to a tz-aware UTC datetime.
+
+    FastAPI/SQLAlchemy persist tz-aware values but SQLite strips the tzinfo on
+    roundtrip. Any comparison with `datetime.now(timezone.utc)` will TypeError
+    unless we coerce. No-op for values that are already aware.
+    """
+    if dt is None:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+def _build_patient_enrichment(session: Session, patient_ids: list[str]) -> dict:
+    """Bulk-compute attention/enrichment signals for a batch of patient ids.
+
+    Uses related tables (TreatmentCourse, AssessmentRecord, AdverseEvent,
+    DeviceSessionLog, OutcomeSeries). Returns {patient_id: enrichment_dict}.
+    """
+    if not patient_ids:
+        return {}
+    now = datetime.now(timezone.utc)
+    today = now.date().isoformat()
+    thirty_ago = now - timedelta(days=30)
+    out: dict[str, dict] = {pid: {} for pid in patient_ids}
+
+    # Treatment courses → active count, off-label, needs_review
+    courses = session.execute(
+        select(TreatmentCourse).where(TreatmentCourse.patient_id.in_(patient_ids))
+    ).scalars().all()
+    for c in courses:
+        e = out.setdefault(c.patient_id, {})
+        if c.status in ("active", "in_progress", "approved"):
+            e["active_courses_count"] = e.get("active_courses_count", 0) + 1
+        if c.on_label is False:
+            e["off_label_flag"] = True
+        if c.review_required:
+            e["needs_review"] = True
+
+    # Adverse events
+    aes = session.execute(
+        select(AdverseEvent.patient_id, AdverseEvent.resolved_at)
+        .where(AdverseEvent.patient_id.in_(patient_ids))
+    ).all()
+    for pid, resolved in aes:
+        e = out.setdefault(pid, {})
+        e["has_adverse_event"] = True
+        if resolved is None:
+            e["needs_review"] = True
+
+    # Assessments: pending count + overdue
+    assess_rows = session.execute(
+        select(
+            AssessmentRecord.patient_id,
+            AssessmentRecord.status,
+            AssessmentRecord.due_date,
+        ).where(AssessmentRecord.patient_id.in_(patient_ids))
+    ).all()
+    for pid, status, due in assess_rows:
+        e = out.setdefault(pid, {})
+        if status in ("draft", "pending"):
+            e["pending_assessments"] = e.get("pending_assessments", 0) + 1
+            due_cmp = _as_aware_utc(due)
+            if due_cmp is not None and due_cmp < now:
+                e["assessment_overdue"] = True
+
+    # Device session logs: last session + 30d adherence + sessions_today
+    log_rows = session.execute(
+        select(
+            DeviceSessionLog.patient_id,
+            DeviceSessionLog.session_date,
+            DeviceSessionLog.completed,
+            DeviceSessionLog.logged_at,
+        ).where(DeviceSessionLog.patient_id.in_(patient_ids))
+    ).all()
+    last_seen: dict[str, str] = {}
+    window: dict[str, list[bool]] = {}
+    today_count: dict[str, int] = {}
+    for pid, sess_date, completed, logged_at in log_rows:
+        if pid not in last_seen or (sess_date or "") > last_seen[pid]:
+            last_seen[pid] = sess_date or ""
+        logged_cmp = _as_aware_utc(logged_at)
+        if logged_cmp is not None and logged_cmp >= thirty_ago:
+            window.setdefault(pid, []).append(bool(completed))
+        if sess_date == today:
+            today_count[pid] = today_count.get(pid, 0) + 1
+    for pid, d in last_seen.items():
+        if d:
+            out.setdefault(pid, {})["last_session_date"] = d
+    for pid, bools in window.items():
+        if bools:
+            out.setdefault(pid, {})["home_adherence"] = round(
+                sum(1 for b in bools if b) / len(bools), 2
+            )
+    for pid, n in today_count.items():
+        out.setdefault(pid, {})["sessions_today"] = n
+
+    # ClinicalSession: next scheduled session + count scheduled today.
+    sess_rows = session.execute(
+        select(
+            ClinicalSession.patient_id,
+            ClinicalSession.scheduled_at,
+            ClinicalSession.status,
+        ).where(ClinicalSession.patient_id.in_(patient_ids))
+    ).all()
+    today_iso = today
+    now_iso = now.isoformat()
+    for pid, sched_at, status in sess_rows:
+        if not sched_at:
+            continue
+        # sessions_today counts anything scheduled for today that hasn't been cancelled/no-showed.
+        if sched_at.startswith(today_iso) and status not in ("cancelled", "no_show"):
+            out.setdefault(pid, {})["sessions_today"] = out.setdefault(pid, {}).get("sessions_today", 0) + 1
+        # next_session_date = earliest future scheduled/confirmed session.
+        if sched_at >= now_iso and status in ("scheduled", "confirmed"):
+            e = out.setdefault(pid, {})
+            cur = e.get("next_session_date")
+            if cur is None or sched_at < cur:
+                e["next_session_date"] = sched_at
+
+    # Outcome trend: compare latest two OutcomeSeries score_numeric per patient
+    outcome_rows = session.execute(
+        select(
+            OutcomeSeries.patient_id,
+            OutcomeSeries.score_numeric,
+            OutcomeSeries.administered_at,
+        )
+        .where(OutcomeSeries.patient_id.in_(patient_ids))
+        .order_by(OutcomeSeries.administered_at.desc())
+    ).all()
+    by_pat: dict[str, list[float]] = {}
+    for pid, score, _ in outcome_rows:
+        if score is None:
+            continue
+        by_pat.setdefault(pid, []).append(float(score))
+    for pid, scores in by_pat.items():
+        if len(scores) >= 2:
+            latest, prior = scores[0], scores[1]
+            # Lower score typically = better on most depression/anxiety scales.
+            if latest < prior - 1:
+                out.setdefault(pid, {})["outcome_trend"] = "improved"
+            elif latest > prior + 1:
+                out.setdefault(pid, {})["outcome_trend"] = "worsened"
+            else:
+                out.setdefault(pid, {})["outcome_trend"] = "stable"
+
+    return out
 
 
 class PatientListResponse(BaseModel):
@@ -134,7 +318,8 @@ def list_patients_endpoint(
 ) -> PatientListResponse:
     require_minimum_role(actor, "clinician")
     patients = list_patients(session, actor.actor_id)
-    items = [PatientOut.from_record(p) for p in patients]
+    enrichment = _build_patient_enrichment(session, [p.id for p in patients])
+    items = [PatientOut.from_record(p, enrichment.get(p.id)) for p in patients]
     return PatientListResponse(items=items, total=len(items))
 
 
@@ -159,7 +344,8 @@ def get_patient_endpoint(
     patient = get_patient(session, patient_id, actor.actor_id)
     if patient is None:
         raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
-    return PatientOut.from_record(patient)
+    enrichment = _build_patient_enrichment(session, [patient.id])
+    return PatientOut.from_record(patient, enrichment.get(patient.id))
 
 
 @router.patch("/{patient_id}", response_model=PatientOut)
@@ -174,7 +360,8 @@ def update_patient_endpoint(
     patient = update_patient(session, patient_id, actor.actor_id, **updates)
     if patient is None:
         raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
-    return PatientOut.from_record(patient)
+    enrichment = _build_patient_enrichment(session, [patient.id])
+    return PatientOut.from_record(patient, enrichment.get(patient.id))
 
 
 @router.delete("/{patient_id}", status_code=204)

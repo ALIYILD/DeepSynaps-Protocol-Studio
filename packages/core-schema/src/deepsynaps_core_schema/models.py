@@ -452,6 +452,7 @@ class HandbookGenerateRequest(BaseModel):
     handbook_kind: HandbookKind
     condition: str
     modality: ModalityName
+    device: str = ""
 
 
 class HandbookDocument(BaseModel):

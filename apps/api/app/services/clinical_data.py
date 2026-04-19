@@ -260,9 +260,18 @@ def _table_index(bundle: ClinicalDatasetBundle, dataset_name: str, key_name: str
 
 
 def _condition_lookup(bundle: ClinicalDatasetBundle) -> dict[str, dict[str, str]]:
-    return {
-        _condition_key(condition["Condition_Name"]): condition for condition in bundle.tables["conditions"]
-    }
+    lookup: dict[str, dict[str, str]] = {}
+    for condition in bundle.tables["conditions"]:
+        name = condition["Condition_Name"]
+        primary = _condition_key(name)
+        lookup.setdefault(primary, condition)
+        # Alias: strip parenthetical so "Major Depressive Disorder" matches
+        # "Major Depressive Disorder (MDD)". Mirrors _device_aliases approach.
+        no_parens = re.sub(r"\s*\([^)]*\)", "", name)
+        alias = _condition_key(no_parens)
+        if alias and alias != primary:
+            lookup.setdefault(alias, condition)
+    return lookup
 
 
 def _device_name_lookup(bundle: ClinicalDatasetBundle) -> dict[str, dict[str, str]]:
@@ -910,7 +919,7 @@ def generate_handbook_from_clinical_data(
         bundle,
         condition_name=payload.condition,
         modality_name=payload.modality,
-        device_name="",
+        device_name=payload.device or "",
     )
     condition = conditions.get(_condition_key(payload.condition))
     modality = modalities.get(_modality_key(payload.modality))

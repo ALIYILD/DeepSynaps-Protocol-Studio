@@ -9816,7 +9816,9 @@ export async function pgPrescriptions(setTopbar) {
     { id:'PROTO-007', name:'Right DLPFC TMS \u2014 Anxiety', modality:'TMS', indication:'GAD', sessions:30, freqPerWeek:5, durationMin:37 },
     { id:'PROTO-008', name:'tDCS Prefrontal \u2014 PTSD', modality:'tDCS', indication:'PTSD', sessions:15, freqPerWeek:3, durationMin:20 },
   ];
-  const DEVICES_SEED = [
+  // Mutable so we can hydrate from /api/v1/registry/devices below. Hardcoded
+  // list remains as a fallback when the backend is unreachable or empty.
+  let DEVICES_SEED = [
     { id:'DEV-001', name:'MagVenture MagPro R30', type:'TMS' },
     { id:'DEV-002', name:'Neuronetics NeuroStar', type:'TMS' },
     { id:'DEV-003', name:'BrainsWay Deep TMS H1', type:'TMS' },
@@ -9883,6 +9885,21 @@ export async function pgPrescriptions(setTopbar) {
     saveRx(d); return d;
   }
 
+  // Hydrate devices from the backend registry before RX is seeded so demo
+  // data references real devices when the CSV is populated. Falls back to
+  // the hardcoded SEED on error / empty response.
+  try {
+    const devRes = await api.devices_registry();
+    const devItems = devRes?.items || [];
+    if (Array.isArray(devItems) && devItems.length) {
+      DEVICES_SEED = devItems.map((d, i) => ({
+        id:   d.id   || ('DEV-API-' + String(i + 1).padStart(3, '0')),
+        name: d.name || d.label || d.id || 'Device',
+        type: d.modality || d.modality_id || d.type || 'Device',
+      }));
+    }
+  } catch { /* backend offline — SEED fallback remains */ }
+
   let RX = loadRx();
   let activeTab = 'active';
   let wizardOpen = false;
@@ -9890,6 +9907,36 @@ export async function pgPrescriptions(setTopbar) {
   let wizardData = {};
   let detailId = null;
   const STEPS = ['Patient','Protocol','Device','Schedule','Assessments','Consent & Review'];
+
+  // Accept a handoff from Protocol Studio's Designer. When present, auto-open
+  // the wizard at step 2 with the designer protocol pre-selected in the
+  // catalog (prepended, one-shot consumption).
+  const _designerProto = window._rxPrefilledProto && window._rxPrefilledProto._source === 'designer'
+    ? window._rxPrefilledProto : null;
+  if (_designerProto) {
+    window._rxPrefilledProto = null;
+    const modality = (_designerProto.modality_id || 'TMS').toUpperCase();
+    const freqMap = { TMS:5, TDCS:5, TACS:3, NEUROFEEDBACK:2, EEG:2, PBM:3, TAVNS:3 };
+    const pseudo = {
+      id: 'DESIGNER-' + Date.now(),
+      name: _designerProto.name,
+      modality,
+      indication: _designerProto.condition_name || '—',
+      sessions: _designerProto.sessions || 20,
+      freqPerWeek: freqMap[modality] || 3,
+      durationMin: 30,
+      _source: 'designer',
+      _designer: _designerProto,
+    };
+    PROTOCOLS_SEED.unshift(pseudo);
+    wizardOpen = true;
+    wizardStep = 2;
+    wizardData = {
+      protocolId: pseudo.id,
+      notes: (_designerProto.summary || '') + (_designerProto.targetRegion ? ' (Target: ' + _designerProto.targetRegion + ')' : ''),
+      _fromDesigner: true,
+    };
+  }
 
   function kpis() {
     return {
