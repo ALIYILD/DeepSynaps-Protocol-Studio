@@ -417,3 +417,139 @@ export function groupOutcomesByTemplate(outcomes, limit = 4) {
   groups.sort((a, b) => new Date(b.lastAt || 0) - new Date(a.lastAt || 0));
   return groups.slice(0, Math.max(0, limit));
 }
+
+// ── Assessments page helpers (pure) ─────────────────────────────────────────
+// Extracted so pgPatientAssessments() renderer stays thin AND so node --test
+// can exercise status / score / draft / demo-seed logic without loading the
+// DOM-heavy pages-patient.js module.
+
+/**
+ * Classify a raw assessment row into one of:
+ *   'due' · 'in-progress' · 'upcoming' · 'completed'
+ * Falls back to date-based inference when no explicit status is set.
+ * @param {object} a  raw assessment row from the portal endpoint
+ * @param {number} [now]  epoch ms (defaults to Date.now())
+ */
+export function classifyAssessmentStatus(a, now = Date.now()) {
+  if (!a || typeof a !== 'object') return 'due';
+  const st = String(a.status || '').toLowerCase().replace(/[^a-z_]/g, '');
+  if (['completed', 'done', 'submitted'].includes(st))              return 'completed';
+  if (['in_progress', 'inprogress', 'started', 'partial'].includes(st)) return 'in-progress';
+  if (a.completed_at || a.administered_at)                           return 'completed';
+  if (['scheduled', 'upcoming'].includes(st))                       return 'upcoming';
+  if (a.due_date) {
+    const due = new Date(a.due_date).getTime();
+    if (!Number.isFinite(due)) return 'due';
+    return due <= now ? 'due' : 'upcoming';
+  }
+  return 'due';
+}
+
+/**
+ * Map a numeric score to a friendly { label, note } using a scoreRanges
+ * array of `{ max, label, note }`. Returns null when no context can be
+ * computed — the caller MUST then not render a bare number.
+ * @param {{scoreRanges?: Array<{max:number,label:string,note:string}>}|null} meta
+ * @param {number|string|null|undefined} score
+ */
+export function scoreContext(meta, score) {
+  if (score == null || score === '') return null;
+  if (!meta || !Array.isArray(meta.scoreRanges) || meta.scoreRanges.length === 0) return null;
+  const n = Number(score);
+  if (!Number.isFinite(n)) return null;
+  for (const band of meta.scoreRanges) {
+    if (n <= band.max) return { label: band.label, note: band.note };
+  }
+  return null;
+}
+
+/** LocalStorage key for a per-assessment in-progress draft. */
+export function draftStorageKey(id) {
+  return 'ds_assess_draft_' + String(id || '');
+}
+
+/**
+ * Load a draft payload from storage. Returns null when no draft, or when
+ * the stored JSON is malformed.
+ * @param {string} id
+ * @param {{getItem:(k:string)=>string|null}} [storage]
+ */
+export function loadDraft(id, storage) {
+  const s = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
+  if (!s || !id) return null;
+  try {
+    const raw = s.getItem(draftStorageKey(id));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (!parsed.answers || typeof parsed.answers !== 'object') return null;
+    return { answers: parsed.answers, savedAt: parsed.savedAt || null };
+  } catch (_e) { return null; }
+}
+
+/**
+ * Save a draft payload. Accepts either an array of answers (per-form
+ * Likert state) OR a plain answers-object. Always stamps `savedAt`.
+ */
+export function saveDraft(id, answers, storage) {
+  const s = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
+  if (!s || !id) return false;
+  try {
+    s.setItem(draftStorageKey(id), JSON.stringify({
+      answers,
+      savedAt: new Date().toISOString(),
+    }));
+    return true;
+  } catch (_e) { return false; }
+}
+
+export function clearDraft(id, storage) {
+  const s = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
+  if (!s || !id) return false;
+  try { s.removeItem(draftStorageKey(id)); return true; } catch (_e) { return false; }
+}
+
+/**
+ * 3-row demo seed for the Assessments page. Used only when demo mode is
+ * on and the real endpoint returned `[]`. Dates are computed relative
+ * to the supplied `now` so the seed is chronologically sensible.
+ * Row order: [due today, completed yesterday, upcoming in 3 days].
+ * @param {number} [now] epoch ms
+ */
+export function demoAssessmentSeed(now = Date.now()) {
+  const ONE_DAY = 86400000;
+  const iso = (ms) => new Date(ms).toISOString();
+  return [
+    {
+      id: 'demo-assess-phq9-due',
+      template_id: 'phq9',
+      template_title: 'Mood Check-In (PHQ-9)',
+      status: 'pending',
+      due_date: iso(now),
+      score: null,
+      created_at: iso(now - 2 * ONE_DAY),
+      _demo: true,
+    },
+    {
+      id: 'demo-assess-phq9-done',
+      template_id: 'phq9',
+      template_title: 'Mood Check-In (PHQ-9)',
+      status: 'completed',
+      completed_at: iso(now - 1 * ONE_DAY),
+      administered_at: iso(now - 1 * ONE_DAY),
+      score: 9,
+      created_at: iso(now - 8 * ONE_DAY),
+      _demo: true,
+    },
+    {
+      id: 'demo-assess-gad7-upcoming',
+      template_id: 'gad7',
+      template_title: 'Anxiety Check-In (GAD-7)',
+      status: 'scheduled',
+      due_date: iso(now + 3 * ONE_DAY),
+      score: null,
+      created_at: iso(now - 2 * ONE_DAY),
+      _demo: true,
+    },
+  ];
+}
