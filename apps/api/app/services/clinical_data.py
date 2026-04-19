@@ -649,7 +649,7 @@ def list_evidence_from_clinical_data() -> EvidenceListResponse:
                 symptom_cluster=(
                     phenotype["Symptom_or_Phenotype_Name"]
                     if phenotype is not None
-                    else _split_values(condition["Symptom_Clusters"])[0]
+                    else (_split_values(condition.get("Symptom_Clusters", "")) or [""])[0]
                 ),
                 modality=_normalize_modality(modality["Modality_Name"]),
                 evidence_level=_normalize_evidence_grade(protocol["Evidence_Grade"]),
