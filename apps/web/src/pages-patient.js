@@ -3632,23 +3632,26 @@ export async function pgPatientReports() {
   }
 
   // ── Category definitions (display-layer grouping, not data-model categories) ──
+  // `tone` picks the sidebar-style tile palette used for the top-of-page chips
+  // and the section-header tiles, so the Reports page feels of-a-piece with
+  // the patient nav (see PR #70).
   const DISPLAY_CATS = [
-    { id: 'progress',   label: 'Progress Reports',           icon: '&#9649;', color: 'var(--blue)',  bg: 'rgba(74,158,255,.1)',   defaultOpen: true,
+    { id: 'progress',   label: 'Progress Reports',           icon: '📈', emoji: '📈', tone: 'blue',   color: 'var(--blue)',  bg: 'rgba(74,158,255,.1)',   defaultOpen: true,
       filter: d => d.category === 'outcome',
       emptyMsg: 'Progress reports will appear here as your treatment continues.' },
-    { id: 'assessment', label: 'Assessment Results',         icon: '&#9673;', color: 'var(--teal)',  bg: 'rgba(0,212,188,.08)',   defaultOpen: true,
+    { id: 'assessment', label: 'Assessment Results',         icon: '📋', emoji: '📋', tone: 'teal',   color: 'var(--teal)',  bg: 'rgba(0,212,188,.08)',   defaultOpen: true,
       filter: d => d.category === 'assessment',
       emptyMsg: 'Assessment results will appear here after your clinician completes a check-in.' },
-    { id: 'feedback',   label: 'Care Team Feedback',         icon: '&#9678;', color: '#34d399',      bg: 'rgba(52,211,153,.1)',   defaultOpen: true,
+    { id: 'feedback',   label: 'Care Team Feedback',         icon: '💬', emoji: '💬', tone: 'green',  color: '#34d399',      bg: 'rgba(52,211,153,.1)',   defaultOpen: true,
       filter: d => Boolean(d.clinicianNotes),
       emptyMsg: 'Notes from your care team will appear here. Check back after your next session.' },
-    { id: 'sessions',   label: 'Session Summaries',          icon: '&#9671;', color: '#a78bfa',      bg: 'rgba(167,139,250,.1)',  defaultOpen: false,
+    { id: 'sessions',   label: 'Session Summaries',          icon: '📅', emoji: '📅', tone: 'violet', color: '#a78bfa',      bg: 'rgba(167,139,250,.1)',  defaultOpen: false,
       filter: d => d.category === 'session-summary',
       emptyMsg: 'Session summaries will appear here after each of your treatment sessions.' },
-    { id: 'guides',     label: 'Instructions & Care Guides', icon: '&#128218;', color: '#f59e0b',    bg: 'rgba(245,158,11,.08)',  defaultOpen: false,
+    { id: 'guides',     label: 'Instructions & Care Guides', icon: '📚', emoji: '📚', tone: 'amber',  color: '#f59e0b',      bg: 'rgba(245,158,11,.08)',  defaultOpen: false,
       filter: d => d.category === 'care' || d.category === 'guide',
       emptyMsg: 'Instructions and care guides from your team will appear here.' },
-    { id: 'forms',      label: 'Consent & Forms',            icon: '&#9643;', color: '#94a3b8',      bg: 'rgba(148,163,184,.1)',  defaultOpen: false,
+    { id: 'forms',      label: 'Consent & Forms',            icon: '📄', emoji: '📄', tone: 'slate',  color: '#94a3b8',      bg: 'rgba(148,163,184,.1)',  defaultOpen: false,
       filter: d => d.category === 'consent' || d.category === 'adverse' || d.category === 'letter',
       emptyMsg: 'Consent forms and other documents will appear here when added by your care team.' },
   ];
@@ -3883,11 +3886,13 @@ export async function pgPatientReports() {
          </button>`;
     }
 
+    const toneClass = cat.tone ? ' pt-nav-tile--' + cat.tone : '';
+    const tileIcon  = cat.emoji || cat.icon;
     return `
       <div class="pt-docs-cat-section" id="pt-cat-${esc(cat.id)}">
         <button class="pt-docs-cat-hd" aria-expanded="${isOpen}"
                 onclick="window._ptToggleCatSection('${esc(cat.id)}')">
-          <span class="pt-docs-cat-icon" style="background:${cat.bg};color:${cat.color}" aria-hidden="true">${cat.icon}</span>
+          <span class="pt-page-tile${toneClass}" aria-hidden="true">${tileIcon}</span>
           <span class="pt-docs-cat-label">${esc(cat.label)}</span>
           ${countBadge}
           <span class="pt-docs-cat-chev" id="pt-cat-chev-${esc(cat.id)}" aria-hidden="true">${isOpen ? '▴' : '▾'}</span>
@@ -3898,6 +3903,29 @@ export async function pgPatientReports() {
       </div>`;
   }
 
+  // ── Top-of-page category chips — tone-coloured shortcuts to each section.
+  // Only show chips for categories that actually have content, so the bar
+  // stays useful rather than a wall of empty tiles.
+  function catChipsHTML() {
+    const chips = DISPLAY_CATS
+      .map(cat => ({ cat, count: docs.filter(cat.filter).length }))
+      .filter(x => x.count > 0);
+    if (chips.length === 0) return '';
+    return `<div class="pt-reports-cat-chips" role="navigation" aria-label="Report categories">${
+      chips.map(({ cat, count }) => {
+        const toneClass = cat.tone ? ' pt-nav-tile--' + cat.tone : '';
+        const tileIcon  = cat.emoji || cat.icon;
+        return `<button type="button" class="pt-reports-cat-chip${toneClass}"
+                        onclick="window._ptScrollToCat('${esc(cat.id)}')"
+                        aria-label="Jump to ${esc(cat.label)} (${count})">
+                  <span class="pt-page-tile${toneClass}" aria-hidden="true">${tileIcon}</span>
+                  <span>${esc(cat.label)}</span>
+                  <span class="pt-docs-cat-count" style="margin:0 0 0 2px">${count}</span>
+                </button>`;
+      }).join('')
+    }</div>`;
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────────────────
   const latest = docs[0] || null;
 
@@ -3905,10 +3933,22 @@ export async function pgPatientReports() {
     <div class="pt-docs-wrap">
       <div id="pt-docs-ask-anchor"></div>
       ${heroCardHTML(latest)}
+      ${catChipsHTML()}
       <div class="pt-docs-sections-wrap">
         ${DISPLAY_CATS.map(cat => catSectionHTML(cat, docs.filter(cat.filter))).join('')}
       </div>
     </div>`;
+
+  // Scroll handler for top chips — expands target section if collapsed.
+  window._ptScrollToCat = function(catId) {
+    const section = el.querySelector('#pt-cat-' + catId);
+    if (!section) return;
+    const body = el.querySelector('#pt-cat-body-' + catId);
+    if (body && body.hasAttribute('hidden')) {
+      window._ptToggleCatSection(catId);
+    }
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   // ── Interaction handlers ─────────────────────────────────────────────────────
 
@@ -4173,13 +4213,23 @@ export async function pgPatientMessages() {
         ? `<span class="ptmsg-unread-badge" aria-label="${th.unreadCount} unread">${th.unreadCount}</span>`
         : '';
       const selClass = (i === activeThreadIdx) ? ' ptmsg-thread-selected' : '';
+      // Sender tile — teal for clinician threads (default), rose if the
+      // latest message came from the patient. Initials are derived from the
+      // displayed sender name.
+      const senderName = th.latestSender || 'Care Team';
+      const senderInitials = senderName.replace(/&[^;]+;/g, '').split(/\s+/)
+        .filter(Boolean).map(w => w[0] || '').join('').slice(0, 2).toUpperCase() || 'CT';
+      const lastMsg = th.messages[th.messages.length - 1];
+      const lastIsPatient = lastMsg && (lastMsg.sender_type || '').toLowerCase() === 'patient';
+      const tileTone = lastIsPatient ? 'rose' : 'teal';
       return `
         <button type="button" class="ptmsg-thread-item${selClass}"
                 aria-pressed="${i === activeThreadIdx}"
-                aria-label="Open thread with ${esc(th.latestSender)}"
+                aria-label="Open thread with ${esc(senderName)}"
                 onclick="window._ptmsgSelectThread(${i})">
           <div class="ptmsg-thread-top">
-            <span class="ptmsg-thread-sender">${esc(th.latestSender)}</span>
+            <span class="pt-page-tile pt-page-tile--sm pt-page-tile--initials pt-nav-tile--${tileTone}" aria-hidden="true">${esc(senderInitials)}</span>
+            <span class="ptmsg-thread-sender">${esc(senderName)}</span>
             <span class="ptmsg-thread-date">${esc(rel)}</span>
           </div>
           <div class="ptmsg-thread-subject">${esc(th.subject || '')} ${demoTag}</div>
@@ -4546,13 +4596,14 @@ export async function pgPatientProfile(user) {
       <div class="g2">
         <div>
           <div class="card">
-            <div class="card-header">
-              <h3>${t('patient.profile.title')}</h3>
+            <div class="card-header" style="display:flex;align-items:center;gap:10px">
+              <span class="pt-page-tile pt-nav-tile--amber" aria-hidden="true">👤</span>
+              <h3 style="flex:1;margin:0">${t('patient.profile.title')}</h3>
               <button class="btn btn-ghost btn-sm" id="pt-profile-refresh-btn" onclick="window._ptRefreshProfile()">↻ Refresh</button>
             </div>
             <div class="card-body">
               <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
-                <div class="avatar" style="width:52px;height:52px;font-size:18px;background:linear-gradient(135deg,var(--blue-dim),var(--violet))">${initials}</div>
+                <span class="pt-page-tile pt-page-tile--lg pt-page-tile--initials pt-nav-tile--teal" aria-hidden="true">${initials}</span>
                 <div>
                   <div style="font-size:14px;font-weight:600;color:var(--text-primary)" id="pt-profile-name">${esc(u?.display_name) || 'Patient'}</div>
                   <div style="font-size:12px;color:var(--text-tertiary)" id="pt-profile-email">${esc(u?.email)}</div>
@@ -4575,7 +4626,10 @@ export async function pgPatientProfile(user) {
         </div>
         <div>
           <div class="card">
-            <div class="card-header"><h3>${t('patient.profile.notif_prefs')}</h3></div>
+            <div class="card-header" style="display:flex;align-items:center;gap:10px">
+              <span class="pt-page-tile pt-nav-tile--amber" aria-hidden="true">🔔</span>
+              <h3 style="margin:0">${t('patient.profile.notif_prefs')}</h3>
+            </div>
             <div class="card-body">
               ${[
                 [t('patient.profile.notif.session_rem'),  t('patient.profile.notif.val_email_sms')],
@@ -4596,7 +4650,10 @@ export async function pgPatientProfile(user) {
             </div>
           </div>
           <div class="card">
-            <div class="card-header"><h3>${t('patient.profile.account')}</h3></div>
+            <div class="card-header" style="display:flex;align-items:center;gap:10px">
+              <span class="pt-page-tile pt-nav-tile--violet" aria-hidden="true">🔒</span>
+              <h3 style="margin:0">${t('patient.profile.account')}</h3>
+            </div>
             <div class="card-body" style="display:flex;flex-direction:column;gap:8px">
               <button class="btn btn-ghost btn-sm" style="opacity:0.5;cursor:not-allowed" disabled
                       title="${t('patient.profile.change_pw_tip')}" aria-label="${t('patient.profile.change_pw')} — ${t('patient.profile.change_pw_tip')}">
@@ -4608,7 +4665,10 @@ export async function pgPatientProfile(user) {
           </div>
 
           <div class="card">
-            <div class="card-header"><h3>${t('patient.profile.caregiver_access')}</h3></div>
+            <div class="card-header" style="display:flex;align-items:center;gap:10px">
+              <span class="pt-page-tile pt-nav-tile--rose" aria-hidden="true">👥</span>
+              <h3 style="margin:0">${t('patient.profile.caregiver_access')}</h3>
+            </div>
             <div class="card-body">
               <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65;margin-bottom:12px">
                 ${t('patient.profile.caregiver_desc')}
@@ -4671,20 +4731,24 @@ export async function pgPatientProfile(user) {
 // complete between-session work that supports their treatment.
 //
 // ── Task enrichment catalog ──────────────────────────────────────────────────
+// Each category maps to one of the sidebar tones so the page-body tiles
+// share the same palette the patient already knows from the nav:
+//   breathwork → teal, reflection → blue, learning → violet,
+//   checkin → amber, exercise → green, social → rose, other → slate.
 const _TASK_CAT_META = {
-  'breathing':      { icon: '🫁', color: '#2dd4bf', label: 'Breathing' },
-  'movement':       { icon: '🏃', color: '#60a5fa', label: 'Movement' },
-  'journaling':     { icon: '📓', color: '#a78bfa', label: 'Journaling' },
-  'screen-free':    { icon: '📵', color: '#fbbf24', label: 'Screen-Free' },
-  'social':         { icon: '👥', color: '#fb7185', label: 'Social' },
-  'session-prep':   { icon: '📋', color: '#34d399', label: 'Session Prep' },
-  'assessment':     { icon: '📊', color: '#f59e0b', label: 'Assessment' },
-  'home-practice':  { icon: '🧠', color: '#818cf8', label: 'Home Practice' },
-  'relaxation':     { icon: '🧘', color: '#2dd4bf', label: 'Relaxation' },
-  'audio-video':    { icon: '🎧', color: '#e879f9', label: 'Audio / Video' },
-  'aftercare':      { icon: '💊', color: '#f97316', label: 'Aftercare' },
-  'caregiver':      { icon: '🤝', color: '#94a3b8', label: 'Caregiver' },
-  'custom':         { icon: '✦',  color: '#94a3b8', label: 'Task' },
+  'breathing':      { icon: '🫁', color: '#2dd4bf', tone: 'teal',   label: 'Breathing' },
+  'movement':       { icon: '🏃', color: '#60a5fa', tone: 'green',  label: 'Movement' },
+  'journaling':     { icon: '📓', color: '#a78bfa', tone: 'blue',   label: 'Journaling' },
+  'screen-free':    { icon: '📵', color: '#fbbf24', tone: 'amber',  label: 'Screen-Free' },
+  'social':         { icon: '👥', color: '#fb7185', tone: 'rose',   label: 'Social' },
+  'session-prep':   { icon: '📋', color: '#34d399', tone: 'violet', label: 'Session Prep' },
+  'assessment':     { icon: '📊', color: '#f59e0b', tone: 'amber',  label: 'Assessment' },
+  'home-practice':  { icon: '🧠', color: '#818cf8', tone: 'violet', label: 'Home Practice' },
+  'relaxation':     { icon: '🧘', color: '#2dd4bf', tone: 'teal',   label: 'Relaxation' },
+  'audio-video':    { icon: '🎧', color: '#e879f9', tone: 'violet', label: 'Audio / Video' },
+  'aftercare':      { icon: '💊', color: '#f97316', tone: 'amber',  label: 'Aftercare' },
+  'caregiver':      { icon: '🤝', color: '#94a3b8', tone: 'rose',   label: 'Caregiver' },
+  'custom':         { icon: '✦',  color: '#94a3b8', tone: 'slate',  label: 'Task' },
 };
 
 const _TASK_ENRICHMENT = {
@@ -4808,7 +4872,7 @@ function _taskRenderCard(task, today, opts) {
   const done = _pttIsComplete(task.id, today);
   const cat = task.cat || _TASK_CAT_META['custom'];
   const overdue = task.isOverdue;
-  const catBg = cat.color + '18';
+  const tileTone = cat.tone || 'slate';
 
   const ctaHTML = done
     ? '<span class="pt-tasks-cta-done">✓ Done</span>'
@@ -4840,7 +4904,7 @@ function _taskRenderCard(task, today, opts) {
         ' onclick="window._tasksToggleDone(\'' + task.id + '\')" title="Mark complete">' +
         (done ? '✓' : '') +
       '</button>' +
-      '<span class="pt-tasks-cat-chip" style="background:' + catBg + ';color:' + cat.color + '">' + cat.icon + '</span>' +
+      '<span class="pt-page-tile pt-nav-tile--' + tileTone + '" aria-label="' + cat.label + '">' + cat.icon + '</span>' +
     '</div>' +
 
     '<div class="pt-tasks-card-body">' +
