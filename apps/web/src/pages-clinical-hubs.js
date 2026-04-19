@@ -4719,6 +4719,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // pgFinanceHub — Overview · Invoices · Payments · Insurance · Analytics
+// Backed by /api/v1/finance/* (no more localStorage).
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgFinanceHub(setTopbar, navigate) {
   const tab = window._financeHubTab || 'overview';
@@ -4728,7 +4729,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
     invoices:  { label: 'Invoices',    color: 'var(--blue)'   },
     payments:  { label: 'Payments',    color: 'var(--green)'  },
     insurance: { label: 'Insurance',   color: 'var(--violet)' },
-    analytics: { label: 'Analytics',  color: 'var(--amber)'  },
+    analytics: { label: 'Analytics',   color: 'var(--amber)'  },
   };
   const el = document.getElementById('content');
   function tabBar() {
@@ -4742,192 +4743,277 @@ export async function pgFinanceHub(setTopbar, navigate) {
   const pad2 = n => String(n).padStart(2,'0');
   const now  = new Date();
   const td   = now.getFullYear()+'-'+pad2(now.getMonth()+1)+'-'+pad2(now.getDate());
+  const dueDefault = new Date(Date.now()+30*86400000).toISOString().slice(0,10);
 
-  const _fKey = 'ds_finance_v1';
-  function loadFin() { try { return JSON.parse(localStorage.getItem(_fKey)||'null') || seedFin(); } catch { return seedFin(); } }
-  function saveFin(d) { try { localStorage.setItem(_fKey, JSON.stringify(d)); } catch {} }
-  function seedFin() {
-    const d = {
-      invoices:[
-        { id:'INV-001', patient:'Demo Patient A', service:'TMS Course — 30 sessions', amount:3200, vat:640,  total:3840,  date:'2026-04-14', due:'2026-05-14', status:'sent',    paid:0    },
-        { id:'INV-002', patient:'Demo Patient B', service:'Initial Assessment',        amount:280,  vat:56,   total:336,   date:'2026-04-12', due:'2026-04-26', status:'paid',    paid:336  },
-        { id:'INV-003', patient:'Demo Patient C', service:'tDCS Course — 15 sessions', amount:1800, vat:360,  total:2160,  date:'2026-04-10', due:'2026-05-10', status:'overdue', paid:0    },
-        { id:'INV-004', patient:'Marcus Webb',    service:'New Patient Intake',         amount:350,  vat:70,   total:420,   date:'2026-04-08', due:'2026-04-22', status:'draft',   paid:0    },
-        { id:'INV-005', patient:'Anna Torres',    service:'Follow-up Consultation',    amount:150,  vat:30,   total:180,   date:'2026-04-05', due:'2026-04-19', status:'paid',    paid:180  },
-      ],
-      payments:[
-        { id:'PAY-001', patient:'Demo Patient B', amount:336,  method:'Card',  date:'2026-04-13', ref:'TXN-8821', inv:'INV-002' },
-        { id:'PAY-002', patient:'Anna Torres',    amount:180,  method:'BACS',  date:'2026-04-07', ref:'TXN-8743', inv:'INV-005' },
-        { id:'PAY-003', patient:'Demo Patient A', amount:500,  method:'Card',  date:'2026-03-20', ref:'TXN-8619', inv:'INV-001' },
-      ],
-      insurance:[
-        { id:'INS-001', patient:'Demo Patient A', insurer:'BUPA',     policy:'TMS Pre-auth',          status:'approved', amount:2400, date:'2026-04-10' },
-        { id:'INS-002', patient:'Demo Patient C', insurer:'AXA Health',policy:'tDCS Funding Request', status:'pending',  amount:1800, date:'2026-04-12' },
-        { id:'INS-003', patient:'Marcus Webb',    insurer:'Vitality',  policy:'Assessment Claim',      status:'submitted',amount:350,  date:'2026-04-09' },
-      ],
-    };
-    saveFin(d); return d;
+  const invStC = { sent:'var(--blue)', paid:'var(--green)', overdue:'var(--red)', draft:'var(--text-tertiary)', partial:'var(--amber)' };
+  const insStC = { approved:'var(--green)', pending:'var(--amber)', submitted:'var(--blue)', rejected:'var(--red)', draft:'var(--text-tertiary)' };
+
+  const CURRENCY_SYMBOLS = { GBP:'£', USD:'$', EUR:'€' };
+  const curSym = (c) => CURRENCY_SYMBOLS[(c||'GBP').toUpperCase()] || '£';
+  const fmtC = (n, cur) => curSym(cur) + Number(n||0).toLocaleString('en-GB',{minimumFractionDigits:0, maximumFractionDigits:2});
+  // Most UI surfaces (totals, KPIs) are clinic-level; assume clinic default GBP
+  // unless an item carries its own currency.
+  const fmt = n => fmtC(n, 'GBP');
+
+  // Initial paint: loading shimmer while we fetch all endpoints in parallel.
+  el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="ch-card" style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">
+          ${typeof spinner==='function' ? spinner() : '<span>Loading finance data…</span>'}
+        </div>
+      </div>
+    </div>`;
+
+  const invFilt   = window._invFilt   || 'all';
+  const invSearch = window._invSearch || '';
+
+  const [summary, invoicesResp, paymentsResp, claimsResp, monthlyResp] = await Promise.all([
+    api.finance.summary(),
+    api.finance.listInvoices({ status: invFilt === 'all' ? null : invFilt, search: invSearch }),
+    api.finance.listPayments(),
+    api.finance.listClaims(),
+    api.finance.monthlyAnalytics(6),
+  ]).catch(err => { console.error('[FinanceHub] load failed', err); return [null,null,null,null,null]; });
+
+  if (!summary || !invoicesResp || !paymentsResp || !claimsResp || !monthlyResp) {
+    el.innerHTML = `
+      <div class="ch-shell">
+        <div class="ch-tab-bar">${tabBar()}</div>
+        <div class="ch-body">
+          <div class="ch-card" style="padding:28px;text-align:center">
+            <div style="font-size:14px;font-weight:600;color:var(--red);margin-bottom:6px">Failed to load finance data</div>
+            <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:14px">The server returned an error. Please retry.</div>
+            <button class="btn btn-primary btn-sm" onclick="window._nav('finance-hub')">Retry</button>
+          </div>
+        </div>
+      </div>`;
+    return;
   }
 
-  const data = loadFin();
-  const invStC = { sent:'var(--blue)', paid:'var(--green)', overdue:'var(--red)', draft:'var(--text-tertiary)', partial:'var(--amber)' };
-  const insStC = { approved:'var(--green)', pending:'var(--amber)', submitted:'var(--blue)', rejected:'var(--red)' };
+  const invoices = Array.isArray(invoicesResp.items) ? invoicesResp.items : [];
+  const payments = Array.isArray(paymentsResp.items) ? paymentsResp.items : [];
+  const claims   = Array.isArray(claimsResp.items)   ? claimsResp.items   : [];
+  const months   = Array.isArray(monthlyResp.items)  ? monthlyResp.items  : [];
 
-  const totalRev      = data.invoices.filter(i=>i.status==='paid').reduce((s,i)=>s+i.total,0);
-  const totalOutstand = data.invoices.filter(i=>i.status!=='paid'&&i.status!=='draft').reduce((s,i)=>s+(i.total-i.paid),0);
-  const totalOverdue  = data.invoices.filter(i=>i.status==='overdue').reduce((s,i)=>s+i.total,0);
-  const fmt = n => '£'+n.toLocaleString('en-GB',{minimumFractionDigits:0});
+  const totalRev      = Number(summary.revenue_paid || 0);
+  const totalOutstand = Number(summary.outstanding || 0);
+  const totalOverdue  = Number(summary.overdue || 0);
+  const totalInvoices = Number(summary.total_invoices ?? invoices.length);
+  const totalPayments = Number(summary.total_payments ?? payments.length);
+  const claimsApproved = Number(summary.claims_approved ?? 0);
+  const claimsPending  = Number(summary.claims_pending  ?? 0);
+  const claimsValue    = Number(summary.claims_value    ?? 0);
 
   window._finNewInvoice = () => document.getElementById('fin-new-inv-modal')?.classList.remove('ch-hidden');
+  window._finLogPayment = () => document.getElementById('fin-log-pay-modal')?.classList.remove('ch-hidden');
+  window._finNewClaim   = () => document.getElementById('fin-new-claim-modal')?.classList.remove('ch-hidden');
 
   let main = '';
 
   if (tab === 'overview') {
+    const statusCounts = ['paid','sent','overdue','draft'].map(s => {
+      const list = invoices.filter(i => i.status === s);
+      return { s, cnt: list.length, amt: list.reduce((x,i) => x + Number(i.total||0), 0) };
+    });
+    const invDenom = Math.max(invoices.length, 1);
+    const recentPay = payments.slice(0, 3).map(p => ({
+      icon: '💳',
+      text: (p.patient_name || '—') + ' — ' + fmt(p.amount) + ' received',
+      date: p.payment_date || p.created_at || '',
+      c: 'var(--green)',
+    }));
+    const recentOverdue = invoices.filter(i => i.status === 'overdue').slice(0, 2).map(i => ({
+      icon: '⚠',
+      text: (i.patient_name || '—') + ' — ' + fmtC(i.total, i.currency) + ' overdue',
+      date: i.due_date || '',
+      c: 'var(--red)',
+    }));
+    const recent = [...recentPay, ...recentOverdue]
+      .sort((a,b) => String(b.date).localeCompare(String(a.date)))
+      .slice(0, 5);
+
     main = `
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
         <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${fmt(totalRev)}</div><div class="ch-kpi-label">Revenue (Paid)</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(totalOutstand)}</div><div class="ch-kpi-label">Outstanding</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${fmt(totalOverdue)}</div><div class="ch-kpi-label">Overdue</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${data.invoices.length}</div><div class="ch-kpi-label">Total Invoices</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${totalInvoices}</div><div class="ch-kpi-label">Total Invoices</div></div>
       </div>
       <div class="ch-two-col">
         <div class="ch-card">
           <div class="ch-card-hd"><span class="ch-card-title">Invoice Status</span></div>
-          ${['paid','sent','overdue','draft'].map(s=>{
-            const cnt=data.invoices.filter(i=>i.status===s).length;
-            const amt=data.invoices.filter(i=>i.status===s).reduce((x,i)=>x+i.total,0);
-            return '<div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
+          ${statusCounts.map(({s,cnt,amt}) =>
+            '<div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
               '<span style="font-size:10px;font-weight:700;color:'+(invStC[s]||'var(--text-tertiary)')+';text-transform:capitalize;min-width:60px">'+s+'</span>'+
-              '<div class="ch-prog-bar" style="flex:1"><div class="ch-prog-fill" style="width:'+Math.round(cnt/data.invoices.length*100)+'%"></div></div>'+
+              '<div class="ch-prog-bar" style="flex:1"><div class="ch-prog-fill" style="width:'+Math.round(cnt/invDenom*100)+'%"></div></div>'+
               '<span style="font-size:12px;font-weight:600;color:var(--text-secondary);min-width:80px;text-align:right">'+cnt+' · '+fmt(amt)+'</span>'+
-            '</div>';
-          }).join('')}
+            '</div>'
+          ).join('')}
         </div>
         <div class="ch-card">
           <div class="ch-card-hd"><span class="ch-card-title">Recent Activity</span></div>
-          ${[...data.payments.slice(0,3).map(p=>({icon:'💳',text:p.patient+' — '+fmt(p.amount)+' received',date:p.date,c:'var(--green)'})),
-             ...data.invoices.filter(i=>i.status==='overdue').slice(0,2).map(i=>({icon:'⚠',text:i.patient+' — '+fmt(i.total)+' overdue',date:i.due,c:'var(--red)'}))
-          ].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5).map(x=>'<div class="rec-apt-row"><span style="font-size:16px">'+x.icon+'</span><div class="rec-apt-info"><div class="rec-apt-name" style="color:'+x.c+'">'+x.text+'</div></div><span class="rec-apt-time">'+x.date+'</span></div>').join('')}
+          ${recent.length
+            ? recent.map(x =>
+                '<div class="rec-apt-row"><span style="font-size:16px">'+x.icon+'</span>'+
+                '<div class="rec-apt-info"><div class="rec-apt-name" style="color:'+x.c+'">'+x.text+'</div></div>'+
+                '<span class="rec-apt-time">'+x.date+'</span></div>'
+              ).join('')
+            : '<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:12px">No recent activity.</div>'}
         </div>
       </div>`;
   }
   else if (tab === 'invoices') {
-    const filt = window._invFilt||'all';
     const FILTS = [{id:'all',label:'All'},{id:'sent',label:'Sent'},{id:'paid',label:'Paid'},{id:'overdue',label:'Overdue'},{id:'draft',label:'Draft'}];
-    const rows = filt==='all' ? data.invoices : data.invoices.filter(i=>i.status===filt);
+    const rows = invoices;
     main = `
       <div class="ch-card">
         <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">
           <span class="ch-card-title">Invoices</span>
-          <div style="display:flex;gap:4px">
-            ${FILTS.map(f=>'<button class="ch-btn-sm'+(f.id===filt?' ch-btn-teal':'')+'" onclick="window._invFilt=\''+f.id+'\';window._nav(\'finance-hub\')">'+f.label+'</button>').join('')}
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            ${FILTS.map(f=>'<button class="ch-btn-sm'+(f.id===invFilt?' ch-btn-teal':'')+'" onclick="window._invFilt=\''+f.id+'\';window._nav(\'finance-hub\')">'+f.label+'</button>').join('')}
+          </div>
+          <div style="position:relative;flex:1;max-width:240px;min-width:140px">
+            <input type="text" placeholder="Search invoices…" class="ph-search-input" value="${(invSearch||'').replace(/"/g,'&quot;')}" oninput="window._invSearch=this.value" onchange="window._nav('finance-hub')" onkeydown="if(event.key==='Enter'){window._invSearch=this.value;window._nav('finance-hub')}">
           </div>
           <button class="ch-btn-sm ch-btn-teal" onclick="window._finNewInvoice()">+ New</button>
         </div>
-        ${rows.map(inv=>
-          '<div class="book-row">'+
-            '<div class="book-datetime"><div class="book-date">'+inv.date+'</div><div class="book-time">Due: '+inv.due+'</div></div>'+
-            '<div class="book-info"><div class="book-patient">'+inv.id+' — '+inv.patient+'</div><div class="book-clinician">'+inv.service+'</div></div>'+
-            '<div style="flex-shrink:0;text-align:right;min-width:80px"><div style="font-size:14px;font-weight:700;color:var(--text-primary)">'+fmt(inv.total)+'</div><div style="font-size:11px;color:var(--text-tertiary)">+VAT incl.</div></div>'+
-            '<div class="book-status-col"><span class="book-status-badge" style="color:'+(invStC[inv.status]||'var(--text-tertiary)')+';background:'+(invStC[inv.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+inv.status+'</span></div>'+
-            '<div class="book-actions">'+
-              (inv.status!=='paid'?'<button class="ch-btn-sm ch-btn-teal" onclick="window._finMarkPaid(\''+inv.id+'\')">Mark Paid</button>':'')+
-              '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Send\',body:\''+inv.id+' sent to patient.\',severity:\'success\'})">Send</button>'+
-            '</div>'+
-          '</div>'
-        ).join('')}
+        ${rows.length === 0
+          ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No invoices found.</div>'
+          : rows.map(inv => {
+              const symTotal = fmtC(inv.total, inv.currency);
+              const safeId   = String(inv.id).replace(/'/g, "\\'");
+              const safeNum  = String(inv.invoice_number || inv.id).replace(/'/g, "\\'");
+              return '<div class="book-row">'+
+                '<div class="book-datetime"><div class="book-date">'+(inv.issue_date||'')+'</div><div class="book-time">Due: '+(inv.due_date||'—')+'</div></div>'+
+                '<div class="book-info"><div class="book-patient">'+(inv.invoice_number||inv.id)+' — '+(inv.patient_name||'—')+'</div><div class="book-clinician">'+(inv.service||'')+'</div></div>'+
+                '<div style="flex-shrink:0;text-align:right;min-width:80px"><div style="font-size:14px;font-weight:700;color:var(--text-primary)">'+symTotal+'</div><div style="font-size:11px;color:var(--text-tertiary)">+VAT incl.</div></div>'+
+                '<div class="book-status-col"><span class="book-status-badge" style="color:'+(invStC[inv.status]||'var(--text-tertiary)')+';background:'+(invStC[inv.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+(inv.status||'')+'</span></div>'+
+                '<div class="book-actions">'+
+                  (inv.status!=='paid'?'<button class="ch-btn-sm ch-btn-teal" onclick="window._finMarkPaid(\''+safeId+'\')">Mark Paid</button>':'')+
+                  '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Send\',body:\''+safeNum+' sent to patient.\',severity:\'success\'})">Send</button>'+
+                '</div>'+
+              '</div>';
+            }).join('')}
       </div>`;
 
-    window._finMarkPaid = id => {
-      const inv = data.invoices.find(i=>i.id===id); if(!inv)return;
-      inv.status='paid'; inv.paid=inv.total;
-      data.payments.unshift({id:'PAY-'+Date.now(),patient:inv.patient,amount:inv.total,method:'Manual',date:td,ref:'MAN-'+Date.now().toString().slice(-4),inv:id});
-      saveFin(data); window._nav('finance-hub');
-      window._dsToast?.({title:'Marked paid',body:inv.id+' — '+fmt(inv.total),severity:'success'});
+    window._finMarkPaid = async (id) => {
+      try {
+        const inv = await api.finance.markInvoicePaid(id, { method: 'manual' });
+        window._dsToast?.({
+          title: 'Marked paid',
+          body: (inv?.invoice_number || id) + ' — ' + fmtC(inv?.total, inv?.currency),
+          severity: 'success',
+        });
+        window._nav('finance-hub');
+      } catch (err) {
+        window._dsToast?.({ title:'Mark paid failed', body: err?.message || 'Server error', severity:'warn' });
+      }
     };
   }
   else if (tab === 'payments') {
+    const totalReceived = payments.reduce((s,p) => s + Number(p.amount||0), 0);
+    const avgPayment   = payments.length ? Math.round(totalReceived / payments.length) : 0;
     main = `
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
-        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${fmt(data.payments.reduce((s,p)=>s+p.amount,0))}</div><div class="ch-kpi-label">Total Received</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${data.payments.length}</div><div class="ch-kpi-label">Transactions</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(Math.round(data.payments.reduce((s,p)=>s+p.amount,0)/Math.max(data.payments.length,1)))}</div><div class="ch-kpi-label">Avg Payment</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${fmt(totalReceived)}</div><div class="ch-kpi-label">Total Received</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${totalPayments}</div><div class="ch-kpi-label">Transactions</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(avgPayment)}</div><div class="ch-kpi-label">Avg Payment</div></div>
       </div>
       <div class="ch-card">
         <div class="ch-card-hd">
           <span class="ch-card-title">Payment Log</span>
-          <button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'Log Payment',body:'Payment form coming soon.',severity:'info'})">+ Log Payment</button>
+          <button class="ch-btn-sm ch-btn-teal" onclick="window._finLogPayment()">+ Log Payment</button>
         </div>
-        ${data.payments.map(p=>
-          '<div class="book-row">'+
-            '<div class="book-datetime"><div class="book-date">'+p.date+'</div><div class="book-time">'+p.ref+'</div></div>'+
-            '<div class="book-info"><div class="book-patient">'+p.patient+'</div><div class="book-clinician">'+p.method+' · Ref: '+p.ref+'</div></div>'+
-            '<div style="flex-shrink:0;min-width:80px;text-align:right"><div style="font-size:15px;font-weight:700;color:var(--green)">'+fmt(p.amount)+'</div></div>'+
-            '<div class="book-status-col"><span class="book-status-badge" style="color:var(--green);background:rgba(74,222,128,0.12)">Received</span></div>'+
-          '</div>'
-        ).join('')}
+        ${payments.length === 0
+          ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No payments recorded yet.</div>'
+          : payments.map(p =>
+              '<div class="book-row">'+
+                '<div class="book-datetime"><div class="book-date">'+(p.payment_date||'')+'</div><div class="book-time">'+(p.reference||'')+'</div></div>'+
+                '<div class="book-info"><div class="book-patient">'+(p.patient_name||'—')+'</div><div class="book-clinician">'+(p.method||'')+(p.reference?(' · Ref: '+p.reference):'')+'</div></div>'+
+                '<div style="flex-shrink:0;min-width:80px;text-align:right"><div style="font-size:15px;font-weight:700;color:var(--green)">'+fmt(p.amount)+'</div></div>'+
+                '<div class="book-status-col"><span class="book-status-badge" style="color:var(--green);background:rgba(74,222,128,0.12)">Received</span></div>'+
+              '</div>'
+            ).join('')}
       </div>`;
   }
   else if (tab === 'insurance') {
     main = `
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
-        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${data.insurance.filter(i=>i.status==='approved').length}</div><div class="ch-kpi-label">Approved</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${data.insurance.filter(i=>i.status==='pending'||i.status==='submitted').length}</div><div class="ch-kpi-label">Pending</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(data.insurance.reduce((s,i)=>s+i.amount,0))}</div><div class="ch-kpi-label">Claims Value</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${claimsApproved}</div><div class="ch-kpi-label">Approved</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${claimsPending}</div><div class="ch-kpi-label">Pending</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(claimsValue)}</div><div class="ch-kpi-label">Claims Value</div></div>
       </div>
       <div class="ch-card">
         <div class="ch-card-hd">
           <span class="ch-card-title">Insurance & Funding Claims</span>
-          <button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'New Claim',body:'Insurance claim form coming soon.',severity:'info'})">+ New Claim</button>
+          <button class="ch-btn-sm ch-btn-teal" onclick="window._finNewClaim()">+ New Claim</button>
         </div>
-        ${data.insurance.map(ins=>
-          '<div class="book-row">'+
-            '<div class="book-datetime"><div class="book-date">'+ins.date+'</div></div>'+
-            '<div class="book-info"><div class="book-patient">'+ins.patient+' — '+ins.insurer+'</div><div class="book-clinician">'+ins.policy+'</div></div>'+
-            '<div style="flex-shrink:0;min-width:80px;text-align:right"><div style="font-size:14px;font-weight:700;color:var(--text-primary)">'+fmt(ins.amount)+'</div></div>'+
-            '<div class="book-status-col"><span class="book-status-badge" style="color:'+(insStC[ins.status]||'var(--text-tertiary)')+';background:'+(insStC[ins.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+ins.status+'</span></div>'+
-            '<div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'View Claim\',body:\''+ins.policy+'\',severity:\'info\'})">View</button></div>'+
-          '</div>'
-        ).join('')}
+        ${claims.length === 0
+          ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No claims yet.</div>'
+          : claims.map(ins => {
+              const safeDesc = String(ins.description||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+              return '<div class="book-row">'+
+                '<div class="book-datetime"><div class="book-date">'+(ins.submitted_date||ins.created_at||'')+'</div></div>'+
+                '<div class="book-info"><div class="book-patient">'+(ins.patient_name||'—')+' — '+(ins.insurer||'—')+'</div><div class="book-clinician">'+(ins.description||'')+'</div></div>'+
+                '<div style="flex-shrink:0;min-width:80px;text-align:right"><div style="font-size:14px;font-weight:700;color:var(--text-primary)">'+fmt(ins.amount)+'</div></div>'+
+                '<div class="book-status-col"><span class="book-status-badge" style="color:'+(insStC[ins.status]||'var(--text-tertiary)')+';background:'+(insStC[ins.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+(ins.status||'')+'</span></div>'+
+                '<div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'View Claim\',body:\''+safeDesc+'\',severity:\'info\'})">View</button></div>'+
+              '</div>';
+            }).join('')}
       </div>`;
   }
   else if (tab === 'analytics') {
-    const monthlyData = [
-      {m:'Jan', rev:4200, invoiced:5800},{m:'Feb',rev:3800,invoiced:4600},
-      {m:'Mar',rev:5100,invoiced:6200},{m:'Apr',rev:3516,invoiced:6756},
-    ];
-    const maxRev = Math.max(...monthlyData.map(d=>d.invoiced));
+    // Prefer server-supplied monthly series. Fall back to empty state.
+    const monthlyData = months.map(m => ({
+      m: (m.month || '').slice(5),     // "YYYY-MM" -> "MM"
+      label: m.month || '',
+      rev: Number(m.revenue || 0),
+      invoiced: Number(m.invoiced || 0),
+    }));
+    const maxRev = Math.max(1, ...monthlyData.map(d => d.invoiced || d.rev || 0));
+    const seriesSum = monthlyData.reduce((s,d) => s + d.rev, 0);
+    const seriesInv = monthlyData.reduce((s,d) => s + d.invoiced, 0);
+    const avgMonth  = monthlyData.length ? Math.round(seriesSum / monthlyData.length) : 0;
+    const collectionRate = seriesInv > 0 ? Math.round((seriesSum / seriesInv) * 100) : 0;
+
     main = `
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${fmt(16616)}</div><div class="ch-kpi-label">YTD Revenue</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(4150)}</div><div class="ch-kpi-label">Avg / Month</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">82%</div><div class="ch-kpi-label">Collection Rate</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">18d</div><div class="ch-kpi-label">Avg Days to Pay</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${fmt(totalRev)}</div><div class="ch-kpi-label">YTD Revenue</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(avgMonth)}</div><div class="ch-kpi-label">Avg / Month</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${collectionRate}%</div><div class="ch-kpi-label">Collection Rate</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${monthlyData.length}</div><div class="ch-kpi-label">Months Tracked</div></div>
       </div>
       <div class="ch-two-col">
         <div class="ch-card">
           <div class="ch-card-hd"><span class="ch-card-title">Monthly Revenue</span><button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='generate';window._nav('reports-hub')">Export Report</button></div>
-          ${monthlyData.map(d=>
-            '<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
-              '<div style="font-size:12px;font-weight:700;color:var(--text-primary);min-width:32px">'+d.m+'</div>'+
-              '<div style="flex:1;display:flex;flex-direction:column;gap:3px">'+
-                '<div class="ch-prog-bar"><div class="ch-prog-fill" style="width:'+Math.round(d.rev/maxRev*100)+'%;background:var(--green)"></div></div>'+
-                '<div class="ch-prog-bar"><div class="ch-prog-fill" style="width:'+Math.round(d.invoiced/maxRev*100)+'%;background:rgba(74,158,255,0.5)"></div></div>'+
-              '</div>'+
-              '<div style="text-align:right;min-width:100px"><div style="font-size:12px;font-weight:700;color:var(--green)">'+fmt(d.rev)+' paid</div><div style="font-size:11px;color:var(--text-tertiary)">'+fmt(d.invoiced)+' invoiced</div></div>'+
-            '</div>'
-          ).join('')}
+          ${monthlyData.length === 0
+            ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No monthly data yet.</div>'
+            : monthlyData.map(d =>
+                '<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
+                  '<div style="font-size:12px;font-weight:700;color:var(--text-primary);min-width:54px">'+d.label+'</div>'+
+                  '<div style="flex:1;display:flex;flex-direction:column;gap:3px">'+
+                    '<div class="ch-prog-bar"><div class="ch-prog-fill" style="width:'+Math.round(d.rev/maxRev*100)+'%;background:var(--green)"></div></div>'+
+                    '<div class="ch-prog-bar"><div class="ch-prog-fill" style="width:'+Math.round(d.invoiced/maxRev*100)+'%;background:rgba(74,158,255,0.5)"></div></div>'+
+                  '</div>'+
+                  '<div style="text-align:right;min-width:120px"><div style="font-size:12px;font-weight:700;color:var(--green)">'+fmt(d.rev)+' paid</div><div style="font-size:11px;color:var(--text-tertiary)">'+fmt(d.invoiced)+' invoiced</div></div>'+
+                '</div>'
+              ).join('')}
           <div style="padding:8px 16px;display:flex;gap:16px;font-size:11px;color:var(--text-tertiary)"><span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:4px;background:var(--green);border-radius:2px;display:inline-block"></span>Paid</span><span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:4px;background:rgba(74,158,255,0.5);border-radius:2px;display:inline-block"></span>Invoiced</span></div>
         </div>
         <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Revenue by Service</span></div>
-          ${[['TMS Course (30 sess.)',3840,'var(--teal)',52],['tDCS Course (15 sess.)',2160,'var(--blue)',29],['Initial Assessment',336,'var(--violet)',5],['Consultations',330,'var(--amber)',4],['Other',516,'var(--text-tertiary)',7]].map(([name,amt,c,pct])=>
-            '<div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
-              '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;color:var(--text-primary)">'+name+'</div></div>'+
-              '<div style="font-size:12px;font-weight:700;color:'+c+';min-width:60px;text-align:right">'+fmt(amt)+'</div>'+
-              '<div style="font-size:11px;color:var(--text-tertiary);min-width:30px;text-align:right">'+pct+'%</div>'+
-            '</div>'
-          ).join('')}
+          <div class="ch-card-hd"><span class="ch-card-title">Revenue by Status</span></div>
+          ${['paid','sent','overdue','draft'].map(s => {
+            const list = invoices.filter(i => i.status === s);
+            const amt  = list.reduce((x,i) => x + Number(i.total||0), 0);
+            const pct  = totalInvoices ? Math.round(list.length / Math.max(totalInvoices,1) * 100) : 0;
+            return '<div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
+              '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;color:var(--text-primary);text-transform:capitalize">'+s+'</div></div>'+
+              '<div style="font-size:12px;font-weight:700;color:'+(invStC[s]||'var(--text-tertiary)')+';min-width:80px;text-align:right">'+fmt(amt)+'</div>'+
+              '<div style="font-size:11px;color:var(--text-tertiary);min-width:40px;text-align:right">'+pct+'%</div>'+
+            '</div>';
+          }).join('')}
         </div>
       </div>`;
   }
@@ -4947,7 +5033,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
           <div class="ch-form-group"><label class="ch-label">Amount (ex VAT £)</label><input id="inv-amount" type="number" class="ch-select ch-select--full" placeholder="0.00"></div>
           <div class="ch-form-group"><label class="ch-label">VAT Rate</label><select id="inv-vat" class="ch-select ch-select--full"><option value="0">0% (Exempt)</option><option value="5">5%</option><option value="20" selected>20%</option></select></div>
           <div class="ch-form-group"><label class="ch-label">Invoice Date</label><input id="inv-date" type="date" class="ch-select ch-select--full" value="${td}"></div>
-          <div class="ch-form-group"><label class="ch-label">Due Date</label><input id="inv-due" type="date" class="ch-select ch-select--full" value="${new Date(Date.now()+30*86400000).toISOString().slice(0,10)}"></div>
+          <div class="ch-form-group"><label class="ch-label">Due Date</label><input id="inv-due" type="date" class="ch-select ch-select--full" value="${dueDefault}"></div>
         </div>
         <div style="display:flex;gap:8px;margin-top:8px">
           <button class="btn btn-primary" onclick="window._finSaveInvoice()">Create Invoice</button>
@@ -4955,20 +5041,126 @@ export async function pgFinanceHub(setTopbar, navigate) {
         </div>
       </div>
     </div>
+  </div>
+  <div id="fin-log-pay-modal" class="ch-modal-overlay ch-hidden">
+    <div class="ch-modal" style="width:min(500px,95vw)">
+      <div class="ch-modal-hd"><span>Log Payment</span><button class="ch-modal-close" onclick="document.getElementById('fin-log-pay-modal').classList.add('ch-hidden')">✕</button></div>
+      <div class="ch-modal-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Patient Name</label><input id="pay-patient" class="ch-select ch-select--full" placeholder="Patient name"></div>
+          <div class="ch-form-group"><label class="ch-label">Amount</label><input id="pay-amount" type="number" class="ch-select ch-select--full" placeholder="0.00"></div>
+          <div class="ch-form-group"><label class="ch-label">Method</label><select id="pay-method" class="ch-select ch-select--full"><option value="card">Card</option><option value="bacs">BACS</option><option value="cash">Cash</option><option value="manual">Manual</option><option value="other">Other</option></select></div>
+          <div class="ch-form-group"><label class="ch-label">Reference (optional)</label><input id="pay-ref" class="ch-select ch-select--full" placeholder="e.g. TXN-8821"></div>
+          <div class="ch-form-group"><label class="ch-label">Payment Date</label><input id="pay-date" type="date" class="ch-select ch-select--full" value="${td}"></div>
+          <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Invoice ID (optional)</label><input id="pay-invoice" class="ch-select ch-select--full" placeholder="Link to an invoice (optional)"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-primary" onclick="window._finSavePayment()">Log Payment</button>
+          <button class="btn" onclick="document.getElementById('fin-log-pay-modal').classList.add('ch-hidden')">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="fin-new-claim-modal" class="ch-modal-overlay ch-hidden">
+    <div class="ch-modal" style="width:min(520px,95vw)">
+      <div class="ch-modal-hd"><span>New Insurance Claim</span><button class="ch-modal-close" onclick="document.getElementById('fin-new-claim-modal').classList.add('ch-hidden')">✕</button></div>
+      <div class="ch-modal-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Patient Name</label><input id="clm-patient" class="ch-select ch-select--full" placeholder="Patient name"></div>
+          <div class="ch-form-group"><label class="ch-label">Insurer</label><input id="clm-insurer" class="ch-select ch-select--full" placeholder="e.g. BUPA, AXA"></div>
+          <div class="ch-form-group"><label class="ch-label">Policy / Reference</label><input id="clm-policy" class="ch-select ch-select--full" placeholder="Policy number"></div>
+          <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Description</label><input id="clm-desc" class="ch-select ch-select--full" placeholder="e.g. TMS Pre-auth"></div>
+          <div class="ch-form-group"><label class="ch-label">Amount</label><input id="clm-amount" type="number" class="ch-select ch-select--full" placeholder="0.00"></div>
+          <div class="ch-form-group"><label class="ch-label">Status</label><select id="clm-status" class="ch-select ch-select--full"><option value="draft" selected>Draft</option><option value="submitted">Submitted</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-primary" onclick="window._finSaveClaim()">Create Claim</button>
+          <button class="btn" onclick="document.getElementById('fin-new-claim-modal').classList.add('ch-hidden')">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>`;
 
-  window._finSaveInvoice = () => {
-    const patient = document.getElementById('inv-patient')?.value?.trim();
-    const service = document.getElementById('inv-service')?.value?.trim();
-    const amount  = parseFloat(document.getElementById('inv-amount')?.value||0);
-    const vatRate = parseFloat(document.getElementById('inv-vat')?.value||20)/100;
-    const date    = document.getElementById('inv-date')?.value||td;
-    const due     = document.getElementById('inv-due')?.value||td;
-    if (!patient||!service||!amount) { window._dsToast?.({title:'Fill required fields',severity:'warn'}); return; }
-    const vat=Math.round(amount*vatRate*100)/100;
-    data.invoices.unshift({ id:'INV-'+Date.now().toString().slice(-5), patient, service, amount, vat, total:amount+vat, date, due, status:'draft', paid:0 });
-    saveFin(data); document.getElementById('fin-new-inv-modal')?.classList.add('ch-hidden');
-    window._financeHubTab='invoices'; window._nav('finance-hub');
-    window._dsToast?.({title:'Invoice created',body:'INV for '+patient+' — £'+(amount+vat).toFixed(2),severity:'success'});
+  window._finSaveInvoice = async () => {
+    const patient_name = document.getElementById('inv-patient')?.value?.trim();
+    const service      = document.getElementById('inv-service')?.value?.trim();
+    const amount       = parseFloat(document.getElementById('inv-amount')?.value || 0);
+    const vatPct       = parseFloat(document.getElementById('inv-vat')?.value || 20);
+    const issue_date   = document.getElementById('inv-date')?.value || td;
+    const due_date     = document.getElementById('inv-due')?.value || dueDefault;
+    if (!patient_name || !service || !amount) {
+      window._dsToast?.({ title:'Fill required fields', severity:'warn' });
+      return;
+    }
+    try {
+      const inv = await api.finance.createInvoice({
+        patient_name,
+        service,
+        amount,
+        vat_rate: vatPct / 100,
+        issue_date,
+        due_date,
+        status: 'draft',
+      });
+      document.getElementById('fin-new-inv-modal')?.classList.add('ch-hidden');
+      window._financeHubTab = 'invoices';
+      window._nav('finance-hub');
+      window._dsToast?.({
+        title:'Invoice created',
+        body: (inv?.invoice_number || 'Invoice') + ' — ' + fmtC(inv?.total, inv?.currency),
+        severity:'success',
+      });
+    } catch (err) {
+      window._dsToast?.({ title:'Create failed', body: err?.message || 'Server error', severity:'warn' });
+    }
+  };
+
+  window._finSavePayment = async () => {
+    const patient_name = document.getElementById('pay-patient')?.value?.trim();
+    const amount       = parseFloat(document.getElementById('pay-amount')?.value || 0);
+    const method       = document.getElementById('pay-method')?.value || 'manual';
+    const reference    = document.getElementById('pay-ref')?.value?.trim() || null;
+    const payment_date = document.getElementById('pay-date')?.value || td;
+    const invoice_id   = document.getElementById('pay-invoice')?.value?.trim() || null;
+    if (!patient_name || !amount) {
+      window._dsToast?.({ title:'Fill required fields', severity:'warn' });
+      return;
+    }
+    try {
+      await api.finance.createPayment({
+        invoice_id, patient_name, amount, method, reference, payment_date,
+      });
+      document.getElementById('fin-log-pay-modal')?.classList.add('ch-hidden');
+      window._financeHubTab = 'payments';
+      window._nav('finance-hub');
+      window._dsToast?.({ title:'Payment logged', body: patient_name + ' — ' + fmt(amount), severity:'success' });
+    } catch (err) {
+      window._dsToast?.({ title:'Log payment failed', body: err?.message || 'Server error', severity:'warn' });
+    }
+  };
+
+  window._finSaveClaim = async () => {
+    const patient_name  = document.getElementById('clm-patient')?.value?.trim();
+    const insurer       = document.getElementById('clm-insurer')?.value?.trim();
+    const policy_number = document.getElementById('clm-policy')?.value?.trim() || null;
+    const description   = document.getElementById('clm-desc')?.value?.trim();
+    const amount        = parseFloat(document.getElementById('clm-amount')?.value || 0);
+    const status        = document.getElementById('clm-status')?.value || 'draft';
+    if (!patient_name || !insurer || !description || !amount) {
+      window._dsToast?.({ title:'Fill required fields', severity:'warn' });
+      return;
+    }
+    try {
+      await api.finance.createClaim({
+        patient_name, insurer, policy_number, description, amount, status,
+      });
+      document.getElementById('fin-new-claim-modal')?.classList.add('ch-hidden');
+      window._financeHubTab = 'insurance';
+      window._nav('finance-hub');
+      window._dsToast?.({ title:'Claim created', body: patient_name + ' — ' + insurer, severity:'success' });
+    } catch (err) {
+      window._dsToast?.({ title:'Create claim failed', body: err?.message || 'Server error', severity:'warn' });
+    }
   };
 }
+
