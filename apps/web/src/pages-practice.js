@@ -9276,19 +9276,92 @@ export async function pgGovernance(setTopbar, _navigate) {
 
   const _escG = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 
+  // ── Real backend loads ────────────────────────────────────────────────────
+  // Each call falls back gracefully so non-admin / non-clinician roles still see
+  // a usable page. Sources: literature (evidence), adverse-events, review-queue,
+  // audit-trail (admin only), registries/governance-rules.
   let evidence = [];
   let aes = [];
-  let approvals = null;
-  let compliance = null;
-  let audit = null;
+  let reviewItems = [];
+  let auditItems = [];
+  let governanceRules = [];
 
-  try { const r = await api.listEvidence?.(); evidence = r?.items || r || []; } catch (_) { evidence = []; }
-  try { const r = await api.listAdverseEvents?.(); aes = r?.items || r || []; } catch (_) { aes = []; }
-  try { approvals = await api.listApprovals?.(); } catch (_) { approvals = null; }
-  try { compliance = await api.complianceScore?.(); } catch (_) { compliance = null; }
-  try { audit = await api.auditLog?.(); } catch (_) { audit = null; }
+  try { const r = await api.listEvidence?.();         evidence = r?.items || r || []; } catch (_) { evidence = []; }
+  try { const r = await api.listAdverseEvents?.();    aes = r?.items || r || []; } catch (_) { aes = []; }
+  try { const r = await api.listReviewQueue?.();      reviewItems = r?.items || r || []; } catch (_) { reviewItems = []; }
+  try { const r = await api.auditTrail?.();           auditItems  = r?.items || r || []; } catch (_) { auditItems  = []; }
+  try { const r = await api.listGovernanceRules?.();  governanceRules = r?.items || r || []; } catch (_) { governanceRules = []; }
 
-  const _complianceScore = compliance?.score ?? 98.4;
+  // Filter state for client-side controls.
+  let _mineOnly  = false;
+  let _majorOnly = false;
+  let _aeFilter  = 'all';   // 'all' | 'open' | 'closed'
+  let _evGrade   = 'all';   // 'all' | 'A' | 'B' | 'C' | 'D'
+  const _myActorId = (typeof window !== 'undefined' && window.currentUser?.id) || null;
+
+  // Build approval pipeline columns from real review-queue items.
+  function _buildPipelineColumns() {
+    const items = reviewItems
+      .filter(it => !_mineOnly || (_myActorId && it.assigned_to === _myActorId))
+      .filter(it => !_majorOnly || (it.severity || '').toLowerCase() === 'major' || (it.priority || '').toLowerCase() === 'major');
+
+    const bucket = (statuses) => items.filter(it => statuses.includes((it.status || 'pending').toLowerCase()));
+    const _itemToCard = (it) => {
+      const sevLow = (it.severity || it.priority || '').toLowerCase();
+      const flag = sevLow === 'major' ? 'maj' : sevLow === 'minor' ? 'min' : 'routine';
+      const owner = it.assigned_to_name || it.assigned_to || '—';
+      const ini = String(owner).split(/\s+/).map(p => p[0] || '').slice(0, 2).join('').toUpperCase() || '··';
+      const signersTotal = it.required_signoffs ?? 3;
+      const signersDone  = it.completed_signoffs ?? (it.status === 'approved' || it.status === 'completed' ? signersTotal : 0);
+      const complete = signersDone >= signersTotal && signersTotal > 0;
+      return {
+        flag,
+        title: it.title || it.target_id || `Review ${it.id || ''}`,
+        tag: [it.target_type, it.id].filter(Boolean).join(' · '),
+        owner, initials: ini,
+        signers: complete ? `${signersDone} / ${signersTotal} ✓` : `${signersDone} / ${signersTotal}`,
+        complete,
+      };
+    };
+
+    return [
+      { key:'draft',     label:'Draft',          accent:'var(--text-tertiary)', cards: bucket(['draft']).map(_itemToCard) },
+      { key:'review',    label:'In review',      accent:'var(--amber)',         cards: bucket(['pending','in_review']).map(_itemToCard) },
+      { key:'signoff',   label:'Sign-off',       accent:'var(--blue)',          cards: bucket(['escalated']).map(_itemToCard) },
+      { key:'published', label:'Published · 30d',accent:'var(--teal)',          cards: bucket(['approved','completed']).map(_itemToCard) },
+    ];
+  }
+
+  // Compute compliance score from real signals (no backend score endpoint).
+  // Weight only the populated buckets — empty buckets must not silently inflate
+  // the score to 100. Returns null when nothing is loaded so the dial can render
+  // an honest "—" instead of a fake number.
+  function _computeCompliance() {
+    const aeTotal  = aes.length;
+    const aeClosed = aes.filter(a => /closed|resolved/i.test(a.status || '')).length;
+    const rqTotal  = reviewItems.length;
+    const rqDone   = reviewItems.filter(r => /approved|completed/i.test(r.status || '')).length;
+    const evTotal  = evidence.length;
+    const evGood   = evidence.filter(e => /^(A|B|Guideline|Systematic Review)/i.test(e.grade || e.evidence_level || '')).length;
+
+    const buckets = [];
+    if (aeTotal) buckets.push({ rate: aeClosed / aeTotal, w: 0.4 });
+    if (rqTotal) buckets.push({ rate: rqDone   / rqTotal, w: 0.4 });
+    if (evTotal) buckets.push({ rate: evGood   / evTotal, w: 0.2 });
+    if (!buckets.length) return null;
+
+    const totalW = buckets.reduce((s, b) => s + b.w, 0);
+    const score  = buckets.reduce((s, b) => s + b.rate * b.w, 0) / totalW * 100;
+    return Math.round(score * 10) / 10;
+  }
+
+  // Synthesised approvals/compliance/audit objects keep the existing render shape.
+  const approvals  = { openCount: reviewItems.filter(r => /pending|in_review|escalated|draft/i.test(r.status || '')).length, columns: _buildPipelineColumns() };
+  const compliance = { score: _computeCompliance() };
+  const audit      = { count: auditItems.length, events: auditItems };
+
+  // null score → show "—" (no real signals); otherwise the computed number.
+  const _complianceScore = (compliance?.score == null) ? null : compliance.score;
   const _auditEvents7d   = audit?.count ?? 2841;
   const _evidenceCount   = Array.isArray(evidence) ? evidence.length : (evidence?.total ?? 214);
   const _openReviews     = approvals?.openCount ?? 11;
@@ -9317,17 +9390,23 @@ export async function pgGovernance(setTopbar, _navigate) {
     ]},
   ];
 
-  const _regChecklist = compliance?.regulatory || [
-    { label: 'HIPAA · BAA coverage', value: '6 / 6', ok: true },
-    { label: 'GDPR · Article 30 registry', value: 'Current', ok: true },
-    { label: 'ISO 13485 · QMS audit', value: 'Q3 due', warn: true },
-    { label: 'FDA 21 CFR 820 · DHF lock', value: 'Verified', ok: true },
-    { label: 'Protocol sign-off currency', value: '100 %', ok: true },
-    { label: 'Clinician certification', value: '97 %', ok: true },
-    { label: 'AE reporting within 24 h', value: '100 %', ok: true },
-    { label: 'Evidence review cycle', value: '92 %', warn: true },
-    { label: 'Next regulator review', value: 'Jun 18', warn: true },
-  ];
+  // Regulatory checklist — sourced from registry-backed governance rules where
+  // available. Falls back to a minimal computed view drawn from real loaded data
+  // so non-admin viewers still see something honest.
+  const _regChecklist = (Array.isArray(governanceRules) && governanceRules.length > 0)
+    ? governanceRules.slice(0, 9).map(g => ({
+        label: g.label || g.name || g.rule_name || g.id || 'Governance rule',
+        value: (g.status || g.review_status || (g.active ? 'Active' : 'Pending')),
+        ok:   /active|verified|current|approved|reviewed/i.test(g.status || g.review_status || (g.active ? 'active' : '')),
+        warn: /due|pending|warn|escalate/i.test(g.status || g.review_status || ''),
+      }))
+    : [
+        { label: 'Adverse events · close rate', value: aes.length ? `${aes.filter(a=>/closed|resolved/i.test(a.status||'')).length} / ${aes.length}` : '0 / 0', ok: true },
+        { label: 'Review queue · completion',   value: reviewItems.length ? `${reviewItems.filter(r=>/approved|completed/i.test(r.status||'')).length} / ${reviewItems.length}` : '0 / 0', ok: true },
+        { label: 'Audit trail visibility',      value: auditItems.length ? 'Active' : 'Restricted', warn: !auditItems.length },
+        { label: 'Evidence ledger size',        value: `${evidence.length} citations`, ok: evidence.length > 0 },
+        { label: 'Governance rules registry',   value: 'Not loaded', warn: true },
+      ];
 
   const _evidenceLedger = (Array.isArray(evidence) && evidence.length > 0)
     ? evidence.slice(0, 6).map((e, i) => ({
@@ -9379,8 +9458,25 @@ export async function pgGovernance(setTopbar, _navigate) {
         { id:'AE-2603-08', title:'Mild dizziness post-ramp-up',             sub:'Alex Huang · SOP-OC-002 · Mar 28',            sev:'mild', state:'Closed',               closed:true },
       ];
 
+  // Normalise real backend AuditEvent ({event_id,target_id,target_type,action,role,note,created_at})
+  // into the {ts, actor, action} shape the line renderer expects.
+  const _normaliseAuditEvent = (e) => {
+    if (!e) return { ts:'—', actor:'system', action:'' };
+    if (e.ts && e.actor && e.action && !e.event_id) return e;
+    let ts = '—';
+    if (e.created_at) {
+      const d = new Date(e.created_at);
+      ts = isNaN(d) ? String(e.created_at) : d.toISOString().slice(11, 19);
+    }
+    const actor = (e.role || 'system').toLowerCase();
+    const targetTxt = [e.target_type, e.target_id].filter(Boolean).join(' · ');
+    const noteTxt   = e.note ? ` — ${_escG(e.note)}` : '';
+    const action    = `${_escG(e.action || 'event')}${targetTxt ? ` · <strong>${_escG(targetTxt)}</strong>` : ''}${noteTxt}`;
+    return { ts, actor, action };
+  };
+
   const _auditLines = (Array.isArray(audit?.events) && audit.events.length > 0)
-    ? audit.events.slice(0, 12)
+    ? audit.events.slice(0, 12).map(_normaliseAuditEvent)
     : [
         { ts:'04:02:18', actor:'system', action:'audit hash verified · chain head <strong>0x8a4f…c219</strong>' },
         { ts:'03:58:41', actor:'AK',     action:'signed protocol <strong>SOP-DP-007 v3.2</strong> · step 2/3' },
@@ -9420,12 +9516,25 @@ export async function pgGovernance(setTopbar, _navigate) {
     </div>`;
   };
 
+  // KPI strip — every line uses real loaded counts; no fabricated breakdowns.
+  const _aeOpen     = aes.filter(a => /open|under|investig|active/i.test(a.status||'') || !/closed|resolved/i.test(a.status||'')).length;
+  const _aeMod      = aes.filter(a => /mod/i.test(a.severity||'')).length;
+  const _aeSev      = aes.filter(a => /severe|sae/i.test(a.severity||'')).length;
+  const _evABreak   = `${_evCounts.A} A · ${_evCounts.B} B · ${_evCounts.C} C · ${_evCounts.D} downgraded`;
+  const _scoreLabel = _complianceScore == null
+    ? `<span style="color:var(--text-tertiary)">—</span>`
+    : `${_complianceScore}<span style="font-size:13px;color:var(--text-tertiary)">%</span>`;
+  const _scoreSub   = _complianceScore == null
+    ? 'No live signals · waiting on AE / review / evidence data'
+    : 'Weighted from AE close-rate, review completion, evidence quality';
+  // Real grade counts from loaded evidence — used by KPI strip and ledger card.
+  const _evCounts = (() => { const c={A:0,B:0,C:0,D:0}; _evidenceLedger.forEach(r=>{ if(c[r.grade]!=null) c[r.grade]++; }); return c; })();
   const _kpiStrip = `<div class="dv2-gv-kpis" style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:16px">
-    ${_kpi('Compliance · 30d', `${_complianceScore}<span style="font-size:13px;color:var(--text-tertiary)">%</span>`, 'All protocols with active sign-off', 'ok')}
-    ${_kpi('Reviews open', _openReviews, '2 drafts · 4 review · 5 sign-off', 'warn')}
-    ${_kpi('Adverse events · QTD', _aesQtd, '0 severe · 1 moderate · 2 mild', 'crit')}
-    ${_kpi('Audit events · 7d', (_auditEvents7d).toLocaleString(), 'Immutable chain · hash verified', 'info')}
-    ${_kpi('Evidence ledger', _evidenceCount, '124 A · 68 B · 18 C · 4 downgraded', 'ok')}
+    ${_kpi('Compliance · live', _scoreLabel, _scoreSub, _complianceScore == null ? 'warn' : 'ok')}
+    ${_kpi('Reviews open', _openReviews, `${reviewItems.length} total in queue`, 'warn')}
+    ${_kpi('Adverse events · live', _aesQtd, `${_aeSev} severe · ${_aeMod} moderate · ${_aeOpen} open`, 'crit')}
+    ${_kpi('Audit events', (_auditEvents7d).toLocaleString(), auditItems.length ? 'live · audit-trail loaded' : 'sample · audit-trail admin-only', 'info')}
+    ${_kpi('Evidence ledger', _evidenceCount, _evABreak, 'ok')}
   </div>`;
 
   const _pcardHtml = (c) => {
@@ -9465,8 +9574,8 @@ export async function pgGovernance(setTopbar, _navigate) {
       <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Protocol approval pipeline</h3>
       <span style="font-size:11px;color:var(--text-tertiary)">Q2 · ${_openReviews} in flight</span>
       <div style="margin-left:auto;display:flex;gap:6px">
-        <button class="btn btn-ghost btn-sm" style="font-size:10.5px">⚑ Major only</button>
-        <button class="btn btn-ghost btn-sm" style="font-size:10.5px">Mine (3)</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px;${_majorOnly?'background:rgba(255,107,157,0.16);color:var(--rose);border-color:var(--rose)':''}" onclick="window._gvToggleMajor?.()">⚑ Major only</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px;${_mineOnly?'background:rgba(0,212,188,0.16);color:var(--teal);border-color:var(--teal)':''}" onclick="window._gvToggleMine?.()">Mine (${reviewItems.filter(r => _myActorId && r.assigned_to === _myActorId).length})</button>
       </div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
@@ -9474,8 +9583,11 @@ export async function pgGovernance(setTopbar, _navigate) {
     </div>
   </div>`;
 
-  const _dialArc = (Math.max(0, Math.min(100, _complianceScore)) / 100) * 385;
+  // When no live signals exist, render a neutral dial with no arc + an em-dash
+  // centre — never invent a fake 100%.
+  const _dialArc    = _complianceScore == null ? 0 : (Math.max(0, Math.min(100, _complianceScore)) / 100) * 385;
   const _dialOffset = (385 - _dialArc).toFixed(1);
+  const _dialCentre = _complianceScore == null ? '—' : String(_complianceScore);
   const _complianceDial = `<div class="dv2-gv-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
       <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Compliance &amp; regulatory</h3>
@@ -9488,7 +9600,7 @@ export async function pgGovernance(setTopbar, _navigate) {
         </linearGradient></defs>
         <circle cx="75" cy="75" r="62" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="12"/>
         <circle cx="75" cy="75" r="62" fill="none" stroke="url(#_gvDialG)" stroke-width="12" stroke-dasharray="385" stroke-dashoffset="${_dialOffset}" stroke-linecap="round" transform="rotate(-90 75 75)"/>
-        <text x="75" y="72" text-anchor="middle" font-size="28" fill="var(--text-primary)" font-weight="600" letter-spacing="-0.02em">${_complianceScore}</text>
+        <text x="75" y="72" text-anchor="middle" font-size="28" fill="var(--text-primary)" font-weight="600" letter-spacing="-0.02em">${_dialCentre}</text>
         <text x="75" y="92" text-anchor="middle" font-size="10" fill="var(--text-tertiary)" font-family="ui-monospace,monospace" letter-spacing="0.06em">COMPLIANCE %</text>
       </svg>
       <div style="display:flex;flex-direction:column;gap:4px;max-height:190px;overflow-y:auto">
@@ -9528,16 +9640,28 @@ export async function pgGovernance(setTopbar, _navigate) {
     </tr>`;
   };
 
+  // _evCounts is hoisted above the KPI strip; see definition near _evidenceLedger.
+  const _evChips = [
+    { key:'all', label:`All ${_evidenceLedger.length}` },
+    { key:'A',   label:`Grade A · ${_evCounts.A}` },
+    { key:'B',   label:`Grade B · ${_evCounts.B}` },
+    { key:'C',   label:`Grade C · ${_evCounts.C}` },
+    { key:'D',   label:`Downgraded · ${_evCounts.D}` },
+  ];
+  const _evidenceFiltered = _evidenceLedger.filter(r => _evGrade === 'all' || r.grade === _evGrade);
+
   const _evidenceLedgerCard = `<div class="dv2-gv-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
       <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Evidence ledger</h3>
-      <span style="font-size:11px;color:var(--text-tertiary)">${_evidenceCount} citations · 4 downgraded · last ingest 2h ago</span>
-      <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:10.5px">⤵ Import DOI</button>
+      <span style="font-size:11px;color:var(--text-tertiary)">${_evidenceCount} citations · ${_evCounts.D} downgraded</span>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:10.5px" onclick="window._nav?.('evidence')">Open evidence library →</button>
     </div>
     <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
-      ${['All 214','Grade A · 124','Grade B · 68','Grade C · 18','Downgraded · 4','New since Mar · 18'].map((l,i) => `
-        <button style="background:${i===0?'rgba(0,212,188,0.16)':'transparent'};border:1px solid ${i===0?'var(--teal)':'var(--border)'};color:${i===0?'var(--teal)':(i===4?'var(--rose)':'var(--text-secondary)')};font-size:10.5px;padding:4px 10px;border-radius:12px;cursor:pointer">${_escG(l)}</button>
-      `).join('')}
+      ${_evChips.map(chip => {
+        const active = _evGrade === chip.key;
+        const downgraded = chip.key === 'D';
+        return `<button onclick="window._gvSetEvGrade?.('${chip.key}')" style="background:${active ? 'rgba(0,212,188,0.16)' : 'transparent'};border:1px solid ${active ? 'var(--teal)' : 'var(--border)'};color:${active ? 'var(--teal)' : (downgraded ? 'var(--rose)' : 'var(--text-secondary)')};font-size:10.5px;padding:4px 10px;border-radius:12px;cursor:pointer">${_escG(chip.label)}</button>`;
+      }).join('')}
     </div>
     <table style="width:100%;border-collapse:collapse">
       <thead><tr style="border-bottom:1px solid var(--border)">
@@ -9546,7 +9670,7 @@ export async function pgGovernance(setTopbar, _navigate) {
         <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;font-weight:600">Confidence · 90d</th>
         <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;font-weight:600">Status</th>
       </tr></thead>
-      <tbody>${_evidenceLedger.map(_ledgerRow).join('')}</tbody>
+      <tbody>${_evidenceFiltered.length ? _evidenceFiltered.map(_ledgerRow).join('') : `<tr><td colspan="4" style="padding:18px 8px;color:var(--text-tertiary);font-size:12px;text-align:center">No citations match this grade.</td></tr>`}</tbody>
     </table>
   </div>`;
 
@@ -9563,17 +9687,49 @@ export async function pgGovernance(setTopbar, _navigate) {
         <span style="font-size:10.5px;color:var(--text-secondary);font-family:var(--dv2-font-mono,ui-monospace,monospace)">${r.load}/${r.cap}</span>
         <div style="width:70px;height:4px;background:var(--bg-surface);border-radius:2px;overflow:hidden"><div style="width:${pct}%;height:100%;background:${barBg}"></div></div>
       </div>
-      <button class="btn btn-ghost btn-sm" style="font-size:10px;color:${r.atCap ? 'var(--amber)' : 'var(--text-secondary)'}">${r.atCap ? '⚑ At cap' : 'Open'}</button>
+      <button class="btn btn-ghost btn-sm" style="font-size:10px;color:${r.atCap ? 'var(--amber)' : 'var(--text-secondary)'}" onclick="window._nav?.('review-queue')">${r.atCap ? '⚑ At cap' : 'Open'}</button>
     </div>`;
   };
+
+  // Reviewer card — sourced from real review-queue assignments where possible.
+  // Falls back to the demo list when the queue carries no assignment data.
+  const _reviewersFromQueue = (() => {
+    const map = new Map();
+    // UUIDs and database ids look noisy in the UI — when we don't have a real
+    // human name from the backend, surface a neutral "Unknown reviewer" label
+    // and a short id suffix so admins can still distinguish two unknowns.
+    const _looksLikeOpaqueId = (s) =>
+      /^[0-9a-f-]{16,}$/i.test(s) || /^\d+$/.test(s) || s.includes('-') && s.length >= 12;
+    for (const it of reviewItems) {
+      const id = it.assigned_to;
+      if (!id) continue;
+      if (!map.has(id)) {
+        const realName = it.assigned_to_name && String(it.assigned_to_name).trim();
+        const idSuffix = String(id).slice(-4);
+        const name = realName
+          ? realName
+          : `Unknown reviewer · #${idSuffix}`;
+        const initials = realName
+          ? realName.split(/\s+/).map(p => p[0] || '').slice(0, 2).join('').toUpperCase() || '··'
+          : '··';
+        const role = realName
+          ? 'Reviewer · live queue'
+          : 'Backend reviewer record missing display name';
+        map.set(id, { name, initials, role, load: 0, cap: 5 });
+      }
+      map.get(id).load++;
+    }
+    return [...map.values()];
+  })();
+  const _reviewersResolved = _reviewersFromQueue.length ? _reviewersFromQueue : _reviewers;
 
   const _reviewerCard = `<div class="dv2-gv-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
       <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Reviewer load</h3>
-      <span style="font-size:11px;color:var(--text-tertiary)">assigned to active reviews</span>
-      <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:10.5px">Rebalance →</button>
+      <span style="font-size:11px;color:var(--text-tertiary)">${_reviewersFromQueue.length ? 'live · from review queue' : 'sample · queue empty'}</span>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:10.5px" onclick="window._nav?.('review-queue')">Open queue →</button>
     </div>
-    <div>${_reviewers.map(_reviewerRow).join('')}</div>
+    <div>${_reviewersResolved.map(_reviewerRow).join('')}</div>
   </div>`;
 
   const _aeRow = (a) => {
@@ -9586,20 +9742,23 @@ export async function pgGovernance(setTopbar, _navigate) {
       </div>
       <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:${pill.bg};color:${pill.c};text-transform:uppercase;letter-spacing:.03em">${_escG(a.sev === 'mod' ? 'Moderate' : a.sev === 'severe' || a.sev === 'sae' ? (a.sev === 'sae' ? 'SAE' : 'Severe') : 'Mild')}</span>
       <span style="font-size:10.5px;color:${a.closed ? 'var(--text-tertiary)' : 'var(--amber)'};white-space:nowrap">${_escG(a.state)}</span>
-      <button class="btn btn-ghost btn-sm" style="font-size:10px">Open →</button>
+      <button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="window._gvOpenAE?.('${_escG(a.id)}')" title="Opens the Adverse Events tab in Monitor (per-id deep-link pending)">Find in log →</button>
     </div>`;
   };
+
+  const _aeFiltered = _aeRows.filter(a => _aeFilter === 'all' ? true : _aeFilter === 'open' ? !a.closed : a.closed);
+  const _aeFilterLabel = _aeFilter === 'all' ? 'Filter · All' : _aeFilter === 'open' ? 'Filter · Open' : 'Filter · Closed';
 
   const _aeCard = `<div class="dv2-gv-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
       <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Adverse event register</h3>
-      <span style="font-size:11px;color:var(--text-tertiary)">QTD · ${_aeRows.filter(x => !x.closed).length} open · ${_aeRows.filter(x => x.closed).length} closed · 0 reportable</span>
+      <span style="font-size:11px;color:var(--text-tertiary)">QTD · ${_aeRows.filter(x => !x.closed).length} open · ${_aeRows.filter(x => x.closed).length} closed</span>
       <div style="margin-left:auto;display:flex;gap:6px">
-        <button class="btn btn-ghost btn-sm" style="font-size:10.5px">Filter · All</button>
-        <button class="btn btn-primary btn-sm" style="font-size:10.5px">+ Log event</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px" onclick="window._gvCycleAEFilter?.()">${_aeFilterLabel}</button>
+        <button class="btn btn-primary btn-sm" style="font-size:10.5px" onclick="window._gvLogAE?.()">+ Log event</button>
       </div>
     </div>
-    <div>${_aeRows.map(_aeRow).join('')}</div>
+    <div>${_aeFiltered.length ? _aeFiltered.map(_aeRow).join('') : `<div style="padding:18px 0;color:var(--text-tertiary);font-size:12px;text-align:center">No events match this filter.</div>`}</div>
   </div>`;
 
   const _eventChip = (type) => {
@@ -9614,11 +9773,15 @@ export async function pgGovernance(setTopbar, _navigate) {
     <span style="color:var(--text-secondary);line-height:1.35">${a.action}</span>
   </div>`;
 
+  const _auditSourceLabel = (Array.isArray(audit?.events) && audit.events.length > 0)
+    ? `live · ${audit.events.length} events`
+    : `sample · audit-trail not loaded (admin-only)`;
+
   const _auditCard = `<div class="dv2-gv-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
       <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Audit log</h3>
-      <span style="font-size:11px;color:var(--text-tertiary)">immutable · last 7 days</span>
-      <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:10.5px">Verify hash</button>
+      <span style="font-size:11px;color:var(--text-tertiary)">${_auditSourceLabel}</span>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:10.5px" onclick="window._gvRefreshAudit?.()">Refresh</button>
     </div>
     <div style="max-height:340px;overflow-y:auto">${_auditLines.map(_auditLine).join('')}</div>
   </div>`;
@@ -9640,10 +9803,57 @@ export async function pgGovernance(setTopbar, _navigate) {
       </div>
     </div>`;
 
-  window._gvExportAudit = async () => {
-    try { await api.exportData?.({ kind: 'audit' }); } catch (_) { /* TODO: wire export */ }
-    alert('Audit export queued.');
-  };
+  // ── Re-render shim: re-invoke pgGovernance with fresh state. ──────────────
+  // The page is single-shot render; for filters we just call the function again
+  // so handlers stay current after each re-render.
+  const _rerender = () => pgGovernance(setTopbar, _navigate);
+
+  // Open Q2 review → real review-queue route.
   window._gvOpenReview = () => { window._nav?.('review-queue'); };
+
+  // Export audit → fetch latest audit-trail JSON and download client-side.
+  // No fake POST. Works as a real on-demand snapshot for admins; warns otherwise.
+  window._gvExportAudit = async () => {
+    let payload = null;
+    try { payload = await api.auditTrail?.(); } catch (_) { payload = null; }
+    if (!payload || !Array.isArray(payload.items)) {
+      window._dsToast?.({ title:'Export unavailable', body:'Audit trail requires admin role.', severity:'warn' });
+      return;
+    }
+    try {
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type:'application/json' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url;
+      a.download = `audit-trail-${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+      window._dsToast?.({ title:'Audit exported', body:`${payload.items.length} events written.`, severity:'ok' });
+    } catch (e) {
+      window._dsToast?.({ title:'Export failed', body: e?.message || 'Unknown error', severity:'warn' });
+    }
+  };
+
+  // Filter toggles + AE actions — all re-render with new state.
+  window._gvToggleMine    = () => { _mineOnly  = !_mineOnly;  _rerender(); };
+  window._gvToggleMajor   = () => { _majorOnly = !_majorOnly; _rerender(); };
+  window._gvSetEvGrade    = (g) => { _evGrade  = g; _rerender(); };
+  window._gvCycleAEFilter = () => {
+    _aeFilter = _aeFilter === 'all' ? 'open' : _aeFilter === 'open' ? 'closed' : 'all';
+    _rerender();
+  };
+  window._gvOpenAE       = (id) => {
+    // Deposit the requested id on the window so any future per-id consumer in
+    // monitor-hub can pick it up. Adverse-events tab does not yet honour this
+    // — the navigation lands the clinician in the right list to find the row.
+    if (id) window._monitorHubAEId = id;
+    window._monitorHubTab = 'adverse';
+    window._nav?.('adverse-events');
+  };
+  window._gvLogAE        = () => {
+    window._monitorHubTab = 'adverse';
+    window._nav?.('adverse-events');
+  };
+  window._gvRefreshAudit = async () => { _rerender(); };
 }
 
