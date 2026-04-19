@@ -9990,7 +9990,63 @@ export async function pgAINoteAssistant(setTopbar) {
     window._aiSessionData = sessions;
   };
 
-  window._aiSelectSession = function(index) {
+  // Hit the real clinician chat endpoint and map the reply into S/O/A/P
+  // buckets. No PHI is logged — the session snippet we pass is the same data
+  // the clinician is already looking at on the page.
+  async function _aiGenerateFromSession(session) {
+    const cond = (session.condition || _aiCondition || 'general').toString();
+    // Keep the transcript minimal and non-PHI (no DOB, no identifiers).
+    const transcript = [
+      `Session modality: ${session.modality || 'Neurofeedback'}`,
+      `Duration: ${session.duration || 30} min`,
+      session.amplitude != null ? `Amplitude: ${session.amplitude}` : '',
+      session.frequency != null ? `Frequency: ${session.frequency} Hz` : '',
+      session.notes ? `Clinician notes: ${session.notes}` : '',
+      session.outcome ? `Outcome observation: ${session.outcome}` : '',
+    ].filter(Boolean).join('\n');
+
+    const prompt = [
+      `Generate a SOAP note draft for a ${cond} treatment session.`,
+      'Respond with exactly four labelled blocks separated by blank lines:',
+      'SUBJECTIVE:',
+      '<text>',
+      '',
+      'OBJECTIVE:',
+      '<text>',
+      '',
+      'ASSESSMENT:',
+      '<text>',
+      '',
+      'PLAN:',
+      '<text>',
+      '',
+      'Session data:',
+      transcript,
+    ].join('\n');
+
+    const result = await api.chatClinician([{ role: 'user', content: prompt }], null);
+    const reply = result?.reply || result?.content || result?.message || '';
+    if (!reply) throw new Error('Empty AI response');
+
+    // Parse the four-block reply. Be tolerant of formatting variations.
+    const grab = (label) => {
+      const re = new RegExp(
+        `${label}\\s*:?[\\s\\n]+([\\s\\S]*?)(?=\\n\\s*(?:SUBJECTIVE|OBJECTIVE|ASSESSMENT|PLAN)\\s*:|$)`,
+        'i',
+      );
+      const m = reply.match(re);
+      return (m ? m[1] : '').trim();
+    };
+    return {
+      S: grab('SUBJECTIVE'),
+      O: grab('OBJECTIVE'),
+      A: grab('ASSESSMENT'),
+      P: grab('PLAN'),
+      _raw: reply,
+    };
+  }
+
+  window._aiSelectSession = async function(index) {
     const sessions = window._aiSessionData || getRecentSessions();
     const session = sessions[index];
     if (!session) return;
@@ -10004,15 +10060,45 @@ export async function pgAINoteAssistant(setTopbar) {
       condSelect.value = cond.toLowerCase();
       _aiCondition = cond.toLowerCase();
     }
-    const filled = generateNoteFromSession(session, _aiCondition);
     const nameEl = document.getElementById('ai-patient-name');
     if (nameEl && session.patientName) nameEl.value = session.patientName;
-    const ta_S = document.getElementById('ai-soap-S'); if (ta_S) ta_S.value = filled.S;
-    const ta_O = document.getElementById('ai-soap-O'); if (ta_O) ta_O.value = filled.O;
-    const ta_A = document.getElementById('ai-soap-A'); if (ta_A) ta_A.value = filled.A;
-    const ta_P = document.getElementById('ai-soap-P'); if (ta_P) ta_P.value = filled.P;
+
+    // Show a live status in the quality report panel while the real AI runs.
+    const panel = document.getElementById('ai-quality-report');
+    if (panel) panel.innerHTML = '<div style="color:var(--text-secondary);font-size:0.82rem">Generating SOAP draft…</div>';
+
+    let filled = null;
+    let usedAI = false;
+    try {
+      filled = await _aiGenerateFromSession(session);
+      // Require at least two of the four sections to be populated before we
+      // treat the reply as a usable draft.
+      const hits = ['S','O','A','P'].filter(k => (filled[k] || '').length > 8).length;
+      if (hits < 2) throw new Error('AI reply did not follow SOAP format');
+      usedAI = true;
+    } catch (err) {
+      // Deterministic template fallback — labelled honestly so the clinician
+      // knows this did NOT come from the AI service.
+      filled = generateNoteFromSession(session, _aiCondition);
+      window._showNotifToast?.({
+        title: 'Template draft used',
+        body: 'AI service unavailable — inserted a template starter. Edit before saving.',
+        severity: 'warning',
+      });
+    }
+
+    const ta_S = document.getElementById('ai-soap-S'); if (ta_S) ta_S.value = filled.S || '';
+    const ta_O = document.getElementById('ai-soap-O'); if (ta_O) ta_O.value = filled.O || '';
+    const ta_A = document.getElementById('ai-soap-A'); if (ta_A) ta_A.value = filled.A || '';
+    const ta_P = document.getElementById('ai-soap-P'); if (ta_P) ta_P.value = filled.P || '';
     runLiveQualityCheck();
-    window._showNotifToast?.({ title: 'Note Generated', body: `Pre-filled from session: ${session.patientName}`, severity: 'success' });
+    if (usedAI) {
+      window._showNotifToast?.({
+        title: 'AI Draft Generated',
+        body: `SOAP draft generated from session. Review before saving.`,
+        severity: 'success',
+      });
+    }
   };
 
   window._aiSuggestPhrase = function(section) {
@@ -10125,11 +10211,11 @@ export async function pgAINoteAssistant(setTopbar) {
     window._showNotifToast?.({ title: 'Tip', body: `Search for "${term}" in the ${sectionId} section and apply the suggested wording.`, severity: 'info' });
   };
 
-  window._aiQuickGenerate = function() {
+  window._aiQuickGenerate = async function() {
     const sessions = getRecentSessions();
     if (sessions.length === 0) return;
     window._aiSessionData = sessions;
-    window._aiSelectSession(0);
+    await window._aiSelectSession(0);
   };
 
   // Close suggestion dropdowns on outside click
