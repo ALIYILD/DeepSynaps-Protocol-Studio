@@ -409,6 +409,17 @@ export async function pgProtocolDetail(setTopbar, navigate) {
             <ul class="prot-detail-list prot-ref-list">${(proto.references||[]).map(r=>`<li>${_esc(r)}</li>`).join('')}</ul>
           </div>` : ''}
 
+          <div class="prot-detail-card" id="prot-recent-lit-card">
+            <div class="prot-detail-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+              <span>\uD83D\uDCC4 Recent literature (last 30 days)</span>
+              <span style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-tertiary);font-weight:400">
+                <span id="prot-lit-last-seen"></span>
+                <button class="ch-btn-sm" id="prot-lit-refresh-btn" style="font-size:11px">\u21BB Refresh (PubMed)</button>
+              </span>
+            </div>
+            <div id="prot-recent-lit-body" style="font-size:12px;color:var(--text-secondary);padding:8px 0">Loading\u2026</div>
+          </div>
+
           ${proto.tags?.length ? `
           <div class="prot-detail-card">
             <div class="prot-detail-card-title">Tags</div>
@@ -424,6 +435,76 @@ export async function pgProtocolDetail(setTopbar, navigate) {
     window._protDetailId = id;
     window._nav('protocol-builder');
   };
+
+  // ── Recent literature (last 30 days) — populated post-render ─────────────
+  const _renderLit = (data) => {
+    const body = document.getElementById('prot-recent-lit-body');
+    const lastSeenEl = document.getElementById('prot-lit-last-seen');
+    if (!body) return;
+    const entry = data?.by_protocol?.[proto.id];
+    if (!entry || !entry.top_papers?.length) {
+      body.innerHTML = '<div style="color:var(--text-tertiary);padding:6px 0">No new literature in the last 30 days. Click <b>\u21BB Refresh</b> to check now.</div>';
+      if (lastSeenEl && data?.generated_at) lastSeenEl.textContent = 'Snapshot: ' + new Date(data.generated_at).toLocaleDateString();
+      return;
+    }
+    if (lastSeenEl) lastSeenEl.textContent = (entry.new_count_30d || 0) + ' new \u00B7 last seen ' + (entry.last_seen || '\u2014');
+    body.innerHTML = entry.top_papers.map(p => {
+      const authors = (p.authors || '').split(/[,;]/).map(s=>s.trim()).filter(Boolean);
+      const authorStr = authors.length > 3 ? authors.slice(0,3).join(', ') + ' et al' : authors.join(', ');
+      const title = (p.title || '(untitled)').length > 140 ? p.title.slice(0,140) + '\u2026' : (p.title || '(untitled)');
+      const pmidLink = p.pmid ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${_esc(p.pmid)}/" target="_blank" rel="noopener" style="color:var(--blue);font-size:11px;text-decoration:none">View on PubMed \u2197</a>` : '';
+      return `
+        <div style="padding:8px 0;border-bottom:1px solid var(--border)">
+          <div style="font-weight:500;color:var(--text-primary);line-height:1.3">${_esc(title)}</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${_esc(authorStr)}${p.year ? ' \u00B7 ' + _esc(String(p.year)) : ''}${p.journal ? ' \u00B7 ' + _esc(p.journal) : ''}</div>
+          <div style="margin-top:4px">${pmidLink}</div>
+        </div>`;
+    }).join('');
+  };
+  const _loadLit = () => {
+    if (window._litWatchData) { _renderLit(window._litWatchData); return; }
+    fetch('/literature-watch.json').then(r => r.ok ? r.json() : null).then(d => {
+      if (d) window._litWatchData = d;
+      _renderLit(d);
+    }).catch(() => _renderLit(null));
+  };
+  setTimeout(_loadLit, 0);
+
+  // ── Refresh button — POST to refresh API + reload snapshot ──────────────
+  const _refreshBtn = document.getElementById('prot-lit-refresh-btn');
+  if (_refreshBtn) {
+    _refreshBtn.onclick = async () => {
+      _refreshBtn.disabled = true;
+      _refreshBtn.textContent = '\u21BB Refreshing\u2026';
+      try {
+        const res = await fetch(`/api/v1/protocols/${encodeURIComponent(proto.id)}/refresh-literature`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source: 'pubmed', requested_by: 'ui-clinician' }),
+        });
+        if (res.ok) {
+          const job = await res.json();
+          // Poll for completion (max 30s)
+          for (let i = 0; i < 15; i++) {
+            await new Promise(r => setTimeout(r, 2000));
+            const jobsRes = await fetch(`/api/v1/protocols/${encodeURIComponent(proto.id)}/refresh-literature/jobs`);
+            if (!jobsRes.ok) break;
+            const jobs = await jobsRes.json();
+            const me = jobs.find?.(j => j.id === job.job_id) || jobs[0];
+            if (me && (me.status === 'succeeded' || me.status === 'failed' || me.status === 'rate_limited')) {
+              window._litWatchData = null; // bust cache
+              _loadLit();
+              break;
+            }
+          }
+        } else if (res.status === 402) {
+          alert('Monthly literature budget exceeded. Refresh refused.');
+        }
+      } catch (e) { console.warn('refresh failed', e); }
+      _refreshBtn.disabled = false;
+      _refreshBtn.textContent = '\u21BB Refresh (PubMed)';
+    };
+  }
 }
 
 // =============================================================================
