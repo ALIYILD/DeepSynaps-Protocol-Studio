@@ -4759,7 +4759,6 @@ export async function pgReportsHubNew(setTopbar, navigate) {
             <div class="ch-form-group"><label class="ch-label">Additional Context (optional)</label><textarea id="rep-context" class="ch-textarea" rows="3" placeholder="Any specific details to include in the report…"></textarea></div>
             <div style="display:flex;gap:8px">
               <button class="btn btn-primary" onclick="window._genReport()">✦ Generate Report</button>
-              <button class="btn" onclick="window._dsToast?.({title:'Preview',body:'Template preview coming soon.',severity:'info'})">Preview Template</button>
             </div>
           </div>
           <div id="rep-output" style="display:none;padding:0 16px 16px">
@@ -4768,7 +4767,6 @@ export async function pgReportsHubNew(setTopbar, navigate) {
             <div style="display:flex;gap:8px;margin-top:10px">
               <button class="ch-btn-sm ch-btn-teal" onclick="window._saveReport()">Save to Records</button>
               <button class="ch-btn-sm" onclick="window.print()">Print</button>
-              <button class="ch-btn-sm" onclick="window._dsToast?.({title:'Exported',body:'PDF export coming soon.',severity:'info'})">Export PDF</button>
             </div>
           </div>
         </div>
@@ -4827,90 +4825,292 @@ export async function pgReportsHubNew(setTopbar, navigate) {
             '<div class="book-datetime"><div class="book-date">'+r.date+'</div><div class="book-time">'+r.type+'</div></div>'+
             '<div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+r.patient+'</div></div>'+
             '<div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[r.status]||'var(--teal)')+';background:'+(stC[r.status]||'var(--teal)')+'22">'+r.status+'</span></div>'+
-            '<div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'View\',body:\''+r.name+'\',severity:\'info\'})">View</button><button class="ch-btn-sm" onclick="window.print()">Print</button></div>'+
+            '<div class="book-actions"><button class="ch-btn-sm" onclick="window._repViewSaved(\''+r.id+'\')">View</button><button class="ch-btn-sm" onclick="window._repPrintSaved(\''+r.id+'\')">Print</button></div>'+
           '</div>'
         ).join('') : '<div class="ch-empty">No reports yet. <a onclick="window._reportsHubTab=\'generate\';window._nav(\'reports-hub\')" style="color:var(--teal);cursor:pointer">Generate one now →</a></div>'}
       </div>`;
+
+    // Open a saved report in a real modal with its stored content.
+    window._repViewSaved = (id) => {
+      const r = loadReports().find(x => x.id === id);
+      if (!r) { window._dsToast?.({ title:'Not found', body:'Report not in local records.', severity:'warn' }); return; }
+      const ov = document.createElement('div');
+      ov.className = 'rh-modal-overlay';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:1000;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 16px';
+      const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      ov.innerHTML = '<div style="background:var(--bg-card,#0e1628);border:1px solid var(--border);border-radius:12px;width:100%;max-width:680px;padding:20px 24px;max-height:90vh;overflow-y:auto">'
+        + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">'
+          + '<div style="flex:1;min-width:0">'
+            + '<div style="font-size:14px;font-weight:700;color:var(--text-primary)">' + esc(r.name) + '</div>'
+            + '<div style="font-size:11.5px;color:var(--text-tertiary);margin-top:2px">' + esc(r.type) + ' &middot; ' + esc(r.patient) + ' &middot; ' + esc(r.date) + '</div>'
+          + '</div>'
+          + '<button class="ch-btn-sm" onclick="this.closest(\'.rh-modal-overlay\').remove()" style="padding:4px 10px">Close</button>'
+        + '</div>'
+        + '<pre style="white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.7;color:var(--text-secondary);background:rgba(255,255,255,0.02);padding:14px 16px;border-radius:8px;border:1px solid var(--border);margin:0">'
+          + esc(r.content || '(No content stored for this report.)')
+        + '</pre>'
+        + '</div>';
+      ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
+      document.body.appendChild(ov);
+    };
+
+    // Print a saved report by rendering its content into a transient print window.
+    window._repPrintSaved = (id) => {
+      const r = loadReports().find(x => x.id === id);
+      if (!r) { window._dsToast?.({ title:'Not found', body:'Report not in local records.', severity:'warn' }); return; }
+      const w = window.open('', '_blank', 'width=800,height=600');
+      if (!w) { window.print(); return; }
+      const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>' + esc(r.name) + '</title>'
+        + '<style>body{font-family:system-ui,-apple-system,sans-serif;font-size:12px;color:#111;padding:32px;line-height:1.55}h1{font-size:16px;margin:0 0 4px}h2{font-size:13px;color:#555;margin:0 0 16px;font-weight:500}pre{white-space:pre-wrap;font-family:inherit;font-size:12px;line-height:1.6}</style>'
+        + '</head><body>'
+        + '<h1>' + esc(r.name) + '</h1>'
+        + '<h2>' + esc(r.type) + ' &middot; ' + esc(r.patient) + ' &middot; ' + esc(r.date) + '</h2>'
+        + '<pre>' + esc(r.content || '') + '</pre>'
+        + '</body></html>');
+      w.document.close();
+      w.focus();
+      setTimeout(() => { try { w.print(); } catch {} }, 200);
+    };
   }
   else if (tab === 'analytics') {
-    let outcomes = [], courses = [];
+    // Real sources (all clinician-scoped server-side):
+    //   aggregateOutcomes() → responder_rate_pct, avg_phq9_drop,
+    //     assessment_completion_pct, assessments_overdue_count, responders,
+    //     courses_with_outcomes
+    //   listCourses() → active/completed counts + per-condition distribution
+    //   finance.summary() → revenue_paid, outstanding, overdue
+    //   finance.monthlyAnalytics(6) → 6-month revenue trend
+    let agg = {}, courses = [], fin = null, monthly = [];
     try {
-      const [oR,cR] = await Promise.all([
-        (api.listOutcomes?api.listOutcomes():Promise.resolve({items:[]})).catch(()=>({items:[]})),
-        (api.listCourses?api.listCourses({}):Promise.resolve({items:[]})).catch(()=>({items:[]})),
+      const [aR, cR, fR, mR] = await Promise.allSettled([
+        api.aggregateOutcomes ? api.aggregateOutcomes() : Promise.resolve(null),
+        api.listCourses       ? api.listCourses({})    : Promise.resolve(null),
+        api.finance?.summary  ? api.finance.summary()   : Promise.resolve(null),
+        api.finance?.monthlyAnalytics ? api.finance.monthlyAnalytics(6) : Promise.resolve(null),
       ]);
-      outcomes=oR?.items||[]; courses=cR?.items||[];
+      agg     = aR.status === 'fulfilled' ? (aR.value || {}) : {};
+      courses = cR.status === 'fulfilled' ? (cR.value?.items || cR.value || []) : [];
+      fin     = fR.status === 'fulfilled' ? (fR.value || null) : null;
+      monthly = mR.status === 'fulfilled' ? (mR.value?.items || mR.value || []) : [];
     } catch {}
-    const active=courses.filter(c=>c.status==='active').length||8;
-    const completed=courses.filter(c=>c.status==='completed').length||12;
+
+    const active    = courses.filter(c => c.status === 'active').length;
+    const completed = courses.filter(c => c.status === 'completed').length;
+    const respRate  = agg.responder_rate_pct != null ? Math.round(agg.responder_rate_pct) + '%' : '—';
+    const phqDrop   = agg.avg_phq9_drop != null
+      ? (agg.avg_phq9_drop > 0 ? '−' : '+') + Math.abs(Math.round(agg.avg_phq9_drop * 10) / 10)
+      : '—';
+
+    // Per-condition distribution derived from real courses. Empty if no
+    // completed/active courses carry a condition_slug.
+    const condCounts = {};
+    courses.forEach(c => {
+      const k = (c.condition_slug || c.condition || '').toLowerCase();
+      if (!k) return;
+      condCounts[k] = (condCounts[k] || 0) + 1;
+    });
+    const condRows = Object.entries(condCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([slug, n]) => ({
+        label: slug.replace(/-/g, ' ').replace(/\b\w/g, s => s.toUpperCase()),
+        n,
+        pct: courses.length ? Math.round(n / courses.length * 100) : 0,
+      }));
+
+    // Monthly chart: prefer finance monthly revenue (real); fall back to
+    // course-started-by-month from listCourses if finance is empty/unavailable.
+    let chartTitle = 'Monthly Revenue';
+    let chartRows = monthly.map(r => ({
+      label: (r.month || '').slice(5),
+      value: Number(r.revenue || 0),
+      caption: '£' + Number(r.revenue || 0).toLocaleString('en-GB'),
+    }));
+    if (!chartRows.length) {
+      chartTitle = 'Courses Started (last 6 months)';
+      const byMonth = {};
+      courses.forEach(c => {
+        const d = (c.started_at || c.created_at || '').slice(0, 7);
+        if (!d) return;
+        byMonth[d] = (byMonth[d] || 0) + 1;
+      });
+      const keys = Object.keys(byMonth).sort().slice(-6);
+      chartRows = keys.map(k => ({ label: k.slice(5), value: byMonth[k], caption: String(byMonth[k]) }));
+    }
+    const maxVal = Math.max(1, ...chartRows.map(r => r.value));
+
+    const fmtGBP = n => '£' + Number(n || 0).toLocaleString('en-GB', { maximumFractionDigits: 0 });
+    const financeCard = fin ? `
+      <div class="ch-card" style="margin-top:12px">
+        <div class="ch-card-hd"><span class="ch-card-title">Finance Summary</span>
+          <button class="ch-btn-sm" onclick="window._nav('finance-hub')">Open Finance →</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:14px 16px">
+          <div><div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.6px">Revenue paid</div><div style="font-size:18px;font-weight:700;color:var(--green,#4ade80);margin-top:4px">${fmtGBP(fin.revenue_paid)}</div></div>
+          <div><div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.6px">Outstanding</div><div style="font-size:18px;font-weight:700;color:var(--amber,#ffb547);margin-top:4px">${fmtGBP(fin.outstanding)}</div></div>
+          <div><div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.6px">Overdue</div><div style="font-size:18px;font-weight:700;color:var(--red,#ef4444);margin-top:4px">${fmtGBP(fin.overdue)}</div></div>
+        </div>
+      </div>` : '';
+
     main = `
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-        <div class="ch-kpi-card dv2-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val dv2-kpi-val">67%</div><div class="ch-kpi-label dv2-kpi-label">Responder Rate</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">−7</div><div class="ch-kpi-label">Mean PHQ-9 Δ</div></div>
+        <div class="ch-kpi-card dv2-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val dv2-kpi-val">${respRate}</div><div class="ch-kpi-label dv2-kpi-label">Responder Rate</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${phqDrop}</div><div class="ch-kpi-label">Mean PHQ-9 Δ</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${active}</div><div class="ch-kpi-label">Active Courses</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--violet)"><div class="ch-kpi-val">${completed}</div><div class="ch-kpi-label">Completed</div></div>
       </div>
+      <div class="ch-kpi-strip" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${agg.courses_with_outcomes != null ? agg.courses_with_outcomes : '—'}</div><div class="ch-kpi-label">Courses with outcomes</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${agg.assessment_completion_pct != null ? Math.round(agg.assessment_completion_pct) + '%' : '—'}</div><div class="ch-kpi-label">Assessment completion</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:${agg.assessments_overdue_count > 0 ? 'var(--amber)' : 'var(--green)'}"><div class="ch-kpi-val">${agg.assessments_overdue_count != null ? agg.assessments_overdue_count : '—'}</div><div class="ch-kpi-label">Assessments overdue</div></div>
+      </div>
       <div class="ch-two-col">
         <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Outcomes by Condition</span></div>
-          ${[['MDD','TMS',67,'var(--teal)'],['GAD','Neurofeedback',58,'var(--blue)'],['PTSD','tDCS',62,'var(--violet)'],['OCD','Deep TMS',71,'var(--amber)']].map(([cond,mod,rate,c])=>
+          <div class="ch-card-hd"><span class="ch-card-title">Courses by Condition</span><span style="font-size:11px;color:var(--text-tertiary)">${courses.length} total</span></div>
+          ${condRows.length ? condRows.map(r =>
             '<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
-              '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:var(--text-primary)">'+cond+'</div><div style="font-size:11px;color:var(--text-tertiary)">'+mod+'</div></div>'+
-              '<div class="ch-prog-wrap" style="min-width:120px"><div class="ch-prog-bar" style="width:100px"><div class="ch-prog-fill" style="width:'+rate+'%"></div></div><span class="ch-prog-pct" style="color:'+c+';font-weight:700">'+rate+'%</span></div>'+
+              '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:var(--text-primary)">'+r.label+'</div><div style="font-size:11px;color:var(--text-tertiary)">'+r.n+' course'+(r.n===1?'':'s')+'</div></div>'+
+              '<div class="ch-prog-wrap" style="min-width:120px"><div class="ch-prog-bar" style="width:100px"><div class="ch-prog-fill" style="width:'+r.pct+'%"></div></div><span class="ch-prog-pct" style="color:var(--teal);font-weight:700">'+r.pct+'%</span></div>'+
             '</div>'
-          ).join('')}
+          ).join('') : '<div class="ch-empty" style="padding:18px 16px">No course data yet. Condition distribution will appear once courses are recorded.</div>'}
         </div>
         <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Monthly Trend</span><button class="ch-btn-sm ch-btn-teal" onclick="window._genMonthlyReport()">✦ Generate Monthly Report</button></div>
-          ${[['Jan','62%'],['Feb','65%'],['Mar','64%'],['Apr','67%']].map(([m,r])=>
+          <div class="ch-card-hd"><span class="ch-card-title">${chartTitle}</span></div>
+          ${chartRows.length ? chartRows.map(r =>
             '<div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
-              '<div style="font-size:13px;font-weight:600;color:var(--text-primary);width:40px">'+m+'</div>'+
-              '<div class="ch-prog-bar" style="flex:1"><div class="ch-prog-fill" style="width:'+r+'"></div></div>'+
-              '<span style="font-size:13px;font-weight:700;color:var(--teal);width:40px;text-align:right">'+r+'</span>'+
+              '<div style="font-size:13px;font-weight:600;color:var(--text-primary);width:48px">'+r.label+'</div>'+
+              '<div class="ch-prog-bar" style="flex:1"><div class="ch-prog-fill" style="width:'+Math.round(r.value/maxVal*100)+'%"></div></div>'+
+              '<span style="font-size:12.5px;font-weight:700;color:var(--teal);min-width:66px;text-align:right">'+r.caption+'</span>'+
             '</div>'
-          ).join('')}
+          ).join('') : '<div class="ch-empty" style="padding:18px 16px">No trend data yet.</div>'}
         </div>
-      </div>`;
-
-    window._genMonthlyReport = async () => {
-      const rpts = loadReports();
-      rpts.unshift({ id:'RPT-'+Date.now(), name:'Monthly Outcomes Summary — '+new Date().toLocaleDateString('en-GB',{month:'long',year:'numeric'}), patient:'All Patients', type:'Monthly Analytics', date:new Date().toISOString().slice(0,10), status:'generated', content:'' });
-      saveReports(rpts);
-      window._dsToast?.({title:'Monthly report generated',body:'Saved to Recent Reports.',severity:'success'});
-      window._reportsHubTab='recent'; window._nav('reports-hub');
-    };
+      </div>
+      ${financeCard}`;
   }
   else if (tab === 'export') {
-    const formats = [
-      { id:'pdf',   icon:'📄', name:'PDF Report',         desc:'Formatted clinical report — printable' },
-      { id:'csv',   icon:'📊', name:'CSV Data Export',    desc:'Raw data for analysis in Excel or R' },
-      { id:'fhir',  icon:'🏥', name:'HL7 FHIR Export',    desc:'Structured clinical data for EHR systems' },
-      { id:'json',  icon:'⚙',  name:'JSON Data Dump',     desc:'Complete data export for migration or backup' },
-    ];
+    const fromDefault = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    const toDefault   = new Date().toISOString().slice(0, 10);
     main = `
       <div class="ch-two-col">
         <div class="ch-card">
           <div class="ch-card-hd"><span class="ch-card-title">Export Reports</span></div>
-          <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
-            <div class="ch-form-group"><label class="ch-label">Date Range</label>
+          <div style="padding:14px 16px;display:flex;flex-direction:column;gap:14px">
+            <div class="ch-form-group"><label class="ch-label">Date range</label>
               <div style="display:flex;gap:8px">
-                <input type="date" class="ch-select" style="flex:1" value="${new Date(Date.now()-30*86400000).toISOString().slice(0,10)}">
+                <input id="rep-exp-from" type="date" class="ch-select" style="flex:1" value="${fromDefault}">
                 <span style="align-self:center;color:var(--text-tertiary)">to</span>
-                <input type="date" class="ch-select" style="flex:1" value="${new Date().toISOString().slice(0,10)}">
+                <input id="rep-exp-to"   type="date" class="ch-select" style="flex:1" value="${toDefault}">
               </div>
             </div>
-            <div class="ch-form-group"><label class="ch-label">Export Format</label>
+            <div class="ch-form-group"><label class="ch-label">Data source</label>
+              <select id="rep-exp-source" class="ch-select ch-select--full">
+                <option value="outcomes">Outcome scores (per-patient)</option>
+                <option value="courses">Treatment courses</option>
+                <option value="reports">Saved reports (local)</option>
+              </select>
+            </div>
+            <div class="ch-form-group"><label class="ch-label">Export format</label>
               <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
-                ${formats.map(f=>'<div class="lib-card" style="cursor:pointer" onclick="window._dsToast?.({title:\'Export: '+f.name+'\',body:\''+f.desc+'. Download starting…\',severity:\'info\'})" ><div class="lib-card-top"><span style="font-size:18px">'+f.icon+'</span><span class="lib-card-name">'+f.name+'</span></div><div style="font-size:11.5px;color:var(--text-tertiary)">'+f.desc+'</div></div>').join('')}
+                <div class="lib-card" style="cursor:pointer" onclick="window._repExportCsv()">
+                  <div class="lib-card-top"><span style="font-size:18px">📊</span><span class="lib-card-name">CSV Data Export</span></div>
+                  <div style="font-size:11.5px;color:var(--text-tertiary)">Raw rows for analysis in Excel, R, or SPSS. Downloads immediately.</div>
+                </div>
+                <div class="lib-card" style="opacity:0.55;cursor:not-allowed" title="Not yet available">
+                  <div class="lib-card-top"><span style="font-size:18px">📄</span><span class="lib-card-name">PDF Report</span><span style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(255,181,71,0.12);color:var(--amber,#ffb547);border:1px solid rgba(255,181,71,0.3)">Not available</span></div>
+                  <div style="font-size:11.5px;color:var(--text-tertiary)">Formatted clinical report. Use the in-browser Print dialog from the Generate tab for now.</div>
+                </div>
+                <div class="lib-card" style="opacity:0.55;cursor:not-allowed" title="Not yet available">
+                  <div class="lib-card-top"><span style="font-size:18px">🏥</span><span class="lib-card-name">HL7 FHIR Export</span><span style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(255,181,71,0.12);color:var(--amber,#ffb547);border:1px solid rgba(255,181,71,0.3)">Not available</span></div>
+                  <div style="font-size:11.5px;color:var(--text-tertiary)">Structured clinical data for EHR systems.</div>
+                </div>
+                <div class="lib-card" style="opacity:0.55;cursor:not-allowed" title="Not yet available">
+                  <div class="lib-card-top"><span style="font-size:18px">⚙</span><span class="lib-card-name">JSON Data Dump</span><span style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(255,181,71,0.12);color:var(--amber,#ffb547);border:1px solid rgba(255,181,71,0.3)">Not available</span></div>
+                  <div style="font-size:11.5px;color:var(--text-tertiary)">Complete migration/backup export.</div>
+                </div>
               </div>
             </div>
           </div>
         </div>
         <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Export History</span></div>
-          <div class="ch-empty">No exports yet. Configure options and click an export format.</div>
+          <div class="ch-card-hd"><span class="ch-card-title">About CSV export</span></div>
+          <div style="padding:14px 16px;font-size:12.5px;color:var(--text-secondary);line-height:1.65">
+            <p style="margin:0 0 10px"><strong style="color:var(--text-primary)">Outcome scores</strong> — one row per recorded assessment (patient id, template, score, date, measurement point). Source: <code style="font-size:11px;padding:1px 5px;background:rgba(255,255,255,0.05);border-radius:4px">/api/v1/outcomes</code>.</p>
+            <p style="margin:0 0 10px"><strong style="color:var(--text-primary)">Treatment courses</strong> — one row per course (patient id, condition, modality, status, progress). Source: <code style="font-size:11px;padding:1px 5px;background:rgba(255,255,255,0.05);border-radius:4px">/api/v1/treatment-courses</code>.</p>
+            <p style="margin:0"><strong style="color:var(--text-primary)">Saved reports</strong> — reports you have generated and saved locally in this browser.</p>
+          </div>
         </div>
       </div>`;
+
+    // Real CSV exporter. Pulls live data from the selected source, filters by
+    // the date range, and downloads a CSV named with the range. No toast-only
+    // pretend-export — if the endpoint fails the user sees the real error.
+    window._repExportCsv = async () => {
+      const from    = document.getElementById('rep-exp-from')?.value || '';
+      const to      = document.getElementById('rep-exp-to')?.value   || '';
+      const source  = document.getElementById('rep-exp-source')?.value || 'outcomes';
+      const fromD   = from ? new Date(from + 'T00:00:00') : null;
+      const toD     = to   ? new Date(to   + 'T23:59:59') : null;
+      let rows = [], header = [];
+      try {
+        if (source === 'outcomes') {
+          const res = await api.listOutcomes();
+          const items = res?.items || res || [];
+          header = ['id', 'patient_id', 'course_id', 'template_id', 'score_numeric', 'measurement_point', 'administered_at'];
+          rows = items
+            .filter(r => {
+              const d = r.administered_at ? new Date(r.administered_at) : null;
+              if (!d) return true;
+              if (fromD && d < fromD) return false;
+              if (toD   && d > toD)   return false;
+              return true;
+            })
+            .map(r => header.map(k => r[k] == null ? '' : String(r[k])));
+        } else if (source === 'courses') {
+          const res = await api.listCourses({});
+          const items = res?.items || res || [];
+          header = ['id', 'patient_id', 'condition_slug', 'modality_slug', 'status', 'sessions_delivered', 'planned_sessions_total', 'created_at'];
+          rows = items
+            .filter(c => {
+              const d = c.created_at ? new Date(c.created_at) : null;
+              if (!d) return true;
+              if (fromD && d < fromD) return false;
+              if (toD   && d > toD)   return false;
+              return true;
+            })
+            .map(c => header.map(k => c[k] == null ? '' : String(c[k])));
+        } else {
+          header = ['id', 'name', 'patient', 'type', 'date', 'status'];
+          rows = loadReports()
+            .filter(r => {
+              if (!r.date) return true;
+              if (fromD && r.date < from) return false;
+              if (toD   && r.date > to)   return false;
+              return true;
+            })
+            .map(r => header.map(k => r[k] == null ? '' : String(r[k])));
+        }
+      } catch (err) {
+        window._dsToast?.({ title: 'Export failed', body: (err && err.message) || 'Network error', severity: 'critical' });
+        return;
+      }
+      if (!rows.length) {
+        window._dsToast?.({ title: 'No rows', body: 'No data in the selected range.', severity: 'warn' });
+        return;
+      }
+      const quote = s => /[,"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      const csv = [header.join(','), ...rows.map(r => r.map(quote).join(','))].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = 'reports-' + source + '-' + (from || 'all') + '_to_' + (to || 'now') + '.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      window._dsToast?.({ title: 'Export ready', body: rows.length + ' rows downloaded.', severity: 'success' });
+    };
   }
 
   el.innerHTML = `<div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px"><div class="ch-shell"><div class="ch-tab-bar">${tabBar()}</div><div class="ch-body">${main}</div></div></div>`;
