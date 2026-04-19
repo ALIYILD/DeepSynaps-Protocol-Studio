@@ -1871,6 +1871,29 @@ export async function pgPatientSessions() {
 
 
 export async function pgPatientCourse() {
+  // Wrap the whole render so any throw surfaces as a visible error instead
+  // of leaving the patient staring at a stuck spinner.
+  try {
+    return await _pgPatientCourseImpl();
+  } catch (err) {
+    console.error('[pgPatientCourse] render failed:', err);
+    const el = document.getElementById('patient-content');
+    if (el) {
+      el.innerHTML = `
+        <div class="pt-portal-empty">
+          <div class="pt-portal-empty-ico" aria-hidden="true">&#9888;</div>
+          <div class="pt-portal-empty-title">We couldn't load your Treatment Plan</div>
+          <div class="pt-portal-empty-body">Something went wrong on our end. Please refresh the page, or message your care team if this keeps happening.</div>
+          <div style="display:flex;gap:10px;justify-content:center;margin-top:16px;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" onclick="window.location.reload()">Refresh</button>
+            <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">Message care team</button>
+          </div>
+        </div>`;
+    }
+  }
+}
+
+async function _pgPatientCourseImpl() {
   setTopbar('Treatment Plan');
   const user = currentUser;
   const uid  = user?.patient_id || user?.id;
@@ -1933,21 +1956,36 @@ export async function pgPatientCourse() {
   };
 
   // ── Data loading ─────────────────────────────────────────────────────────
+  // Every endpoint is wrapped in .catch() so a dead/slow Fly backend never
+  // rejects the Promise.all — worst case each promise resolves to null.
+  // `api.patientOutcomes?.()` guards against the legacy method name not
+  // existing on the bundled api object; the ?.() result is `undefined` in
+  // that case, so fall back to `Promise.resolve(null)` before chaining .catch.
   const [coursesRaw, sessionsRaw, outcomesRaw] = await Promise.all([
     api.patientPortalCourses().catch(() => null),
     api.patientPortalSessions().catch(() => null),
-    api.patientOutcomes?.().catch(() => null),
+    (api.patientOutcomes?.() || Promise.resolve(null)).catch(() => null),
   ]);
 
   const coursesArr  = Array.isArray(coursesRaw)  ? coursesRaw  : [];
   const sessionsArr = Array.isArray(sessionsRaw)  ? sessionsRaw : [];
   let   course      = coursesArr.find(c => c.status === 'active') || coursesArr[0] || null;
 
-  // Demo-mode overlay — when the patient demo account has no live course
-  // (preview build, fresh API DB, seed not yet run), surface the bundled
-  // DEMO_PATIENT.activeCourse so reviewers see the full Treatment Plan UI
-  // instead of the empty state. Same pattern the Patient Dashboard hero uses.
-  if (!course && isDemoPatient(user, { getToken: api.getToken })) {
+  // Demo-mode overlay — when the demo build (VITE_ENABLE_DEMO=1) is running
+  // with a dead backend, we want reviewers to see a populated plan rather
+  // than the "No treatment plan yet" empty state. Fire the overlay when:
+  //   - this build has the demo flag set (Netlify preview), OR
+  //   - the signed-in user looks like a demo patient, OR
+  //   - the stored token is the offline-demo token
+  // Any of those conditions means we're safe to show synthetic content.
+  const _demoBuild =
+    (typeof import.meta !== 'undefined'
+      && import.meta.env
+      && (import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'));
+  const _looksDemo = _demoBuild
+    || isDemoPatient(user, { getToken: api.getToken })
+    || (() => { try { return String(api.getToken?.() || '').includes('demo'); } catch { return false; } })();
+  if (!course && _looksDemo) {
     course = { ...DEMO_PATIENT.activeCourse, _isDemoData: true };
   }
 
