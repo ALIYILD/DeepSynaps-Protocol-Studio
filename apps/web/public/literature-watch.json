@@ -1,0 +1,412 @@
+{
+  "generated_at": "2026-04-18T08:56:39+00:00",
+  "by_protocol": {
+    "p-ad-002": {
+      "new_count_30d": 1,
+      "pending_count": 1,
+      "last_seen": "2026-04-18",
+      "top_papers": [
+        {
+          "pmid": "41865789",
+          "title": "Multisession gamma tACS modulates extracellular vesicle dynamics.",
+          "journal": "Brain stimulation",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:29:19+00:00"
+        }
+      ]
+    },
+    "p-cp-003": {
+      "new_count_30d": 3,
+      "pending_count": 3,
+      "last_seen": "2026-04-18",
+      "top_papers": [
+        {
+          "pmid": "41948792",
+          "title": "EXPRESS: Static and dynamic perspective on brain activity and functional connectivity alternations in the comorbidity of chronic pain and depression: An fMRI study in rats.",
+          "journal": "Molecular pain",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:29:04+00:00"
+        },
+        {
+          "pmid": "41907492",
+          "title": "Effects of Music Intervention on Pain, Mood, Sleep, and Heart Rate Variability in Patients with Chronic Pain: A Randomized Controlled Trial.",
+          "journal": "Journal of pain research",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:29:04+00:00"
+        },
+        {
+          "pmid": "40176301",
+          "title": "Nocturnal Autonomic Nervous System Dynamics and Chronic Painful Temporomandibular Disorders.",
+          "journal": "JDR clinical and translational research",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:29:04+00:00"
+        }
+      ]
+    },
+    "p-epi-001": {
+      "new_count_30d": 1,
+      "pending_count": 1,
+      "last_seen": "2026-04-18",
+      "top_papers": [
+        {
+          "pmid": "41926033",
+          "title": "Transcutaneous Auricular Vagal Nerve Stimulation Against Fatigue Syndrome in Patients with Long COVID: Results of the Randomized, Placebo-Controlled Clinical Pilot Trial COVIVA.",
+          "journal": "Neurology and therapy",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:29:20+00:00"
+        }
+      ]
+    },
+    "p-manual-tdcs": {
+      "new_count_30d": 5,
+      "pending_count": 4,
+      "last_seen": "2026-04-18",
+      "top_papers": [
+        {
+          "pmid": "41936982",
+          "title": "Efficacy and safety of transcranial direct current stimulation (tDCS) on treatment-resistant depression (TRD): A systematic review and Meta-analysis of randomized clinical trials.",
+          "journal": "Journal of affective disorders",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:30:04+00:00"
+        },
+        {
+          "pmid": "41927768",
+          "title": "Optimized multichannel 4 mA vs conventional transcranial direct current stimulation for major depressive disorder: A randomized sham-controlled trial.",
+          "journal": "Molecular psychiatry",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:30:04+00:00"
+        },
+        {
+          "pmid": "41921873",
+          "title": "From clinic to home: At-home neuromodulation for depression and the clinical significance of recent FDA approvals.",
+          "journal": "Journal of affective disorders",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:30:04+00:00"
+        },
+        {
+          "pmid": "41713516",
+          "title": "Neural circuitry remodeling in chronic pain and depression comorbidity: Toward an emotion-perception integration network model.",
+          "journal": "Brain research bulletin",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:30:04+00:00"
+        },
+        {
+          "pmid": "41478240",
+          "title": "Deep learning based treatment remission prediction to transcranial direct current stimulation in bipolar depression using EEG power spectral density.",
+          "journal": "Psychiatry research. Neuroimaging",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:30:04+00:00"
+        }
+      ]
+    },
+    "p-mci-001": {
+      "new_count_30d": 2,
+      "pending_count": 2,
+      "last_seen": "2026-04-18",
+      "top_papers": [
+        {
+          "pmid": "41993066",
+          "title": "A functional MRI and magnetoencephalography study of the cognitive modulatory effect of transcranial direct current stimulation in early Alzheimer's disease.",
+          "journal": "Frontiers in human neuroscience",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:29:51+00:00"
+        },
+        {
+          "pmid": "41892668",
+          "title": "The Use of Non-Invasive Brain Stimulation Techniques in Subjects with Parkinson's Disease and Mild Cognitive Impairment: A Systematic Review.",
+          "journal": "Brain sciences",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:29:51+00:00"
+        }
+      ]
+    },
+    "p-mdd-002": {
+      "new_count_30d": 3,
+      "pending_count": 3,
+      "last_seen": "2026-04-18",
+      "top_papers": [
+        {
+          "pmid": "41987818",
+          "title": "Clinical efficacy and safety of sequential accelerated theta burst stimulation for suicidal ideation in adults with major depressive disorder: study protocol of a randomized controlled trial.",
+          "journal": "Frontiers in psychiatry",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:28:14+00:00"
+        },
+        {
+          "pmid": "41967364",
+          "title": "Effectiveness of intermittent theta-burst stimulation for major depressive disorder with and without neurodevelopmental comorbidities: A real-world retrospective observational study.",
+          "journal": "Journal of psychiatric research",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:28:14+00:00"
+        },
+        {
+          "pmid": "41501538",
+          "title": "Differential neural responses to rhythmic and patterned TMS protocols: Insights from EEG spectral analysis.",
+          "journal": "Neuropsychopharmacology : official publication of the American College of Neuropsychopharmacology",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:28:14+00:00"
+        }
+      ]
+    },
+    "p-tbi-001": {
+      "new_count_30d": 4,
+      "pending_count": 4,
+      "last_seen": "2026-04-18",
+      "top_papers": [
+        {
+          "pmid": "41991757",
+          "title": "Early and safer triage in elderly traumatic brain injury using a portable NIRS - based device: clinical evaluation of CEREBO",
+          "journal": "Emergency radiology",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:29:21+00:00"
+        },
+        {
+          "pmid": "41937269",
+          "title": "Cerebral Autoregulation in Severe Traumatic Brain Injury: Source of Index, Timing, and Relationship to Spreading Depolarization.",
+          "journal": "Journal of neurotrauma",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:29:21+00:00"
+        },
+        {
+          "pmid": "41631540",
+          "title": "Acute neurological issues in the austere/military environment.",
+          "journal": "Current opinion in critical care",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:29:21+00:00"
+        },
+        {
+          "pmid": "41396350",
+          "title": "On the utility of near-infrared spectroscopy-derived measures for assessing cerebrovascular autoregulation: results from an observational cohort study.",
+          "journal": "Journal of clinical monitoring and computing",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:29:21+00:00"
+        }
+      ]
+    },
+    "p-trd-002": {
+      "new_count_30d": 1,
+      "pending_count": 1,
+      "last_seen": "2026-04-18",
+      "top_papers": [
+        {
+          "pmid": "41877156",
+          "title": "Bilateral sequential accelerated theta-burst stimulation for treatment-resistant depression: an open-label randomized controlled trial.",
+          "journal": "BMC medicine",
+          "year": 2026,
+          "first_seen_at": "2026-04-18T08:28:22+00:00"
+        }
+      ]
+    }
+  },
+  "pending_queue": [
+    {
+      "pmid": "41936982",
+      "title": "Efficacy and safety of transcranial direct current stimulation (tDCS) on treatment-resistant depression (TRD): A systematic review and Meta-analysis of randomized clinical trials.",
+      "authors": "Moshfeghinia R, Naderian R, Najibi A et al",
+      "year": 2026,
+      "journal": "Journal of affective disorders",
+      "protocol_ids": [
+        "p-manual-tdcs"
+      ],
+      "first_seen_at": "2026-04-18T08:30:04+00:00"
+    },
+    {
+      "pmid": "41927768",
+      "title": "Optimized multichannel 4 mA vs conventional transcranial direct current stimulation for major depressive disorder: A randomized sham-controlled trial.",
+      "authors": "Salehinejad MA, Abdi M, Dadashi M et al",
+      "year": 2026,
+      "journal": "Molecular psychiatry",
+      "protocol_ids": [
+        "p-manual-tdcs"
+      ],
+      "first_seen_at": "2026-04-18T08:30:04+00:00"
+    },
+    {
+      "pmid": "41921873",
+      "title": "From clinic to home: At-home neuromodulation for depression and the clinical significance of recent FDA approvals.",
+      "authors": "Altinisik I, Karimi A, Sun E et al",
+      "year": 2026,
+      "journal": "Journal of affective disorders",
+      "protocol_ids": [
+        "p-manual-tdcs"
+      ],
+      "first_seen_at": "2026-04-18T08:30:04+00:00"
+    },
+    {
+      "pmid": "41713516",
+      "title": "Neural circuitry remodeling in chronic pain and depression comorbidity: Toward an emotion-perception integration network model.",
+      "authors": "Ma M, Zhang Y, Liu Z et al",
+      "year": 2026,
+      "journal": "Brain research bulletin",
+      "protocol_ids": [
+        "p-manual-tdcs"
+      ],
+      "first_seen_at": "2026-04-18T08:30:04+00:00"
+    },
+    {
+      "pmid": "41993066",
+      "title": "A functional MRI and magnetoencephalography study of the cognitive modulatory effect of transcranial direct current stimulation in early Alzheimer's disease.",
+      "authors": "Joshi H, Nair G, Roy AA et al",
+      "year": 2026,
+      "journal": "Frontiers in human neuroscience",
+      "protocol_ids": [
+        "p-mci-001"
+      ],
+      "first_seen_at": "2026-04-18T08:29:51+00:00"
+    },
+    {
+      "pmid": "41892668",
+      "title": "The Use of Non-Invasive Brain Stimulation Techniques in Subjects with Parkinson's Disease and Mild Cognitive Impairment: A Systematic Review.",
+      "authors": "Mazzara D, Torrente A, Alonge P et al",
+      "year": 2026,
+      "journal": "Brain sciences",
+      "protocol_ids": [
+        "p-mci-001"
+      ],
+      "first_seen_at": "2026-04-18T08:29:51+00:00"
+    },
+    {
+      "pmid": "41991757",
+      "title": "Early and safer triage in elderly traumatic brain injury using a portable NIRS - based device: clinical evaluation of CEREBO",
+      "authors": "Salian NM, Bansal H, Shukla DP et al",
+      "year": 2026,
+      "journal": "Emergency radiology",
+      "protocol_ids": [
+        "p-tbi-001"
+      ],
+      "first_seen_at": "2026-04-18T08:29:21+00:00"
+    },
+    {
+      "pmid": "41937269",
+      "title": "Cerebral Autoregulation in Severe Traumatic Brain Injury: Source of Index, Timing, and Relationship to Spreading Depolarization.",
+      "authors": "Marino A, Kareddy A, Wang XQ et al",
+      "year": 2026,
+      "journal": "Journal of neurotrauma",
+      "protocol_ids": [
+        "p-tbi-001"
+      ],
+      "first_seen_at": "2026-04-18T08:29:21+00:00"
+    },
+    {
+      "pmid": "41631540",
+      "title": "Acute neurological issues in the austere/military environment.",
+      "authors": "Woodle SA, Puffer RC",
+      "year": 2026,
+      "journal": "Current opinion in critical care",
+      "protocol_ids": [
+        "p-tbi-001"
+      ],
+      "first_seen_at": "2026-04-18T08:29:21+00:00"
+    },
+    {
+      "pmid": "41396350",
+      "title": "On the utility of near-infrared spectroscopy-derived measures for assessing cerebrovascular autoregulation: results from an observational cohort study.",
+      "authors": "Bögli SY, Smith C, Olakorede I et al",
+      "year": 2026,
+      "journal": "Journal of clinical monitoring and computing",
+      "protocol_ids": [
+        "p-tbi-001"
+      ],
+      "first_seen_at": "2026-04-18T08:29:21+00:00"
+    },
+    {
+      "pmid": "41926033",
+      "title": "Transcutaneous Auricular Vagal Nerve Stimulation Against Fatigue Syndrome in Patients with Long COVID: Results of the Randomized, Placebo-Controlled Clinical Pilot Trial COVIVA.",
+      "authors": "Gierthmuehlen M, Schmieder K, Thon N et al",
+      "year": 2026,
+      "journal": "Neurology and therapy",
+      "protocol_ids": [
+        "p-epi-001"
+      ],
+      "first_seen_at": "2026-04-18T08:29:20+00:00"
+    },
+    {
+      "pmid": "41865789",
+      "title": "Multisession gamma tACS modulates extracellular vesicle dynamics.",
+      "authors": "Bellini S, Cantoni V, Longobardi A et al",
+      "year": 2026,
+      "journal": "Brain stimulation",
+      "protocol_ids": [
+        "p-ad-002"
+      ],
+      "first_seen_at": "2026-04-18T08:29:19+00:00"
+    },
+    {
+      "pmid": "41948792",
+      "title": "EXPRESS: Static and dynamic perspective on brain activity and functional connectivity alternations in the comorbidity of chronic pain and depression: An fMRI study in rats.",
+      "authors": "Deng J, Fan HT, Zhao YT et al",
+      "year": 2026,
+      "journal": "Molecular pain",
+      "protocol_ids": [
+        "p-cp-003"
+      ],
+      "first_seen_at": "2026-04-18T08:29:04+00:00"
+    },
+    {
+      "pmid": "41907492",
+      "title": "Effects of Music Intervention on Pain, Mood, Sleep, and Heart Rate Variability in Patients with Chronic Pain: A Randomized Controlled Trial.",
+      "authors": "Wang B, Yu F, Ma Y et al",
+      "year": 2026,
+      "journal": "Journal of pain research",
+      "protocol_ids": [
+        "p-cp-003"
+      ],
+      "first_seen_at": "2026-04-18T08:29:04+00:00"
+    },
+    {
+      "pmid": "40176301",
+      "title": "Nocturnal Autonomic Nervous System Dynamics and Chronic Painful Temporomandibular Disorders.",
+      "authors": "Nickel JC, Gonzalez YM, Wu Y et al",
+      "year": 2026,
+      "journal": "JDR clinical and translational research",
+      "protocol_ids": [
+        "p-cp-003"
+      ],
+      "first_seen_at": "2026-04-18T08:29:04+00:00"
+    },
+    {
+      "pmid": "41877156",
+      "title": "Bilateral sequential accelerated theta-burst stimulation for treatment-resistant depression: an open-label randomized controlled trial.",
+      "authors": "Li X, Tang E, Liu L et al",
+      "year": 2026,
+      "journal": "BMC medicine",
+      "protocol_ids": [
+        "p-trd-002"
+      ],
+      "first_seen_at": "2026-04-18T08:28:22+00:00"
+    },
+    {
+      "pmid": "41987818",
+      "title": "Clinical efficacy and safety of sequential accelerated theta burst stimulation for suicidal ideation in adults with major depressive disorder: study protocol of a randomized controlled trial.",
+      "authors": "Leng H, Huang G, Yang Z et al",
+      "year": 2026,
+      "journal": "Frontiers in psychiatry",
+      "protocol_ids": [
+        "p-mdd-002"
+      ],
+      "first_seen_at": "2026-04-18T08:28:14+00:00"
+    },
+    {
+      "pmid": "41967364",
+      "title": "Effectiveness of intermittent theta-burst stimulation for major depressive disorder with and without neurodevelopmental comorbidities: A real-world retrospective observational study.",
+      "authors": "Noda Y, Osawa R, Takeda Y et al",
+      "year": 2026,
+      "journal": "Journal of psychiatric research",
+      "protocol_ids": [
+        "p-mdd-002"
+      ],
+      "first_seen_at": "2026-04-18T08:28:14+00:00"
+    },
+    {
+      "pmid": "41501538",
+      "title": "Differential neural responses to rhythmic and patterned TMS protocols: Insights from EEG spectral analysis.",
+      "authors": "Valles TE, Shamas M, Hawkins H et al",
+      "year": 2026,
+      "journal": "Neuropsychopharmacology : official publication of the American College of Neuropsychopharmacology",
+      "protocol_ids": [
+        "p-mdd-002"
+      ],
+      "first_seen_at": "2026-04-18T08:28:14+00:00"
+    }
+  ]
+}

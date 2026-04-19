@@ -1320,3 +1320,71 @@ class DataExport(Base):
     requested_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     error: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+
+
+# ── Clinical Finance Hub ────────────────────────────────────────────────────────
+# Invoices, patient payments, and insurance claims. See migration
+# 025_finance_hub_tables.py. The router at apps/api/app/routers/finance_router.py
+# exposes these under /api/v1/finance for the web Clinical Finance Hub.
+
+
+class Invoice(Base):
+    __tablename__ = "invoices"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    invoice_number: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # e.g. INV-00123
+    patient_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("patients.id", ondelete="SET NULL"), nullable=True, index=True)
+    patient_name: Mapped[str] = mapped_column(String(255), nullable=False)  # denormalized
+    service: Mapped[str] = mapped_column(String(500), nullable=False)
+    amount: Mapped[float] = mapped_column(Float(), nullable=False)  # ex-VAT
+    vat_rate: Mapped[float] = mapped_column(Float(), nullable=False, default=0.20)  # e.g. 0.20
+    vat: Mapped[float] = mapped_column(Float(), nullable=False, default=0.0)
+    total: Mapped[float] = mapped_column(Float(), nullable=False)  # amount + vat
+    paid: Mapped[float] = mapped_column(Float(), nullable=False, default=0.0)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="GBP")
+    issue_date: Mapped[str] = mapped_column(String(20), nullable=False)  # YYYY-MM-DD
+    due_date: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")  # draft|sent|paid|overdue|partial|void
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    __table_args__ = (
+        CheckConstraint("status IN ('draft','sent','paid','overdue','partial','void')", name='ck_invoices_status'),
+        UniqueConstraint("clinician_id", "invoice_number", name='uq_invoices_clinician_number'),
+    )
+
+
+class PatientPayment(Base):
+    __tablename__ = "patient_payments"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    invoice_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("invoices.id", ondelete="SET NULL"), nullable=True, index=True)
+    patient_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    amount: Mapped[float] = mapped_column(Float(), nullable=False)
+    method: Mapped[str] = mapped_column(String(30), nullable=False, default="card")  # card|bacs|cash|cheque|stripe|manual
+    reference: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    payment_date: Mapped[str] = mapped_column(String(20), nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class InsuranceClaim(Base):
+    __tablename__ = "insurance_claims"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    claim_number: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # INS-00123
+    patient_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("patients.id", ondelete="SET NULL"), nullable=True, index=True)
+    patient_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    insurer: Mapped[str] = mapped_column(String(120), nullable=False)
+    policy_number: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
+    description: Mapped[str] = mapped_column(String(500), nullable=False)  # e.g. "TMS Pre-auth"
+    amount: Mapped[float] = mapped_column(Float(), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")  # draft|submitted|pending|approved|rejected|paid
+    submitted_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    decision_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    __table_args__ = (
+        CheckConstraint("status IN ('draft','submitted','pending','approved','rejected','paid')", name='ck_insurance_status'),
+    )

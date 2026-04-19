@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  com.deepsynaps.literature-watch.plist
+
+  Nightly PubMed sweep for the DeepSynaps Live Literature Watch.
+  See services/evidence-pipeline/LITERATURE-WATCH-README.md for load/unload
+  instructions. This file is NOT auto-loaded by anything.
+
+  Before loading: replace __HOME__ with your real home path (or use the
+  install command in the README which does the substitution for you).
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.deepsynaps.literature-watch</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/aliyildirim/Desktop/DeepSynaps-Protocol-Studio/venv/bin/python</string>
+        <string>/Users/aliyildirim/Desktop/DeepSynaps-Protocol-Studio/services/evidence-pipeline/literature_watch_cron.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/aliyildirim/Desktop/DeepSynaps-Protocol-Studio/services/evidence-pipeline</string>
+
+    <!-- Daily at 03:00 local. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- Catch missed runs if the host was asleep at 03:00. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/aliyildirim/Desktop/DeepSynaps-Protocol-Studio/services/evidence-pipeline/literature_watch.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/aliyildirim/Desktop/DeepSynaps-Protocol-Studio/services/evidence-pipeline/literature_watch.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- Set these in your shell profile or override here.
+             PUBMED_API_KEY / NCBI_API_KEY gives 10 req/s instead of 3. -->
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:/usr/local/Cellar/node/25.6.1/bin</string>
+        <key>PUBMED_EMAIL</key>
+        <string>dr.aliyildirim123@gmail.com</string>
+    </dict>
+
+    <!-- Don't relaunch on exit — the schedule handles it. -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- Resource caps: each run should take ~30-60s and <50 MB. -->
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>
