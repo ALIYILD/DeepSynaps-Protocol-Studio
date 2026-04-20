@@ -1512,28 +1512,114 @@ export async function pgPatientSessions() {
   const coursesArr   = Array.isArray(coursesRaw)      ? coursesRaw      : [];
   const assessments  = Array.isArray(assessmentsRaw)  ? assessmentsRaw  : [];
 
-  // ── Seed demo data (used when backend returns empty) ─────────────────────────
+  // ── Seed demo data (used when backend returns empty, e.g. first-time users
+  //    hitting the preview deploy with VITE_ENABLE_DEMO=1). Tells a 20-session
+  //    tDCS course story: 12 done (mix clinic/home) + 1 live + 7 upcoming, so
+  //    every slot of the ps-* design renders with believable numbers. ───────
   const _SEED = sessions.length === 0 && coursesArr.length === 0;
   const _feedbackItems = [];
   if (_SEED) {
     coursesArr.push({
-      id: 'demo-crs-001', name: 'Left DLPFC TMS \u2014 Depression',
-      condition_slug: 'depression-mdd', modality_slug: 'tms', status: 'active',
-      phase: 'Active Treatment', total_sessions_planned: 6, session_count: 3,
-      next_review_date: '2026-04-14', primary_clinician_name: 'Dr. S. Okonkwo',
+      id: 'demo-crs-001', name: 'Left DLPFC tDCS \u2014 Depression',
+      condition_slug: 'depression-mdd', modality_slug: 'tdcs', status: 'active',
+      phase: 'Active Treatment', total_sessions_planned: 20, session_count: 12,
+      next_review_date: '2026-04-24', primary_clinician_name: 'Dr. Amelia Kolmar',
     });
-    sessions.push(
-      { id:'dm-s4', session_number:4, scheduled_at:'2026-04-14T10:00:00', status:'scheduled', modality_slug:'tms', location:'Clinic', duration_minutes:45 },
-      { id:'dm-s5', session_number:5, scheduled_at:'2026-04-16T10:00:00', status:'scheduled', modality_slug:'tms', location:'Clinic', duration_minutes:45 },
-      { id:'dm-s6', session_number:6, scheduled_at:'2026-04-18T10:00:00', status:'scheduled', modality_slug:'tms', location:'Clinic', duration_minutes:45 },
-      { id:'dm-s1', session_number:1, delivered_at:'2026-04-07T10:00:00', scheduled_at:'2026-04-07T10:00:00', status:'completed', modality_slug:'tms', location:'Clinic', duration_minutes:45, tolerance_rating:'mild',     post_session_notes:'Mild scalp tingling during stimulation \u2014 tolerated well.'  },
-      { id:'dm-s2', session_number:2, delivered_at:'2026-04-09T10:00:00', scheduled_at:'2026-04-09T10:00:00', status:'completed', modality_slug:'tms', location:'Clinic', duration_minutes:45, tolerance_rating:'excellent', post_session_notes:'No side effects reported.'                               },
-      { id:'dm-s3', session_number:3, delivered_at:'2026-04-11T10:00:00', scheduled_at:'2026-04-11T10:00:00', status:'completed', modality_slug:'tms', location:'Clinic', duration_minutes:45, tolerance_rating:'mild',     post_session_notes:'Mild headache after session \u2014 resolved same day.'      },
-    );
+
+    // Common protocol parameters reused across every seeded session so the
+    // detail card's parameter grid renders (amplitude, frequency, target,
+    // ramp-up). Frequency for tDCS is 0 Hz (DC current) — we leave it out.
+    const _P = {
+      stimulation_mA: 2.0,
+      target_site: 'F3 / FP2 (10–20)',
+      ramp_up_sec: 30,
+      duration_minutes: 20,
+      modality_slug: 'tdcs',
+      clinician_name: 'Dr. Amelia Kolmar',
+    };
+
+    // 12 completed sessions spread from Feb 22 → Apr 18 (2026), 2–3/week.
+    // Mix of in-clinic (9) and at-home Synaps One (3). Comfort trends upward
+    // as the patient gets used to it; impedance stays in normal range.
+    const _done = [
+      { n:1,  date:'2026-02-22T10:00:00', home:false, comfort:7.0, imp:5.1, note:'Baseline session. Mild scalp tingling as expected during ramp-up. Tolerated well.' },
+      { n:2,  date:'2026-02-25T10:00:00', home:false, comfort:7.5, imp:4.9, note:null },
+      { n:3,  date:'2026-02-27T10:00:00', home:false, comfort:8.0, imp:4.7, note:'Patient reports feeling more alert post-session.' },
+      { n:4,  date:'2026-03-03T10:00:00', home:false, comfort:7.5, imp:4.8, note:null },
+      { n:5,  date:'2026-03-06T09:30:00', home:true,  comfort:7.0, imp:5.6, note:'First at-home session. Mild headache post-session, resolved in 2 hours. Discussed hydration.' },
+      { n:6,  date:'2026-03-10T10:00:00', home:false, comfort:8.5, imp:4.6, note:null },
+      { n:7,  date:'2026-03-13T10:00:00', home:false, comfort:8.5, imp:4.5, note:'Half-way check-in. PHQ-9 down 4 points from baseline — response criteria met.' },
+      { n:8,  date:'2026-03-17T09:30:00', home:true,  comfort:8.0, imp:5.3, note:null },
+      { n:9,  date:'2026-03-20T10:00:00', home:false, comfort:8.5, imp:4.4, note:null },
+      { n:10, date:'2026-04-03T10:00:00', home:false, comfort:9.0, imp:4.3, note:'Patient reports noticeable mood improvement over past week.' },
+      { n:11, date:'2026-04-10T09:30:00', home:true,  comfort:8.5, imp:5.1, note:null },
+      { n:12, date:'2026-04-15T10:00:00', home:false, comfort:9.0, imp:4.2, note:'Excellent adherence. Continuing full 20-session plan.' },
+    ];
+    _done.forEach(d => sessions.push({
+      ..._P,
+      id: 'dm-s' + d.n,
+      session_number: d.n,
+      delivered_at: d.date,
+      scheduled_at: d.date,
+      status: 'completed',
+      location: d.home ? 'Home' : 'Clinic · Room A',
+      is_home: d.home,
+      comfort_rating: d.comfort,
+      impedance_kohm: d.imp,
+      tolerance_rating: d.comfort >= 8.5 ? 'excellent' : d.comfort >= 7.5 ? 'good' : 'mild',
+      ...(d.note ? { post_session_notes: d.note } : {}),
+    }));
+
+    // Session 13 — LIVE RIGHT NOW (ramping up). Triggers the ps-live banner.
+    sessions.push({
+      ..._P,
+      id: 'dm-s13',
+      session_number: 13,
+      scheduled_at: new Date(Date.now() - 3 * 60 * 1000).toISOString(),   // started 3 min ago
+      status: 'live',
+      location: 'Clinic · Room A',
+      is_home: false,
+    });
+
+    // 7 upcoming sessions — weekday 10am clinic / weekend 9:30 home, spaced
+    // every 2–3 days across the next ~3 weeks.
+    const _upcoming = [
+      { n:14, date:'2026-04-22T10:00:00', home:false },
+      { n:15, date:'2026-04-25T09:30:00', home:true  },
+      { n:16, date:'2026-04-28T10:00:00', home:false },
+      { n:17, date:'2026-05-01T10:00:00', home:false },
+      { n:18, date:'2026-05-04T09:30:00', home:true  },
+      { n:19, date:'2026-05-07T10:00:00', home:false },
+      { n:20, date:'2026-05-11T10:00:00', home:false },
+    ];
+    _upcoming.forEach(u => sessions.push({
+      ..._P,
+      id: 'dm-u' + u.n,
+      session_number: u.n,
+      scheduled_at: u.date,
+      status: 'scheduled',
+      location: u.home ? 'Home' : 'Clinic · Room A',
+      is_home: u.home,
+      confirmed: true,
+    }));
+
+    // Feedback timeline — surfaces in the existing feedbackFromSessionsHTML
+    // section (collected from post_session_notes above plus a couple extras).
     _feedbackItems.push(
-      { date:'2026-04-11', text:"You\u2019re tolerating treatment well so far. We\u2019ll continue with the current plan.", clinician:'Dr. S. Okonkwo', session_number:3 },
-      { date:'2026-04-09', text:'Mood check-in scores are moving in a positive direction.',                                  clinician:'Dr. S. Okonkwo', session_number:2 },
-      { date:'2026-04-07', text:'Please continue breathing practice and sleep routine between visits.',                      clinician:'Care Team',        session_number:1 },
+      { date:'2026-04-15', text:'Excellent adherence. Continuing full 20-session plan.',                                               clinician:'Dr. Amelia Kolmar', session_number:12 },
+      { date:'2026-04-03', text:'Patient reports noticeable mood improvement over past week.',                                         clinician:'Dr. Amelia Kolmar', session_number:10 },
+      { date:'2026-03-13', text:'Half-way check-in. PHQ-9 down 4 points from baseline — response criteria met.',                       clinician:'Dr. Amelia Kolmar', session_number:7  },
+      { date:'2026-03-06', text:'First at-home session. Mild headache post-session, resolved in 2 hours. Discussed hydration.',        clinician:'Care Team',          session_number:5  },
+    );
+
+    // Seed a couple of PHQ-9 outcomes so the comparison-chart PHQ-9 tab has
+    // data to plot (lower is better — demonstrates a drop over 8 weeks).
+    outcomes.push(
+      { id:'dm-o1', template_slug:'phq-9', template_name:'PHQ-9', score_numeric:16, administered_at:'2026-02-22T09:30:00' },
+      { id:'dm-o2', template_slug:'phq-9', template_name:'PHQ-9', score_numeric:14, administered_at:'2026-03-01T09:30:00' },
+      { id:'dm-o3', template_slug:'phq-9', template_name:'PHQ-9', score_numeric:12, administered_at:'2026-03-13T09:30:00' },
+      { id:'dm-o4', template_slug:'phq-9', template_name:'PHQ-9', score_numeric:10, administered_at:'2026-03-27T09:30:00' },
+      { id:'dm-o5', template_slug:'phq-9', template_name:'PHQ-9', score_numeric:9,  administered_at:'2026-04-15T09:30:00' },
     );
   }
 
