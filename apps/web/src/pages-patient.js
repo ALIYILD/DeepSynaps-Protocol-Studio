@@ -22,7 +22,7 @@ function _patientNav() {
   return [
     { id: 'patient-portal',      label: 'Home',                 icon: '🏠', tone: 'teal',   group: 'main' },
     { id: 'patient-sessions',    label: 'Sessions',             icon: '📅', tone: 'blue',   group: 'main' },
-    { id: 'patient-course',      label: 'Treatment Plan',       icon: '🧠', tone: 'violet', group: 'main' },
+    { id: 'patient-homework',    label: 'Homework',             icon: '📝', tone: 'violet', group: 'main' },
     { id: 'pt-outcomes',         label: 'Progress',             icon: '📈', tone: 'green',  group: 'main' },
     { id: 'pt-wellness',         label: 'Tasks',                icon: '✅', tone: 'amber',  group: 'main' },
     { id: 'patient-assessments', label: 'Assessments',          icon: '📋', tone: 'rose',   group: 'main' },
@@ -3598,19 +3598,17 @@ export async function pgPatientSessions() {
 }
 
 
-export async function pgPatientCourse() {
-  // Wrap the whole render so any throw surfaces as a visible error instead
-  // of leaving the patient staring at a stuck spinner.
+export async function pgPatientHomework() {
   try {
-    return await _pgPatientCourseImpl();
+    return await _pgPatientHomeworkImpl();
   } catch (err) {
-    console.error('[pgPatientCourse] render failed:', err);
+    console.error('[pgPatientHomework] render failed:', err);
     const el = document.getElementById('patient-content');
     if (el) {
       el.innerHTML = `
         <div class="pt-portal-empty">
           <div class="pt-portal-empty-ico" aria-hidden="true">&#9888;</div>
-          <div class="pt-portal-empty-title">We couldn't load your Treatment Plan</div>
+          <div class="pt-portal-empty-title">We couldn't load your Homework</div>
           <div class="pt-portal-empty-body">Something went wrong on our end. Please refresh the page, or message your care team if this keeps happening.</div>
           <div style="display:flex;gap:10px;justify-content:center;margin-top:16px;flex-wrap:wrap">
             <button class="btn btn-primary btn-sm" onclick="window.location.reload()">Refresh</button>
@@ -3621,571 +3619,665 @@ export async function pgPatientCourse() {
   }
 }
 
-async function _pgPatientCourseImpl() {
-  setTopbar('Treatment Plan');
+// Backward-compat alias — any lingering `patient-course` links still land here.
+export const pgPatientCourse = pgPatientHomework;
+
+async function _pgPatientHomeworkImpl() {
+  setTopbar('Homework');
   const user = currentUser;
   const uid  = user?.patient_id || user?.id;
-
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
-  function esc(v) {
-    if (v == null) return '';
-    return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
-  }
-  function conditionLabel(slug) {
-    if (!slug) return null;
-    return slug.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-  }
-  const _MODALITY_MAP = {
-    tms:'TMS', rtms:'rTMS', dtms:'Deep TMS', tdcs:'tDCS', tacs:'tACS', trns:'tRNS',
-    neurofeedback:'Neurofeedback', nfb:'Neurofeedback', heg:'HEG Neurofeedback',
-    lens:'LENS Neurofeedback', lensnfb:'LENS Neurofeedback',
-  };
-  function modalityLabel(slug) {
-    if (!slug) return null;
-    const key = slug.toLowerCase().replace(/[-_\s]/g, '');
-    return _MODALITY_MAP[key] || slug.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-  }
-  function courseStatusLabel(status) {
-    const s = (status || '').toLowerCase().trim();
-    if (['active','in_progress','in-progress','ongoing'].includes(s)) return 'In progress';
-    if (['completed','done','finished'].includes(s))                    return 'Completed';
-    if (['paused','on_hold','on-hold'].includes(s))                     return 'On hold';
-    if (['pending','scheduled','starting'].includes(s))                 return 'Starting soon';
-    return 'Active';
-  }
+  function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
+  const loc = getLocale() === 'tr' ? 'tr-TR' : 'en-US';
+  const todayIso = new Date().toISOString().slice(0, 10);
 
-  // ── Modality rationale lookup ─────────────────────────────────────────────
-  const _WHY_MAP = {
-    tms:           { headline: 'Why TMS?', body: 'TMS uses focused magnetic pulses to gently stimulate the areas of your brain involved in mood and energy regulation. It is non-invasive, well-tolerated, and FDA-cleared for depression.' },
-    rtms:          { headline: 'Why rTMS?', body: 'Repetitive TMS delivers precise pulse sequences shown in clinical trials to reduce depressive symptoms and improve quality of life, particularly when medication has not been fully effective.' },
-    dtms:          { headline: 'Why Deep TMS?', body: 'Deep TMS uses an H-coil to reach brain regions slightly deeper than standard TMS, making it effective for both depression and OCD.' },
-    tdcs:          { headline: 'Why tDCS?', body: 'Transcranial direct current stimulation delivers a very low electrical current to modulate cortical excitability. It is painless and can be paired with cognitive training.' },
-    tacs:          { headline: 'Why tACS?', body: 'Transcranial alternating current stimulation entrains brain oscillations at specific frequencies to support memory, sleep, and attention.' },
-    trns:          { headline: 'Why tRNS?', body: 'Transcranial random noise stimulation uses broadband noise currents to boost cortical excitability, which can improve cognition and reduce tinnitus.' },
-    neurofeedback: { headline: 'Why Neurofeedback?', body: 'Neurofeedback trains your brain in real time by rewarding healthy brainwave patterns. Over sessions, the brain learns to self-regulate, reducing symptoms without medication.' },
-    nfb:           { headline: 'Why Neurofeedback?', body: 'Neurofeedback trains your brain in real time by rewarding healthy brainwave patterns. Over sessions, the brain learns to self-regulate.' },
-    heg:           { headline: 'Why HEG Neurofeedback?', body: 'Hemoencephalography neurofeedback trains prefrontal blood flow, which is often reduced in ADHD and executive dysfunction.' },
-    lens:          { headline: 'Why LENS Neurofeedback?', body: 'Low Energy Neurofeedback System delivers ultra-low electromagnetic stimulation to disrupt stuck brainwave patterns, often producing results in fewer sessions than standard NFB.' },
-  };
-
-  // ── Condition-specific goals ──────────────────────────────────────────────
-  const _GOALS_MAP = {
-    'major-depressive-disorder': ['Reduce low mood and persistent sadness', 'Improve energy and motivation', 'Restore sleep quality', 'Return to activities you enjoy'],
-    'depression':                ['Reduce low mood and persistent sadness', 'Improve energy and motivation', 'Restore sleep quality'],
-    'anxiety':                   ['Lower day-to-day anxiety and worry', 'Reduce physical tension and restlessness', 'Improve sleep onset', 'Increase confidence in daily situations'],
-    'ocd':                       ['Reduce frequency and intensity of obsessive thoughts', 'Decrease compulsive behaviours', 'Improve tolerance of uncertainty'],
-    'ptsd':                      ['Reduce intrusive memories and hypervigilance', 'Improve emotional regulation', 'Restore sense of safety'],
-    'adhd':                      ['Improve attention and concentration', 'Reduce impulsivity', 'Support working memory and executive function'],
-    'tinnitus':                  ['Reduce perceived loudness of tinnitus', 'Improve habituation and distress tolerance', 'Restore sleep quality'],
-    'chronic-pain':              ['Reduce pain intensity ratings', 'Improve daily functioning and mobility', 'Reduce reliance on pain medication'],
-  };
-
-  // ── Data loading ─────────────────────────────────────────────────────────
-  // Every endpoint is wrapped in a 3s _raceNull timeout so a dead/slow Fly
-  // backend never leaves the user staring at a stuck spinner. Worst case
-  // each promise resolves to null and we fall through to the demo overlay
-  // below. `api.patientOutcomes?.()` guards against the legacy method name
-  // not existing on the bundled api object.
-  const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
-  const _raceNull = (p) => Promise.race([
-    Promise.resolve(p).catch(() => null),
-    _timeout(3000),
-  ]);
-  const [coursesRaw, sessionsRaw, outcomesRaw] = await Promise.all([
-    _raceNull(api.patientPortalCourses()),
-    _raceNull(api.patientPortalSessions()),
-    _raceNull(api.patientOutcomes?.() || null),
+  // ── Fetch real data ───────────────────────────────────────────────────────
+  const _t = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _race = (p) => Promise.race([Promise.resolve(p).catch(() => null), _t(3000)]);
+  let [homeTasksRaw, homeTasksPortalRaw, coursesRaw, sessionsRaw] = await Promise.all([
+    _race(uid ? api.listHomeProgramTasks({ patient_id: uid }) : null),
+    _race(api.portalListHomeProgramTasks ? api.portalListHomeProgramTasks() : null),
+    _race(api.patientPortalCourses()),
+    _race(api.patientPortalSessions()),
   ]);
 
-  const coursesArr  = Array.isArray(coursesRaw)  ? coursesRaw  : [];
-  const sessionsArr = Array.isArray(sessionsRaw)  ? sessionsRaw : [];
-  let   course      = coursesArr.find(c => c.status === 'active') || coursesArr[0] || null;
-
-  // Demo-mode overlay — when the demo build (VITE_ENABLE_DEMO=1) is running
-  // with a dead backend, we want reviewers to see a populated plan rather
-  // than the "No treatment plan yet" empty state. Fire the overlay when:
-  //   - this build has the demo flag set (Netlify preview), OR
-  //   - the signed-in user looks like a demo patient, OR
-  //   - the stored token is the offline-demo token
-  // Any of those conditions means we're safe to show synthetic content.
-  const _demoBuild =
-    (typeof import.meta !== 'undefined'
-      && import.meta.env
-      && (import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'));
-  const _looksDemo = _demoBuild
-    || isDemoPatient(user, { getToken: api.getToken })
-    || (() => { try { return String(api.getToken?.() || '').includes('demo'); } catch { return false; } })();
-  if (!course && _looksDemo) {
-    course = { ...DEMO_PATIENT.activeCourse, _isDemoData: true };
+  // ── Normalise home tasks ──────────────────────────────────────────────────
+  let tasks = [];
+  if (homeTasksRaw && Array.isArray(homeTasksRaw.items)) tasks = homeTasksRaw.items;
+  else if (Array.isArray(homeTasksRaw)) tasks = homeTasksRaw;
+  else if (Array.isArray(homeTasksPortalRaw)) {
+    tasks = homeTasksPortalRaw.map(r => ({
+      id: r.server_task_id || r.id,
+      serverTaskId: r.server_task_id,
+      title: r.title || r.task?.title || r.task?.name || 'Task',
+      category: r.category || r.task?.category || '',
+      instructions: r.instructions || r.task?.instructions || '',
+      completed: !!(r.task?.completed || r.task?.done),
+      due_on: r.task?.due_on || r.task?.dueOn || null,
+      task_type: r.task?.task_type || r.task?.type || null,
+      raw: r,
+    }));
   }
 
-  if (!course) {
-    el.innerHTML = `
-      <div class="pt-portal-empty">
-        <div class="pt-portal-empty-ico" aria-hidden="true">&#9678;</div>
-        <div class="pt-portal-empty-title">No treatment plan yet</div>
-        <div class="pt-portal-empty-body">Your clinician will create a personalised plan once your initial assessment is complete.</div>
-        <button class="btn btn-ghost btn-sm" style="margin-top:14px"
-                onclick="window._navPatient('patient-messages')">Message your care team</button>
-      </div>`;
-    return;
+  const courses = Array.isArray(coursesRaw) ? coursesRaw : [];
+  const sessions = Array.isArray(sessionsRaw) ? sessionsRaw : [];
+  const activeCourse = courses.find(c => c.status === 'active') || courses[0] || null;
+
+  // ── Demo seed (first-time user / empty backend) ───────────────────────────
+  const _isDemo = tasks.length === 0 && courses.length === 0;
+  if (_isDemo) {
+    const base = (n) => ({
+      id: 'dm-hw-' + n,
+      clinician_assigned_by: 'Dr. Amelia Kolmar',
+      assigned_on: '2026-02-17',
+    });
+    tasks = [
+      // Today (partially complete)
+      { ...base(1), title:'15\u201320 min walk \u00b7 rate mood before/after', task_type:'walk',      category:'activation', duration_min:20, repeat:'daily',  completed:true,  due_on:todayIso, completed_at:'08:42', _bucket:'today', _priority:'high',  mood_before:4, mood_after:6, note:'Felt lighter after', time_bucket:'Morning',  description:'Pick one small meaningful activity. Note mood 0\u201310 before and after. Start modest; increase only if it feels okay.' },
+      { ...base(2), title:'Morning mood & energy log',                        task_type:'mood',      category:'mood',       duration_min:2,  repeat:'daily',  completed:true,  due_on:todayIso, completed_at:'07:15',                              note:'A bit foggy', time_bucket:'Morning', description:'One line: how\u2019s the mood, energy, and sleep last night? Anything notable on your mind?' },
+      { ...base(3), title:'Synaps One \u00b7 20-min session \u00b7 2.0 mA',   task_type:'tdcs',      category:'device',     duration_min:30, repeat:'Mon/Wed/Sun', completed:false, due_on:todayIso, due_by:'21:00', _priority:'high', time_bucket:'Evening', description:'Left DLPFC montage (F3\u2013FP2). Clean skin per protocol, check pad placement, log sensation and skin check after.', clinician_note:{ by:'Dr. Kolmar', date:'Apr 18', body:'Yesterday you reported mild tingling. If that repeats, pause and message me before continuing.' } },
+      { ...base(4), title:'Diaphragmatic breathing \u00b7 10 min',            task_type:'breathing', category:'breathing',  duration_min:10, repeat:'daily',  completed:false, due_on:todayIso, time_bucket:'Before bed', description:'Inhale 4s \u00b7 hold 2s \u00b7 exhale 6s. Keep the exhale longer than the inhale \u2014 that\u2019s the relaxing part.' },
+      { ...base(5), title:'No screens after 10 PM \u00b7 lights low',         task_type:'sleep',     category:'sleep',      duration_min:60, repeat:'daily',  completed:false, due_on:todayIso, time_bucket:'10 PM\u201311 PM', description:'Dim lights in the last hour. Book or calm audio is fine \u2014 news and social feeds are not.' },
+
+      // Coming up this week (scheduled for future days)
+      { ...base(11), title:'PHQ-9 weekly check-in',                           task_type:'assessment', category:'assessment', duration_min:4,  repeat:'weekly',   completed:false, due_on:'2026-04-21', _priority:'due',     description:'9 questions \u00b7 ~4 min \u00b7 measures depression symptoms over 2 weeks.' },
+      { ...base(12), title:'Pre-session readiness \u00b7 clinic',             task_type:'prep',      category:'prep',       duration_min:15, repeat:'per-session', completed:false, due_on:'2026-04-22', time_bucket:'14:00',                         description:'Arrive 10 min early \u00b7 skip caffeine 2h before \u00b7 2-min breathing.' },
+      { ...base(13), title:'Post-session aftercare',                          task_type:'aftercare', category:'aftercare',  duration_min:30, repeat:'per-session', completed:false, due_on:'2026-04-22', time_bucket:'14:45',                         description:'Rest 30 min \u00b7 avoid strenuous activity \u00b7 note any sensations in journal.' },
+      { ...base(14), title:'One valued activity \u00b7 call a friend',        task_type:'activation',category:'activation', duration_min:15, repeat:'weekly',    completed:false, due_on:'2026-04-23',                                              description:'Behavioural activation \u00b7 pick a person from your "closeness" list and reach out.' },
+      { ...base(15), title:'Read: "How tDCS nudges mood circuits" (6 min)',   task_type:'education', category:'education',  duration_min:6,  repeat:'one-off',   completed:false, due_on:'2026-04-24',                                              description:'Plain-language explainer assigned by Dr. Kolmar \u00b7 useful before Thursday\u2019s session.' },
+      { ...base(16), title:'Home tDCS \u00b7 skin & session log',             task_type:'tdcs',      category:'device',     duration_min:20, repeat:'Mon/Wed/Sun', completed:false, due_on:'2026-04-25',                                            description:'Standard home session with photo of electrode sites \u00b7 20 min \u00b7 2.0 mA.' },
+      { ...base(17), title:'Weekly reflection \u00b7 3 things that helped',   task_type:'reflection',category:'mood',       duration_min:10, repeat:'weekly',    completed:false, due_on:'2026-04-26',                                              description:'What moved the needle this week? Share with Dr. Kolmar before Monday review.' },
+    ];
   }
 
-  // ── Derived values ────────────────────────────────────────────────────────
-  const delivered  = course.session_count ?? 0;
-  const total      = course.total_sessions_planned ?? 20;
-  const remaining  = Math.max(total - delivered, 0);
-  const pct        = total > 0 ? Math.round((delivered / total) * 100) : 0;
-  const startedStr = fmtDate(course.started_at || course.created_at);
-  const condition  = conditionLabel(course.condition_slug);
-  const modality   = modalityLabel(course.modality_slug);
-  const mSlug      = (course.modality_slug || '').toLowerCase().replace(/[-_\s]/g,'');
-  const cSlug      = (course.condition_slug || '');
-  const statusLbl  = courseStatusLabel(course.status);
-  const whyInfo    = _WHY_MAP[mSlug] || null;
-  const goals      = _GOALS_MAP[cSlug] || _GOALS_MAP[cSlug.replace(/_/g,'-')] || [
-    'Reduce primary symptoms', 'Improve daily functioning', 'Support overall wellbeing',
-  ];
+  // ── Derived counts ────────────────────────────────────────────────────────
+  const todays = tasks.filter(t => (t.due_on || '').slice(0, 10) === todayIso);
+  const todaysDone = todays.filter(t => t.completed || t.done).length;
 
-  // ── Outcome trend ─────────────────────────────────────────────────────────
-  let outcomePct = null;
-  let outcomeLabel = '';
-  const outcomes = Array.isArray(outcomesRaw) ? outcomesRaw : [];
-  const phq = outcomes.filter(o => (o.scale || '').toLowerCase().includes('phq'));
-  if (phq.length >= 2) {
-    const first = phq[0].total_score ?? phq[0].score;
-    const last  = phq[phq.length - 1].total_score ?? phq[phq.length - 1].score;
-    if (first > 0) { outcomePct = Math.round(((first - last) / first) * 100); }
-    outcomeLabel = `PHQ-9: ${first} → ${last}`;
-  }
-  // Demo seed
-  if (outcomePct === null && (course._isDemoData || !outcomes.length)) {
-    outcomePct   = 44;
-    outcomeLabel = 'PHQ-9: 18 → 10';
-  }
+  const weekStart = (() => {
+    const d = new Date(); d.setHours(0, 0, 0, 0);
+    const dow = (d.getDay() + 6) % 7;                // Mon=0
+    d.setDate(d.getDate() - dow);
+    return d;
+  })();
+  const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 7);
+  const weekTasks = tasks.filter(t => {
+    if (!t.due_on) return false;
+    const d = new Date(t.due_on);
+    return d >= weekStart && d < weekEnd;
+  });
+  const weekDone = weekTasks.filter(t => t.completed || t.done).length;
+  const weekPct = weekTasks.length ? Math.round(weekDone / weekTasks.length * 100) : 0;
 
-  // ── Clinician feedback ────────────────────────────────────────────────────
-  let feedback = null;
-  try { feedback = JSON.parse(localStorage.getItem('ds_clinician_feedback') || 'null'); } catch (_e) {}
-  if (!feedback) {
-    feedback = {
-      _isDemoData: true,
-      reviewer: 'Dr. Sarah Mitchell',
-      date: new Date(Date.now() - 2 * 86400000).toISOString(),
-      note: 'Great response to sessions 8–10. Mood scores improving steadily. Maintaining current protocol parameters — no changes needed. Keep up the sleep hygiene work.',
-    };
-  }
+  const courseTotal = tasks.length;
+  const courseDone = tasks.filter(t => t.completed || t.done).length;
+  const coursePct = courseTotal ? Math.round(courseDone / courseTotal * 100) : 0;
 
-  // ── Safety / tolerance data ───────────────────────────────────────────────
-  let safetyItems = [];
-  try { safetyItems = JSON.parse(localStorage.getItem('ds_safety_' + uid) || '[]'); } catch (_e) {}
-  const _SIDE_EFFECTS = ['Mild headache', 'Scalp tingling', 'Fatigue after sessions', 'Jaw tension'];
-  const reportedEffects = safetyItems.length
-    ? safetyItems
-    : [{ effect: 'Mild headache', sessions: 'Sessions 1–3', resolved: true }];
+  // Streak days (consecutive days with at least one completion, ending today).
+  const streak = (() => {
+    let s = 0;
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      const hit = tasks.some(t => (t.due_on || '').slice(0, 10) === d && (t.completed || t.done));
+      if (hit) s++; else break;
+    }
+    return s;
+  })();
 
-  // ── Wearable / biometric snapshot ────────────────────────────────────────
-  let wearable = null;
-  try { wearable = JSON.parse(localStorage.getItem('ds_wearable_summary') || 'null'); } catch (_e) {}
-  if (!wearable) {
-    wearable = { _isDemoData: true, hrv: '42 ms', sleep: '7h 12m', steps: '6,840', stress: 'Moderate' };
-  }
-
-  // ── Homework tasks ────────────────────────────────────────────────────────
-  const hwKey = 'ds_homework_tasks_' + (uid || 'default');
-  const HW_DEFAULTS = [
-    { id: 'hw1', title: 'Daily mindfulness (10 min)', description: 'Morning preferred — use the timer in Sessions', freq: 'Daily', done: false },
-    { id: 'hw2', title: 'Sleep hygiene checklist',    description: 'No screens 1 hr before bed; consistent wake time', freq: 'Daily', done: false },
-    { id: 'hw3', title: 'Symptom diary',              description: 'Rate mood (0–10) and energy each evening', freq: 'Daily', done: false },
-  ];
-  function loadHW() {
-    let s = null;
-    try { s = JSON.parse(localStorage.getItem(hwKey)); } catch (_e) {}
-    if (!s) return HW_DEFAULTS.map(h => ({ ...h }));
-    const map = {}; s.forEach(h => { map[h.id] = h; });
-    const merged = HW_DEFAULTS.map(h => map[h.id] ? { ...h, ...map[h.id] } : { ...h });
-    // Include: personal tasks added by patient + clinician-assigned tasks (have assignedAt/status)
-    const extras = s.filter(h => !merged.find(m => m.id === h.id) && (h.personal || h.assignedAt || h.status === 'active' || h.status === 'pending'));
-    return [...merged, ...extras];
-  }
-  function saveHW(items) { try { localStorage.setItem(hwKey, JSON.stringify(items)); } catch (_e) {} }
-
-  // ── Session milestones ────────────────────────────────────────────────────
-  const MILESTONE_SESSIONS = [total * 0.25, total * 0.5, total * 0.75, total].map(Math.round);
-  const NAMED_MILESTONES = [
-    { at: Math.round(total * 0.25), label: 'First review' },
-    { at: Math.round(total * 0.5),  label: 'Halfway' },
-    { at: Math.round(total * 0.75), label: 'Final phase' },
-    { at: total,                    label: 'Complete' },
-  ];
-
-  // ── SVG progress ring ─────────────────────────────────────────────────────
-  function progressRing(pctVal, size = 88) {
-    const r   = (size / 2) - 8;
-    const circ = 2 * Math.PI * r;
-    const dash = circ * (pctVal / 100);
-    return `
-      <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="transform:rotate(-90deg)">
-        <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="7"/>
-        <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--teal,#00d4bc)" stroke-width="7"
-          stroke-dasharray="${dash} ${circ}" stroke-linecap="round"/>
-      </svg>
-      <div class="ptcp-ring-label">
-        <div class="ptcp-ring-pct">${pctVal}%</div>
-        <div class="ptcp-ring-sub">complete</div>
-      </div>`;
-  }
-
-  // ── Full modality labels (patient-friendly) ───────────────────────────────
-  const MODALITY_LABELS = {
-    tms: 'Transcranial Magnetic Stimulation (TMS)',
-    tdcs: 'Transcranial Direct Current Stimulation (tDCS)',
-    tacs: 'Transcranial Alternating Current Stimulation (tACS)',
-    ces: 'Cranial Electrotherapy Stimulation (CES)',
-    tavns: 'Transcutaneous Auricular Vagus Nerve Stimulation (tAVNS)',
-    pbm: 'Photobiomodulation (PBM)',
-    pemf: 'Pulsed Electromagnetic Field Therapy (PEMF)',
-    neurofeedback: 'Neurofeedback',
-    rtms: 'Repetitive Transcranial Magnetic Stimulation (rTMS)',
-    dtms: 'Deep Transcranial Magnetic Stimulation (Deep TMS)',
-    trns: 'Transcranial Random Noise Stimulation (tRNS)',
-    nfb: 'Neurofeedback',
-    heg: 'HEG Neurofeedback',
-    lens: 'LENS Neurofeedback',
-  };
-  const modalityFullLabel = MODALITY_LABELS[mSlug] || modality || 'Neuromodulation';
-
-  // ── Protocol rationale (from protocol_json if available, else whyInfo) ────
-  let protocolRationale = null;
-  if (course.protocol_json) {
-    try {
-      const pj = typeof course.protocol_json === 'string' ? JSON.parse(course.protocol_json) : course.protocol_json;
-      protocolRationale = pj?.rationale || pj?.description || null;
-    } catch (_e) {}
-  }
-  if (!protocolRationale && whyInfo) protocolRationale = whyInfo.body;
-  if (!protocolRationale) {
-    protocolRationale = `Your clinician selected ${modalityFullLabel} based on your symptoms, history, and the best available clinical evidence for ${condition || 'your condition'}.`;
-  }
-
-  // ── Schedule summary ──────────────────────────────────────────────────────
-  const sessPerWeek = (course.sessions_per_week ?? Math.round(total / 6)) || 2;
-  const weeksTotal  = sessPerWeek > 0 ? Math.ceil(total / sessPerWeek) : null;
-  const scheduleText = sessPerWeek && weeksTotal
-    ? `You'll attend ${sessPerWeek} session${sessPerWeek !== 1 ? 's' : ''} per week for ${weeksTotal} week${weeksTotal !== 1 ? 's' : ''} — ${total} sessions in total.`
-    : `Your plan includes ${total} sessions in total.`;
-
-  // ── Build HTML ────────────────────────────────────────────────────────────
-  el.innerHTML = `
-<div class="ptcp-wrap">
-
-  <!-- ① PLAN SUMMARY -->
-  <div class="ptcp-section ptcp-summary-card">
-    <div class="ptcp-summary-left">
-      <div class="ptcp-eyebrow">Your treatment plan</div>
-      <h2 class="ptcp-plan-title">${esc(modality || 'Neuromodulation')} for ${esc(condition || 'your condition')}</h2>
-      <div class="ptcp-meta-row">
-        <span class="ptcp-status-badge ptcp-status-${(course.status||'active').toLowerCase().replace(/[^a-z]/g,'-')}">${statusLbl}</span>
-        ${startedStr !== '—' ? `<span class="ptcp-meta-chip">Started ${startedStr}</span>` : ''}
-        <span class="ptcp-meta-chip">${total} sessions planned</span>
-      </div>
-      <div class="ptcp-summary-actions">
-        <button class="ptcp-link-btn" onclick="window._navPatient('patient-sessions')">View upcoming sessions</button>
-        <button class="ptcp-link-btn" onclick="window._navPatient('patient-messages')">Message care team</button>
-      </div>
-    </div>
-    <div class="ptcp-summary-right">
-      <div class="ptcp-ring-wrap">
-        ${progressRing(pct)}
-      </div>
-      <div class="ptcp-ring-detail">${delivered} of ${total} sessions done · ${remaining} remaining</div>
-    </div>
-  </div>
-
-  <!-- ① b  YOUR TREATMENT PLAN DETAILS -->
-  <div class="ptcp-section" style="background:rgba(0,212,188,0.04);border:1px solid rgba(0,212,188,0.14);border-radius:12px;padding:20px 22px">
-    <div class="ptcp-section-header" style="margin-bottom:16px">
-      <h3 class="ptcp-section-title" style="font-size:1rem;color:var(--teal,#00d4bc)">Your Treatment Plan</h3>
-      <span style="display:inline-flex;align-items:center;gap:5px;background:rgba(0,212,188,0.1);color:var(--teal,#00d4bc);border:1px solid rgba(0,212,188,0.25);border-radius:20px;padding:3px 11px;font-size:11px;font-weight:700;letter-spacing:0.02em">
-        &#10003; Evidence-Based Protocol
-      </span>
-    </div>
-
-    <div style="display:grid;gap:14px">
-
-      <!-- What we're treating -->
-      <div style="display:flex;gap:12px;align-items:flex-start">
-        <div style="flex-shrink:0;width:36px;height:36px;border-radius:10px;background:rgba(0,212,188,0.1);display:flex;align-items:center;justify-content:center;font-size:16px">&#127775;</div>
-        <div>
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary,#94a3b8);margin-bottom:3px">What we're treating</div>
-          <div style="font-size:0.95rem;font-weight:600;color:var(--text-primary,#f1f5f9)">${esc(condition || 'Your condition')}</div>
-        </div>
-      </div>
-
-      <!-- How we're treating it -->
-      <div style="display:flex;gap:12px;align-items:flex-start">
-        <div style="flex-shrink:0;width:36px;height:36px;border-radius:10px;background:rgba(96,165,250,0.1);display:flex;align-items:center;justify-content:center;font-size:16px">&#9889;</div>
-        <div>
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary,#94a3b8);margin-bottom:3px">How we're treating it</div>
-          <div style="font-size:0.95rem;font-weight:600;color:var(--text-primary,#f1f5f9)">${esc(modalityFullLabel)}</div>
-        </div>
-      </div>
-
-      <!-- What to expect -->
-      <div style="display:flex;gap:12px;align-items:flex-start">
-        <div style="flex-shrink:0;width:36px;height:36px;border-radius:10px;background:rgba(167,139,250,0.1);display:flex;align-items:center;justify-content:center;font-size:16px">&#128161;</div>
-        <div>
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary,#94a3b8);margin-bottom:3px">What to expect</div>
-          <div style="font-size:0.88rem;color:var(--text-secondary,#94a3b8);line-height:1.55">${esc(protocolRationale)}</div>
-        </div>
-      </div>
-
-      <!-- Your schedule -->
-      <div style="display:flex;gap:12px;align-items:flex-start">
-        <div style="flex-shrink:0;width:36px;height:36px;border-radius:10px;background:rgba(251,191,36,0.1);display:flex;align-items:center;justify-content:center;font-size:16px">&#128197;</div>
-        <div>
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary,#94a3b8);margin-bottom:3px">Your schedule</div>
-          <div style="font-size:0.88rem;color:var(--text-secondary,#94a3b8);line-height:1.55">${esc(scheduleText)}</div>
-          <div style="margin-top:6px;font-size:0.82rem;color:var(--text-secondary,#94a3b8)">${delivered} of ${total} sessions completed &nbsp;·&nbsp; ${remaining} remaining</div>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- Evidence basis note -->
-    <div style="margin-top:18px;padding:12px 14px;background:rgba(0,212,188,0.06);border-radius:10px;border-left:3px solid var(--teal,#00d4bc)">
-      <div style="font-size:11px;font-weight:700;color:var(--teal,#00d4bc);margin-bottom:4px">Evidence-Based &amp; Clinically Reviewed</div>
-      <div style="font-size:0.81rem;color:var(--text-secondary,#94a3b8);line-height:1.5">This protocol was selected based on peer-reviewed clinical evidence and personalised to your needs by your care team. If you have questions about why this approach was chosen, your clinician is happy to talk it through.</div>
-    </div>
-  </div>
-
-  <!-- ② PROGRESS THROUGH TREATMENT -->
-  <div class="ptcp-section">
-    <div class="ptcp-section-header">
-      <h3 class="ptcp-section-title">Progress through treatment</h3>
-      <span class="ptcp-section-badge">${delivered} of ${total} sessions</span>
-    </div>
-    ${_vizMilestoneTimeline(delivered, total, NAMED_MILESTONES)}
-    <div class="ptcp-progress-legend" style="margin-top:4px">
-      <span>${delivered} sessions completed</span>
-      <span>${remaining} remaining</span>
-    </div>
-    <div class="ptcp-sessions-dots" aria-label="Session timeline" style="margin-top:14px">
-      ${Array.from({ length: Math.min(total, 40) }, (_, i) => {
-        const n = i + 1;
-        const cls = n <= delivered ? 'done' : n === delivered + 1 ? 'next' : 'upcoming';
-        return `<div class="ptcp-sess-dot ptcp-sess-dot--${cls}" title="Session ${n}">${n <= delivered ? '' : n === delivered + 1 ? '\u2192' : ''}</div>`;
-      }).join('')}
-      ${total > 40 ? `<span class="ptcp-dots-more">+${total - 40} more</span>` : ''}
-    </div>
-  </div>
-
-  <!-- ③ WHY THIS PLAN -->
-  <div class="ptcp-section">
-    <div class="ptcp-section-header">
-      <h3 class="ptcp-section-title">${whyInfo ? whyInfo.headline : 'Why this plan was chosen'}</h3>
-    </div>
-    <p class="ptcp-body-text">
-      ${whyInfo ? esc(whyInfo.body) : `Your clinician selected ${esc(modality || 'this approach')} based on your symptoms, history, and the best available evidence for ${esc(condition || 'your condition')}.`}
-    </p>
-    ${condition ? `
-    <div class="ptcp-condition-tag">
-      Condition: <strong>${esc(condition)}</strong>
-    </div>` : ''}
-  </div>
-
-  <!-- ④ GOALS -->
-  <div class="ptcp-section">
-    <div class="ptcp-section-header">
-      <h3 class="ptcp-section-title">Goals we are working on</h3>
-    </div>
-    <ul class="ptcp-goals-list">
-      ${goals.map(g => `
-        <li class="ptcp-goal-item">
-          <span class="ptcp-goal-check">✓</span>
-          <span>${esc(g)}</span>
-        </li>`).join('')}
-    </ul>
-  </div>
-
-  <!-- ⑤ PLAN TASKS / HOMEWORK -->
-  <div class="ptcp-section">
-    <div class="ptcp-section-header">
-      <h3 class="ptcp-section-title">Between-session tasks</h3>
-      <span class="ptcp-section-badge" id="ptcp-hw-badge"></span>
-    </div>
-    <div id="ptcp-hw-list"></div>
-    <div id="ptcp-hw-add-wrap" style="margin-top:10px">
-      <div id="ptcp-hw-add-form" style="display:none;margin-bottom:8px">
-        <div style="display:flex;gap:8px;align-items:center">
-          <input type="text" id="ptcp-hw-input" class="form-control" placeholder="Add a personal note or task" style="flex:1;font-size:12.5px">
-          <button class="btn btn-primary btn-sm" onclick="window._ptcpSaveHW()">Add</button>
-          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('ptcp-hw-add-form').style.display='none'">Cancel</button>
-        </div>
-      </div>
-      <button class="ptcp-add-btn" onclick="window._ptcpShowAddHW()">+ Add personal note</button>
-    </div>
-  </div>
-
-  <!-- ⑥ PROGRESS SO FAR -->
-  <div class="ptcp-section">
-    <div class="ptcp-section-header">
-      <h3 class="ptcp-section-title">Progress so far</h3>
-    </div>
-    ${outcomePct !== null ? `
-    <div class="ptcp-outcome-banner ${outcomePct >= 30 ? 'ptcp-outcome-banner--good' : 'ptcp-outcome-banner--neutral'}">
-      <div class="ptcp-outcome-pct">${outcomePct > 0 ? outcomePct + '% improvement' : 'Tracking in progress'}</div>
-      <div class="ptcp-outcome-detail">${esc(outcomeLabel)}</div>
-      ${outcomePct >= 50 ? '<div class="ptcp-outcome-note">Clinically significant response — keep going</div>' : ''}
-    </div>` : `
-    <p class="ptcp-body-text ptcp-muted">Outcome data will appear here after your first formal assessment.</p>`}
-    <button class="ptcp-link-btn" style="margin-top:10px" onclick="window._navPatient('patient-outcomes')">View full progress charts</button>
-  </div>
-
-  <!-- ⑦ CLINICIAN FEEDBACK -->
-  <div class="ptcp-section">
-    <div class="ptcp-section-header">
-      <h3 class="ptcp-section-title">From your clinician</h3>
-      <span class="ptcp-reviewed-badge">Reviewed</span>
-    </div>
-    ${feedback ? `
-    <div class="ptcp-feedback-block">
-      ${feedback._isDemoData ? '<div class="ptcp-demo-notice">Showing example feedback</div>' : ''}
-      <div class="ptcp-feedback-text">${esc(feedback.note)}</div>
-      <div class="ptcp-feedback-meta">${esc(feedback.reviewer)} · ${fmtDate(feedback.date)}</div>
-    </div>` : `
-    <p class="ptcp-body-text ptcp-muted">No feedback yet. Your clinician will leave notes after reviewing your progress.</p>`}
-  </div>
-
-  <!-- ⑧ SAFETY / TOLERANCE -->
-  <div class="ptcp-section">
-    <div class="ptcp-section-header">
-      <h3 class="ptcp-section-title">Safety &amp; tolerance</h3>
-    </div>
-    <p class="ptcp-body-text" style="margin-bottom:12px">
-      ${esc(modality || 'This treatment')} is well tolerated. The most common experiences are mild and temporary.
-      Always tell your clinician about any new or worsening effects.
-    </p>
-    <div class="ptcp-safety-grid">
-      ${reportedEffects.map(item => {
-        const resolved = typeof item === 'object' ? item.resolved : false;
-        const effect   = typeof item === 'string' ? item : item.effect;
-        const sessions = typeof item === 'object' ? item.sessions : null;
-        const tl = _vizTrafficLight(resolved ? 'green' : 'amber', resolved ? 'Resolved' : 'Mild');
-        return `<div class="ptcp-safety-item ${resolved ? 'ptcp-safety-resolved' : ''}">
-          <div class="ptcp-safety-hd">${tl}<span class="ptcp-safety-effect">${esc(effect)}</span></div>
-          ${sessions ? `<div class="ptcp-safety-when">${esc(sessions)}</div>` : ''}
-        </div>`;
-      }).join('')}
-    </div>
-    <button class="ptcp-link-btn" style="margin-top:12px" onclick="window._navPatient('patient-messages')">Report a new side effect</button>
-  </div>
-
-  <!-- ⑨ DEVICES & BIOMETRICS -->
-  <div class="ptcp-section">
-    <div class="ptcp-section-header">
-      <h3 class="ptcp-section-title">Devices &amp; biometrics</h3>
-      ${wearable._isDemoData ? '<span class="ptcp-demo-tag">Example data</span>' : ''}
-    </div>
-    <div class="ptcp-bio-row">
-      <div class="ptcp-bio-tile"><div class="ptcp-bio-val">${esc(wearable.hrv)}</div><div class="ptcp-bio-lbl">HRV</div></div>
-      <div class="ptcp-bio-tile"><div class="ptcp-bio-val">${esc(wearable.sleep)}</div><div class="ptcp-bio-lbl">Sleep last night</div></div>
-      <div class="ptcp-bio-tile"><div class="ptcp-bio-val">${esc(wearable.steps)}</div><div class="ptcp-bio-lbl">Steps today</div></div>
-      <div class="ptcp-bio-tile"><div class="ptcp-bio-val">${esc(wearable.stress)}</div><div class="ptcp-bio-lbl">Stress level</div></div>
-    </div>
-    <button class="ptcp-link-btn" style="margin-top:10px" onclick="window._navPatient('patient-wearables')">Manage connected devices</button>
-  </div>
-
-  <!-- ⑩ CARE ASSISTANT -->
-  <div class="ptcp-section ptcp-asst-section">
-    <div class="ptcp-section-header">
-      <h3 class="ptcp-section-title">Ask Your Care Assistant</h3>
-    </div>
-    <p class="ptcp-body-text" style="margin-bottom:12px">Powered by AI · Your information stays private</p>
-    <div class="ptcp-asst-prompts">
-      ${[
-        'Explain my treatment plan',
-        `Why ${total} sessions?`,
-        'What should I do before my next session?',
-        'Explain my latest report',
-        'What tasks are due today?',
-      ].map(q => `<button class="ptcp-asst-chip" onclick="window._ptcpAskAI('${q.replace(/'/g,"\\'")}')">${q}</button>`).join('')}
-    </div>
-    <button class="btn btn-primary btn-sm" style="width:100%;margin-top:12px;font-size:13px" onclick="window._navPatient('ai-agents')">Open Care Assistant</button>
-  </div>
-
-</div>`;
-
-  // ── Homework render ───────────────────────────────────────────────────────
-  function renderHW() {
-    const items  = loadHW();
-    const listEl = document.getElementById('ptcp-hw-list');
-    const badge  = document.getElementById('ptcp-hw-badge');
-    if (!listEl) return;
-    const done   = items.filter(h => h.done).length;
-    if (badge) badge.textContent = `${done}/${items.length} done today`;
-    listEl.innerHTML = items.map(item => {
-      const desc = item.description || item.instructions || '';
-      const freq = item.freq || item.frequency || '';
-      const isAssigned = !!(item.assignedAt || item.status);
-      const overdueFlag = !item.done && item.dueDate && item.dueDate < new Date().toISOString().slice(0,10);
-      return `<div class="ptcp-hw-item ${item.done ? 'ptcp-hw-item--done' : ''}${overdueFlag ? ' ptcp-hw-item--overdue' : ''}">
-        <input type="checkbox" class="ptcp-hw-check" ${item.done ? 'checked' : ''} onchange="window._ptcpToggleHW('${item.id}')">
-        <div class="ptcp-hw-body">
-          <div class="ptcp-hw-title">${esc(item.title)}${isAssigned ? '<span class="ptcp-hw-assigned-tag">Assigned by clinic</span>' : ''}</div>
-          ${desc ? '<div class="ptcp-hw-desc">' + esc(desc) + '</div>' : ''}
-          ${item.dueDate ? '<div class="ptcp-hw-due' + (overdueFlag ? ' ptcp-hw-due--overdue' : '') + '">Due: ' + esc(item.dueDate) + '</div>' : ''}
-        </div>
-        <span class="ptcp-hw-freq">${esc(freq)}</span>
-      </div>`;
+  // Week strip: Mon-Sun with N completion dots per day.
+  function _dayDots(dayDate) {
+    const iso = dayDate.toISOString().slice(0, 10);
+    const dayTasks = tasks.filter(t => (t.due_on || '').slice(0, 10) === iso);
+    const dotsHtml = dayTasks.slice(0, 5).map(t => {
+      const cls = (t.completed || t.done) ? 'done'
+        : (/missed|skipped|no[-_]?show/i.test(String(t.status || ''))) ? 'missed'
+        : t.partial ? 'partial' : '';
+      return `<span class="hw-day-dot ${cls}"></span>`;
     }).join('');
+    return dotsHtml || '<span class="hw-day-dot"></span>';
   }
 
-  window._ptcpToggleHW = function(id) {
-    const items = loadHW();
-    const item  = items.find(h => h.id === id);
-    if (!item) return;
-    item.done = !item.done;
-    item.completedAt = item.done ? new Date().toISOString() : null;
-    saveHW(items);
-    // Write completion back so doctor's Adherence view sees it
+  const weekStrip = (() => {
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(weekStart); d.setDate(d.getDate() + i);
+      const iso = d.toISOString().slice(0, 10);
+      const today = iso === todayIso;
+      const past = !today && d.getTime() < Date.now();
+      days.push({
+        date: d,
+        dow: d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase(),
+        num: d.getDate(),
+        today, past,
+      });
+    }
+    return days;
+  })();
+
+  // Task icon/colour mapping.
+  function _icoRef(tp) {
+    const t = String(tp || '').toLowerCase();
+    if (/walk|move|activation/.test(t)) return '#i-walk';
+    if (/mood|smile|journal|reflect/.test(t)) return '#i-smile';
+    if (/tdcs|stim|brain|device/.test(t)) return '#i-brain';
+    if (/breath|wave/.test(t)) return '#i-wave';
+    if (/sleep|moon/.test(t)) return '#i-moon';
+    if (/assess|phq|gad|clipboard/.test(t)) return '#i-clipboard';
+    if (/prep|lightning/.test(t)) return '#i-lightning';
+    if (/aftercare|leaf/.test(t)) return '#i-leaf';
+    if (/education|book/.test(t)) return '#i-book-open';
+    return '#i-check';
+  }
+  function _catLabel(cat) {
+    const c = String(cat || '').toLowerCase();
+    const map = { activation:'Behavioural activation', mood:'Mood journal', device:'Home tDCS', breathing:'Breathing · relaxation', sleep:'Sleep hygiene · wind-down', assessment:'Assessment', prep:'Pre-session', aftercare:'Aftercare', education:'Education' };
+    return map[c] || (c ? c.charAt(0).toUpperCase() + c.slice(1) : 'Task');
+  }
+
+  // ── Task cards (today) + rows (week) + library (static) ───────────────────
+  function _taskCardHtml(t) {
+    const done = !!(t.completed || t.done);
+    const ico = _icoRef(t.task_type);
+    const cat = _catLabel(t.category || t.task_type);
+    const meta = [];
+    if (t.duration_min) meta.push(`<span><svg width="11" height="11"><use href="#i-clock"/></svg>~${t.duration_min} min</span>`);
+    if (t.repeat)       meta.push(`<span><svg width="11" height="11"><use href="#i-repeat"/></svg>${esc(t.repeat)}</span>`);
+    if (done && t.completed_at) meta.push(`<span class="hw-done"><svg width="11" height="11"><use href="#i-check"/></svg>Done \u00b7 ${esc(t.completed_at)}</span>`);
+    else if (t.due_by)   meta.push(`<span class="hw-due"><svg width="11" height="11"><use href="#i-alert"/></svg>Due by ${esc(t.due_by)}</span>`);
+    else if (t.time_bucket) meta.push(`<span>${esc(t.time_bucket)}</span>`);
+    const foot = done
+      ? `<button class="hw-check is-on" onclick="window._hwToggle && window._hwToggle(${JSON.stringify(t.id)})" title="Mark incomplete"><svg width="14" height="14"><use href="#i-check"/></svg></button>
+         <span style="font-size:11.5px;color:var(--text-secondary)">${t.mood_before != null && t.mood_after != null ? 'Mood <strong style="color:var(--text-primary)">' + t.mood_before + ' \u2192 ' + t.mood_after + '</strong> \u00b7 ' : ''}${esc(t.note ? '\u201C' + t.note + '\u201D' : 'Completed')}</span>
+         <button class="btn btn-ghost btn-sm hw-go" onclick="window._hwOpen && window._hwOpen(${JSON.stringify(t.id)})">View<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>`
+      : `<button class="hw-check" onclick="window._hwToggle && window._hwToggle(${JSON.stringify(t.id)})" title="Mark complete"><svg width="14" height="14"><use href="#i-check"/></svg></button>
+         <span style="font-size:11.5px;color:var(--text-tertiary)">${esc(t.clinician_note ? 'Clinician note \u2014 tap to read' : 'Tap check when done')}</span>
+         ${t.task_type === 'tdcs'
+           ? '<button class="btn btn-primary btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'tdcs\')">Start session<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>'
+           : t.task_type === 'breathing'
+             ? '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'breathing\')"><svg width="11" height="11"><use href="#i-play"/></svg>Guided</button>'
+             : '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwOpen && window._hwOpen(' + JSON.stringify(t.id) + ')">Open<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>'}`;
+    return `
+      <div class="hw-task${done ? ' done' : ''}" data-cat="${esc(t.category || '')}" data-task-id="${esc(t.id || '')}">
+        <div class="hw-task-hd">
+          <div class="hw-task-ico"><svg width="22" height="22"><use href="${ico}"/></svg></div>
+          <div class="hw-task-body">
+            <div class="hw-task-tag"><span class="dot"></span>${esc(cat)}${t.clinician_assigned_by ? ' \u00b7 ' + esc(t.clinician_assigned_by.split(' ').slice(-1)[0]) : ''}</div>
+            <div class="hw-task-title">${esc(t.title || 'Task')}</div>
+            <div class="hw-task-desc" style="margin-top:6px">${esc(t.description || t.instructions || '')}</div>
+          </div>
+        </div>
+        ${t.clinician_note ? `<div class="hw-task-note"><strong>${esc(t.clinician_note.by || 'Clinician')}\u2019s note${t.clinician_note.date ? ' \u00b7 ' + esc(t.clinician_note.date) : ''}:</strong> ${esc(t.clinician_note.body || '')}</div>` : ''}
+        <div class="hw-task-meta">${meta.join('')}</div>
+        <div class="hw-task-foot">${foot}</div>
+      </div>`;
+  }
+
+  function _taskRowHtml(t) {
+    const done = !!(t.completed || t.done);
+    const ico = _icoRef(t.task_type);
+    const dueLbl = (() => {
+      if (!t.due_on) return 'Scheduled';
+      const d = new Date(t.due_on);
+      return d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
+    })();
+    return `
+      <div class="hw-row${done ? ' done' : ''}" data-cat="${esc(t.category || '')}" data-task-id="${esc(t.id || '')}">
+        <div class="hw-row-ico"><svg width="18" height="18"><use href="${ico}"/></svg></div>
+        <div class="hw-row-body" onclick="window._hwOpen && window._hwOpen(${JSON.stringify(t.id)})">
+          <div class="hw-row-title">${esc(t.title || 'Task')}</div>
+          <div class="hw-row-sub">${esc(t.description || t.instructions || (_catLabel(t.category) + (t.duration_min ? ' \u00b7 ~' + t.duration_min + ' min' : '')))}</div>
+        </div>
+        <div class="hw-row-meta">
+          <span class="hw-row-cat">${esc(_catLabel(t.category || t.task_type))}</span>
+          <span${t._priority === 'due' ? ' style="color:var(--amber,#ffb547);font-weight:600"' : ''}>${esc(dueLbl)}</span>
+        </div>
+        <button class="hw-row-check${done ? ' is-on' : ''}" onclick="window._hwToggle && window._hwToggle(${JSON.stringify(t.id)})"><svg width="13" height="13"><use href="#i-check"/></svg></button>
+      </div>`;
+  }
+
+  // Library picks — static curated list, with "Add to my plan" wiring.
+  const library = [
+    { id:'lib-walk',     color:'#4ade80', ico:'#i-walk',      title:'20-Minute Walk',           sub:'Walking / Activity \u00b7 3x-week', desc:'Brisk 20-minute walk. Note how you feel before and after. Supports mood and neuroplasticity.', active:false, category:'activation',  duration_min:20, task_type:'walk' },
+    { id:'lib-breath',   color:'#4a9eff', ico:'#i-wave',      title:'Diaphragmatic Breathing', sub:'Breathing / Relaxation \u00b7 daily', desc:'10 minutes of slow diaphragmatic breathing. Inhale 4s, hold 2s, exhale 6s. Anxiety & stress regulation.', active:false, category:'breathing',   duration_min:10, task_type:'breathing' },
+    { id:'lib-sleep',    color:'#9b7fff', ico:'#i-moon',      title:'Sleep Hygiene Routine',    sub:'Sleep Routine \u00b7 daily',          desc:'No screens 1h before bed. Same sleep/wake time. Keep the room cool and dark.', active:false, category:'sleep', duration_min:60, task_type:'sleep' },
+    { id:'lib-mood',     color:'#ff8ab3', ico:'#i-edit',      title:'Daily Mood Journal',       sub:'Mood Journal \u00b7 daily',           desc:'Record mood, energy, and any notable thoughts each morning. Treatment monitoring.', active:true,  category:'mood', duration_min:2,  task_type:'mood' },
+    { id:'lib-prep',     color:'#ffb547', ico:'#i-lightning', title:'Pre-Session Relaxation',   sub:'Pre-Session Prep \u00b7 before-session', desc:'Arrive 10 min early, avoid caffeine 2h before, complete a short relaxation exercise.', active:true, category:'prep', duration_min:15, task_type:'prep' },
+    { id:'lib-post',     color:'#7fdcc2', ico:'#i-leaf',      title:'Post-Session Rest',        sub:'Aftercare \u00b7 after-session',      desc:'Rest 30 min. Avoid strenuous activity. Note any sensations in journal.', active:true, category:'aftercare', duration_min:30, task_type:'aftercare' },
+  ];
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  el.innerHTML = `
+    <div class="hw-page">
+
+      ${_isDemo ? `
+      <div class="hw-demo-banner" role="status">
+        <svg width="14" height="14"><use href="#i-info"/></svg>
+        <strong>Demo data</strong>
+        <span>\u2014 your clinician will replace these with your real homework once your plan is activated.</span>
+        <span style="margin-left:auto">Preview mode</span>
+      </div>` : ''}
+
+      <!-- Header -->
+      <div class="hw-hd">
+        <div>
+          <h2>Homework</h2>
+          <p>The at-home plan ${activeCourse?.primary_clinician_name ? esc(activeCourse.primary_clinician_name) + ' built around your' : 'your clinician will build around your'} ${esc(activeCourse?.modality_slug ? (activeCourse.modality_slug + '').toUpperCase() : 'treatment')} course. Small, evidence-based tasks that help the stimulation stick. Check things off as you go \u2014 your team sees your progress in real time.</p>
+        </div>
+        <div class="hw-hd-actions">
+          <button class="btn btn-ghost btn-sm" onclick="window._hwReminders && window._hwReminders()"><svg width="13" height="13"><use href="#i-bell"/></svg>Reminders \u00b7 <span id="hw-reminders-state">On</span></button>
+          <button class="btn btn-ghost btn-sm" onclick="window._hwExport && window._hwExport()"><svg width="13" height="13"><use href="#i-download"/></svg>Export plan</button>
+        </div>
+      </div>
+
+      <!-- Hero summary -->
+      <div class="hw-hero">
+        <div class="hw-hero-cell hw-hero-plan">
+          <div class="hw-hero-plan-ico"><svg width="22" height="22"><use href="#i-sparkle"/></svg></div>
+          <div>
+            <div class="hw-hero-plan-kick">Active plan${activeCourse?.condition_slug ? ' \u00b7 ' + esc(String(activeCourse.condition_slug).replace(/-/g,' ').toUpperCase()) : ''}</div>
+            <div class="hw-hero-plan-title">${esc(activeCourse?.name || 'Behavioural activation + tDCS adherence')}</div>
+            <div class="hw-hero-plan-sub">${activeCourse ? (`Week ${Math.ceil((Date.now() - new Date(activeCourse.started_at || '2026-02-17').getTime()) / (7*86400000)) || 6} of ${Math.round((activeCourse.total_sessions_planned || 20) / 2) || 10}`) : 'No active course'} \u00b7 prescribed by ${esc(activeCourse?.primary_clinician_name || 'your clinician')}</div>
+            ${streak > 0 ? `<span class="hw-streak-flame"><svg width="12" height="12"><use href="#i-sparkle"/></svg>${streak}-day streak \u2014 keep it going</span>` : ''}
+          </div>
+        </div>
+        <div class="hw-hero-cell">
+          <div class="hw-hero-lbl">Today</div>
+          <div class="hw-hero-val">${todaysDone}<small>of ${todays.length} done</small></div>
+          <div class="hw-hero-sub" style="color:var(--teal,#00d4bc)">${todays.length - todaysDone} remaining${todays.length - todaysDone > 0 ? ' \u00b7 ~' + (todays.filter(t => !(t.completed||t.done)).reduce((a,t)=>a+(t.duration_min||5),0)) + ' min' : ''}</div>
+        </div>
+        <div class="hw-hero-cell">
+          <div class="hw-hero-lbl">This week</div>
+          <div class="hw-hero-val">${weekDone}<small>of ${weekTasks.length || '—'}</small></div>
+          <div class="hw-hero-sub">${weekPct}% adherence \u00b7 ${weekPct >= 60 ? 'on track' : 'catch up gently'}</div>
+        </div>
+        <div class="hw-hero-cell" style="display:flex;flex-direction:row;align-items:center;gap:14px">
+          <div class="hw-ring">
+            <svg viewBox="0 0 54 54">
+              <circle cx="27" cy="27" r="22" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="4"/>
+              <circle cx="27" cy="27" r="22" fill="none" stroke="#00d4bc" stroke-width="4" stroke-linecap="round" stroke-dasharray="138.23" stroke-dashoffset="${(138.23 - (coursePct / 100) * 138.23).toFixed(2)}"/>
+            </svg>
+            <div class="hw-ring-num">${coursePct}%</div>
+          </div>
+          <div>
+            <div class="hw-hero-lbl">Course adherence</div>
+            <div class="hw-hero-sub" style="margin-top:4px">${coursePct >= 50 ? 'Keep going' : 'Getting started'}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Week strip -->
+      <div class="hw-week">
+        ${weekStrip.map(day => `
+          <div class="hw-day${day.today ? ' today' : day.past ? ' past' : ''}">
+            ${day.today ? '<div class="hw-day-tag">TODAY</div>' : ''}
+            <div class="hw-day-dow">${esc(day.dow)}</div>
+            <div class="hw-day-num">${day.num}</div>
+            <div class="hw-day-dots">${_dayDots(day.date)}</div>
+          </div>`).join('')}
+      </div>
+
+      <!-- Two-col layout -->
+      <div class="hw-layout">
+
+        <!-- LEFT: tasks -->
+        <div class="hw-main">
+
+          <!-- Filters -->
+          <div class="hw-filters" id="hw-filters">
+            <button class="hw-filter active" data-f="today" onclick="window._hwFilter && window._hwFilter('today')">Today <span class="count">${todays.length}</span></button>
+            <button class="hw-filter" data-f="week" onclick="window._hwFilter && window._hwFilter('week')">This week <span class="count">${weekTasks.length}</span></button>
+            <button class="hw-filter" data-f="activation" onclick="window._hwFilter && window._hwFilter('activation')">Activation <span class="count">${tasks.filter(t => t.category === 'activation').length}</span></button>
+            <button class="hw-filter" data-f="mood" onclick="window._hwFilter && window._hwFilter('mood')">Mood log <span class="count">${tasks.filter(t => t.category === 'mood').length}</span></button>
+            <button class="hw-filter" data-f="device" onclick="window._hwFilter && window._hwFilter('device')">tDCS home <span class="count">${tasks.filter(t => t.category === 'device').length}</span></button>
+            <button class="hw-filter" data-f="sleep" onclick="window._hwFilter && window._hwFilter('sleep')">Sleep <span class="count">${tasks.filter(t => t.category === 'sleep').length}</span></button>
+            <button class="hw-filter" data-f="breathing" onclick="window._hwFilter && window._hwFilter('breathing')">Breathing <span class="count">${tasks.filter(t => t.category === 'breathing').length}</span></button>
+            <input class="hw-filter-search" id="hw-search" placeholder="Search tasks, notes, instructions\u2026" oninput="window._hwSearch && window._hwSearch(this.value)" />
+          </div>
+
+          <!-- Today focus -->
+          <div class="hw-today-section" id="hw-sec-today">
+            <div class="hw-section-hd">
+              <div>
+                <h3>Today \u00b7 ${esc(new Date().toLocaleDateString(loc, { weekday: 'long', month: 'long', day: 'numeric' }))}</h3>
+                <p>${todays.length ? 'Tap an item to open it. Walk and mood log are the high-priority items.' : 'No tasks scheduled for today yet \u2014 your clinician will add some.'}</p>
+              </div>
+              <a class="hw-see-all" href="javascript:void(0)" onclick="window._hwFilter && window._hwFilter('week')">View full week <svg width="12" height="12"><use href="#i-arrow-right"/></svg></a>
+            </div>
+            <div class="hw-today-grid">
+              ${todays.length ? todays.map(_taskCardHtml).join('') : '<div class="pth2-empty" style="grid-column:1/-1"><div class="pth2-empty-title">No tasks today</div><div class="pth2-empty-sub">Enjoy the break \u2014 or browse the library below for optional practices.</div></div>'}
+            </div>
+          </div>
+
+          <!-- Coming up this week -->
+          <div class="hw-group" id="hw-sec-week">
+            <div class="hw-section-hd">
+              <div>
+                <h3>Coming up this week</h3>
+                <p>Scheduled tasks through ${esc(new Date(weekEnd.getTime() - 86400000).toLocaleDateString(loc, { weekday: 'long', month: 'short', day: 'numeric' }))}. Tap any to preview or start early.</p>
+              </div>
+            </div>
+            <div class="hw-group-list">
+              ${weekTasks.filter(t => !((t.due_on || '').slice(0,10) === todayIso)).map(_taskRowHtml).join('') || '<div class="pth2-empty-inline">Nothing else scheduled this week.</div>'}
+            </div>
+          </div>
+
+          <!-- Library -->
+          <div class="hw-library-hd">
+            <div>
+              <h3>Self-guided library</h3>
+              <p>Optional modules curated for your plan. Clear with your clinician before using anything new, especially device-related exercises.</p>
+            </div>
+            <a class="hw-see-all" href="javascript:void(0)" onclick="window._hwBrowseLibrary && window._hwBrowseLibrary()">Browse all templates <svg width="12" height="12"><use href="#i-arrow-right"/></svg></a>
+          </div>
+          <div class="hw-library-grid">
+            ${library.map(l => `
+              <div class="hw-lib-card" data-lib-id="${esc(l.id)}">
+                <div class="hw-lib-hd">
+                  <div class="hw-lib-ico" style="color:${l.color}"><svg width="16" height="16"><use href="${l.ico}"/></svg></div>
+                  <div><div class="hw-lib-title">${esc(l.title)}</div><div class="hw-lib-sub">${esc(l.sub)}</div></div>
+                </div>
+                <div class="hw-lib-desc">${esc(l.desc)}</div>
+                <div class="hw-lib-foot">
+                  <span>${l.active ? 'Active in your plan' : 'General library'}</span>
+                  <button class="hw-lib-read" onclick="window._hwAddLibrary && window._hwAddLibrary(${JSON.stringify(l.id)})">${l.active ? 'Open' : 'Use'} <svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>
+                </div>
+              </div>`).join('')}
+          </div>
+
+        </div>
+
+        <!-- RIGHT rail -->
+        <div class="hw-rail">
+
+          <!-- Quick mood -->
+          <div class="hw-rail-card">
+            <div class="hw-rail-hd">
+              <div>
+                <div class="hw-rail-title">Quick mood check-in</div>
+                <div class="hw-rail-sub">Takes 5 seconds \u00b7 feeds into your trends</div>
+              </div>
+            </div>
+            <div class="hw-mood" id="hw-mood-scale">
+              ${[{v:1,f:'\ud83d\ude23',l:'Very low'},{v:2,f:'\ud83d\ude15',l:'Low'},{v:3,f:'\ud83d\ude10',l:'OK'},{v:4,f:'\ud83d\ude42',l:'Good'},{v:5,f:'\ud83d\ude0a',l:'Great'}].map(m => `<button data-v="${m.v}"${m.v===3?' class="active"':''} onclick="window._hwMoodPick && window._hwMoodPick(${m.v})"><span class="f">${m.f}</span><span class="l">${m.l}</span></button>`).join('')}
+            </div>
+          </div>
+
+          <!-- Streak heatmap -->
+          <div class="hw-rail-card">
+            <div class="hw-rail-hd">
+              <div>
+                <div class="hw-rail-title">Your adherence \u00b7 14 days</div>
+                <div class="hw-rail-sub">Each cell is one day \u00b7 darker = more done</div>
+              </div>
+              ${streak > 0 ? `<span class="hw-streak-flame"><svg width="11" height="11"><use href="#i-sparkle"/></svg>${streak}d</span>` : ''}
+            </div>
+            <div class="hw-streak-grid">
+              ${(() => {
+                const cells = [];
+                for (let i = 13; i >= 0; i--) {
+                  const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+                  const day = tasks.filter(t => (t.due_on || '').slice(0, 10) === d);
+                  const dayDone = day.filter(t => t.completed || t.done).length;
+                  const cls = day.length === 0 ? '' : dayDone === 0 ? 'missed' : dayDone / day.length < 0.34 ? 'l1' : dayDone / day.length < 0.67 ? 'l2' : 'l3';
+                  cells.push(`<span class="hw-streak-cell ${cls}"></span>`);
+                }
+                return cells.join('');
+              })()}
+            </div>
+            <div class="hw-streak-foot">
+              <span>${esc(new Date(Date.now() - 13 * 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))}</span>
+              <span class="hw-streak-key">
+                <span>Less</span>
+                <span class="hw-streak-key-cells">
+                  <span style="background:rgba(255,255,255,0.04)"></span>
+                  <span style="background:rgba(0,212,188,0.22)"></span>
+                  <span style="background:rgba(0,212,188,0.45)"></span>
+                  <span style="background:rgba(0,212,188,0.75)"></span>
+                </span>
+                <span>More</span>
+              </span>
+              <span>Today</span>
+            </div>
+          </div>
+
+          <!-- Next session -->
+          <div class="hw-rail-card">
+            <div class="hw-rail-hd"><div class="hw-rail-title">Next in-clinic session</div></div>
+            <div class="hw-next">
+              <div class="hw-next-ico"><svg width="20" height="20"><use href="#i-calendar"/></svg></div>
+              ${(() => {
+                const nextInClinic = sessions
+                  .filter(s => s.scheduled_at && new Date(s.scheduled_at).getTime() > Date.now() && !/home/i.test(s.location || s.session_type || ''))
+                  .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))[0];
+                if (!nextInClinic) {
+                  return `<div style="flex:1">
+                    <div class="hw-next-kick">No clinic session booked</div>
+                    <div class="hw-next-title">Message your team</div>
+                    <div class="hw-next-sub">Your care team will schedule the next one shortly.</div>
+                  </div>`;
+                }
+                const d = new Date(nextInClinic.scheduled_at);
+                const when = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                const t1 = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+                const t2 = nextInClinic.duration_minutes ? new Date(d.getTime() + nextInClinic.duration_minutes * 60000).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : null;
+                return `<div style="flex:1">
+                  <div class="hw-next-kick">${esc(when)}</div>
+                  <div class="hw-next-title">Session ${nextInClinic.session_number || ''} \u00b7 ${esc(nextInClinic.location || 'Room')}</div>
+                  <div class="hw-next-sub">${esc(t1)}${t2 ? '\u2013' + esc(t2) : ''} \u00b7 ${esc(nextInClinic.clinician_name || 'Your clinician')} \u00b7 ${esc((nextInClinic.modality_slug || 'tDCS').toUpperCase())}</div>
+                </div>`;
+              })()}
+            </div>
+          </div>
+
+          <!-- Care team -->
+          <div class="hw-rail-card">
+            <div class="hw-rail-hd">
+              <div>
+                <div class="hw-rail-title">Your care team</div>
+                <div class="hw-rail-sub">Usually respond same-day during clinic hours</div>
+              </div>
+            </div>
+            ${(() => {
+              const team = [
+                { name:'Dr. Julia Kolmar', role:'Lead clinician \u00b7 Psychiatrist',       avatar:'JK', grad:'linear-gradient(135deg,#00d4bc,#4a9eff)' },
+                { name:'Rhea Nair, RN',    role:'tDCS technician \u00b7 home device support', avatar:'RN', grad:'linear-gradient(135deg,#9b7fff,#ff8ab3)' },
+                { name:'Marcus Tan',       role:'Care coordinator',                        avatar:'MT', grad:'linear-gradient(135deg,#ffb547,#ff8ab3)' },
+              ];
+              return team.map(m => `
+                <div class="hw-care">
+                  <div class="hw-care-avatar" style="background:${m.grad}">${esc(m.avatar)}</div>
+                  <div><div class="hw-care-name">${esc(m.name)}</div><div class="hw-care-role">${esc(m.role)}</div></div>
+                  <button class="hw-care-btn" title="Message" onclick="window._navPatient && window._navPatient('patient-messages')"><svg width="14" height="14"><use href="#i-mail"/></svg></button>
+                </div>`).join('');
+            })()}
+          </div>
+
+          <!-- Safety tip -->
+          <div class="hw-rail-card">
+            <div class="hw-tip">
+              <div class="hw-tip-ico"><svg width="16" height="16"><use href="#i-alert"/></svg></div>
+              <div class="hw-tip-body">
+                <strong>If something feels off</strong> \u2014 skin redness that doesn\u2019t fade, unusual headache, or persistent low mood \u2014 pause device use and message your clinician. For emergencies, call <strong>999</strong>.
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Toast -->
+      <div class="hw-toast" id="hw-toast"><svg width="16" height="16"><use href="#i-check"/></svg><span id="hw-toast-text">Saved</span></div>
+    </div>`;
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
+  // Track local toggle state so demo mode still mutates the UI.
+  const _taskById = new Map(tasks.map(t => [String(t.id), t]));
+
+  function _hwToast(msg) {
+    const t = document.getElementById('hw-toast');
+    const t2 = document.getElementById('hw-toast-text');
+    if (!t || !t2) return;
+    t2.textContent = msg || 'Done';
+    t.classList.add('show');
+    clearTimeout(window._hwToastTimer);
+    window._hwToastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  window._hwToggle = async function(taskId) {
+    const task = _taskById.get(String(taskId));
+    if (!task) return;
+    const nowDone = !(task.completed || task.done);
+    task.completed = nowDone;
+    task.done = nowDone;
+    if (nowDone) task.completed_at = new Date().toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' });
+    else delete task.completed_at;
+    // Optimistically update DOM:
+    const cards = document.querySelectorAll(`[data-task-id="${String(taskId).replace(/"/g, '\\"')}"]`);
+    cards.forEach(c => c.classList.toggle('done', nowDone));
+    const checks = document.querySelectorAll(`[data-task-id="${String(taskId).replace(/"/g, '\\"')}"] .hw-check, [data-task-id="${String(taskId).replace(/"/g, '\\"')}"] .hw-row-check`);
+    checks.forEach(b => b.classList.toggle('is-on', nowDone));
+    _hwToast(nowDone ? 'Marked complete' : 'Reopened');
+    // Persist via API (no-op in demo / offline mode).
+    if (!_isDemo && api.mutateHomeProgramTask) {
+      try {
+        await api.mutateHomeProgramTask({
+          ...task,
+          id: task.id,
+          serverTaskId: task.serverTaskId || task.server_task_id,
+          patient_id: uid,
+          completed: nowDone,
+        });
+      } catch (e) {
+        console.warn('[homework] persist failed, keeping local state:', e);
+      }
+    }
+  };
+
+  window._hwOpen = function(taskId) {
+    const task = _taskById.get(String(taskId));
+    if (!task) return;
+    _hwToast('Opening task\u2026');
+    // For now, scroll to the task. Future: open a detail drawer.
+    const card = document.querySelector(`[data-task-id="${String(taskId).replace(/"/g, '\\"')}"]`);
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  window._hwStart = function(taskId, kind) {
+    const task = _taskById.get(String(taskId));
+    if (kind === 'tdcs') {
+      _hwToast('Starting home tDCS prep\u2026');
+      setTimeout(() => window._navPatient && window._navPatient('patient-home-device'), 500);
+    } else if (kind === 'breathing') {
+      _hwToast('Starting guided breathing (10 min)');
+    } else {
+      _hwToast('Started');
+    }
+    if (task && !(task.completed || task.done)) {
+      // Don't auto-complete — let the patient confirm after finishing.
+    }
+  };
+
+  window._hwFilter = function(f) {
+    document.querySelectorAll('#hw-filters .hw-filter').forEach(b => b.classList.toggle('active', b.dataset.f === f));
+    const secToday = document.getElementById('hw-sec-today');
+    const secWeek  = document.getElementById('hw-sec-week');
+    // Today filter shows only today-section; others filter BOTH sections by category.
+    if (f === 'today') {
+      if (secToday) secToday.style.display = '';
+      if (secWeek)  secWeek.style.display  = '';
+      document.querySelectorAll('.hw-task, .hw-row').forEach(el2 => el2.style.display = '');
+      return;
+    }
+    if (f === 'week') {
+      if (secToday) secToday.style.display = 'none';
+      if (secWeek)  secWeek.style.display  = '';
+      document.querySelectorAll('.hw-row').forEach(el2 => el2.style.display = '');
+      return;
+    }
+    if (secToday) secToday.style.display = '';
+    if (secWeek)  secWeek.style.display  = '';
+    document.querySelectorAll('.hw-task, .hw-row').forEach(el2 => {
+      el2.style.display = (el2.getAttribute('data-cat') === f) ? '' : 'none';
+    });
+  };
+
+  window._hwSearch = function(q) {
+    const needle = String(q || '').toLowerCase().trim();
+    document.querySelectorAll('.hw-task, .hw-row').forEach(el2 => {
+      if (!needle) { el2.style.display = ''; return; }
+      const hay = el2.textContent.toLowerCase();
+      el2.style.display = hay.includes(needle) ? '' : 'none';
+    });
+  };
+
+  window._hwMoodPick = function(v) {
+    document.querySelectorAll('#hw-mood-scale button').forEach(b => b.classList.toggle('active', Number(b.getAttribute('data-v')) === v));
     try {
-      const compKey = 'ds_task_completions_' + (uid || 'default');
-      const comps = JSON.parse(localStorage.getItem(compKey) || '{}');
-      if (item.done) comps[id] = { completedAt: item.completedAt, source: 'patient' };
-      else delete comps[id];
-      localStorage.setItem(compKey, JSON.stringify(comps));
-    } catch {}
-    renderHW();
-  };
-  window._ptcpShowAddHW = function() {
-    document.getElementById('ptcp-hw-add-form').style.display = '';
-    document.getElementById('ptcp-hw-input').focus();
-  };
-  window._ptcpSaveHW = function() {
-    const inp = document.getElementById('ptcp-hw-input');
-    const val = inp?.value?.trim();
-    if (!val) return;
-    const items = loadHW();
-    items.push({ id: 'p_' + Date.now(), title: val, description: 'Personal note', freq: 'Personal', done: false, personal: true });
-    saveHW(items);
-    if (inp) inp.value = '';
-    document.getElementById('ptcp-hw-add-form').style.display = 'none';
-    renderHW();
+      const iso = todayIso;
+      const prev = JSON.parse(localStorage.getItem('ds_checkin_' + iso) || '{}');
+      prev.mood = v * 2;  // map 1-5 → 2-10
+      localStorage.setItem('ds_checkin_' + iso, JSON.stringify(prev));
+      localStorage.setItem('ds_last_checkin', iso);
+    } catch (_e) {}
+    if (!_isDemo && uid && api.submitAssessment) {
+      api.submitAssessment(uid, { type: 'wellness_checkin', mood: v * 2, date: new Date().toISOString() }).catch(() => {});
+    }
+    _hwToast('Mood logged');
   };
 
-  renderHW();
+  window._hwReminders = function() {
+    const st = document.getElementById('hw-reminders-state');
+    if (!st) return;
+    const on = st.textContent.trim().toLowerCase() === 'on';
+    st.textContent = on ? 'Off' : 'On';
+    _hwToast('Reminders ' + (on ? 'muted for today' : 'on'));
+  };
 
-  // ── Care assistant — routes to ai-agents with prefilled prompt ───────────
-  window._ptcpAskAI = function(prompt) {
-    try { sessionStorage.setItem('ds_ai_prefill', prompt); } catch (_e) {}
-    window._navPatient('ai-agents');
+  window._hwExport = function() {
+    const lines = ['# Homework plan', '', `Exported: ${new Date().toLocaleString(loc)}`, ''];
+    tasks.forEach(t => {
+      lines.push(`- [${(t.completed || t.done) ? 'x' : ' '}] ${t.title || 'Task'}  _(${t.category || t.task_type || ''}, due ${t.due_on || 'TBD'})_`);
+      if (t.description) lines.push(`  ${t.description}`);
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `homework-${todayIso}.md`;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    _hwToast('Plan exported');
+  };
+
+  window._hwAddLibrary = async function(libId) {
+    const lib = library.find(l => l.id === libId);
+    if (!lib) return;
+    _hwToast(lib.active ? 'Opening ' + lib.title : 'Adding to your plan\u2026');
+    if (!_isDemo && api.mutateHomeProgramTask && uid) {
+      try {
+        await api.mutateHomeProgramTask({
+          id: 'lib-' + lib.id + '-' + Date.now(),
+          patient_id: uid,
+          title: lib.title,
+          category: lib.category,
+          task_type: lib.task_type,
+          duration_min: lib.duration_min,
+          description: lib.desc,
+          source_library_id: lib.id,
+          completed: false,
+        });
+        _hwToast('Added \u2014 your clinician will confirm');
+      } catch (e) { console.warn('[homework] add lib failed:', e); }
+    }
+  };
+
+  window._hwBrowseLibrary = function() {
+    _hwToast('Library coming soon \u2014 ask your care team');
   };
 }
-
 // ── PHQ-9 Assessment ──────────────────────────────────────────────────────────
 function getPHQ9Questions() {
   return [
