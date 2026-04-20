@@ -21394,3 +21394,16 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   .dv2-public { padding: 0 14px !important; }
   .pub-hero h1 { font-size: 28px !important; }
 }
+
+/* ── as-* / ah2-* · Design #05 · Assessments — responsive polish ─────────── */
+@media (max-width: 900px) {
+  .ah2-kpi-strip { gap: 8px; }
+  .ah2-kpi { min-width: 0; flex: 1 1 calc(50% - 4px); padding: 10px 12px; }
+  .ah2-kpi-val { font-size: 22px; }
+}
+@media (max-width: 560px) {
+  .ah2-kpi-strip { flex-wrap: wrap; }
+  .ah2-kpi { flex: 1 1 calc(50% - 4px); }
+  .ah2-kpi-val { font-size: 20px; }
+  .ah2-kpi-lbl { font-size: 10px; }
+}
