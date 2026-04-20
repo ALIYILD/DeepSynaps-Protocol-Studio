@@ -976,7 +976,8 @@ async function renderPatientPage() {
   switch (currentPatientPage) {
     case 'patient-portal':      await m.pgPatientDashboard(currentUser);  break;
     case 'patient-sessions':    await m.pgPatientSessions();              break;
-    case 'patient-course':      await m.pgPatientCourse();                break;
+    case 'patient-course':      await m.pgPatientHomework();              break;
+    case 'patient-homework':    await m.pgPatientHomework();              break;
     case 'patient-assessments': await m.pgPatientAssessments();           break;
     case 'patient-reports':     await m.pgPatientReports();               break;
     case 'patient-messages':    await m.pgPatientMessages();              break;
