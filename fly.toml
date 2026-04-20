@@ -39,6 +39,10 @@ primary_region = "lhr"
   timeout = "5s"
   path = "/health"
 
+[[mounts]]
+  source = "deepsynaps_data"
+  destination = "/data"
+
 [[vm]]
   memory = "1gb"
   cpu_kind = "shared"
