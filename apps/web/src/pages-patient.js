@@ -441,10 +441,27 @@ export async function pgPatientDashboard(user) {
   let activeCourse = coursesArr.find(c => c.status === 'active') || coursesArr[0] || null;
 
   // ── Home (hm-*) shared helpers ──────────────────────────────────────────
+  // Inline modality-slug → human label map. pgPatientDashboard doesn't have
+  // access to pgPatientSessions' `modalityLabel`, so we duplicate a small
+  // version here. Same mapping keys.
+  function _hmModalityLabel(slug) {
+    if (!slug) return null;
+    const key = String(slug).toLowerCase().replace(/[-_\s]/g, '');
+    const MAP = {
+      tms:'TMS', rtms:'rTMS', dtms:'Deep TMS', tdcs:'tDCS', tacs:'tACS', trns:'tRNS',
+      neurofeedback:'Neurofeedback', nfb:'Neurofeedback', hegnfb:'HEG Neurofeedback',
+      heg:'HEG Neurofeedback', lensnfb:'LENS Neurofeedback', lens:'LENS Neurofeedback',
+      qeeg:'qEEG Assessment', pemf:'PEMF Therapy', biofeedback:'Biofeedback',
+      hrvbiofeedback:'HRV Biofeedback', hrv:'HRV Biofeedback', hrvb:'HRV Biofeedback',
+      pbm:'Photobiomodulation', nirs:'fNIRS Session', assessment:'Assessment',
+    };
+    if (MAP[key]) return MAP[key];
+    return String(slug).replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
   // "rTMS · MDD" style label for the hero sub.
   function modalityCondShort(c) {
     if (!c) return 'treatment';
-    const mod = modalityLabel(c.modality_slug) || (c.modality_slug || 'tDCS').toUpperCase();
+    const mod = _hmModalityLabel(c.modality_slug) || (c.modality_slug || 'tDCS').toUpperCase();
     const cond = (c.condition_slug || '').replace(/-/g, ' ').replace(/mdd/i, 'MDD').trim();
     return cond ? `${mod} · ${cond}` : mod;
   }
@@ -1460,7 +1477,7 @@ export async function pgPatientDashboard(user) {
     const d = nextSessDate;
     const dateLbl = d.toLocaleDateString(loc, { weekday: 'short', month: 'short', day: 'numeric' });
     const clinician = nextSess.clinician_name || activeCourse?.primary_clinician_name || 'Your clinician';
-    const modality = modalityLabel(nextSess.modality_slug) || 'Session';
+    const modality = _hmModalityLabel(nextSess.modality_slug) || 'Session';
     const duration = nextSess.duration_minutes ? nextSess.duration_minutes + ' min' : '—';
     const target = nextSess.target_site || activeCourse?.target_site || 'F3 – FP2';
     const mA = nextSess.stimulation_mA || activeCourse?.stimulation_mA || '2.0 mA';
