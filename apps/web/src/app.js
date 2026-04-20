@@ -832,6 +832,7 @@ const PAGE_TITLES = {
   'pt-journal': 'Symptom Journal',
   'pt-notifications': 'Notification Settings',
   'pt-outcomes': 'My Progress',
+  'patient-home-devices': 'Home Devices',
   'guardian-portal': 'Guardian Portal',
   'homework-builder': 'Patient Education & Homework Builder',
   'decision-support': 'AI Clinical Decision Support',
@@ -983,7 +984,8 @@ async function renderPatientPage() {
     case 'patient-messages':    await m.pgPatientMessages();              break;
     case 'patient-virtualcare': await m.pgPatientVirtualCare();           break;
     case 'virtualcare':         await m.pgPatientVirtualCare();           break;
-    case 'patient-wearables':   await m.pgPatientWearables();             break;
+    case 'patient-home-devices': await m.pgPatientHomeDevices();          break;
+    case 'patient-wearables':    await m.pgPatientHomeDevices();          break;
     case 'patient-profile':     await m.pgPatientProfile(currentUser);    break;
     case 'pt-wellness':         await m.pgPatientWellness();              break;
     case 'pt-learn':            await m.pgPatientLearn();                 break;
@@ -1004,8 +1006,9 @@ async function renderPatientPage() {
 }
 
 function navigatePatient(id) {
-  currentPatientPage = id;
-  window._currentPatientPage = id; // expose for swipe gesture handlers
+  const normalizedId = id === 'patient-wearables' ? 'patient-home-devices' : id;
+  currentPatientPage = normalizedId;
+  window._currentPatientPage = normalizedId; // expose for swipe gesture handlers
   renderPatientPage();
 }
 window._navPatient  = navigatePatient;

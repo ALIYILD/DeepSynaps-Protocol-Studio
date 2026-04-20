@@ -30,7 +30,7 @@ function _patientNav() {
     { id: 'patient-reports',     label: 'My Reports',           icon: '📄', tone: 'blue',   group: 'main' },
     { id: 'patient-virtualcare', label: 'Virtual Care',         icon: '📹', tone: 'teal',   group: 'main' },
     { id: 'patient-messages',    label: 'Messages',             icon: '💬', tone: 'teal',   group: 'main' },
-    { id: 'patient-wearables',   label: 'Devices & Wearables',  icon: '⌚', tone: 'violet', group: 'main' },
+    { id: 'patient-home-devices', label: 'Home Devices',        icon: '⌚', tone: 'violet', group: 'main' },
     { id: 'patient-profile',     label: 'Profile',              icon: '👤', tone: 'amber',  group: 'main' },
     // Optional
     { id: 'pt-caregiver',        label: 'Caregiver Access',     icon: '👥', tone: 'rose',   group: 'optional' },
@@ -14247,6 +14247,628 @@ window._gpToggleCrisis = () => { const det = document.getElementById('gp-crisis-
 window._gpToggleEdit = () => { const form = document.getElementById('gp-edit-contacts-form'), list = document.getElementById('gp-contacts-list'); if (!form) return; const s = form.style.display !== 'none'; form.style.display = s ? 'none' : 'block'; if (list) list.style.display = s ? 'flex' : 'none'; };
 window._gpCancelEdit = () => { const form = document.getElementById('gp-edit-contacts-form'), list = document.getElementById('gp-contacts-list'); if (form) form.style.display = 'none'; if (list) list.style.display = 'flex'; };
 window._gpSaveContacts = () => { try { const prof = JSON.parse(localStorage.getItem('ds_guardian_profiles') || '{}'); (prof.emergencyContacts || []).forEach(ec => { const n = document.getElementById('gp-ec-name-' + ec.id), r = document.getElementById('gp-ec-rel-' + ec.id), p = document.getElementById('gp-ec-phone-' + ec.id); if (n) ec.name = n.value; if (r) ec.relation = r.value; if (p) ec.phone = p.value; }); localStorage.setItem('ds_guardian_profiles', JSON.stringify(prof)); } catch (_e) { /* safe */ } _gpRender(); };
+
+// ── Home Devices hub ────────────────────────────────────────────────────────
+
+export async function pgPatientHomeDevices() {
+  setTopbar(
+    'Home Devices',
+    '<div class="phd-topbar-actions">' +
+      '<button class="btn btn-ghost btn-sm" onclick="window._phdRefresh()"><svg width="12" height="12"><use href="#i-refresh"/></svg>Refresh</button>' +
+      '<button class="btn btn-primary btn-sm" onclick="window._phdJumpCatalog()"><svg width="12" height="12"><use href="#i-plus"/></svg>Add device</button>' +
+    '</div>'
+  );
+
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+
+  const esc = (v) => String(v == null ? '' : v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+  const raceNull = (p, ms = 3200) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    new Promise((resolve) => setTimeout(() => resolve(null), ms)),
+  ]);
+  const emitToast = (message, tone = 'var(--teal)') => {
+    const node = document.createElement('div');
+    node.textContent = message;
+    node.style.cssText =
+      'position:fixed;bottom:24px;right:24px;z-index:9999;background:' + tone +
+      ';color:#08111f;padding:10px 16px;border-radius:10px;font-size:12.5px;font-weight:700;box-shadow:0 12px 28px rgba(0,0,0,0.35)';
+    document.body.appendChild(node);
+    setTimeout(() => node.remove(), 2600);
+  };
+  const formatMetric = (num) => {
+    if (num == null || Number.isNaN(Number(num))) return '0';
+    const value = Number(num);
+    if (value >= 1000) return value.toLocaleString('en-US', { maximumFractionDigits: 1 }).replace('.0', '');
+    return String(value);
+  };
+  const daysSince = (iso) => {
+    if (!iso) return 0;
+    const then = new Date(iso).getTime();
+    if (!Number.isFinite(then)) return 0;
+    return Math.max(0, Math.round((Date.now() - then) / 86400000));
+  };
+  const activityTypeLabel = (type) => ({
+    adherence_report: 'Adherence update',
+    side_effect: 'Side-effect report',
+    tolerance_change: 'Tolerance update',
+    break_request: 'Break request',
+    concern: 'Care concern',
+    positive_feedback: 'Positive feedback',
+  }[type] || 'Activity');
+  const summarizeParameters = (params) => {
+    if (!params || typeof params !== 'object') return [];
+    const keys = ['frequency_hz', 'pulse_width_us', 'intensity_ma', 'target', 'montage', 'duration_min'];
+    return keys
+      .filter((key) => params[key] != null && params[key] !== '')
+      .slice(0, 4)
+      .map((key) => {
+        const label = {
+          frequency_hz: 'Hz',
+          pulse_width_us: 'Pulse',
+          intensity_ma: 'Intensity',
+          target: 'Target',
+          montage: 'Montage',
+          duration_min: 'Duration',
+        }[key] || key;
+        const suffix = key === 'frequency_hz' ? ' Hz'
+          : key === 'pulse_width_us' ? ' us'
+          : key === 'intensity_ma' ? ' mA'
+          : key === 'duration_min' ? ' min'
+          : '';
+        return label + ' ' + params[key] + suffix;
+      });
+  };
+  const buildWeekStrip = (sessions) => {
+    const out = [];
+    const today = new Date();
+    for (let i = 6; i >= 0; i -= 1) {
+      const date = new Date(today);
+      date.setDate(today.getDate() - i);
+      const dayIso = date.toISOString().slice(0, 10);
+      const hits = sessions.filter((row) => (row.session_date || '').slice(0, 10) === dayIso);
+      out.push({
+        dayName: date.toLocaleDateString('en-US', { weekday: 'short' }),
+        status: hits.length ? (hits.some((row) => row.completed === false) ? 'partial' : 'done') : 'missed',
+        isToday: i === 0,
+      });
+    }
+    return out;
+  };
+
+  el.innerHTML = `
+    <div class="phd-page">
+      <div class="phd-hero-grid">
+        <section class="phd-panel phd-panel--hero">
+          <div class="phd-eyebrow">Home neuromodulation hub</div>
+          <div class="phd-skeleton phd-skeleton--headline"></div>
+          <div class="phd-skeleton phd-skeleton--body"></div>
+          <div class="phd-skeleton phd-skeleton--body phd-skeleton--body-short"></div>
+          <div class="phd-kpi-grid">
+            ${Array.from({ length: 4 }, () => `
+              <div class="phd-skeleton-card">
+                <div class="phd-skeleton phd-skeleton--title"></div>
+                <div class="phd-skeleton phd-skeleton--value"></div>
+                <div class="phd-skeleton phd-skeleton--sub"></div>
+              </div>
+            `).join('')}
+          </div>
+        </section>
+        <section class="phd-panel phd-panel--adherence">
+          <div class="phd-panel-title">Weekly adherence</div>
+          <div class="phd-adherence-skeleton">
+            <div class="phd-skeleton phd-skeleton--gauge"></div>
+            <div class="phd-skeleton-lines">
+              <div class="phd-skeleton phd-skeleton--bar"></div>
+              <div class="phd-skeleton phd-skeleton--bar"></div>
+              <div class="phd-skeleton phd-skeleton--bar"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  `;
+
+  const [
+    wearablesRaw,
+    wearableSummaryRaw,
+    homeDeviceRaw,
+    adherenceRaw,
+    sessionsRaw,
+    eventsRaw,
+    registryRaw,
+  ] = await Promise.all([
+    raceNull(api.patientPortalWearables()),
+    raceNull(api.patientPortalWearableSummary(14)),
+    raceNull(api.portalGetHomeDevice()),
+    raceNull(api.portalHomeAdherenceSummary()),
+    raceNull(api.portalListHomeSessions()),
+    raceNull(api.portalListAdherenceEvents()),
+    raceNull(api.devices_registry()),
+  ]);
+
+  const connections = Array.isArray(wearablesRaw?.connections) ? wearablesRaw.connections : [];
+  const alerts = Array.isArray(wearablesRaw?.recent_alerts) ? wearablesRaw.recent_alerts : [];
+  const wearableSummary = Array.isArray(wearableSummaryRaw) ? wearableSummaryRaw : [];
+  const assignment = (homeDeviceRaw && typeof homeDeviceRaw === 'object' && 'assignment' in homeDeviceRaw)
+    ? (homeDeviceRaw.assignment || null)
+    : (homeDeviceRaw || null);
+  const adherenceEnvelope = adherenceRaw && typeof adherenceRaw === 'object' ? adherenceRaw : {};
+  const adherence = adherenceEnvelope.adherence || adherenceEnvelope || null;
+  const sessions = Array.isArray(sessionsRaw) ? sessionsRaw : [];
+  const events = Array.isArray(eventsRaw) ? eventsRaw : [];
+  const registryItems = Array.isArray(registryRaw?.items) ? registryRaw.items : [];
+
+  const PLATFORM_DEFS = [
+    { id: 'apple_health', label: 'Apple Health', platform: 'iPhone / iOS', icon: '◌', accent: '#53e4cf', description: 'Sleep, HRV, heart rate, steps', supported: true },
+    { id: 'android_health', label: 'Health Connect', platform: 'Android', icon: '◍', accent: '#7cc9ff', description: 'Sleep, steps, heart rate', supported: true },
+    { id: 'fitbit', label: 'Fitbit', platform: 'iOS / Android', icon: '◐', accent: '#79f2d4', description: 'Sleep, activity, recovery trends', supported: true },
+    { id: 'garmin_connect', label: 'Garmin Connect', platform: 'Limited', icon: '◎', accent: '#94a3b8', description: 'Backend connector not enabled yet', supported: false, disabledReason: 'Coming soon' },
+  ];
+  const platformStatus = (platformId) => {
+    const conn = connections.find((row) => row.source === platformId);
+    if (!conn) return { tone: 'idle', label: 'Not linked', pill: 'Not linked', connection: null };
+    const lastSync = conn.last_sync_at ? Date.now() - new Date(conn.last_sync_at).getTime() : Number.POSITIVE_INFINITY;
+    if (conn.status !== 'connected') return { tone: 'idle', label: 'Disconnected', pill: 'Disconnected', connection: conn };
+    if (lastSync < 36e5 * 18) return { tone: 'good', label: 'Syncing', pill: 'Synced', connection: conn };
+    if (lastSync < 36e5 * 72) return { tone: 'warn', label: 'Needs refresh', pill: 'Stale', connection: conn };
+    return { tone: 'warn', label: 'Reconnect needed', pill: 'Reconnect', connection: conn };
+  };
+
+  const sessionsLogged = Number(adherence?.sessions_logged ?? sessions.length ?? 0);
+  const sessionsExpected = Number(adherence?.sessions_expected ?? assignment?.planned_total_sessions ?? 0) || 0;
+  const adherencePct = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(
+        adherence?.adherence_rate_pct
+          ?? (sessionsExpected > 0 ? (sessionsLogged / sessionsExpected) * 100 : (sessionsLogged > 0 ? 100 : 0))
+      )
+    )
+  );
+  const streak = Number(adherence?.streak_current ?? 0);
+  const assignmentWeeks = assignment?.assigned_at ? Math.max(1, Math.ceil(daysSince(assignment.assigned_at) / 7)) : 0;
+  const summaryMetrics = [
+    { label: 'Active devices', value: formatMetric((assignment ? 1 : 0) + connections.filter((row) => row.status === 'connected').length), sub: assignment ? 'Home + health platforms' : 'Health platforms only' },
+    { label: 'Sessions logged', value: formatMetric(sessionsLogged), sub: sessionsExpected ? 'of ' + formatMetric(sessionsExpected) + ' planned' : 'Portal session log' },
+    { label: 'Adherence', value: adherencePct + '%', sub: streak ? streak + '-day streak' : 'No streak yet' },
+    { label: 'Data points', value: formatMetric(wearableSummary.length * Math.max(1, connections.length || 1)), sub: wearableSummary.length ? 'From recent syncs' : 'Waiting for sync' },
+  ];
+
+  const supportedPlatforms = PLATFORM_DEFS.filter((row) => row.supported);
+  const connectedSupportedPlatforms = supportedPlatforms.filter((row) => platformStatus(row.id).connection);
+  const homeDeviceCards = [];
+  if (assignment) {
+    homeDeviceCards.push({
+      id: 'assignment',
+      kind: 'assignment',
+      title: assignment.device_name || 'Home device',
+      subtitle: assignment.device_category || 'Clinician-assigned therapy',
+      status: 'Online',
+      tone: 'good',
+      pill: assignment.device_model || 'Active plan',
+      primary: sessionsLogged + ' sessions',
+      secondary: sessionsExpected ? sessionsExpected + ' planned' : 'Flexible plan',
+      tertiary: assignment.assigned_at ? 'Week ' + assignmentWeeks : 'Assigned',
+      chips: summarizeParameters(assignment.parameters),
+      primaryLabel: 'Start session',
+      primaryAction: "window._phdStartSession()",
+      secondaryLabel: 'Details',
+      secondaryAction: "window._phdOpenDeviceDetails('assignment')",
+    });
+  }
+  connectedSupportedPlatforms.slice(0, assignment ? 2 : 3).forEach((platform) => {
+    const state = platformStatus(platform.id);
+    const latest = wearableSummary.filter((row) => row.source === platform.id).slice(-1)[0] || null;
+    const metricParts = [
+      latest?.sleep_duration_h != null ? latest.sleep_duration_h.toFixed(1) + 'h sleep' : null,
+      latest?.hrv_ms != null ? Math.round(latest.hrv_ms) + ' ms HRV' : null,
+      latest?.steps != null ? formatMetric(latest.steps) + ' steps' : null,
+    ].filter(Boolean);
+    homeDeviceCards.push({
+      id: platform.id,
+      kind: 'source',
+      title: platform.label,
+      subtitle: platform.platform,
+      status: state.label,
+      tone: state.tone,
+      pill: state.pill,
+      primary: metricParts[0] || 'Source linked',
+      secondary: metricParts[1] || (state.connection?.last_sync_at ? 'Last sync ' + fmtRelative(state.connection.last_sync_at) : 'Awaiting first sync'),
+      tertiary: metricParts[2] || 'Wearable data',
+      chips: latest?.readiness_score != null ? ['Readiness ' + Math.round(latest.readiness_score)] : [],
+      primaryLabel: 'Manage',
+      primaryAction: "window._phdTogglePlatform('" + platform.id + "')",
+      secondaryLabel: 'Details',
+      secondaryAction: "window._phdOpenDeviceDetails('" + platform.id + "')",
+    });
+  });
+  while (homeDeviceCards.length < 3) {
+    homeDeviceCards.push({
+      id: 'placeholder-' + homeDeviceCards.length,
+      kind: 'placeholder',
+      title: homeDeviceCards.length === 0 ? 'No devices linked yet' : 'Add another data source',
+      subtitle: homeDeviceCards.length === 0 ? 'Connect a health platform to unlock trends' : 'Broaden your recovery signals',
+      status: 'Ready to connect',
+      tone: 'idle',
+      pill: 'Setup',
+      primary: 'No live sync',
+      secondary: 'Use Add device to connect',
+      tertiary: 'Your clinic only sees what you approve',
+      chips: [],
+      primaryLabel: 'Add device',
+      primaryAction: "window._phdJumpCatalog()",
+      secondaryLabel: 'Message team',
+      secondaryAction: "window._navPatient('patient-messages')",
+    });
+  }
+
+  const fallbackCatalog = [
+    { id: 'synaps-one', name: 'Synaps One', modality: 'tDCS', category: 'Clinic-prescribed', price: 'Clinic plan', action: 'request', desc: 'Portal-guided home sessions with side-effect logging.' },
+    { id: 'neuro-alpha', name: 'Neuro Alpha', modality: 'Photobiomodulation', category: 'Recommended', price: 'Clinic plan', action: 'request', desc: 'NIR sessions paired with your recovery protocol.' },
+    { id: 'vagus-mini', name: 'Vagus Mini', modality: 'nVNS', category: 'Vagus', price: 'By referral', action: 'request', desc: 'Gentle vagus stimulation with clinician oversight.' },
+    { id: 'apple-health-card', name: 'Apple Health', modality: 'Wearable sync', category: 'iOS', price: 'Included', action: 'connect', sourceId: 'apple_health', desc: 'Use your iPhone or Apple Watch data.' },
+    { id: 'health-connect-card', name: 'Health Connect', modality: 'Wearable sync', category: 'Android', price: 'Included', action: 'connect', sourceId: 'android_health', desc: 'Sync steps, sleep, and heart rate from Android.' },
+    { id: 'fitbit-card', name: 'Fitbit', modality: 'Wearable sync', category: 'Wearable', price: 'Included', action: 'connect', sourceId: 'fitbit', desc: 'Pull Fitbit recovery and activity trends.' },
+    { id: 'oura-card', name: 'Oura Ring', modality: 'Wearable sync', category: 'Recovery', price: 'Included', action: 'connect', sourceId: 'oura', desc: 'Readiness, HRV, and sleep staging.' },
+    { id: 'garmin-card', name: 'Garmin Connect', modality: 'Wearable sync', category: 'Coming soon', price: 'Soon', action: 'disabled', desc: 'Garmin support is not enabled in the backend yet.' },
+  ];
+  const compatibleCatalog = (registryItems.length
+    ? registryItems.slice(0, 8).map((item, idx) => ({
+        id: item.id || ('registry-' + idx),
+        name: item.name || item.label || item.id || 'Device',
+        modality: item.modality || item.modality_id || item.type || 'Neuromodulation',
+        category: item.category || item.vendor || 'Clinic-supported',
+        price: 'Clinic-supported',
+        action: 'request',
+        desc: item.description || 'Discuss with your care team before starting a new device at home.',
+      }))
+    : fallbackCatalog
+  ).map((item) => {
+    if (item.sourceId) {
+      const state = platformStatus(item.sourceId);
+      return { ...item, liveLabel: state.connection ? state.pill : 'Available', action: state.connection ? 'manage' : item.action };
+    }
+    return item;
+  });
+
+  const recentActivity = []
+    .concat(sessions.slice(0, 5).map((row) => ({
+      id: 'session-' + row.id,
+      title: row.completed === false ? 'Session marked partial' : 'Home session logged',
+      meta: (assignment?.device_name || 'Home device') + ' · ' + fmtDate(row.session_date || row.logged_at),
+      amount: row.duration_minutes ? '+' + row.duration_minutes + ' min' : 'Logged',
+      tone: row.completed === false ? 'warn' : 'good',
+      tag: row.status === 'pending_review' ? 'Pending review' : 'Synced',
+      at: row.logged_at || row.session_date,
+      open: "window._navPatient('pt-adherence-history')",
+    })))
+    .concat(events.slice(0, 5).map((row) => ({
+      id: 'event-' + row.id,
+      title: activityTypeLabel(row.event_type),
+      meta: fmtDate(row.report_date || row.created_at),
+      amount: row.severity || 'Reported',
+      tone: row.severity === 'urgent' || row.severity === 'high' ? 'warn' : 'idle',
+      tag: row.status || 'Open',
+      at: row.created_at || row.report_date,
+      open: "window._navPatient('pt-adherence-events')",
+    })))
+    .concat(connections.filter((row) => row.last_sync_at).map((row) => ({
+      id: 'sync-' + row.id,
+      title: (PLATFORM_DEFS.find((def) => def.id === row.source)?.label || row.display_name || row.source) + ' synced',
+      meta: fmtRelative(row.last_sync_at),
+      amount: '+1 sync',
+      tone: 'good',
+      tag: 'Synced',
+      at: row.last_sync_at,
+      open: "window._phdOpenDeviceDetails('" + row.source + "')",
+    })))
+    .filter((row) => row.at)
+    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+    .slice(0, 7);
+
+  const weeklyDays = buildWeekStrip(sessions);
+  const heroTitle = assignment
+    ? 'Your at-home toolkit is in sync with your clinic plan.'
+    : 'Connect your home devices so your clinic can track progress safely.';
+  const heroCopy = assignment
+    ? 'Your prescribed device, session logs, and health-platform connections appear here. Your care team receives reviewed updates, not raw personal data.'
+    : 'Link a supported health platform first, then ask your care team to assign a home therapy device if it is part of your plan.';
+  const alertCopy = alerts[0]?.detail
+    ? esc(alerts[0].detail)
+    : (assignment
+      ? 'Your clinic reviews home-session logs and wearable trends before they change your plan.'
+      : 'Connect a health platform to start sharing sleep, activity, and recovery signals.');
+  const renderStatusDot = (tone) => '<span class="phd-status-dot is-' + tone + '"></span>';
+  const renderWeeklyBar = (label, value, total, accentClass) => {
+    const max = total > 0 ? total : 1;
+    const pct = Math.max(0, Math.min(100, Math.round((value / max) * 100)));
+    return `
+      <div class="phd-progress-row">
+        <div class="phd-progress-copy"><span>${esc(label)}</span><strong>${formatMetric(value)} / ${formatMetric(total)}</strong></div>
+        <div class="phd-progress-rail"><div class="phd-progress-fill ${accentClass}" style="width:${pct}%"></div></div>
+      </div>
+    `;
+  };
+
+  el.innerHTML = `
+    <div class="phd-page">
+      <div class="phd-hero-grid">
+        <section class="phd-panel phd-panel--hero">
+          <div class="phd-eyebrow">Home neuromodulation hub</div>
+          <h1 class="phd-hero-title">${esc(heroTitle)}</h1>
+          <p class="phd-hero-copy">${esc(heroCopy)}</p>
+          <div class="phd-clinician-note">${alertCopy}</div>
+          <div class="phd-kpi-grid">
+            ${summaryMetrics.map((item) => `
+              <article class="phd-kpi-card">
+                <div class="phd-kpi-label">${esc(item.label)}</div>
+                <div class="phd-kpi-value">${esc(item.value)}</div>
+                <div class="phd-kpi-sub">${esc(item.sub)}</div>
+              </article>
+            `).join('')}
+          </div>
+        </section>
+        <section class="phd-panel phd-panel--adherence">
+          <div class="phd-panel-head">
+            <div>
+              <div class="phd-panel-title">Weekly adherence</div>
+              <div class="phd-panel-sub">${assignment ? 'Your plan this week' : 'Your setup progress'}</div>
+            </div>
+            <button class="phd-icon-btn" onclick="window._phdRefresh()" aria-label="Refresh home devices">↻</button>
+          </div>
+          <div class="phd-adherence-body">
+            <div class="phd-gauge" style="--pct:${adherencePct}">
+              <div class="phd-gauge-inner">
+                <strong>${adherencePct}%</strong>
+                <span>${adherencePct >= 85 ? 'Strong overall' : adherencePct >= 60 ? 'Steady overall' : 'Needs support'}</span>
+              </div>
+            </div>
+            <div class="phd-adherence-metrics">
+              ${renderWeeklyBar('Sessions logged', sessionsLogged, sessionsExpected || Math.max(sessionsLogged, 1), 'is-teal')}
+              ${renderWeeklyBar('Current streak', Math.min(streak, 7), 7, 'is-violet')}
+              ${renderWeeklyBar('Health sources', connections.filter((row) => row.status === 'connected').length, supportedPlatforms.length, 'is-amber')}
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section class="phd-block">
+        <div class="phd-block-head">
+          <div>
+            <h2>Health platforms</h2>
+            <p>Connect only the platforms your phone or wearable already supports.</p>
+          </div>
+          <span class="phd-block-meta">${connections.filter((row) => row.status === 'connected').length} linked</span>
+        </div>
+        <div class="phd-platform-grid">
+          ${PLATFORM_DEFS.map((platform) => {
+            const state = platformStatus(platform.id);
+            const buttonLabel = !platform.supported ? 'Unavailable' : (state.connection ? 'Manage' : 'Connect');
+            const syncCopy = state.connection?.last_sync_at
+              ? 'Last sync ' + fmtRelative(state.connection.last_sync_at)
+              : platform.supported
+                ? 'No sync yet'
+                : (platform.disabledReason || 'Not supported');
+            return `
+              <article class="phd-platform-card ${platform.supported ? '' : 'is-disabled'}" id="phd-platform-${platform.id}">
+                <div class="phd-platform-main">
+                  <div class="phd-platform-icon" style="color:${platform.accent};border-color:${platform.accent}33;background:${platform.accent}14">${platform.icon}</div>
+                  <div class="phd-platform-copy">
+                    <h3>${esc(platform.label)}</h3>
+                    <p>${esc(platform.platform)}</p>
+                  </div>
+                  <span class="phd-inline-pill is-${state.tone}">${esc(state.pill)}</span>
+                </div>
+                <div class="phd-platform-sub">${esc(platform.description)}</div>
+                <div class="phd-platform-sync">${esc(syncCopy)}</div>
+                <button class="phd-platform-btn ${platform.supported && !state.connection ? 'is-primary' : ''}" ${platform.supported ? `onclick="window._phdTogglePlatform('${platform.id}')"` : 'disabled title="Not supported by the current backend connector set"'}>
+                  ${esc(buttonLabel)}
+                </button>
+              </article>
+            `;
+          }).join('')}
+        </div>
+      </section>
+
+      <div class="phd-main-grid">
+        <div class="phd-main-col">
+          <section class="phd-block">
+            <div class="phd-block-head">
+              <div>
+                <h2>My devices</h2>
+                <p>${assignment ? 'Assigned hardware and connected data sources in your current plan.' : 'Link a health platform or ask your clinician to assign a home device.'}</p>
+              </div>
+              <div class="phd-head-actions"><button class="phd-ghost-btn" onclick="window._phdRefresh()">Rescan</button></div>
+            </div>
+            <div class="phd-device-grid">
+              ${homeDeviceCards.map((card) => `
+                <article class="phd-device-card is-${card.tone}">
+                  <div class="phd-device-topline">
+                    <span class="phd-device-pill">${esc(card.pill)}</span>
+                    <span class="phd-device-status">${renderStatusDot(card.tone)}${esc(card.status)}</span>
+                  </div>
+                  <h3>${esc(card.title)}</h3>
+                  <p>${esc(card.subtitle)}</p>
+                  <div class="phd-device-stats">
+                    <div><span>${esc(card.primary)}</span></div>
+                    <div><span>${esc(card.secondary)}</span></div>
+                    <div><span>${esc(card.tertiary)}</span></div>
+                  </div>
+                  ${card.chips.length ? `<div class="phd-device-chips">${card.chips.map((chip) => `<span>${esc(chip)}</span>`).join('')}</div>` : '<div class="phd-device-spacer"></div>'}
+                  <div class="phd-device-actions">
+                    <button class="phd-card-btn" onclick="${card.secondaryAction}">${esc(card.secondaryLabel)}</button>
+                    <button class="phd-card-btn is-primary" onclick="${card.primaryAction}">${esc(card.primaryLabel)}</button>
+                  </div>
+                </article>
+              `).join('')}
+            </div>
+          </section>
+
+          <section class="phd-block" id="phd-compatible-devices">
+            <div class="phd-block-head">
+              <div>
+                <h2>Compatible devices</h2>
+                <p>Only connect sources your clinic supports today. Prescribed devices still require clinician approval.</p>
+              </div>
+              <span class="phd-block-meta">${compatibleCatalog.length} supported</span>
+            </div>
+            <div class="phd-compatible-grid">
+              ${compatibleCatalog.map((item) => {
+                const actionLabel = item.action === 'manage' ? 'Manage'
+                  : item.action === 'connect' ? 'Connect'
+                  : item.action === 'disabled' ? 'Coming soon'
+                  : assignment && item.name === assignment.device_name ? 'Open' : 'Request';
+                const actionAttr = item.action === 'disabled'
+                  ? 'disabled title="This integration is not available in the backend yet"'
+                  : `onclick="window._phdCompatibleAction('${item.id}')"`
+                ;
+                return `
+                  <article class="phd-compatible-card">
+                    <div class="phd-compatible-meta">
+                      <span class="phd-compatible-type">${esc(item.modality)}</span>
+                      <span class="phd-compatible-price">${esc(item.price)}</span>
+                    </div>
+                    <h3>${esc(item.name)}</h3>
+                    <div class="phd-compatible-tags">
+                      <span>${esc(item.category)}</span>
+                      ${item.liveLabel ? `<span>${esc(item.liveLabel)}</span>` : ''}
+                    </div>
+                    <p>${esc(item.desc)}</p>
+                    <button class="phd-compatible-btn ${item.action === 'connect' || item.action === 'manage' ? 'is-primary' : ''}" ${actionAttr}>${esc(actionLabel)}</button>
+                  </article>
+                `;
+              }).join('')}
+            </div>
+          </section>
+        </div>
+
+        <aside class="phd-side-col">
+          <section class="phd-block">
+            <div class="phd-block-head">
+              <div>
+                <h2>Recent activity</h2>
+                <p>Latest syncs, logs, and reports visible to your care team.</p>
+              </div>
+              <button class="phd-ghost-btn" onclick="window._phdRefresh()">Refresh all</button>
+            </div>
+            <div class="phd-activity-list">
+              ${recentActivity.length ? recentActivity.map((item) => `
+                <button class="phd-activity-row" onclick="${item.open}">
+                  <div class="phd-activity-icon is-${item.tone}">${item.title.charAt(0)}</div>
+                  <div class="phd-activity-copy">
+                    <strong>${esc(item.title)}</strong>
+                    <span>${esc(item.meta)}</span>
+                  </div>
+                  <div class="phd-activity-side">
+                    <em>${esc(item.amount)}</em>
+                    <span class="phd-inline-pill is-${item.tone === 'warn' ? 'warn' : item.tone === 'good' ? 'good' : 'idle'}">${esc(item.tag)}</span>
+                  </div>
+                </button>
+              `).join('') : `
+                <div class="phd-empty-state">
+                  <div class="phd-empty-icon">⌁</div>
+                  <strong>No recent device activity</strong>
+                  <p>Start by connecting a health platform or logging your first home session.</p>
+                </div>
+              `}
+            </div>
+          </section>
+
+          <section class="phd-block">
+            <div class="phd-block-head">
+              <div>
+                <h2>Care sync</h2>
+                <p>What your team can actually review from this page.</p>
+              </div>
+            </div>
+            <div class="phd-sync-card">
+              <div class="phd-sync-list">
+                <div>${renderStatusDot(assignment ? 'good' : 'idle')}Assigned device and instructions</div>
+                <div>${renderStatusDot(sessions.length ? 'good' : 'idle')}Home-session logs and tolerance ratings</div>
+                <div>${renderStatusDot(connections.length ? 'good' : 'idle')}Wearable summaries and last-sync status</div>
+                <div>${renderStatusDot(events.length ? 'warn' : 'idle')}Side-effect and concern reports</div>
+              </div>
+              ${_vizWeekStrip(weeklyDays, { legend: false })}
+              <button class="phd-sync-btn" onclick="window._navPatient('patient-messages')">Message care team</button>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </div>
+  `;
+
+  window._phdRefresh = () => pgPatientHomeDevices();
+  window._phdJumpCatalog = () => {
+    const target = document.getElementById('phd-compatible-devices');
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  window._phdStartSession = () => {
+    if (!assignment) {
+      emitToast('Ask your clinician to assign a home device first.', '#f5b74c');
+      window._navPatient('patient-messages');
+      return;
+    }
+    window._navPatient('pt-home-session-log');
+  };
+  window._phdOpenDeviceDetails = (targetId) => {
+    if (targetId === 'assignment') {
+      window._navPatient('pt-home-device');
+      return;
+    }
+    const platformEl = document.getElementById('phd-platform-' + targetId);
+    if (platformEl) {
+      platformEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      platformEl.classList.add('is-flash');
+      setTimeout(() => platformEl.classList.remove('is-flash'), 1400);
+    } else {
+      emitToast('Open Messages to ask your care team about this device.', '#7cc9ff');
+      window._navPatient('patient-messages');
+    }
+  };
+  window._phdTogglePlatform = async (sourceId) => {
+    const platform = PLATFORM_DEFS.find((row) => row.id === sourceId);
+    if (!platform || !platform.supported) {
+      emitToast((platform && platform.disabledReason) || 'This platform is not available yet.', '#94a3b8');
+      return;
+    }
+    const state = platformStatus(sourceId);
+    try {
+      if (state.connection) {
+        if (window.confirm('Disconnect ' + platform.label + '? Existing records stay in your chart, but new syncs will stop.')) {
+          await api.disconnectWearableSource(state.connection.id);
+          emitToast(platform.label + ' disconnected.', '#7cc9ff');
+        }
+      } else {
+        await api.connectWearableSource({ source: sourceId, display_name: platform.label, consent_given: true });
+        emitToast(platform.label + ' connected.', 'var(--teal)');
+      }
+      await pgPatientHomeDevices();
+    } catch (err) {
+      emitToast(err?.message || 'Could not update this connection.', '#f87171');
+    }
+  };
+  window._phdCompatibleAction = async (deviceId) => {
+    const item = compatibleCatalog.find((row) => row.id === deviceId);
+    if (!item) return;
+    if ((item.action === 'manage' || item.action === 'connect') && item.sourceId) {
+      await window._phdTogglePlatform(item.sourceId);
+      return;
+    }
+    if (assignment && item.name === assignment.device_name) {
+      window._navPatient('pt-home-device');
+      return;
+    }
+    emitToast('Opening Messages so you can request ' + item.name + '.', '#7cc9ff');
+    window._navPatient('patient-messages');
+  };
+}
 
 // ── Home Device pages ─────────────────────────────────────────────────────────
 
