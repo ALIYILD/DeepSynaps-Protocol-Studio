@@ -4516,688 +4516,402 @@ function renderPHQ9Form(containerId, patientId) {
 
 // ── Assessments ────────────────────────────────────────────────────────────────
 export async function pgPatientAssessments() {
-  setTopbar(t('patient.nav.assessments'));
+  try { return await _pgPatientAssessmentsImpl(); }
+  catch (err) {
+    console.error('[pgPatientAssessments] render failed:', err);
+    const el = document.getElementById('patient-content');
+    if (el) el.innerHTML = `<div class="pt-portal-empty"><div class="pt-portal-empty-ico" aria-hidden="true">&#9888;</div><div class="pt-portal-empty-title">Assessments are unavailable</div><div class="pt-portal-empty-body">Please refresh, or message your care team if this keeps happening.</div></div>`;
+  }
+}
 
+async function _pgPatientAssessmentsImpl() {
+  setTopbar(t('patient.nav.assessments'));
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
+  function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
+  const loc = getLocale() === 'tr' ? 'tr-TR' : 'en-US';
+  const todayIso = new Date().toISOString().slice(0, 10);
 
-  // ── Safe HTML escaper ────────────────────────────────────────────────────
-  function esc(v) {
-    if (v == null) return '';
-    return String(v)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-      .replace(/'/g, '&#x27;');
-  }
-
-  // ── Fetch in parallel ────────────────────────────────────────────────────
-  // Local 3s timeout so a half-open Fly backend can never wedge the page.
-  const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
-  const _raceNull = (p) => Promise.race([
-    Promise.resolve(p).catch(() => null),
-    _timeout(3000),
+  const _t = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _race = (p) => Promise.race([Promise.resolve(p).catch(() => null), _t(3000)]);
+  const uid = currentUser?.patient_id || currentUser?.id || null;
+  const [assessRaw, coursesRaw, sessionsRaw, outcomesRaw] = await Promise.all([
+    _race(api.patientPortalAssessments()),
+    _race(api.patientPortalCourses()),
+    _race(api.patientPortalSessions()),
+    _race(api.patientPortalOutcomes()),
   ]);
-  let assessmentsRaw, coursesRaw, sessionsRaw;
-  try {
-    [assessmentsRaw, coursesRaw, sessionsRaw] = await Promise.all([
-      _raceNull(api.patientPortalAssessments()),
-      _raceNull(api.patientPortalCourses()),
-      _raceNull(api.patientPortalSessions()),
-    ]);
-  } catch (_e) {
-    assessmentsRaw = null;
-  }
 
-  let rawItems  = Array.isArray(assessmentsRaw) ? assessmentsRaw : [];
-  const courses   = Array.isArray(coursesRaw)     ? coursesRaw     : [];
-  const sessions  = Array.isArray(sessionsRaw)    ? sessionsRaw    : [];
+  const assessments = Array.isArray(assessRaw) ? assessRaw : [];
+  const courses = Array.isArray(coursesRaw) ? coursesRaw : [];
+  const sessions = Array.isArray(sessionsRaw) ? sessionsRaw : [];
+  const outcomes = Array.isArray(outcomesRaw) ? outcomesRaw : [];
+  const activeCourse = courses.find(c => c.status === 'active') || courses[0] || null;
+  const clinicianName = activeCourse?.primary_clinician_name || 'Your clinician';
+  const _isDemo = assessments.length === 0 && outcomes.length === 0 && courses.length === 0;
 
-  // Demo overlay — when the demo patient's assessments list is empty
-  // (preview build, fresh API DB, seed not yet run), surface the bundled
-  // demoAssessmentSeed() so reviewers see a populated page instead of
-  // the "nothing here" empty state. Same pattern as the Treatment Plan
-  // fallback. Fires on:
-  //   - the demo build (Netlify preview, VITE_ENABLE_DEMO=1)
-  //   - a signed-in user that looks like a demo patient
-  //   - the offline demo token
-  const _demoBuild =
-    (typeof import.meta !== 'undefined'
-      && import.meta.env
-      && (import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'));
-  const _looksDemo = _demoBuild
-    || isDemoPatient(currentUser, { getToken: api.getToken })
-    || (() => { try { return String(api.getToken?.() || '').includes('demo'); } catch { return false; } })();
-  if (rawItems.length === 0 && _looksDemo) {
-    rawItems = demoAssessmentSeed();
-  }
-
-  const courseById  = {};
-  courses.forEach(c => { if (c.id) courseById[c.id] = c; });
-  const sessionById = {};
-  sessions.forEach(s => { if (s.id) sessionById[s.id] = s; });
-
-  // ── Assessment knowledge base ────────────────────────────────────────────
-  // Extension point: add new assessments here as your clinic introduces them.
-  // Backend can override any field via a `meta` object on the assessment item.
-  // Translate via i18n keys in a future pass.
-  const ASSESS_META = {
-    phq9: {
-      name: 'Mood Check-In (PHQ-9)',
-      purpose: 'Nine questions about mood and daily life',
-      timeMin: 5,
-      whyItMatters: 'Helps your care team see how your mood has been changing. Scores guide decisions about your treatment, so completing it on time gives the most useful picture.',
-      scoreRanges: [{max:4,label:'Minimal',note:'Little to no depression symptoms'},{max:9,label:'Mild',note:'Mild mood changes \u2014 your team is monitoring'},{max:14,label:'Moderate',note:'Noticeable depression \u2014 treatment is focused here'},{max:19,label:'Moderately severe',note:'Significant symptoms \u2014 your team is closely monitoring'},{max:99,label:'Severe',note:'High symptom burden \u2014 your team has this as a priority'}],
-      formKey: 'phq9',
-    },
-    phq2: {
-      name: 'Quick Mood Check (PHQ-2)',
-      purpose: 'Two questions about mood and enjoyment',
-      timeMin: 2,
-      whyItMatters: 'A fast check to catch any mood concerns between fuller assessments.',
-      scoreRanges: [],
-      formKey: 'phq2',
-    },
-    gad7: {
-      name: 'Anxiety Check-In (GAD-7)',
-      purpose: 'Seven questions about anxiety and worry',
-      timeMin: 5,
-      whyItMatters: 'Helps your care team understand how anxiety is affecting you and whether your treatment is helping.',
-      scoreRanges: [{max:4,label:'Minimal',note:'Low anxiety levels'},{max:9,label:'Mild',note:'Mild anxiety \u2014 your team is tracking this'},{max:14,label:'Moderate',note:'Moderate anxiety \u2014 your clinician is monitoring closely'},{max:99,label:'Severe',note:'Significant anxiety \u2014 your team is focused on this'}],
-      formKey: 'gad7',
-    },
-    gad2: {
-      name: 'Quick Anxiety Check (GAD-2)',
-      purpose: 'Two questions about anxiety',
-      timeMin: 2,
-      whyItMatters: 'A fast check on anxiety levels.',
-      scoreRanges: [],
-      formKey: 'gad2',
-    },
-    pcl5: {
-      name: 'Stress & Trauma Check-In (PCL-5)',
-      purpose: 'Questions about trauma-related symptoms',
-      timeMin: 10,
-      whyItMatters: 'Tracks how past experiences may be affecting your sleep, mood, and daily life so your team can tailor your treatment.',
-      scoreRanges: [],
-      formKey: 'pcl5',
-    },
-    hdrs: {
-      name: 'Depression Assessment (HDRS)',
-      purpose: 'A structured depression assessment completed with your clinician',
-      timeMin: 15,
-      whyItMatters: 'Gives your clinician a detailed view of how depression is affecting different areas of your life.',
-      scoreRanges: [{max:7,label:'Normal',note:'Minimal symptoms'},{max:13,label:'Mild',note:'Mild depression'},{max:17,label:'Moderate',note:'Moderate depression'},{max:23,label:'Severe',note:'Significant depression'},{max:99,label:'Very severe',note:'High symptom burden \u2014 your team is actively supporting you'}],
-      formKey: null,
-    },
-    madrs: {
-      name: 'Depression Rating (MADRS)',
-      purpose: 'A clinician-rated depression scale',
-      timeMin: 15,
-      whyItMatters: 'Tracks how your mood and energy are responding to treatment over time.',
-      scoreRanges: [{max:6,label:'Normal',note:'No significant depression'},{max:19,label:'Mild',note:'Mild symptoms'},{max:34,label:'Moderate',note:'Moderate symptoms'},{max:99,label:'Severe',note:'Significant burden \u2014 your team is closely monitoring'}],
-      formKey: null,
-    },
-    bprs: {
-      name: 'Symptom Check (BPRS)',
-      purpose: 'A broad check on symptoms completed with your clinician',
-      timeMin: 20,
-      whyItMatters: 'Gives your care team a full picture of any symptoms you may be experiencing.',
-      scoreRanges: [],
-      formKey: null,
-    },
-    moca: {
-      name: 'Memory & Thinking Check (MoCA)',
-      purpose: 'A brief assessment of memory, attention, and thinking',
-      timeMin: 10,
-      whyItMatters: 'Helps your care team check that treatment is not affecting your cognitive function, and tracks any changes over time.',
-      scoreRanges: [],
-      formKey: null,
-    },
-    psqi: {
-      name: 'Sleep Quality Check (PSQI)',
-      purpose: 'Questions about your sleep over the past month',
-      timeMin: 7,
-      whyItMatters: 'Sleep quality is closely linked to treatment progress. This helps your team see how your sleep is responding.',
-      scoreRanges: [],
-      formKey: null,
-    },
-    dass21: {
-      name: 'Wellbeing Check (DASS-21)',
-      purpose: 'Questions about depression, anxiety, and stress',
-      timeMin: 10,
-      whyItMatters: 'Gives your care team a broad view of how you have been feeling across three areas.',
-      scoreRanges: [],
-      formKey: 'dass21',
-    },
-    isi: {
-      name: 'Sleep Check (ISI)',
-      purpose: 'Questions about insomnia and sleep difficulty',
-      timeMin: 5,
-      whyItMatters: 'Tracks how much sleep problems are affecting your daily life.',
-      scoreRanges: [],
-      formKey: 'isi',
-    },
-    qids: {
-      name: 'Depression Check (QIDS)',
-      purpose: 'A quick depression check to track weekly changes',
-      timeMin: 5,
-      whyItMatters: 'Provides a fast measure of how your depression is changing week to week.',
-      scoreRanges: [],
-      formKey: null,
-    },
-  };
-
-  function assessMeta(item) {
-    // Extension point: backend `meta` object overrides defaults.
-    if (item.meta && (item.meta.name || item.meta.purpose)) return { ...ASSESS_META['phq9'], ...item.meta };
-    const key = (item.template_id || item.assessment_type || item.name || '')
-      .toLowerCase().replace(/[-_\s]/g, '');
-    return ASSESS_META[key] || null;
-  }
-
-  function scoreContext(meta, score) {
-    if (score == null || score === '' || !meta || !meta.scoreRanges || !meta.scoreRanges.length) return null;
-    const n = Number(score);
-    if (!Number.isFinite(n)) return null;
-    const ranges = meta.scoreRanges;
-    for (let i = 0; i < ranges.length; i++) {
-      const band = ranges[i];
-      if (n <= band.max) {
-        // Severity signals whether to surface a reach-out CTA.
-        // First 2 bands (Minimal/Mild) → low; 3rd band (Moderate) → moderate;
-        // any band beyond that → high.
-        const severity = i <= 1 ? 'low' : i === 2 ? 'moderate' : 'high';
-        return { label: band.label, note: band.note, severity };
-      }
-    }
-    return null;
-  }
-
-  // ── Status classification ────────────────────────────────────────────────
-  // Extension point: backend can supply status field directly.
-  // Falls back to date-based inference.
-  const now = Date.now();
-  function statusClassify(a) {
-    const st = (a.status || '').toLowerCase().replace(/[^a-z_]/g, '');
-    if (['completed','done','submitted'].includes(st))          return 'completed';
-    if (['in_progress','inprogress','started','partial'].includes(st)) return 'in-progress';
-    if (a.completed_at || a.administered_at)                    return 'completed';
-    if (['scheduled','upcoming'].includes(st))                  return 'upcoming';
-    if (a.due_date) {
-      return new Date(a.due_date).getTime() <= now ? 'due' : 'upcoming';
-    }
-    // No due date and no status → treat as due
-    return 'due';
-  }
-
-  // ── Normalise assessments ────────────────────────────────────────────────
-  const items = rawItems.map(a => {
-    const meta    = assessMeta(a);
-    const status  = statusClassify(a);
-    const course  = a.course_id ? courseById[a.course_id] : null;
-    const session = a.session_id ? sessionById[a.session_id] : null;
-    return {
-      id:          a.id || `assess-${Math.random().toString(36).slice(2)}`,
-      raw:         a,
-      meta,
-      status,
-      // Display name: prefer backend title → meta friendly name → template_id (not exposed raw)
-      name:        a.template_title || (meta ? meta.name : null) || 'Assessment',
-      purpose:     meta ? meta.purpose : null,
-      timeMin:     meta ? meta.timeMin : null,
-      whyItMatters: meta ? meta.whyItMatters : null,
-      formKey:     meta ? meta.formKey : null,
-      dueDate:     a.due_date,
-      completedAt: a.completed_at || a.administered_at,
-      measurePoint: a.measurement_point || null,
-      score:       a.score != null ? a.score : null,
-      scoreCtx:    scoreContext(meta, a.score),
-      progress:    typeof a.progress_pct === 'number' ? a.progress_pct : null,
-      courseRef:   course ? { title: course.condition_name || course.protocol_name || 'Your treatment' } : null,
-      sessionRef:  session ? { number: session.session_number || null, date: fmtDate(session.delivered_at || session.scheduled_at) } : null,
-      formUrl:     a.form_url || null,
+  // ── Due / History / Scheduled buckets ─────────────────────────────────
+  // Real schema: assessments include status: scheduled | pending | completed.
+  const due = [];
+  const history = [];
+  const scheduled = [];
+  assessments.forEach(a => {
+    const st = String(a.status || '').toLowerCase();
+    const kind = String(a.template_slug || a.template_name || '').toLowerCase();
+    const cat = /phq/.test(kind) ? 'depression' : /gad/.test(kind) ? 'anxiety' : /isi/.test(kind) ? 'sleep' : /who/.test(kind) ? 'wellbeing' : 'other';
+    const item = {
+      id: a.id, slug: a.template_slug || kind, title: a.template_name || a.template_slug || 'Assessment',
+      cat, raw: a,
+      due_on: a.due_on, scheduled_at: a.scheduled_at, administered_at: a.administered_at,
+      score: a.score_numeric ?? a.score, band: a.band || a.severity_label,
     };
+    if (st === 'completed' || a.administered_at) history.push(item);
+    else if (st === 'scheduled' && a.due_on && new Date(a.due_on) > new Date(Date.now() + 7 * 86400000)) scheduled.push(item);
+    else due.push(item);
   });
 
-  // ── Section buckets ──────────────────────────────────────────────────────
-  const due       = items.filter(i => i.status === 'due' || i.status === 'in-progress')
-                         .sort((a, b) => new Date(a.dueDate || 0) - new Date(b.dueDate || 0));
-  const upcoming  = items.filter(i => i.status === 'upcoming')
-                         .sort((a, b) => new Date(a.dueDate || 0) - new Date(b.dueDate || 0));
-  const completed = items.filter(i => i.status === 'completed')
-                         .sort((a, b) => new Date(b.completedAt || 0) - new Date(a.completedAt || 0));
+  // Demo seed — mirrors the mockup story.
+  const demoDue = !_isDemo ? [] : [
+    { id:'dm-as-phq', slug:'phq-9', cat:'depression', title:'PHQ-9',  fullName:'Patient Health Questionnaire', items:9, mins:4, desc:'Measures depression symptoms over the past two weeks. Your clinician uses this to track your response to stimulation.', dueOn:new Date(Date.now() + 3 * 86400000).toISOString(), overdue:true,  repeat:'Weekly', lastScore:11, lastBand:'Moderate → Mild', lastSub:'↓ 7 pts since Feb · improving', trendPath:'M0,8 L17,8 L35,11 L52,15 L70,19 L87,22 L105,24 L122,27 L140,28', trendColor:'#00d4bc' },
+    { id:'dm-as-gad', slug:'gad-7', cat:'anxiety',    title:'GAD-7',  fullName:'Generalized Anxiety Disorder scale', items:7, mins:3, desc:'Screens for generalized anxiety over the past two weeks. Tracked weekly alongside your PHQ-9.', dueOn:todayIso, overdue:false, repeat:'Weekly', lastScore:9, lastBand:'Mild',            lastSub:'↓ 4 pts since Feb · stable',   trendPath:'M0,12 L23,10 L46,14 L70,18 L93,20 L116,22 L140,22', trendColor:'#4a9eff' },
+  ];
+  const demoOptional = !_isDemo ? [] : [
+    { id:'dm-se',  slug:'side_effects', tone:'amber',  ico:'#i-alert', title:'Session side-effect check-in', sub:"Did anything feel off after your last session? 6 quick questions · last filled 3 days ago" },
+    { id:'dm-isi', slug:'isi',          tone:'violet', ico:'#i-moon',  title:'Insomnia Severity Index (ISI)', sub:'Sleep quality over the past 2 weeks · 7 questions · due next Monday' },
+    { id:'dm-who', slug:'who5',         tone:'teal',   ico:'#i-sparkle', title:'WHO-5 Wellbeing Index',        sub:'General wellbeing over the past 2 weeks · 5 questions · monthly' },
+  ];
+  const demoHistory = !_isDemo ? [] : [
+    { id:'dm-h1', slug:'phq-9', cat:'depression', title:'PHQ-9',         dateIso:'2026-04-15', score:11, delta:-2 },
+    { id:'dm-h2', slug:'gad-7', cat:'anxiety',    title:'GAD-7',         dateIso:'2026-04-15', score:9,  delta:-1 },
+    { id:'dm-h3', slug:'phq-9', cat:'depression', title:'PHQ-9',         dateIso:'2026-04-08', score:13, delta:-1 },
+    { id:'dm-h4', slug:'gad-7', cat:'anxiety',    title:'GAD-7',         dateIso:'2026-04-08', score:10, delta:-1 },
+    { id:'dm-h5', slug:'isi',   cat:'sleep',      title:'ISI',           dateIso:'2026-04-01', score:12, delta:-4 },
+    { id:'dm-h6', slug:'phq-9', cat:'depression', title:'PHQ-9',         dateIso:'2026-04-01', score:14, delta:-1 },
+    { id:'dm-h7', slug:'gad-7', cat:'anxiety',    title:'GAD-7',         dateIso:'2026-04-01', score:11, delta:-1 },
+    { id:'dm-h8', slug:'daily', cat:'daily',      title:'Daily check-in',dateIso:'2026-04-19', score:4 },
+    { id:'dm-h9', slug:'daily', cat:'daily',      title:'Daily check-in',dateIso:'2026-04-18', score:4 },
+    { id:'dm-h10',slug:'daily', cat:'daily',      title:'Daily check-in',dateIso:'2026-04-17', score:3 },
+  ];
+  const demoScheduled = !_isDemo ? [] : [
+    { id:'dm-s1', title:'PHQ-9 weekly check-in', dateIso:'2026-04-27', cat:'depression', repeat:'Weekly' },
+    { id:'dm-s2', title:'GAD-7 weekly check-in', dateIso:'2026-04-27', cat:'anxiety',    repeat:'Weekly' },
+    { id:'dm-s3', title:'Insomnia Severity Index', dateIso:'2026-04-27', cat:'sleep',   repeat:'Bi-weekly' },
+    { id:'dm-s4', title:'WHO-5 Wellbeing Index',  dateIso:'2026-05-04', cat:'wellbeing', repeat:'Monthly' },
+    { id:'dm-s5', title:'PHQ-9 weekly check-in',  dateIso:'2026-05-04', cat:'depression', repeat:'Weekly' },
+    { id:'dm-s6', title:'GAD-7 weekly check-in',  dateIso:'2026-05-04', cat:'anxiety',    repeat:'Weekly' },
+  ];
 
-  // ── Category metadata ────────────────────────────────────────────────────
-  const CAT_MAP = {
-    phq9:'mood', phq2:'mood', hdrs:'mood', madrs:'mood', qids:'mood',
-    gad7:'anxiety', gad2:'anxiety', pcl5:'anxiety', dass21:'anxiety',
-    psqi:'sleep', isi:'sleep',
-    moca:'cognitive',
-    bprs:'symptom',
-  };
-  const CAT_META = {
-    mood:      { icon: '💭', label: 'Mood',               color: '#818cf8' },
-    anxiety:   { icon: '🌊', label: 'Anxiety & Stress',   color: '#60a5fa' },
-    sleep:     { icon: '🌙', label: 'Sleep',              color: '#a78bfa' },
-    cognitive: { icon: '🧩', label: 'Memory & Thinking',  color: '#34d399' },
-    symptom:   { icon: '📋', label: 'Symptoms',           color: '#fb923c' },
-    custom:    { icon: '✦',  label: 'Assessment',         color: '#94a3b8' },
-  };
+  // Daily check-in streak from localStorage.
+  const streak = parseInt(localStorage.getItem('ds_wellness_streak') || '0', 10) || 0;
 
-  function itemCat(item) {
-    const key = (item.raw.template_id || item.raw.assessment_type || '')
-      .toLowerCase().replace(/[-_\s]/g, '');
-    return CAT_META[CAT_MAP[key] || 'custom'] || CAT_META.custom;
+  // ── Helpers ─────────────────────────────────────────────────────────────
+  function _dueLabel(dueOn, overdue) {
+    if (!dueOn) return '<span class="as-card-due"><svg width="11" height="11"><use href="#i-clock"/></svg>Due soon</span>';
+    const d = new Date(dueOn);
+    const now = new Date();
+    const isToday = d.toISOString().slice(0, 10) === todayIso;
+    if (overdue || d.getTime() < now.getTime() - 86400000) return `<span class="as-card-due overdue"><svg width="11" height="11"><use href="#i-alert"/></svg>Overdue · due ${esc(d.toLocaleDateString(loc, { weekday: 'short' }))}</span>`;
+    if (isToday) return `<span class="as-card-due"><svg width="11" height="11"><use href="#i-clock"/></svg>Due today</span>`;
+    return `<span class="as-card-due"><svg width="11" height="11"><use href="#i-clock"/></svg>Due ${esc(d.toLocaleDateString(loc, { weekday: 'short', month: 'short', day: 'numeric' }))}</span>`;
   }
 
-  // ── Summary row ──────────────────────────────────────────────────────────
-  function summaryRow() {
-    const sevenDaysAgo = Date.now() - 7 * 86400000;
-    const doneThisWeek = completed.filter(function(i) {
-      return i.completedAt && new Date(i.completedAt).getTime() >= sevenDaysAgo;
-    }).length;
-    const nextUp = upcoming[0];
-    const nextLabel = nextUp
-      ? (nextUp.dueDate ? fmtDate(nextUp.dueDate) : nextUp.name)
-      : (completed.length > 0 ? 'All caught up' : 'None scheduled');
-
-    return '<div class="pt-assess-summary-row">' +
-      '<div class="pt-assess-kpi-card' + (due.length > 0 ? ' pt-assess-kpi-card--urgent' : '') + '">' +
-        '<div class="pt-assess-kpi-label">Due Now</div>' +
-        '<div class="pt-assess-kpi-value">' + due.length + '</div>' +
-        (due.length > 0
-          ? '<div class="pt-assess-kpi-sub">Complete when you\'re ready</div>'
-          : '<div class="pt-assess-kpi-sub" style="color:#10b981">All up to date ✓</div>') +
-      '</div>' +
-      '<div class="pt-assess-kpi-card">' +
-        '<div class="pt-assess-kpi-label">Completed This Week</div>' +
-        '<div class="pt-assess-kpi-value">' + doneThisWeek + '</div>' +
-        '<div class="pt-assess-kpi-sub">' + (doneThisWeek > 0 ? 'Good progress' : 'Nothing yet this week') + '</div>' +
-      '</div>' +
-      '<div class="pt-assess-kpi-card">' +
-        '<div class="pt-assess-kpi-label">Next Review</div>' +
-        '<div class="pt-assess-kpi-value pt-assess-kpi-value--sm">' + esc(nextLabel) + '</div>' +
-        (nextUp ? '<div class="pt-assess-kpi-sub">' + esc(nextUp.name) + '</div>' : '') +
-      '</div>' +
-    '</div>';
-  }
-
-  // ── Section header helper ────────────────────────────────────────────────
-  function sectionHd(title, count) {
-    return '<div class="pt-assess-section-hd">' +
-      '<span class="pt-assess-section-title">' + esc(title) + '</span>' +
-      (count > 0 ? '<span class="pt-assess-section-count">' + count + '</span>' : '') +
-    '</div>';
-  }
-
-  // ── Due / in-progress card ───────────────────────────────────────────────
-  function dueCardHTML(item) {
-    const cat = itemCat(item);
-    const isInProgress = item.status === 'in-progress';
-    const catBg = cat.color + '1a';
-    const pillHtml = isInProgress
-      ? '<span class="pt-assess-pill pt-assess-pill-progress">In progress</span>'
-      : '<span class="pt-assess-pill pt-assess-pill-due">Due now</span>';
-
-    const chips = [
-      item.timeMin ? '<span class="pt-assess-chip">⏱ ' + item.timeMin + ' min</span>' : '',
-      item.dueDate ? '<span class="pt-assess-chip">Due ' + esc(fmtDate(item.dueDate)) + '</span>' : '',
-      item.courseRef ? '<span class="pt-assess-chip">📋 ' + esc(item.courseRef.title) + '</span>' : '',
-      item.sessionRef ? '<span class="pt-assess-chip">Session' + (item.sessionRef.number ? ' #' + item.sessionRef.number : '') + '</span>' : '',
-    ].filter(Boolean).join('');
-
-    let ctaHtml = '';
-    const ctaLabel = isInProgress ? 'Continue →' : 'Start →';
-    if (SUPPORTED_FORMS[item.formKey]) {
-      ctaHtml = '<button class="btn btn-primary btn-sm" id="pt-assess-cta-' + esc(item.id) + '"' +
-        ' onclick="window._ptToggleAssessForm(\'' + esc(item.id) + '\')"' +
-        ' aria-expanded="false" aria-controls="pt-assess-form-' + esc(item.id) + '">' + ctaLabel + '</button>';
-    } else if (item.formUrl) {
-      ctaHtml = '<a class="btn btn-primary btn-sm" href="' + esc(item.formUrl) + '" target="_blank" rel="noopener noreferrer">' + ctaLabel + '</a>';
-    } else {
-      ctaHtml = '<button class="btn btn-ghost btn-sm" onclick="window._ptAssessContactClinic(\'' + esc(item.id) + '\')">Ask your clinic →</button>';
-    }
-
-    const progressHtml = isInProgress && item.progress != null
-      ? '<div class="pt-assess-progress-bar" role="progressbar" aria-valuenow="' + item.progress + '" aria-valuemin="0" aria-valuemax="100">' +
-          '<div class="pt-assess-progress-fill" style="width:' + Math.min(100, item.progress) + '%"></div>' +
-        '</div>'
-      : '';
-
-    return '<div class="pt-assess-card pt-assess-card-due" data-id="' + esc(item.id) + '" data-status="' + esc(item.status) + '">' +
-      '<div class="pt-assess-card-hd">' +
-        '<div class="pt-assess-card-hd-left">' +
-          '<span class="pt-assess-cat-chip" style="background:' + catBg + ';color:' + cat.color + '">' + cat.icon + ' ' + cat.label + '</span>' +
-          pillHtml +
-        '</div>' +
-        '<div class="pt-assess-cta-col">' + ctaHtml + '</div>' +
-      '</div>' +
-      '<div class="pt-assess-card-body">' +
-        '<div class="pt-assess-name">' + esc(item.name) + '</div>' +
-        (item.whyItMatters
-          ? '<div class="pt-assess-why-inline">' + esc(item.whyItMatters) + '</div>'
-          : (item.purpose ? '<div class="pt-assess-why-inline">' + esc(item.purpose) + '</div>' : '')) +
-        (chips ? '<div class="pt-assess-chips">' + chips + '</div>' : '') +
-        progressHtml +
-      '</div>' +
-      '<div class="pt-assess-inline-form" id="pt-assess-form-' + esc(item.id) + '" hidden></div>' +
-    '</div>';
-  }
-
-  // ── Upcoming card ────────────────────────────────────────────────────────
-  function upcomingCardHTML(item) {
-    const cat = itemCat(item);
-    const catBg = cat.color + '12';
-    const chips = [
-      item.timeMin ? '<span class="pt-assess-chip">⏱ ' + item.timeMin + ' min</span>' : '',
-      item.dueDate ? '<span class="pt-assess-chip">Due ' + esc(fmtDate(item.dueDate)) + '</span>' : '',
-      item.sessionRef ? '<span class="pt-assess-chip">Session' + (item.sessionRef.number ? ' #' + item.sessionRef.number : '') + '</span>' : '',
-    ].filter(Boolean).join('');
-
-    return '<div class="pt-assess-card pt-assess-card-upcoming" data-id="' + esc(item.id) + '" data-status="upcoming">' +
-      '<div class="pt-assess-card-hd">' +
-        '<div class="pt-assess-card-hd-left">' +
-          '<span class="pt-assess-cat-chip" style="background:' + catBg + ';color:' + cat.color + '">' + cat.icon + ' ' + cat.label + '</span>' +
-          '<span class="pt-assess-pill pt-assess-pill-upcoming">Upcoming</span>' +
-        '</div>' +
-      '</div>' +
-      '<div class="pt-assess-card-body">' +
-        '<div class="pt-assess-name" style="font-size:.85rem">' + esc(item.name) + '</div>' +
-        (item.purpose ? '<div class="pt-assess-purpose">' + esc(item.purpose) + '</div>' : '') +
-        (chips ? '<div class="pt-assess-chips">' + chips + '</div>' : '') +
-      '</div>' +
-    '</div>';
-  }
-
-  // ── Completed card ───────────────────────────────────────────────────────
-  function completedCardHTML(item) {
-    const cat = itemCat(item);
-    const catBg = cat.color + '10';
-    const isReviewed = !!(item.raw.clinician_reviewed || item.raw.reviewed_by);
-
-    const chips = [
-      item.completedAt ? '<span class="pt-assess-chip">Completed ' + esc(fmtDate(item.completedAt)) + '</span>' : '',
-      item.sessionRef ? '<span class="pt-assess-chip">Session' + (item.sessionRef.number ? ' #' + item.sessionRef.number : '') + '</span>' : '',
-    ].filter(Boolean).join('');
-
-    let resultHtml = '';
-    if (item.score != null) {
-      const ctx = item.scoreCtx;
-      const bandClass = ctx ? ctx.label.toLowerCase().replace(/\s+/g, '-') : '';
-      const needsReachOut = ctx && (ctx.severity === 'moderate' || ctx.severity === 'high');
-      const reachOutHtml = needsReachOut
-        ? '<button class="pt-assess-reach-btn" onclick="window._navPatient(\'patient-messages\')">' +
-            '<span aria-hidden="true">✉</span> Message your care team' +
-          '</button>'
-        : '';
-      resultHtml =
-        '<div class="pt-assess-result-row">' +
-          '<span class="pt-assess-score-label">Your result</span>' +
-          (ctx
-            ? '<span class="pt-assess-score-band ' + bandClass + '">' + esc(ctx.label) + '</span>'
-            : '<span class="pt-assess-score-num">' + esc(String(item.score)) + '</span>') +
-          (isReviewed ? '<span class="pt-assess-reviewed-badge">✓ Reviewed by your team</span>' : '') +
-        '</div>' +
-        (ctx ? '<div class="pt-assess-score-note">' + esc(ctx.note) + '</div>' : '') +
-        reachOutHtml;
-    } else if (isReviewed) {
-      resultHtml = '<div class="pt-assess-result-row"><span class="pt-assess-reviewed-badge">✓ Reviewed by your team</span></div>';
-    }
-
-    return '<div class="pt-assess-card pt-assess-card-done" data-id="' + esc(item.id) + '" data-status="completed">' +
-      '<div class="pt-assess-card-hd">' +
-        '<div class="pt-assess-card-hd-left">' +
-          '<span class="pt-assess-cat-chip" style="background:' + catBg + ';color:' + cat.color + '">' + cat.icon + ' ' + cat.label + '</span>' +
-          '<span class="pt-assess-pill pt-assess-pill-done">Completed</span>' +
-        '</div>' +
-        '<div class="pt-assess-cta-col">' +
-          '<button class="btn btn-ghost btn-sm" onclick="window._ptAssessReview(\'' + esc(item.id) + '\')">Review result</button>' +
-        '</div>' +
-      '</div>' +
-      '<div class="pt-assess-card-body">' +
-        '<div class="pt-assess-name" style="font-size:.85rem">' + esc(item.name) + '</div>' +
-        resultHtml +
-        (chips ? '<div class="pt-assess-chips" style="margin-top:8px">' + chips + '</div>' : '') +
-      '</div>' +
-    '</div>';
-  }
-
-  // ── Why section ──────────────────────────────────────────────────────────
-  function whySection() {
-    const catSeen = {};
-    const groups = [];
-    items.forEach(function(i) {
-      const c = itemCat(i);
-      if (!catSeen[c.label]) {
-        catSeen[c.label] = true;
-        groups.push({ cat: c, item: i });
-      }
-    });
-    const display = groups.slice(0, 5);
-    if (display.length === 0) return '';
-
-    return '<div class="pt-assess-why-section">' +
-      sectionHd('Why These Assessments Matter', 0) +
-      '<div class="pt-assess-why-grid">' +
-        display.map(function(g) {
-          return '<div class="pt-assess-why-card">' +
-            '<div class="pt-assess-why-name" style="color:' + g.cat.color + '">' + g.cat.icon + ' ' + g.cat.label + '</div>' +
-            '<div class="pt-assess-why-text">' + esc(g.item.whyItMatters || g.item.purpose || '') + '</div>' +
-          '</div>';
-        }).join('') +
-        '<div class="pt-assess-why-card pt-assess-why-note">' +
-          '<div class="pt-assess-why-name">Your results are private</div>' +
-          '<div class="pt-assess-why-text">Your scores are only seen by your care team. They are used to guide your treatment, not to judge you.</div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="pt-assess-why-purpose">Assessments help your care team track changes over time, support treatment follow-up, and monitor your progress between sessions.</div>' +
-    '</div>';
-  }
-
-  // ── Care Assistant section ───────────────────────────────────────────────
-  function assistSection() {
-    return '<div class="pt-assess-section">' +
-      sectionHd('Ask Your Care Assistant', 0) +
-      '<div class="pt-assess-assist-grid">' +
-        '<button class="pt-assess-assist-btn" onclick="window._assessAskAI(\'Why was this assessment assigned to me?\')">Why was this assigned to me?</button>' +
-        '<button class="pt-assess-assist-btn" onclick="window._assessAskAI(\'Which assessment should I complete first?\')">Which one should I complete first?</button>' +
-        '<button class="pt-assess-assist-btn" onclick="window._assessAskAI(\'Can you explain my recent assessment result in simple language?\')">Explain my result simply</button>' +
-        '<button class="pt-assess-assist-btn" onclick="window._assessAskAI(\'How have my assessment scores changed since last week?\')">What changed since last week?</button>' +
-      '</div>' +
-    '</div>';
-  }
-
-  // ── DEAD CODE kept for reference — replaced below ─────────────────────────
-  // Old assessCardHTML is replaced by dueCardHTML / upcomingCardHTML / completedCardHTML.
-  // Old whyCalloutHTML is replaced by whySection().
-  // Old sectionHTML is replaced by inline section builders + sectionHd().
-  function assessCardHTML(item) {
-    const isDue       = item.status === 'due';
-    const isInProgress = item.status === 'in-progress';
-    const isUpcoming  = item.status === 'upcoming';
-    const isCompleted = item.status === 'completed';
-
-    // Status pill
-    let pillHtml = '';
-    if (isDue)        pillHtml = `<span class="pt-assess-pill pt-assess-pill-due">Due now</span>`;
-    else if (isInProgress) pillHtml = `<span class="pt-assess-pill pt-assess-pill-progress">In progress</span>`;
-    else if (isUpcoming)   pillHtml = `<span class="pt-assess-pill pt-assess-pill-upcoming">Upcoming</span>`;
-    else if (isCompleted)  pillHtml = `<span class="pt-assess-pill pt-assess-pill-done">Completed</span>`;
-
-    // Time estimate
-    const timeHtml = item.timeMin
-      ? `<span class="pt-assess-chip">~${item.timeMin} min</span>`
-      : '';
-
-    // Due date
-    const dueDateHtml = item.dueDate && !isCompleted
-      ? `<span class="pt-assess-chip">Due ${esc(fmtDate(item.dueDate))}</span>`
-      : '';
-
-    // Completed date
-    const completedHtml = isCompleted && item.completedAt
-      ? `<span class="pt-assess-chip">Done ${esc(fmtDate(item.completedAt))}</span>`
-      : '';
-
-    // Measurement point
-    const mpHtml = item.measurePoint
-      ? `<span class="pt-assess-chip">${esc(item.measurePoint)}</span>`
-      : '';
-
-    // Course / session context
-    const courseChip = item.courseRef
-      ? `<span class="pt-assess-chip">${esc(item.courseRef.title)}</span>`
-      : '';
-    const sessionChip = item.sessionRef
-      ? `<span class="pt-assess-chip">Session${item.sessionRef.number ? ' #' + item.sessionRef.number : ''} \u00b7 ${esc(item.sessionRef.date)}</span>`
-      : '';
-
-    const chips = [timeHtml, dueDateHtml, completedHtml, mpHtml, courseChip, sessionChip].filter(Boolean).join('');
-
-    // Progress bar for in-progress
-    const progressHtml = isInProgress && item.progress != null
-      ? `<div class="pt-assess-progress-bar" role="progressbar" aria-valuenow="${item.progress}" aria-valuemin="0" aria-valuemax="100" aria-label="Assessment ${item.progress}% complete">
-           <div class="pt-assess-progress-fill" style="width:${Math.min(100, item.progress)}%"></div>
-         </div>`
-      : '';
-
-    // Score for completed (patient-friendly, not alarming)
-    let scoreHtml = '';
-    if (isCompleted && item.score != null) {
-      const ctx = item.scoreCtx;
-      const needsReachOut = ctx && (ctx.severity === 'moderate' || ctx.severity === 'high');
-      scoreHtml = `
-        <div class="pt-assess-score-row">
-          <span class="pt-assess-score-label">Your result</span>
-          ${ctx
-            ? `<span class="pt-assess-score-band ${esc(ctx.label.toLowerCase().replace(/\s+/g,'-'))}">${esc(ctx.label)}</span>`
-            : `<span class="pt-assess-score-num">${(item.score != null && !isNaN(Number(item.score))) ? esc(String(item.score)) : '—'}</span>`}
-        </div>
-        ${ctx ? `<div class="pt-assess-score-note">${esc(ctx.note)}</div>` : ''}
-        ${needsReachOut ? `<button class="pt-assess-reach-btn" onclick="window._navPatient('patient-messages')"><span aria-hidden="true">✉</span> Message your care team</button>` : ''}`;
-    }
-
-    // CTA
-    let ctaHtml = '';
-    if (isDue) {
-      if (SUPPORTED_FORMS[item.formKey]) {
-        ctaHtml = `<button class="btn btn-primary btn-sm pt-assess-cta"
-                           id="pt-assess-cta-${esc(item.id)}"
-                           onclick="window._ptToggleAssessForm('${esc(item.id)}')"
-                           aria-expanded="false"
-                           aria-controls="pt-assess-form-${esc(item.id)}">Start \u2192</button>`;
-      } else if (item.formUrl) {
-        ctaHtml = `<a class="btn btn-primary btn-sm pt-assess-cta"
-                      href="${esc(item.formUrl)}" target="_blank" rel="noopener noreferrer"
-                      aria-label="Open ${esc(item.name)} form">Start \u2192</a>`;
-      } else {
-        ctaHtml = `<button class="btn btn-ghost btn-sm pt-assess-cta"
-                           onclick="window._ptAssessContactClinic('${esc(item.id)}')"
-                           aria-label="Ask about ${esc(item.name)}">Ask your clinic \u2192</button>`;
-      }
-    } else if (isInProgress) {
-      if (SUPPORTED_FORMS[item.formKey]) {
-        ctaHtml = `<button class="btn btn-primary btn-sm pt-assess-cta"
-                           id="pt-assess-cta-${esc(item.id)}"
-                           onclick="window._ptToggleAssessForm('${esc(item.id)}')"
-                           aria-expanded="false"
-                           aria-controls="pt-assess-form-${esc(item.id)}">Continue \u2192</button>`;
-      } else if (item.formUrl) {
-        ctaHtml = `<a class="btn btn-primary btn-sm pt-assess-cta"
-                      href="${esc(item.formUrl)}" target="_blank" rel="noopener noreferrer">Continue \u2192</a>`;
-      }
-    } else if (isCompleted) {
-      ctaHtml = `<button class="btn btn-ghost btn-sm pt-assess-cta"
-                         onclick="window._ptAssessReview('${esc(item.id)}')"
-                         aria-label="Review ${esc(item.name)}">Review</button>`;
-    }
-
+  function _dueCardHtml(a) {
+    const dueClass = a.overdue ? 'overdue' : 'due';
+    const trendBand = a.lastBand || '';
+    const bandCls = /mild/i.test(trendBand) ? 'mild' : /moderate/i.test(trendBand) ? 'moderate' : /severe/i.test(trendBand) ? 'severe' : 'minimal';
     return `
-      <div class="pt-assess-card${isDue || isInProgress ? ' pt-assess-card-due' : isCompleted ? ' pt-assess-card-done' : ''}"
-           data-id="${esc(item.id)}" data-status="${esc(item.status)}">
-        <div class="pt-assess-card-top">
-          <div class="pt-assess-main">
-            <div class="pt-assess-name-row">
-              <span class="pt-assess-name">${esc(item.name)}</span>
-              ${pillHtml}
-            </div>
-            ${item.purpose ? `<div class="pt-assess-purpose">${esc(item.purpose)}</div>` : ''}
-            ${chips ? `<div class="pt-assess-chips">${chips}</div>` : ''}
-            ${progressHtml}
-            ${scoreHtml}
-          </div>
-          ${ctaHtml ? `<div class="pt-assess-cta-col">${ctaHtml}</div>` : ''}
+      <div class="as-card ${dueClass}" data-assessment="${esc(a.slug)}">
+        <div class="as-card-hd">
+          <div class="as-card-tag ${esc(a.cat || 'depression')}">${esc((a.cat || 'assessment').replace(/^./, c => c.toUpperCase()))}</div>
+          ${_dueLabel(a.dueOn, a.overdue)}
         </div>
-        <div class="pt-assess-inline-form" id="pt-assess-form-${esc(item.id)}" hidden></div>
+        <div class="as-card-title">${esc(a.title)}</div>
+        <div class="as-card-sub">${esc((a.fullName || a.title) + (a.items ? ' · ' + a.items + ' questions' : '') + (a.mins ? ' · ~' + a.mins + ' min' : ''))}</div>
+        ${a.desc ? `<div class="as-card-desc">${esc(a.desc)}</div>` : ''}
+        <div class="as-card-meta">
+          ${a.mins ? `<span class="as-card-meta-item"><svg width="11" height="11"><use href="#i-clock"/></svg>~${a.mins} min</span>` : ''}
+          ${a.repeat ? `<span class="as-card-meta-item"><svg width="11" height="11"><use href="#i-repeat"/></svg>${esc(a.repeat)}</span>` : ''}
+          <span class="as-card-meta-item"><svg width="11" height="11"><use href="#i-user"/></svg>${esc(clinicianName)}</span>
+        </div>
+        ${a.trendPath ? `
+        <div class="as-card-trend">
+          <svg viewBox="0 0 140 36" preserveAspectRatio="none">
+            <path d="${esc(a.trendPath)}" fill="none" stroke="${esc(a.trendColor || '#00d4bc')}" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+          <div class="as-card-trend-info">
+            <div class="as-card-band ${bandCls}">${esc(trendBand || '—')}</div>
+            ${a.lastSub ? `<div class="as-card-trend-sub">${esc(a.lastSub)}</div>` : ''}
+          </div>
+        </div>` : ''}
+        <button class="btn btn-primary as-start" onclick="window._asStart && window._asStart('${esc(a.slug)}')">Start questionnaire<svg width="13" height="13"><use href="#i-arrow-right"/></svg></button>
       </div>`;
   }
 
-  // ── Empty page state ─────────────────────────────────────────────────────
-  if (items.length === 0) {
-    el.innerHTML =
-      '<div class="pt-assess-empty">' +
-        '<div class="pt-assess-empty-ico" aria-hidden="true">&#9673;</div>' +
-        '<div class="pt-assess-empty-title">' + t('patient.assess.empty.title') + '</div>' +
-        '<div class="pt-assess-empty-body">' + t('patient.assess.empty.body') + '</div>' +
-        '<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px">' +
-          '<button class="btn btn-ghost btn-sm" onclick="window._navPatient(\'patient-messages\')">' + t('patient.assess.empty.cta_message') + '</button>' +
-          '<button class="btn btn-ghost btn-sm" onclick="window._navPatient(\'patient-portal\')">' + t('patient.assess.empty.cta_home') + '</button>' +
-        '</div>' +
-      '</div>';
-    return;
+  function _optRowHtml(o) {
+    return `
+      <div class="as-opt-row" data-assessment="${esc(o.slug)}">
+        <div class="as-opt-ico ${esc(o.tone || 'teal')}"><svg width="16" height="16"><use href="${esc(o.ico || '#i-sparkle')}"/></svg></div>
+        <div class="as-opt-body">
+          <div class="as-opt-title">${esc(o.title)}</div>
+          <div class="as-opt-sub">${esc(o.sub || '')}</div>
+        </div>
+        <button class="btn btn-ghost btn-sm as-start" onclick="window._asStart && window._asStart('${esc(o.slug)}')">Start<svg width="12" height="12"><use href="#i-arrow-right"/></svg></button>
+      </div>`;
   }
 
-  // ── Render page ──────────────────────────────────────────────────────────
-  el.innerHTML =
-    '<div class="pt-assess-wrap">' +
-      summaryRow() +
-      (due.length > 0
-        ? '<div class="pt-assess-section">' + sectionHd('Due Now', due.length) + due.map(dueCardHTML).join('') + '</div>'
-        : '') +
-      (upcoming.length > 0
-        ? '<div class="pt-assess-section">' + sectionHd('Upcoming', upcoming.length) + upcoming.map(upcomingCardHTML).join('') + '</div>'
-        : '') +
-      (completed.length > 0
-        ? '<div class="pt-assess-section">' + sectionHd('Completed', completed.length) + completed.map(completedCardHTML).join('') + '</div>'
-        : '') +
-      whySection() +
-      assistSection() +
-    '</div>';
+  function _historyRowHtml(h) {
+    const d = new Date(h.dateIso);
+    const dateStr = d.toLocaleDateString(loc, { month: 'short', day: 'numeric' });
+    const deltaCls = h.delta == null ? '' : (h.delta < 0 ? 'good' : h.delta > 0 ? 'bad' : '');
+    const deltaStr = h.delta == null ? '' : (h.delta > 0 ? '+' + h.delta : h.delta.toString());
+    return `
+      <div class="as-hist-row">
+        <div class="as-hist-date">${esc(dateStr)}</div>
+        <div class="as-hist-name">
+          <div class="as-hist-name-ico ${esc(h.cat)}">${esc((h.title || '').replace(/[^A-Z0-9-]/gi, '').slice(0, 3).toUpperCase() || '—')}</div>
+          <div><div class="as-hist-name-title">${esc(h.title)}</div><div class="as-hist-name-sub">${esc(h.cat)}</div></div>
+        </div>
+        <div class="as-hist-spark"></div>
+        <div class="as-hist-score">${esc(String(h.score ?? '—'))}${deltaStr ? ` <span class="delta ${deltaCls}">${esc(deltaStr)}</span>` : ''}</div>
+        <div class="as-hist-action"><button class="btn btn-ghost btn-sm" onclick="window._asViewHistory && window._asViewHistory('${esc(h.id)}')">View</button></div>
+      </div>`;
+  }
 
-  // ── Handlers ─────────────────────────────────────────────────────────────
+  function _schedRowHtml(s) {
+    const d = new Date(s.dateIso);
+    return `
+      <div class="as-sched-row">
+        <div class="as-sched-date">
+          <div class="mo">${esc(d.toLocaleDateString(loc, { month: 'short' }).toUpperCase())}</div>
+          <div class="d">${d.getDate()}</div>
+          <div class="dow">${esc(d.toLocaleDateString(loc, { weekday: 'short' }).toUpperCase())}</div>
+        </div>
+        <div class="as-sched-body">
+          <div class="as-sched-title">${esc(s.title)}</div>
+          <div class="as-sched-sub">${esc(s.repeat || 'One-time')}</div>
+        </div>
+        <span class="as-sched-pill">${esc((s.cat || '').toUpperCase())}</span>
+      </div>`;
+  }
 
-  window._ptToggleAssessForm = function(itemId) {
-    const item = items.find(function(i) { return i.id === itemId; });
-    if (!item) return;
-    const formEl = el.querySelector('#pt-assess-form-' + CSS.escape(itemId));
-    const btn    = el.querySelector('#pt-assess-cta-' + CSS.escape(itemId));
-    if (!formEl) return;
-    const opening = formEl.hasAttribute('hidden');
-    if (opening) {
-      formEl.removeAttribute('hidden');
-      if (btn) { btn.textContent = 'Close ×'; btn.setAttribute('aria-expanded', 'true'); }
-      if (SUPPORTED_FORMS[item.formKey]) {
-        renderAssessmentForm(item.formKey, 'pt-assess-form-' + CSS.escape(itemId), currentUser?.id);
-      }
-      setTimeout(function() { formEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 50);
-    } else {
-      formEl.setAttribute('hidden', '');
-      if (btn) { btn.textContent = (item.status === 'in-progress' ? 'Continue' : 'Start') + ' →'; btn.setAttribute('aria-expanded', 'false'); }
-    }
+  // Tabs — start on "due" by default.
+  const dueItems = _isDemo ? demoDue : due;
+  const optItems = _isDemo ? demoOptional : [];
+  const historyItems = _isDemo ? demoHistory : history;
+  const scheduledItems = _isDemo ? demoScheduled : scheduled;
+
+  // ── Render ─────────────────────────────────────────────────────────────
+  el.innerHTML = `
+    <div class="pt-route" id="pt-route-assessments">
+
+      <div class="as-hd">
+        <div>
+          <h2>Assessments</h2>
+          <p>Your clinician-prescribed questionnaires. Your responses help ${esc(clinicianName)} adjust your protocol — answer honestly, there are no right answers.</p>
+        </div>
+        <div class="as-hd-actions">
+          <button class="btn btn-ghost btn-sm" onclick="window._asToggleRaw && window._asToggleRaw()" id="as-toggle-raw-btn"><svg width="13" height="13"><use href="#i-eye-off"/></svg><span id="as-toggle-raw-lbl">Show raw scores</span></button>
+          <button class="btn btn-ghost btn-sm" onclick="window._asExport && window._asExport()"><svg width="13" height="13"><use href="#i-download"/></svg>Export history</button>
+        </div>
+      </div>
+
+      <div class="as-tabs" id="as-tabs">
+        <button class="active" data-tab="due" onclick="window._asTab && window._asTab('due')">Due now${dueItems.length ? '<span class="count hot">' + dueItems.length + '</span>' : ''}</button>
+        <button data-tab="history" onclick="window._asTab && window._asTab('history')">History${historyItems.length ? '<span class="count">' + historyItems.length + '</span>' : ''}</button>
+        <button data-tab="trends" onclick="window._asTab && window._asTab('trends')">Trends</button>
+        <button data-tab="scheduled" onclick="window._asTab && window._asTab('scheduled')">Scheduled${scheduledItems.length ? '<span class="count">' + scheduledItems.length + '</span>' : ''}</button>
+        <div class="as-tab-divider"></div>
+        <div class="as-tab-reminder">
+          <svg width="13" height="13"><use href="#i-bell"/></svg>
+          Daily check-in <span style="color:var(--text-primary);font-weight:500">8:00 PM</span>
+          <label class="as-switch"><input type="checkbox" checked onchange="window._asToggleReminder && window._asToggleReminder(this.checked)"><span></span></label>
+        </div>
+      </div>
+
+      <!-- DUE NOW -->
+      <div class="as-panel" id="as-panel-due">
+        <div class="as-daily">
+          <div class="as-daily-left">
+            <div class="as-daily-badge">Daily check-in · 30s</div>
+            <div class="as-daily-q">How has your mood been today, overall?</div>
+            <div class="as-daily-sub">Takes less than 30 seconds.${streak > 0 ? ' Streak: <strong style="color:var(--teal)">' + streak + ' day' + (streak === 1 ? '' : 's') + '</strong> — keep it going.' : ''}</div>
+          </div>
+          <div class="as-daily-scale" id="as-daily-scale">
+            ${[{v:1,f:'😣',l:'Very low'},{v:2,f:'😕',l:'Low'},{v:3,f:'😐',l:'OK'},{v:4,f:'🙂',l:'Good'},{v:5,f:'😊',l:'Great'}].map(m => `<button data-v="${m.v}" class="as-mood" onclick="window._asDailyPick && window._asDailyPick(${m.v})"><span class="f">${m.f}</span><span class="l">${m.l}</span></button>`).join('')}
+          </div>
+        </div>
+
+        ${dueItems.length ? `
+        <div class="as-due-lbl">
+          <span>Questionnaires prescribed for this week</span>
+          <span class="as-due-lbl-right">${dueItems.length} due${dueItems.filter(a => a.overdue).length ? ' · ' + dueItems.filter(a => a.overdue).length + ' overdue' : ''}</span>
+        </div>
+        <div class="as-due-grid">${dueItems.map(_dueCardHtml).join('')}</div>` : `
+        <div class="as-due-lbl"><span>Nothing due this week</span></div>
+        <div class="pth2-empty" style="padding:24px"><div class="pth2-empty-title">All caught up</div><div class="pth2-empty-sub">Your next prescribed questionnaire will appear here when scheduled.</div></div>`}
+
+        ${optItems.length ? `
+        <div class="as-due-lbl"><span>Optional · complete if you'd like</span></div>
+        <div class="as-optional">${optItems.map(_optRowHtml).join('')}</div>` : ''}
+      </div>
+
+      <!-- HISTORY -->
+      <div class="as-panel" id="as-panel-history" style="display:none">
+        <div class="as-hist-toolbar">
+          <div class="as-filter-chips" id="as-hist-chips">
+            <button class="active" data-f="all" onclick="window._asHistFilter && window._asHistFilter('all')">All<span class="count">${historyItems.length}</span></button>
+            <button data-f="phq-9" onclick="window._asHistFilter && window._asHistFilter('phq-9')">PHQ-9<span class="count">${historyItems.filter(h => h.slug === 'phq-9').length}</span></button>
+            <button data-f="gad-7" onclick="window._asHistFilter && window._asHistFilter('gad-7')">GAD-7<span class="count">${historyItems.filter(h => h.slug === 'gad-7').length}</span></button>
+            <button data-f="isi" onclick="window._asHistFilter && window._asHistFilter('isi')">ISI<span class="count">${historyItems.filter(h => h.slug === 'isi').length}</span></button>
+            <button data-f="daily" onclick="window._asHistFilter && window._asHistFilter('daily')">Daily check-in<span class="count">${historyItems.filter(h => h.slug === 'daily').length}</span></button>
+          </div>
+        </div>
+        <div class="as-hist-list" id="as-hist-list">
+          ${historyItems.length ? historyItems.map(_historyRowHtml).join('') : '<div class="pth2-empty" style="padding:24px"><div class="pth2-empty-title">No history yet</div><div class="pth2-empty-sub">Completed questionnaires will appear here.</div></div>'}
+        </div>
+      </div>
+
+      <!-- TRENDS -->
+      <div class="as-panel" id="as-panel-trends" style="display:none">
+        <div class="as-trends-hd">
+          <div>
+            <h3>Your scores over time</h3>
+            <p>Lower is better for PHQ-9, GAD-7, ISI. Higher is better for WHO-5. Bands show clinical categories.</p>
+          </div>
+          <div class="as-trends-legend">
+            <span><span class="sw" style="background:#00d4bc"></span>PHQ-9</span>
+            <span><span class="sw" style="background:#4a9eff"></span>GAD-7</span>
+            <span><span class="sw" style="background:#9b7fff"></span>ISI</span>
+            <span><span class="sw" style="background:#ffa85b"></span>WHO-5</span>
+          </div>
+        </div>
+        <div class="as-trends-chart">
+          <div class="pth2-empty" style="padding:40px"><div class="pth2-empty-title">${historyItems.length < 3 ? 'Not enough data yet' : 'Trends'}</div><div class="pth2-empty-sub">${historyItems.length < 3 ? 'Complete at least 3 questionnaires to see your full trend chart here.' : 'Your multi-scale timeline appears here — detailed view in My Progress.'}</div></div>
+        </div>
+        <div class="as-trends-cards">
+          <div class="as-summary">
+            <div class="as-summary-ico teal"><svg width="18" height="18"><use href="#i-chart"/></svg></div>
+            <div>
+              <div class="as-summary-lbl">Biggest improvement</div>
+              <div class="as-summary-val">${historyItems.filter(h => h.slug === 'phq-9').length >= 2 ? 'PHQ-9' : '—'}${historyItems.filter(h => h.slug === 'phq-9').length >= 2 ? ' <span style="color:var(--teal)">↓</span>' : ''}</div>
+              <div class="as-summary-sub">${historyItems.filter(h => h.slug === 'phq-9').length >= 2 ? 'Scores trending down since baseline.' : 'Complete your baseline + a follow-up to see change.'}</div>
+            </div>
+          </div>
+          <div class="as-summary">
+            <div class="as-summary-ico blue"><svg width="18" height="18"><use href="#i-check"/></svg></div>
+            <div>
+              <div class="as-summary-lbl">Consistency</div>
+              <div class="as-summary-val">${historyItems.length}<span style="color:var(--text-tertiary);font-size:12px;font-weight:400;margin-left:6px">completed</span></div>
+              <div class="as-summary-sub">${scheduledItems.length + historyItems.length > 0 ? Math.round((historyItems.length / Math.max(1, scheduledItems.length + historyItems.length)) * 100) + '% on-time completion rate.' : 'No prescribed questionnaires yet.'}</div>
+            </div>
+          </div>
+          <div class="as-summary">
+            <div class="as-summary-ico violet"><svg width="18" height="18"><use href="#i-sparkle"/></svg></div>
+            <div>
+              <div class="as-summary-lbl">Momentum</div>
+              <div class="as-summary-val">${historyItems.length >= 4 ? 'Last 4 weeks <span style="color:var(--teal)">↗</span>' : 'Tracking'}</div>
+              <div class="as-summary-sub">${historyItems.length >= 4 ? 'Scores trending in the desired direction.' : 'Keep completing questionnaires to build momentum.'}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SCHEDULED -->
+      <div class="as-panel" id="as-panel-scheduled" style="display:none">
+        <div class="as-sched-lbl">Upcoming · auto-reminders are on</div>
+        <div class="as-sched-list">
+          ${scheduledItems.length ? scheduledItems.map(_schedRowHtml).join('') : '<div class="pth2-empty" style="padding:24px"><div class="pth2-empty-title">No future assessments scheduled</div><div class="pth2-empty-sub">Your clinician will add new ones as your plan progresses.</div></div>'}
+        </div>
+      </div>
+
+      <div class="as-toast" id="as-toast"><svg width="16" height="16"><use href="#i-check"/></svg><span id="as-toast-text">Saved</span></div>
+    </div>`;
+
+  // ── Handlers ───────────────────────────────────────────────────────────
+  let _rawOn = false;
+  function _toast(msg) {
+    const t = document.getElementById('as-toast');
+    const t2 = document.getElementById('as-toast-text');
+    if (!t || !t2) return;
+    t2.textContent = msg || 'Done';
+    t.classList.add('show');
+    clearTimeout(window._asToastTimer);
+    window._asToastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  window._asTab = function(tab) {
+    ['due','history','trends','scheduled'].forEach(n => {
+      const panel = document.getElementById('as-panel-' + n);
+      if (panel) panel.style.display = (n === tab) ? '' : 'none';
+    });
+    document.querySelectorAll('#as-tabs button[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   };
 
-  window._ptAssessReview = function(_itemId) { window._navPatient('patient-reports'); };
-  window._ptAssessContactClinic = function(_itemId) { window._navPatient('patient-messages'); };
-
-  window._assessAskAI = function(prompt) {
-    if (typeof window._navPatient === 'function') {
-      window._navPatient('ai-agents');
-      setTimeout(function() {
-        const inp = document.getElementById('pt-ai-input') || document.querySelector('.pt-ai-input');
-        if (inp) { inp.value = prompt; inp.focus(); }
-      }, 300);
+  window._asDailyPick = async function(v) {
+    document.querySelectorAll('#as-daily-scale .as-mood').forEach(b => b.classList.toggle('on', Number(b.dataset.v) === v));
+    try {
+      const iso = todayIso;
+      const prev = JSON.parse(localStorage.getItem('ds_checkin_' + iso) || '{}');
+      prev.mood = v * 2;
+      localStorage.setItem('ds_checkin_' + iso, JSON.stringify(prev));
+      localStorage.setItem('ds_last_checkin', iso);
+      const yest = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+      const cur = parseInt(localStorage.getItem('ds_wellness_streak') || '0', 10);
+      const prevDay = localStorage.getItem('ds_last_checkin_prev');
+      localStorage.setItem('ds_wellness_streak', String(prevDay === yest ? cur + 1 : Math.max(cur, 1)));
+      localStorage.setItem('ds_last_checkin_prev', iso);
+    } catch (_e) {}
+    if (!_isDemo && uid && api.submitAssessment) {
+      try { await api.submitAssessment(uid, { type: 'daily_checkin', mood: v * 2, date: new Date().toISOString() }); } catch (_e) {}
     }
+    _toast('Check-in saved');
   };
+
+  window._asStart = function(slug) {
+    _toast('Opening questionnaire: ' + String(slug).toUpperCase());
+    // If we have a real route for taking assessments, route there; otherwise Home.
+    setTimeout(() => {
+      if (window._navPatient) window._navPatient('patient-portal');
+    }, 400);
+  };
+
+  window._asHistFilter = function(f) {
+    document.querySelectorAll('#as-hist-chips button').forEach(b => b.classList.toggle('active', b.dataset.f === f));
+    const rows = document.querySelectorAll('#as-hist-list .as-hist-row');
+    rows.forEach(r => {
+      const ico = r.querySelector('.as-hist-name-ico');
+      const matchedSlug = ico ? ico.className.replace('as-hist-name-ico', '').trim() : '';
+      // We stored cat on the name-ico class name; map back to slug.
+      const bySlug = {
+        'depression': 'phq-9', 'anxiety': 'gad-7', 'sleep': 'isi', 'wellbeing': 'who5', 'daily': 'daily',
+      };
+      const slug = bySlug[matchedSlug] || 'other';
+      r.style.display = (f === 'all' || slug === f) ? '' : 'none';
+    });
+  };
+
+  window._asToggleRaw = function() {
+    _rawOn = !_rawOn;
+    const lbl = document.getElementById('as-toggle-raw-lbl');
+    if (lbl) lbl.textContent = _rawOn ? 'Hide raw scores' : 'Show raw scores';
+    _toast(_rawOn ? 'Raw scores visible' : 'Raw scores hidden');
+  };
+
+  window._asExport = function() {
+    const rows = [['Date', 'Assessment', 'Category', 'Score', 'Delta']];
+    historyItems.forEach(h => rows.push([h.dateIso, h.title, h.cat, h.score ?? '', h.delta ?? '']));
+    const csv = rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'assessment-history-' + todayIso + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    _toast('History exported');
+  };
+
+  window._asToggleReminder = function(on) { _toast('Daily reminder ' + (on ? 'on' : 'off')); };
+  window._asViewHistory = function(_id) { _toast('Opening history entry…'); };
 }
 
 // \u2500\u2500 Reports \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
