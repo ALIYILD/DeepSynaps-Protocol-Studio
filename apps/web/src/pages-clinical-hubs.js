@@ -2175,6 +2175,26 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   .dv2s-side.collapsed{max-height:0;height:0;}
   .dv2s-legend{display:none;}
 }
+/* Design #04 · smaller-screen polish + sch-event time line */
+.sch-event-time{font-size:9px;color:var(--text-tertiary);font-family:var(--font-mono);margin-top:1px;letter-spacing:.02em;}
+.dv2s-event.is-selected .sch-event-time{color:var(--text-secondary);}
+@media (max-width:640px){
+  .dv2s-toolbar{padding:8px 10px;gap:6px;}
+  .dv2s-tab-bar{padding:8px 10px 0;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .dv2s-tab{flex-shrink:0;}
+  .dv2s-range{font-size:12px;}
+  .dv2s-range-sub{display:none;}
+  .dv2s-view{display:none;}
+  .dv2s-chip{font-size:10.5px;padding:3px 8px;}
+  .dv2s-col-heads.v-week{min-width:1200px;}
+  .dv2s-col-heads.v-week{grid-template-columns:48px repeat(28,minmax(90px,1fr));}
+  .dv2s-grid.v-week{grid-template-columns:48px repeat(28,minmax(90px,1fr));min-width:1200px;}
+  .dv2s-hour-col{width:48px;}
+  .dv2s-hours-head{font-size:8px;}
+  .dv2s-hour-row{padding:2px 4px;font-size:8px;}
+  .dv2s-day-dow,.dv2s-day-num{font-size:10px;}
+  .sch-event-time{display:none;}
+}
 `;
     document.head.appendChild(_ss);
   }
@@ -2585,13 +2605,21 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     const meta = typeMeta(e.type);
     const warnIco = e.warn === 'err' ? '<span class="dv2s-event-warn err" title="Conflict">&#9888;</span>' : e.warn === 'amb' ? '<span class="dv2s-event-warn amb" title="Prereq">&#9680;</span>' : '';
     const showMeta = heightPx >= 32 && e.meta;
+    const showTime = heightPx >= 46 && Number.isFinite(e.start);
+    const timeLbl = showTime ? (() => {
+      const h = Math.floor(e.start), m = Math.round((e.start - h) * 60);
+      const sh = h === 0 ? 12 : h > 12 ? h - 12 : h;
+      const ap = h >= 12 ? 'PM' : 'AM';
+      return sh + (m ? ':' + String(m).padStart(2, '0') : '') + ' ' + ap;
+    })() : null;
     const protoLabel = meta.label;
     const title = esc(e.patient) + ' · ' + esc(protoLabel) + ' · ' + e.duration + ' min' + (e.meta?' · '+esc(e.meta):'');
     const selCls = (String(window._schedSelectedId) === String(e.id)) ? ' is-selected' : '';
-    return '<div class="dv2s-event '+meta.cls+selCls+'" style="top:'+topPx+'px;height:'+heightPx+'px" data-event-id="'+esc(e.id)+'" title="'+title+'">'
+    return '<div class="dv2s-event sch-event '+meta.cls+selCls+'" style="top:'+topPx+'px;height:'+heightPx+'px" data-event-id="'+esc(e.id)+'" title="'+title+'">'
       + warnIco
       + '<div class="dv2s-event-name">'+esc(e.patient)+'</div>'
       + (showMeta ? '<div class="dv2s-event-meta">'+esc(e.meta)+'</div>' : '')
+      + (timeLbl ? '<div class="sch-event-time">'+esc(timeLbl)+'</div>' : '')
     + '</div>';
   }
 
