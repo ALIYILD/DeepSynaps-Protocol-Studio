@@ -14382,6 +14382,7 @@ export async function pgPatientHomeDevices() {
     break_request: 'Break request',
     concern: 'Care concern',
     positive_feedback: 'Positive feedback',
+    device_request: 'Device request',
   }[type] || 'Activity');
   const summarizeParameters = (params) => {
     if (!params || typeof params !== 'object') return [];
@@ -14490,7 +14491,7 @@ export async function pgPatientHomeDevices() {
     { id: 'apple_health', label: 'Apple Health', platform: 'iPhone / iOS', icon: '◌', accent: '#53e4cf', description: 'Sleep, HRV, heart rate, steps', supported: true },
     { id: 'android_health', label: 'Health Connect', platform: 'Android', icon: '◍', accent: '#7cc9ff', description: 'Sleep, steps, heart rate', supported: true },
     { id: 'fitbit', label: 'Fitbit', platform: 'iOS / Android', icon: '◐', accent: '#79f2d4', description: 'Sleep, activity, recovery trends', supported: true },
-    { id: 'garmin_connect', label: 'Garmin Connect', platform: 'Limited', icon: '◎', accent: '#94a3b8', description: 'Backend connector not enabled yet', supported: false, disabledReason: 'Coming soon' },
+    { id: 'garmin_connect', label: 'Garmin Connect', platform: 'Garmin wearables', icon: '◎', accent: '#94a3b8', description: 'Recovery, training load, heart rate, and sleep', supported: true },
   ];
   const platformStatus = (platformId) => {
     const conn = connections.find((row) => row.source === platformId);
@@ -14599,7 +14600,7 @@ export async function pgPatientHomeDevices() {
     { id: 'health-connect-card', name: 'Health Connect', modality: 'Wearable sync', category: 'Android', price: 'Included', action: 'connect', sourceId: 'android_health', desc: 'Sync steps, sleep, and heart rate from Android.' },
     { id: 'fitbit-card', name: 'Fitbit', modality: 'Wearable sync', category: 'Wearable', price: 'Included', action: 'connect', sourceId: 'fitbit', desc: 'Pull Fitbit recovery and activity trends.' },
     { id: 'oura-card', name: 'Oura Ring', modality: 'Wearable sync', category: 'Recovery', price: 'Included', action: 'connect', sourceId: 'oura', desc: 'Readiness, HRV, and sleep staging.' },
-    { id: 'garmin-card', name: 'Garmin Connect', modality: 'Wearable sync', category: 'Coming soon', price: 'Soon', action: 'disabled', desc: 'Garmin support is not enabled in the backend yet.' },
+    { id: 'garmin-card', name: 'Garmin Connect', modality: 'Wearable sync', category: 'Wearable', price: 'Included', action: 'connect', sourceId: 'garmin_connect', desc: 'Sync Garmin recovery, sleep, and training trends.' },
   ];
   const compatibleCatalog = (registryItems.length
     ? registryItems.slice(0, 8).map((item, idx) => ({
@@ -14797,7 +14798,7 @@ export async function pgPatientHomeDevices() {
             <div class="phd-block-head">
               <div>
                 <h2>Compatible devices</h2>
-                <p>Only connect sources your clinic supports today. Prescribed devices still require clinician approval.</p>
+                <p>Connect supported sources directly here, or send a structured request for clinician-approved home devices.</p>
               </div>
               <span class="phd-block-meta">${compatibleCatalog.length} supported</span>
             </div>
@@ -14947,8 +14948,19 @@ export async function pgPatientHomeDevices() {
       window._navPatient('pt-home-device');
       return;
     }
-    emitToast('Opening Messages so you can request ' + item.name + '.', '#7cc9ff');
-    window._navPatient('patient-messages');
+    try {
+      await api.portalRequestHomeDevice({
+        device_name: item.name,
+        device_category: item.category || null,
+        modality: item.modality || null,
+        catalog_id: item.id,
+        note: 'Requested from the Home Devices page.',
+      });
+      emitToast(item.name + ' request sent to your care team.', 'var(--teal)');
+      await pgPatientHomeDevices();
+    } catch (err) {
+      emitToast(err?.message || ('Could not request ' + item.name + '.'), '#f87171');
+    }
   };
 }
 
@@ -15319,6 +15331,7 @@ export async function pgPatientAdherenceEvents() {
     break_request: 'Break Request',
     concern: 'Concern',
     positive_feedback: 'Positive Feedback',
+    device_request: 'Device Request',
   };
 
   el.innerHTML = `

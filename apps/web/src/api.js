@@ -862,6 +862,8 @@ export const api = {
   portalListAdherenceEvents: () => apiFetch('/api/v1/patient-portal/adherence-events'),
   portalSubmitAdherenceEvent: (data) =>
     apiFetch('/api/v1/patient-portal/adherence-events', { method: 'POST', body: JSON.stringify(data) }),
+  portalRequestHomeDevice: (data) =>
+    apiFetch('/api/v1/patient-portal/home-device-request', { method: 'POST', body: JSON.stringify(data) }),
   portalHomeAdherenceSummary: () => apiFetch('/api/v1/patient-portal/home-adherence-summary'),
 
   // ── Home Program Tasks (patient portal) ───────────────────────────────────
