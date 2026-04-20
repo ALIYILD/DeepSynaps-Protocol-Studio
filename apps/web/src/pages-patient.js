@@ -355,11 +355,118 @@ export async function pgPatientDashboard(user) {
   const sessions     = Array.isArray(portalSessions) ? portalSessions : [];
   const outcomes     = Array.isArray(portalOutcomes) ? portalOutcomes : [];
   const coursesArr   = Array.isArray(portalCourses) ? portalCourses : [];
-  const activeCourse = coursesArr.find(c => c.status === 'active') || coursesArr[0] || null;
   const messages     = Array.isArray(portalMessagesRaw) ? portalMessagesRaw : [];
 
   // Wearable daily summary → flatten to latest-valued metrics.
   const wearableDays = Array.isArray(wearableSummaryRaw) ? wearableSummaryRaw : [];
+
+  // ── Demo seed — populates every array when the backend returned nothing so
+  //    first-time preview users see a fully-rendered home dashboard. Gated
+  //    on "everything empty" — any real patient data and we skip the seed.
+  const _hmDemo = sessions.length === 0 && coursesArr.length === 0 && outcomes.length === 0 && messages.length === 0 && wearableDays.length === 0;
+  if (_hmDemo) {
+    coursesArr.push({
+      id: 'demo-crs-001',
+      name: 'Left DLPFC tDCS \u2014 Depression',
+      condition_slug: 'depression-mdd',
+      modality_slug: 'tdcs',
+      status: 'active',
+      phase: 'Active Treatment',
+      total_sessions_planned: 20,
+      session_count: 12,
+      next_review_date: '2026-04-24',
+      primary_clinician_name: 'Dr. Amelia Kolmar',
+    });
+    const _P = { modality_slug: 'tdcs', stimulation_mA: 2.0, target_site: 'F3 / FP2', ramp_up_sec: 30, duration_minutes: 20, clinician_name: 'Dr. Amelia Kolmar' };
+    const _done = [
+      { n:1,  date:'2026-02-22T10:00:00', home:false, comfort:7.0 },
+      { n:2,  date:'2026-02-25T10:00:00', home:false, comfort:7.5 },
+      { n:3,  date:'2026-02-27T10:00:00', home:false, comfort:8.0 },
+      { n:4,  date:'2026-03-03T10:00:00', home:false, comfort:7.5 },
+      { n:5,  date:'2026-03-06T09:30:00', home:true,  comfort:7.0 },
+      { n:6,  date:'2026-03-10T10:00:00', home:false, comfort:8.5 },
+      { n:7,  date:'2026-03-13T10:00:00', home:false, comfort:8.5 },
+      { n:8,  date:'2026-03-17T09:30:00', home:true,  comfort:8.0 },
+      { n:9,  date:'2026-03-20T10:00:00', home:false, comfort:8.5 },
+      { n:10, date:'2026-04-03T10:00:00', home:false, comfort:9.0 },
+      { n:11, date:'2026-04-10T09:30:00', home:true,  comfort:8.5 },
+      { n:12, date:'2026-04-15T10:00:00', home:false, comfort:9.0 },
+    ];
+    _done.forEach(d => sessions.push({ ..._P, id:'dm-s'+d.n, session_number:d.n, delivered_at:d.date, scheduled_at:d.date, status:'completed', location:d.home?'Home':'Clinic · Room A', is_home:d.home, comfort_rating:d.comfort, impedance_kohm: d.home ? 5.2 : 4.6, tolerance_rating: d.comfort >= 8.5 ? 'excellent' : 'good' }));
+    const _upcoming = [
+      { n:13, date:'2026-04-22T14:00:00', home:false, location:'Clinic · Rm 2' },
+      { n:14, date:'2026-04-24T09:30:00', home:true,  location:'Home' },
+      { n:15, date:'2026-04-27T10:00:00', home:false, location:'Clinic · Rm 2' },
+      { n:16, date:'2026-04-29T18:00:00', home:true,  location:'Home' },
+      { n:17, date:'2026-05-01T10:00:00', home:false, location:'Clinic · Rm 2' },
+    ];
+    _upcoming.forEach(u => sessions.push({ ..._P, id:'dm-u'+u.n, session_number:u.n, scheduled_at:u.date, status:'scheduled', location:u.location, is_home:u.home, confirmed:true }));
+
+    // Outcomes — PHQ-9, GAD-7, ISI across Weeks 1–6 (lower is better).
+    const _phq = [19, 17, 15, 13, 12, 11];
+    const _gad = [14, 13, 12, 11, 10, 9];
+    const _isi = [16, 15, 14, 13, 12, 12];
+    for (let w = 0; w < 6; w++) {
+      const d = new Date(2026, 1, 22 + w * 7).toISOString();  // Feb 22 + w weeks
+      outcomes.push({ id:'dm-o-phq-'+w, template_slug:'phq-9', template_name:'PHQ-9', score_numeric:_phq[w], administered_at:d });
+      outcomes.push({ id:'dm-o-gad-'+w, template_slug:'gad-7', template_name:'GAD-7', score_numeric:_gad[w], administered_at:d });
+      outcomes.push({ id:'dm-o-isi-'+w, template_slug:'isi',   template_name:'ISI',   score_numeric:_isi[w], administered_at:d });
+    }
+
+    // Messages — 1 unread from Dr. Kolmar + a few read.
+    const _dToday = new Date(); _dToday.setHours(8, 12, 0, 0);
+    const _dYest  = new Date(Date.now() - 86400000);
+    const _dSat   = new Date(Date.now() - 3 * 86400000);
+    messages.push(
+      { id:'dm-m1', sender_type:'clinician', sender_name:'Dr. Kolmar',  preview:'Nice work on the Week 6 PHQ-9. Keeping protocol for Week 7\u2026', body:'Nice work on the Week 6 PHQ-9.', subject:'Week 6 check-in', is_read:false, created_at:_dToday.toISOString() },
+      { id:'dm-m2', sender_type:'clinician', sender_name:'Rhea Nair',   preview:'Reminder: Wed 2 PM. Bring your saline sponges for home-use QC.',     body:'Reminder for Wednesday.',         subject:'Reminder',       is_read:true,  created_at:_dYest.toISOString()  },
+      { id:'dm-m3', sender_type:'system',    sender_name:'Synaps AI',   preview:'2 questions answered \u00b7 1 routed to Rhea (skin redness)',         body:'AI assistant summary.',            subject:'AI summary',     is_read:true,  created_at:_dYest.toISOString()  },
+      { id:'dm-m4', sender_type:'clinician', sender_name:'Marcus Tan',  preview:'BCBS reauth filed \u00b7 decision expected Apr 25',                   body:'Reauth status update.',            subject:'Insurance',      is_read:true,  created_at:_dSat.toISOString()   },
+    );
+
+    // Wearable — 7 days, mildly-bad sleep last night to justify the AI nudge.
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      const isLastNight = i === 0;
+      wearableDays.push({
+        date: d,
+        sleep_duration_h: isLastNight ? 6.2 : (7.0 + Math.random() * 0.8),
+        hrv_ms:           isLastNight ? 42  : (50 + Math.random() * 10),
+        rhr_bpm:          62 + Math.round(Math.random() * 4),
+        steps:            7800 + Math.round(Math.random() * 1500),
+      });
+    }
+  }
+
+  let activeCourse = coursesArr.find(c => c.status === 'active') || coursesArr[0] || null;
+
+  // ── Home (hm-*) shared helpers ──────────────────────────────────────────
+  // "rTMS · MDD" style label for the hero sub.
+  function modalityCondShort(c) {
+    if (!c) return 'treatment';
+    const mod = modalityLabel(c.modality_slug) || (c.modality_slug || 'tDCS').toUpperCase();
+    const cond = (c.condition_slug || '').replace(/-/g, ' ').replace(/mdd/i, 'MDD').trim();
+    return cond ? `${mod} · ${cond}` : mod;
+  }
+  // Clinical band label per scale, loose ranges (lower = better except WHO-5).
+  function _hmSeverityLabel(slugOrName, v) {
+    if (v == null || !Number.isFinite(Number(v))) return null;
+    const s = String(slugOrName || '').toLowerCase();
+    const n = Number(v);
+    if (/phq/.test(s)) return n < 5 ? 'Minimal' : n < 10 ? 'Mild' : n < 15 ? 'Moderate' : n < 20 ? 'Mod-severe' : 'Severe';
+    if (/gad/.test(s)) return n < 5 ? 'Minimal' : n < 10 ? 'Mild' : n < 15 ? 'Moderate' : 'Severe';
+    if (/isi/.test(s)) return n < 8 ? 'None' : n < 15 ? 'Sub-threshold' : n < 22 ? 'Moderate' : 'Severe';
+    if (/who/.test(s)) return n > 17 ? 'Good' : n > 12 ? 'Moderate' : 'Low';
+    return null;
+  }
+  function _hmBandClass(slugOrName, v) {
+    const lbl = _hmSeverityLabel(slugOrName, v);
+    if (!lbl) return '';
+    if (/^(Minimal|None|Good)$/i.test(lbl)) return 'min';
+    if (/^(Mild|Sub-threshold|Moderate)$/i.test(lbl)) return 'mild';
+    if (/^(Mod-severe|Severe|Low)$/i.test(lbl)) return 'mod';
+    return '';
+  }
   function _avg(arr) {
     const xs = arr.filter(x => x != null && !Number.isNaN(Number(x))).map(Number);
     if (!xs.length) return null;
@@ -398,6 +505,17 @@ export async function pgPatientDashboard(user) {
       task_type: r.task?.task_type || r.task?.type || null,
       raw: r,
     }));
+  }
+  // Demo-seed home tasks when the real list is empty on a first-time view.
+  if (_hmDemo && homeTasks.length === 0) {
+    const todayISO = new Date().toISOString().slice(0, 10);
+    homeTasks = [
+      { id:'dm-t1', title:'Morning mood check-in',           category:'Check-in',     task_type:'checkin',   completed:true,  due_on:todayISO, _doneAt:'7:22 AM' },
+      { id:'dm-t2', title:'4\u20137\u20138 breathing \u00b7 4 cycles', category:'Breathing',    task_type:'breathing', completed:true,  due_on:todayISO, _doneAt:'8:12 AM' },
+      { id:'dm-t3', title:'20-min outdoor walk',             category:'Activation',   task_type:'walk',      completed:false, due_on:todayISO, _at:'10:00 AM', _when:'in 32 min' },
+      { id:'dm-t4', title:'Home tDCS \u00b7 Synaps One',     category:'Stimulation',  task_type:'tdcs',      completed:false, due_on:todayISO, _at:'6:00 PM',  _when:'home', _sub:'F3 \u2013 FP2 \u00b7 2.0 mA \u00b7 20 min' },
+      { id:'dm-t5', title:'Mood journal + sleep checklist',  category:'Journaling',   task_type:'journal',   completed:false, due_on:todayISO, _at:'9:30 PM',  _when:'evening' },
+    ];
   }
   const openTasks = homeTasks.filter(t => !(t.completed || t.done));
 
@@ -1133,155 +1251,601 @@ export async function pgPatientDashboard(user) {
         </div>` : ''}`;
   }
 
-  const moodGrid = _pth2MoodGridHtml();
+  // ────────────────────────────────────────────────────────────────────────
+  // Design · Home dashboard (hm-*) — pulls from every real fetch above.
+  // ────────────────────────────────────────────────────────────────────────
+
+  // Kicker line: weekday · full date · HH:MM · tz city (fall back to "Local").
+  const _hmKicker = (() => {
+    try {
+      const d = new Date();
+      const datePart = d.toLocaleDateString(loc, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+      const timePart = d.toLocaleTimeString(loc, { hour: 'numeric', minute: '2-digit' });
+      const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || '').split('/').pop().replace(/_/g, ' ') || 'Local';
+      return `${datePart} · ${timePart} · ${tz}`;
+    } catch (_e) { return todayStr; }
+  })();
+
+  // Personalised sub: weave together progressPct / outcomeDelta / streak.
+  const _hmSub = (() => {
+    const weekN = (totalPlanned && sessDelivered) ? Math.max(1, Math.ceil(sessDelivered / Math.max(1, Math.round(totalPlanned / 10)))) : null;
+    const weekOfStr = (weekN && totalPlanned) ? `Week ${weekN} of ${Math.max(10, Math.round(totalPlanned / 2))}` : null;
+    const bits = [];
+    if (activeCourse && weekOfStr) bits.push(`You're on <strong>${esc(weekOfStr)}</strong> of the ${esc(modalityCondShort(activeCourse))} course.`);
+    if (outcomeGroups[0] && outcomeGroups[0].latest && outcomeGroups[0].baseline) {
+      const tg = outcomeGroups[0];
+      const base = Number(tg.baseline.score_numeric), cur = Number(tg.latest.score_numeric);
+      if (Number.isFinite(base) && Number.isFinite(cur) && base > 0) {
+        const pct = Math.round((base - cur) / base * 100);
+        bits.push(`${esc(tg.template_name)} is down to <strong>${cur} (${_hmSeverityLabel(tg.template_slug || tg.template_name, cur)})</strong>${pct > 0 ? ` — a ${pct}% drop since Week 1` : ''}.`);
+      }
+    }
+    if (nextSess) {
+      const t = nextSessTime || '';
+      const home = String(nextSess.location || '').toLowerCase().includes('home') || nextSess.is_home;
+      bits.push(`${home ? 'Home' : 'In-clinic'} session ${t ? 'at ' + esc(t) : 'today'}${home ? '' : ' with your care team'}.`);
+    } else if (openTasks.length) {
+      bits.push(`${openTasks.length} item${openTasks.length === 1 ? '' : 's'} on your plan today.`);
+    }
+    return bits.join(' ') || `You have <strong>no active course</strong> yet — your care team will take it from here.`;
+  })();
+
+  // KPI helpers — primary scale current value, delta, phase label.
+  function _hmPrimaryKpi() {
+    const g = outcomeGroups[0] || null;
+    if (!g || !g.latest) return { name:'PHQ-9', val:null, band:null, delta:null, max:27 };
+    const base = g.baseline ? Number(g.baseline.score_numeric) : null;
+    const cur  = Number(g.latest.score_numeric);
+    const delta = (Number.isFinite(base) && Number.isFinite(cur)) ? (base - cur) : null;
+    return { name: g.template_name || 'PHQ-9', val: cur, band: _hmSeverityLabel(g.template_slug || g.template_name, cur), delta, max: /phq/i.test(g.template_slug || '') ? 27 : 21 };
+  }
+  const _hmPrimary = _hmPrimaryKpi();
+  const _hmMoodAvg = (() => {
+    const vals = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      try {
+        const raw = localStorage.getItem('ds_checkin_' + d);
+        if (raw) { const c = JSON.parse(raw); if (c.mood) vals.push(Number(c.mood)); }
+      } catch (_e) { /* ignore */ }
+    }
+    if (!vals.length) return null;
+    return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
+  })();
+
+  // Morning AI nudge: sleep-aware content when last night's sleep < 7h.
+  const _hmNudge = (() => {
+    try { if (localStorage.getItem('ds_hm_nudge_dismiss_' + todayStr)) return null; } catch (_e) {}
+    if (lastNightSleepHours != null && lastNightSleepHours < 7) {
+      const hh = Math.floor(lastNightSleepHours);
+      const mm = Math.round((lastNightSleepHours - hh) * 60);
+      return {
+        kind: 'sleep',
+        kicker: 'Synaps AI · Morning note',
+        body: `Your sleep last night was ${hh}h ${String(mm).padStart(2,'0')}m — a bit short. That often shows up as low mood mid-morning. <strong>Try a 20-minute outdoor walk after breakfast</strong> — the light + movement combo is on your plan today.`,
+        primary: { label: 'Start walk timer', action: 'walk' },
+      };
+    }
+    if (openTasks.length >= 3) {
+      return {
+        kind: 'plan',
+        kicker: 'Synaps AI · Morning note',
+        body: `You have ${openTasks.length} items on your plan today. The first one — <strong>${esc(openTasks[0].title || 'a short activity')}</strong> — usually takes under 10 minutes.`,
+        primary: { label: 'Open plan', action: 'plan' },
+      };
+    }
+    return null;
+  })();
+
+  // Today's plan — render from homeTasks with time + icon colour by task_type.
+  function _hmTaskIcoClass(tp) {
+    const t = String(tp || '').toLowerCase();
+    if (/check|mood/.test(t))              return 'green';
+    if (/breath|wave|meditat/.test(t))     return 'blue';
+    if (/walk|exercise|move/.test(t))      return 'orange';
+    if (/tdcs|tms|stim|brain/.test(t))     return 'teal';
+    if (/journal|book|read/.test(t))       return 'pink';
+    if (/sleep|bed/.test(t))               return 'purple';
+    return 'teal';
+  }
+  function _hmTaskIcoSvg(tp) {
+    const t = String(tp || '').toLowerCase();
+    if (/check|mood/.test(t))              return '#i-check';
+    if (/breath|wave|meditat/.test(t))     return '#i-wave';
+    if (/walk|exercise|move/.test(t))      return '#i-walk';
+    if (/tdcs|tms|stim|brain/.test(t))     return '#i-brain';
+    if (/journal|book|read/.test(t))       return '#i-book-open';
+    return '#i-check';
+  }
+  function _hmPlanHtml() {
+    if (!homeTasks.length) {
+      return `<div class="pth2-empty"><div class="pth2-empty-title">No tasks for today</div><div class="pth2-empty-sub">Your care team will post your plan here.</div></div>`;
+    }
+    return homeTasks.slice(0, 5).map(t => {
+      const done = !!(t.completed || t.done);
+      const ico = _hmTaskIcoClass(t.task_type);
+      const svg = _hmTaskIcoSvg(t.task_type);
+      const title = t.title || 'Today\u2019s task';
+      const sub = t.instructions || t.category || t.task_type || (done ? 'Completed' : 'Tap to start');
+      const timeTop = t._at || (t.due_on ? 'Today' : '—');
+      const timeSub = t._when || (done ? 'done' : '');
+      let right = '';
+      if (done) {
+        right = `<div class="hm-tl-done">\u2713 ${esc(t._doneAt || 'done')}</div>`;
+      } else if (t.task_type === 'walk' || /walk/.test(String(t.title||'').toLowerCase())) {
+        right = `<button class="hm-tl-action primary" onclick="window._hmStartTask(${JSON.stringify(t.id)}, 'walk')">Start</button>`;
+      } else if (t.task_type === 'tdcs' || /tdcs/.test(String(t.title||'').toLowerCase())) {
+        right = `<button class="hm-tl-action" onclick="window._hmStartTask(${JSON.stringify(t.id)}, 'tdcs')">Prep</button>`;
+      } else {
+        right = `<button class="hm-tl-action" onclick="window._hmStartTask(${JSON.stringify(t.id)}, 'reminder')">Remind me</button>`;
+      }
+      const pill = done
+        ? '<span class="hm-tl-pill done">Done</span>'
+        : (t.task_type === 'walk' ? '<span class="hm-tl-pill soon">Up next</span>' : t.task_type === 'tdcs' ? '<span class="hm-tl-pill up">Device ready</span>' : '');
+      return `
+        <div class="hm-tl-item${done ? ' done' : ''}" data-task-id="${esc(t.id || '')}">
+          <div class="hm-tl-time">${esc(timeTop)}${timeSub ? '<small>' + esc(timeSub) + '</small>' : ''}</div>
+          <div class="hm-tl-ico ${ico}"><svg width="16" height="16"><use href="${svg}"/></svg></div>
+          <div class="hm-tl-body">
+            <div class="hm-tl-title">${esc(title)}${pill}</div>
+            <div class="hm-tl-sub">${esc(t._sub || sub)}</div>
+          </div>
+          ${right}
+        </div>`;
+    }).join('');
+  }
+
+  // Progress snapshot: up to 4 outcome groups with mini sparkline.
+  function _hmProgHtml() {
+    if (!outcomeGroups.length) {
+      return `<div class="pth2-empty" style="grid-column:1/-1"><div class="pth2-empty-title">No assessments yet</div><div class="pth2-empty-sub">Scores appear here once you complete your first check-in.</div></div>`;
+    }
+    const palettes = [
+      { stroke:'#00d4bc', id:'hmSparkA' },
+      { stroke:'#4a9eff', id:'hmSparkB' },
+      { stroke:'#4ade80', id:'hmSparkC' },
+      { stroke:'#ffa85b', id:'hmSparkD' },
+    ];
+    return outcomeGroups.slice(0, 4).map((g, i) => {
+      const pal = palettes[i % palettes.length];
+      const vals = (g.all || (g.latest ? [g.baseline, g.latest].filter(Boolean) : [])).map(o => Number(o.score_numeric)).filter(Number.isFinite);
+      const cur = vals.length ? vals[vals.length - 1] : (g.latest ? Number(g.latest.score_numeric) : null);
+      const base = vals.length ? vals[0] : (g.baseline ? Number(g.baseline.score_numeric) : null);
+      const delta = (Number.isFinite(base) && Number.isFinite(cur)) ? (base - cur) : null;
+      const bandCls = _hmBandClass(g.template_slug || g.template_name, cur);
+      const bandLbl = _hmSeverityLabel(g.template_slug || g.template_name, cur) || 'Current';
+      const sparkPts = (() => {
+        if (vals.length < 2) return null;
+        const maxV = Math.max(...vals), minV = Math.min(...vals);
+        const rng = (maxV - minV) || 1;
+        return vals.map((v, j) => {
+          const x = (vals.length === 1) ? 60 : (j / (vals.length - 1)) * 120;
+          const y = 24 - ((v - minV) / rng) * 18;
+          return x.toFixed(1) + ',' + y.toFixed(1);
+        }).join(' ');
+      })();
+      return `
+        <div class="hm-prog-item">
+          <div class="hm-prog-top">
+            <div>
+              <div class="hm-prog-name">${esc(g.template_name || 'Scale')}</div>
+              <div class="hm-prog-val">${cur != null ? esc(String(cur)) : '—'}</div>
+            </div>
+            <span class="hm-prog-band ${bandCls}">${esc(bandLbl)}</span>
+          </div>
+          ${sparkPts ? `
+          <svg class="hm-prog-spark" viewBox="0 0 120 30" preserveAspectRatio="none">
+            <defs><linearGradient id="${pal.id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${pal.stroke}" stop-opacity="0.35"/><stop offset="100%" stop-color="${pal.stroke}" stop-opacity="0"/></linearGradient></defs>
+            <polyline points="${sparkPts}" fill="none" stroke="${pal.stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <polygon points="${sparkPts} 120,30 0,30" fill="url(#${pal.id})"/>
+          </svg>` : '<div class="hm-prog-spark" style="opacity:0.4;font-size:10px;color:var(--text-tertiary);display:flex;align-items:center;padding-left:6px">Need more data</div>'}
+          <div class="hm-prog-delta ${(delta != null && delta > 0) ? 'good' : 'bad'}">${delta != null ? (delta > 0 ? `↓ ${delta} point${delta === 1 ? '' : 's'} since baseline` : `↑ ${Math.abs(delta)} since baseline`) : 'Tracking'}</div>
+        </div>`;
+    }).join('');
+  }
+
+  // Next session card.
+  function _hmNextSessHtml() {
+    if (!nextSess) {
+      return `
+        <div class="hm-next-wrap">
+          <div class="hm-next-kicker">Next clinical session</div>
+          <div class="hm-next-title">No session scheduled yet</div>
+          <div class="hm-next-sub">Your care team will schedule your next session shortly. Reach out if you'd like to check in.</div>
+          <div class="hm-next-actions">
+            <button class="btn btn-primary btn-sm" onclick="window._navPatient('patient-messages')"><svg width="13" height="13"><use href="#i-mail"/></svg>Message care team</button>
+          </div>
+        </div>`;
+    }
+    const d = nextSessDate;
+    const dateLbl = d.toLocaleDateString(loc, { weekday: 'short', month: 'short', day: 'numeric' });
+    const clinician = nextSess.clinician_name || activeCourse?.primary_clinician_name || 'Your clinician';
+    const modality = modalityLabel(nextSess.modality_slug) || 'Session';
+    const duration = nextSess.duration_minutes ? nextSess.duration_minutes + ' min' : '—';
+    const target = nextSess.target_site || activeCourse?.target_site || 'F3 – FP2';
+    const mA = nextSess.stimulation_mA || activeCourse?.stimulation_mA || '2.0 mA';
+    const location = nextSess.location || (_isHomeNext(nextSess) ? 'Home' : 'Clinic');
+    return `
+      <div class="hm-next-wrap">
+        <div class="hm-next-kicker">Next clinical session</div>
+        <div class="hm-next-title">${esc(dateLbl)} · ${esc(nextSessTime || '')} with ${esc(String(clinician).split(' ').slice(-1)[0])}</div>
+        <div class="hm-next-sub">${esc(modality)} · Session ${sessDelivered + 1}${totalPlanned ? ' of ' + totalPlanned : ''}${_isHomeNext(nextSess) ? '' : ' · your care team will guide you through it'}.</div>
+        <div class="hm-next-grid">
+          <div class="hm-next-spec"><div class="l">Montage</div><div class="v">${esc(target)}</div></div>
+          <div class="hm-next-spec"><div class="l">Intensity</div><div class="v">${esc(String(mA))}${/ma$/i.test(String(mA)) ? '' : ' mA'}</div></div>
+          <div class="hm-next-spec"><div class="l">Duration</div><div class="v">${esc(duration)}</div></div>
+          <div class="hm-next-spec"><div class="l">Location</div><div class="v">${esc(location)}</div></div>
+        </div>
+        <div class="hm-next-actions">
+          <button class="btn btn-primary btn-sm" onclick="window._navPatient('pt-sessions')"><svg width="13" height="13"><use href="#i-calendar"/></svg>Open session</button>
+          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')"><svg width="13" height="13"><use href="#i-clock"/></svg>Reschedule</button>
+        </div>
+      </div>`;
+  }
+  function _isHomeNext(s) {
+    return !!s.is_home || /home/i.test(String(s.location || s.session_type || ''));
+  }
+
+  // Protocol adherence ring (last 7 days: planned vs done, from sessions + tasks).
+  function _hmAdhHtml() {
+    const cutoff = Date.now() - 7 * 86400000;
+    const last7Sessions = sessions.filter(s => {
+      const d = new Date(s.scheduled_at || s.delivered_at || 0).getTime();
+      return d >= cutoff;
+    });
+    const doneSessions = last7Sessions.filter(s => s.delivered_at || /completed|done/.test(String(s.status || '').toLowerCase())).length;
+    const clinicTot = last7Sessions.filter(s => !_isHomeNext(s)).length;
+    const clinicDone = last7Sessions.filter(s => !_isHomeNext(s) && (s.delivered_at || /completed|done/.test(String(s.status || '').toLowerCase()))).length;
+    const homeTot = last7Sessions.filter(s => _isHomeNext(s)).length;
+    const homeDone = last7Sessions.filter(s => _isHomeNext(s) && (s.delivered_at || /completed|done/.test(String(s.status || '').toLowerCase()))).length;
+    const hwTot = homeTasks.length;
+    const hwDone = homeTasks.filter(t => t.completed || t.done).length;
+    const plannedTotal = last7Sessions.length + hwTot;
+    const completedTotal = doneSessions + hwDone;
+    const pct = plannedTotal ? Math.round(completedTotal / plannedTotal * 100) : null;
+    const C = 2 * Math.PI * 42;
+    const offset = pct != null ? Math.max(0, C - (pct / 100) * C) : C;
+    const line = pct == null ? 'No items tracked this week yet.'
+      : pct >= 80 ? 'Strong week' : pct >= 60 ? 'Solid week' : pct >= 40 ? 'Keep building' : 'Gentle restart';
+    return `
+      <div class="hm-card">
+        <div class="hm-card-head">
+          <div>
+            <h3>Protocol adherence</h3>
+            <p>Last 7 days · home + clinic</p>
+          </div>
+        </div>
+        <div class="hm-adh">
+          <div class="hm-adh-ring">
+            <svg viewBox="0 0 100 100">
+              <defs><linearGradient id="hmAdhGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#00d4bc"/><stop offset="100%" stop-color="#b794ff"/></linearGradient></defs>
+              <circle class="hm-adh-ring-bg" cx="50" cy="50" r="42"/>
+              <circle class="hm-adh-ring-fg" cx="50" cy="50" r="42" stroke-dasharray="${C.toFixed(2)}" stroke-dashoffset="${offset.toFixed(2)}"/>
+            </svg>
+            <div class="hm-adh-center"><div class="v">${pct != null ? pct + '%' : '—'}</div><div class="l">7-day</div></div>
+          </div>
+          <div class="hm-adh-body">
+            <h4>${esc(line)}</h4>
+            <p>${completedTotal} of ${plannedTotal} planned items complete. Consistency improves outcome likelihood.</p>
+            <div class="detail">
+              <span>Clinic: ${clinicDone}/${clinicTot || 0}</span>
+              <span>Home tDCS: ${homeDone}/${homeTot || 0}</span>
+              <span>Homework: ${hwDone}/${hwTot || 0}</span>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // Messages preview.
+  function _hmMessagesHtml() {
+    if (!messages.length) {
+      return `
+        <div class="hm-card">
+          <div class="hm-card-head"><div><h3>Care team</h3><p>No messages yet</p></div><button class="hm-card-link" onclick="window._navPatient('patient-messages')">Open →</button></div>
+          <div class="pth2-empty"><div class="pth2-empty-title">All quiet</div><div class="pth2-empty-sub">Messages from your clinicians appear here.</div></div>
+        </div>`;
+    }
+    const unreadCount = messages.filter(m => !m.is_read && m.sender_type !== 'patient').length;
+    const accents = ['jk', 'rn', 'mt', 'ai'];
+    const rows = messages.slice(0, 4).map((m, i) => {
+      const name = m.sender_name || m.sender_display_name || 'Care team';
+      const ini = String(name).split(/\s+/).map(p => p[0] || '').slice(0, 2).join('').toUpperCase() || 'CT';
+      const av = m.sender_type === 'system' ? 'ai' : accents[i % accents.length];
+      const rel = (() => {
+        try {
+          const d = new Date(m.created_at);
+          const diff = Date.now() - d.getTime();
+          if (diff < 86400000) return d.toLocaleTimeString(loc, { hour: 'numeric', minute: '2-digit' });
+          if (diff < 172800000) return 'Yesterday';
+          return d.toLocaleDateString(loc, { weekday: 'short' });
+        } catch (_e) { return ''; }
+      })();
+      const unread = !m.is_read && m.sender_type !== 'patient';
+      const offline = m.sender_type !== 'clinician' && m.sender_type !== 'system' ? ' off' : '';
+      return `
+        <div class="hm-msg-row${unread ? ' unread' : ''}" onclick="window._navPatient('patient-messages')">
+          <div class="hm-msg-av ${av}${offline}">${esc(ini)}</div>
+          <div class="hm-msg-body">
+            <div class="hm-msg-line">
+              <span class="hm-msg-name">${esc(name)}</span>
+              <span class="hm-msg-time">${esc(rel)}</span>
+            </div>
+            <div class="hm-msg-preview">${esc(m.preview || m.body || m.subject || '')}</div>
+          </div>
+          ${unread ? '<span class="hm-msg-dot"></span>' : ''}
+        </div>`;
+    }).join('');
+    return `
+      <div class="hm-card">
+        <div class="hm-card-head">
+          <div><h3>Care team</h3><p>${unreadCount ? unreadCount + ' unread' : 'All caught up'}${careTeam.length ? ' · ' + careTeam.length + ' clinicians' : ''}</p></div>
+          <button class="hm-card-link" onclick="window._navPatient('patient-messages')">Open →</button>
+        </div>
+        <div class="hm-msg-list">${rows}</div>
+      </div>`;
+  }
+
+  // Home device status — derived from wearable summary + any tDCS task.
+  function _hmDevicesHtml() {
+    const rows = [];
+    const hasTdcs = homeTasks.some(t => /tdcs|stim|brain/.test(String(t.task_type || '').toLowerCase()));
+    if (hasTdcs || activeCourse?.modality_slug === 'tdcs') {
+      rows.push({
+        name: 'Synaps One · tDCS',
+        sub: 'Battery check before next use',
+        status: 'Ready',
+        ico: '#i-brain',
+        low: false,
+      });
+    }
+    if (wearable.hasData) {
+      const sleepLow = wearable.sleepAvg != null && wearable.sleepAvg < 7;
+      rows.push({
+        name: 'Apple Watch · HRV + sleep',
+        sub: `Sleep ${wearable.sleepAvg != null ? wearable.sleepAvg.toFixed(1) + 'h' : '—'} · HRV ${wearable.hrvAvg != null ? Math.round(wearable.hrvAvg) + 'ms' : '—'}`,
+        status: sleepLow ? 'Sleep low' : 'Synced',
+        ico: '#i-pulse',
+        low: sleepLow,
+      });
+    }
+    if (!rows.length) {
+      return `
+        <div class="hm-card">
+          <div class="hm-card-head"><div><h3>Home device</h3><p>No devices connected yet</p></div><button class="hm-card-link" onclick="window._navPatient('patient-wearables')">Connect →</button></div>
+          <div class="pth2-empty"><div class="pth2-empty-title">Nothing paired</div><div class="pth2-empty-sub">Pair your wearable to track sleep, HRV, and steps.</div></div>
+        </div>`;
+    }
+    const html = rows.map(r => `
+      <div class="hm-dev" onclick="window._navPatient('patient-wearables')">
+        <div class="hm-dev-ico"><svg width="18" height="18"><use href="${r.ico}"/></svg></div>
+        <div class="hm-dev-body">
+          <div class="hm-dev-name">${esc(r.name)}</div>
+          <div class="hm-dev-sub">${esc(r.sub)}</div>
+        </div>
+        <div class="hm-dev-status${r.low ? ' low' : ''}"><span class="hm-dev-status-dot"></span>${esc(r.status)}</div>
+      </div>`).join('');
+    return `
+      <div class="hm-card">
+        <div class="hm-card-head"><div><h3>Home device</h3><p>${rows.length} connected</p></div><button class="hm-card-link" onclick="window._navPatient('patient-wearables')">Manage →</button></div>
+        ${html}
+      </div>`;
+  }
+
+  // Education picks — static curated-for-Week-N set; personalised kicker.
+  function _hmEducationHtml() {
+    const weekN = (totalPlanned && sessDelivered) ? Math.max(1, Math.ceil(sessDelivered / Math.max(1, Math.round(totalPlanned / 10)))) : null;
+    const picks = [
+      { id:'ed-1', t:'t1', dur:'6:42',  title:'Dr. Kolmar: What happens in weeks 6\u201310 of your tDCS course', meta:'Clinic · personalised for you' },
+      { id:'ed-2', t:'t2', dur:'14:03', title:'Huberman Lab: Sleep & mood \u2014 the morning light protocol',     meta:'Huberman · matches your plan' },
+      { id:'ed-3', t:'t3', dur:'4:18',  title:'Mayo Clinic: When to expect symptom improvement',                  meta:'Mayo Clinic · short read' },
+    ];
+    return `
+      <div class="hm-card">
+        <div class="hm-card-head">
+          <div><h3>For you today</h3><p>${picks.length} picks${weekN ? ' matched to Week ' + weekN : ''}</p></div>
+          <button class="hm-card-link" onclick="window._navPatient('pt-learn')">Library →</button>
+        </div>
+        <div class="hm-edu-list">
+          ${picks.map(p => `
+            <div class="hm-edu-row" onclick="window._hmOpenEdu && window._hmOpenEdu(${JSON.stringify(p.id)})">
+              <div class="hm-edu-thumb ${p.t}">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                <span class="dur">${esc(p.dur)}</span>
+              </div>
+              <div class="hm-edu-body">
+                <div class="hm-edu-title">${esc(p.title)}</div>
+                <div class="hm-edu-meta">${esc(p.meta)}</div>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }
 
   // ── Render ────────────────────────────────────────────────────────────────
   el.innerHTML = `
-    <div class="ptd-dashboard pth2-dashboard">
+    <div class="ptd-dashboard hm-dashboard" id="pt-route-home">
 
-      <!-- 1. Hero with greeting + countdown tile -->
-      <div class="pth2-hero">
-        <div class="pth2-hero-main">
-          <div class="pth2-hero-greet">${greeting}, ${firstName} <span aria-hidden="true">👋</span></div>
-          <div class="pth2-hero-sub">${_pth2HeroSubHtml()}</div>
-          <div class="pth2-hero-meta">${esc(dateLabel)}</div>
+      <!-- ═══ Greeting hero + KPIs ═══ -->
+      <div class="hm-hero">
+        <div class="hm-hero-top">
+          <div>
+            <div class="hm-greet-kicker">${esc(_hmKicker)}</div>
+            <h1 class="hm-greet-title">${greeting}, ${firstName}.</h1>
+            <p class="hm-greet-sub">${_hmSub}</p>
+          </div>
         </div>
-        ${nextSess ? `
-          <div class="pth2-hero-next">
-            <div class="pth2-countdown">
-              <div class="pth2-countdown-num">${daysToNext != null ? daysToNext : '—'}</div>
-              <div class="pth2-countdown-lbl">${daysToNext === 0 ? 'today' : daysToNext === 1 ? 'day to go' : 'days to go'}</div>
-            </div>
-            <div class="pth2-hero-next-info">
-              <div class="pth2-hero-next-title">${esc(nextSessTitle || 'Next session')}${nextSessDowLabel ? ' · ' + esc(nextSessDowLabel) : ''}${nextSessTime ? ' ' + esc(nextSessTime) : ''}</div>
-              ${nextSessSub ? `<div class="pth2-hero-next-sub">${nextSessSub}</div>` : ''}
-              <button class="pth2-ghost-btn" onclick="window._navPatient('pt-sessions')">View sessions →</button>
-            </div>
-          </div>` : `
-          <div class="pth2-hero-next pth2-hero-next--empty">
-            <div class="pth2-hero-next-title">No upcoming session</div>
-            <div class="pth2-hero-next-sub">Contact your clinic to schedule your next appointment.</div>
-            <button class="pth2-ghost-btn" onclick="window._navPatient('patient-messages')">Message care team →</button>
-          </div>`}
-      </div>
-
-      <!-- 2. Quick tiles (4) -->
-      <div class="pth2-tiles">${_pth2QuickTilesHtml()}</div>
-
-      <!-- Inline daily check-in (hidden unless opened from tile) -->
-      <div id="pt-checkin-form" class="pth-checkin-form" style="display:none">
-        <div class="pth-checkin-title">Quick check-in</div>
-        <div class="ptd-slider-rows">
-          ${[
-            { id: 'ptd-dc-mood',   label: 'Mood',   color: 'var(--teal,#2dd4bf)' },
-            { id: 'ptd-dc-sleep',  label: 'Sleep',  color: 'var(--accent-blue,#60a5fa)' },
-            { id: 'ptd-dc-energy', label: 'Energy', color: 'var(--accent-violet,#a78bfa)' },
-          ].map(s => `<div class="ptd-slider-row">
-            <label>${s.label}</label>
-            <input type="range" id="${s.id}" min="1" max="10" value="5" oninput="document.getElementById('${s.id}-v').textContent=this.value" style="accent-color:${s.color}">
-            <span id="${s.id}-v" style="color:${s.color}">5</span>
-          </div>`).join('')}
-        </div>
-        <div style="display:flex;gap:8px;margin-top:10px">
-          <button class="btn btn-primary btn-sm" onclick="window._ptdSubmitCheckin()">Save check-in</button>
-          <button class="btn btn-ghost btn-sm" onclick="window._ptdCloseCheckin()">Cancel</button>
+        <div class="hm-hero-kpis">
+          <div class="hm-kpi" onclick="window._navPatient('pt-outcomes')">
+            <div class="hm-kpi-l">${esc(_hmPrimary.name || 'PHQ-9')}</div>
+            <div class="hm-kpi-v">${_hmPrimary.val != null ? esc(String(_hmPrimary.val)) : '—'}${_hmPrimary.max ? ' <small>/ ' + _hmPrimary.max + '</small>' : ''}</div>
+            <div class="hm-kpi-trend ${_hmPrimary.delta != null && _hmPrimary.delta > 0 ? 'up' : 'neutral'}">${_hmPrimary.delta != null && _hmPrimary.delta > 0 ? '↓ ' + _hmPrimary.delta + ' from baseline' : (_hmPrimary.band || 'Tracking')}</div>
+          </div>
+          <div class="hm-kpi" onclick="window._navPatient('pt-outcomes')">
+            <div class="hm-kpi-l">Mood (7-day avg)</div>
+            <div class="hm-kpi-v">${_hmMoodAvg != null ? esc(String(_hmMoodAvg)) : '—'} <small>/ 10</small></div>
+            <div class="hm-kpi-trend ${_hmMoodAvg != null && _hmMoodAvg >= 5 ? 'up' : 'neutral'}">${_hmMoodAvg != null ? (_hmMoodAvg >= 6 ? 'Feeling good' : _hmMoodAvg >= 4 ? 'Steady' : 'Below your usual') : 'Log a check-in'}</div>
+          </div>
+          <div class="hm-kpi" onclick="window._navPatient('pt-sessions')">
+            <div class="hm-kpi-l">Sessions</div>
+            <div class="hm-kpi-v">${sessDelivered || 0}${totalPlanned ? ' <small>/ ' + totalPlanned + '</small>' : ''}</div>
+            <div class="hm-kpi-trend good">${progressPct != null ? progressPct + '% complete' : 'On track'}</div>
+          </div>
+          <div class="hm-kpi" onclick="window._ptdOpenCheckin && window._ptdOpenCheckin()">
+            <div class="hm-kpi-l">Streak</div>
+            <div class="hm-kpi-v">${streak || 0} <small>days</small></div>
+            <div class="hm-kpi-trend neutral">${streak > 0 ? '🔥 Keep it going' : 'Log to start'}</div>
+          </div>
         </div>
       </div>
 
-      <!-- 3. Progress + Wellness row -->
-      <div class="pth2-grid-32">
-        <div class="pth2-card">
-          <div class="pth2-card-head">
-            <div>
-              <div class="pth2-card-title">Your progress</div>
-              <div class="pth2-card-sub">Scores vs. course start · lower = better</div>
-            </div>
-            <button class="pth2-ghost-btn" onclick="window._navPatient('pt-outcomes')">Details →</button>
-          </div>
-          <div class="pth2-outcome-list">${_pth2OutcomeBarsHtml()}</div>
-          <div class="pth2-mood-section">
-            <div class="pth2-section-label">Weekly mood · last 28 days</div>
-            <div class="pth2-mood-grid">${moodGrid.html}</div>
-            <div class="pth2-mood-legend">
-              <span class="pth2-mood-legend-item"><span class="pth2-mood-cell" data-level="1" style="width:12px;height:12px"></span>Low</span>
-              <span class="pth2-mood-legend-item"><span class="pth2-mood-cell" data-level="3" style="width:12px;height:12px"></span>Okay</span>
-              <span class="pth2-mood-legend-item"><span class="pth2-mood-cell" data-level="5" style="width:12px;height:12px"></span>Great</span>
-              <span class="pth2-mood-logged">Logged: ${moodGrid.logged}/28 days</span>
-            </div>
+      <!-- ═══ AI nudge (only when a signal justifies one) ═══ -->
+      ${_hmNudge ? `
+      <div class="hm-ai" id="hm-ai-nudge">
+        <div class="hm-ai-ico"><svg width="18" height="18"><use href="#i-sparkle"/></svg></div>
+        <div class="hm-ai-body">
+          <div class="hm-ai-kicker">${esc(_hmNudge.kicker)}</div>
+          <p>${_hmNudge.body}</p>
+          <div class="actions">
+            <button class="btn btn-primary btn-sm" onclick="window._hmAiAction && window._hmAiAction(${JSON.stringify(_hmNudge.primary.action)})"><svg width="13" height="13"><use href="#i-${_hmNudge.kind === 'sleep' ? 'walk' : 'check'}"/></svg>${esc(_hmNudge.primary.label)}</button>
+            <button class="btn btn-ghost btn-sm" onclick="window._hmDismissNudge && window._hmDismissNudge()">Dismiss</button>
           </div>
         </div>
+      </div>` : ''}
 
-        <div class="pth2-card">
-          <div class="pth2-card-head">
-            <div>
-              <div class="pth2-card-title">Wellness snapshot</div>
-              <div class="pth2-card-sub">From your wearable + check-ins</div>
-            </div>
-            <button class="pth2-ghost-btn" onclick="window._navPatient('pt-wellness')">Details →</button>
-          </div>
-          <div class="pth2-wellness-body">
-            <div class="pth2-ring" role="img" aria-label="Wellness score ${wellnessVal || 'not yet available'}">
-              <svg width="150" height="150" viewBox="0 0 150 150" aria-hidden="true" focusable="false">
-                <circle cx="75" cy="75" r="62" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="10"/>
-                <circle cx="75" cy="75" r="62" fill="none" stroke="url(#pth2-ring-grad)" stroke-width="10" stroke-linecap="round" stroke-dasharray="389" stroke-dashoffset="${Math.max(0, 389 - (wellnessVal / 100) * 389).toFixed(1)}"/>
-                <defs>
-                  <linearGradient id="pth2-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#00d4bc"/><stop offset="100%" stop-color="#9b7fff"/></linearGradient>
-                </defs>
-              </svg>
-              <div class="pth2-ring-center" aria-hidden="true">
-                <div class="pth2-ring-num">${wellnessVal || '—'}</div>
-                <div class="pth2-ring-lbl">Wellness</div>
+      <!-- ═══ Main grid ═══ -->
+      <div class="hm-grid">
+
+        <!-- LEFT COLUMN -->
+        <div style="display:flex;flex-direction:column;gap:20px;">
+
+          <!-- TODAY'S PLAN -->
+          <div class="hm-card">
+            <div class="hm-card-head">
+              <div>
+                <h3>Today's plan</h3>
+                <p>${homeTasks.length} item${homeTasks.length === 1 ? '' : 's'} · ${homeTasks.filter(t => t.completed || t.done).length} done · ${openTasks.length ? 'next up when you are' : 'all caught up'}</p>
               </div>
+              <button class="hm-card-link" onclick="window._navPatient('pt-wellness')">Full homework →</button>
             </div>
-            <div class="pth2-metric-list">${_pth2WellnessMetricsHtml()}</div>
+            <div class="hm-timeline">${_hmPlanHtml()}</div>
           </div>
-          ${_pth2TargetPanelHtml()}
+
+          <!-- MOOD CHECK-IN -->
+          <div class="hm-card">
+            <div class="hm-mood-head">
+              <div>
+                <h3>How are you feeling right now?</h3>
+                <p>Quick 1-tap check-in · helps your team track how the protocol is landing.</p>
+              </div>
+              ${streak > 0 ? `<span class="hm-mood-streak"><svg width="10" height="10"><use href="#i-sparkle"/></svg>${streak}-day streak</span>` : ''}
+            </div>
+            <div class="hm-mood-emojis" id="hm-mood-picker">
+              ${[1,2,3,4,5,6,7,8,9,10].map(v => `<div class="hm-mood-dot${v === 5 ? ' active' : ''}" data-mood="${v}" onclick="window._hmPickMood && window._hmPickMood(${v})">${['😞','😔','😐','🙂','😊','😄','😁','🤩','🥰','🌟'][v-1]}</div>`).join('')}
+            </div>
+            <div class="hm-mood-scale">
+              <span>1 · Awful</span><span>5 · Okay</span><span>10 · Amazing</span>
+            </div>
+            <div class="hm-mood-foot">
+              <div class="hm-mood-current">Right now: <strong id="hm-mood-val">5</strong> · tap an emoji to pick</div>
+              <button class="btn btn-primary btn-sm" id="hm-mood-log" onclick="window._hmLogMood && window._hmLogMood()"><svg width="13" height="13"><use href="#i-check"/></svg>Log mood</button>
+            </div>
+          </div>
+
+          <!-- PROGRESS SNAPSHOT -->
+          <div class="hm-card">
+            <div class="hm-card-head">
+              <div>
+                <h3>Progress snapshot</h3>
+                <p>${outcomeGroups.length} scales tracked${activeCourse?.next_review_date ? ' · next review ' + esc(new Date(activeCourse.next_review_date).toLocaleDateString(loc, { weekday:'short', month:'short', day:'numeric' })) : ''}</p>
+              </div>
+              <button class="hm-card-link" onclick="window._navPatient('pt-outcomes')">See trends →</button>
+            </div>
+            <div class="hm-prog-grid">${_hmProgHtml()}</div>
+            ${outcomeGroups.length ? `
+            <div style="margin-top:14px;">
+              <div class="hm-bio">
+                <div class="hm-bio-ico"><svg width="16" height="16"><use href="#i-brain"/></svg></div>
+                <div class="hm-bio-body">
+                  <div class="t">Frontal Alpha Asymmetry · ${activeCourse?.phase || 'latest qEEG'}</div>
+                  <div class="s">Biomarker appears once your qEEG report is available. Ask your clinician if you'd like to run one.</div>
+                </div>
+                <div class="hm-bio-v">—</div>
+              </div>
+            </div>` : ''}
+          </div>
+
+          <!-- Inline check-in form (opens when KPI streak clicked) -->
+          <div id="pt-checkin-form" class="pth-checkin-form" style="display:none">
+            <div class="pth-checkin-title">Quick check-in</div>
+            <div class="ptd-slider-rows">
+              ${[
+                { id: 'ptd-dc-mood',   label: 'Mood',   color: 'var(--teal,#2dd4bf)' },
+                { id: 'ptd-dc-sleep',  label: 'Sleep',  color: 'var(--accent-blue,#60a5fa)' },
+                { id: 'ptd-dc-energy', label: 'Energy', color: 'var(--accent-violet,#a78bfa)' },
+              ].map(s => `<div class="ptd-slider-row">
+                <label>${s.label}</label>
+                <input type="range" id="${s.id}" min="1" max="10" value="5" oninput="document.getElementById('${s.id}-v').textContent=this.value" style="accent-color:${s.color}">
+                <span id="${s.id}-v" style="color:${s.color}">5</span>
+              </div>`).join('')}
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <button class="btn btn-primary btn-sm" onclick="window._ptdSubmitCheckin()">Save check-in</button>
+              <button class="btn btn-ghost btn-sm" onclick="window._ptdCloseCheckin()">Cancel</button>
+            </div>
+          </div>
+
         </div>
+
+        <!-- RIGHT COLUMN -->
+        <div style="display:flex;flex-direction:column;gap:20px;">
+          ${_hmNextSessHtml()}
+          ${_hmAdhHtml()}
+          ${_hmMessagesHtml()}
+          ${_hmDevicesHtml()}
+          ${_hmEducationHtml()}
+        </div>
+
       </div>
 
-      <!-- 4. Homework + Care team row -->
-      <div class="pth2-grid-32">
-        <div class="pth2-card">
-          <div class="pth2-card-head">
-            <div>
-              <div class="pth2-card-title">Your homework</div>
-              <div class="pth2-card-sub">${homeTasks.length ? `${homeTasks.filter(t => t.completed || t.done).length} of ${homeTasks.length} complete` : 'No tasks assigned'}</div>
-            </div>
-            <button class="pth2-ghost-btn" onclick="window._navPatient('pt-wellness')">View all →</button>
+      <!-- ═══ Quick actions ═══ -->
+      <div>
+        <div class="hm-card-head" style="margin-bottom:14px;">
+          <div>
+            <h3 style="font-family:'Outfit',sans-serif;font-weight:600;font-size:17px;color:#fff;margin:0;letter-spacing:-0.01em;">Quick actions</h3>
+            <p style="font-size:12px;color:rgba(255,255,255,0.55);margin:3px 0 0;">Jump into the most common things you do here</p>
           </div>
-          <div class="pth2-hw-list">${_pth2HomeworkListHtml()}</div>
         </div>
-
-        <div class="pth2-card">
-          <div class="pth2-card-head">
-            <div>
-              <div class="pth2-card-title">Your care team</div>
-              <div class="pth2-card-sub">${careTeam.length ? careTeam.length + ' clinician' + (careTeam.length === 1 ? '' : 's') : 'No team assigned yet'}</div>
-            </div>
-            <button class="pth2-ghost-btn" onclick="window._navPatient('patient-messages')">Message →</button>
-          </div>
-          ${_pth2CareTeamHtml()}
-        </div>
-      </div>
-
-      <!-- 5. Need-help footer -->
-      <div class="pth2-footer">
-        <div class="pth2-footer-title">Need help?</div>
-        <div class="pth2-footer-row">
-          <button class="pth2-footer-btn" onclick="window._ptdOpenAssistant()">
-            <span class="pth2-footer-btn-ico" aria-hidden="true">◈</span>
-            <span>Ask a question</span>
+        <div class="hm-quick">
+          <button class="hm-q-tile" onclick="window._navPatient('patient-messages')">
+            <div class="hm-q-ico teal"><svg width="16" height="16"><use href="#i-mail"/></svg></div>
+            <div class="hm-q-t">Message care team</div>
+            <div class="hm-q-s">${messages.filter(m => !m.is_read && m.sender_type !== 'patient').length ? 'You have unread messages' : 'We\u2019ll reply as soon as we can'}</div>
           </button>
-          <button class="pth2-footer-btn" onclick="window._navPatient('patient-messages')">
-            <span class="pth2-footer-btn-ico" aria-hidden="true">✉</span>
-            <span>Message care team</span>
+          <button class="hm-q-tile" onclick="window._navPatient('pt-assessments')">
+            <div class="hm-q-ico purple"><svg width="16" height="16"><use href="#i-clipboard"/></svg></div>
+            <div class="hm-q-t">Start weekly assessment</div>
+            <div class="hm-q-s">PHQ-9 + GAD-7 · ~5 min</div>
+          </button>
+          <button class="hm-q-tile" onclick="window._ptdOpenCheckin && window._ptdOpenCheckin()">
+            <div class="hm-q-ico orange"><svg width="16" height="16"><use href="#i-book-open"/></svg></div>
+            <div class="hm-q-t">Log today\u2019s mood</div>
+            <div class="hm-q-s">${streak > 0 ? 'Continue your ' + streak + '-day streak' : 'Start a streak today'}</div>
+          </button>
+          <button class="hm-q-tile" onclick="window._navPatient('patient-messages')">
+            <div class="hm-q-ico pink"><svg width="16" height="16"><use href="#i-calendar"/></svg></div>
+            <div class="hm-q-t">Book a consult</div>
+            <div class="hm-q-s">Ask your clinician for an open slot</div>
           </button>
         </div>
       </div>
+
+      <!-- Toast -->
+      <div class="hm-toast" id="hm-toast"><svg width="16" height="16"><use href="#i-check"/></svg><span id="hm-toast-text">Logged</span></div>
 
     </div>
 
-    <!-- Care Assistant panel (reachable from Need-help footer) -->
+    <!-- Care Assistant panel (reachable via AI question prompts) -->
     <div id="ptd-asst-panel" class="ptd-asst-panel" style="display:none" role="dialog" aria-label="Care Assistant">
       <div class="ptd-asst-header">
         <span class="ptd-asst-title">Patient specialist agents</span>
@@ -1306,6 +1870,63 @@ export async function pgPatientDashboard(user) {
       </div>
     </div>
   `;
+
+  // ── hm-* interactive handlers ───────────────────────────────────────────
+  window._hmPickMood = function(v) {
+    document.querySelectorAll('#hm-mood-picker .hm-mood-dot').forEach(d => d.classList.toggle('active', Number(d.getAttribute('data-mood')) === v));
+    const el2 = document.getElementById('hm-mood-val');
+    if (el2) el2.textContent = String(v);
+    try { localStorage.setItem('ds_hm_pending_mood', String(v)); } catch (_e) {}
+  };
+  window._hmLogMood = async function() {
+    const v = parseInt(localStorage.getItem('ds_hm_pending_mood') || '5', 10) || 5;
+    const iso = new Date().toISOString().slice(0, 10);
+    const payload = { mood: v, sleep: 5, energy: 5, side_effects: 'none', date: new Date().toISOString() };
+    try {
+      localStorage.setItem('ds_last_checkin', iso);
+      localStorage.setItem('ds_checkin_' + iso, JSON.stringify(payload));
+      const prev = localStorage.getItem('ds_last_checkin_prev');
+      const yest = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+      const cur = parseInt(localStorage.getItem('ds_wellness_streak') || '0', 10);
+      localStorage.setItem('ds_wellness_streak', String(prev === yest ? cur + 1 : 1));
+      localStorage.setItem('ds_last_checkin_prev', iso);
+    } catch (_e) {}
+    try { const uid = user?.patient_id || user?.id; if (uid) await api.submitAssessment(uid, { type: 'wellness_checkin', ...payload }).catch(() => {}); } catch (_e) {}
+    _hmShowToast('Mood logged \u2013 great job');
+  };
+  window._hmStartTask = function(id, kind) {
+    if (kind === 'walk') {
+      _hmShowToast('Walk timer started \u2014 20 min');
+      // Navigate to wellness page where the timer could live
+      setTimeout(() => window._navPatient && window._navPatient('pt-wellness'), 600);
+    } else if (kind === 'tdcs') {
+      window._navPatient && window._navPatient('patient-home-device');
+    } else {
+      _hmShowToast('Reminder set');
+    }
+  };
+  window._hmAiAction = function(action) {
+    if (action === 'walk') { window._hmStartTask(null, 'walk'); return; }
+    if (action === 'plan') { window._navPatient && window._navPatient('pt-wellness'); return; }
+    _hmShowToast('Noted');
+  };
+  window._hmDismissNudge = function() {
+    try { localStorage.setItem('ds_hm_nudge_dismiss_' + todayStr, '1'); } catch (_e) {}
+    const n = document.getElementById('hm-ai-nudge');
+    if (n && n.parentNode) n.parentNode.removeChild(n);
+  };
+  window._hmOpenEdu = function(_id) {
+    if (window._navPatient) window._navPatient('pt-learn');
+  };
+  function _hmShowToast(msg) {
+    const t = document.getElementById('hm-toast');
+    const t2 = document.getElementById('hm-toast-text');
+    if (!t || !t2) return;
+    t2.textContent = msg || 'Done';
+    t.classList.add('show');
+    clearTimeout(window._hmToastTimer);
+    window._hmToastTimer = setTimeout(() => t.classList.remove('show'), 2400);
+  }
 
   // ── Care assistant handlers ───────────────────────────────────────────────
   window._ptdOpenAssistant = function() {
