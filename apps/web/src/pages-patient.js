@@ -1004,8 +1004,8 @@ export async function pgPatientDashboard(user) {
         <div class="pth2-tile-ico pth2-tile-ico--violet" aria-hidden="true">
           <svg width="18" height="18"><use href="#i-book-open"/></svg>
         </div>
-        <div class="pth2-tile-title">Education library</div>
-        <div class="pth2-tile-sub">${targetAreaLine ? esc(targetAreaLine) : 'Articles for your course'}</div>
+        <div class="pth2-tile-title">Education Library</div>
+        <div class="pth2-tile-sub">${targetAreaLine ? esc(targetAreaLine) : 'Journals, courses, podcasts, and clinic videos'}</div>
         <div class="pth2-tile-meta">Explore</div>
       </button>`);
 
@@ -7396,40 +7396,114 @@ export async function pgPatientWellness() {
 // ── Learn & Resources ─────────────────────────────────────────────────────────
 const LEARN_ARTICLES = [
   {
-    id:       'neurofeedback-intro',
-    category: 'Your Treatment',
-    title:    'What is Neurofeedback?',
-    readTime: '3 min',
+    id:       'clinic-week6-qeeg',
+    category: 'Clinic Premium',
+    title:    'A clinician walkthrough of your Week 6 qEEG report',
+    readTime: '18 min video',
     icon:     '🧠',
-    summary:  'Neurofeedback is a type of biofeedback that trains your brain to self-regulate.',
-    content:  `Neurofeedback (also called EEG biofeedback) is a non-invasive technique that trains your brain to function more efficiently. During sessions, sensors on your scalp measure brainwave activity in real-time, and you receive immediate feedback — usually through sounds, images, or games.\n\nYour brain learns to produce healthier brainwave patterns through this feedback loop. Over time, this can improve focus, sleep, mood, and cognitive performance.\n\n**What to expect during sessions:**\n- Sensors are placed on your scalp (no electricity enters your brain)\n- You watch a screen or listen to sounds that respond to your brainwaves\n- Sessions typically last 30–45 minutes\n- Most people feel relaxed afterward\n\n**How many sessions will I need?**\nMost protocols involve 20–40 sessions. Your clinician has designed a personalized plan based on your assessment results.`,
+    source:   'DeepSynaps Clinic+',
+    format:   'Premium video',
+    topic:    'qEEG',
+    premium:  true,
+    summary:  'A patient-safe explanation of what your latest qEEG trends may mean and what questions to bring to your next review.',
+    content:  `This clinic-made premium explainer is recorded for patients who are already in active neuromodulation care.\n\n**What this video covers:**\n- How to read the headline sections of a qEEG-style report\n- Why alpha, beta, and frontal asymmetry markers show up so often in mood treatment reviews\n- Which changes are interesting versus which changes are actionable\n- What your clinician is looking for before adjusting intensity, target area, or pacing\n\n**How to use it:**\n- Watch before your next progress review\n- Write down two questions you want answered in clinic\n- Compare the explanation with how you have actually been feeling, sleeping, and functioning\n\nThis content is educational only. Your own care team still decides what any biomarker means in the context of your symptoms.`,
   },
   {
-    id:       'sleep-tips',
-    category: 'Wellness',
-    title:    'Sleep Optimization for Better Treatment Outcomes',
-    readTime: '4 min',
-    icon:     '😴',
-    summary:  'Quality sleep amplifies the effects of neurostimulation therapy.',
-    content:  `Sleep is when your brain consolidates the changes made during treatment sessions. Research shows that patients who prioritize sleep hygiene see better outcomes from neurofeedback and neurostimulation therapy.\n\n**The brain-sleep connection:**\nDuring deep sleep, your brain replays and reinforces the neural patterns trained during sessions. This neuroplasticity window is critical for lasting change.\n\n**Evidence-based sleep tips:**\n- Maintain a consistent sleep schedule (even weekends)\n- Keep your bedroom cool (65–68°F / 18–20°C)\n- Avoid screens 1 hour before bed\n- No caffeine after 2pm\n- Brief relaxation routine before bed\n\n**Track your sleep:**\nUse your daily wellness check-in to rate sleep quality. Share patterns with your clinician at your next session.`,
+    id:       'journal-network-depression',
+    category: 'Academic Journals',
+    title:    'Journal summary: how neuromodulation changes network activity in depression',
+    readTime: '8 min read',
+    icon:     '📄',
+    source:   'Peer-reviewed journals',
+    format:   'Academic explainer',
+    topic:    'Neuromodulation',
+    summary:  'A plain-language digest of how researchers think non-invasive brain stimulation changes mood-related brain networks over time.',
+    content:  `Academic papers on neuromodulation often describe treatment as a network effect rather than a single-region effect.\n\n**What that means in patient language:**\n- Treatment is not only about one brain spot turning on or off\n- Clinicians are trying to influence communication between attention, emotion, and control networks\n- Some patients improve first in energy, sleep, or concentration before mood fully shifts\n\n**What researchers usually measure:**\n- Symptom scores such as PHQ-9 or GAD-7\n- Brainwave or imaging markers when available\n- Functional changes such as work tolerance, sleep, motivation, and routine stability\n\nThis summary keeps the evidence understandable, but your clinician is still the person who interprets what applies to you.`,
   },
   {
-    id:       'what-to-expect',
-    category: 'Your Treatment',
-    title:    'What to Expect in Your First Month',
-    readTime: '5 min',
+    id:       'youtube-neuromodulation-primer',
+    category: 'YouTube',
+    title:    'Neuromodulation primer for depression treatment',
+    readTime: '10 min video',
+    icon:     '▶️',
+    source:   'YouTube',
+    format:   'Video',
+    topic:    'tDCS',
+    summary:  'A short patient-friendly overview of what neuromodulation is, why it is used, and what realistic improvement often looks like.',
+    content:  `This YouTube-style explainer gives a broad overview of neuromodulation for patients and families.\n\n**Topics covered:**\n- The difference between stimulation, training, and symptom tracking\n- Why depression, anxiety, sleep, and cognitive symptoms may change at different speeds\n- What “dose,” “course,” and “response” usually mean in clinic\n- Questions worth asking before you buy or use a home device\n\nUse this kind of video as orientation, not as a substitute for your treatment plan.`,
+  },
+  {
+    id:       'podcast-patient-journey',
+    category: 'Podcasts',
+    title:    'What neuromodulation feels like week by week',
+    readTime: '34 min podcast',
+    icon:     '🎧',
+    source:   'Clinic Voices Podcast',
+    format:   'Podcast',
+    topic:    'Patient stories',
+    summary:  'A conversation about the uneven but often meaningful week-to-week experience of treatment, adherence, and recovery.',
+    content:  `This podcast episode is useful for patients who want realistic expectations instead of polished before-and-after stories.\n\n**Themes in the discussion:**\n- Why progress often feels non-linear\n- How sleep, routine, and treatment adherence interact\n- When patients usually decide treatment is “worth it”\n- Why support from family or carers can matter during the middle weeks\n\nIt is often helpful to pair patient-story content like this with your own symptom tracking so you do not over-compare your experience to someone else's.`,
+  },
+  {
+    id:       'udemy-family-course',
+    category: 'Courses',
+    title:    'Udemy course: neuromodulation basics for patients and families',
+    readTime: '41 min course',
+    icon:     '🎓',
+    source:   'Udemy',
+    format:   'Course',
+    topic:    'Patient education',
+    summary:  'A structured beginner course covering treatment concepts, safety basics, and how to follow a course plan at home.',
+    content:  `This course is designed for people who want a more structured introduction than a one-off article or short video.\n\n**Modules include:**\n- Understanding treatment goals and milestones\n- Common safety questions and when to contact clinic\n- How to prepare for sessions and monitor your response\n- How carers and family members can support adherence without becoming overbearing\n\nA short course format works well if you want to build confidence before or during home treatment.`,
+  },
+  {
+    id:       'edx-brain-plasticity',
+    category: 'Courses',
+    title:    'edX mini-course: brain stimulation and plasticity',
+    readTime: '58 min course',
+    icon:     '📘',
+    source:   'edX',
+    format:   'Course',
+    topic:    'Science',
+    summary:  'A more science-heavy course for patients who want to understand neuroplasticity, adaptation, and why repeated sessions matter.',
+    content:  `This edX-style mini-course is for curious patients who want more depth.\n\n**You will learn:**\n- Why repeated sessions matter more than isolated sessions\n- How neuroplasticity differs from immediate symptom relief\n- Why treatment plans often include both stimulation and behavioural routines\n- How researchers think about maintenance and relapse prevention\n\nIf you prefer a less technical route, start with the YouTube and clinic premium items first.`,
+  },
+  {
+    id:       'clinic-home-device-setup',
+    category: 'Clinic Premium',
+    title:    'Clinic premium video: safer home-device setup and electrode placement',
+    readTime: '12 min video',
+    icon:     '⚡',
+    source:   'DeepSynaps Clinic+',
+    format:   'Premium video',
+    topic:    'Devices',
+    premium:  true,
+    summary:  'A clinic-recorded setup guide for patients using home devices, including preparation, placement checks, and when to stop.',
+    content:  `This premium clinic video focuses on safe, repeatable setup rather than theory.\n\n**What it shows:**\n- Preparing the device and treatment area\n- Electrode placement checks\n- Common setup mistakes\n- Skin checks before and after use\n- When to pause, log an issue, or message your care team\n\nThis is the kind of content clinics can sell or include as part of a patient education pack because it is specific to their workflow and device process.`,
+  },
+  {
+    id:       'conference-future-nibs',
+    category: 'Conferences & Seminars',
+    title:    'Conference session: future directions in non-invasive brain stimulation',
+    readTime: '32 min session',
+    icon:     '🎤',
+    source:   'Neuromodulation Congress 2026',
+    format:   'Conference replay',
+    topic:    'Neuromodulation',
+    summary:  'A replay of a patient-safe conference session on where the field is heading and what new treatment models may emerge.',
+    content:  `Conference and seminar replays can help patients understand the bigger picture of their treatment field.\n\n**This session covers:**\n- How clinics are combining stimulation with symptom tracking and digital support\n- What researchers are excited about next\n- Where evidence is strong versus where it is still early\n- Why not every new tool should be adopted immediately\n\nIt is useful for context, but it should not change your treatment decisions without clinician input.`,
+  },
+  {
+    id:       'seminar-recovery-planning',
+    category: 'Conferences & Seminars',
+    title:    'Seminar replay: depression, neuroplasticity, and long-term recovery planning',
+    readTime: '46 min seminar',
     icon:     '📅',
-    summary:  'A realistic timeline of what most patients experience.',
-    content:  `Every person responds differently to brain training. Here is a general timeline based on typical patient experiences:\n\n**Weeks 1–2: Adjustment Phase**\nYou may not notice dramatic changes yet. Some people feel slightly tired after sessions — this is normal. Your brain is adapting.\n\n**Weeks 3–4: Early Changes**\nMany patients begin noticing subtle shifts: better sleep, slightly improved focus, or reduced anxiety. These early signs are encouraging.\n\n**Month 2+: Consolidation**\nChanges become more consistent and noticeable. Most improvements become apparent between sessions 15–25.\n\n**Important:** Progress is rarely linear. Some sessions may feel like setbacks — this is part of the process. Track your symptoms daily and discuss patterns with your clinician.`,
-  },
-  {
-    id:       'mindfulness',
-    category: 'Wellness',
-    title:    'Mindfulness Between Sessions',
-    readTime: '3 min',
-    icon:     '🧘',
-    summary:  'Simple practices that enhance treatment effectiveness.',
-    content:  `Mindfulness practices between sessions can enhance the effects of your treatment. Research suggests that patients who practice mindfulness show better brain regulation.\n\n**5-minute morning routine:**\n1. Sit comfortably, close your eyes\n2. Take 3 deep breaths (4 counts in, 6 counts out)\n3. Notice any sensations without judgment\n4. Set a simple intention for the day\n\n**Evening wind-down (10 min):**\n1. Body scan from feet to head\n2. Rate today's mood, sleep from last night, energy\n3. Note one thing you're grateful for\n\nThese practices support neuroplasticity — the same mechanism that makes your treatment effective.`,
+    source:   'Patient Seminar Series',
+    format:   'Seminar replay',
+    topic:    'MDD',
+    summary:  'A longer patient seminar connecting treatment response, everyday functioning, relapse prevention, and recovery planning.',
+    content:  `This seminar connects the science of change with the lived reality of recovery.\n\n**Topics include:**\n- How clinicians think about stabilisation versus recovery\n- Why function matters as much as symptom scores\n- How to use treatment gains to rebuild routine, confidence, and resilience\n- What maintenance, follow-up, and relapse planning may look like\n\nThis is the right kind of content for patients who want more depth than a brief explainer but still need it to stay practical.`,
   },
 ];
 
@@ -7441,6 +7515,7 @@ export async function pgPatientLearn() {
   let readArticles = [];
   try { readArticles = JSON.parse(localStorage.getItem('ds_read_articles') || '[]'); } catch (_e) {}
 
+  const categories = ['All', ...Array.from(new Set(LEARN_ARTICLES.map(a => a.category)))];
   let activeCategory = 'All';
 
   function renderContent(str) {
@@ -7456,15 +7531,16 @@ export async function pgPatientLearn() {
   function articleGrid(category, search) {
     const filtered = LEARN_ARTICLES.filter(a => {
       const matchCat    = category === 'All' || a.category === category;
-      const matchSearch = !search || a.title.toLowerCase().includes(search.toLowerCase()) || a.summary.toLowerCase().includes(search.toLowerCase());
+      const haystack = [a.title, a.summary, a.source, a.format, a.topic, a.category].join(' ').toLowerCase();
+      const matchSearch = !search || haystack.includes(search.toLowerCase());
       return matchCat && matchSearch;
     });
 
     if (filtered.length === 0) {
       return `<div class="pt-portal-empty">
         <div class="pt-portal-empty-ico" aria-hidden="true">&#128196;</div>
-        <div class="pt-portal-empty-title">No articles found</div>
-        <div class="pt-portal-empty-body">Try a different search term or browse all categories.</div>
+        <div class="pt-portal-empty-title">No learning items found</div>
+        <div class="pt-portal-empty-body">Try a different search term or browse another category.</div>
       </div>`;
     }
 
@@ -7478,11 +7554,17 @@ export async function pgPatientLearn() {
               <div style="flex:1;min-width:0">
                 <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">
                   <span style="font-size:10px;padding:1px 7px;border-radius:10px;background:rgba(74,158,255,0.12);color:var(--blue)">${a.category}</span>
-                  <span style="font-size:10px;color:var(--text-tertiary)">· ${a.readTime} read</span>
+                  <span style="font-size:10px;color:var(--text-tertiary)">${a.readTime}</span>
+                  ${a.premium ? '<span style="font-size:10px;padding:1px 7px;border-radius:10px;background:rgba(0,212,188,0.12);color:var(--teal);font-weight:600">Clinic premium</span>' : ''}
                   ${isRead ? '<span style="font-size:10px;color:var(--teal);font-weight:600">✓ Read</span>' : ''}
                 </div>
                 <div style="font-size:13px;font-weight:600;color:var(--text-primary);line-height:1.3;margin-bottom:6px">${a.title}</div>
                 <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">${a.summary}</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;font-size:10px;color:var(--text-tertiary)">
+                  <span>${a.source}</span>
+                  <span>• ${a.format}</span>
+                  <span>• ${a.topic}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -7499,16 +7581,17 @@ export async function pgPatientLearn() {
 
   el.innerHTML = `
     <div style="margin-bottom:20px">
-      <div style="font-size:17px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Learn &amp; Resources</div>
-      <div style="font-size:12.5px;color:var(--text-secondary)">Educational content to support your treatment journey.</div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--violet,#9b7fff);margin-bottom:8px">Patient learning library</div>
+      <div style="font-size:20px;font-weight:700;color:var(--text-primary);margin-bottom:6px">Education Library</div>
+      <div style="font-size:12.5px;color:var(--text-secondary);max-width:900px">Academic journals, YouTube explainers, podcasts, Udemy and edX courses, clinic premium videos, and conference or seminar replays curated for neuromodulation patients.</div>
     </div>
 
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
-      <input type="text" id="learn-search" class="form-control" placeholder="Search articles…"
+      <input type="text" id="learn-search" class="form-control" placeholder="Search journals, podcasts, courses, seminars…"
              style="flex:1;min-width:160px;max-width:320px;font-size:13px"
              oninput="window._learnSearch()">
       <div class="tab-bar" style="margin:0">
-        ${['All', 'Your Treatment', 'Wellness'].map(cat => `
+        ${categories.map(cat => `
           <button class="tab-btn ${activeCategory === cat ? 'active' : ''}" id="learn-cat-${cat.replace(/\s+/g,'-')}" onclick="window._learnCat('${cat}')">${cat}</button>
         `).join('')}
       </div>
@@ -7524,7 +7607,7 @@ export async function pgPatientLearn() {
 
   window._learnCat = function(cat) {
     activeCategory = cat;
-    ['All', 'Your Treatment', 'Wellness'].forEach(c => {
+    categories.forEach(c => {
       const btn = document.getElementById('learn-cat-' + c.replace(/\s+/g, '-'));
       if (btn) btn.classList.toggle('active', c === cat);
     });
@@ -7554,7 +7637,9 @@ export async function pgPatientLearn() {
           <div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
               <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(74,158,255,0.12);color:var(--blue)">${article.category}</span>
-              <span style="font-size:11px;color:var(--text-tertiary)">${article.readTime} read</span>
+              <span style="font-size:11px;color:var(--text-tertiary)">${article.readTime}</span>
+              <span style="font-size:11px;color:var(--text-tertiary)">${article.source}</span>
+              <span style="font-size:11px;color:var(--text-tertiary)">${article.format}</span>
               ${isRead ? '<span style="font-size:11px;color:var(--teal);font-weight:600">✓ Already read</span>' : ''}
             </div>
             <div style="font-size:18px;font-weight:700;color:var(--text-primary);line-height:1.3">${article.title}</div>
