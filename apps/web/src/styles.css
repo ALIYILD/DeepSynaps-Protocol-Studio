@@ -21322,3 +21322,33 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   background: rgba(255,255,255,0.08);
   color: var(--text-primary);
 }
+
+/* ── gv-* · Design #12 · Governance ──────────────────────────────────────────
+   Replaces inline-style shell + row wrappers in pgGovernance with class-based
+   equivalents and layers responsive breakpoints so the approval pipeline,
+   compliance dial, evidence ledger, reviewer queue, AE panel, and audit trail
+   all collapse gracefully on tablets and phones.
+   ─────────────────────────────────────────────────────────────────────────── */
+.gv-shell {
+  padding: 18px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.gv-row {
+  display: grid;
+  gap: 14px;
+}
+.gv-row--pipeline { grid-template-columns: 1.55fr 1fr; }
+.gv-row--ledger   { grid-template-columns: 1.5fr 1fr; }
+.gv-row--events   { grid-template-columns: 1.3fr 1fr; }
+
+@media (max-width: 1180px) {
+  .gv-row--pipeline,
+  .gv-row--ledger,
+  .gv-row--events { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .gv-shell { padding: 12px 12px 20px; gap: 12px; }
+  .gv-row { gap: 10px; }
+}
