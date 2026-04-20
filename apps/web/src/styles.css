@@ -21215,6 +21215,8 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   .pth2-tiles { grid-template-columns:1fr; }
   .pth2-hero { padding:20px; }
   .pth2-countdown-num { font-size:34px; }
+}
+
 /* ─────────────────────────────────────────────────────────────────────────── */
 /* cl- · Design #03 · Clinic Dashboard — activity feed + outcomes mini-chart  */
 /* ─────────────────────────────────────────────────────────────────────────── */
