@@ -21407,3 +21407,15 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   .ah2-kpi-val { font-size: 20px; }
   .ah2-kpi-lbl { font-size: 10px; }
 }
+
+/* ── auth-* · Design #02 · Signup responsive polish ──────────────────────── */
+@media (max-width: 560px) {
+  .pub-signup-wrap { padding: 32px 14px; }
+  .pub-signup-card { padding: 24px; border-radius: 14px; }
+  .pub-signup-title { font-size: 19px; }
+  .pub-signup-sub { font-size: 12px; margin-bottom: 18px; }
+}
+@media (max-width: 400px) {
+  .pub-signup-card { padding: 18px; }
+  .pub-signup-title { font-size: 17px; }
+}
