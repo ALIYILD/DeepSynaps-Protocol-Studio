@@ -9988,17 +9988,17 @@ export async function pgGovernance(setTopbar, _navigate) {
   </div>`;
 
   el.innerHTML = `
-    <div style="padding:18px 22px;display:flex;flex-direction:column;gap:16px">
+    <div class="gv-shell">
       ${_kpiStrip}
-      <div style="display:grid;grid-template-columns:1.55fr 1fr;gap:14px">
+      <div class="gv-row gv-row--pipeline">
         ${_approvalPipeline}
         ${_complianceDial}
       </div>
-      <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:14px">
+      <div class="gv-row gv-row--ledger">
         ${_evidenceLedgerCard}
         ${_reviewerCard}
       </div>
-      <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:14px">
+      <div class="gv-row gv-row--events">
         ${_aeCard}
         ${_auditCard}
       </div>
