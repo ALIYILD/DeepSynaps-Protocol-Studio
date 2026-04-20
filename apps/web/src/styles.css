@@ -21375,3 +21375,22 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   .hb-shell { padding: 10px !important; }
   .hb-cols { gap: 10px; }
 }
+
+/* ── lp-* · Design #01 · Landing — small-screen polish ────────────────────── */
+@media (max-width: 540px) {
+  .pub-hero-ctas .btn-lg,
+  .pub-hero-ctas button {
+    width: 100%;
+    justify-content: center;
+  }
+  .pub-hero-ctas { flex-direction: column; align-items: stretch; gap: 10px; }
+  .pub-hero h1 { font-size: 34px !important; line-height: 1.1; letter-spacing: -1px; }
+  .pub-hero-sub { font-size: 15px !important; }
+  .pub-hero-visual { display: none; }
+  .dv2-hero .pub-hero-inner { gap: 28px !important; }
+  .pub-cta h2 { font-size: 26px !important; }
+}
+@media (max-width: 420px) {
+  .dv2-public { padding: 0 14px !important; }
+  .pub-hero h1 { font-size: 28px !important; }
+}
