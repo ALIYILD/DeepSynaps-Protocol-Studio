@@ -78,6 +78,27 @@ export async function pgPatientHub(setTopbar, navigate) {
       return '<span class="chip ' + tone + '">' + esc(label) + '</span>';
     }
 
+    // Design #08 — classify as "Responder" when a real outcome delta crosses a
+    // scale-specific MCID threshold. Returns false whenever we lack either end
+    // of the comparison so we never show a phantom chip.
+    function isResponder(p) {
+      if (p == null) return false;
+      if (p.is_responder === true) return true;
+      const base = Number(p.baseline_score);
+      const cur  = Number(p.current_score);
+      if (!Number.isFinite(base) || !Number.isFinite(cur)) return false;
+      const scale = String(p.primary_scale || 'PHQ-9').toUpperCase();
+      const drop  = base - cur;
+      if (drop <= 0) return false;
+      if (scale.startsWith('PHQ'))                   return drop >= 5;
+      if (scale.startsWith('GAD'))                   return drop >= 4;
+      if (scale.startsWith('PCL'))                   return drop >= 10;
+      if (scale.includes('MIDAS'))                   return base > 0 && (drop / base) >= 0.5;
+      if (scale.startsWith('Y-BOCS') || scale.startsWith('YBOCS')) return drop >= 6;
+      if (scale.startsWith('ISI'))                   return drop >= 6;
+      return base > 0 && (drop / base) >= 0.5;
+    }
+
     function outcomeCell(p) {
       const scale = p.primary_scale || 'PHQ-9';
       const base  = p.baseline_score;
@@ -119,7 +140,7 @@ export async function pgPatientHub(setTopbar, navigate) {
       { id:'all',         label:'All' },
       { id:'active',      label:'Active' },
       { id:'intake',      label:'Intake' },
-      { id:'discharging', label:'Discharging' },
+      { id:'discharging', label: counts.archived ? 'Discharging · ' + counts.archived + ' discharged' : 'Discharging' },
       { id:'on_hold',     label:'On hold' },
       { id:'archived',    label:'Archived' },
     ];
@@ -193,7 +214,7 @@ export async function pgPatientHub(setTopbar, navigate) {
           return '<div class="queue-row pt-row" style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 90px" ' +
             'onclick="window._selectedPatientId=\'' + esc(p.id) + '\';window._profilePatientId=\'' + esc(p.id) + '\';try{sessionStorage.setItem(\'ds_pat_selected_id\',\'' + esc(p.id) + '\')}catch(e){}window._nav(\'patient-profile\')">' +
               '<div class="queue-pt"><div class="pt-av ' + av + '">' + esc(ini) + '</div>' +
-                '<div><div class="queue-pt-name">' + esc(name) + '</div>' +
+                '<div><div class="queue-pt-name">' + esc(name) + (isResponder(p) ? ' <span class="pl-responder-chip">Responder</span>' : '') + '</div>' +
                   '<div class="queue-pt-cond">' + esc(sub) + '</div></div></div>' +
               '<div>' + protocolChip(p) + '</div>' +
               '<div class="queue-progress"><div class="queue-progress-bar"><div style="width:' + prog + '%"></div></div>' +
