@@ -25,12 +25,9 @@ function _patientNav() {
     { id: 'patient-sessions',    label: 'Sessions',             icon: '📅', tone: 'blue',   group: 'main' },
     { id: 'patient-homework',    label: 'Homework',             icon: '📝', tone: 'violet', group: 'main' },
     { id: 'pt-outcomes',         label: 'Progress',             icon: '📈', tone: 'green',  group: 'main' },
-    { id: 'pt-wellness',         label: 'Tasks',                icon: '✅', tone: 'amber',  group: 'main' },
     { id: 'patient-assessments', label: 'Assessments',          icon: '📋', tone: 'rose',   group: 'main' },
     { id: 'patient-reports',     label: 'My Reports',           icon: '📄', tone: 'blue',   group: 'main' },
     { id: 'patient-virtualcare', label: 'Virtual Care',         icon: '📹', tone: 'teal',   group: 'main' },
-    { id: 'patient-messages',    label: 'Messages',             icon: '💬', tone: 'teal',   group: 'main' },
-    { id: 'patient-home-devices', label: 'Home Devices',        icon: '⌚', tone: 'violet', group: 'main' },
     { id: 'patient-profile',     label: 'Profile',              icon: '👤', tone: 'amber',  group: 'main' },
     // Optional
     { id: 'pt-caregiver',        label: 'Caregiver Access',     icon: '👥', tone: 'rose',   group: 'optional' },
@@ -41,11 +38,11 @@ function _patientNav() {
 
 function _patientBottomNav() {
   return [
-    { id: 'patient-portal',      label: 'Home',        icon: '🏠', tone: 'teal'   },
-    { id: 'patient-sessions',    label: 'Sessions',    icon: '📅', tone: 'blue'   },
-    { id: 'pt-wellness',         label: 'Tasks',       icon: '✅', tone: 'amber'  },
-    { id: 'patient-messages',    label: 'Messages',    icon: '💬', tone: 'teal'   },
-    { id: 'patient-profile',     label: 'Profile',     icon: '👤', tone: 'violet' },
+    { id: 'patient-portal',      label: 'Home',         icon: '🏠', tone: 'teal'   },
+    { id: 'patient-sessions',    label: 'Sessions',     icon: '📅', tone: 'blue'   },
+    { id: 'patient-homework',    label: 'Homework',     icon: '📝', tone: 'violet' },
+    { id: 'patient-virtualcare', label: 'Virtual Care', icon: '📹', tone: 'teal'   },
+    { id: 'patient-profile',     label: 'Profile',      icon: '👤', tone: 'amber'  },
   ];
 }
 

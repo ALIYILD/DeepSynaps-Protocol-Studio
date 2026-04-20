@@ -981,13 +981,13 @@ async function renderPatientPage() {
     case 'patient-homework':    await m.pgPatientHomework();              break;
     case 'patient-assessments': await m.pgPatientAssessments();           break;
     case 'patient-reports':     await m.pgPatientReports();               break;
-    case 'patient-messages':    await m.pgPatientMessages();              break;
+    // Removed routes: patient-messages, patient-wearables, pt-wellness
+    // (Tasks), and pt-home-device. These pages are no longer surfaced in
+    // the patient portal UI; old URLs fall through to the home dashboard
+    // via the default case below.
     case 'patient-virtualcare': await m.pgPatientVirtualCare();           break;
     case 'virtualcare':         await m.pgPatientVirtualCare();           break;
-    case 'patient-home-devices': await m.pgPatientHomeDevices();          break;
-    case 'patient-wearables':    await m.pgPatientHomeDevices();          break;
     case 'patient-profile':     await m.pgPatientProfile(currentUser);    break;
-    case 'pt-wellness':         await m.pgPatientWellness();              break;
     case 'pt-learn':            await m.pgPatientLearn();                 break;
     case 'pt-journal':          await m.pgSymptomJournal(m.setTopbar);   break;
     case 'pt-notifications':    await m.pgPatientNotificationSettings(m.setTopbar); break;
@@ -995,7 +995,6 @@ async function renderPatientPage() {
     case 'pt-media-upload':     await m.pgPatientMediaUpload();          break;
     case 'pt-media-history':     await m.pgPatientMediaHistory();                break;
     case 'pt-outcomes':          await m.pgPatientOutcomePortal(m.setTopbar);   break;
-    case 'pt-home-device':       await m.pgPatientHomeDevice();                 break;
     case 'pt-home-session-log':  await m.pgPatientHomeSessionLog();             break;
     case 'pt-adherence-events':  await m.pgPatientAdherenceEvents();            break;
     case 'pt-adherence-history': await m.pgPatientAdherenceHistory();           break;
