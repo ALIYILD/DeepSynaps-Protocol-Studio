@@ -28,6 +28,7 @@ function _patientNav() {
     { id: 'patient-assessments', label: 'Assessments',          icon: '📋', tone: 'rose',   group: 'main' },
     { id: 'patient-reports',     label: 'My Reports',           icon: '📄', tone: 'blue',   group: 'main' },
     { id: 'patient-virtualcare', label: 'Virtual Care',         icon: '📹', tone: 'teal',   group: 'main' },
+    { id: 'patient-careteam',    label: 'Care Team',            icon: '👥', tone: 'rose',   group: 'main' },
     { id: 'patient-profile',     label: 'Profile',              icon: '👤', tone: 'amber',  group: 'main' },
     // Optional
     { id: 'pt-caregiver',        label: 'Caregiver Access',     icon: '👥', tone: 'rose',   group: 'optional' },
@@ -7001,6 +7002,400 @@ async function _pgPatientVirtualCareImpl() {
   // Initial scroll to bottom of conversation.
   const sc = document.getElementById('vc-conv-scroll');
   if (sc) sc.scrollTop = sc.scrollHeight;
+}
+
+
+
+// ─── Care Team ──────────────────────────────────────────────────────────────
+export async function pgPatientCareTeam() {
+  try { return await _pgPatientCareTeamImpl(); }
+  catch (err) {
+    console.error('[pgPatientCareTeam] render failed:', err);
+    const el = document.getElementById('patient-content');
+    if (el) el.innerHTML = `<div class="pt-portal-empty"><div class="pt-portal-empty-ico" aria-hidden="true">&#9888;</div><div class="pt-portal-empty-title">Care Team is unavailable</div><div class="pt-portal-empty-body">Please refresh, or open Virtual Care to message your team directly.</div></div>`;
+  }
+}
+
+async function _pgPatientCareTeamImpl() {
+  setTopbar('Care Team');
+  const el = document.getElementById('patient-content');
+  el.innerHTML = spinner();
+  function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
+
+  const _t = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _race = (p) => Promise.race([Promise.resolve(p).catch(() => null), _t(3000)]);
+  const uid = currentUser?.patient_id || currentUser?.id || null;
+  const [coursesRaw, sessRaw, msgsRaw] = await Promise.all([
+    _race(api.patientPortalCourses()),
+    _race(api.patientPortalSessions()),
+    _race(api.patientPortalMessages()),
+  ]);
+
+  const courses = Array.isArray(coursesRaw) ? coursesRaw : [];
+  const sessions = Array.isArray(sessRaw) ? sessRaw : [];
+  const messages = Array.isArray(msgsRaw) ? msgsRaw : [];
+  const activeCourse = courses.find(c => c.status === 'active') || courses[0] || null;
+  const _isDemo = courses.length === 0 && sessions.length === 0 && messages.length === 0;
+
+  // Care squad — real data from course + derived from sessions, with demo fallback.
+  let squad = [];
+  if (activeCourse && Array.isArray(activeCourse.care_team) && activeCourse.care_team.length) {
+    squad = activeCourse.care_team.map(m => ({
+      id: m.id || (m.name || 'member').toLowerCase().replace(/[^a-z]/g, '').slice(0, 2),
+      name: m.name || m.display_name || 'Clinician',
+      role: m.role || m.title || 'Care team',
+      creds: m.credentials || '',
+      avatar: (m.name || 'CT').split(/\s+/).map(p => p[0] || '').slice(0, 2).join('').toUpperCase(),
+      avClass: (m.tone || 'jk'),
+      primary: !!m.is_primary,
+      online: m.online || 'off',
+      onlineText: m.presence_text || '',
+      tags: Array.isArray(m.tags) ? m.tags : [],
+      bio: m.bio || '',
+      nextSync: m.next_sync_at ? new Date(m.next_sync_at).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }) + (m.next_sync_at ? ' · ' + new Date(m.next_sync_at).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' }) : '') : null,
+      sharedSince: m.shared_since || (activeCourse?.started_at ? new Date(activeCourse.started_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : null),
+    }));
+  }
+
+  if (_isDemo || !squad.length) {
+    // Demo / fallback core squad.
+    squad = [
+      { id:'jk', name:'Dr. Julia Kolmar', role:'Attending Psychiatrist · MDD lead', creds:'MD, PhD · Board cert. 2011', avatar:'JK', avClass:'jk', primary:true,
+        online:'online', onlineText:'Online · replies in ~45 min',
+        tags:[{k:'teal',l:'Mood disorders'},{k:'teal',l:'Neuromodulation'},{k:'purple',l:'qEEG-guided care'}],
+        bio:'Leads your MDD protocol — titrated the tDCS course and reviews your qEEG trends before every weekly sync. 14 years of clinical experience at Mass General and DeepSynaps.',
+        nextSync:'Fri Apr 24 · 3:30 PM', sharedSince:'Feb 17, 2026',
+        lang:'English · German', hours:'Tue – Fri · 9 AM – 5 PM', reply:'~45 min (weekdays)' },
+      { id:'rn', name:'Rhea Nair', role:'Senior Neuromodulation Technician', creds:'BSN, CCRP · tDCS cert.', avatar:'RN', avClass:'rn',
+        online:'online', onlineText:'Online · in clinic now',
+        tags:[{k:'purple',l:'tDCS'},{k:'purple',l:'PBM'},{k:'pink',l:'Patient education'}],
+        bio:'Runs your in-clinic tDCS sessions (F3–FP2, 2.0 mA) and troubleshoots your Synaps One setup at home. Your go-to for anything device or sensation-related.',
+        nextSync:'Wed Apr 22 · 2:00 PM', sharedSince:'10 of 12 sessions run',
+        lang:'English', hours:'Mon – Fri · 8 AM – 6 PM', reply:'~30 min' },
+      { id:'mt', name:'Marcus Tan', role:'Care Coordinator', creds:'MSW · Benefits & logistics', avatar:'MT', avClass:'mt',
+        online:'away', onlineText:'Away · back at 11:30 AM',
+        tags:[{k:'orange',l:'Insurance'},{k:'orange',l:'Scheduling'},{k:'teal',l:'Navigator'}],
+        bio:'Handles scheduling, insurance reauthorization, and home-device logistics. First person to contact for anything admin, billing, or non-clinical.',
+        nextSync:'Sat Apr 18 · reauth filed', sharedSince:'1 open',
+        lang:'English · Mandarin', hours:'Mon – Fri · 9 AM – 5 PM', reply:'~2 hours' },
+    ];
+  }
+
+  const specialists = _isDemo ? [
+    { id:'sw', name:'Dr. Sarah Wexler', role:'qEEG Neuroscientist', creds:'PhD Neuroscience · BCIA-cert.', avatar:'SW', avClass:'sw',
+      online:'off', onlineText:'Off today · replies Tue',
+      tags:[{k:'purple',l:'FAA analysis'},{k:'purple',l:'Theta/beta'}],
+      bio:'Analyzes your qEEG recordings every 4 weeks and writes the biomarker summary that Dr. Kolmar uses for protocol tuning.',
+      nextSync:'May 14 · Week 10', sharedSince:'2 filed' },
+    { id:'ap', name:'Amy Park, LCSW', role:'Clinical Therapist (CBT)', creds:'LCSW · CBT & ACT trained', avatar:'AP', avClass:'ap',
+      online:'online', onlineText:'Online · open for new slots',
+      tags:[{k:'pink',l:'CBT'},{k:'pink',l:'Behavioral activation'}],
+      bio:"Available if you'd like to pair talk therapy with your neuromodulation course. Dr. Kolmar has flagged this as optional for Weeks 7–10.",
+      nextSync:'Recommended', sharedSince:'Thu Apr 23' },
+    { id:'lg', name:'Dr. Lee Grant', role:'Sleep Medicine', creds:'MD · AASM-cert.', avatar:'LG', avClass:'lg',
+      online:'away', onlineText:'Away · consults Wed/Fri',
+      tags:[{k:'purple',l:'Insomnia'},{k:'teal',l:'Circadian'}],
+      bio:'Reviewed your ISI and PBM protocol. Next check-in scheduled to coincide with your mid-course sleep assessment on May 5.',
+      nextSync:'Apr 6 · ISI trend ↓', sharedSince:'May 5' },
+  ] : [];
+
+  // Member labels for meta rows — different labels for specialists vs core squad.
+  function _memberMetaLabels(m, isSpecialist) {
+    if (isSpecialist) {
+      return m.id === 'sw' ? { a:'Next review', b:'Reports' }
+        : m.id === 'ap' ? { a:'Status', b:'Earliest slot' }
+        : { a:'Last note', b:'Next consult' };
+    }
+    return m.id === 'jk' ? { a:'Next sync', b:'Shared since' }
+      : m.id === 'rn' ? { a:'Next session', b:'Sessions run' }
+      : { a:'Last contact', b:'Pending tasks' };
+  }
+
+  function _memberCardHtml(m, isSpecialist) {
+    const labels = _memberMetaLabels(m, isSpecialist);
+    const actions = isSpecialist && m.online === 'off'
+      ? `<button class="btn btn-ghost btn-sm" onclick="window._ctMessage && window._ctMessage('${esc(m.id)}')"><svg width="13" height="13"><use href="#i-mail"/></svg>Message</button>
+         <button class="btn btn-ghost btn-sm" onclick="window._ctProfile && window._ctProfile('${esc(m.id)}')"><svg width="13" height="13"><use href="#i-user"/></svg>Profile</button>`
+      : isSpecialist && m.id === 'ap'
+      ? `<button class="btn btn-primary btn-sm" onclick="window._ctMessage && window._ctMessage('${esc(m.id)}')"><svg width="13" height="13"><use href="#i-mail"/></svg>Message</button>
+         <button class="btn btn-ghost btn-sm" onclick="window._ctBook && window._ctBook('${esc(m.id)}')"><svg width="13" height="13"><use href="#i-calendar"/></svg>Book</button>`
+      : isSpecialist
+      ? `<button class="btn btn-ghost btn-sm" onclick="window._ctMessage && window._ctMessage('${esc(m.id)}')"><svg width="13" height="13"><use href="#i-mail"/></svg>Message</button>
+         <button class="btn btn-ghost btn-sm" onclick="window._ctProfile && window._ctProfile('${esc(m.id)}')"><svg width="13" height="13"><use href="#i-user"/></svg>Profile</button>`
+      : `<button class="btn btn-primary btn-sm" onclick="window._ctMessage && window._ctMessage('${esc(m.id)}')"><svg width="13" height="13"><use href="#i-mail"/></svg>Message</button>
+         <button class="btn btn-ghost btn-sm" onclick="window._ctBook && window._ctBook('${esc(m.id)}')"><svg width="13" height="13"><use href="#i-calendar"/></svg>Book</button>
+         <button class="btn btn-ghost btn-sm" onclick="window._ctProfile && window._ctProfile('${esc(m.id)}')"><svg width="13" height="13"><use href="#i-user"/></svg>Profile</button>`;
+    return `
+      <div class="ct-member${m.primary ? ' primary' : ''}" data-member="${esc(m.id)}">
+        <div class="ct-member-top">
+          <div class="ct-avatar ${esc(m.avClass)}">${esc(m.avatar)}<span class="ct-avatar dot ${esc(m.online)}"></span></div>
+          <div class="ct-member-id">
+            <div class="ct-member-name">${esc(m.name)}</div>
+            <div class="ct-member-role">${esc(m.role)}</div>
+            ${m.creds ? `<div class="ct-member-creds">${esc(m.creds)}</div>` : ''}
+          </div>
+        </div>
+        <div class="ct-presence ${esc(m.online)}"><span class="ct-presence-dot"></span>${esc(m.onlineText || m.online)}</div>
+        <div class="ct-member-tags">${(m.tags || []).map(t => `<span class="ct-tag ${esc(t.k)}">${esc(t.l)}</span>`).join('')}</div>
+        ${m.bio ? `<p class="ct-member-bio">${esc(m.bio)}</p>` : ''}
+        <div class="ct-member-meta">
+          <div class="ct-meta-item"><div class="ct-meta-l">${esc(labels.a)}</div><div class="ct-meta-v${m.nextSync ? ' accent' : ''}">${esc(m.nextSync || '—')}</div></div>
+          <div class="ct-meta-item"><div class="ct-meta-l">${esc(labels.b)}</div><div class="ct-meta-v">${esc(m.sharedSince || '—')}</div></div>
+        </div>
+        <div class="ct-member-actions">${actions}</div>
+      </div>`;
+  }
+
+  // Today banner: derive from whatever's most recent.
+  const todayBanner = _isDemo
+    ? `<strong>Heads up:</strong> Dr. Kolmar is in clinic today until 5:00 PM and has replied to 2 of your threads. Rhea has a block reserved for your Wed session. Marcus is following up on your insurance reauthorization.`
+    : `<strong>Today:</strong> Your care team is available for messages and bookings. Average reply time today is ~2 hours.`;
+
+  el.innerHTML = `
+    <div class="pt-route" id="pt-route-careteam">
+
+      <!-- HERO -->
+      <div class="ct-hero">
+        <div class="ct-hero-top">
+          <div>
+            <div class="ct-hero-kicker">Your care squad</div>
+            <h1 class="ct-hero-title">The humans (and one AI) working on your recovery</h1>
+            <p class="ct-hero-sub">Your multidisciplinary team coordinates every session, homework plan, and progress review. Message anyone directly, book a consult, or ask Synaps AI for a quick triage — we respond within 2 business hours on weekdays.</p>
+            <div class="ct-hero-stats">
+              <div class="ct-hero-stat"><div class="ct-hero-stat-n">${squad.length}</div><div class="ct-hero-stat-l">Core clinicians</div></div>
+              <div class="ct-hero-stat"><div class="ct-hero-stat-n">${specialists.length}</div><div class="ct-hero-stat-l">Specialists on call</div></div>
+              <div class="ct-hero-stat"><div class="ct-hero-stat-n">48 min</div><div class="ct-hero-stat-l">Avg reply time</div></div>
+              <div class="ct-hero-stat"><div class="ct-hero-stat-n">24/7</div><div class="ct-hero-stat-l">Crisis line</div></div>
+            </div>
+          </div>
+          <div class="ct-hero-actions">
+            <button class="btn btn-primary btn-sm" onclick="window._ctMessageTeam && window._ctMessageTeam()"><svg width="14" height="14"><use href="#i-mail"/></svg>Message the team</button>
+            <button class="btn btn-ghost btn-sm" onclick="window._ctBookConsult && window._ctBookConsult()"><svg width="14" height="14"><use href="#i-calendar"/></svg>Book a consult</button>
+          </div>
+        </div>
+        <div class="ct-banner">
+          <div class="ct-banner-ico"><svg width="18" height="18"><use href="#i-info"/></svg></div>
+          <div class="ct-banner-body">${todayBanner}</div>
+        </div>
+      </div>
+
+      <!-- CARE SQUAD -->
+      <div>
+        <div class="ct-section-head">
+          <div>
+            <h3>Care squad</h3>
+            <p>Everyone on your active treatment plan · updated today</p>
+          </div>
+        </div>
+        <div class="ct-squad">${squad.map(m => _memberCardHtml(m, false)).join('')}</div>
+      </div>
+
+      <!-- SYNAPS AI coordinator -->
+      <div class="ct-coord">
+        <div class="ct-coord-left">
+          <div class="ct-avatar ai" style="width:52px;height:52px;font-size:18px">AI</div>
+        </div>
+        <div class="ct-coord-body">
+          <h4>Synaps AI · 24/7 triage &amp; care assistant</h4>
+          <p>Answers protocol questions, flags symptom changes to your clinician, and helps you prep before sessions. Escalates anything clinical or sensitive to a human within minutes.</p>
+          <div class="ct-coord-chips">
+            <span class="ct-tag teal">Triage</span>
+            <span class="ct-tag teal">Protocol Q&amp;A</span>
+            <span class="ct-tag purple">qEEG summary</span>
+            <span class="ct-tag pink">Always on</span>
+          </div>
+        </div>
+        <div class="ct-coord-actions">
+          <button class="btn btn-primary btn-sm" onclick="window._ctAskAI && window._ctAskAI()"><svg width="13" height="13"><use href="#i-sparkle"/></svg>Ask Synaps AI</button>
+          <button class="btn btn-ghost btn-sm" onclick="window._ctAIPrefs && window._ctAIPrefs()"><svg width="13" height="13"><use href="#i-settings"/></svg>Preferences</button>
+        </div>
+      </div>
+
+      ${specialists.length ? `
+      <!-- SPECIALISTS -->
+      <div>
+        <div class="ct-section-head">
+          <div>
+            <h3>Specialists on call</h3>
+            <p>Consulted for specific reviews · not part of your weekly flow</p>
+          </div>
+        </div>
+        <div class="ct-squad">${specialists.map(m => _memberCardHtml(m, true)).join('')}</div>
+      </div>` : ''}
+
+      <!-- SHARED DOCS (real or demo) -->
+      <div class="ct-two">
+        <div class="ct-avail-card">
+          <div class="ct-section-head" style="margin-bottom:16px;">
+            <div><h3 style="font-size:17px">Recent team activity</h3><p>What your care team has done for you this week</p></div>
+          </div>
+          <div class="ct-activity">
+            ${_isDemo ? [
+              { av:'jk', grad:'linear-gradient(135deg,#00d4bc,#4a9eff)', line:'<strong>Dr. Kolmar</strong> reviewed your Week 6 PHQ-9 and flagged <strong>continued improvement</strong> — no protocol change for Week 7.', time:'Today · 8:12 AM', pill:'teal', pillLbl:'Review' },
+              { av:'rn', grad:'linear-gradient(135deg,#b794ff,#ff8ab3)', line:'<strong>Rhea</strong> confirmed your <strong>Wed 2:00 PM</strong> tDCS session and sent pre-session reminder.', time:'Yesterday · 4:47 PM', pill:'purple', pillLbl:'Session' },
+              { av:'ai', grad:'linear-gradient(135deg,#4ade80,#00d4bc)', line:'<strong>Synaps AI</strong> answered 2 of your questions about skin redness and routed one to Rhea for follow-up.', time:'Yesterday · 11:02 AM', pill:'green', pillLbl:'Triage' },
+              { av:'mt', grad:'linear-gradient(135deg,#ffa85b,#ff8a6b)', line:'<strong>Marcus</strong> filed your <strong>BCBS reauthorization</strong> for Weeks 11–20. Expected decision by Apr 25.', time:'Sat Apr 18 · 10:30 AM', pill:'orange', pillLbl:'Admin' },
+              { av:'sw', grad:'linear-gradient(135deg,#4a9eff,#b794ff)', line:'<strong>Dr. Wexler</strong> uploaded your <strong>Week 6 qEEG biomarker report</strong> — FAA improved from −0.18 to −0.08.', time:'Fri Apr 17 · 2:15 PM', pill:'purple', pillLbl:'Report' },
+            ].map(a => `
+              <div class="ct-act-row">
+                <div class="ct-act-av" style="background:${a.grad}">${a.av.toUpperCase()}</div>
+                <div class="ct-act-body">
+                  <div class="ct-act-head-line">${a.line}</div>
+                  <div class="ct-act-sub">${a.time}</div>
+                </div>
+                <div class="ct-act-pill ${a.pill}">${a.pillLbl}</div>
+              </div>`).join('')
+            : '<div class="pth2-empty" style="padding:20px"><div class="pth2-empty-title">No recent activity yet</div><div class="pth2-empty-sub">Team actions from the past 7 days will appear here.</div></div>'}
+          </div>
+        </div>
+
+        <div class="ct-docs-card">
+          <div class="ct-section-head" style="margin-bottom:4px">
+            <div><h3 style="font-size:17px">Shared documents</h3><p>Files your team has sent or reviewed</p></div>
+          </div>
+          ${_isDemo ? [
+            { ico:'teal',   icoRef:'#i-chart',     title:'Week 6 qEEG biomarker summary', sub:'Dr. Wexler · Apr 18 · 4 pages' },
+            { ico:'',       icoRef:'#i-clipboard', title:'Updated tDCS protocol — F3 / FP2', sub:'Dr. Kolmar · Apr 14 · signed' },
+            { ico:'orange', icoRef:'#i-shield',    title:'Insurance reauthorization — BCBS', sub:'Marcus Tan · Apr 18 · filed, awaiting' },
+            { ico:'purple', icoRef:'#i-book-open', title:'Home tDCS safety checklist', sub:'Rhea Nair · Apr 2 · PDF' },
+            { ico:'',       icoRef:'#i-book',      title:'Mid-course review notes', sub:'Dr. Kolmar · Apr 9 · shared w/ you' },
+          ].map(d => `
+            <div class="ct-doc-row" onclick="window._ctDownload && window._ctDownload(${JSON.stringify(d.title)})">
+              <div class="ct-doc-ico ${d.ico}"><svg width="16" height="16"><use href="${d.icoRef}"/></svg></div>
+              <div><div class="ct-doc-title">${esc(d.title)}</div><div class="ct-doc-sub">${esc(d.sub)}</div></div>
+              <div class="ct-doc-btn"><svg width="13" height="13"><use href="#i-download"/></svg></div>
+            </div>`).join('')
+          : '<div class="pth2-empty" style="padding:20px"><div class="pth2-empty-title">No documents shared yet</div><div class="pth2-empty-sub">Your reports and team notes will appear here.</div></div>'}
+        </div>
+      </div>
+
+      <!-- ESCALATION -->
+      <div class="ct-escalation">
+        <div class="ct-esc-head">
+          <div class="ct-esc-ico"><svg width="18" height="18"><use href="#i-alert"/></svg></div>
+          <div><h4>If you need help fast</h4><p>Use these lines — you'll always reach a human within minutes.</p></div>
+        </div>
+        <div class="ct-esc-rows">
+          <div class="ct-esc-row">
+            <div class="ct-esc-ring red"><svg width="15" height="15"><use href="#i-alert"/></svg></div>
+            <div><div class="ct-esc-title">Crisis &amp; safety line</div><div class="ct-esc-sub">Immediate concern · suicidal thoughts · self-harm</div></div>
+            <div class="ct-esc-hours">24 / 7</div>
+            <div class="ct-esc-num" onclick="window._ctCrisisCall && window._ctCrisisCall()">Call 988</div>
+          </div>
+          <div class="ct-esc-row">
+            <div class="ct-esc-ring amber"><svg width="15" height="15"><use href="#i-pulse"/></svg></div>
+            <div><div class="ct-esc-title">Urgent clinical after-hours</div><div class="ct-esc-sub">For DeepSynaps patients · device issues, medication, severe symptom spike</div></div>
+            <div class="ct-esc-hours">After 6 PM · wknd</div>
+            <div class="ct-esc-num" onclick="window._ctUrgentCall && window._ctUrgentCall()">(+1) 617-555-0143</div>
+          </div>
+          <div class="ct-esc-row">
+            <div class="ct-esc-ring teal"><svg width="15" height="15"><use href="#i-sparkle"/></svg></div>
+            <div><div class="ct-esc-title">Synaps AI triage</div><div class="ct-esc-sub">Quick answers · escalates to a human if clinical</div></div>
+            <div class="ct-esc-hours">Always on</div>
+            <div class="ct-esc-num" onclick="window._ctAskAI && window._ctAskAI()">Open chat</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Clinician detail modal -->
+      <div class="ct-bd" id="ct-modal-bd" onclick="if(event.target===this) window._ctCloseModal && window._ctCloseModal()">
+        <div class="ct-modal" id="ct-modal">
+          <div class="ct-modal-head">
+            <div class="ct-modal-av" id="ct-modal-av">JK</div>
+            <div class="ct-modal-id">
+              <h3 id="ct-modal-name">Dr. Julia Kolmar</h3>
+              <div class="sub" id="ct-modal-role">Attending Psychiatrist · MDD lead</div>
+              <div class="creds" id="ct-modal-creds">MD, PhD · Board cert. 2011</div>
+            </div>
+            <div class="ct-modal-close" onclick="window._ctCloseModal && window._ctCloseModal()"><svg width="13" height="13"><use href="#i-x"/></svg></div>
+          </div>
+          <div class="ct-modal-body">
+            <div class="ct-modal-section">
+              <h4>About</h4>
+              <p id="ct-modal-bio">—</p>
+            </div>
+            <div class="ct-modal-section">
+              <h4>Specialties</h4>
+              <div class="ct-modal-list" id="ct-modal-tags"></div>
+            </div>
+            <div class="ct-modal-section">
+              <h4>Practice details</h4>
+              <div class="ct-modal-grid">
+                <div class="item"><div class="l">Languages</div><div class="v" id="ct-modal-lang">—</div></div>
+                <div class="item"><div class="l">Clinic hours</div><div class="v" id="ct-modal-hours">—</div></div>
+                <div class="item"><div class="l">Avg reply time</div><div class="v" id="ct-modal-reply">—</div></div>
+                <div class="item"><div class="l">Shared since</div><div class="v" id="ct-modal-since">—</div></div>
+              </div>
+            </div>
+          </div>
+          <div class="ct-modal-foot">
+            <button class="btn btn-primary btn-sm" id="ct-modal-msg"><svg width="13" height="13"><use href="#i-mail"/></svg>Message</button>
+            <button class="btn btn-ghost btn-sm" id="ct-modal-book"><svg width="13" height="13"><use href="#i-calendar"/></svg>Book</button>
+            <button class="btn btn-ghost btn-sm" id="ct-modal-video"><svg width="13" height="13"><use href="#i-video"/></svg>Video call</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Toast -->
+      <div class="ct-toast" id="ct-toast"><svg width="16" height="16"><use href="#i-check"/></svg><span id="ct-toast-text">Done</span></div>
+    </div>`;
+
+  // ── Handlers ───────────────────────────────────────────────────────────
+  const allMembers = [...squad, ...specialists];
+  const byId = new Map(allMembers.map(m => [m.id, m]));
+
+  function _toast(msg) {
+    const t = document.getElementById('ct-toast');
+    const t2 = document.getElementById('ct-toast-text');
+    if (!t || !t2) return;
+    t2.textContent = msg || 'Done';
+    t.classList.add('show');
+    clearTimeout(window._ctToastTimer);
+    window._ctToastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  window._ctMessage = function(_id) {
+    _toast('Opening Virtual Care…');
+    setTimeout(() => window._navPatient && window._navPatient('patient-virtualcare'), 400);
+  };
+  window._ctBook = function(_id) {
+    _toast('Opening scheduling…');
+    setTimeout(() => window._navPatient && window._navPatient('patient-sessions'), 400);
+  };
+  window._ctMessageTeam  = function() { window._ctMessage(); };
+  window._ctBookConsult  = function() { window._ctBook(); };
+  window._ctAskAI        = function() {
+    _toast('Opening Synaps AI…');
+    setTimeout(() => window._navPatient && window._navPatient('patient-virtualcare'), 400);
+  };
+  window._ctAIPrefs      = function() { _toast('AI preferences — coming soon'); };
+  window._ctCrisisCall   = function() { window.location.href = 'tel:988'; };
+  window._ctUrgentCall   = function() { window.location.href = 'tel:+16175550143'; };
+  window._ctDownload     = function(title) { _toast('Preparing download: ' + title); };
+
+  window._ctProfile = function(id) {
+    const m = byId.get(id); if (!m) return;
+    const bd = document.getElementById('ct-modal-bd');
+    const avEl = document.getElementById('ct-modal-av');
+    if (avEl) { avEl.className = 'ct-modal-av'; avEl.classList.add(m.avClass); avEl.textContent = m.avatar; avEl.style.background = ''; }
+    document.getElementById('ct-modal-name').textContent = m.name;
+    document.getElementById('ct-modal-role').textContent = m.role;
+    document.getElementById('ct-modal-creds').textContent = m.creds || '';
+    document.getElementById('ct-modal-bio').textContent = m.bio || 'No bio shared yet.';
+    document.getElementById('ct-modal-tags').innerHTML = (m.tags || []).map(t => `<span class="ct-tag ${esc(t.k)}">${esc(t.l)}</span>`).join('');
+    document.getElementById('ct-modal-lang').textContent = m.lang || '—';
+    document.getElementById('ct-modal-hours').textContent = m.hours || '—';
+    document.getElementById('ct-modal-reply').textContent = m.reply || m.onlineText || '—';
+    document.getElementById('ct-modal-since').textContent = m.sharedSince || '—';
+    if (bd) bd.classList.add('open');
+    document.getElementById('ct-modal-msg').onclick = () => { window._ctCloseModal(); window._ctMessage(id); };
+    document.getElementById('ct-modal-book').onclick = () => { window._ctCloseModal(); window._ctBook(id); };
+    document.getElementById('ct-modal-video').onclick = () => { window._ctCloseModal(); window._ctMessage(id); };
+  };
+  window._ctCloseModal = function() {
+    const bd = document.getElementById('ct-modal-bd');
+    if (bd) bd.classList.remove('open');
+  };
 }
 
 

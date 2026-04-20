@@ -987,6 +987,8 @@ async function renderPatientPage() {
     // via the default case below.
     case 'patient-virtualcare': await m.pgPatientVirtualCare();           break;
     case 'virtualcare':         await m.pgPatientVirtualCare();           break;
+    case 'patient-careteam':    await m.pgPatientCareTeam();              break;
+    case 'careteam':            await m.pgPatientCareTeam();              break;
     case 'patient-profile':     await m.pgPatientProfile(currentUser);    break;
     case 'pt-learn':            await m.pgPatientLearn();                 break;
     case 'pt-journal':          await m.pgSymptomJournal(m.setTopbar);   break;
