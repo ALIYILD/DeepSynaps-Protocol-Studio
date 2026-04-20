@@ -23432,3 +23432,83 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   .as-card-title { font-size: 24px; }
   .as-filter-chips { width: 100%; overflow-x: auto; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Patient My Reports — overview strip & new origin chips (rpt-*)
+   ═══════════════════════════════════════════════════════════════════ */
+.rpt-overview {
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(14,22,40,0.9), rgba(10,16,30,0.6));
+  padding: 20px 22px;
+  margin-bottom: 20px;
+}
+.rpt-overview-head { margin-bottom: 14px; }
+.rpt-overview-eyebrow {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.12em;
+  color: rgba(255,255,255,0.45); font-weight: 600; margin-bottom: 4px;
+}
+.rpt-overview-count {
+  font-family: 'Outfit', sans-serif; font-weight: 600; font-size: 16px;
+  color: #fff; letter-spacing: -0.01em;
+}
+.rpt-overview-sep { color: rgba(255,255,255,0.3); margin: 0 4px; }
+.rpt-overview-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+}
+@media (max-width: 980px) { .rpt-overview-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .rpt-overview-grid { grid-template-columns: 1fr; } }
+.rpt-overview-tile {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center;
+  padding: 12px 14px; border-radius: 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: inherit; text-align: left; cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.rpt-overview-tile:hover {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(0,212,188,0.25);
+  transform: translateY(-1px);
+}
+.rpt-overview-tile-body { min-width: 0; }
+.rpt-overview-tile-label {
+  font-size: 13.5px; color: #fff; font-weight: 500;
+  display: flex; align-items: baseline; gap: 6px;
+}
+.rpt-overview-tile-count {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600;
+  color: #00d4bc;
+  padding: 1px 6px; border-radius: 999px;
+  background: rgba(0,212,188,0.12); border: 1px solid rgba(0,212,188,0.25);
+}
+.rpt-overview-tile-sub {
+  font-size: 11.5px; color: rgba(255,255,255,0.5); margin-top: 3px; line-height: 1.4;
+}
+.rpt-overview-tile-chev {
+  color: rgba(255,255,255,0.35); font-size: 14px;
+  transition: transform 0.15s, color 0.15s;
+}
+.rpt-overview-tile:hover .rpt-overview-tile-chev {
+  color: #00d4bc; transform: translateX(2px);
+}
+
+/* Origin chips on doc cards */
+.pt-doc-chip--ai {
+  background: rgba(167,139,250,0.12); border: 1px solid rgba(167,139,250,0.3);
+  color: #c4b0ff;
+}
+.pt-doc-chip--biometric {
+  background: rgba(244,114,182,0.1); border: 1px solid rgba(244,114,182,0.25);
+  color: #f9a8d4;
+}
+.pt-doc-biometric-summary {
+  margin-top: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px; color: rgba(255,255,255,0.7);
+  padding: 8px 10px;
+  background: rgba(244,114,182,0.06);
+  border: 1px solid rgba(244,114,182,0.15);
+  border-radius: 8px;
+}

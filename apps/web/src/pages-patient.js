@@ -4928,16 +4928,17 @@ export async function pgPatientReports() {
     Promise.resolve(p).catch(() => null),
     _timeout(3000),
   ]);
-  let outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw;
+  let outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw, wearableSummaryRaw;
   try {
-    [outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw] = await Promise.all([
+    [outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw, wearableSummaryRaw] = await Promise.all([
       _raceNull(api.patientPortalOutcomes()),
       _raceNull(api.patientPortalAssessments()),
       _raceNull(api.patientPortalCourses()),
       _raceNull(api.patientPortalSessions()),
+      _raceNull(api.patientPortalWearableSummary(30)),
     ]);
   } catch (_e) {
-    outcomesRaw = assessmentsRaw = coursesRaw = sessionsRaw = null;
+    outcomesRaw = assessmentsRaw = coursesRaw = sessionsRaw = wearableSummaryRaw = null;
   }
   // Soft-error: fall through to an empty docs list (which renders an
   // empty-state card) instead of the hard "Could not load" state when
@@ -5079,6 +5080,7 @@ export async function pgPatientReports() {
     care:              { label: t('patient.reports.cat.care'),              icon: '&#9678;', color: '#34d399',        bg: 'rgba(52,211,153,.1)'   },
     guide:             { label: t('patient.reports.cat.guide'),             icon: '&#128218;', color: '#f59e0b',      bg: 'rgba(245,158,11,.08)'  },
     letter:            { label: t('patient.reports.cat.letter'),            icon: '&#9672;', color: '#e2e8f0',        bg: 'rgba(226,232,240,.06)' },
+    biometrics:        { label: 'Biometrics',                               icon: '&#9829;',  color: '#f472b6',        bg: 'rgba(244,114,182,.1)' },
   };
 
   // ── Build session/course lookup maps ─────────────────────────────────────
@@ -5154,6 +5156,95 @@ export async function pgPatientReports() {
   // Newest first
   docs.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
+  // ── Origin tagging (AI vs clinician) ────────────────────────────────────
+  // Heuristic until the backend surfaces an explicit `origin` field: treat
+  // anything signed/annotated by a clinician as clinician-generated, anything
+  // with `ai_generated`/`source === 'ai'`/`generated_by` markers as AI. Falls
+  // back to "clinic" so existing outcomes don't get mis-grouped.
+  function docOrigin(d, raw) {
+    const rawOrigin = String(raw?.origin || raw?.source || raw?.generated_by || '').toLowerCase();
+    if (rawOrigin.includes('ai') || raw?.ai_generated === true) return 'ai';
+    if (d.clinicianNotes) return 'clinic';
+    if (rawOrigin === 'clinician' || rawOrigin === 'clinic') return 'clinic';
+    return 'clinic';
+  }
+  // Re-walk raw outcomes/assessments to attach origin back onto docs (keyed by id).
+  const _rawById = {};
+  (outcomes || []).forEach(o => { if (o.id != null) _rawById[String(o.id)] = o; });
+  (assessments || []).forEach(a => { if (a.id != null) _rawById[String(a.id)] = a; });
+  docs.forEach(d => {
+    d.origin = docOrigin(d, _rawById[String(d.id)] || {});
+  });
+
+  // ── Biometrics synthesis from wearable summary ──────────────────────────
+  // Collapse up to ~30 daily rows into a single weekly snapshot "doc" so the
+  // patient sees a readable record in the Biometrics section even when the
+  // native wearable-summary endpoint returns a flat daily stream.
+  const wearableRows = Array.isArray(wearableSummaryRaw) ? wearableSummaryRaw : [];
+  if (wearableRows.length > 0) {
+    const fmt = (n, d = 0) => (n == null || !Number.isFinite(Number(n))) ? null : Number(n).toFixed(d);
+    const avg = (vals) => {
+      const xs = vals.filter(v => v != null && Number.isFinite(Number(v))).map(Number);
+      return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+    };
+    // Group by ISO week (YYYY-Www)
+    const weekOf = (iso) => {
+      try {
+        const d = new Date(iso);
+        const onejan = new Date(d.getFullYear(), 0, 1);
+        const week = Math.ceil((((d - onejan) / 86400000) + onejan.getDay() + 1) / 7);
+        return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
+      } catch (_) { return 'unknown'; }
+    };
+    const byWeek = {};
+    wearableRows.forEach(r => {
+      const w = weekOf(r.date);
+      (byWeek[w] = byWeek[w] || []).push(r);
+    });
+    Object.keys(byWeek).sort().reverse().forEach((w, idx) => {
+      const rows = byWeek[w];
+      const firstDate = rows.map(r => r.date).filter(Boolean).sort()[0];
+      const lastDate  = rows.map(r => r.date).filter(Boolean).sort().slice(-1)[0];
+      const avgSleep   = avg(rows.map(r => r.sleep_duration_h));
+      const avgRHR     = avg(rows.map(r => r.rhr_bpm));
+      const avgHRV     = avg(rows.map(r => r.hrv_ms));
+      const totalSteps = rows.reduce((acc, r) => acc + (Number(r.steps) || 0), 0);
+      const avgReady   = avg(rows.map(r => r.readiness_score));
+      const summaryBits = [];
+      if (avgSleep != null) summaryBits.push(`sleep ${fmt(avgSleep, 1)} h avg`);
+      if (avgRHR != null)   summaryBits.push(`resting HR ${fmt(avgRHR, 0)} bpm`);
+      if (avgHRV != null)   summaryBits.push(`HRV ${fmt(avgHRV, 0)} ms`);
+      if (totalSteps > 0)   summaryBits.push(`${totalSteps.toLocaleString()} steps`);
+      const summary = summaryBits.join(' · ') || 'No wearable data captured';
+      docs.push({
+        id:          `biometric-${w}`,
+        _source:     'biometric',
+        title:       `Biometrics snapshot · ${fmtDate(firstDate)}${firstDate !== lastDate ? ' – ' + fmtDate(lastDate) : ''}`,
+        date:        lastDate,
+        displayDate: fmtDate(lastDate),
+        templateKey: 'biometrics',
+        category:    'biometrics',
+        origin:      'device',
+        score:       avgReady != null ? Number(fmt(avgReady, 0)) : null,
+        scoreInterp: null,
+        measurePoint: `Week ${idx === 0 ? '· most recent' : ''}`,
+        plainLang:   {
+          what: 'A weekly summary of signals from your wearables.',
+          why:  'Sleep, heart rate, HRV, and activity correlate with how you feel and how well your brain recovers between sessions.',
+          range: [],
+        },
+        sessionRef:  null,
+        courseRef:   null,
+        url:         null,
+        status:      'available',
+        clinicianNotes: null,
+        biometricSummary: summary,
+      });
+    });
+    // Re-sort after adding biometrics so the newest are at the top again.
+    docs.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+  }
+
   // ── Empty state ──────────────────────────────────────────────────────────
   if (docs.length === 0) {
     el.innerHTML = `
@@ -5182,13 +5273,25 @@ export async function pgPatientReports() {
   // and the section-header tiles, so the Reports page feels of-a-piece with
   // the patient nav (see PR #70).
   const DISPLAY_CATS = [
-    { id: 'progress',   label: 'Progress Reports',           icon: '📈', emoji: '📈', tone: 'blue',   color: 'var(--blue)',  bg: 'rgba(74,158,255,.1)',   defaultOpen: true,
+    { id: 'ai',         label: 'AI-Generated Insights',      icon: '🤖', emoji: '🤖', tone: 'violet', color: '#a78bfa',      bg: 'rgba(167,139,250,.1)',  defaultOpen: true,
+      filter: d => d.origin === 'ai',
+      emptyMsg: 'Synaps AI will draft narrative summaries, trend reads, and protocol suggestions here once your clinician enables them.' },
+    { id: 'clinic',     label: 'Clinician Reports',          icon: '🩺', emoji: '🩺', tone: 'teal',   color: 'var(--teal)',  bg: 'rgba(0,212,188,.08)',   defaultOpen: true,
+      filter: d => (d.origin === 'clinic') && (d.category === 'outcome' || d.category === 'assessment' || d.category === 'session-summary' || Boolean(d.clinicianNotes)),
+      emptyMsg: 'Reports your care team has signed off — clinical summaries, letters, and reviewed assessments — will appear here.' },
+    { id: 'biometrics', label: 'Biometrics',                 icon: '🫀', emoji: '🫀', tone: 'rose',   color: '#f472b6',      bg: 'rgba(244,114,182,.1)',  defaultOpen: true,
+      filter: d => d.category === 'biometrics',
+      emptyMsg: 'Connect Apple Health, Oura, Fitbit, or Garmin in Settings → Integrations to see weekly biometric snapshots here.' },
+    { id: 'correlations', label: 'Correlation Reports',      icon: '🧬', emoji: '🧬', tone: 'amber',  color: '#f59e0b',      bg: 'rgba(245,158,11,.08)',  defaultOpen: false,
+      filter: d => d.category === 'correlation' || d._source === 'correlation',
+      emptyMsg: 'Cross-signal correlation reports — how your sleep affects mood, how HRV maps to session response — appear here once you have ~2 weeks of biometric + mood data.' },
+    { id: 'progress',   label: 'Progress Reports',           icon: '📈', emoji: '📈', tone: 'blue',   color: 'var(--blue)',  bg: 'rgba(74,158,255,.1)',   defaultOpen: false,
       filter: d => d.category === 'outcome',
       emptyMsg: 'Progress reports will appear here as your treatment continues.' },
-    { id: 'assessment', label: 'Assessment Results',         icon: '📋', emoji: '📋', tone: 'teal',   color: 'var(--teal)',  bg: 'rgba(0,212,188,.08)',   defaultOpen: true,
+    { id: 'assessment', label: 'Assessment Results',         icon: '📋', emoji: '📋', tone: 'teal',   color: 'var(--teal)',  bg: 'rgba(0,212,188,.08)',   defaultOpen: false,
       filter: d => d.category === 'assessment',
       emptyMsg: 'Assessment results will appear here after your clinician completes a check-in.' },
-    { id: 'feedback',   label: 'Care Team Feedback',         icon: '💬', emoji: '💬', tone: 'green',  color: '#34d399',      bg: 'rgba(52,211,153,.1)',   defaultOpen: true,
+    { id: 'feedback',   label: 'Care Team Feedback',         icon: '💬', emoji: '💬', tone: 'green',  color: '#34d399',      bg: 'rgba(52,211,153,.1)',   defaultOpen: false,
       filter: d => Boolean(d.clinicianNotes),
       emptyMsg: 'Notes from your care team will appear here. Check back after your next session.' },
     { id: 'sessions',   label: 'Session Summaries',          icon: '📅', emoji: '📅', tone: 'violet', color: '#a78bfa',      bg: 'rgba(167,139,250,.1)',  defaultOpen: false,
@@ -5292,6 +5395,16 @@ export async function pgPatientReports() {
              onclick="window._ptAskAbout('${esc(doc.id)}','${esc(doc.title)}')"
              aria-label="Ask about ${esc(doc.title)}">Ask about this</button>`;
 
+    // Origin + biometric-summary chip
+    const originChip = doc.origin === 'ai'
+      ? `<span class="pt-doc-chip pt-doc-chip--ai">🤖 AI-generated</span>`
+      : doc.origin === 'device'
+        ? `<span class="pt-doc-chip pt-doc-chip--biometric">🫀 From your wearables</span>`
+        : '';
+    const biometricRow = doc.biometricSummary
+      ? `<div class="pt-doc-biometric-summary">${esc(doc.biometricSummary)}</div>`
+      : '';
+
     return `
       <div class="pt-doc-card" data-cat="${esc(doc.category)}" data-id="${esc(doc.id)}">
         <div class="pt-doc-card-top">
@@ -5303,7 +5416,8 @@ export async function pgPatientReports() {
               <span class="pt-doc-type-label" style="color:${cm.color}">${esc(cm.label)}</span>
               ${statusBadge}
             </div>
-            ${chips ? `<div class="pt-doc-chips">${chips}</div>` : ''}
+            ${chips || originChip ? `<div class="pt-doc-chips">${originChip}${chips}</div>` : ''}
+            ${biometricRow}
           </div>
           <div class="pt-doc-actions-col">
             ${viewCta}
@@ -5472,16 +5586,57 @@ export async function pgPatientReports() {
     }</div>`;
   }
 
+  // Always render the AI / Clinic / Biometrics / Correlations sections, even
+  // when empty — their honest empty-state copy is the point. The other
+  // categories still filter out when there's nothing to show.
+  const ALWAYS_RENDER_CATS = new Set(['ai', 'clinic', 'biometrics', 'correlations']);
+
   // ── Render ───────────────────────────────────────────────────────────────────────────
   const latest = docs[0] || null;
+
+  // Overview strip — the four conceptual groupings (AI / Clinic /
+  // Biometrics / Correlations). Always rendered so patients see the full
+  // taxonomy even before any data lands.
+  function overviewStripHTML() {
+    const overview = [
+      { id: 'ai',           label: 'AI-Generated',      sub: 'Narrative insights drafted by Synaps AI', icon: '🤖', tone: 'violet', count: docs.filter(d => d.origin === 'ai').length },
+      { id: 'clinic',       label: 'Clinician Reports', sub: 'Signed by your care team',                icon: '🩺', tone: 'teal',   count: docs.filter(d => d.origin === 'clinic' && (d.category === 'outcome' || d.category === 'assessment' || d.category === 'session-summary' || d.clinicianNotes)).length },
+      { id: 'biometrics',   label: 'Biometrics',        sub: 'Weekly snapshots from your wearables',    icon: '🫀', tone: 'rose',   count: docs.filter(d => d.category === 'biometrics').length },
+      { id: 'correlations', label: 'Correlations',      sub: 'How your signals affect each other',      icon: '🧬', tone: 'amber',  count: docs.filter(d => d.category === 'correlation').length },
+    ];
+    const lastUpdated = latest ? fmtDate(latest.date) : '—';
+    return `
+      <div class="rpt-overview">
+        <div class="rpt-overview-head">
+          <div>
+            <div class="rpt-overview-eyebrow">Your reports, by source</div>
+            <div class="rpt-overview-count">${docs.length} report${docs.length === 1 ? '' : 's'} available <span class="rpt-overview-sep">·</span> last updated ${esc(lastUpdated)}</div>
+          </div>
+        </div>
+        <div class="rpt-overview-grid">
+          ${overview.map(o => `
+            <button type="button" class="rpt-overview-tile" onclick="window._ptScrollToCat('${esc(o.id)}')">
+              <span class="pt-page-tile pt-nav-tile--${esc(o.tone)}" aria-hidden="true">${o.icon}</span>
+              <div class="rpt-overview-tile-body">
+                <div class="rpt-overview-tile-label">${esc(o.label)} <span class="rpt-overview-tile-count">${o.count}</span></div>
+                <div class="rpt-overview-tile-sub">${esc(o.sub)}</div>
+              </div>
+              <span class="rpt-overview-tile-chev" aria-hidden="true">→</span>
+            </button>`).join('')}
+        </div>
+      </div>`;
+  }
 
   el.innerHTML = `
     <div class="pt-docs-wrap">
       <div id="pt-docs-ask-anchor"></div>
+      ${overviewStripHTML()}
       ${heroCardHTML(latest)}
       ${catChipsHTML()}
       <div class="pt-docs-sections-wrap">
-        ${DISPLAY_CATS.map(cat => catSectionHTML(cat, docs.filter(cat.filter))).join('')}
+        ${DISPLAY_CATS
+          .filter(cat => ALWAYS_RENDER_CATS.has(cat.id) || docs.filter(cat.filter).length > 0)
+          .map(cat => catSectionHTML(cat, docs.filter(cat.filter))).join('')}
       </div>
     </div>`;
 
