@@ -1054,8 +1054,8 @@ function render() {
   if (entry && sections.length && !_section) _section = sections[0].id;
 
   _el.innerHTML = `
-    <div style="background:${T.bg};min-height:100%;padding:16px;font-family:${T.fbody};color:${T.text1}">
-      <div style="display:grid;grid-template-columns:240px 1fr 280px;gap:16px;align-items:flex-start">
+    <div class="hb-shell" style="background:${T.bg};min-height:100%;padding:16px;font-family:${T.fbody};color:${T.text1}">
+      <div class="hb-cols">
         ${renderLeftRail(entries)}
         ${renderCenter(entry, sections)}
         ${renderRightRail(entry, sections)}
