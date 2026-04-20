@@ -831,7 +831,7 @@ const PAGE_TITLES = {
   'patient-profile': 'Patient Profile',
   'pt-journal': 'Symptom Journal',
   'pt-notifications': 'Notification Settings',
-  'pt-outcomes': 'My Outcomes',
+  'pt-outcomes': 'My Progress',
   'guardian-portal': 'Guardian Portal',
   'homework-builder': 'Patient Education & Homework Builder',
   'decision-support': 'AI Clinical Decision Support',

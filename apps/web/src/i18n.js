@@ -423,7 +423,7 @@ export const TRANSLATIONS = {
     'patient.nav.consent': 'Media & AI Consent',
     'patient.nav.updates': 'Send an Update',
     'patient.nav.feedback': 'My Updates & Feedback',
-    'patient.nav.outcomes': 'My Outcomes',
+    'patient.nav.outcomes': 'My Progress',
     'patient.nav.home_device': 'My Home Device',
     'patient.nav.adherence': 'Adherence History',
     // ── Media upload messages ─────────────────────────────────────────────────
@@ -593,7 +593,7 @@ export const TRANSLATIONS = {
     'nav.patient-profile': 'Patient Profile',
     'nav.homework-builder': 'Homework Builder',
     'nav.data-import': 'Data Import',
-    'nav.pt-outcomes': 'My Outcomes',
+    'nav.pt-outcomes': 'My Progress',
     'nav.guardian-portal': 'Guardian Portal',
     'nav.advanced-search': 'Advanced Search',
     'nav.session-monitor': 'Live Monitor',

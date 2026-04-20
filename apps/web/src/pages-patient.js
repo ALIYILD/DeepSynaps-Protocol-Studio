@@ -12,6 +12,7 @@ import {
   ffNotice,
 } from './friendly-forms.js';
 import { SUPPORTED_FORMS, getAssessmentConfig } from './assessment-forms.js';
+import { renderBrainMap10_20 } from './brain-map-svg.js';
 
 // ── Nav definition ────────────────────────────────────────────────────────────
 // Patient nav: each item is tagged with a `tone` so the sidebar renders
@@ -12445,152 +12446,554 @@ function _sparkline(scores, width, height) {
   '</div>';
 }
 
-// ── Patient Progress page render ───────────────────────────────────────────────
-function _renderProgressPage() {
-  var el = document.getElementById('patient-content');
-  if (!el) return;
-  function esc(v) { if (v == null) return ''; return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;'); }
+function _pgpMetricDelta(current, baseline, higherIsBetter) {
+  if (!Number.isFinite(current) || !Number.isFinite(baseline) || baseline === 0) return null;
+  var rawPct = Math.round(((current - baseline) / Math.abs(baseline)) * 100);
+  if (higherIsBetter) return rawPct;
+  return rawPct * -1;
+}
 
+function _pgpJournalStats() {
+  var journal = [];
+  try { journal = JSON.parse(localStorage.getItem('ds_symptom_journal') || '[]'); } catch (_e) {}
+  var rows = journal
+    .map(function(entry) {
+      var raw = entry.date || entry.created_at;
+      if (!raw) return null;
+      var day = String(raw).slice(0, 10);
+      return {
+        day: day,
+        mood: typeof entry.mood_score === 'number' ? entry.mood_score : entry.mood,
+        sleep: typeof entry.sleep_score === 'number' ? entry.sleep_score : entry.sleep,
+        stress: typeof entry.stress === 'number' ? entry.stress : entry.anxiety_score,
+      };
+    })
+    .filter(Boolean)
+    .sort(function(a, b) { return a.day < b.day ? -1 : a.day > b.day ? 1 : 0; });
+
+  var map = new Map();
+  rows.forEach(function(row) { map.set(row.day, row); });
+  var unique = Array.from(map.values());
+  var today = new Date();
+  today.setHours(0, 0, 0, 0);
+  var streak = 0;
+  for (var i = 0; i < 30; i += 1) {
+    var d = new Date(today);
+    d.setDate(today.getDate() - i);
+    var key = d.toISOString().slice(0, 10);
+    if (map.has(key)) streak += 1;
+    else break;
+  }
+  return {
+    entries: unique,
+    last7: unique.filter(function(row) { return row.day >= new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10); }),
+    last14: unique.filter(function(row) { return row.day >= new Date(Date.now() - 13 * 86400000).toISOString().slice(0, 10); }),
+    streak: streak,
+  };
+}
+
+function _pgpAverage(vals) {
+  var clean = vals.filter(function(v) { return Number.isFinite(v); });
+  if (!clean.length) return null;
+  return clean.reduce(function(sum, value) { return sum + value; }, 0) / clean.length;
+}
+
+function _pgpNormalizeData() {
+  var el = document.getElementById('patient-content');
+  if (!el) return null;
   var data     = _outcomeGetData();
   var ptoData  = _ptoLoad();
   var p        = data.patient;
   var ptoPat   = ptoData.patient;
   var measures = ptoData.measures || [];
   var _rptLoc  = (typeof getLocale === 'function' ? getLocale() : 'en') === 'tr' ? 'tr-TR' : 'en-US';
+  var journal = _pgpJournalStats();
+  var primaryMeasure = measures.find(function(m) { return m.id === 'phq9'; }) || measures[0] || null;
+  var primaryPoints = primaryMeasure ? primaryMeasure.points || [] : [];
+  var secondaryMeasure = measures.find(function(m) { return m.id === 'gad7'; }) || null;
+  var secondaryPoints = secondaryMeasure ? secondaryMeasure.points || [] : [];
+  var tertiaryMeasure = measures.find(function(m) { return m.id === 'pcl5'; }) || null;
+  var tertiaryPoints = tertiaryMeasure ? tertiaryMeasure.points || [] : [];
+  var baseline = primaryPoints.length ? primaryPoints[0].score : null;
+  var latest = primaryPoints.length ? primaryPoints[primaryPoints.length - 1].score : null;
+  var improvementPct = (Number.isFinite(baseline) && baseline > 0 && Number.isFinite(latest))
+    ? Math.round(((baseline - latest) / baseline) * 100)
+    : null;
+  var status = _pgpStatus(improvementPct);
+  var sessionsCompleted = Number(p.totalSessions || ptoPat.totalSessions || data.sessions.length || 0);
+  var plannedSessions = Math.max(12, Math.ceil(sessionsCompleted / 6) * 6 || 24);
+  var treatmentPct = Math.max(0, Math.min(100, Math.round((sessionsCompleted / plannedSessions) * 100)));
+  var adherencePct = Math.max(0, Math.min(100, Math.round((journal.last14.length / 14) * 100)));
+  var scoreLabel = primaryMeasure ? primaryMeasure.label : 'Progress score';
+  var currentBand = _pgpPhq9Band(latest);
+  var daysSince = Math.max(0, Math.floor((Date.now() - new Date(ptoPat.startDate || p.startDate).getTime()) / 86400000));
+  var sessions = Array.isArray(data.sessions) ? data.sessions : [];
+  var reviewedSessions = sessions.filter(function(session) { return session.clinicianRead; });
+  var lastReview = reviewedSessions.length ? reviewedSessions[reviewedSessions.length - 1] : null;
+  var nextAssessmentDate = ptoData.nextAssessmentDate || null;
+  var nextAssessmentLabel = nextAssessmentDate
+    ? new Date(nextAssessmentDate).toLocaleDateString(_rptLoc, { weekday: 'long', month: 'long', day: 'numeric' })
+    : null;
+  var empty = !measures.length && !sessions.length && !(data.goals || []).length;
+  var last7AvgMood = _pgpAverage(journal.last7.map(function(row) { return row.mood; }));
+  var last7AvgSleep = _pgpAverage(journal.last7.map(function(row) { return row.sleep; }));
+  var last7AvgStress = _pgpAverage(journal.last7.map(function(row) { return row.stress; }));
+  return {
+    el: el,
+    data: data,
+    ptoData: ptoData,
+    patient: Object.assign({}, p, ptoPat),
+    measures: measures,
+    primaryMeasure: primaryMeasure,
+    primaryPoints: primaryPoints,
+    secondaryMeasure: secondaryMeasure,
+    secondaryPoints: secondaryPoints,
+    tertiaryMeasure: tertiaryMeasure,
+    tertiaryPoints: tertiaryPoints,
+    baseline: baseline,
+    latest: latest,
+    improvementPct: improvementPct,
+    status: status,
+    currentBand: currentBand,
+    sessionsCompleted: sessionsCompleted,
+    plannedSessions: plannedSessions,
+    treatmentPct: treatmentPct,
+    adherencePct: adherencePct,
+    scoreLabel: scoreLabel,
+    daysSince: daysSince,
+    journal: journal,
+    lastReview: lastReview,
+    nextAssessmentDate: nextAssessmentDate,
+    nextAssessmentLabel: nextAssessmentLabel,
+    empty: empty,
+    last7AvgMood: last7AvgMood,
+    last7AvgSleep: last7AvgSleep,
+    last7AvgStress: last7AvgStress,
+    locale: _rptLoc,
+  };
+}
 
-  var phq9m    = measures.find(function(m) { return m.id === 'phq9'; }) || measures[0] || null;
-  var phq9pts  = phq9m ? phq9m.points : [];
-  var phq9base = phq9pts.length ? phq9pts[0].score : null;
-  var phq9now  = phq9pts.length ? phq9pts[phq9pts.length - 1].score : null;
-  var phq9pct  = (phq9base && phq9base > 0 && phq9now !== null)
-    ? Math.round(((phq9base - phq9now) / phq9base) * 100) : null;
-
-  var status   = _pgpStatus(phq9pct);
-  var nowBand  = _pgpPhq9Band(phq9now);
-  var baseBand = _pgpPhq9Band(phq9base);
-
-  var daysSince     = Math.floor((Date.now() - new Date(ptoPat.startDate).getTime()) / 86400000);
-  var lastRevSess   = (data.sessions || []).filter(function(s) { return s.clinicianRead; }).pop();
-  var lastRevDate   = lastRevSess ? new Date(lastRevSess.date).toLocaleDateString(_rptLoc, { month: 'long', day: 'numeric' }) : null;
-  var nextRevDate   = ptoData.nextAssessmentDate ? new Date(ptoData.nextAssessmentDate).toLocaleDateString(_rptLoc, { month: 'long', day: 'numeric' }) : null;
-  var daysUntilNext = ptoData.nextAssessmentDate ? Math.max(0, Math.ceil((new Date(ptoData.nextAssessmentDate).getTime() - Date.now()) / 86400000)) : 14;
-
-  var demoBanner = ptoData._isDemoData
-    ? '<div class="pgp-demo-banner">&#128204; Showing example data \u2014 your real scores appear here after your first assessment.</div>'
-    : '';
-
-  // 1. Progress Summary Hero
-  var heroHTML =
-    '<div class="pgp-hero" style="background:' + status.bg + ';border-left:4px solid ' + status.color + '">' +
-      '<div class="pgp-hero-status">' +
-        '<span class="pgp-hero-icon" style="color:' + status.color + '">' + status.icon + '</span>' +
-        '<span class="pgp-hero-label" style="color:' + status.color + '">' + status.label + '</span>' +
-      '</div>' +
-      '<div class="pgp-hero-tagline">' + status.tagline + '</div>' +
-      '<div class="pgp-hero-stats">' +
-        (phq9pct !== null ? '<span class="pgp-hero-stat">' + Math.abs(phq9pct) + '% ' + (phq9pct >= 0 ? 'reduction' : 'increase') + ' since baseline</span>' : '') +
-        '<span class="pgp-hero-stat">' + daysSince + ' days in treatment</span>' +
-        '<span class="pgp-hero-stat">' + (p.totalSessions || 0) + ' sessions completed</span>' +
-      '</div>' +
-      '<div class="pgp-hero-reviews">' +
-        '<div class="pgp-review-row"><span class="pgp-review-dot pgp-dot-teal"></span>Last reviewed: ' + (lastRevDate || 'Pending first review') + '</div>' +
-        '<div class="pgp-review-row"><span class="pgp-review-dot pgp-dot-blue"></span>Next assessment: ' + (nextRevDate || 'In ~2 weeks') + (nextRevDate ? ' (' + daysUntilNext + ' days)' : '') + '</div>' +
-      '</div>' +
-    '</div>';
-
-  // 2. Baseline vs Now
-  var baselineHTML;
-  if (phq9base !== null && phq9now !== null) {
-    var ptDiff = phq9base - phq9now, diffPos = ptDiff >= 0;
-    var bDFmt = phq9pts[0].date ? new Date(phq9pts[0].date).toLocaleDateString(_rptLoc, { month: 'short', year: 'numeric' }) : '';
-    var nDFmt = phq9pts[phq9pts.length - 1].date ? new Date(phq9pts[phq9pts.length - 1].date).toLocaleDateString(_rptLoc, { month: 'short', year: 'numeric' }) : '';
-    baselineHTML =
-      '<div class="pgp-bn-row">' +
-        '<div class="pgp-bn-card">' +
-          '<div class="pgp-bn-eyebrow">When You Started</div>' +
-          '<div class="pgp-bn-date">' + bDFmt + '</div>' +
-          '<div class="pgp-bn-score">' + (phq9m ? phq9m.label : 'PHQ-9') + ': ' + phq9base + '</div>' +
-          '<div class="pgp-bn-band">' + baseBand.label + '</div>' +
-        '</div>' +
-        '<div class="pgp-bn-mid">' +
-          '<div class="pgp-bn-arrow" style="color:' + (diffPos ? '#2dd4bf' : '#f43f5e') + '">' + (diffPos ? '\u2193' : '\u2191') + '</div>' +
-          '<div class="pgp-bn-delta" style="color:' + (diffPos ? '#2dd4bf' : '#f43f5e') + '">' + (diffPos ? '\u2212' : '+') + Math.abs(ptDiff) + ' pts</div>' +
-          (phq9pct !== null ? '<div class="pgp-bn-pct">' + (diffPos ? '\u2212' : '+') + Math.abs(phq9pct) + '%</div>' : '') +
-        '</div>' +
-        '<div class="pgp-bn-card pgp-bn-now">' +
-          '<div class="pgp-bn-eyebrow">Right Now</div>' +
-          '<div class="pgp-bn-date">' + nDFmt + '</div>' +
-          '<div class="pgp-bn-score" style="color:#2dd4bf">' + (phq9m ? phq9m.label : 'PHQ-9') + ': ' + phq9now + '</div>' +
-          '<div class="pgp-bn-band" style="color:#2dd4bf">' + nowBand.label + '</div>' +
-        '</div>' +
-      '</div>' +
-      _pgpAccordion('pgp-acc-bn', 'What this means',
-        '<p>' + nowBand.note + '</p>' +
-        (phq9pct !== null && phq9pct >= 10 ? '<p style="margin-top:8px">A ' + phq9pct + '% reduction is a clinically meaningful improvement. Your treatment is working.</p>' : '') +
-        '<p style="margin-top:8px">PHQ-9 measures depression symptoms on a scale of 0\u201327. Lower scores mean fewer symptoms.</p>'
-      );
-  } else {
-    baselineHTML = '<div class="pgp-empty-block">Your baseline comparison will appear after your first completed assessment.</div>';
-  }
-
-  // 2b. Sparkline score trend card
-  var _sparkScores = phq9pts.slice(-8).map(function(pt) { return pt.score; });
-  var _sparkLabel  = phq9m ? phq9m.label : (measures.length ? measures[0].label : 'PHQ-9');
-  var _sparkMax    = phq9m ? (phq9m.max || 27) : 27;
-  var sparklineHTML =
-    '<div style="background:rgba(0,212,188,0.04);border:1px solid rgba(0,212,188,0.13);border-radius:12px;padding:16px 18px">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">' +
-        '<div>' +
-          '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary,#94a3b8);margin-bottom:3px">Score Trend</div>' +
-          '<div style="font-size:0.92rem;font-weight:600;color:var(--text-primary,#f1f5f9)">' + _sparkLabel + ' over time</div>' +
-        '</div>' +
-        '<div style="font-size:10.5px;color:var(--text-secondary,#94a3b8)">Scale: 0\u2013' + _sparkMax + ' &nbsp;\u00b7&nbsp; Lower = fewer symptoms</div>' +
-      '</div>' +
-      _sparkline(_sparkScores, 320, 120) +
-    '</div>';
-
-  // 3. Trend Over Time
-  var trendHTML = _pgpTrendChart(phq9m, data.sessions) +
-    _pgpAccordion('pgp-acc-trend', 'What this chart shows',
-      '<p>Each dot is one assessment result. Blue triangles mark your treatment sessions. A downward trend means fewer symptoms \u2014 a positive sign.</p>' +
-      (phq9m ? '<p style="margin-top:8px">' + phq9m.label + ' is scored 0\u2013' + phq9m.max + '. Lower is better.</p>' : '')
-    );
-
-  // 4. What Changed This Week
-  var weeklyHTML = _pgpWeeklyTiles() +
-    _pgpAccordion('pgp-acc-weekly', 'How are these measured?',
-      '<p>These tiles come from your daily check-ins over the past 7 days. The more you log, the clearer your picture becomes.</p>'
-    );
-
-  // 5. Improvement Drivers
-  var driversHTML = _pgpDriverBars(data, ptoData) +
-    _pgpAccordion('pgp-acc-drivers', 'What influences your progress?',
-      '<p>Progress in neuromodulation therapy comes from several factors: symptom scores, sleep quality, session attendance, daily check-ins, and engagement with your care team.</p>' +
-      '<p style="margin-top:8px">Each bar shows how strongly that factor is contributing right now.</p>'
-    );
-
-  // 6–8. Feedback / Goals / Biometrics
-  var feedbackHTML = _pgpClinicianFeedback(data, _rptLoc);
-  var goalsHTML    = _pgpGoals(data);
-  var bioHTML      = _pgpBiometrics() +
-    _pgpAccordion('pgp-acc-bio', 'What these numbers mean',
-      '<p><strong>Sleep (hrs):</strong> 7\u20139 hours supports brain recovery. <strong>HRV (ms):</strong> higher generally means better nervous system balance. <strong>Resting HR:</strong> lower is generally healthier. <strong>Adherence:</strong> homework completion rate.</p>'
-    );
-
-  el.innerHTML =
+function _pgpLoadingSkeleton() {
+  return (
     '<div class="pgp-page">' +
-    demoBanner +
-    _pgpSection('Am I getting better?',          heroHTML) +
-    _pgpSection('Score Trend',                    sparklineHTML) +
-    _pgpSection('Then vs Now',                    baselineHTML) +
-    _pgpSection('Trend Over Time',                trendHTML) +
-    _pgpSection('What Changed This Week',         weeklyHTML) +
-    _pgpSection('What\'s Driving Your Progress',  driversHTML) +
-    _pgpSection('Your Care Team\'s Feedback',     feedbackHTML) +
-    _pgpSection('Your Goals',                     goalsHTML) +
-    _pgpSection('Devices & Biometrics',           bioHTML) +
-    _pgpCareAssistant() +
-    '</div>';
+      '<div class="pgp-skel-grid">' +
+        '<div class="ds-skeleton-card"><div class="ds-skeleton-line" style="height:20px;width:34%;margin-bottom:14px"></div><div class="ds-skeleton-line" style="height:60px;width:100%;margin-bottom:10px"></div><div class="ds-skeleton-line" style="height:14px;width:72%"></div></div>' +
+        '<div class="ds-skeleton-card"><div class="ds-skeleton-line" style="height:18px;width:40%;margin-bottom:16px"></div><div class="ds-skeleton-line" style="height:160px;width:100%"></div></div>' +
+      '</div>' +
+      '<div class="pgp-skel-stats">' +
+        '<div class="ds-skeleton-card"><div class="ds-skeleton-line" style="height:14px;width:56%;margin-bottom:14px"></div><div class="ds-skeleton-line" style="height:32px;width:44%;margin-bottom:10px"></div><div class="ds-skeleton-line" style="height:12px;width:68%"></div></div>' +
+        '<div class="ds-skeleton-card"><div class="ds-skeleton-line" style="height:14px;width:56%;margin-bottom:14px"></div><div class="ds-skeleton-line" style="height:32px;width:44%;margin-bottom:10px"></div><div class="ds-skeleton-line" style="height:12px;width:68%"></div></div>' +
+        '<div class="ds-skeleton-card"><div class="ds-skeleton-line" style="height:14px;width:56%;margin-bottom:14px"></div><div class="ds-skeleton-line" style="height:32px;width:44%;margin-bottom:10px"></div><div class="ds-skeleton-line" style="height:12px;width:68%"></div></div>' +
+        '<div class="ds-skeleton-card"><div class="ds-skeleton-line" style="height:14px;width:56%;margin-bottom:14px"></div><div class="ds-skeleton-line" style="height:32px;width:44%;margin-bottom:10px"></div><div class="ds-skeleton-line" style="height:12px;width:68%"></div></div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function _pgpEmptyState() {
+  return (
+    '<div class="pgp-empty-state">' +
+      '<div class="pgp-empty-icon">◌</div>' +
+      '<h2>Your progress will appear here</h2>' +
+      '<p>Once you complete your first assessment or your care team records your first session review, this page will show your scores, goals, and progress over time.</p>' +
+      '<div class="pgp-empty-actions">' +
+        '<button class="pgp-btn-ghost" onclick="window._navPatient(\'patient-assessments\')">Complete an assessment</button>' +
+        '<button class="pgp-btn-ghost" onclick="window._navPatient(\'patient-messages\')">Message care team</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function _pgpSummaryBlock(progress) {
+  var reviewText = progress.lastReview
+    ? 'Last reviewed ' + new Date(progress.lastReview.date).toLocaleDateString(progress.locale, { month: 'long', day: 'numeric' })
+    : 'Your first clinician review will appear here';
+  var nextText = progress.nextAssessmentLabel
+    ? 'Next check-in: ' + progress.nextAssessmentLabel
+    : 'Next check-in will appear once your care team schedules it';
+  var explanation = progress.improvementPct !== null && progress.improvementPct >= 10
+    ? 'Your recent scores suggest you are moving in the right direction. Improvements in symptoms often happen gradually, and consistency matters more than speed.'
+    : 'This page shows your treatment progress in plain language so you can see how things are changing over time and what to focus on next.';
+  return (
+    '<section class="pgp-summary">' +
+      '<div class="pgp-summary-copy">' +
+        '<div class="pgp-chip" style="color:' + progress.status.color + ';background:' + progress.status.color + '14;border-color:' + progress.status.color + '33">' + progress.status.label + '</div>' +
+        '<h2>My progress</h2>' +
+        '<p>' + explanation + '</p>' +
+        '<div class="pgp-summary-notes">' +
+          '<span>' + reviewText + '</span>' +
+          '<span>' + nextText + '</span>' +
+          '<span>' + progress.daysSince + ' days in treatment</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="pgp-summary-score">' +
+        '<div class="pgp-summary-score-label">' + progress.scoreLabel + '</div>' +
+        '<div class="pgp-summary-score-value">' + (Number.isFinite(progress.latest) ? progress.latest : '—') + '</div>' +
+        '<div class="pgp-summary-score-band">' + progress.currentBand.label + '</div>' +
+      '</div>' +
+    '</section>'
+  );
+}
+
+function _pgpKpis(progress) {
+  var improvementText = progress.improvementPct === null
+    ? 'We will show your change once you have at least two score points.'
+    : (progress.improvementPct >= 0 ? progress.improvementPct + '% better than baseline' : Math.abs(progress.improvementPct) + '% higher than baseline');
+  var streakText = progress.journal.streak > 0 ? progress.journal.streak + '-day streak' : 'No current streak';
+  var cards = [
+    {
+      label: 'Treatment progress',
+      value: progress.treatmentPct + '%',
+      note: progress.sessionsCompleted + ' of ' + progress.plannedSessions + ' planned sessions',
+      accent: '#2dd4bf',
+    },
+    {
+      label: 'Sessions completed',
+      value: String(progress.sessionsCompleted),
+      note: progress.sessionsCompleted > 0 ? 'Each session adds to your recovery picture' : 'No sessions recorded yet',
+      accent: '#60a5fa',
+    },
+    {
+      label: 'Current score',
+      value: Number.isFinite(progress.latest) ? String(progress.latest) : '—',
+      note: improvementText,
+      accent: '#8b5cf6',
+    },
+    {
+      label: 'Adherence',
+      value: progress.adherencePct + '%',
+      note: streakText + ' · based on the last 14 days',
+      accent: '#22c55e',
+    },
+  ];
+  return (
+    '<section class="pgp-kpis">' +
+      cards.map(function(card) {
+        return (
+          '<article class="pgp-kpi-card">' +
+            '<div class="pgp-kpi-label">' + card.label + '</div>' +
+            '<div class="pgp-kpi-value" style="color:' + card.accent + '">' + card.value + '</div>' +
+            '<div class="pgp-kpi-note">' + card.note + '</div>' +
+          '</article>'
+        );
+      }).join('') +
+    '</section>'
+  );
+}
+
+function _pgpInterpretation(progress) {
+  var note = progress.lastReview && progress.lastReview.note
+    ? progress.lastReview.note
+    : (progress.improvementPct !== null && progress.improvementPct >= 20
+        ? 'Your scores and check-ins suggest steady improvement. Keep showing up for sessions and logging how you feel between visits.'
+        : 'Your progress is still early. Regular check-ins and attending sessions help your care team adjust treatment at the right time.');
+  var clinician = progress.lastReview ? progress.lastReview.clinician : 'Your care team';
+  var when = progress.lastReview
+    ? new Date(progress.lastReview.date).toLocaleDateString(progress.locale, { weekday: 'long', month: 'long', day: 'numeric' })
+    : 'Waiting for first review';
+  return (
+    '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Clinician interpretation</div><h3>What your care team sees right now</h3></div></div>' +
+      '<div class="pgp-interpret-card">' +
+        '<div class="pgp-interpret-meta"><span>' + clinician + '</span><span>' + when + '</span></div>' +
+        '<p>' + note + '</p>' +
+        '<button class="pgp-btn-ghost" onclick="window._navPatient(\'patient-messages\')">Message care team</button>' +
+      '</div>' +
+    '</section>'
+  );
+}
+
+function _pgpTrendSeries(progress) {
+  if (progress.journal.last7.length >= 3) {
+    return [
+      {
+        key: 'Mood',
+        color: '#2dd4bf',
+        good: 'up',
+        points: progress.journal.last7.map(function(row) { return { label: row.day.slice(5), value: row.mood }; }).filter(function(row) { return Number.isFinite(row.value); }),
+      },
+      {
+        key: 'Sleep',
+        color: '#60a5fa',
+        good: 'up',
+        points: progress.journal.last7.map(function(row) { return { label: row.day.slice(5), value: row.sleep }; }).filter(function(row) { return Number.isFinite(row.value); }),
+      },
+      {
+        key: 'Stress',
+        color: '#f472b6',
+        good: 'down',
+        points: progress.journal.last7.map(function(row) { return { label: row.day.slice(5), value: row.stress }; }).filter(function(row) { return Number.isFinite(row.value); }),
+      },
+    ];
+  }
+  var fallback = progress.data.symptoms || {};
+  return [
+    {
+      key: 'Anxiety',
+      color: '#2dd4bf',
+      good: 'down',
+      points: (fallback.anxiety || []).map(function(value, idx) { return { label: 'W' + (idx + 1), value: value }; }),
+    },
+    {
+      key: 'Sleep',
+      color: '#60a5fa',
+      good: 'up',
+      points: (fallback.sleep || []).map(function(value, idx) { return { label: 'W' + (idx + 1), value: value }; }),
+    },
+    {
+      key: 'Focus',
+      color: '#f472b6',
+      good: 'up',
+      points: (fallback.focus || []).map(function(value, idx) { return { label: 'W' + (idx + 1), value: value }; }),
+    },
+  ].filter(function(series) { return series.points.length >= 2; });
+}
+
+function _pgpSymptomTrendChart(progress) {
+  var series = _pgpTrendSeries(progress);
+  if (!series.length) {
+    return (
+      '<section class="pgp-panel">' +
+        '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Symptom trends</div><h3>How you have been feeling over time</h3></div></div>' +
+        '<div class="pgp-chart-empty">Your trend chart will appear once you have enough assessments or daily check-ins.</div>' +
+      '</section>'
+    );
+  }
+  var flat = [];
+  series.forEach(function(line) {
+    line.points.forEach(function(point) { if (Number.isFinite(point.value)) flat.push(point.value); });
+  });
+  var min = Math.min.apply(null, flat);
+  var max = Math.max.apply(null, flat);
+  var range = max - min || 1;
+  var width = 900;
+  var height = 300;
+  var padL = 48;
+  var padR = 24;
+  var padT = 24;
+  var padB = 56;
+  var innerW = width - padL - padR;
+  var innerH = height - padT - padB;
+  var labels = series[0].points.map(function(point) { return point.label; });
+  var grid = '';
+  [0, 0.25, 0.5, 0.75, 1].forEach(function(step) {
+    var y = padT + innerH * step;
+    var value = Math.round(max - range * step);
+    grid += '<line x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (width - padR) + '" y2="' + y.toFixed(1) + '" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>';
+    grid += '<text x="' + (padL - 10) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="end" font-size="10" fill="rgba(148,163,184,0.7)">' + value + '</text>';
+  });
+  var lines = series.map(function(line) {
+    var pts = line.points.map(function(point, idx) {
+      var x = padL + (idx / Math.max(1, line.points.length - 1)) * innerW;
+      var y = padT + (1 - ((point.value - min) / range)) * innerH;
+      return { x: x, y: y, value: point.value };
+    });
+    var polyline = pts.map(function(point) { return point.x.toFixed(1) + ',' + point.y.toFixed(1); }).join(' ');
+    var dots = pts.map(function(point, idx) {
+      var halo = idx === pts.length - 1 ? '<circle cx="' + point.x.toFixed(1) + '" cy="' + point.y.toFixed(1) + '" r="9" fill="' + line.color + '" opacity="0.14"/>' : '';
+      return halo + '<circle cx="' + point.x.toFixed(1) + '" cy="' + point.y.toFixed(1) + '" r="' + (idx === pts.length - 1 ? 4.5 : 3) + '" fill="' + line.color + '" stroke="#0f172a" stroke-width="1.5"/>';
+    }).join('');
+    return '<polyline points="' + polyline + '" fill="none" stroke="' + line.color + '" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>' + dots;
+  }).join('');
+  var xLabels = labels.map(function(label, idx) {
+    var x = padL + (idx / Math.max(1, labels.length - 1)) * innerW;
+    return '<text x="' + x.toFixed(1) + '" y="' + (height - 18) + '" text-anchor="middle" font-size="10" fill="rgba(148,163,184,0.7)">' + label + '</text>';
+  }).join('');
+  var legend = series.map(function(line) {
+    var first = line.points[0] ? line.points[0].value : null;
+    var last = line.points[line.points.length - 1] ? line.points[line.points.length - 1].value : null;
+    var delta = _pgpMetricDelta(last, first, line.good === 'up');
+    var deltaText = delta === null ? 'stable' : (delta > 0 ? '+' + delta + '%' : delta < 0 ? delta + '%' : 'stable');
+    return '<span class="pgp-legend-item"><span class="pgp-legend-dot" style="background:' + line.color + '"></span>' + line.key + ' <strong>' + deltaText + '</strong></span>';
+  }).join('');
+  return (
+    '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Symptom trends</div><h3>How things have changed since you started</h3></div></div>' +
+      '<div class="pgp-chart-card">' +
+        '<svg viewBox="0 0 ' + width + ' ' + height + '" class="pgp-chart-svg" role="img" aria-label="Symptom trends chart">' + grid + lines + xLabels + '</svg>' +
+        '<div class="pgp-legend">' + legend + '</div>' +
+        '<div class="pgp-chart-footnote">This chart keeps things simple: lower anxiety and stress are better, while higher sleep and focus scores are better.</div>' +
+      '</div>' +
+    '</section>'
+  );
+}
+
+function _pgpBrainCards(progress) {
+  var cards = [
+    {
+      title: 'Calm regulation',
+      subtitle: 'Fronto-limbic balance',
+      detail: progress.improvementPct !== null && progress.improvementPct >= 20
+        ? 'Signals look steadier than at the start of treatment.'
+        : 'Your care team is working on steadier emotional regulation.',
+      targetRegion: 'ACC',
+      highlightSites: ['F3', 'F4', 'Fz'],
+    },
+    {
+      title: 'Attention network',
+      subtitle: 'Focus and cognitive control',
+      detail: progress.last7AvgMood !== null && progress.last7AvgMood >= 6
+        ? 'Daily check-ins suggest your attention is becoming more consistent.'
+        : 'This area supports staying on task and reducing mental drift.',
+      targetRegion: 'DLPFC-L',
+      highlightSites: ['F3', 'C3', 'Cz'],
+    },
+    {
+      title: 'Sleep readiness',
+      subtitle: 'Wind-down and recovery',
+      detail: progress.last7AvgSleep !== null
+        ? 'Recent sleep average: ' + progress.last7AvgSleep.toFixed(1) + '/10.'
+        : 'Sleep and recovery markers will become clearer as you log more check-ins.',
+      targetRegion: 'V1',
+      highlightSites: ['Pz', 'O1', 'Oz', 'O2'],
+    },
+  ];
+  return (
+    '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Brain activity snapshot</div><h3>Simplified qEEG-style view</h3></div></div>' +
+      '<div class="pgp-brain-grid">' +
+        cards.map(function(card) {
+          return (
+            '<article class="pgp-brain-card">' +
+              '<div class="pgp-brain-map">' + renderBrainMap10_20({ size: 188, targetRegion: card.targetRegion, highlightSites: card.highlightSites, showConnection: false }) + '</div>' +
+              '<div class="pgp-brain-copy">' +
+                '<div class="pgp-brain-title">' + card.title + '</div>' +
+                '<div class="pgp-brain-subtitle">' + card.subtitle + '</div>' +
+                '<p>' + card.detail + '</p>' +
+              '</div>' +
+            '</article>'
+          );
+        }).join('') +
+      '</div>' +
+    '</section>'
+  );
+}
+
+function _pgpDomainCards(progress) {
+  var wearable = null;
+  try { wearable = JSON.parse(localStorage.getItem('ds_wearable_summary') || 'null'); } catch (_e) {}
+  var domainRows = [
+    {
+      title: 'Cognitive domains',
+      items: [
+        { label: 'Attention', pct: Math.max(12, Math.min(96, Math.round(((progress.data.symptoms.focus || [6]).slice(-1)[0] / 10) * 100))) },
+        { label: 'Mood stability', pct: Math.max(8, Math.min(96, Math.round(((progress.last7AvgMood || 5) / 10) * 100))) },
+        { label: 'Sleep recovery', pct: Math.max(8, Math.min(96, Math.round(((progress.last7AvgSleep || 5) / 10) * 100))) },
+      ],
+    },
+    {
+      title: 'Deep recovery',
+      items: [
+        { label: 'Session consistency', pct: progress.treatmentPct },
+        { label: 'Clinician-reviewed sessions', pct: sessionsReviewedPct(progress) },
+        { label: 'Daily check-ins', pct: progress.adherencePct },
+      ],
+    },
+    {
+      title: 'Biomarkers',
+      items: [
+        { label: 'Sleep duration', pct: wearable && wearable.sleep ? Math.min(100, Math.round(parseFloat(String(wearable.sleep).replace(/[^\d.]/g, '')) / 9 * 100)) : 72 },
+        { label: 'HRV recovery', pct: wearable && wearable.hrv ? Math.min(100, Math.round(parseFloat(String(wearable.hrv).replace(/[^\d.]/g, '')) / 70 * 100)) : 61 },
+        { label: 'Resting heart rate', pct: wearable && wearable.rhr ? Math.max(15, Math.min(100, 100 - Math.round((parseFloat(String(wearable.rhr).replace(/[^\d.]/g, '')) - 50) * 2))) : 68 },
+      ],
+    },
+  ];
+  return (
+    '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Recovery overview</div><h3>Where improvement is showing up</h3></div></div>' +
+      '<div class="pgp-domain-grid">' +
+        domainRows.map(function(group) {
+          return (
+            '<article class="pgp-domain-card">' +
+              '<h4>' + group.title + '</h4>' +
+              '<div class="pgp-domain-list">' +
+                group.items.map(function(item) {
+                  return (
+                    '<div class="pgp-domain-row">' +
+                      '<div class="pgp-domain-top"><span>' + item.label + '</span><strong>' + item.pct + '%</strong></div>' +
+                      '<div class="pgp-domain-track"><div class="pgp-domain-fill" style="width:' + item.pct + '%"></div></div>' +
+                    '</div>'
+                  );
+                }).join('') +
+              '</div>' +
+            '</article>'
+          );
+        }).join('') +
+      '</div>' +
+    '</section>'
+  );
+}
+
+function sessionsReviewedPct(progress) {
+  var reviewed = progress.data.sessions.filter(function(session) { return session.clinicianRead; }).length;
+  var total = Math.max(progress.data.sessions.length, 1);
+  return Math.round((reviewed / total) * 100);
+}
+
+function _pgpMilestones(progress) {
+  var goals = progress.data.goals || [];
+  var achieved = goals.filter(function(goal) { return goal.status === 'achieved'; }).length;
+  var nextGoal = goals.find(function(goal) { return goal.status !== 'achieved'; }) || null;
+  var milestoneCards = [
+    {
+      label: 'Treatment plan',
+      pct: progress.treatmentPct,
+      note: progress.sessionsCompleted + ' of ' + progress.plannedSessions + ' sessions completed',
+    },
+    {
+      label: 'Goal completion',
+      pct: goals.length ? Math.round((achieved / goals.length) * 100) : 0,
+      note: goals.length ? achieved + ' of ' + goals.length + ' goals reached' : 'Goals will appear when your care team adds them',
+    },
+    {
+      label: 'Check-in consistency',
+      pct: progress.adherencePct,
+      note: progress.journal.last14.length + ' of the last 14 days logged',
+    },
+  ];
+  var nextTarget = nextGoal
+    ? (nextGoal.name + ' · current ' + nextGoal.current + ' / target ' + nextGoal.target)
+    : 'You have reached all current goals. Your care team can add new targets when you are ready.';
+  return (
+    '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Milestones and goals</div><h3>Your next targets</h3></div></div>' +
+      '<div class="pgp-milestone-grid">' +
+        milestoneCards.map(function(card) {
+          return (
+            '<article class="pgp-milestone-card">' +
+              '<div class="pgp-milestone-top"><span>' + card.label + '</span><strong>' + card.pct + '%</strong></div>' +
+              '<div class="pgp-milestone-track"><div class="pgp-milestone-fill" style="width:' + card.pct + '%"></div></div>' +
+              '<div class="pgp-milestone-note">' + card.note + '</div>' +
+            '</article>'
+          );
+        }).join('') +
+      '</div>' +
+      '<div class="pgp-next-target">' +
+        '<div class="pgp-next-target-eyebrow">Next target</div>' +
+        '<div class="pgp-next-target-value">' + nextTarget + '</div>' +
+      '</div>' +
+    '</section>'
+  );
+}
+
+// ── Patient Progress page render ───────────────────────────────────────────────
+function _renderProgressPage() {
+  var progress = _pgpNormalizeData();
+  if (!progress || !progress.el) return;
+  progress.el.innerHTML = progress.empty
+    ? '<div class="pgp-page">' + _pgpEmptyState() + '</div>'
+    : (
+        '<div class="pgp-page">' +
+          (progress.ptoData._isDemoData ? '<div class="pgp-demo-banner">&#128204; Showing example data until your first live patient assessment is recorded.</div>' : '') +
+          _pgpSummaryBlock(progress) +
+          _pgpKpis(progress) +
+          _pgpInterpretation(progress) +
+          _pgpSymptomTrendChart(progress) +
+          _pgpBrainCards(progress) +
+          _pgpDomainCards(progress) +
+          _pgpMilestones(progress) +
+        '</div>'
+      );
 }
 
 // ── Legacy render (delegates to new page) ─────────────────────────────────────
@@ -13069,12 +13472,14 @@ window._pgpAskAssistant = function(promptText) {
 // ── Exported page entry point ─────────────────────────────────────────────────
 export async function pgPatientOutcomePortal(setTopbarFn) {
   const _tb = typeof setTopbarFn === 'function' ? setTopbarFn : setTopbar;
-  _tb('My Progress',
+  _tb('My progress',
     '<div style="display:flex;gap:8px">' +
-    '<button style="display:inline-flex;align-items:center;gap:6px;background:rgba(45,212,191,0.1);color:#2dd4bf;border:1px solid rgba(45,212,191,0.25);border-radius:8px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer" onclick="window._ptoCopyProgress()">&#8599; Share</button>' +
-    '<button style="display:inline-flex;align-items:center;gap:6px;background:rgba(96,165,250,0.08);color:#60a5fa;border:1px solid rgba(96,165,250,0.2);border-radius:8px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer" onclick="window._outcomeDownloadReport()">&#8595; Report</button>' +
+    '<button style="display:inline-flex;align-items:center;gap:6px;background:rgba(45,212,191,0.1);color:#2dd4bf;border:1px solid rgba(45,212,191,0.25);border-radius:8px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer" onclick="window._ptoCopyProgress()">&#8599; Copy summary</button>' +
+    '<button style="display:inline-flex;align-items:center;gap:6px;background:rgba(96,165,250,0.08);color:#60a5fa;border:1px solid rgba(96,165,250,0.2);border-radius:8px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer" onclick="window._outcomeDownloadReport()">&#8595; Download report</button>' +
     '</div>'
   );
+  const content = document.getElementById('patient-content');
+  if (content) content.innerHTML = _pgpLoadingSkeleton();
   await _ptoLoadLive().catch(() => null);
   _renderProgressPage();
 }
@@ -13998,4 +14403,3 @@ export async function pgGuardianPortal(setTopbarFn) {
   _tb('Guardian Portal', '<div style="display:flex;align-items:center;gap:10px"><span style="font-size:0.8rem;color:var(--text-muted,#94a3b8)">Family &amp; Caregiver Access</span><button style="display:inline-flex;align-items:center;gap:6px;background:rgba(251,113,133,0.1);color:var(--accent-rose,#fb7185);border:1px solid rgba(251,113,133,0.25);border-radius:8px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer" onclick="window._gpToggleCrisis();setTimeout(function(){var el=document.getElementById(\'gp-crisis-detail\');if(el)el.scrollIntoView({behavior:\'smooth\'})},50)">&#9888; Crisis Plan</button></div>');
   _gpRender();
 }
-
