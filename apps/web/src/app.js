@@ -981,6 +981,8 @@ async function renderPatientPage() {
     case 'patient-assessments': await m.pgPatientAssessments();           break;
     case 'patient-reports':     await m.pgPatientReports();               break;
     case 'patient-messages':    await m.pgPatientMessages();              break;
+    case 'patient-virtualcare': await m.pgPatientVirtualCare();           break;
+    case 'virtualcare':         await m.pgPatientVirtualCare();           break;
     case 'patient-wearables':   await m.pgPatientWearables();             break;
     case 'patient-profile':     await m.pgPatientProfile(currentUser);    break;
     case 'pt-wellness':         await m.pgPatientWellness();              break;

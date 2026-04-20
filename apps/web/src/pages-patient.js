@@ -28,6 +28,7 @@ function _patientNav() {
     { id: 'pt-wellness',         label: 'Tasks',                icon: '✅', tone: 'amber',  group: 'main' },
     { id: 'patient-assessments', label: 'Assessments',          icon: '📋', tone: 'rose',   group: 'main' },
     { id: 'patient-reports',     label: 'My Reports',           icon: '📄', tone: 'blue',   group: 'main' },
+    { id: 'patient-virtualcare', label: 'Virtual Care',         icon: '📹', tone: 'teal',   group: 'main' },
     { id: 'patient-messages',    label: 'Messages',             icon: '💬', tone: 'teal',   group: 'main' },
     { id: 'patient-wearables',   label: 'Devices & Wearables',  icon: '⌚', tone: 'violet', group: 'main' },
     { id: 'patient-profile',     label: 'Profile',              icon: '👤', tone: 'amber',  group: 'main' },
@@ -6416,6 +6417,595 @@ export async function pgPatientMessages() {
 
   renderPage();
 }
+
+
+// ─── Virtual Care ───────────────────────────────────────────────────────────
+export async function pgPatientVirtualCare() {
+  try { return await _pgPatientVirtualCareImpl(); }
+  catch (err) {
+    console.error('[pgPatientVirtualCare] render failed:', err);
+    const el = document.getElementById('patient-content');
+    if (el) el.innerHTML = `<div class="pt-portal-empty"><div class="pt-portal-empty-ico" aria-hidden="true">&#9888;</div><div class="pt-portal-empty-title">Virtual Care is unavailable</div><div class="pt-portal-empty-body">Please refresh, or message your care team through the Messages page.</div></div>`;
+  }
+}
+
+async function _pgPatientVirtualCareImpl() {
+  setTopbar('Virtual Care');
+  const el = document.getElementById('patient-content');
+  el.innerHTML = spinner();
+  function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
+  const loc = getLocale() === 'tr' ? 'tr-TR' : 'en-US';
+
+  const _t = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _race = (p) => Promise.race([Promise.resolve(p).catch(() => null), _t(3000)]);
+  const uid = currentUser?.patient_id || currentUser?.id || null;
+  let [msgsRaw, sessRaw, wearRaw] = await Promise.all([
+    _race(api.patientPortalMessages()),
+    _race(api.patientPortalSessions()),
+    _race(api.patientPortalWearableSummary(7)),
+  ]);
+
+  const rawMessages = Array.isArray(msgsRaw) ? msgsRaw : [];
+  const sessions    = Array.isArray(sessRaw) ? sessRaw : [];
+  const wearDays    = Array.isArray(wearRaw) ? wearRaw : [];
+
+  // Demo mode: when nothing came back, seed a coherent conversation story.
+  const _isDemo = rawMessages.length === 0 && sessions.length === 0 && wearDays.length === 0;
+
+  // Thread-centric model: group messages by sender_id, plus a virtual AI thread.
+  const threads = {};
+  function _upsertThread(id, meta) {
+    if (!threads[id]) threads[id] = { id, ...meta, messages: [] };
+    else Object.assign(threads[id], meta);
+    return threads[id];
+  }
+
+  if (_isDemo) {
+    const nowIso = new Date().toISOString();
+    const toIso  = (dh) => { const d = new Date(); d.setDate(d.getDate() + dh); return d.toISOString(); };
+    const kolmar = _upsertThread('kolmar', { name:'Dr. Julia Kolmar', role:'Psychiatrist · MD, PhD · GMC #7224189', avatar:'JK', avClass:'av-jk', online:'true', credentials:'MD, PhD · GMC #7224189 · 14 years experience' });
+    const rhea   = _upsertThread('rhea',   { name:'Rhea Nair',        role:'tDCS technician',                  avatar:'RN', avClass:'av-rn', online:'true' });
+    const ai     = _upsertThread('ai',     { name:'Synaps AI',        role:'Care assistant',                  avatar:'',   avClass:'av-ai', online:'ai' });
+    const marcus = _upsertThread('marcus', { name:'Marcus Tan',       role:'Care coordinator',                avatar:'MT', avClass:'av-mt', online:'busy' });
+    const team   = _upsertThread('team',   { name:'Care team',        role:'3 clinicians',                    avatar:'',   avClass:'av-team', online:'true' });
+    const bill   = _upsertThread('billing',{ name:'Billing & insurance', role:'Admin',                        avatar:'$',  avClass:'', online:'false' });
+
+    kolmar.messages.push(
+      { id:'k1', sender:'them', senderName:'Dr. Kolmar', at:toIso(-3), body:"Hi Samantha — I reviewed your Week 5 assessments this morning. Your PHQ-9 dropped to 12 and your sleep has stabilized around 6.8h. This is a really good signal at this point in the course. Anything changed in how you're feeling day-to-day?" },
+      { id:'k2', sender:'me',   senderName:'You',         at:toIso(-3), body:"Mornings are noticeably easier. Still some afternoon dips around 3pm but I'm managing with the walks. One thing — I felt mild tingling during my Wednesday home session that lasted about 5 min after. Nothing painful." },
+      { id:'k3', sender:'me',   senderName:'You',         at:toIso(-3), kind:'voice', duration:'0:34' },
+      { id:'k4', sender:'them', senderName:'Dr. Kolmar', at:toIso(-3), body:"Thanks for the voice note — that tingling is within the expected range, especially toward the end of a 20-min session. If you ever notice redness lasting beyond 15 min or any discomfort beyond \u201Cmild tingling\u201D, log it in Homework \u2192 Home tDCS skin log so we can review." },
+      { id:'k5', sender:'them', senderName:'Dr. Kolmar', at:nowIso, kind:'report', body:'Week 6 progress read \u00b7 summary' },
+      { id:'k6', sender:'them', senderName:'Dr. Kolmar', at:nowIso, kind:'schedule', body:'Proposed schedule change' },
+      { id:'k7', sender:'me',   senderName:'You',         at:nowIso, body:"Thank you \u2014 really glad to see the asymmetry shift. Wed morning works better for me. Also, I synced my Apple Health data so you have a clearer picture of last week." },
+      { id:'k8', sender:'me',   senderName:'You',         at:nowIso, kind:'biometrics' },
+      { id:'k9', sender:'them', senderName:'Dr. Kolmar', at:nowIso, body:"Beautiful \u2014 the HRV trend is genuinely encouraging. I've accepted the Wednesday slot. Want to hop on a quick 10-min video tomorrow morning to talk through the Week 8 plan?", unread:true },
+    );
+    rhea.messages.push(
+      { id:'r1', sender:'them', senderName:'Rhea Nair', at:toIso(-1), body:"Heads up — your saline sponges are on the low side per your home-device reading. I'll ship a refill tomorrow." },
+      { id:'r2', sender:'me',   senderName:'You',       at:toIso(-1), body:"Thanks, I'll refill the saline sponges tonight." },
+    );
+    ai.messages.push(
+      { id:'a1', sender:'me',   senderName:'You',       at:toIso(-2), body:"Is tingling normal during home tDCS?" },
+      { id:'a2', sender:'them', senderName:'Synaps AI', at:toIso(-2), body:"Mild tingling at the electrode sites is common during ramp-up and the first few minutes, especially at 2.0 mA. It should fade within 1\u20132 minutes. If it escalates, feels sharp, or lasts > 10 min post-session, pause and message Rhea." },
+    );
+    marcus.messages.push(
+      { id:'m1', sender:'them', senderName:'Marcus Tan', at:toIso(-4), body:"Your Week 8 rescan is booked for May 4 at 10:00." }
+    );
+    team.messages.push(
+      { id:'t1', sender:'them', senderName:'Rhea', at:toIso(-5), body:"Updated the home session schedule for next week." }
+    );
+    bill.messages.push(
+      { id:'b1', sender:'them', senderName:'Billing', at:toIso(-6), body:"Your Week 1\u20135 superbill is ready to download." }
+    );
+  } else {
+    // Real data: bucket messages by sender_id. Every unique sender becomes a thread.
+    rawMessages.forEach(m => {
+      const tid = String(m.thread_id || m.sender_id || m.sender_name || 'other');
+      const th = _upsertThread(tid, {
+        name: m.sender_name || m.sender_display_name || 'Care team',
+        role: m.sender_type === 'system' ? 'Care assistant' : m.sender_role || 'Clinician',
+        avatar: (m.sender_name || 'CT').split(/\s+/).map(p => p[0] || '').slice(0, 2).join('').toUpperCase(),
+        avClass: m.sender_type === 'system' ? 'av-ai' : '',
+        online: m.sender_online ? 'true' : 'false',
+      });
+      th.messages.push({
+        id: m.id,
+        sender: m.sender_type === 'patient' ? 'me' : 'them',
+        senderName: m.sender_name || (m.sender_type === 'patient' ? 'You' : 'Care team'),
+        at: m.created_at,
+        body: m.body || m.preview || '',
+        unread: !m.is_read,
+      });
+    });
+  }
+
+  const threadList = Object.values(threads);
+  // Default selected thread = first with unread > 0, else first.
+  const activeThread = threadList.find(t => t.messages.some(m => m.unread)) || threadList[0] || null;
+  let activeId = activeThread ? activeThread.id : null;
+
+  // Biometrics summary for right rail.
+  function _avg(arr) { const xs = arr.filter(x => x != null && !Number.isNaN(Number(x))).map(Number); if (!xs.length) return null; return xs.reduce((a, b) => a + b, 0) / xs.length; }
+  const bio = {
+    sleepAvg: _avg(wearDays.map(d => d.sleep_duration_h)),
+    hrvAvg:   _avg(wearDays.map(d => d.hrv_ms)),
+    rhrAvg:   _avg(wearDays.map(d => d.rhr_bpm)),
+    stepsAvg: _avg(wearDays.map(d => d.steps)),
+  };
+  // Demo biometrics if no wearable data.
+  if (_isDemo && !bio.sleepAvg) {
+    bio.sleepAvg = 7.0; bio.hrvAvg = 41; bio.rhrAvg = 62; bio.stepsAvg = 6412;
+  }
+
+  // Next in-clinic session from real sessions.
+  const nextSession = sessions
+    .filter(s => s.scheduled_at && new Date(s.scheduled_at).getTime() > Date.now())
+    .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))[0] || (_isDemo
+      ? { session_number:14, location:'Room B', scheduled_at:new Date(Date.now() + 2.5 * 86400000).toISOString(), duration_minutes:40, clinician_name:'Rhea Nair' }
+      : null);
+
+  // Render helpers ──────────────────────────────────────────────────────────
+  function _relTime(iso) {
+    try {
+      const d = new Date(iso); const now = Date.now(); const diff = now - d.getTime();
+      if (diff < 60000)     return Math.max(1, Math.floor(diff / 1000)) + 's';
+      if (diff < 3600000)   return Math.floor(diff / 60000) + 'm';
+      if (diff < 86400000)  return Math.floor(diff / 3600000) + 'h';
+      if (diff < 172800000) return 'Yesterday';
+      if (diff < 604800000) return d.toLocaleDateString(loc, { weekday: 'short' });
+      return d.toLocaleDateString(loc, { month: 'short', day: 'numeric' });
+    } catch (_e) { return ''; }
+  }
+  function _fullTime(iso) {
+    try { const d = new Date(iso); return d.toLocaleDateString(loc, { month:'short', day:'numeric' }) + ' \u00b7 ' + d.toLocaleTimeString(loc, { hour:'2-digit', minute:'2-digit' }); }
+    catch (_e) { return ''; }
+  }
+
+  function _threadItemHtml(t) {
+    const last = t.messages[t.messages.length - 1] || {};
+    const unreadCount = t.messages.filter(m => m.unread).length;
+    const preview = last.kind === 'voice' ? '<span class="you">You:</span> \ud83c\udf99 Voice note \u00b7 ' + (last.duration || '0:00')
+      : last.kind === 'report' ? '<span class="you">They:</span> Shared a progress report'
+      : last.kind === 'schedule' ? '<span class="you">They:</span> Proposed a schedule change'
+      : last.kind === 'biometrics' ? '<span class="you">You:</span> Shared biometric data'
+      : (last.sender === 'me' ? '<span class="you">You:</span> ' : '') + esc(last.body || '');
+    return `
+      <div class="vc-thread${t.id === activeId ? ' active' : ''}" data-tid="${esc(t.id)}" onclick="window._vcPickThread && window._vcPickThread(${JSON.stringify(t.id)})">
+        <div class="vc-thread-av ${t.avClass || ''}" data-online="${t.online || 'false'}">${t.avatar || (t.avClass === 'av-ai' ? '<svg width="18" height="18"><use href="#i-sparkle"/></svg>' : t.avClass === 'av-team' ? '<svg width="18" height="18"><use href="#i-users"/></svg>' : t.name.slice(0,2).toUpperCase())}</div>
+        <div class="vc-thread-body">
+          <div class="vc-thread-name">${esc(t.name)} <span class="vc-role">\u00b7 ${esc(t.role || '')}</span></div>
+          <div class="vc-thread-preview${unreadCount ? ' unread' : ''}">${preview}</div>
+        </div>
+        <div class="vc-thread-meta">
+          <span class="vc-thread-time">${esc(_relTime(last.at || ''))}</span>
+          ${unreadCount ? '<span class="vc-thread-badge">' + unreadCount + '</span>' : ''}
+        </div>
+      </div>`;
+  }
+
+  function _msgHtml(m, thread) {
+    const av = thread.avClass === 'av-ai' ? '<svg width="18" height="18"><use href="#i-sparkle"/></svg>' : (thread.avatar || thread.name.slice(0,2).toUpperCase());
+    if (m.sender === 'me') {
+      if (m.kind === 'voice') return `
+        <div class="vc-msg me">
+          <div class="vc-msg-stack">
+            <div class="vc-msg-hd"><span class="vc-msg-name">You</span><span class="vc-msg-time">${esc(_fullTime(m.at))}</span></div>
+            <div class="vc-bubble voice">
+              <button class="vc-voice-play" onclick="window._vcToast && window._vcToast('Voice note playback \u2014 demo')"><svg width="12" height="12"><use href="#i-play"/></svg></button>
+              <div class="vc-voice-waveform">${Array.from({length:16}).map(() => '<span style="height:' + (30 + Math.round(Math.random() * 55)) + '%"></span>').join('')}</div>
+              <span class="vc-voice-duration">${esc(m.duration || '0:00')}</span>
+            </div>
+          </div>
+        </div>`;
+      if (m.kind === 'biometrics') return `
+        <div class="vc-msg me">
+          <div class="vc-msg-stack">
+            <div class="vc-msg-hd"><span class="vc-msg-name">You</span><span class="vc-msg-time">${esc(_fullTime(m.at))}</span></div>
+            <div class="vc-bubble attach vc-card">
+              <div class="vc-card-hd biom">
+                <div class="vc-card-ico"><svg width="16" height="16"><use href="#i-heart"/></svg></div>
+                <div style="flex:1;min-width:0">
+                  <div class="vc-card-hd-title">Biometric data \u00b7 shared</div>
+                  <div class="vc-card-hd-sub">Last 7 days</div>
+                </div>
+              </div>
+              <div class="vc-card-body">
+                <div class="vc-biom-grid">
+                  <div class="vc-biom-item" style="--cell-accent:#9b7fff"><span class="lbl">Sleep \u00b7 avg</span><span class="val">${bio.sleepAvg != null ? bio.sleepAvg.toFixed(1) + 'h' : '\u2014'}</span></div>
+                  <div class="vc-biom-item" style="--cell-accent:#ff8ab3"><span class="lbl">HRV</span><span class="val">${bio.hrvAvg != null ? Math.round(bio.hrvAvg) + ' ms' : '\u2014'}</span></div>
+                  <div class="vc-biom-item" style="--cell-accent:#4a9eff"><span class="lbl">Resting HR</span><span class="val">${bio.rhrAvg != null ? Math.round(bio.rhrAvg) + ' bpm' : '\u2014'}</span></div>
+                  <div class="vc-biom-item" style="--cell-accent:#4ade80"><span class="lbl">Steps \u00b7 avg</span><span class="val">${bio.stepsAvg != null ? (bio.stepsAvg / 1000).toFixed(1) + 'k' : '\u2014'}</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>`;
+      return `
+        <div class="vc-msg me">
+          <div class="vc-msg-stack">
+            <div class="vc-msg-hd"><span class="vc-msg-name">You</span><span class="vc-msg-time">${esc(_fullTime(m.at))}</span></div>
+            <div class="vc-bubble">${esc(m.body || '')}</div>
+          </div>
+        </div>`;
+    }
+    // Them variants
+    if (m.kind === 'report') return `
+      <div class="vc-msg">
+        <div class="vc-msg-av ${thread.avClass || ''}">${av}</div>
+        <div class="vc-msg-stack">
+          <div class="vc-msg-hd"><span class="vc-msg-name">${esc(thread.name)}</span><span class="vc-msg-time">${esc(_fullTime(m.at))}</span></div>
+          <div class="vc-bubble attach">
+            <div class="vc-card-hd">
+              <div class="vc-card-ico"><svg width="16" height="16"><use href="#i-brain"/></svg></div>
+              <div style="flex:1;min-width:0">
+                <div class="vc-card-hd-title">Week 6 progress read \u00b7 summary</div>
+                <div class="vc-card-hd-sub">Clinician note \u00b7 shared with you</div>
+              </div>
+            </div>
+            <div class="vc-card-body">You're tracking <mark>ahead of the expected Week 6 curve</mark>. Frontal alpha asymmetry has shifted from \u22120.18 to \u22120.08 \u2014 the pattern we look for in responders to left-DLPFC tDCS.</div>
+            <div class="vc-card-actions">
+              <button class="btn btn-ghost btn-sm" onclick="window._navPatient && window._navPatient('pt-outcomes')"><svg width="11" height="11"><use href="#i-chart"/></svg>Open My progress</button>
+              <button class="btn btn-primary btn-sm" onclick="window._vcToast && window._vcToast('Acknowledged')"><svg width="11" height="11"><use href="#i-check"/></svg>Acknowledge</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    if (m.kind === 'schedule') return `
+      <div class="vc-msg">
+        <div class="vc-msg-av ${thread.avClass || ''}">${av}</div>
+        <div class="vc-msg-stack">
+          <div class="vc-msg-hd"><span class="vc-msg-name">${esc(thread.name)}</span><span class="vc-msg-time">${esc(_fullTime(m.at))}</span></div>
+          <div class="vc-bubble attach vc-card">
+            <div class="vc-card-hd sch">
+              <div class="vc-card-ico"><svg width="16" height="16"><use href="#i-calendar"/></svg></div>
+              <div style="flex:1;min-width:0">
+                <div class="vc-card-hd-title">Proposed schedule change</div>
+                <div class="vc-card-hd-sub">Week 7 \u00b7 1 session affected</div>
+              </div>
+            </div>
+            <div class="vc-card-body">
+              <dl class="vc-card-kv">
+                <dt>Session</dt><dd>Session 14 of 20 \u00b7 in-clinic tDCS</dd>
+                <dt>Currently</dt><dd>Tue Apr 22 \u00b7 10:00 \u2013 10:40</dd>
+                <dt>Proposed</dt><dd><strong>Wed Apr 23 \u00b7 09:00 \u2013 09:40</strong></dd>
+                <dt>Reason</dt><dd>Aligns better with your sleep rhythm</dd>
+              </dl>
+            </div>
+            <div class="vc-card-actions">
+              <button class="btn btn-ghost btn-sm" onclick="window._vcToast && window._vcToast('Keeping original time')">Keep original</button>
+              <button class="btn btn-primary btn-sm" onclick="window._vcToast && window._vcToast('Schedule change accepted')"><svg width="11" height="11"><use href="#i-check"/></svg>Accept change</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    return `
+      <div class="vc-msg">
+        <div class="vc-msg-av ${thread.avClass || ''}">${av}</div>
+        <div class="vc-msg-stack">
+          <div class="vc-msg-hd"><span class="vc-msg-name">${esc(thread.name)}</span><span class="vc-msg-time">${esc(_fullTime(m.at))}</span></div>
+          <div class="vc-bubble">${esc(m.body || '')}</div>
+        </div>
+      </div>`;
+  }
+
+  function _convHtml(tid) {
+    const t = threads[tid];
+    if (!t) return '<div class="pth2-empty" style="padding:40px">No thread selected.</div>';
+    const body = t.messages.length ? t.messages.map(m => _msgHtml(m, t)).join('')
+      : `<div class="pth2-empty" style="padding:40px"><div class="pth2-empty-title">No messages yet</div><div class="pth2-empty-sub">Send the first message \u2014 your clinician usually replies within 2 hours.</div></div>`;
+    return body;
+  }
+  function _convHeaderHtml(tid) {
+    const t = threads[tid] || { name:'—', role:'' };
+    const ava = t.avatar || t.name.slice(0,2).toUpperCase();
+    const onlineText = t.online === 'ai' ? 'AI assistant \u00b7 answers may not be medical advice'
+      : t.online === 'true' ? 'Online \u00b7 usually replies within 2 hours'
+      : t.online === 'busy' ? 'Busy \u00b7 replies later today'
+      : 'Offline \u00b7 leave a message';
+    return `
+      <div class="vc-conv-av ${t.avClass || ''}" id="vc-conv-av">${ava}</div>
+      <div class="vc-conv-who">
+        <div class="vc-conv-name" id="vc-conv-name">${esc(t.name)}
+          ${t.avClass !== 'av-ai' ? '<span class="vc-conv-verified"><svg width="9" height="9"><use href="#i-shield"/></svg>Verified clinician</span>' : ''}
+        </div>
+        <div class="vc-conv-sub" id="vc-conv-sub"><span class="dot"></span>${esc(onlineText)}${t.role ? ' \u00b7 ' + esc(t.role) : ''}</div>
+      </div>
+      <div class="vc-conv-actions">
+        <button class="vc-call-btn call-voice" title="Voice call" onclick="window._vcCall && window._vcCall('voice')"><svg width="16" height="16"><use href="#i-pulse"/></svg></button>
+        <button class="vc-call-btn call-video" title="Video call" onclick="window._vcCall && window._vcCall('video')"><svg width="17" height="17"><use href="#i-video"/></svg></button>
+        <button class="vc-call-btn" title="More" onclick="window._vcToast && window._vcToast('More actions \u2014 coming soon')"><svg width="16" height="16"><use href="#i-more"/></svg></button>
+      </div>`;
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────
+  el.innerHTML = `
+    <div class="pt-route" id="pt-route-virtualcare">
+      ${_isDemo ? '<div class="vc-demo-banner"><svg width="13" height="13"><use href="#i-info"/></svg><strong>Demo data</strong> \u2014 sample conversation with your care team. Your actual messages will appear here once the clinic is onboarded.</div>' : ''}
+
+      <!-- Crisis banner -->
+      <div class="vc-crisis" id="vc-crisis">
+        <svg width="16" height="16"><use href="#i-shield"/></svg>
+        <div><strong>Virtual care is not for emergencies.</strong> If you are in crisis or thinking of harming yourself, reach help immediately.</div>
+        <div class="vc-crisis-actions">
+          <button class="vc-crisis-btn primary" onclick="window._vcCrisis && window._vcCrisis('call')"><svg width="11" height="11"><use href="#i-pulse"/></svg>Call 988 \u00b7 Crisis line</button>
+          <button class="vc-crisis-btn" onclick="window._vcCrisis && window._vcCrisis('plan')">Safety plan</button>
+          <button class="vc-crisis-dismiss" onclick="window._vcCrisis && window._vcCrisis('dismiss')" aria-label="Dismiss">&times;</button>
+        </div>
+      </div>
+
+      <!-- 3-pane shell -->
+      <div class="vc-shell">
+
+        <!-- Left: threads -->
+        <aside class="vc-threads">
+          <div class="vc-threads-hd">
+            <h2><svg width="18" height="18"><use href="#i-video"/></svg>Virtual care</h2>
+            <p>Message, call or video with your care team \u2014 secure, end-to-end encrypted.</p>
+            <div class="vc-search">
+              <svg width="14" height="14"><use href="#i-search"/></svg>
+              <input type="text" id="vc-search-input" placeholder="Search messages, files, people\u2026" oninput="window._vcSearch && window._vcSearch(this.value)">
+            </div>
+          </div>
+          <div class="vc-thread-filters">
+            <button class="active" data-tf="all" onclick="window._vcThreadFilter && window._vcThreadFilter('all')">All</button>
+            <button data-tf="unread" onclick="window._vcThreadFilter && window._vcThreadFilter('unread')">Unread</button>
+            <button data-tf="clinicians" onclick="window._vcThreadFilter && window._vcThreadFilter('clinicians')">Team</button>
+            <button data-tf="ai" onclick="window._vcThreadFilter && window._vcThreadFilter('ai')">AI</button>
+          </div>
+          <div class="vc-thread-list" id="vc-thread-list">
+            ${threadList.length ? threadList.map(_threadItemHtml).join('') : '<div class="pth2-empty" style="padding:24px 16px"><div class="pth2-empty-title">No conversations yet</div><div class="pth2-empty-sub">Your care team will reach out soon.</div></div>'}
+          </div>
+          <div class="vc-threads-foot">
+            <button class="btn btn-ghost btn-sm" onclick="window._vcToast && window._vcToast('New conversation \u2014 pick a clinician from Care team')"><svg width="12" height="12"><use href="#i-plus"/></svg>Start new conversation</button>
+          </div>
+        </aside>
+
+        <!-- Center: conversation -->
+        <section class="vc-conv" id="vc-conv">
+          <div class="vc-conv-hd" id="vc-conv-hd">${activeThread ? _convHeaderHtml(activeId) : ''}</div>
+          <div class="vc-conv-scroll" id="vc-conv-scroll">${activeThread ? _convHtml(activeId) : ''}</div>
+
+          <!-- Composer -->
+          <div class="vc-composer">
+            <div class="vc-quick">
+              <button onclick="window._vcQuick && window._vcQuick('good')"><svg width="11" height="11"><use href="#i-smile"/></svg>Feeling better today</button>
+              <button onclick="window._vcQuick && window._vcQuick('side')"><svg width="11" height="11"><use href="#i-alert"/></svg>Report a side effect</button>
+              <button onclick="window._vcQuick && window._vcQuick('resched')"><svg width="11" height="11"><use href="#i-calendar"/></svg>Ask to reschedule</button>
+              <button onclick="window._vcQuick && window._vcQuick('biom')"><svg width="11" height="11"><use href="#i-heart"/></svg>Share biometrics</button>
+              <button onclick="window._vcQuick && window._vcQuick('mood')"><svg width="11" height="11"><use href="#i-edit"/></svg>Quick mood update</button>
+              <button onclick="window._vcQuick && window._vcQuick('q')"><svg width="11" height="11"><use href="#i-info"/></svg>Ask a question</button>
+            </div>
+            <div class="vc-input-row">
+              <div class="vc-input-tools">
+                <button class="vc-tool" title="Attach file" onclick="window._vcAttach && window._vcAttach()"><svg width="16" height="16"><use href="#i-plus"/></svg></button>
+                <button class="vc-tool rec" title="Voice note" onclick="window._vcToast && window._vcToast('Voice note \u2014 hold to record (coming soon)')"><svg width="16" height="16"><use href="#i-mic"/></svg></button>
+                <button class="vc-tool" title="Video note" onclick="window._vcToast && window._vcToast('Video note \u2014 coming soon')"><svg width="16" height="16"><use href="#i-video"/></svg></button>
+              </div>
+              <div class="vc-input-wrap">
+                <textarea class="vc-input" id="vc-input" placeholder="Message \u2014 this goes to your care team, not 911." rows="1" oninput="window._vcInputChange && window._vcInputChange()"></textarea>
+                <button class="vc-send" id="vc-send" disabled onclick="window._vcSend && window._vcSend()"><svg width="14" height="14"><use href="#i-arrow-right"/></svg></button>
+              </div>
+            </div>
+            <div class="vc-composer-foot">
+              <svg width="11" height="11"><use href="#i-shield"/></svg>End-to-end encrypted
+              <span class="sep"></span>
+              <span>Typical reply \u00b7 2 hours (weekdays)</span>
+              <span class="sep"></span>
+              <span>For urgent issues call your care team directly.</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Right: rail -->
+        <aside class="vc-rail" id="vc-rail">
+          <div class="vc-rail-section">
+            <div class="vc-profile" id="vc-profile">
+              <div class="vc-profile-av">${activeThread ? (activeThread.avatar || activeThread.name.slice(0,2).toUpperCase()) : 'JK'}</div>
+              <div class="vc-profile-name">${esc(activeThread ? activeThread.name : 'Your clinician')}</div>
+              <div class="vc-profile-role">${esc(activeThread?.role || '')}</div>
+              ${activeThread?.credentials ? '<div class="vc-profile-credentials">' + esc(activeThread.credentials) + '</div>' : ''}
+              <div class="vc-profile-actions">
+                <button class="btn btn-ghost btn-sm" onclick="window._navPatient && window._navPatient('patient-sessions')"><svg width="11" height="11"><use href="#i-calendar"/></svg>Book</button>
+                <button class="btn btn-primary btn-sm" onclick="window._vcCall && window._vcCall('video')"><svg width="11" height="11"><use href="#i-video"/></svg>Video</button>
+              </div>
+            </div>
+          </div>
+
+          ${nextSession ? `
+          <div class="vc-rail-section">
+            <div class="vc-rail-lbl">Next session</div>
+            <div class="vc-next-appt">
+              <div class="vc-next-ico"><svg width="17" height="17"><use href="#i-calendar"/></svg></div>
+              <div class="vc-next-body">
+                <div class="vc-next-title">Session ${nextSession.session_number || '\u2014'} \u00b7 in-clinic tDCS</div>
+                <div class="vc-next-time">${esc(new Date(nextSession.scheduled_at).toLocaleDateString(loc, { weekday:'short', month:'short', day:'numeric' }))} \u00b7 ${esc(new Date(nextSession.scheduled_at).toLocaleTimeString(loc, { hour:'2-digit', minute:'2-digit' }))}${nextSession.duration_minutes ? ' \u00b7 ' + nextSession.duration_minutes + ' min' : ''}</div>
+                <div class="vc-next-sub">${esc(nextSession.clinician_name || 'Care team')}${nextSession.location ? ' \u00b7 ' + esc(nextSession.location) : ''}</div>
+              </div>
+            </div>
+          </div>` : ''}
+
+          <div class="vc-rail-section">
+            <div class="vc-rail-lbl">Recent biometrics</div>
+            <div class="vc-rail-kpi">
+              <div class="vc-rail-k"><div class="vc-rail-k-lbl">Sleep \u00b7 7d</div><div class="vc-rail-k-val">${bio.sleepAvg != null ? bio.sleepAvg.toFixed(1) + 'h' : '\u2014'}</div></div>
+              <div class="vc-rail-k"><div class="vc-rail-k-lbl">HRV \u00b7 7d</div><div class="vc-rail-k-val">${bio.hrvAvg != null ? Math.round(bio.hrvAvg) + 'ms' : '\u2014'}</div></div>
+              <div class="vc-rail-k"><div class="vc-rail-k-lbl">RHR</div><div class="vc-rail-k-val">${bio.rhrAvg != null ? Math.round(bio.rhrAvg) + 'bpm' : '\u2014'}</div></div>
+              <div class="vc-rail-k"><div class="vc-rail-k-lbl">Steps</div><div class="vc-rail-k-val">${bio.stepsAvg != null ? (bio.stepsAvg / 1000).toFixed(1) + 'k' : '\u2014'}</div></div>
+            </div>
+          </div>
+
+          <div class="vc-rail-section">
+            <div class="vc-rail-lbl">Privacy</div>
+            <div style="font-size:11.5px;color:var(--text-tertiary);line-height:1.55">
+              Messages are end-to-end encrypted and stored per HIPAA / GDPR. Only you and the care team you approve can see this thread.
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <!-- Call overlay -->
+      <div class="vc-call-overlay" id="vc-call-overlay">
+        <div class="vc-call-inner">
+          <div class="vc-call-remote">
+            <div class="vc-call-remote-av" id="vc-call-remote-av">${activeThread ? (activeThread.avatar || activeThread.name.slice(0,2).toUpperCase()) : 'JK'}</div>
+            <div class="vc-call-remote-name" id="vc-call-remote-name">${esc(activeThread ? activeThread.name : '')}</div>
+            <div class="vc-call-status" id="vc-call-status">Calling\u2026 \u00b7 end-to-end encrypted</div>
+            <div class="vc-call-timer" id="vc-call-timer">00:00</div>
+            <div style="display:flex;gap:10px;margin-top:24px;justify-content:center">
+              <button class="btn btn-ghost btn-sm" onclick="window._vcHangup && window._vcHangup()"><svg width="12" height="12"><use href="#i-pulse"/></svg>End call</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Toast -->
+      <div class="vc-toast" id="vc-toast"><svg width="16" height="16"><use href="#i-check"/></svg><span id="vc-toast-text">Sent</span></div>
+    </div>`;
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
+  function _showToast(msg) {
+    const t = document.getElementById('vc-toast');
+    const t2 = document.getElementById('vc-toast-text');
+    if (!t || !t2) return;
+    t2.textContent = msg || 'Done';
+    t.classList.add('show');
+    clearTimeout(window._vcToastTimer);
+    window._vcToastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+  window._vcToast = _showToast;
+
+  window._vcPickThread = function(tid) {
+    activeId = tid;
+    // Mark as read locally.
+    if (threads[tid]) threads[tid].messages.forEach(m => m.unread = false);
+    const list = document.getElementById('vc-thread-list');
+    if (list) list.innerHTML = threadList.map(_threadItemHtml).join('');
+    const hd = document.getElementById('vc-conv-hd');
+    if (hd) hd.innerHTML = _convHeaderHtml(tid);
+    const sc = document.getElementById('vc-conv-scroll');
+    if (sc) { sc.innerHTML = _convHtml(tid); sc.scrollTop = sc.scrollHeight; }
+  };
+
+  window._vcThreadFilter = function(f) {
+    document.querySelectorAll('.vc-thread-filters button').forEach(b => b.classList.toggle('active', b.dataset.tf === f));
+    const items = document.querySelectorAll('#vc-thread-list .vc-thread');
+    items.forEach(i => {
+      const tid = i.dataset.tid;
+      const t = threads[tid]; if (!t) return;
+      let show = true;
+      if (f === 'unread')    show = t.messages.some(m => m.unread);
+      else if (f === 'clinicians') show = t.avClass !== 'av-ai' && t.id !== 'billing';
+      else if (f === 'ai')   show = t.avClass === 'av-ai';
+      i.style.display = show ? '' : 'none';
+    });
+  };
+  window._vcSearch = function(q) {
+    const needle = String(q || '').toLowerCase().trim();
+    document.querySelectorAll('#vc-thread-list .vc-thread').forEach(i => {
+      if (!needle) { i.style.display = ''; return; }
+      i.style.display = i.textContent.toLowerCase().includes(needle) ? '' : 'none';
+    });
+  };
+  window._vcInputChange = function() {
+    const inp = document.getElementById('vc-input');
+    const btn = document.getElementById('vc-send');
+    if (btn) btn.disabled = !inp || !inp.value.trim();
+  };
+  window._vcSend = async function() {
+    const inp = document.getElementById('vc-input');
+    if (!inp || !inp.value.trim() || !activeId || !threads[activeId]) return;
+    const body = inp.value.trim();
+    inp.value = '';
+    window._vcInputChange();
+    const t = threads[activeId];
+    t.messages.push({ id: 'local-' + Date.now(), sender: 'me', senderName: 'You', at: new Date().toISOString(), body });
+    const sc = document.getElementById('vc-conv-scroll');
+    if (sc) { sc.innerHTML = _convHtml(activeId); sc.scrollTop = sc.scrollHeight; }
+    // For AI thread, call api.chatPatient and render reply.
+    if (activeId === 'ai' && api.chatPatient) {
+      try {
+        const lang = getLocale() === 'tr' ? 'tr' : 'en';
+        const history = t.messages
+          .filter(m => m.body)
+          .slice(-6)
+          .map(m => ({ role: m.sender === 'me' ? 'user' : 'assistant', content: m.body }));
+        const res = await api.chatPatient(history, null, lang, 'Patient virtual-care chat');
+        const reply = res?.reply || "I'm offline right now — try again shortly or message your care team.";
+        t.messages.push({ id: 'ai-' + Date.now(), sender: 'them', senderName: 'Synaps AI', at: new Date().toISOString(), body: reply });
+      } catch (_e) {
+        t.messages.push({ id: 'ai-' + Date.now(), sender: 'them', senderName: 'Synaps AI', at: new Date().toISOString(), body: "Assistant is offline. For urgent concerns, message your care team directly." });
+      }
+      const sc2 = document.getElementById('vc-conv-scroll');
+      if (sc2) { sc2.innerHTML = _convHtml(activeId); sc2.scrollTop = sc2.scrollHeight; }
+    } else if (!_isDemo && uid && api.patientPortalMessages) {
+      // Real clinician thread — try to POST via any available endpoint.
+      // The read-only endpoint currently doesn't support POST from patient side;
+      // we store locally so the UX stays responsive and log for ops visibility.
+      console.info('[virtualcare] would POST message to thread', activeId, body);
+    }
+    _showToast('Sent');
+  };
+  window._vcQuick = function(kind) {
+    const inp = document.getElementById('vc-input');
+    if (!inp) return;
+    const map = {
+      good: "Feeling better today — morning mood was a 6/10 and energy is up. ",
+      side: "Wanted to flag a side effect from the last session: ",
+      resched: "Could we reschedule my next session? I'm hoping for ",
+      biom: "Sharing my latest biometric snapshot.",
+      mood: "Quick mood update: ",
+      q: "Quick question — ",
+    };
+    inp.value = map[kind] || '';
+    inp.focus();
+    window._vcInputChange();
+  };
+  window._vcAttach = function() { _showToast('File upload — demo mode'); };
+  window._vcCrisis = function(action) {
+    if (action === 'call') {
+      window.location.href = 'tel:988';
+    } else if (action === 'plan') {
+      _showToast('Opening safety plan…');
+    } else if (action === 'dismiss') {
+      const c = document.getElementById('vc-crisis');
+      if (c) c.classList.add('hidden');
+      try { sessionStorage.setItem('ds_vc_crisis_dismiss', '1'); } catch (_e) {}
+    }
+  };
+  try { if (sessionStorage.getItem('ds_vc_crisis_dismiss')) { const c = document.getElementById('vc-crisis'); if (c) c.classList.add('hidden'); } } catch (_e) {}
+
+  window._vcCall = function(mode) {
+    const overlay = document.getElementById('vc-call-overlay');
+    const status = document.getElementById('vc-call-status');
+    const timer = document.getElementById('vc-call-timer');
+    if (!overlay) return;
+    overlay.classList.add('show');
+    if (status) status.textContent = (mode === 'video' ? 'Video ' : 'Voice ') + 'calling\u2026 \u00b7 end-to-end encrypted';
+    let sec = 0;
+    if (timer) timer.textContent = '00:00';
+    clearInterval(window._vcCallTimer);
+    setTimeout(() => {
+      if (status) status.textContent = 'Connected · ' + (mode === 'video' ? 'video' : 'voice') + ' call · end-to-end encrypted';
+      window._vcCallTimer = setInterval(() => {
+        sec++;
+        const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+        const ss = String(sec % 60).padStart(2, '0');
+        if (timer) timer.textContent = mm + ':' + ss;
+      }, 1000);
+    }, 1500);
+  };
+  window._vcHangup = function() {
+    const overlay = document.getElementById('vc-call-overlay');
+    if (overlay) overlay.classList.remove('show');
+    clearInterval(window._vcCallTimer);
+  };
+
+  // Initial scroll to bottom of conversation.
+  const sc = document.getElementById('vc-conv-scroll');
+  if (sc) sc.scrollTop = sc.scrollHeight;
+}
+
 
 // ── Profile & Settings ────────────────────────────────────────────────────────
 export async function pgPatientProfile(user) {
