@@ -813,7 +813,7 @@ const PAGE_TITLES = {
   'clinical-trials': 'Clinical Trial Management',
   'trial-enrollment': 'Trial Enrollment',
   'staff-scheduling': 'Staff Scheduling & Shifts',
-  reports: 'Reports', admin: 'Admin Panel', 'clinic-settings': 'Clinic Settings & Branding', settings: 'Settings',
+  reports: 'Reports', admin: 'Admin Panel', 'clinic-settings': 'Clinic Settings & Branding', settings: 'Settings', 'clinician-account': 'My Account',
   permissions: 'Permissions & Security Admin',
   calendar: 'Schedule & Calendar',
   scheduling: 'Scheduling', telehealth: 'Telehealth', 'telehealth-recorder': 'Telehealth Session Recorder', messaging: 'Virtual Care',
@@ -1361,6 +1361,11 @@ async function renderPage() {
     case 'settings': {
       const m = await loadPractice();
       await m.pgSettings(setTopbar, currentUser);
+      break;
+    }
+    case 'clinician-account': {
+      const m = await loadPractice();
+      await m.pgClinicianAccount(setTopbar, currentUser);
       break;
     }
     case 'reminders': { const { pgReminderAutomation } = await loadPractice(); await pgReminderAutomation(setTopbar); break; }
@@ -2384,6 +2389,7 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '🛡️', title: 'Adverse Events',      page: 'adverse-events' },
     { type: 'nav', icon: '◧',  title: 'Audit Trail',         page: 'audittrail' },
     { type: 'nav', icon: '⚙️', title: 'Settings',            page: 'settings' },
+    { type: 'nav', icon: '👤', title: 'My Account',          page: 'clinician-account' },
     { type: 'nav', icon: '👑', title: 'Admin Panel',         page: 'admin' },
     { type: 'nav', icon: '◎',  title: 'Brain Regions',       page: 'brainregions' },
     { type: 'nav', icon: '⌚', title: 'Wearables',            page: 'wearables' },

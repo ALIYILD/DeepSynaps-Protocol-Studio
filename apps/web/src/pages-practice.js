@@ -10058,3 +10058,606 @@ export async function pgGovernance(setTopbar, _navigate) {
   window._gvRefreshAudit = async () => { _rerender(); };
 }
 
+// ── Clinician Account (st-* design) ───────────────────────────────────────────
+// Clinician-facing account/preferences page using the same st-* layout as the
+// patient Settings. Re-uses CSS already in styles.css. Save/discard are local
+// (toast only) — real endpoints (pgSettings has the mature API wiring) remain
+// the system of record for preferences persistence.
+export async function pgClinicianAccount(setTopbar, currentUser) {
+  setTopbar('My Account', '');
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  const esc = (v) => {
+    if (v == null) return '';
+    return String(v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
+  };
+
+  const displayName = esc(currentUser?.display_name || currentUser?.email?.split('@')[0] || 'Clinician');
+  const email       = esc(currentUser?.email || '');
+  const role        = esc(currentUser?.role || 'Clinician');
+  const initials    = (displayName || '?').slice(0, 2).toUpperCase();
+
+  const spriteHTML = `
+    <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+      <defs>
+        <symbol id="cs-i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4 21a8 8 0 0 1 16 0" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+        <symbol id="cs-i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2H4.5L6 16Z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 20a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+        <symbol id="cs-i-stethoscope" viewBox="0 0 24 24"><path d="M6 4v5a4 4 0 0 0 8 0V4M6 4h2M14 4h-2M10 13v3a4 4 0 0 0 8 0v-1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="18" cy="12" r="2" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+        <symbol id="cs-i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+        <symbol id="cs-i-repeat" viewBox="0 0 24 24"><path d="M4 10V7a2 2 0 0 1 2-2h11l-3-3m3 3-3 3M20 14v3a2 2 0 0 1-2 2H7l3 3m-3-3 3-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+        <symbol id="cs-i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+        <symbol id="cs-i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+        <symbol id="cs-i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+        <symbol id="cs-i-alert" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 10v5M12 17v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+        <symbol id="cs-i-edit" viewBox="0 0 24 24"><path d="m4 20 4-1 11-11-3-3L5 16l-1 4Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+        <symbol id="cs-i-check" viewBox="0 0 24 24"><path d="m5 12 5 5 9-11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+        <symbol id="cs-i-download" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+        <symbol id="cs-i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l2-5 4 10 2-5h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+        <symbol id="cs-i-key" viewBox="0 0 24 24"><circle cx="7" cy="15" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="m9.5 13 10-10m-3 3 2 2m-5 0 2 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+      </defs>
+    </svg>
+  `;
+
+  el.innerHTML = `
+    ${spriteHTML}
+    <div class="pt-settings-route" id="pt-route-settings" style="padding:20px;max-width:1200px;margin:0 auto">
+      <aside class="st-nav" id="st-nav">
+        <div class="st-nav-title">My Account</div>
+        <div class="st-nav-item active" data-target="st-account"><svg><use href="#cs-i-user"/></svg>Account</div>
+        <div class="st-nav-item" data-target="st-notifications"><svg><use href="#cs-i-bell"/></svg>Notifications</div>
+        <div class="st-nav-item" data-target="st-clinical"><svg><use href="#cs-i-stethoscope"/></svg>Clinical preferences</div>
+        <div class="st-nav-item" data-target="st-privacy"><svg><use href="#cs-i-lock"/></svg>Privacy &amp; data</div>
+        <div class="st-nav-item" data-target="st-integrations"><svg><use href="#cs-i-repeat"/></svg>Integrations</div>
+        <div class="st-nav-item" data-target="st-accessibility"><svg><use href="#cs-i-eye"/></svg>Accessibility</div>
+        <div class="st-nav-item" data-target="st-security"><svg><use href="#cs-i-shield"/></svg>Security</div>
+        <div class="st-nav-item" data-target="st-about"><svg><use href="#cs-i-info"/></svg>About &amp; legal</div>
+        <div class="st-nav-item" data-target="st-danger" style="color:rgba(255,138,138,0.85);"><svg><use href="#cs-i-alert"/></svg>Danger zone</div>
+      </aside>
+
+      <div class="st-main">
+        <section class="st-section" id="st-account">
+          <div class="st-section-head">
+            <div class="st-section-ico"><svg width="18" height="18"><use href="#cs-i-user"/></svg></div>
+            <div>
+              <h3>Account</h3>
+              <p>Your clinician profile, credentials, and how you appear to patients and colleagues.</p>
+            </div>
+          </div>
+          <div class="st-body">
+            <div class="st-profile">
+              <div class="st-profile-av">${esc(initials)}</div>
+              <div class="st-profile-body">
+                <h4>${displayName}</h4>
+                <div class="email">${email}</div>
+                <div class="meta">${role} · identity managed by clinic admin</div>
+              </div>
+              <button class="btn btn-ghost btn-sm" data-st-action="edit-profile"><svg width="13" height="13"><use href="#cs-i-edit"/></svg>Edit</button>
+            </div>
+
+            <div class="st-row">
+              <div><div class="st-row-label">Display name</div><div class="st-row-sub">How patients and staff see you across the app.</div></div>
+              <input class="st-input" type="text" value="${displayName}" data-st-change />
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Credentials</div><div class="st-row-sub">Displayed after your name on notes, messages, and reports.</div></div>
+              <input class="st-input" type="text" value="" placeholder="MD, PhD, LCSW…" data-st-change />
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">License number</div><div class="st-row-sub">Used for prescription signing and compliance audit logs.</div></div>
+              <input class="st-input" type="text" value="" placeholder="State license #" data-st-change />
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Specialties</div><div class="st-row-sub">Shown on the referral directory.</div></div>
+              <input class="st-input" type="text" value="" placeholder="e.g. Psychiatry, Neurology" data-st-change style="min-width:260px" />
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Timezone</div><div class="st-row-sub">All session times use this zone.</div></div>
+              <select class="st-select" data-st-change>
+                <option selected>Europe / London (BST, UTC+1)</option>
+                <option>America / New_York (EDT, UTC−4)</option>
+                <option>America / Los_Angeles (PDT, UTC−7)</option>
+                <option>Europe / Berlin (CEST, UTC+2)</option>
+                <option>Asia / Singapore (SGT, UTC+8)</option>
+              </select>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Language</div><div class="st-row-sub">App UI + clinician-facing reports.</div></div>
+              <select class="st-select" data-st-change>
+                <option selected>English (US)</option>
+                <option>English (UK)</option>
+                <option>Deutsch</option>
+                <option>Español</option>
+                <option>Français</option>
+                <option>Türkçe</option>
+                <option>中文 (简体)</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section class="st-section" id="st-notifications">
+          <div class="st-section-head">
+            <div class="st-section-ico purple"><svg width="18" height="18"><use href="#cs-i-bell"/></svg></div>
+            <div><h3>Notifications</h3><p>When and how DeepSynaps pings you about clinical work.</p></div>
+          </div>
+          <div class="st-body">
+            <div class="st-row">
+              <div><div class="st-row-label">Channel</div><div class="st-row-sub">Primary channel for everything below. Urgent clinical alerts always come via all three.</div></div>
+              <div class="st-seg" data-st-seg><button class="active">App push</button><button>Email</button><button>SMS</button></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">New patient assignments</div><div class="st-row-sub">You're added to a care team or a patient transfers to you.</div></div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Unread patient messages</div><div class="st-row-sub">Portal inbox nudges (Synaps AI triages first).</div></div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Overdue tasks</div><div class="st-row-sub">Notes to sign, assessments to review, reports pending.</div></div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Adverse events</div><div class="st-row-sub">Any AE flagged on your panel. Always on.</div></div>
+              <div class="st-toggle on" data-st-toggle style="opacity:0.7;pointer-events:none;"></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Admin alerts</div><div class="st-row-sub">Billing holds, compliance tasks, license expiry.</div></div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Daily digest</div><div class="st-row-sub">Morning summary of your panel, queue, and outstanding items.</div></div>
+              <div class="st-seg" data-st-seg><button>Off</button><button class="active">Daily</button><button>Weekly</button></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Quiet hours</div><div class="st-row-sub">Non-urgent notifications stay silent during these hours.</div></div>
+              <select class="st-select" data-st-change>
+                <option selected>7 PM – 8 AM</option>
+                <option>9 PM – 7 AM</option>
+                <option>11 PM – 6 AM</option>
+                <option>Off (never quiet)</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section class="st-section" id="st-clinical">
+          <div class="st-section-head">
+            <div class="st-section-ico pink"><svg width="18" height="18"><use href="#cs-i-stethoscope"/></svg></div>
+            <div><h3>Clinical preferences</h3><p>Defaults that shape your sessions, notes, and AI assist behaviour.</p></div>
+          </div>
+          <div class="st-body">
+            <div class="st-row">
+              <div><div class="st-row-label">Default session duration</div><div class="st-row-sub">Applied when creating new sessions from scratch.</div></div>
+              <div class="st-pills" data-st-pills>
+                <button class="st-pill">30 min</button>
+                <button class="st-pill active">45 min</button>
+                <button class="st-pill">60 min</button>
+                <button class="st-pill">90 min</button>
+              </div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">AI draft depth</div><div class="st-row-sub">How much Synaps AI pre-drafts in notes, reports, and messages.</div></div>
+              <div class="st-seg" data-st-seg><button>Minimal</button><button class="active">Balanced</button><button>Full draft</button></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Protocol personalization suggestions</div><div class="st-row-sub">AI suggests parameter adjustments from qEEG + outcome trends.</div></div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Auto-save note drafts</div><div class="st-row-sub">Drafts persist between sessions so nothing is lost.</div></div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Co-sign reminders</div><div class="st-row-sub">Remind me to co-sign supervisee notes within 48 hours.</div></div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Default chart view</div><div class="st-row-sub">Patient chart lands here when you open a case.</div></div>
+              <div class="st-seg" data-st-seg><button class="active">Overview</button><button>Sessions</button><button>Outcomes</button><button>Notes</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="st-section" id="st-privacy">
+          <div class="st-section-head">
+            <div class="st-section-ico blue"><svg width="18" height="18"><use href="#cs-i-lock"/></svg></div>
+            <div><h3>Privacy &amp; data</h3><p>What gets logged, shared, and exported from your clinician account.</p></div>
+          </div>
+          <div class="st-body">
+            <div class="st-row">
+              <div><div class="st-row-label">Include me in the clinic directory</div><div class="st-row-sub">Patients and referring providers can find your profile.</div></div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Show my audit trail to clinic admins</div><div class="st-row-sub">Required by HIPAA if you handle PHI. Cannot be disabled.</div></div>
+              <div class="st-toggle on" data-st-toggle style="opacity:0.7;pointer-events:none;"></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Product analytics</div><div class="st-row-sub">Help us improve the clinical tooling. No PHI leaves DeepSynaps.</div></div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Error reports</div><div class="st-row-sub">Automatic crash reports with redacted context.</div></div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+            <div class="st-row stack">
+              <div><div class="st-row-label">Download your data</div><div class="st-row-sub">Your own activity, preferences, and signed documents (not patient charts).</div></div>
+              <div class="st-data-grid">
+                <div class="st-data-card">
+                  <div class="t"><svg><use href="#cs-i-pulse"/></svg>My activity log</div>
+                  <div class="s">CSV · logins, views, actions for the last 90 days.</div>
+                  <button class="btn btn-ghost btn-sm" data-st-export="activity" style="align-self:flex-start;"><svg width="13" height="13"><use href="#cs-i-download"/></svg>Request</button>
+                </div>
+                <div class="st-data-card">
+                  <div class="t"><svg><use href="#cs-i-edit"/></svg>Signed documents</div>
+                  <div class="s">PDF bundle · notes, reports, referrals I have authored.</div>
+                  <button class="btn btn-ghost btn-sm" data-st-export="signed" style="align-self:flex-start;"><svg width="13" height="13"><use href="#cs-i-download"/></svg>Request</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="st-section" id="st-integrations">
+          <div class="st-section-head">
+            <div class="st-section-ico green"><svg width="18" height="18"><use href="#cs-i-repeat"/></svg></div>
+            <div><h3>Integrations</h3><p>Identity and workflow systems connected to your clinician account.</p></div>
+          </div>
+          <div class="st-body">
+            <div class="st-link-row">
+              <div class="st-link-logo google">G</div>
+              <div class="st-link-body">
+                <div class="n">Google account</div>
+                <div class="s">${email || 'Not linked'} · sign-in + calendar sync</div>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <span class="st-link-state ${email ? 'on' : 'off'}">${email ? 'Linked' : 'Not linked'}</span>
+                <button class="st-sess-btn ghost" data-st-unlink="google">${email ? 'Unlink' : 'Link'}</button>
+              </div>
+            </div>
+            <div class="st-link-row">
+              <div class="st-link-logo ms">M</div>
+              <div class="st-link-body"><div class="n">Microsoft 365</div><div class="s">Outlook calendar + Teams video</div></div>
+              <div style="display:flex;gap:8px;align-items:center;"><span class="st-link-state off">Not linked</span><button class="btn btn-ghost btn-sm" data-st-link="ms">Link</button></div>
+            </div>
+            <div class="st-link-row">
+              <div class="st-link-logo" style="background:#229ed9;color:#fff">T</div>
+              <div class="st-link-body"><div class="n">Telegram</div><div class="s">Push clinical alerts to your chat.</div></div>
+              <div style="display:flex;gap:8px;align-items:center;"><span class="st-link-state off">Not linked</span><button class="btn btn-ghost btn-sm" data-st-link="telegram">Link</button></div>
+            </div>
+            <div class="st-link-row">
+              <div class="st-link-logo" style="background:#4a154b;color:#fff">S</div>
+              <div class="st-link-body"><div class="n">Slack</div><div class="s">Clinic channel notifications.</div></div>
+              <div style="display:flex;gap:8px;align-items:center;"><span class="st-link-state off">Not linked</span><button class="btn btn-ghost btn-sm" data-st-link="slack">Link</button></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Push my schedule to Google Calendar</div><div class="st-row-sub">Two-way sync. Clinic-wide sync is managed by admin.</div></div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="st-section" id="st-accessibility">
+          <div class="st-section-head">
+            <div class="st-section-ico orange"><svg width="18" height="18"><use href="#cs-i-eye"/></svg></div>
+            <div><h3>Accessibility &amp; display</h3><p>Adjust the app to suit how you see and read.</p></div>
+          </div>
+          <div class="st-body">
+            <div class="st-row">
+              <div><div class="st-row-label">Theme</div><div class="st-row-sub">Dark is recommended for evening clinic hours.</div></div>
+              <div class="st-seg" data-st-seg><button class="active">Dark</button><button>Light</button><button>System</button></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Text size</div><div class="st-row-sub">Applies across the clinical UI.</div></div>
+              <div class="st-seg" data-st-seg><button>Small</button><button class="active">Default</button><button>Large</button><button>X-Large</button></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Reduce motion</div><div class="st-row-sub">Minimize animations and transitions.</div></div>
+              <div class="st-toggle" data-st-toggle></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">High contrast mode</div><div class="st-row-sub">Bolder text and sharper contrast borders.</div></div>
+              <div class="st-toggle" data-st-toggle></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Keyboard shortcut hints</div><div class="st-row-sub">Show shortcut badges on buttons you've hovered.</div></div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="st-section" id="st-security">
+          <div class="st-section-head">
+            <div class="st-section-ico"><svg width="18" height="18"><use href="#cs-i-shield"/></svg></div>
+            <div><h3>Security</h3><p>Protect your clinician credentials and PHI access.</p></div>
+          </div>
+          <div class="st-body">
+            <div class="st-row">
+              <div><div class="st-row-label">Password</div><div class="st-row-sub">Rotate every 90 days per clinic policy.</div></div>
+              <button class="btn btn-ghost btn-sm" data-st-action="change-password"><svg width="13" height="13"><use href="#cs-i-lock"/></svg>Change</button>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Two-factor authentication</div><div class="st-row-sub">Required for clinical data access.</div></div>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <span class="st-link-state off">Disabled</span>
+                <button class="btn btn-ghost btn-sm" data-st-action="manage-2fa">Enable</button>
+              </div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Biometric unlock (mobile)</div><div class="st-row-sub">Unlock the clinician mobile app with Face ID / fingerprint.</div></div>
+              <div class="st-toggle" data-st-toggle></div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Idle auto-logout</div><div class="st-row-sub">Sign me out of sensitive views after inactivity.</div></div>
+              <div class="st-seg" data-st-seg><button>5 min</button><button class="active">15 min</button><button>30 min</button><button>Never</button></div>
+            </div>
+            <div class="st-row stack">
+              <div><div class="st-row-label">API keys</div><div class="st-row-sub">Keys you've issued for scripts or research tools.</div></div>
+              <div style="width:100%;">
+                <div class="st-sess-row">
+                  <div class="st-sess-ico"><svg width="16" height="16"><use href="#cs-i-key"/></svg></div>
+                  <div>
+                    <div class="st-sess-title">No API keys issued</div>
+                    <div class="st-sess-sub">Generate from the Admin panel.</div>
+                  </div>
+                  <button class="st-sess-btn ghost" style="pointer-events:none;opacity:0.5;">—</button>
+                </div>
+              </div>
+            </div>
+            <div class="st-row stack">
+              <div><div class="st-row-label">Active sessions</div><div class="st-row-sub">Devices currently signed in as you.</div></div>
+              <div style="width:100%;">
+                <div class="st-sess-row">
+                  <div class="st-sess-ico"><svg width="16" height="16"><use href="#cs-i-pulse"/></svg></div>
+                  <div>
+                    <div class="st-sess-title">This browser <span class="cur">Current</span></div>
+                    <div class="st-sess-sub">Active now</div>
+                  </div>
+                  <button class="st-sess-btn ghost" style="pointer-events:none;opacity:0.5;">—</button>
+                </div>
+              </div>
+            </div>
+            <div class="st-row">
+              <div><div class="st-row-label">Login alerts</div><div class="st-row-sub">Email + push notification for every new sign-in.</div></div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="st-section" id="st-about">
+          <div class="st-section-head">
+            <div class="st-section-ico"><svg width="18" height="18"><use href="#cs-i-info"/></svg></div>
+            <div><h3>About &amp; legal</h3><p>Version, compliance, and the legal fine print.</p></div>
+          </div>
+          <div class="st-body">
+            <div class="st-about-grid">
+              <div class="st-about-item"><div class="l">App version</div><div class="v mono">DeepSynaps Studio</div></div>
+              <div class="st-about-item"><div class="l">Release channel</div><div class="v">Preview</div></div>
+              <div class="st-about-item"><div class="l">Compliance</div><div class="v">HIPAA · GDPR · SOC 2 Type II</div></div>
+              <div class="st-about-item"><div class="l">Data residency</div><div class="v">EU (Dublin) · mirrored US-East</div></div>
+              <div class="st-about-item"><div class="l">Encryption</div><div class="v mono">AES-256 at rest · TLS 1.3 in transit</div></div>
+              <div class="st-about-item"><div class="l">Clinical license</div><div class="v">CE Mark · FDA De Novo pending</div></div>
+            </div>
+            <div class="st-legal-links">
+              <a data-st-legal="privacy">Privacy policy</a>
+              <a data-st-legal="tos">Terms of service</a>
+              <a data-st-legal="hipaa">HIPAA BAA</a>
+              <a data-st-legal="dpa">Data processing agreement</a>
+              <a data-st-legal="licenses">Open-source licenses</a>
+              <a data-st-legal="contact">Contact support</a>
+            </div>
+          </div>
+        </section>
+
+        <section class="st-section st-danger" id="st-danger">
+          <div class="st-section-head">
+            <div class="st-section-ico red"><svg width="18" height="18"><use href="#cs-i-alert"/></svg></div>
+            <div><h3>Danger zone</h3><p>Account actions that require admin coordination.</p></div>
+          </div>
+          <div class="st-body">
+            <div class="st-danger-row">
+              <div><div class="t">Go off-duty</div><div class="s">Redirect new assignments to coverage until you come back online.</div></div>
+              <button class="st-danger-btn" data-st-danger="pause">Go off-duty</button>
+            </div>
+            <div class="st-danger-row">
+              <div><div class="t">Revoke all API keys</div><div class="s">Immediately invalidates every personal access token you've issued.</div></div>
+              <button class="st-danger-btn" data-st-danger="revoke">Revoke all</button>
+            </div>
+            <div class="st-danger-row">
+              <div><div class="t">Transfer my patient panel</div><div class="s">Admin will assign your active cases to another clinician and notify each patient.</div></div>
+              <button class="st-danger-btn" data-st-danger="transfer">Start transfer</button>
+            </div>
+            <div class="st-danger-row">
+              <div><div class="t">Deactivate account</div><div class="s">Revokes access. Audit records are retained per HIPAA. Cannot be self-reversed.</div></div>
+              <button class="st-danger-btn" data-st-danger="delete">Deactivate</button>
+            </div>
+          </div>
+        </section>
+
+        <div class="st-savebar" id="st-savebar">
+          <div class="st-savebar-msg">You have unsaved changes</div>
+          <div class="st-savebar-actions">
+            <button class="btn btn-ghost btn-sm" id="st-discard">Discard</button>
+            <button class="btn btn-primary btn-sm" id="st-save"><svg width="13" height="13"><use href="#cs-i-check"/></svg>Save changes</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="st-bd" id="st-confirm-bd">
+        <div class="st-modal">
+          <div class="st-modal-ico"><svg width="20" height="20"><use href="#cs-i-alert"/></svg></div>
+          <h4 id="st-confirm-title">Are you sure?</h4>
+          <p id="st-confirm-body">This action cannot be undone.</p>
+          <input class="st-input st-modal-confirm-input" id="st-confirm-input" type="text" placeholder='Type "CONFIRM" to continue' />
+          <div class="st-modal-actions">
+            <button class="btn btn-ghost btn-sm" id="st-confirm-cancel">Cancel</button>
+            <button class="st-danger-btn" id="st-confirm-ok">Proceed</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="st-toast" id="st-toast"><svg><use href="#cs-i-check"/></svg><span id="st-toast-text">Saved</span></div>
+    </div>
+  `;
+
+  _wireClinicianAccount();
+}
+
+function _wireClinicianAccount() {
+  const st = document.getElementById('pt-route-settings');
+  if (!st) return;
+
+  const toast = document.getElementById('st-toast');
+  const toastText = document.getElementById('st-toast-text');
+  let toastTimer = null;
+  function stToast(msg) {
+    if (!toast) return;
+    if (toastText) toastText.textContent = msg;
+    toast.classList.add('show');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
+  }
+
+  const saveBar = document.getElementById('st-savebar');
+  let dirty = false;
+  const markDirty = () => { if (dirty) return; dirty = true; if (saveBar) saveBar.classList.add('show'); };
+  const clearDirty = () => { dirty = false; if (saveBar) saveBar.classList.remove('show'); };
+
+  st.querySelectorAll('[data-st-toggle]').forEach(t => {
+    t.addEventListener('click', () => {
+      if (t.style.pointerEvents === 'none') return;
+      t.classList.toggle('on');
+      markDirty();
+    });
+  });
+  st.querySelectorAll('[data-st-seg]').forEach(seg => {
+    seg.addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      seg.querySelectorAll('button').forEach(x => x.classList.remove('active'));
+      b.classList.add('active'); markDirty();
+    });
+  });
+  st.querySelectorAll('[data-st-pills]').forEach(g => {
+    g.addEventListener('click', (e) => {
+      const b = e.target.closest('.st-pill'); if (!b) return;
+      g.querySelectorAll('.st-pill').forEach(x => x.classList.remove('active'));
+      b.classList.add('active'); markDirty();
+    });
+  });
+  st.querySelectorAll('[data-st-change]').forEach(el => {
+    el.addEventListener('input', markDirty);
+    el.addEventListener('change', markDirty);
+  });
+
+  const saveBtn = document.getElementById('st-save');
+  const discardBtn = document.getElementById('st-discard');
+  if (saveBtn) saveBtn.addEventListener('click', () => { clearDirty(); stToast('Settings saved'); });
+  if (discardBtn) discardBtn.addEventListener('click', () => { clearDirty(); stToast('Changes discarded'); });
+
+  const nav = document.getElementById('st-nav');
+  if (nav) {
+    nav.addEventListener('click', (e) => {
+      const item = e.target.closest('.st-nav-item'); if (!item) return;
+      const target = document.getElementById(item.dataset.target);
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      nav.querySelectorAll('.st-nav-item').forEach(x => x.classList.remove('active'));
+      item.classList.add('active');
+    });
+  }
+
+  const sectionIds = ['st-account','st-notifications','st-clinical','st-privacy','st-integrations','st-accessibility','st-security','st-about','st-danger'];
+  const sections = sectionIds.map(id => document.getElementById(id)).filter(Boolean);
+  const navItems = nav ? nav.querySelectorAll('.st-nav-item') : [];
+  const updateActiveNav = () => {
+    if (!sections.length) return;
+    const scrollY = (window.scrollY || document.documentElement.scrollTop) + 120;
+    let current = sections[0].id;
+    for (const sec of sections) if (sec.offsetTop <= scrollY) current = sec.id;
+    navItems.forEach(item => item.classList.toggle('active', item.dataset.target === current));
+  };
+  window.addEventListener('scroll', updateActiveNav, { passive: true });
+
+  st.querySelectorAll('[data-st-action]').forEach(b => {
+    b.addEventListener('click', () => {
+      const a = b.dataset.stAction;
+      const msgs = {
+        'edit-profile': 'Opening profile editor…',
+        'change-password': 'Opening password change flow…',
+        'manage-2fa': 'Opening 2FA management…'
+      };
+      stToast(msgs[a] || 'Action: ' + a);
+    });
+  });
+  st.querySelectorAll('[data-st-unlink]').forEach(b => {
+    b.addEventListener('click', () => {
+      const svc = b.dataset.stUnlink;
+      stToast(svc.charAt(0).toUpperCase() + svc.slice(1) + ' unlinked');
+    });
+  });
+  st.querySelectorAll('[data-st-link]').forEach(b => {
+    b.addEventListener('click', () => {
+      const svc = b.dataset.stLink;
+      stToast('Linking ' + svc + '…');
+    });
+  });
+  st.querySelectorAll('[data-st-export]').forEach(b => {
+    b.addEventListener('click', () => {
+      const type = b.dataset.stExport;
+      const labels = { activity: 'Activity log', signed: 'Signed documents' };
+      stToast((labels[type] || 'Export') + ' queued · ready in ~1 hour');
+    });
+  });
+  st.querySelectorAll('[data-st-legal]').forEach(a => {
+    a.addEventListener('click', () => { stToast('Opening: ' + a.textContent); });
+  });
+
+  const bd = document.getElementById('st-confirm-bd');
+  const mTitle = document.getElementById('st-confirm-title');
+  const mBody = document.getElementById('st-confirm-body');
+  const mInput = document.getElementById('st-confirm-input');
+  const mCancel = document.getElementById('st-confirm-cancel');
+  const mOk = document.getElementById('st-confirm-ok');
+  let pendingAction = null;
+
+  const DANGER_COPY = {
+    pause:   { title: 'Go off-duty?',   body: 'New assignments will route to coverage until you come back online.', ok: 'Go off-duty',    needInput: false, success: 'Off-duty · coverage notified' },
+    revoke:  { title: 'Revoke all API keys?', body: 'Any script, research tool, or integration using a personal API key will stop working immediately.', ok: 'Revoke all', needInput: true,  success: 'All API keys revoked' },
+    transfer:{ title: 'Transfer my panel?', body: 'Admin will assign your active cases to another clinician and notify each patient.', ok: 'Request transfer', needInput: false, success: 'Transfer requested · admin will coordinate' },
+    delete:  { title: 'Deactivate account?', body: 'This revokes your access. Audit records are retained per HIPAA. Cannot be reversed.', ok: 'Deactivate', needInput: true, success: 'Deactivation requested · admin will confirm' }
+  };
+
+  st.querySelectorAll('[data-st-danger]').forEach(b => {
+    b.addEventListener('click', () => {
+      pendingAction = b.dataset.stDanger;
+      const c = DANGER_COPY[pendingAction];
+      if (!c || !bd) return;
+      if (mTitle) mTitle.textContent = c.title;
+      if (mBody) mBody.textContent = c.body;
+      if (mOk) mOk.textContent = c.ok;
+      if (mInput) { mInput.value = ''; mInput.style.display = c.needInput ? '' : 'none'; }
+      bd.classList.add('open');
+    });
+  });
+
+  const closeConfirm = () => { if (bd) bd.classList.remove('open'); pendingAction = null; };
+  if (mCancel) mCancel.addEventListener('click', closeConfirm);
+  if (bd) bd.addEventListener('click', (e) => { if (e.target === bd) closeConfirm(); });
+  if (mOk) {
+    mOk.addEventListener('click', () => {
+      if (!pendingAction) return;
+      const c = DANGER_COPY[pendingAction];
+      if (c.needInput && mInput && mInput.value.trim().toUpperCase() !== 'CONFIRM') {
+        stToast('Type CONFIRM to continue'); return;
+      }
+      stToast(c.success); closeConfirm();
+    });
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && bd && bd.classList.contains('open')) closeConfirm();
+  });
+}
+
