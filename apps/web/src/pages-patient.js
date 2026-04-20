@@ -2177,101 +2177,442 @@ export async function pgPatientSessions() {
     ? `After Session\u00a04\u00a0\u00b7\u00a0${esc(fmtDate(nextMilestoneDate))}`
     : 'Not yet scheduled';
 
+  // ── Design · Patient Sessions (ps-*) —————————————————————————————————————
+  // Classify each session as clinic / home based on available metadata so the
+  // split card renders honest counts (falls back to "clinic" when nothing is
+  // known, which matches the current in-clinic-only reality for most courses).
+  function _psIsHome(s) {
+    const loc = String(s.location || s.venue || s.session_type || '').toLowerCase();
+    const hm = !!(s.is_home || s.home_session || s.home);
+    return hm || /home|remote|self|telehealth|at-home/.test(loc);
+  }
+  const _psCompleted = pastSessions.filter(s => {
+    const st = String(s.status || '').toLowerCase().trim();
+    return st === 'completed' || st === 'done' || !!s.delivered_at;
+  });
+  const _psClinicSplit = {
+    clinicTotal: _psCompleted.filter(s => !_psIsHome(s)).length
+      + upcoming.filter(s => !_psIsHome(s)).length,
+    clinicDone:  _psCompleted.filter(s => !_psIsHome(s)).length,
+    homeTotal:   _psCompleted.filter(s =>  _psIsHome(s)).length
+      + upcoming.filter(s =>  _psIsHome(s)).length,
+    homeDone:    _psCompleted.filter(s =>  _psIsHome(s)).length,
+  };
+  function _psPct(done, total) {
+    if (!total) return 0;
+    return Math.max(0, Math.min(100, Math.round(done / total * 100)));
+  }
+  function _psRingOffset(pct) {
+    const C = 2 * Math.PI * 22;
+    return (C - (pct / 100) * C).toFixed(2);
+  }
+
+  // Avg comfort from completed sessions (comfort_rating 1-10; fall back to
+  // tolerance_rating mapping if comfort not provided). Returns null when
+  // nothing to average — we then render "—" not a fake number.
+  const _psAvgComfort = (() => {
+    const vals = [];
+    for (const s of _psCompleted) {
+      let v = Number(s.comfort_rating);
+      if (Number.isFinite(v)) { vals.push(v); continue; }
+      const tol = String(s.tolerance_rating || '').toLowerCase().trim();
+      if (tol === 'excellent')     vals.push(9.5);
+      else if (tol === 'good')     vals.push(8.5);
+      else if (tol === 'mild')     vals.push(7);
+      else if (tol === 'moderate') vals.push(5);
+      else if (tol === 'poor')     vals.push(3);
+    }
+    if (!vals.length) return null;
+    return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
+  })();
+
+  // Live session (only render the banner when something is actually live).
+  const _psLiveSession = sessions.find(s => {
+    const st = String(s.status || '').toLowerCase().trim();
+    return st === 'live' || st === 'in_progress' || st === 'active';
+  }) || null;
+
+  // Combined + ordered list for the 2-col grid (upcoming first, then completed).
+  const _psList = [...upcoming, ..._psCompleted];
+
+  // Render one list item with real fields. No fabricated n/score if absent.
+  function _psItemHtml(s, idx) {
+    const d = new Date(s.scheduled_at || s.delivered_at || 0);
+    const hasDate = !isNaN(d.getTime());
+    const mo  = hasDate ? d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase() : '—';
+    const day = hasDate ? d.getDate() : '—';
+    const dow = hasDate ? d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase() : '';
+    const num = sessionNumFor(s);
+    const stRaw = String(s.status || '').toLowerCase().trim();
+    const live = stRaw === 'live' || stRaw === 'in_progress' || stRaw === 'active';
+    const skipped = stRaw === 'missed' || stRaw === 'no-show' || stRaw === 'no_show' || stRaw === 'cancelled';
+    const isFuture = hasDate && d.getTime() > Date.now() && !live;
+    const home = _psIsHome(s);
+    const modLbl = modalityLabel(s.modality_slug) || 'Session';
+    const mins = s.duration_minutes ? s.duration_minutes + ' min' : null;
+    const comfort = Number(s.comfort_rating);
+    const comfortTxt = Number.isFinite(comfort) ? ('Comfort ' + comfort.toFixed(1)) : null;
+    const pill = live
+      ? '<span class="ps-item-pill live">Live</span>'
+      : skipped
+        ? '<span class="ps-item-pill skipped">Skipped</span>'
+        : home
+          ? '<span class="ps-item-pill home">Home</span>'
+          : '<span class="ps-item-pill clinic">Clinic</span>';
+    const classes = ['ps-item'];
+    if (live) classes.push('live');
+    if (skipped) classes.push('skipped');
+    return `
+      <button class="${classes.join(' ')}" data-status="${isFuture ? 'upcoming' : live ? 'live' : 'completed'}" data-loc="${home ? 'home' : 'clinic'}" onclick="window._psSelectSession(${idx})">
+        <div class="ps-item-date">
+          <div class="mo">${esc(mo)}</div>
+          <div class="d">${esc(String(day))}</div>
+          <div class="dow">${esc(dow)}</div>
+        </div>
+        <div class="ps-item-body">
+          <div class="ps-item-title">${esc(modLbl)}${num ? ' <span class="n">#' + num + '</span>' : ''}</div>
+          <div class="ps-item-meta">
+            ${mins ? '<span>' + esc(mins) + '</span>' : ''}
+            ${s.location ? '<span>' + esc(s.location) + '</span>' : ''}
+          </div>
+        </div>
+        <div class="ps-item-right">
+          ${pill}
+          ${comfortTxt ? '<div class="ps-item-score">' + esc(comfortTxt) + '</div>' : ''}
+        </div>
+      </button>`;
+  }
+
+  // Detail card for the selected session (default = live > nextSession > most recent completed).
+  function _psDetailHtml(s) {
+    if (!s) {
+      return `
+        <div class="ps-detail-hero">
+          <div class="ps-detail-title">Select a session</div>
+          <div class="ps-detail-sub">Pick an item from the list to see parameters, comfort, clinician notes, and prep reminders.</div>
+        </div>`;
+    }
+    const d = new Date(s.scheduled_at || s.delivered_at || 0);
+    const hasDate = !isNaN(d.getTime());
+    const dateStr = hasDate ? d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' }) : '—';
+    const timeStr = hasDate ? d.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' }) : '';
+    const stRaw = String(s.status || '').toLowerCase().trim();
+    const live = stRaw === 'live' || stRaw === 'in_progress' || stRaw === 'active';
+    const num = sessionNumFor(s);
+    const modLbl = modalityLabel(s.modality_slug) || 'Session';
+    const home = _psIsHome(s);
+    const kicker = live
+      ? '<strong>Live now</strong> · in progress'
+      : hasDate && d.getTime() > Date.now()
+        ? '<strong>Upcoming</strong> · ' + esc(dateStr)
+        : '<strong>Completed</strong> · ' + esc(dateStr);
+    const sub = s.summary || s.post_session_notes || s.clinician_notes || (home
+      ? 'Home session · follow your device-guided prompts and log anything unusual afterward.'
+      : 'In-clinic session with your care team. Ask your clinician about anything unclear.');
+    const metaParts = [
+      { lbl: 'Session', val: num ? ('#' + num) : '—' },
+      { lbl: 'Modality', val: modLbl },
+      { lbl: 'Location', val: s.location || (home ? 'At-home' : 'In-clinic') },
+      { lbl: 'Duration', val: s.duration_minutes ? s.duration_minutes + ' min' : '—' },
+      { lbl: 'Time', val: timeStr || '—' },
+    ];
+
+    const amplitude = s.stimulation_mA ?? s.current_mA ?? s.target_mA;
+    const frequency = s.frequency_hz ?? s.pulse_frequency_hz;
+    const targetSite = s.target_site || s.montage || null;
+    const rampUpS = s.ramp_up_sec ?? s.ramp_seconds;
+    const paramsHtml = [];
+    if (amplitude != null || targetSite || frequency != null || rampUpS != null) {
+      if (amplitude != null) paramsHtml.push(`<div class="ps-param"><div class="ps-param-lbl">Amplitude</div><div class="ps-param-val">${esc(amplitude)}<small>mA</small></div></div>`);
+      if (frequency != null) paramsHtml.push(`<div class="ps-param"><div class="ps-param-lbl">Frequency</div><div class="ps-param-val">${esc(frequency)}<small>Hz</small></div></div>`);
+      if (targetSite)        paramsHtml.push(`<div class="ps-param"><div class="ps-param-lbl">Target</div><div class="ps-param-val mono">${esc(targetSite)}</div></div>`);
+      if (rampUpS != null)   paramsHtml.push(`<div class="ps-param"><div class="ps-param-lbl">Ramp-up</div><div class="ps-param-val">${esc(rampUpS)}<small>s</small></div></div>`);
+    }
+    const paramsSection = paramsHtml.length ? `
+      <div class="ps-sec">
+        <div class="ps-sec-title"><div class="i"><svg><use href="#i-settings"/></svg></div>Protocol parameters</div>
+        <div class="ps-params">${paramsHtml.join('')}</div>
+      </div>` : '';
+
+    const comfortVal = Number(s.comfort_rating);
+    const comfortSection = Number.isFinite(comfortVal) ? `
+      <div class="ps-sec">
+        <div class="ps-sec-title"><div class="i"><svg><use href="#i-heart"/></svg></div>Comfort rating</div>
+        <div class="ps-comfort-row">
+          <div class="ps-comfort-faces">
+            ${['😣','😕','😐','🙂','😊'].map((f, i) => {
+              const midpoint = (i + 1) * 2;
+              const on = Math.round(comfortVal / 2) === i + 1;
+              return `<div class="ps-comfort-face${on ? ' on' : ''}">${f}</div>`;
+            }).join('')}
+          </div>
+          <div class="ps-comfort-info">
+            <div class="ps-comfort-info-val">${comfortVal.toFixed(1)}</div>
+            <div class="ps-comfort-info-lbl">out of 10</div>
+          </div>
+        </div>
+      </div>` : '';
+
+    const note = s.post_session_notes || s.clinician_notes;
+    const noteSection = note ? `
+      <div class="ps-sec">
+        <div class="ps-sec-title"><div class="i"><svg><use href="#i-mail"/></svg></div>Clinician note</div>
+        <div class="ps-note">
+          <div class="ps-note-hd">
+            <div class="ps-note-av">${esc((s.clinician_name || 'CT').split(/\s+/).map(p => p[0] || '').slice(0,2).join('').toUpperCase())}</div>
+            <div>
+              <div class="ps-note-who">${esc(s.clinician_name || 'Your care team')}</div>
+              <div class="ps-note-when">${esc(dateStr)}</div>
+            </div>
+          </div>
+          <div class="ps-note-body">${esc(note)}</div>
+        </div>
+      </div>` : '';
+
+    const actions = hasDate && d.getTime() > Date.now() && !live
+      ? `<button class="btn btn-ghost btn-sm" onclick="window._ptRequestReschedule && window._ptRequestReschedule()">Request reschedule</button>
+         <button class="btn btn-primary btn-sm" onclick="window._navPatient('patient-messages')">Message care team</button>`
+      : `<button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">Message care team</button>`;
+
+    return `
+      <div class="ps-detail-hero">
+        <div class="ps-detail-kicker">${kicker}</div>
+        <div class="ps-detail-title">${esc(modLbl)}${num ? ' · Session #' + num : ''}</div>
+        <div class="ps-detail-sub">${esc(sub)}</div>
+        <div class="ps-detail-meta">
+          ${metaParts.map(m => `<div><div class="ps-detail-meta-lbl">${esc(m.lbl)}</div><div class="ps-detail-meta-val">${esc(m.val)}</div></div>`).join('')}
+        </div>
+        <div class="ps-detail-actions">${actions}</div>
+      </div>
+      <div class="ps-detail-body">
+        ${paramsSection}
+        ${comfortSection}
+        ${noteSection}
+      </div>`;
+  }
+
+  // Pick default detail: live → next upcoming → latest completed.
+  const _psInitialIdx = (() => {
+    const liveI = _psList.findIndex(s => {
+      const st = String(s.status || '').toLowerCase().trim();
+      return st === 'live' || st === 'in_progress' || st === 'active';
+    });
+    if (liveI >= 0) return liveI;
+    if (upcoming.length) return 0;
+    if (_psCompleted.length) return upcoming.length;
+    return 0;
+  })();
+
+  // Comparison chart points (comfort by default). Returns a serialisable array
+  // of { x:Date, y:value|null, loc:'clinic'|'home', status:'completed'|'skipped' }.
+  function _psChartPoints(metric) {
+    return _psCompleted
+      .map(s => {
+        const d = new Date(s.delivered_at || s.scheduled_at || 0);
+        if (isNaN(d.getTime())) return null;
+        let y = null;
+        if (metric === 'comfort') {
+          y = Number(s.comfort_rating);
+          if (!Number.isFinite(y)) {
+            const tol = String(s.tolerance_rating || '').toLowerCase();
+            if (tol === 'excellent')     y = 9.5;
+            else if (tol === 'good')     y = 8.5;
+            else if (tol === 'mild')     y = 7;
+            else if (tol === 'moderate') y = 5;
+            else if (tol === 'poor')     y = 3;
+          }
+        } else if (metric === 'impedance') {
+          y = Number(s.impedance_kohm ?? s.impedance);
+        } else if (metric === 'phq9') {
+          const same = outcomesByDate[(s.delivered_at || '').slice(0, 10)] || [];
+          const phq = same.find(o => /phq/i.test(o.template_slug || o.template_name || ''));
+          y = phq ? Number(phq.score_numeric) : null;
+        }
+        return {
+          x: d.getTime(),
+          y: Number.isFinite(y) ? y : null,
+          loc: _psIsHome(s) ? 'home' : 'clinic',
+          status: String(s.status || '').toLowerCase() === 'missed' ? 'skipped' : 'completed',
+        };
+      })
+      .filter(Boolean);
+  }
+  function _psChartHtml(metric) {
+    const pts = _psChartPoints(metric);
+    if (!pts.length) {
+      return `<div class="ps-empty" style="margin:8px 10px">No data to chart yet — this updates as sessions are logged.</div>`;
+    }
+    const xs = pts.map(p => p.x);
+    const xMin = Math.min(...xs), xMax = Math.max(...xs) || (xMin + 1);
+    const ys = pts.map(p => p.y).filter(v => v != null);
+    const yMin = ys.length ? Math.min(...ys) : 0;
+    const yMax = ys.length ? Math.max(...ys) : 10;
+    const yRange = (yMax - yMin) || 1;
+    const dots = pts.map((p, i) => {
+      if (p.y == null) return '';
+      const left  = ((p.x - xMin) / ((xMax - xMin) || 1)) * 90 + 5;
+      const top   = 90 - (((p.y - yMin) / yRange) * 80);
+      const cls   = p.status === 'skipped' ? 'skipped' : p.loc;
+      return `<div class="ps-compare-dot ${cls}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%" data-idx="${i}"></div>`;
+    }).join('');
+    const xLabelLeft  = new Date(xMin).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const xLabelRight = new Date(xMax).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `
+      ${dots}
+      <div class="ps-compare-x"><span>${esc(xLabelLeft)}</span><span>${esc(xLabelRight)}</span></div>`;
+  }
+
   el.innerHTML = `
-
-    <!-- ── Course context bar ── -->
-    ${activeCourse ? `
-    <div class="pt-course-ctx-bar">
-      <div class="pt-ctx-main-row">
-        <div class="pt-ctx-item pt-ctx-item--name">
-          <div class="pt-ctx-label">Treatment course</div>
-          <div class="pt-ctx-value pt-ctx-value--name">${esc(activeCourse.name || activeCourse.condition_slug || 'Active Treatment')}</div>
-        </div>
-        <div class="pt-ctx-divider"></div>
-        <div class="pt-ctx-item">
-          <div class="pt-ctx-label">Phase</div>
-          <div class="pt-ctx-value">${_phaseDisplay}</div>
-        </div>
-        <div class="pt-ctx-divider"></div>
-        <div class="pt-ctx-item">
-          <div class="pt-ctx-label">Sessions</div>
-          <div class="pt-ctx-value">${sessDelivered}\u00a0of\u00a0${totalPlanned ?? '?'} completed${sessRemaining !== null ? `\u00a0\u00b7\u00a0${sessRemaining} left` : ''}</div>
-        </div>
-        <div class="pt-ctx-divider"></div>
-        <div class="pt-ctx-item">
-          <div class="pt-ctx-label">Next milestone review</div>
-          <div class="pt-ctx-value pt-ctx-value-dim">${_reviewLabel}</div>
-        </div>
-        <div class="pt-ctx-link-wrap">
-          <button class="pt-ctx-plan-link"
-                  onclick="window._navPatient('patient-course')">View full treatment plan \u203a</button>
-        </div>
+    <!-- Page header -->
+    <div class="ps-hd">
+      <div>
+        <h2>Sessions</h2>
+        <p>${activeCourse
+          ? `Your ${esc(modalityLabel(activeCourse.modality_slug) || 'treatment')} course · <strong style="color:var(--teal)">${sessDelivered} of ${totalPlanned ?? '?'} sessions complete</strong>. Review past sessions, join upcoming ones, or start a home session on your prescribed days.`
+          : "You don\u2019t have an active course yet. Once your care team schedules sessions, they will appear here."}</p>
       </div>
-      ${progressPct !== null ? `
-      <div class="pt-ctx-bar-wrap">
-        <div class="pt-ctx-bar-fill" style="width:${progressPct}%"></div>
-      </div>` : ''}
-    </div>` : ''}
-
-    <!-- Assessment due banner -->
-    ${assessmentDueBannerHTML(nextSession)}
-
-    <!-- ── Section 1: Next Session ── -->
-    ${nextSession
-      ? nextSessionHeroHTML(nextSession)
-      : `<div class="pt-ns-empty">
-           <div class="pt-ns-empty-ico">\ud83d\udcc5</div>
-           <div class="pt-ns-empty-title">No upcoming sessions scheduled</div>
-           <div class="pt-ns-empty-body">
-             ${activeCourse
-               ? "Your next session hasn\u2019t been booked yet. Your care team will be in touch to confirm your schedule."
-               : "You don\u2019t have any active treatment sessions scheduled. Contact your clinic to get started."}
-           </div>
-           <button class="btn btn-ghost btn-sm" style="margin-top:14px"
-                   onclick="window._navPatient('patient-messages')">Contact Clinic</button>
-         </div>`}
-
-    <!-- ── Section 2: Upcoming Sessions ── -->
-    ${upcoming.length > 1 ? `
-    <div class="pt-sess-section">
-      <div class="pt-sess-section-hd">
-        <span class="pt-sess-section-title">Upcoming Sessions</span>
-        <span class="pt-sess-badge">${upcoming.length - 1}</span>
+      <div class="ps-hd-stats">
+        <div class="ps-stat"><div class="ps-stat-num">${_psCompleted.length}</div><div class="ps-stat-lbl">Completed</div></div>
+        <div class="ps-stat accent-blue"><div class="ps-stat-num">${upcoming.length}</div><div class="ps-stat-lbl">Upcoming</div></div>
+        <div class="ps-stat accent-violet"><div class="ps-stat-num">${_psAvgComfort != null ? _psAvgComfort : '—'}</div><div class="ps-stat-lbl">Avg comfort</div></div>
       </div>
-      <div class="pt-uc-compact-list card" style="padding:0;overflow:hidden">
-        ${upcoming.slice(1).map((s, i) => upcomingCompactCardHTML(s, i)).join('')}
-      </div>
-    </div>` : ''}
-
-    <!-- ── Section 3: Session History ── -->
-    <div class="pt-sess-section">
-      <div class="pt-sess-section-hd">
-        <span class="pt-sess-section-title">${t('patient.sess.history')}</span>
-        ${pastSessions.length > 0 ? `<span class="pt-sess-badge">${pastSessions.length}</span>` : ''}
-      </div>
-      ${pastSessions.length === 0
-        ? `<div class="pt-sess-empty" style="padding:28px 20px">
-            <div class="pt-sess-empty-icon">\ud83d\udcc5</div>
-            <div class="pt-sess-empty-title">${t('patient.sess.no_history.title')}</div>
-            <div class="pt-sess-empty-body">${t('patient.sess.no_history.body')}</div>
-          </div>`
-        : `<div class="card" style="overflow:hidden;padding:0">
-            ${pastSessions.map((s, i) => pastSessionRowHTML(s, i)).join('')}
-          </div>`}
     </div>
 
-    <!-- ── Section 4: Feedback From Recent Sessions ── -->
-    ${feedbackFromSessionsHTML()}
+    <!-- Home / Clinic split -->
+    <div class="ps-split">
+      <div class="ps-split-card">
+        <div class="ps-split-ico clinic"><svg width="18" height="18"><use href="#i-pulse"/></svg></div>
+        <div>
+          <div class="ps-split-info-lbl">In-clinic</div>
+          <div class="ps-split-info-val">${_psClinicSplit.clinicDone}<small>/ ${_psClinicSplit.clinicTotal || '—'} complete</small></div>
+        </div>
+        <div class="ps-split-prog">
+          <svg viewBox="0 0 54 54">
+            <circle cx="27" cy="27" r="22" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="4"/>
+            <circle cx="27" cy="27" r="22" fill="none" stroke="#4a9eff" stroke-width="4" stroke-linecap="round" stroke-dasharray="138.23" stroke-dashoffset="${_psRingOffset(_psPct(_psClinicSplit.clinicDone, _psClinicSplit.clinicTotal))}"/>
+          </svg>
+          <div class="ps-split-prog-n">${_psPct(_psClinicSplit.clinicDone, _psClinicSplit.clinicTotal)}%</div>
+        </div>
+      </div>
+      <div class="ps-split-card">
+        <div class="ps-split-ico home"><svg width="18" height="18"><use href="#i-home"/></svg></div>
+        <div>
+          <div class="ps-split-info-lbl">At-home</div>
+          <div class="ps-split-info-val">${_psClinicSplit.homeDone}<small>/ ${_psClinicSplit.homeTotal || '—'} complete</small></div>
+        </div>
+        <div class="ps-split-prog">
+          <svg viewBox="0 0 54 54">
+            <circle cx="27" cy="27" r="22" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="4"/>
+            <circle cx="27" cy="27" r="22" fill="none" stroke="#9b7fff" stroke-width="4" stroke-linecap="round" stroke-dasharray="138.23" stroke-dashoffset="${_psRingOffset(_psPct(_psClinicSplit.homeDone, _psClinicSplit.homeTotal))}"/>
+          </svg>
+          <div class="ps-split-prog-n">${_psPct(_psClinicSplit.homeDone, _psClinicSplit.homeTotal)}%</div>
+        </div>
+      </div>
+    </div>
 
-    <!-- ── Section 5: Before Your Next Session ── -->
+    <!-- LIVE banner — only when a session is actually in progress -->
+    ${_psLiveSession ? `
+    <div class="ps-live">
+      <div class="ps-live-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#04121c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      </div>
+      <div class="ps-live-body">
+        <div class="ps-live-badge">Live now</div>
+        <div class="ps-live-title">${esc(modalityLabel(_psLiveSession.modality_slug) || 'Session')}${sessionNumFor(_psLiveSession) ? ' · #' + sessionNumFor(_psLiveSession) : ''}</div>
+        <div class="ps-live-sub">${esc(_psLiveSession.target_site || _psLiveSession.location || 'In progress — follow your device-guided prompts.')}</div>
+      </div>
+    </div>` : ''}
+
+    <!-- Assessment due banner (existing feature, preserved) -->
+    ${assessmentDueBannerHTML(nextSession)}
+
+    <!-- Filters -->
+    <div class="ps-filters" id="ps-filters">
+      <button class="ps-filter active" data-f="all" onclick="window._psFilter && window._psFilter('all')">All <span class="count">${_psList.length}</span></button>
+      ${_psLiveSession ? `<button class="ps-filter" data-f="live" onclick="window._psFilter && window._psFilter('live')">Live <span class="count">1</span></button>` : ''}
+      <button class="ps-filter" data-f="upcoming" onclick="window._psFilter && window._psFilter('upcoming')">Upcoming <span class="count">${upcoming.length}</span></button>
+      <button class="ps-filter" data-f="completed" onclick="window._psFilter && window._psFilter('completed')">Completed <span class="count">${_psCompleted.length}</span></button>
+      <button class="ps-filter" data-f="clinic" onclick="window._psFilter && window._psFilter('clinic')">In-clinic <span class="count">${_psClinicSplit.clinicTotal}</span></button>
+      <button class="ps-filter" data-f="home" onclick="window._psFilter && window._psFilter('home')">At-home <span class="count">${_psClinicSplit.homeTotal}</span></button>
+    </div>
+
+    <!-- Main 2-col: list + detail -->
+    <div class="ps-grid">
+      <div class="ps-list" id="ps-list">
+        ${_psList.length === 0
+          ? `<div class="ps-empty">No sessions yet. Your care team will schedule your first session soon.</div>`
+          : _psList.map((s, i) => _psItemHtml(s, i)).join('')}
+      </div>
+      <div class="ps-detail">
+        <div class="ps-detail-card" id="ps-detail-card">
+          ${_psDetailHtml(_psList[_psInitialIdx] || null)}
+        </div>
+      </div>
+    </div>
+
+    <!-- Comparison / trend chart -->
+    ${_psCompleted.length ? `
+    <div class="ps-compare">
+      <div class="ps-compare-hd">
+        <div>
+          <h3>Session trends</h3>
+          <p>Comfort${outcomes.length ? ', impedance, and PHQ-9' : ''} across your course · tap a point to see that session</p>
+        </div>
+        <div class="ps-compare-tabs" id="ps-compare-tabs">
+          <button class="active" data-metric="comfort" onclick="window._psMetric && window._psMetric('comfort')">Comfort</button>
+          <button data-metric="impedance" onclick="window._psMetric && window._psMetric('impedance')">Impedance</button>
+          <button data-metric="phq9" onclick="window._psMetric && window._psMetric('phq9')">PHQ-9</button>
+        </div>
+      </div>
+      <div class="ps-compare-chart" id="ps-compare-chart">${_psChartHtml('comfort')}</div>
+      <div class="ps-compare-legend" style="margin-top:14px">
+        <span><span class="sw" style="background:var(--teal)"></span>Clinic session</span>
+        <span><span class="sw" style="background:var(--violet)"></span>Home session</span>
+        <span><span class="sw" style="background:var(--amber)"></span>Skipped / short</span>
+      </div>
+    </div>` : ''}
+
+    <!-- Section: before next session / aftercare — preserved below the ps-* grid -->
     ${nextSession ? whatToExpectHTML(nextSession) : ''}
-
-    <!-- ── Section 6: Aftercare / What to Watch ── -->
     ${aftercareHTML()}
 
     <!-- Session reports (if any linked assessments) -->
     ${relatedDocsFeedbackHTML()}
   `;
+
+  // ── Design · Sessions interactive handlers ──────────────────────────────────
+  window._psSelectSession = function(idx) {
+    const s = _psList[idx];
+    const card = document.getElementById('ps-detail-card');
+    if (!card) return;
+    card.innerHTML = _psDetailHtml(s);
+    document.querySelectorAll('#ps-list .ps-item.active').forEach(i => i.classList.remove('active'));
+    const items = document.querySelectorAll('#ps-list .ps-item');
+    if (items[idx]) items[idx].classList.add('active');
+  };
+  window._psFilter = function(f) {
+    document.querySelectorAll('#ps-filters .ps-filter').forEach(b => b.classList.toggle('active', b.dataset.f === f));
+    const items = document.querySelectorAll('#ps-list .ps-item');
+    items.forEach(item => {
+      if (f === 'all') { item.style.display = ''; return; }
+      if (f === 'live')      item.style.display = item.dataset.status === 'live'      ? '' : 'none';
+      else if (f === 'upcoming')  item.style.display = item.dataset.status === 'upcoming'  ? '' : 'none';
+      else if (f === 'completed') item.style.display = item.dataset.status === 'completed' ? '' : 'none';
+      else if (f === 'clinic')    item.style.display = item.dataset.loc    === 'clinic'    ? '' : 'none';
+      else if (f === 'home')      item.style.display = item.dataset.loc    === 'home'      ? '' : 'none';
+    });
+  };
+  window._psMetric = function(m) {
+    document.querySelectorAll('#ps-compare-tabs button').forEach(b => b.classList.toggle('active', b.dataset.metric === m));
+    const chart = document.getElementById('ps-compare-chart');
+    if (chart) chart.innerHTML = _psChartHtml(m);
+  };
+  // Highlight the initial item.
+  setTimeout(() => {
+    const items = document.querySelectorAll('#ps-list .ps-item');
+    if (items[_psInitialIdx]) items[_psInitialIdx].classList.add('active');
+  }, 0);
+
 
   // ── Past session accordion ────────────────────────────────────────────────────
   window._ptToggleCompleted = function(rowIdx) {
