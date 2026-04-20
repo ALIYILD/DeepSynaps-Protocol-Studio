@@ -21215,4 +21215,108 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   .pth2-tiles { grid-template-columns:1fr; }
   .pth2-hero { padding:20px; }
   .pth2-countdown-num { font-size:34px; }
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* cl- · Design #03 · Clinic Dashboard — activity feed + outcomes mini-chart  */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+.cl-row-1-1 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+@media (max-width: 1000px) {
+  .cl-row-1-1 { grid-template-columns: 1fr; }
+}
+
+.cl-feed-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+.cl-feed-item:last-child { border-bottom: none; }
+.cl-feed-ico {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(0,212,188,0.12);
+  color: var(--teal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 13px;
+}
+.cl-feed-ico.violet { background: rgba(155,127,255,0.12); color: var(--violet); }
+.cl-feed-ico.amber  { background: rgba(255,181,71,0.12);  color: var(--amber);  }
+.cl-feed-ico.blue   { background: rgba(74,158,255,0.12);  color: var(--blue);   }
+.cl-feed-ico.rose   { background: rgba(255,107,157,0.12); color: var(--rose);   }
+.cl-feed-text { flex: 1; min-width: 0; }
+.cl-feed-text strong { color: var(--text-primary); font-weight: 600; }
+.cl-feed-time {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.cl-feed-empty {
+  padding: 28px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.cl-outcomes-legend {
+  display: flex;
+  gap: 18px;
+  margin-top: 10px;
+  font-size: 11.5px;
+  flex-wrap: wrap;
+}
+.cl-outcomes-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+}
+.cl-outcomes-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.cl-outcomes-empty {
+  padding: 36px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.cl-outcomes-tabrow {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-surface);
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.cl-outcomes-tabrow button {
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.cl-outcomes-tabrow button.cl-active {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-primary);
 }

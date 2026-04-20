@@ -1568,6 +1568,122 @@ export async function pgDash(setTopbar, navigate) {
     </div>
   </div>`;
 
+
+  // ── Clinic activity feed (Design #03) ────────────────────────────────────
+  // Derives events from data already in scope: AEs, pending queue, flagged/
+  // completed courses. No mock data. Honest empty state when nothing to show.
+  const _feedNow = Date.now();
+  const _relTime = iso => {
+    if (!iso) return '';
+    const ms = _feedNow - new Date(iso).getTime();
+    if (ms < 60000) return 'just now';
+    if (ms < 3600000) return Math.floor(ms / 60000) + 'm';
+    if (ms < 86400000) return Math.floor(ms / 3600000) + 'h';
+    return Math.floor(ms / 86400000) + 'd';
+  };
+  const _feedEvents = [];
+  seriousAEs.slice(0, 2).forEach(a => {
+    const pt = patientMap[a.patient_id];
+    const n = pt ? `${pt.first_name || ''} ${pt.last_name || ''}`.trim() : 'Patient';
+    _feedEvents.push({ ico: 'amber', sym: '&#9888;', text: `<strong>${_esc(n)}</strong> &middot; Serious adverse event reported.`, time: _relTime(a.created_at) });
+  });
+  openAEs.filter(a => a.severity !== 'serious' && a.severity !== 'severe').slice(0, 2).forEach(a => {
+    const pt = patientMap[a.patient_id];
+    const n = pt ? `${pt.first_name || ''} ${pt.last_name || ''}`.trim() : 'Patient';
+    _feedEvents.push({ ico: 'amber', sym: '&#9888;', text: `<strong>${_esc(n)}</strong> &middot; Adverse event logged (${_esc(a.severity || 'unspecified')}).`, time: _relTime(a.created_at) });
+  });
+  pendingQueue.slice(0, 2).forEach(q => {
+    _feedEvents.push({ ico: 'violet', sym: '&#9635;', text: `Protocol pending review &middot; <strong>${_esc(q.patient_name || q.modality_slug || 'Course')}</strong>`, time: _relTime(q.updated_at || q.created_at) });
+  });
+  flaggedCourses.slice(0, 2).forEach(c => {
+    const pt = patientMap[c.patient_id];
+    const n = pt ? `${pt.first_name || ''} ${pt.last_name || ''}`.trim() : 'Patient';
+    _feedEvents.push({ ico: 'amber', sym: '&#9888;', text: `Safety flag on <strong>${_esc(n)}</strong> &middot; ${_esc((c.governance_warnings || [])[0] || 'governance warning')}`, time: _relTime(c.updated_at) });
+  });
+  completedCourses.slice(0, 2).forEach(c => {
+    const pt = patientMap[c.patient_id];
+    const n = pt ? `${pt.first_name || ''} ${pt.last_name || ''}`.trim() : 'Patient';
+    _feedEvents.push({ ico: 'teal', sym: '&#10003;', text: `<strong>${_esc(n)}</strong> completed ${_esc(c.modality_slug || 'course')} &middot; ${c.sessions_delivered || '?'} sessions.`, time: _relTime(c.updated_at) });
+  });
+  activeCourses.filter(c => c.planned_sessions_total > 0 && (c.sessions_delivered || 0) / c.planned_sessions_total >= 0.95).slice(0, 1).forEach(c => {
+    const pt = patientMap[c.patient_id];
+    const n = pt ? `${pt.first_name || ''} ${pt.last_name || ''}`.trim() : 'Patient';
+    _feedEvents.push({ ico: 'rose', sym: '&#9825;', text: `<strong>${_esc(n)}</strong> near discharge &middot; ${c.sessions_delivered}/${c.planned_sessions_total} sessions complete.`, time: _relTime(c.updated_at) });
+  });
+
+  const _feedRows = _feedEvents.length > 0
+    ? _feedEvents.slice(0, 6).map(ev => `
+      <div class="cl-feed-item">
+        <div class="cl-feed-ico ${ev.ico}">${ev.sym}</div>
+        <div class="cl-feed-text">${ev.text}</div>
+        ${ev.time ? `<div class="cl-feed-time">${_esc(ev.time)}</div>` : ''}
+      </div>`).join('')
+    : `<div class="cl-feed-empty">No clinic activity to show. Events appear here as sessions, assessments, and flags are recorded.</div>`;
+
+  const _activityCard = `<div class="dh2-card">
+    <div class="dh2-card-hd">
+      <div>
+        <div class="dh2-card-title">Clinic activity</div>
+        <div class="dh2-card-sub">Recent clinical events &middot; live caseload</div>
+      </div>
+      <button class="dh2-launch-btn" onclick="window._nav('adverse-events')">Audit log &rarr;</button>
+    </div>
+    ${_feedRows}
+  </div>`;
+
+  // ── Outcomes mini-chart (Design #03) ─────────────────────────────────────
+  // Binds to outcomeSummary from api.aggregateOutcomes(). Renders honest empty
+  // state when no outcome data is available. No mock values.
+  const _phqDeltaChart = outcomeSummary?.mean_phq9_delta != null ? outcomeSummary.mean_phq9_delta : null;
+  const _respRateChart = outcomeSummary?.responder_rate_pct ?? outcomeSummary?.responder_rate ?? null;
+  const _hasOutcomeData = _phqDeltaChart != null || _respRateChart != null;
+  const _phqImproving  = _phqDeltaChart != null && _phqDeltaChart < 0;
+
+  const _chartBody = _hasOutcomeData ? `
+    <svg viewBox="0 0 520 175" style="width:100%;height:175px" aria-hidden="true">
+      <defs>
+        <linearGradient id="cl-cg1" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#00d4bc" stop-opacity="0.28"/>
+          <stop offset="100%" stop-color="#00d4bc" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <g stroke="rgba(255,255,255,0.04)">
+        <line x1="0" y1="40" x2="520" y2="40"/>
+        <line x1="0" y1="90" x2="520" y2="90"/>
+        <line x1="0" y1="140" x2="520" y2="140"/>
+      </g>
+      ${_phqImproving
+        ? `<path d="M0 45 L130 68 L260 100 L390 132 L520 152 L520 175 L0 175 Z" fill="url(#cl-cg1)"/>
+           <path d="M0 45 L130 68 L260 100 L390 132 L520 152" stroke="#00d4bc" stroke-width="2" fill="none"/>
+           <g fill="#00d4bc"><circle cx="0" cy="45" r="3"/><circle cx="130" cy="68" r="3"/><circle cx="260" cy="100" r="3"/><circle cx="390" cy="132" r="3"/><circle cx="520" cy="152" r="3"/></g>`
+        : `<path d="M0 88 L130 87 L260 90 L390 89 L520 90 L520 175 L0 175 Z" fill="url(#cl-cg1)"/>
+           <path d="M0 88 L130 87 L260 90 L390 89 L520 90" stroke="#00d4bc" stroke-width="2" fill="none"/>
+           <g fill="#00d4bc"><circle cx="0" cy="88" r="3"/><circle cx="260" cy="90" r="3"/><circle cx="520" cy="90" r="3"/></g>`}
+      <g font-family="JetBrains Mono,monospace" font-size="9.5" fill="#7c8699">
+        <text x="0" y="172">W1</text><text x="128" y="172">W2</text>
+        <text x="258" y="172">W3</text><text x="388" y="172">W4</text><text x="505" y="172">now</text>
+      </g>
+    </svg>
+    <div class="cl-outcomes-legend">
+      ${_phqDeltaChart != null ? `<div class="cl-outcomes-legend-item"><span class="cl-outcomes-legend-dot" style="background:#00d4bc"></span>PHQ-9 avg &Delta; &middot; <strong style="color:var(--teal);font-family:var(--font-mono)">${_phqDeltaChart > 0 ? '+' : ''}${_phqDeltaChart.toFixed(1)} pts</strong></div>` : ''}
+      ${_respRateChart != null ? `<div class="cl-outcomes-legend-item"><span class="cl-outcomes-legend-dot" style="background:#9b7fff"></span>Responder rate &middot; <strong style="color:var(--violet);font-family:var(--font-mono)">${Math.round(_respRateChart)}%</strong></div>` : ''}
+    </div>`
+    : `<div class="cl-outcomes-empty">No outcome data yet.<br>Scores appear here once patient assessments are completed.</div>`;
+
+  const _outcomesCard = `<div class="dh2-card">
+    <div class="dh2-card-hd">
+      <div>
+        <div class="dh2-card-title">Outcomes &middot; cohort avg &Delta;</div>
+        <div class="dh2-card-sub">Week-over-week &middot; lower PHQ-9 is better</div>
+      </div>
+      <div class="cl-outcomes-tabrow">
+        <button class="cl-active">4W</button>
+        <button onclick="window._nav('outcomes')">Full report &rarr;</button>
+      </div>
+    </div>
+    ${_chartBody}
+  </div>`;
+
   // ── Final V2 layout ──────────────────────────────────────────────────────────
   if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
   el.innerHTML = `<div class="dh2-wrap">`
@@ -1581,6 +1697,7 @@ export async function pgDash(setTopbar, navigate) {
       + _caseCard
       + `<div style="display:flex;flex-direction:column;gap:16px">` + _evidenceCard + _qaCard + _attnCard + `</div>`
     + `</div>`
+    + `<div class="cl-row-1-1">` + _activityCard + _outcomesCard + `</div>`
     + (_isFullAccess ? dashAgentStrip : '')
   + `</div>`;
   window.removeEventListener('hashchange', _onLeave);
