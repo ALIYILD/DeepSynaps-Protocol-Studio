@@ -15,6 +15,7 @@ GET  /api/v1/patient-portal/home-sessions               Patient's session log hi
 POST /api/v1/patient-portal/home-sessions               Log a new session
 GET  /api/v1/patient-portal/adherence-events            Patient's adherence event history
 POST /api/v1/patient-portal/adherence-events            Submit a new adherence / side-effect event
+POST /api/v1/patient-portal/home-device-request         Request a clinic-supported home device
 GET  /api/v1/patient-portal/home-adherence-summary      Adherence stats for active assignment
 """
 from __future__ import annotations
@@ -144,16 +145,24 @@ class LogSessionRequest(BaseModel):
 
 
 class SubmitAdherenceEventRequest(BaseModel):
-    event_type: str       # adherence_report | side_effect | tolerance_change | break_request | concern | positive_feedback
+    event_type: str       # adherence_report | side_effect | tolerance_change | break_request | concern | positive_feedback | device_request
     severity: Optional[str] = None     # low | moderate | high | urgent
     report_date: str = Field(..., description="YYYY-MM-DD")
     body: Optional[str] = None
     structured: dict = {}
 
 
+class RequestHomeDeviceRequest(BaseModel):
+    device_name: str = Field(..., min_length=1, max_length=120)
+    device_category: Optional[str] = Field(None, max_length=120)
+    modality: Optional[str] = Field(None, max_length=120)
+    catalog_id: Optional[str] = Field(None, max_length=120)
+    note: Optional[str] = Field(None, max_length=1000)
+
+
 _VALID_EVENT_TYPES = frozenset({
     "adherence_report", "side_effect", "tolerance_change",
-    "break_request", "concern", "positive_feedback",
+    "break_request", "concern", "positive_feedback", "device_request",
 })
 _VALID_SEVERITIES = frozenset({"low", "moderate", "high", "urgent"})
 
@@ -353,6 +362,53 @@ def submit_adherence_event(
         except Exception:
             pass
 
+    db.commit()
+    db.refresh(event)
+
+    return PortalAdherenceEventOut(
+        id=event.id, event_type=event.event_type, severity=event.severity,
+        report_date=event.report_date, body=event.body,
+        status=event.status, created_at=_dt(event.created_at),
+    )
+
+
+@router.post("/home-device-request", response_model=PortalAdherenceEventOut, status_code=201)
+def request_home_device(
+    body: RequestHomeDeviceRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PortalAdherenceEventOut:
+    patient = _require_patient(actor, db)
+    assignment = _get_active_assignment(patient.id, db)
+    now = datetime.now(timezone.utc)
+    today = now.date().isoformat()
+
+    note = (body.note or "").strip()
+    request_summary = f"Requested home device: {body.device_name.strip()}"
+    if note:
+        request_summary += f". {note}"
+
+    event = PatientAdherenceEvent(
+        id=str(uuid.uuid4()),
+        patient_id=patient.id,
+        assignment_id=assignment.id if assignment else None,
+        course_id=assignment.course_id if assignment else None,
+        event_type="device_request",
+        severity="low",
+        report_date=today,
+        body=request_summary,
+        structured_json=json.dumps({
+            "device_name": body.device_name.strip(),
+            "device_category": (body.device_category or "").strip() or None,
+            "modality": (body.modality or "").strip() or None,
+            "catalog_id": (body.catalog_id or "").strip() or None,
+            "source": "patient_portal_home_devices",
+            "note": note or None,
+        }),
+        status="open",
+        created_at=now,
+    )
+    db.add(event)
     db.commit()
     db.refresh(event)
 

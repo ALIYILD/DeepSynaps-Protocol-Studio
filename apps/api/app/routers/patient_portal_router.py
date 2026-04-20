@@ -597,7 +597,7 @@ class PortalWearablesOut(BaseModel):
 
 
 class ConnectSourceIn(BaseModel):
-    source: str                         # apple_health, fitbit, oura, android_health
+    source: str                         # apple_health, fitbit, oura, android_health, garmin_connect
     display_name: Optional[str] = None
     consent_given: bool = False
 
@@ -618,7 +618,7 @@ class PatientDailySyncIn(BaseModel):
 
 # ── Wearable endpoints ─────────────────────────────────────────────────────────
 
-_VALID_SOURCES = {'apple_health', 'android_health', 'fitbit', 'oura'}
+_VALID_SOURCES = {'apple_health', 'android_health', 'fitbit', 'oura', 'garmin_connect'}
 
 
 @router.get("/wearables", response_model=PortalWearablesOut)
