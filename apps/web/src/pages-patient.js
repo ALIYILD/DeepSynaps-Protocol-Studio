@@ -1512,28 +1512,129 @@ export async function pgPatientSessions() {
   const coursesArr   = Array.isArray(coursesRaw)      ? coursesRaw      : [];
   const assessments  = Array.isArray(assessmentsRaw)  ? assessmentsRaw  : [];
 
-  // ── Seed demo data (used when backend returns empty) ─────────────────────────
+  // ── Seed demo data (used when backend returns empty, e.g. first-time users
+  //    hitting the preview deploy with VITE_ENABLE_DEMO=1). Tells a 20-session
+  //    tDCS course story: 12 done (mix clinic/home) + 1 live + 7 upcoming, so
+  //    every slot of the ps-* design renders with believable numbers. ───────
   const _SEED = sessions.length === 0 && coursesArr.length === 0;
   const _feedbackItems = [];
   if (_SEED) {
     coursesArr.push({
-      id: 'demo-crs-001', name: 'Left DLPFC TMS \u2014 Depression',
-      condition_slug: 'depression-mdd', modality_slug: 'tms', status: 'active',
-      phase: 'Active Treatment', total_sessions_planned: 6, session_count: 3,
-      next_review_date: '2026-04-14', primary_clinician_name: 'Dr. S. Okonkwo',
+      id: 'demo-crs-001', name: 'Left DLPFC tDCS \u2014 Depression',
+      condition_slug: 'depression-mdd', modality_slug: 'tdcs', status: 'active',
+      phase: 'Active Treatment', total_sessions_planned: 20, session_count: 12,
+      next_review_date: '2026-04-24', primary_clinician_name: 'Dr. Amelia Kolmar',
     });
-    sessions.push(
-      { id:'dm-s4', session_number:4, scheduled_at:'2026-04-14T10:00:00', status:'scheduled', modality_slug:'tms', location:'Clinic', duration_minutes:45 },
-      { id:'dm-s5', session_number:5, scheduled_at:'2026-04-16T10:00:00', status:'scheduled', modality_slug:'tms', location:'Clinic', duration_minutes:45 },
-      { id:'dm-s6', session_number:6, scheduled_at:'2026-04-18T10:00:00', status:'scheduled', modality_slug:'tms', location:'Clinic', duration_minutes:45 },
-      { id:'dm-s1', session_number:1, delivered_at:'2026-04-07T10:00:00', scheduled_at:'2026-04-07T10:00:00', status:'completed', modality_slug:'tms', location:'Clinic', duration_minutes:45, tolerance_rating:'mild',     post_session_notes:'Mild scalp tingling during stimulation \u2014 tolerated well.'  },
-      { id:'dm-s2', session_number:2, delivered_at:'2026-04-09T10:00:00', scheduled_at:'2026-04-09T10:00:00', status:'completed', modality_slug:'tms', location:'Clinic', duration_minutes:45, tolerance_rating:'excellent', post_session_notes:'No side effects reported.'                               },
-      { id:'dm-s3', session_number:3, delivered_at:'2026-04-11T10:00:00', scheduled_at:'2026-04-11T10:00:00', status:'completed', modality_slug:'tms', location:'Clinic', duration_minutes:45, tolerance_rating:'mild',     post_session_notes:'Mild headache after session \u2014 resolved same day.'      },
-    );
+
+    // Common protocol parameters reused across every seeded session so the
+    // detail card's parameter grid renders (amplitude, frequency, target,
+    // ramp-up). Frequency for tDCS is 0 Hz (DC current) — we leave it out.
+    const _P = {
+      stimulation_mA: 2.0,
+      target_site: 'F3 / FP2 (10–20)',
+      ramp_up_sec: 30,
+      duration_minutes: 20,
+      modality_slug: 'tdcs',
+      clinician_name: 'Dr. Amelia Kolmar',
+    };
+
+    // 12 completed sessions spread from Feb 22 → Apr 18 (2026), 2–3/week.
+    // Mix of in-clinic (9) and at-home Synaps One (3). Comfort trends upward
+    // as the patient gets used to it; impedance stays in normal range.
+    const _done = [
+      { n:1,  date:'2026-02-22T10:00:00', home:false, comfort:7.0, imp:5.1, note:'Baseline session. Mild scalp tingling as expected during ramp-up. Tolerated well.' },
+      { n:2,  date:'2026-02-25T10:00:00', home:false, comfort:7.5, imp:4.9, note:null },
+      { n:3,  date:'2026-02-27T10:00:00', home:false, comfort:8.0, imp:4.7, note:'Patient reports feeling more alert post-session.' },
+      { n:4,  date:'2026-03-03T10:00:00', home:false, comfort:7.5, imp:4.8, note:null },
+      { n:5,  date:'2026-03-06T09:30:00', home:true,  comfort:7.0, imp:5.6, note:'First at-home session. Mild headache post-session, resolved in 2 hours. Discussed hydration.' },
+      { n:6,  date:'2026-03-10T10:00:00', home:false, comfort:8.5, imp:4.6, note:null },
+      { n:7,  date:'2026-03-13T10:00:00', home:false, comfort:8.5, imp:4.5, note:'Half-way check-in. PHQ-9 down 4 points from baseline — response criteria met.' },
+      { n:8,  date:'2026-03-17T09:30:00', home:true,  comfort:8.0, imp:5.3, note:null },
+      { n:9,  date:'2026-03-20T10:00:00', home:false, comfort:8.5, imp:4.4, note:null },
+      { n:10, date:'2026-04-03T10:00:00', home:false, comfort:9.0, imp:4.3, note:'Patient reports noticeable mood improvement over past week.' },
+      { n:11, date:'2026-04-10T09:30:00', home:true,  comfort:8.5, imp:5.1, note:null },
+      { n:12, date:'2026-04-15T10:00:00', home:false, comfort:9.0, imp:4.2, note:'Excellent adherence. Continuing full 20-session plan.' },
+    ];
+    _done.forEach(d => sessions.push({
+      ..._P,
+      id: 'dm-s' + d.n,
+      session_number: d.n,
+      delivered_at: d.date,
+      scheduled_at: d.date,
+      status: 'completed',
+      location: d.home ? 'Home' : 'Clinic · Room A',
+      is_home: d.home,
+      comfort_rating: d.comfort,
+      impedance_kohm: d.imp,
+      tolerance_rating: d.comfort >= 8.5 ? 'excellent' : d.comfort >= 7.5 ? 'good' : 'mild',
+      ...(d.note ? { post_session_notes: d.note } : {}),
+    }));
+
+    // One intentionally-skipped session between #8 and #9 — surfaces the
+    // amber dot in the trend chart and the "Skipped" pill in the list.
+    sessions.push({
+      ..._P,
+      id: 'dm-s-skip',
+      delivered_at: '2026-03-22T10:00:00',
+      scheduled_at: '2026-03-22T10:00:00',
+      status: 'missed',
+      location: 'Clinic · Room A',
+      is_home: false,
+      comfort_rating: 4.5,
+      impedance_kohm: null,
+      post_session_notes: 'Session cut short after 5 min — patient reported feeling lightheaded. Rescheduled.',
+    });
+
+    // Session 13 — LIVE RIGHT NOW (ramping up). Triggers the ps-live banner.
+    sessions.push({
+      ..._P,
+      id: 'dm-s13',
+      session_number: 13,
+      scheduled_at: new Date(Date.now() - 3 * 60 * 1000).toISOString(),   // started 3 min ago
+      status: 'live',
+      location: 'Clinic · Room A',
+      is_home: false,
+    });
+
+    // 7 upcoming sessions — weekday 10am clinic / weekend 9:30 home, spaced
+    // every 2–3 days across the next ~3 weeks.
+    const _upcoming = [
+      { n:14, date:'2026-04-22T10:00:00', home:false },
+      { n:15, date:'2026-04-25T09:30:00', home:true  },
+      { n:16, date:'2026-04-28T10:00:00', home:false },
+      { n:17, date:'2026-05-01T10:00:00', home:false },
+      { n:18, date:'2026-05-04T09:30:00', home:true  },
+      { n:19, date:'2026-05-07T10:00:00', home:false },
+      { n:20, date:'2026-05-11T10:00:00', home:false },
+    ];
+    _upcoming.forEach(u => sessions.push({
+      ..._P,
+      id: 'dm-u' + u.n,
+      session_number: u.n,
+      scheduled_at: u.date,
+      status: 'scheduled',
+      location: u.home ? 'Home' : 'Clinic · Room A',
+      is_home: u.home,
+      confirmed: true,
+    }));
+
+    // Feedback timeline — surfaces in the existing feedbackFromSessionsHTML
+    // section (collected from post_session_notes above plus a couple extras).
     _feedbackItems.push(
-      { date:'2026-04-11', text:"You\u2019re tolerating treatment well so far. We\u2019ll continue with the current plan.", clinician:'Dr. S. Okonkwo', session_number:3 },
-      { date:'2026-04-09', text:'Mood check-in scores are moving in a positive direction.',                                  clinician:'Dr. S. Okonkwo', session_number:2 },
-      { date:'2026-04-07', text:'Please continue breathing practice and sleep routine between visits.',                      clinician:'Care Team',        session_number:1 },
+      { date:'2026-04-15', text:'Excellent adherence. Continuing full 20-session plan.',                                               clinician:'Dr. Amelia Kolmar', session_number:12 },
+      { date:'2026-04-03', text:'Patient reports noticeable mood improvement over past week.',                                         clinician:'Dr. Amelia Kolmar', session_number:10 },
+      { date:'2026-03-13', text:'Half-way check-in. PHQ-9 down 4 points from baseline — response criteria met.',                       clinician:'Dr. Amelia Kolmar', session_number:7  },
+      { date:'2026-03-06', text:'First at-home session. Mild headache post-session, resolved in 2 hours. Discussed hydration.',        clinician:'Care Team',          session_number:5  },
+    );
+
+    // Seed a couple of PHQ-9 outcomes so the comparison-chart PHQ-9 tab has
+    // data to plot (lower is better — demonstrates a drop over 8 weeks).
+    outcomes.push(
+      { id:'dm-o1', template_slug:'phq-9', template_name:'PHQ-9', score_numeric:16, administered_at:'2026-02-22T09:30:00' },
+      { id:'dm-o2', template_slug:'phq-9', template_name:'PHQ-9', score_numeric:14, administered_at:'2026-03-01T09:30:00' },
+      { id:'dm-o3', template_slug:'phq-9', template_name:'PHQ-9', score_numeric:12, administered_at:'2026-03-13T09:30:00' },
+      { id:'dm-o4', template_slug:'phq-9', template_name:'PHQ-9', score_numeric:10, administered_at:'2026-03-27T09:30:00' },
+      { id:'dm-o5', template_slug:'phq-9', template_name:'PHQ-9', score_numeric:9,  administered_at:'2026-04-15T09:30:00' },
     );
   }
 
@@ -2235,30 +2336,70 @@ export async function pgPatientSessions() {
   // Combined + ordered list for the 2-col grid (upcoming first, then completed).
   const _psList = [...upcoming, ..._psCompleted];
 
+  // Given a date, return a short "when" label for upcoming items:
+  // "This week" / "Next week" / "Week N" / "Final · review" for the very last.
+  function _psWhenLabel(s, isLastUpcoming) {
+    const d = new Date(s.scheduled_at || s.delivered_at || 0);
+    if (isNaN(d.getTime())) return '';
+    const now = new Date();
+    const mondayOfThisWeek = (() => {
+      const x = new Date(now); x.setHours(0, 0, 0, 0);
+      const dow = (x.getDay() + 6) % 7;
+      x.setDate(x.getDate() - dow);
+      return x;
+    })();
+    const diffWeeks = Math.floor((d.getTime() - mondayOfThisWeek.getTime()) / (7 * 86400000));
+    if (isLastUpcoming) return 'Final · review';
+    if (diffWeeks <= 0) return 'This week';
+    if (diffWeeks === 1) return 'Next week';
+    return 'Week ' + (diffWeeks + 1);
+  }
+
   // Render one list item with real fields. No fabricated n/score if absent.
-  function _psItemHtml(s, idx) {
+  // Matches the new design: left date column, body has "<modality> · <type
+  // session>" title and "#N · <time> · <mins> planned|delivered|In progress"
+  // meta row, right column stacks pill + "when" label.
+  function _psItemHtml(s, idx, ctx) {
+    ctx = ctx || {};
     const d = new Date(s.scheduled_at || s.delivered_at || 0);
     const hasDate = !isNaN(d.getTime());
     const mo  = hasDate ? d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase() : '—';
     const day = hasDate ? d.getDate() : '—';
     const dow = hasDate ? d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase() : '';
-    const num = sessionNumFor(s);
+    const num = sessionNumFor(s) || s.session_number || null;
     const stRaw = String(s.status || '').toLowerCase().trim();
     const live = stRaw === 'live' || stRaw === 'in_progress' || stRaw === 'active';
     const skipped = stRaw === 'missed' || stRaw === 'no-show' || stRaw === 'no_show' || stRaw === 'cancelled';
     const isFuture = hasDate && d.getTime() > Date.now() && !live;
     const home = _psIsHome(s);
     const modLbl = modalityLabel(s.modality_slug) || 'Session';
-    const mins = s.duration_minutes ? s.duration_minutes + ' min' : null;
-    const comfort = Number(s.comfort_rating);
-    const comfortTxt = Number.isFinite(comfort) ? ('Comfort ' + comfort.toFixed(1)) : null;
+    const typeLbl = home ? 'Home session' : 'Clinic session';
+    const mins = s.duration_minutes;
+    const timeStr = hasDate ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
+    const elapsedMin = live && hasDate ? Math.max(0, Math.floor((Date.now() - d.getTime()) / 60000)) : null;
+    const metaBits = [];
+    if (num) metaBits.push('#' + num);
+    if (live && elapsedMin != null) {
+      metaBits.push('Started ' + timeStr);
+      metaBits.push('In progress');
+    } else if (isFuture) {
+      if (timeStr) metaBits.push(timeStr);
+      if (mins)   metaBits.push(mins + ' min planned');
+    } else {
+      if (timeStr) metaBits.push(timeStr);
+      if (mins)   metaBits.push(mins + ' min delivered');
+    }
     const pill = live
-      ? '<span class="ps-item-pill live">Live</span>'
+      ? '<span class="ps-item-pill live">&#9679; Live</span>'
       : skipped
         ? '<span class="ps-item-pill skipped">Skipped</span>'
         : home
           ? '<span class="ps-item-pill home">Home</span>'
           : '<span class="ps-item-pill clinic">Clinic</span>';
+    let whenLbl = '';
+    if (live) whenLbl = 'Ramping up';
+    else if (isFuture) whenLbl = _psWhenLabel(s, !!ctx.isLastUpcoming);
+    else if (hasDate) whenLbl = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const classes = ['ps-item'];
     if (live) classes.push('live');
     if (skipped) classes.push('skipped');
@@ -2270,17 +2411,150 @@ export async function pgPatientSessions() {
           <div class="dow">${esc(dow)}</div>
         </div>
         <div class="ps-item-body">
-          <div class="ps-item-title">${esc(modLbl)}${num ? ' <span class="n">#' + num + '</span>' : ''}</div>
+          <div class="ps-item-title">${esc(modLbl)} <span class="sep">·</span> ${esc(typeLbl)}</div>
           <div class="ps-item-meta">
-            ${mins ? '<span>' + esc(mins) + '</span>' : ''}
-            ${s.location ? '<span>' + esc(s.location) + '</span>' : ''}
+            ${metaBits.map(b => '<span>' + esc(b) + '</span>').join('')}
           </div>
         </div>
         <div class="ps-item-right">
           ${pill}
-          ${comfortTxt ? '<div class="ps-item-score">' + esc(comfortTxt) + '</div>' : ''}
+          ${whenLbl ? '<div class="ps-item-when">' + esc(whenLbl) + '</div>' : ''}
         </div>
       </button>`;
+  }
+
+  // Group list items into LIVE NOW / UPCOMING / COMPLETED sections with
+  // labels. Handles the mockup's "LIVE NOW · 1", "UPCOMING · 7", "COMPLETED ·
+  // 12" headings. Hides sections that have zero items.
+  function _psGroupedListHtml() {
+    if (!_psList.length) {
+      return `<div class="ps-empty">No sessions yet. Your care team will schedule your first session soon.</div>`;
+    }
+    const liveIdxs      = [];
+    const upcomingIdxs  = [];
+    const completedIdxs = [];
+    _psList.forEach((s, i) => {
+      const st = String(s.status || '').toLowerCase().trim();
+      if (st === 'live' || st === 'in_progress' || st === 'active') liveIdxs.push(i);
+      else if (st === 'completed' || st === 'done' || s.delivered_at) completedIdxs.push(i);
+      else upcomingIdxs.push(i);
+    });
+    const parts = [];
+    if (liveIdxs.length) {
+      parts.push(`<div class="ps-group-lbl">Live now · ${liveIdxs.length}</div>`);
+      liveIdxs.forEach(i => parts.push(_psItemHtml(_psList[i], i)));
+    }
+    if (upcomingIdxs.length) {
+      parts.push(`<div class="ps-group-lbl">Upcoming · ${upcomingIdxs.length}</div>`);
+      const lastIdx = upcomingIdxs[upcomingIdxs.length - 1];
+      upcomingIdxs.forEach(i => parts.push(_psItemHtml(_psList[i], i, { isLastUpcoming: i === lastIdx })));
+    }
+    if (completedIdxs.length) {
+      parts.push(`<div class="ps-group-lbl">Completed · ${completedIdxs.length}</div>`);
+      completedIdxs.forEach(i => parts.push(_psItemHtml(_psList[i], i)));
+    }
+    return parts.join('');
+  }
+
+  // LIVE-session detail variant — richer panel matching the mockup:
+  // hero + action buttons + LIVE parameter grid + stimulation waveform + live
+  // monitoring checklist. Only rendered when the selected session is live.
+  function _psDetailLiveHtml(s) {
+    const d = new Date(s.scheduled_at || s.delivered_at || Date.now());
+    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const num = sessionNumFor(s) || s.session_number || null;
+    const total = activeCourse?.total_sessions_planned || '—';
+    const home = _psIsHome(s);
+    const locLabel = (home ? 'At-home' : 'In-clinic').toUpperCase();
+    const clinician = activeCourse?.primary_clinician_name || 'Your clinician';
+    const elapsedMin = Math.max(0, Math.floor((Date.now() - d.getTime()) / 60000));
+    const plannedMin = s.duration_minutes || 20;
+    const mA = s.stimulation_mA != null ? s.stimulation_mA : 2.0;
+    const target = s.target_site || 'F3 / FP2';
+    const montage = home ? 'Home headset' : 'Left DLPFC';
+    const imp = s.impedance_kohm != null ? s.impedance_kohm : 4.2;
+
+    return `
+      <div class="ps-detail-hero">
+        <div class="ps-detail-kicker">SESSION ${num ? '#' + num : '—'}${total !== '—' ? ' / ' + total : ''} · ${esc(locLabel)} · ${esc(String(clinician).toUpperCase())} · <strong>TODAY</strong></div>
+        <div class="ps-detail-title">Live: ramp-up in progress</div>
+        <div class="ps-detail-sub">Stay seated. Your technician is monitoring in real time. Tap the button if anything feels off.</div>
+        <div class="ps-detail-meta">
+          <div><div class="ps-detail-meta-lbl">Date</div><div class="ps-detail-meta-val">${esc(dateStr)}</div></div>
+          <div><div class="ps-detail-meta-lbl">Time</div><div class="ps-detail-meta-val">Now</div></div>
+          <div><div class="ps-detail-meta-lbl">Target</div><div class="ps-detail-meta-val">${esc(target)}</div></div>
+          <div><div class="ps-detail-meta-lbl">Duration</div><div class="ps-detail-meta-val">${esc(String(plannedMin))} min</div></div>
+          <div><div class="ps-detail-meta-lbl">Clinician</div><div class="ps-detail-meta-val">${esc(clinician)}</div></div>
+        </div>
+        <div class="ps-detail-actions">
+          <button class="btn btn-primary btn-sm" onclick="window._navPatient && window._navPatient('patient-messages')"><span style="color:#04121c">&#9679;</span>&nbsp;Watch live from clinician</button>
+          <button class="btn-outline" onclick="window._psReportStop && window._psReportStop()">Stop session</button>
+          <button class="btn-outline" onclick="window._psReportDiscomfort && window._psReportDiscomfort()">Report discomfort</button>
+        </div>
+      </div>
+      <div class="ps-detail-body">
+        <div class="ps-sec">
+          <div class="ps-sec-title">
+            <div class="i"><svg><use href="#i-settings"/></svg></div>Parameters <span class="ps-live-tag">· LIVE</span>
+          </div>
+          <div class="ps-params">
+            <div class="ps-param">
+              <div class="ps-param-lbl">Dose reached</div>
+              <div class="ps-param-val">${esc(String(mA))}<small>mA</small></div>
+              <div class="ps-param-sub">Target ${esc(String(mA))} mA</div>
+            </div>
+            <div class="ps-param">
+              <div class="ps-param-lbl">Duration</div>
+              <div class="ps-param-val">${esc(String(plannedMin))}<small>min</small></div>
+              <div class="ps-param-sub">Elapsed · ${esc(String(elapsedMin))} min</div>
+            </div>
+            <div class="ps-param">
+              <div class="ps-param-lbl">Impedance</div>
+              <div class="ps-param-val">${esc(String(imp))}<small>kΩ</small></div>
+              <div class="ps-param-sub">Within range</div>
+            </div>
+            <div class="ps-param">
+              <div class="ps-param-lbl">Montage</div>
+              <div class="ps-param-val mono">${esc(target)}</div>
+              <div class="ps-param-sub">${esc(montage)}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ps-sec">
+          <div class="ps-sec-title"><div class="i"><svg><use href="#i-pulse"/></svg></div>Stimulation waveform</div>
+          <div class="ps-wave">
+            <svg viewBox="0 0 600 100" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="ps-wave-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="rgba(0,212,188,0.28)"/>
+                  <stop offset="100%" stop-color="rgba(0,212,188,0.0)"/>
+                </linearGradient>
+              </defs>
+              <path d="M0,92 L80,92 L160,14 L440,14 L520,92 L600,92 Z" fill="url(#ps-wave-fill)"/>
+              <path d="M0,92 L80,92 L160,14 L440,14 L520,92 L600,92" fill="none" stroke="#00d4bc" stroke-width="2"/>
+              <circle cx="${Math.max(10, Math.min(590, 80 + (elapsedMin / plannedMin) * 440))}" cy="14" r="4" fill="#00d4bc"/>
+              <line x1="${Math.max(10, Math.min(590, 80 + (elapsedMin / plannedMin) * 440))}" y1="4" x2="${Math.max(10, Math.min(590, 80 + (elapsedMin / plannedMin) * 440))}" y2="92" stroke="#00d4bc" stroke-width="1" stroke-dasharray="3,3"/>
+              <text x="10" y="20" fill="rgba(255,255,255,0.45)" font-size="9" font-family="monospace">${esc(String(mA))} mA</text>
+            </svg>
+            <div class="ps-wave-phases">
+              <span>Ramp-up<br>30s</span>
+              <span>Plateau · ${esc(String(plannedMin))} min @ ${esc(String(mA))} mA</span>
+              <span>Ramp-down<br>30s</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ps-sec">
+          <div class="ps-sec-title"><div class="i"><svg><use href="#i-shield"/></svg></div>Live monitoring</div>
+          <div class="ps-checklist">
+            <div class="ps-checklist-item"><svg width="14" height="14"><use href="#i-check"/></svg>Impedance stable · ${esc(String(imp))} kΩ</div>
+            <div class="ps-checklist-item"><svg width="14" height="14"><use href="#i-check"/></svg>Your technician is monitoring</div>
+            <div class="ps-checklist-item"><svg width="14" height="14"><use href="#i-check"/></svg>Auto-stop armed if impedance &gt; 10 kΩ</div>
+            <div class="ps-checklist-item warn"><svg width="14" height="14"><use href="#i-alert"/></svg>Tingling near F3 is normal during the first minute</div>
+          </div>
+        </div>
+      </div>`;
   }
 
   // Detail card for the selected session (default = live > nextSession > most recent completed).
@@ -2292,12 +2566,16 @@ export async function pgPatientSessions() {
           <div class="ps-detail-sub">Pick an item from the list to see parameters, comfort, clinician notes, and prep reminders.</div>
         </div>`;
     }
+    const stRaw0 = String(s.status || '').toLowerCase().trim();
+    if (stRaw0 === 'live' || stRaw0 === 'in_progress' || stRaw0 === 'active') {
+      return _psDetailLiveHtml(s);
+    }
     const d = new Date(s.scheduled_at || s.delivered_at || 0);
     const hasDate = !isNaN(d.getTime());
     const dateStr = hasDate ? d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' }) : '—';
     const timeStr = hasDate ? d.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' }) : '';
-    const stRaw = String(s.status || '').toLowerCase().trim();
-    const live = stRaw === 'live' || stRaw === 'in_progress' || stRaw === 'active';
+    const stRaw = stRaw0;
+    const live = false;
     const num = sessionNumFor(s);
     const modLbl = modalityLabel(s.modality_slug) || 'Session';
     const home = _psIsHome(s);
@@ -2448,18 +2726,43 @@ export async function pgPatientSessions() {
     const yMin = ys.length ? Math.min(...ys) : 0;
     const yMax = ys.length ? Math.max(...ys) : 10;
     const yRange = (yMax - yMin) || 1;
+    const xMapPct = (x) => ((x - xMin) / ((xMax - xMin) || 1)) * 90 + 5;
+    const yMapPct = (y) => 90 - (((y - yMin) / yRange) * 80);
+
+    // Polyline connecting dots (ignoring null y values).
+    const linePts = pts
+      .filter(p => p.y != null)
+      .map(p => xMapPct(p.x).toFixed(1) + ',' + yMapPct(p.y).toFixed(1))
+      .join(' ');
+
     const dots = pts.map((p, i) => {
       if (p.y == null) return '';
-      const left  = ((p.x - xMin) / ((xMax - xMin) || 1)) * 90 + 5;
-      const top   = 90 - (((p.y - yMin) / yRange) * 80);
-      const cls   = p.status === 'skipped' ? 'skipped' : p.loc;
-      return `<div class="ps-compare-dot ${cls}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%" data-idx="${i}"></div>`;
+      const left = xMapPct(p.x);
+      const top  = yMapPct(p.y);
+      const cls = p.status === 'skipped' ? 'skipped' : p.loc;
+      return `<div class="ps-compare-dot ${cls}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%" data-idx="${i}" title="${esc(new Date(p.x).toLocaleDateString('en-US', { month:'short', day:'numeric' }) + ' · ' + p.y)}"></div>`;
     }).join('');
-    const xLabelLeft  = new Date(xMin).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const xLabelRight = new Date(xMax).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+    // X-axis tick labels: course-start / ~mid / today / final. Compute weeks
+    // from course start to label milestones consistently.
+    const courseStart = new Date(xMin);
+    const today = Date.now();
+    const labels = [];
+    labels.push(`<span>${esc(courseStart.toLocaleDateString('en-US', { month:'short', day:'numeric' }))} · Week 1</span>`);
+    const midWeeks = Math.max(2, Math.round(((xMin + xMax) / 2 - xMin) / (7 * 86400000)));
+    labels.push(`<span>${esc(new Date(xMin + ((xMax - xMin) / 2)).toLocaleDateString('en-US', { month:'short' }))} · Week ${midWeeks}</span>`);
+    if (today >= xMin && today <= xMax) {
+      labels.push(`<span>Today</span>`);
+    } else {
+      labels.push(`<span>${esc(new Date(xMax).toLocaleDateString('en-US', { month:'short', day:'numeric' }))}</span>`);
+    }
+
     return `
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;inset:10px 0 30px;width:100%;height:calc(100% - 40px);pointer-events:none">
+        <polyline points="${linePts}" fill="none" stroke="rgba(0,212,188,0.55)" stroke-width="0.6" stroke-linejoin="round" stroke-linecap="round"/>
+      </svg>
       ${dots}
-      <div class="ps-compare-x"><span>${esc(xLabelLeft)}</span><span>${esc(xLabelRight)}</span></div>`;
+      <div class="ps-compare-x">${labels.join('')}</div>`;
   }
 
   el.innerHTML = `
@@ -2534,14 +2837,13 @@ export async function pgPatientSessions() {
       <button class="ps-filter" data-f="completed" onclick="window._psFilter && window._psFilter('completed')">Completed <span class="count">${_psCompleted.length}</span></button>
       <button class="ps-filter" data-f="clinic" onclick="window._psFilter && window._psFilter('clinic')">In-clinic <span class="count">${_psClinicSplit.clinicTotal}</span></button>
       <button class="ps-filter" data-f="home" onclick="window._psFilter && window._psFilter('home')">At-home <span class="count">${_psClinicSplit.homeTotal}</span></button>
+      <input class="ps-filter-search" id="ps-search" placeholder="Search by date, note, symptom…" oninput="window._psSearch && window._psSearch(this.value)" />
     </div>
 
     <!-- Main 2-col: list + detail -->
     <div class="ps-grid">
       <div class="ps-list" id="ps-list">
-        ${_psList.length === 0
-          ? `<div class="ps-empty">No sessions yet. Your care team will schedule your first session soon.</div>`
-          : _psList.map((s, i) => _psItemHtml(s, i)).join('')}
+        ${_psGroupedListHtml()}
       </div>
       <div class="ps-detail">
         <div class="ps-detail-card" id="ps-detail-card">
@@ -2569,6 +2871,14 @@ export async function pgPatientSessions() {
         <span><span class="sw" style="background:var(--teal)"></span>Clinic session</span>
         <span><span class="sw" style="background:var(--violet)"></span>Home session</span>
         <span><span class="sw" style="background:var(--amber)"></span>Skipped / short</span>
+        ${(() => {
+          const firstDone = _psCompleted[0];
+          if (!firstDone) return '';
+          const start = new Date(firstDone.delivered_at || firstDone.scheduled_at || 0);
+          const today = new Date();
+          if (isNaN(start.getTime())) return '';
+          return `<span style="margin-left:auto;color:var(--text-tertiary)">Course start · ${esc(start.toLocaleDateString('en-US', { month:'short', day:'numeric' }))} \u2192 today (${esc(today.toLocaleDateString('en-US', { month:'short', day:'numeric' }))})</span>`;
+        })()}
       </div>
     </div>` : ''}
 
@@ -2606,6 +2916,33 @@ export async function pgPatientSessions() {
     document.querySelectorAll('#ps-compare-tabs button').forEach(b => b.classList.toggle('active', b.dataset.metric === m));
     const chart = document.getElementById('ps-compare-chart');
     if (chart) chart.innerHTML = _psChartHtml(m);
+  };
+  window._psSearch = function(q) {
+    const needle = String(q || '').toLowerCase().trim();
+    document.querySelectorAll('#ps-list .ps-item').forEach(item => {
+      if (!needle) { item.style.display = ''; return; }
+      const hay = item.textContent.toLowerCase();
+      item.style.display = hay.includes(needle) ? '' : 'none';
+    });
+    document.querySelectorAll('#ps-list .ps-group-lbl').forEach(g => {
+      let anyVisible = false;
+      let sib = g.nextElementSibling;
+      while (sib && !sib.classList.contains('ps-group-lbl')) {
+        if (sib.style.display !== 'none') { anyVisible = true; break; }
+        sib = sib.nextElementSibling;
+      }
+      g.style.display = anyVisible ? '' : 'none';
+    });
+  };
+  window._psReportStop = function() {
+    if (typeof window._showNotifToast === 'function') {
+      window._showNotifToast({ title: 'Session pause requested', body: 'Your technician has been alerted. Please sit tight.', severity: 'warning' });
+    }
+  };
+  window._psReportDiscomfort = function() {
+    if (typeof window._showNotifToast === 'function') {
+      window._showNotifToast({ title: 'Discomfort reported', body: 'Your technician will check in with you immediately.', severity: 'warning' });
+    }
   };
   // Highlight the initial item.
   setTimeout(() => {
