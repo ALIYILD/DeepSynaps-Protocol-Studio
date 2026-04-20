@@ -336,21 +336,20 @@ export async function pgPatientHub(setTopbar, navigate) {
       });
     }
 
-    // Comprehensive table column definitions — these drive the header and the
-    // sortable click targets. Keep in sync with the row renderer below.
+    // Prototype column set (DeepSynaps Studio design, screen 07 · lines 4836–4940):
+    //   Patient · Protocol · Progress · Last outcome · Next step · actions(90px)
+    // Sub-row meta carries Age/Sex · Condition · MRN inline beneath the name —
+    // matching the prototype's "34F · MDD treatment-resistant · MRN 10482" pattern.
+    // The sortValue() / shortMrn() / ageOf() / statusLabel() / fmtShortDate()
+    // helpers remain defined above (asserted by clinical-hub-patients-table.test.js)
+    // and are referenced for sub-row text, search, and footer status pills.
     const TABLE_COLS = [
-      { key:'name',       label:'Patient',        align:'left',   width:'1.6fr' },
-      { key:'mrn',        label:'MRN',            align:'left',   width:'90px' },
-      { key:'age',        label:'Age/Sex',        align:'left',   width:'80px' },
-      { key:'condition',  label:'Condition',      align:'left',   width:'1.1fr' },
-      { key:'course',     label:'Course / Protocol', align:'left', width:'1.3fr' },
-      { key:'status',     label:'Status',         align:'left',   width:'100px' },
-      { key:'last',       label:'Last session',   align:'left',   width:'110px' },
-      { key:'next',       label:'Next session',   align:'left',   width:'110px' },
-      { key:'adherence',  label:'Adherence',      align:'right',  width:'80px' },
-      { key:'outcome',    label:'Latest outcome', align:'left',   width:'1fr' },
-      { key:'clinician',  label:'Clinician',      align:'left',   width:'1fr' },
-      { key:'actions',    label:'',               align:'right',  width:'120px', sortable:false },
+      { key:'name',     label:'Patient',         align:'left',  width:'1.8fr' },
+      { key:'course',   label:'Protocol',        align:'left',  width:'1.1fr' },
+      { key:'progress', label:'Progress',        align:'left',  width:'1fr',   sortable:false },
+      { key:'outcome',  label:'Last outcome',    align:'left',  width:'1fr' },
+      { key:'next',     label:'Next step',       align:'left',  width:'1fr' },
+      { key:'actions',  label:'',                align:'right', width:'90px',  sortable:false },
     ];
     const GRID_TEMPLATE = TABLE_COLS.map(c => c.width).join(' ');
 
@@ -365,6 +364,30 @@ export async function pgPatientHub(setTopbar, navigate) {
       }).join('');
     }
 
+    // Builds the prototype's "AGE+SEX · CONDITION · MRN" sub-row meta line.
+    function patientMetaLine(p) {
+      const a   = ageOf(p);
+      const s   = (p.gender || '').charAt(0).toUpperCase();
+      const ageSex = (a != null ? a + (s ? s : '') : (s || ''));
+      const cond   = (p.primary_condition || (p.condition_slug || '').replace(/-/g,' ')) || '';
+      const mrn    = shortMrn(p);
+      return [ageSex, cond, mrn !== '—' ? 'MRN ' + mrn : ''].filter(Boolean).join(' · ');
+    }
+
+    // Progress cell — prototype shows a thin gradient bar + mono N/M caption.
+    function progressCell(p) {
+      const c = activeCourseFor(p);
+      const total = c?.planned_sessions_total || 0;
+      const done  = c?.sessions_delivered || 0;
+      if (!total) {
+        return '<div class="queue-progress"><div class="queue-progress-bar"><div style="width:0%"></div></div>' +
+               '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-tertiary)">0/—</span></div>';
+      }
+      const pct = Math.max(0, Math.min(100, Math.round((done / total) * 100)));
+      return '<div class="queue-progress"><div class="queue-progress-bar"><div style="width:' + pct + '%"></div></div>' +
+             '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-tertiary)">' + done + '/' + total + '</span></div>';
+    }
+
     function renderList() {
       const sorted = sortPatients(applySearch(cohortFilter(window._phStatus)));
       const total = sorted.length;
@@ -376,11 +399,36 @@ export async function pgPatientHub(setTopbar, navigate) {
       // Refresh sortable header so arrows track current sort state.
       const head = document.getElementById('d2p7-head');
       if (head) head.innerHTML = headerHTML();
+      // Keep the "Sort: …" affordance label in sync with the active column.
+      const sortBtn = document.getElementById('d2p7-sort-affordance');
+      if (sortBtn) {
+        const col = TABLE_COLS.find(c => c.key === window._phSort.key);
+        sortBtn.textContent = 'Sort: ' + ((col && col.label) || 'Patient') + ' ' + (window._phSort.dir === 'asc' ? '↑' : '↓');
+      }
 
       const out = document.getElementById('d2p7-list');
       if (!out) return;
       if (!page.length) {
-        out.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary)">No patients found.</div>';
+        // Honest empty state — distinguishes "no roster yet" from "filter excluded all".
+        const totalRoster = patients.length;
+        const hasFilter   = window._phStatus !== 'all' || (document.getElementById('d2p7-search')?.value || '').trim();
+        const ico   = totalRoster ? '◎' : '👥';
+        const title = totalRoster
+          ? (hasFilter ? 'No patients match your filters' : 'No patients to show')
+          : 'No patients yet';
+        const body  = totalRoster
+          ? 'Try clearing the search or switching to All to see your full roster.'
+          : 'Add a patient to begin recording assessments, treatment courses, and outcomes.';
+        const cta = (!totalRoster && canAdd)
+          ? '<button class="btn btn-primary btn-sm" onclick="window.showAddPatient && window.showAddPatient()">+ Add patient</button>'
+          : (hasFilter ? '<button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'d2p7-search\').value=\'\';window._phSetStatus(\'all\')">Clear filters</button>' : '');
+        out.innerHTML =
+          '<div class="d2p7-empty" role="status">' +
+            '<div class="d2p7-empty-ico" aria-hidden="true">' + ico + '</div>' +
+            '<div class="d2p7-empty-title">' + esc(title) + '</div>' +
+            '<div class="d2p7-empty-body">' + esc(body) + '</div>' +
+            (cta ? '<div class="d2p7-empty-cta">' + cta + '</div>' : '') +
+          '</div>';
       } else {
         out.innerHTML = page.map(p => {
           const fname = p.first_name || '';
@@ -388,30 +436,25 @@ export async function pgPatientHub(setTopbar, navigate) {
           const name  = (fname + ' ' + lname).trim() || 'Unknown';
           const ini   = ((fname[0]||'') + (lname[0]||'')).toUpperCase() || '?';
           const av    = AVATAR_TONES[Math.abs(String(p.id||name).split('').reduce((a,c)=>a+c.charCodeAt(0),0)) % AVATAR_TONES.length];
-          const cond  = (p.primary_condition || (p.condition_slug||'').replace(/-/g,' ')) || '—';
           const isDemo = p.demo_seed || (p.notes || '').startsWith('[DEMO]');
-          const demoTag = isDemo ? ' <span title="Seeded demo record" style="font-size:9px;font-weight:700;color:var(--amber);background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.4);padding:1px 5px;border-radius:3px;letter-spacing:0.04em;vertical-align:middle">DEMO</span>' : '';
+          const demoTag = isDemo ? ' <span title="Seeded demo record" class="d2p7-demo-tag">DEMO</span>' : '';
           const pid = esc(p.id);
           const openProfile = "window._selectedPatientId='" + pid + "';window._profilePatientId='" + pid + "';try{sessionStorage.setItem('ds_pat_selected_id','" + pid + "')}catch(e){}window._nav('patient-profile')";
           const openHistory = "event.stopPropagation();window._selectedPatientId='" + pid + "';window._phMhPatientId='" + pid + "';window._patientHubTab='history';window._nav('patients-hub')";
+          // Sub-row meta uses the prototype pattern: "34F · MDD treatment-resistant · MRN 10482"
+          const meta = patientMetaLine(p);
           return '<div class="queue-row pt-row" style="grid-template-columns:' + GRID_TEMPLATE + '" onclick="' + openProfile + '">' +
               '<div class="queue-pt"><div class="pt-av ' + av + '">' + esc(ini) + '</div>' +
                 '<div><div class="queue-pt-name">' + esc(name) + (typeof isResponder === 'function' && isResponder(p) ? ' <span class="pl-responder-chip">Responder</span>' : '') + demoTag + '</div>' +
-                  '<div class="queue-pt-cond">' + esc(p.email || '') + '</div></div></div>' +
-              '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary)">' + esc(shortMrn(p)) + '</div>' +
-              '<div style="font-size:11.5px;color:var(--text-secondary)">' + esc(ageSexCell(p)) + '</div>' +
-              '<div style="font-size:11.5px;color:var(--text-primary)">' + esc(cond) + '</div>' +
-              '<div style="font-size:11.5px;color:var(--text-secondary)">' + esc(courseLabel(p)) + '</div>' +
-              '<div>' + statusPill(p) + '</div>' +
-              '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary)">' + esc(fmtShortDate(p.last_session_date)) + '</div>' +
-              '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary)">' + esc(fmtShortDate(p.next_session_date || p.next_session_at)) + '</div>' +
-              '<div style="text-align:right">' + adherenceCell(p) + '</div>' +
-              '<div>' + outcomeScoreCell(p) + '</div>' +
-              '<div style="font-size:11.5px;color:var(--text-secondary)">' + esc(clinicianNameFor(p)) + '</div>' +
-              '<div style="text-align:right;display:flex;gap:4px;justify-content:flex-end">' +
-                '<button class="topbar-btn" style="height:24px;padding:0 8px;font-size:10.5px" title="Open Medical History" onclick="' + openHistory + '">History</button>' +
-                '<button class="topbar-btn" style="width:24px;height:24px" onclick="event.stopPropagation();' + openProfile + '" title="Open patient chart">' +
-                  '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>' +
+                  '<div class="queue-pt-cond">' + esc(meta || (p.email || '')) + '</div></div></div>' +
+              '<div>' + protocolChip(p) + '</div>' +
+              '<div>' + progressCell(p) + '</div>' +
+              '<div>' + outcomeCell(p) + '</div>' +
+              '<div>' + nextStepChip(p) + '</div>' +
+              '<div style="text-align:right;display:flex;gap:6px;justify-content:flex-end;align-items:center" class="d2p7-row-actions">' +
+                '<button class="topbar-btn d2p7-history-btn" title="Open Medical History" onclick="' + openHistory + '">History</button>' +
+                '<button class="topbar-btn" style="width:26px;height:26px" onclick="event.stopPropagation();' + openProfile + '" title="Open patient chart" aria-label="Open ' + esc(name) + ' chart">' +
+                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>' +
                 '</button>' +
               '</div>' +
             '</div>';
@@ -423,12 +466,13 @@ export async function pgPatientHub(setTopbar, navigate) {
         const statusLbl = (STATUS_TABS.find(s=>s.id===window._phStatus)||STATUS_TABS[0]).label;
         const sortCol = TABLE_COLS.find(c => c.key === window._phSort.key);
         const sortLbl = sortCol ? sortCol.label : window._phSort.key;
+        // Prototype footer (HTML lines 4930–4937): "Showing N of M · filtered" + mono pager.
         foot.innerHTML =
           '<span>Showing ' + (total ? (start+1) : 0) + '–' + Math.min(start+PAGE_SIZE,total) + ' of ' + total + ' · filtered by "' + esc(statusLbl) + '" · sorted by ' + esc(sortLbl) + ' ' + (window._phSort.dir === 'asc' ? '↑' : '↓') + '</span>' +
-          '<div style="display:flex;gap:6px;align-items:center">' +
-            '<button class="topbar-btn" style="width:26px;height:26px" onclick="window._phGoPage(-1)">‹</button>' +
+          '<div class="d2p7-foot-pager">' +
+            '<button class="topbar-btn" style="width:26px;height:26px" onclick="window._phGoPage(-1)" aria-label="Previous page">‹</button>' +
             '<span style="font-family:var(--font-mono)">' + window._phPage + ' / ' + pages + '</span>' +
-            '<button class="topbar-btn" style="width:26px;height:26px" onclick="window._phGoPage(1)">›</button>' +
+            '<button class="topbar-btn" style="width:26px;height:26px" onclick="window._phGoPage(1)" aria-label="Next page">›</button>' +
           '</div>';
       }
     }
@@ -461,34 +505,70 @@ export async function pgPatientHub(setTopbar, navigate) {
     el.innerHTML = `
     <div class="ch-shell">
       <style>
+        /* Prototype tokens — DeepSynaps Studio screen 07 (lines 4765–4942 of HTML bundle).
+           Class names kept as d2p7- to avoid colliding with the global stylesheet. */
         .d2p7-wrap { color: var(--text-primary); }
+
+        /* Page header strip — replaces the missing topbar breadcrumbs slot. */
+        .d2p7-header { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; padding:4px 0 14px; flex-wrap:wrap; }
+        .d2p7-header-title { font-family:var(--font-display,inherit); font-size:17px; font-weight:600; letter-spacing:-0.3px; }
+        .d2p7-header-crumbs { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-tertiary); margin-top:4px; flex-wrap:wrap; }
+        .d2p7-header-crumbs .sep { opacity:0.4; }
+
+        /* Search box (matches prototype topbar-search-wrap) */
+        .d2p7-search-wrap { position:relative; min-width:240px; max-width:340px; flex:1; }
+        .d2p7-search-wrap input { width:100%; background:var(--bg-surface); border:1px solid var(--border); border-radius:10px; padding:9px 12px 9px 32px; color:var(--text-primary); font-size:12.5px; outline:none; transition: border-color .15s ease; }
+        .d2p7-search-wrap input:focus { border-color:var(--border-hover); }
+        .d2p7-search-wrap svg { position:absolute; left:11px; top:50%; transform:translateY(-50%); width:14px; height:14px; stroke:var(--text-tertiary); fill:none; stroke-width:2; stroke-linecap:round; pointer-events:none; }
+        .d2p7-search-wrap .kbd { position:absolute; right:8px; top:50%; transform:translateY(-50%); font-family:var(--font-mono); font-size:10px; color:var(--text-tertiary); padding:2px 6px; border:1px solid var(--border); border-radius:5px; background:rgba(255,255,255,0.02); pointer-events:none; }
+
+        /* Filter row — prototype tab-row + ghost filter buttons */
+        .d2p7-filter-row { display:flex; gap:12px; margin-bottom:18px; align-items:center; flex-wrap:wrap; }
         .d2p7-tabrow { display:flex; gap:4px; background:var(--bg-surface); padding:3px; border-radius:8px; border:1px solid var(--border); flex-wrap:wrap; }
         .d2p7-tabrow button { padding:5px 10px; font-size:11.5px; font-weight:600; color:var(--text-secondary); border-radius:5px; background:transparent; border:none; cursor:pointer; }
         .d2p7-tabrow button.active { background:rgba(255,255,255,0.08); color:var(--text-primary); }
-        .d2p7-chip-btn { padding:5px 10px; font-size:11.5px; border-radius:6px; background:transparent; border:1px solid var(--border); color:var(--text-secondary); cursor:pointer; }
-        .d2p7-chip-btn:hover { border-color:var(--border-hover); color:var(--text-primary); }
+        .d2p7-tabrow button:hover:not(.active) { color: var(--text-primary); }
+        .d2p7-chip-btn {
+          padding:7px 12px; font-size:12px; border-radius:10px; background:rgba(255,255,255,0.04);
+          border:1px solid var(--border); color:var(--text-primary); cursor:pointer;
+          display:inline-flex; align-items:center; gap:5px; font-weight:600; transition: border-color .15s ease;
+        }
+        .d2p7-chip-btn:hover { border-color:var(--border-hover); }
+        .d2p7-chip-btn[disabled] { opacity:0.55; cursor:not-allowed; }
+
+        /* KPI cards — prototype .kpi (lines 587–602). */
         .d2p7-kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:18px; }
-        .d2p7-kpi { padding:14px 16px; border:1px solid var(--border); background:var(--bg-card); border-radius:14px; }
-        .d2p7-kpi-lbl { font-size:10.5px; letter-spacing:1px; text-transform:uppercase; color:var(--text-tertiary); font-weight:600; display:flex; align-items:center; gap:6px; }
-        .d2p7-kpi-lbl .dot { width:6px; height:6px; border-radius:50%; background:var(--teal); }
-        .d2p7-kpi-lbl.blue .dot   { background:var(--blue); }
-        .d2p7-kpi-lbl.violet .dot { background:var(--violet); }
-        .d2p7-kpi-lbl.amber .dot  { background:var(--amber); }
-        .d2p7-kpi-num { font-family:var(--font-display,inherit); font-size:26px; font-weight:600; margin-top:4px; color:var(--text-primary); }
-        .d2p7-kpi-num .unit { font-size:14px; color:var(--text-tertiary); margin-left:2px; }
-        .d2p7-kpi-delta { font-size:11px; color:var(--text-tertiary); margin-top:3px; }
-        .d2p7-kpi-delta.up   { color:var(--teal); }
-        .d2p7-kpi-delta.down { color:var(--amber); }
-        .d2p7-card { background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:8px 16px 16px; }
-        .d2p7-wrap .queue-row { display:grid; align-items:center; gap:12px; padding:10px 4px; border-bottom:1px solid var(--border); }
+        @media (max-width: 980px) { .d2p7-kpi-grid { grid-template-columns:repeat(2,1fr); } }
+        .d2p7-kpi { padding:18px 18px 16px; border-radius:16px; background:var(--bg-card); border:1px solid var(--border); position:relative; overflow:hidden; }
+        .d2p7-kpi-lbl { font-size:11px; color:var(--text-tertiary); letter-spacing:0.5px; text-transform:uppercase; font-weight:600; margin-bottom:14px; display:flex; align-items:center; gap:7px; }
+        .d2p7-kpi-lbl .dot { width:6px; height:6px; border-radius:50%; background:var(--teal); box-shadow:0 0 6px var(--teal); }
+        .d2p7-kpi-lbl.blue   .dot { background:var(--blue);   box-shadow:0 0 6px var(--blue); }
+        .d2p7-kpi-lbl.violet .dot { background:var(--violet); box-shadow:0 0 6px var(--violet); }
+        .d2p7-kpi-lbl.amber  .dot { background:var(--amber);  box-shadow:0 0 6px var(--amber); }
+        .d2p7-kpi-num { font-family:var(--font-display,inherit); font-size:30px; font-weight:600; letter-spacing:-0.9px; line-height:1; color:var(--text-primary); }
+        .d2p7-kpi-num .unit { font-size:14px; color:var(--text-tertiary); font-weight:500; margin-left:4px; }
+        .d2p7-kpi-delta { display:inline-flex; align-items:center; gap:5px; margin-top:10px; font-family:var(--font-mono); font-size:11px; padding:2px 7px; border-radius:4px; color:var(--text-tertiary); background:rgba(255,255,255,0.04); }
+        .d2p7-kpi-delta.up   { color:var(--green); background:rgba(74,222,128,0.10); }
+        .d2p7-kpi-delta.down { color:var(--red);   background:rgba(255,107,107,0.10); }
+        .d2p7-kpi-delta.flat { color:var(--text-tertiary); background:rgba(255,255,255,0.04); }
+
+        /* Table card — prototype .card (lines 610–613). */
+        .d2p7-card { background:var(--bg-card); border:1px solid var(--border); border-radius:16px; padding:14px 18px 14px; position:relative; }
+        .d2p7-card-hd { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; flex-wrap:wrap; }
+        .d2p7-card-title { font-family:var(--font-display,inherit); font-size:14.5px; font-weight:600; letter-spacing:-0.2px; }
+        .d2p7-card-sub { font-size:11.5px; color:var(--text-tertiary); margin-top:2px; }
+
+        /* Queue rows — prototype .queue-row (lines 651–663) */
+        .d2p7-wrap .queue-row { display:grid; align-items:center; gap:12px; padding:12px 4px; border-bottom:1px solid var(--border); font-size:12.5px; }
         .d2p7-wrap .queue-row:last-child { border-bottom:none; }
         .d2p7-wrap .queue-row.head { color:var(--text-tertiary); font-size:10.5px; letter-spacing:1px; text-transform:uppercase; font-weight:600; padding:4px 4px 10px; }
         .d2p7-wrap .queue-row.pt-row { cursor:pointer; transition: background .1s ease; border-radius:8px; }
-        .d2p7-wrap .queue-row.pt-row:hover { background: rgba(0,212,188,0.05); }
-        .d2p7-wrap .queue-pt { display:flex; align-items:center; gap:10px; }
-        .d2p7-wrap .queue-pt-name { font-weight:600; font-size:13px; color:var(--text-primary); }
-        .d2p7-wrap .queue-pt-cond { font-size:10.5px; color:var(--text-tertiary); margin-top:1px; }
-        .d2p7-wrap .pt-av { width:26px; height:26px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:10.5px; font-weight:600; color:#04121c; }
+        .d2p7-wrap .queue-row.pt-row:hover { background: rgba(0,212,188,0.04); }
+        .d2p7-wrap .queue-pt { display:flex; align-items:center; gap:10px; min-width:0; }
+        .d2p7-wrap .queue-pt > div:last-child { min-width:0; }
+        .d2p7-wrap .queue-pt-name { font-weight:600; font-size:13px; color:var(--text-primary); display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+        .d2p7-wrap .queue-pt-cond { font-size:10.5px; color:var(--text-tertiary); margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .d2p7-wrap .pt-av { width:26px; height:26px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:10.5px; font-weight:600; color:#fff; }
         .d2p7-wrap .pt-av.a { background:linear-gradient(135deg,#00d4bc,#00a896); }
         .d2p7-wrap .pt-av.b { background:linear-gradient(135deg,#4a9eff,#2d7fe0); }
         .d2p7-wrap .pt-av.c { background:linear-gradient(135deg,#9b7fff,#7c5fe0); }
@@ -497,82 +577,145 @@ export async function pgPatientHub(setTopbar, navigate) {
         .d2p7-wrap .queue-progress { display:flex; align-items:center; gap:8px; }
         .d2p7-wrap .queue-progress-bar { flex:1; height:5px; background:rgba(255,255,255,0.06); border-radius:3px; overflow:hidden; }
         .d2p7-wrap .queue-progress-bar > div { height:100%; background:linear-gradient(90deg,var(--teal),var(--blue)); border-radius:3px; }
+
+        /* Chips — prototype tokens (lines 618–624) */
         .d2p7-wrap .chip { display:inline-block; padding:4px 9px; border-radius:5px; font-size:11px; font-weight:600; background:var(--bg-surface); color:var(--text-secondary); }
         .d2p7-wrap .chip.teal   { background:rgba(0,212,188,0.12);   color:var(--teal); }
         .d2p7-wrap .chip.blue   { background:rgba(74,158,255,0.12);  color:var(--blue); }
-        .d2p7-wrap .chip.violet { background:rgba(155,127,255,0.14); color:var(--violet); }
-        .d2p7-wrap .chip.rose   { background:rgba(255,107,157,0.14); color:var(--rose); }
-        .d2p7-wrap .chip.amber  { background:rgba(255,181,71,0.14);  color:var(--amber); }
-        .d2p7-wrap .chip.green  { background:rgba(74,222,128,0.14);  color:var(--green); }
-        .d2p7-wrap .topbar-btn { background:transparent; border:1px solid var(--border); color:var(--text-secondary); border-radius:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
-        .d2p7-wrap .topbar-btn:hover { border-color:var(--border-hover); color:var(--text-primary); }
-        .d2p7-search-wrap { position:relative; flex:1; max-width:280px; }
-        .d2p7-search-wrap input { width:100%; background:var(--bg-surface); border:1px solid var(--border); border-radius:8px; padding:7px 10px 7px 28px; color:var(--text-primary); font-size:12.5px; }
-        .d2p7-search-wrap svg { position:absolute; left:9px; top:50%; transform:translateY(-50%); width:13px; height:13px; stroke:var(--text-tertiary); fill:none; stroke-width:2; stroke-linecap:round; pointer-events:none; }
+        .d2p7-wrap .chip.violet { background:rgba(155,127,255,0.12); color:var(--violet); }
+        .d2p7-wrap .chip.rose   { background:rgba(255,107,157,0.12); color:var(--rose); }
+        .d2p7-wrap .chip.amber  { background:rgba(255,181,71,0.12);  color:var(--amber); }
+        .d2p7-wrap .chip.green  { background:rgba(74,222,128,0.12);  color:var(--green); }
+
+        /* Action buttons */
+        .d2p7-wrap .topbar-btn { background:transparent; border:1px solid var(--border); color:var(--text-secondary); border-radius:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition: color .15s ease, border-color .15s ease; }
+        .d2p7-wrap .topbar-btn:hover { color:var(--text-primary); border-color:var(--border-hover); }
+        .d2p7-history-btn { height:26px; padding:0 10px; font-size:10.5px; opacity:0; transition: opacity .12s ease, color .15s ease, border-color .15s ease; }
+        .d2p7-wrap .queue-row.pt-row:hover .d2p7-history-btn { opacity:1; }
+        .d2p7-wrap .queue-row.pt-row:focus-within .d2p7-history-btn { opacity:1; }
+        .d2p7-history-btn:focus-visible { opacity:1; outline:2px solid var(--teal); outline-offset:2px; }
+
+        /* Demo tag inline with the patient name — replaces the heavier banner-style pill. */
+        .d2p7-demo-tag { font-family:var(--font-mono); font-size:9px; font-weight:700; letter-spacing:0.6px; color:var(--amber); background:rgba(255,181,71,0.10); border:1px solid rgba(255,181,71,0.4); padding:1px 6px; border-radius:4px; vertical-align:middle; }
+
+        /* Sortable header arrow indicator */
         .d2p7-th { user-select:none; transition: color .12s ease; }
         .d2p7-th:hover { color: var(--text-primary); }
+
+        /* Demo banner — prototype alert-strip pattern (lines 711–720). */
+        .d2p7-demo-banner {
+          display:flex; align-items:center; gap:14px;
+          padding:12px 16px; margin:0 0 16px 0; border-radius:12px;
+          background: linear-gradient(90deg, rgba(255,181,71,0.08), rgba(255,107,107,0.04));
+          border: 1px solid rgba(255,181,71,0.22);
+        }
+        .d2p7-demo-ico {
+          width:32px; height:32px; border-radius:9px;
+          background: rgba(255,181,71,0.14); color: var(--amber);
+          display:flex; align-items:center; justify-content:center; flex-shrink:0;
+          font-size:16px;
+        }
+        .d2p7-demo-body { flex:1; min-width:0; }
+        .d2p7-demo-title { font-size:12.5px; font-weight:600; color:var(--text-primary); }
+        .d2p7-demo-sub   { font-size:11.5px; color:var(--text-secondary); margin-top:2px; line-height:1.45; }
+        .d2p7-demo-sub code { font-family:var(--font-mono); background:rgba(0,0,0,0.25); padding:1px 5px; border-radius:3px; color:var(--amber); }
+
+        /* Empty state */
+        .d2p7-empty { padding:48px 24px; text-align:center; color:var(--text-tertiary); }
+        .d2p7-empty-ico { font-size:30px; margin-bottom:12px; opacity:0.85; }
+        .d2p7-empty-title { font-family:var(--font-display,inherit); font-size:16px; font-weight:600; color:var(--text-primary); margin-bottom:6px; }
+        .d2p7-empty-body { font-size:12.5px; max-width:480px; margin:0 auto 16px; line-height:1.55; }
+        .d2p7-empty-cta { margin-top:6px; }
+
+        /* Footer */
+        .d2p7-foot { display:flex; justify-content:space-between; align-items:center; padding:14px 4px 4px; font-size:11.5px; color:var(--text-tertiary); border-top:1px solid var(--border); margin-top:8px; gap:12px; flex-wrap:wrap; }
+        .d2p7-foot-pager { display:flex; gap:6px; align-items:center; }
+
+        /* Horizontal scroll affordance */
         .d2p7-table-scroll::-webkit-scrollbar { height: 8px; }
         .d2p7-table-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
       </style>
 
       <div class="ch-tab-bar">${tabBar()}</div>
 
-      ${hasDemoData ? `
-      <div role="status" aria-live="polite" style="display:flex;align-items:center;gap:10px;padding:8px 14px;margin:0 0 14px 0;background:linear-gradient(90deg,rgba(245,158,11,0.12),rgba(245,158,11,0.04));border:1px solid rgba(245,158,11,0.45);border-radius:8px;font-size:12px;color:var(--amber,#f59e0b)">
-        <span style="font-size:14px" aria-hidden="true">⚠</span>
-        <strong style="font-weight:700;letter-spacing:.4px;text-transform:uppercase;font-size:11px">Demo Data — Not Real Patient Information</strong>
-        <span style="color:var(--text-secondary)">${demoSeedCount} seeded sample patient${demoSeedCount === 1 ? '' : 's'} shown for demonstration. Each row prefixed with <code style="background:rgba(0,0,0,0.2);padding:1px 4px;border-radius:3px">[DEMO]</code> in clinician notes is excluded from clinical reports.</span>
-      </div>` : ''}
-
       <div class="d2p7-wrap">
-        <div style="display:flex;gap:12px;margin-bottom:18px;align-items:center;flex-wrap:wrap">
+        <!-- Page header strip — re-creates prototype topbar inside the content shell. -->
+        <div class="d2p7-header">
+          <div>
+            <div class="d2p7-header-title">Patient roster</div>
+            <div class="d2p7-header-crumbs">
+              <span>Clinic</span><span class="sep">/</span><span>Patients</span><span class="sep">/</span>
+              <span>${counts.all} total · ${counts.active} active${counts.archived ? ' · ' + counts.archived + ' archived' : ''}</span>
+            </div>
+          </div>
+          <div class="d2p7-search-wrap">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <input id="d2p7-search" type="text" placeholder="Search by name, MRN, condition, protocol…" oninput="window._phOnSearch()" aria-label="Search patients">
+            <span class="kbd">⌘K</span>
+          </div>
+        </div>
+
+        ${hasDemoData ? `
+        <div class="d2p7-demo-banner" role="status" aria-live="polite">
+          <div class="d2p7-demo-ico" aria-hidden="true">⚠</div>
+          <div class="d2p7-demo-body">
+            <div class="d2p7-demo-title">Demo data — not real patient information</div>
+            <div class="d2p7-demo-sub">${demoSeedCount} seeded sample patient${demoSeedCount === 1 ? '' : 's'} shown for demonstration. Records prefixed with <code>[DEMO]</code> in clinician notes are excluded from clinical reports and audit exports.</div>
+          </div>
+        </div>` : ''}
+
+        <!-- Filter / status row -->
+        <div class="d2p7-filter-row">
           <div class="d2p7-tabrow">
             ${STATUS_TABS.map(s =>
               '<button data-st="' + s.id + '" class="' + (window._phStatus===s.id?'active':'') + '" onclick="window._phSetStatus(\'' + s.id + '\')">' +
                 s.label + ' · ' + (counts[s.id]||0) +
               '</button>').join('')}
           </div>
+          <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+            <button id="d2p7-sort-affordance" class="d2p7-chip-btn" type="button" disabled title="Click any column header to change sort direction.">Sort: ${esc((TABLE_COLS.find(c => c.key === window._phSort.key) || {}).label || 'Patient')} ${window._phSort.dir === 'asc' ? '↑' : '↓'}</button>
+          </div>
         </div>
 
+        <!-- KPI strip — prototype kpi-grid (lines 587–602) -->
         <div class="d2p7-kpi-grid">
           <div class="d2p7-kpi">
             <div class="d2p7-kpi-lbl"><span class="dot"></span>Active courses</div>
             <div class="d2p7-kpi-num">${activeCourses}</div>
-            <div class="d2p7-kpi-delta up">${counts.active} patients</div>
+            <div class="d2p7-kpi-delta ${counts.active ? 'up' : 'flat'}">${counts.active} patient${counts.active === 1 ? '' : 's'}</div>
           </div>
           <div class="d2p7-kpi">
             <div class="d2p7-kpi-lbl blue"><span class="dot"></span>Avg PHQ-9 Δ</div>
-            <div class="d2p7-kpi-num">${phqDelta === '—' ? '—' : ((phqDeltaRaw > 0 ? '+' : '') + phqDelta)}<span class="unit">pts</span></div>
-            <div class="d2p7-kpi-delta ${phqN && phqDeltaRaw < 0 ? 'up' : ''}">${phqN ? phqN + ' scored' : 'No data'}</div>
+            <div class="d2p7-kpi-num">${phqDelta === '—' ? '—' : ((phqDeltaRaw > 0 ? '+' : '') + phqDelta)}${phqDelta === '—' ? '' : '<span class="unit">pts</span>'}</div>
+            <div class="d2p7-kpi-delta ${phqN ? (phqDeltaRaw < 0 ? 'up' : (phqDeltaRaw > 0 ? 'down' : 'flat')) : 'flat'}">${phqN ? phqN + ' scored' : 'No data'}</div>
           </div>
           <div class="d2p7-kpi">
             <div class="d2p7-kpi-lbl violet"><span class="dot"></span>Homework adherence</div>
             <div class="d2p7-kpi-num">${adhN ? adhPct : '—'}${adhN ? '<span class="unit">%</span>' : ''}</div>
-            <div class="d2p7-kpi-delta">${adhN ? 'across ' + adhN + ' patients' : 'No data'}</div>
+            <div class="d2p7-kpi-delta ${adhN ? 'flat' : 'flat'}">${adhN ? 'across ' + adhN + ' patient' + (adhN === 1 ? '' : 's') : 'No data'}</div>
           </div>
           <div class="d2p7-kpi">
             <div class="d2p7-kpi-lbl amber"><span class="dot"></span>Needs follow-up</div>
             <div class="d2p7-kpi-num">${followup}</div>
-            <div class="d2p7-kpi-delta ${followupOver7d ? 'down' : ''}">${followupOver7d ? followupOver7d + ' overdue >7d' : 'All on track'}</div>
+            <div class="d2p7-kpi-delta ${followupOver7d ? 'down' : (followup ? 'flat' : 'up')}">${followupOver7d ? followupOver7d + ' overdue >7d' : (followup ? 'within window' : 'All on track')}</div>
           </div>
         </div>
 
+        <!-- Patient table card -->
         <div class="d2p7-card">
-          <div style="display:flex;align-items:center;gap:12px;padding:8px 4px;margin-bottom:4px;flex-wrap:wrap">
-            <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-tertiary);font-weight:600">Patient roster — comprehensive view</div>
-            <div style="font-size:10.5px;color:var(--text-tertiary)">Click any column header to sort</div>
-            <div class="d2p7-search-wrap" style="margin-left:auto">
-              <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-              <input id="d2p7-search" type="text" placeholder="Search name, MRN, email, condition, clinician…" oninput="window._phOnSearch()">
+          <div class="d2p7-card-hd">
+            <div>
+              <div class="d2p7-card-title">Active patient caseload</div>
+              <div class="d2p7-card-sub">Click any column header to sort · row click opens the patient chart</div>
             </div>
           </div>
           <div class="d2p7-table-scroll" style="overflow-x:auto">
-            <div style="min-width:1280px">
+            <div style="min-width:920px">
               <div id="d2p7-head" class="queue-row head" style="grid-template-columns:${GRID_TEMPLATE}">${headerHTML()}</div>
               <div id="d2p7-list"></div>
             </div>
           </div>
-          <div id="d2p7-foot" style="display:flex;justify-content:space-between;align-items:center;padding:12px 4px 4px;font-size:11.5px;color:var(--text-tertiary);border-top:1px solid var(--border);margin-top:4px"></div>
+          <div id="d2p7-foot" class="d2p7-foot"></div>
         </div>
       </div>
     </div>`;
