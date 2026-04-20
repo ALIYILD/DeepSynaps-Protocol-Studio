@@ -792,24 +792,383 @@ export async function pgPatientDashboard(user) {
       </div>`;
   }
 
+  // ── Design #08 helpers (hero countdown, quick tiles, rich progress, mood grid,
+  //    wellness metrics, homework list, care team + upcoming) ────────────────
+  const daysToNext = nextSessDate
+    ? Math.max(0, Math.ceil((nextSessDate.getTime() - Date.now()) / 86400000))
+    : null;
+  const nextSessDowLabel = nextSessDate
+    ? nextSessDate.toLocaleDateString(loc, { weekday: 'long' })
+    : null;
+  const nextSessTitle = nextSess
+    ? (nextSess.modality || nextSess.session_type || nextSess.protocol_name || 'Next session')
+    : null;
+  const nextSessSub = (() => {
+    if (!nextSess) return null;
+    const parts = [];
+    if (nextSess.clinician_name) parts.push(esc(nextSess.clinician_name));
+    if (nextSess.location || nextSess.room) parts.push(esc(nextSess.location || nextSess.room));
+    if (activeCourse?.session_count != null && activeCourse?.total_sessions_planned) {
+      parts.push(`session ${activeCourse.session_count + 1}/${activeCourse.total_sessions_planned}`);
+    }
+    return parts.join(' · ') || null;
+  })();
+
+  function _pth2HeroSubHtml() {
+    if (progressPct != null && outcomeDelta) {
+      return `You're <strong style="color:var(--teal)">${progressPct}%</strong> through your course. ${outcomeDelta}`;
+    }
+    if (progressPct != null) {
+      return `You're <strong style="color:var(--teal)">${progressPct}%</strong> through your course — ${sessDelivered} of ${totalPlanned} sessions done.`;
+    }
+    if (sessDelivered > 0) {
+      return `You've completed <strong style="color:var(--teal)">${sessDelivered}</strong> session${sessDelivered === 1 ? '' : 's'} so far.`;
+    }
+    return `Your care team will schedule your first session.`;
+  }
+
+  function _pth2QuickTilesHtml() {
+    const tiles = [];
+    const checkinPending = !checkedInToday;
+    tiles.push(`
+      <button class="pth2-tile" id="pth-tile-checkin" onclick="window._ptdOpenCheckin()">
+        <div class="pth2-tile-ico pth2-tile-ico--teal" aria-hidden="true">
+          <svg width="18" height="18"><use href="#i-clipboard"/></svg>
+        </div>
+        <div class="pth2-tile-title">Daily check-in</div>
+        <div class="pth2-tile-sub">Mood, sleep, energy · under a minute</div>
+        <div class="pth2-tile-meta">${checkinPending ? 'Due today' : 'Done today'}</div>
+      </button>`);
+
+    const nextTask = openTasks[0] || null;
+    if (nextTask) {
+      tiles.push(`
+        <button class="pth2-tile pth2-tile--blue" onclick="window._navPatient('pt-wellness')">
+          <div class="pth2-tile-ico pth2-tile-ico--blue" aria-hidden="true">
+            <svg width="18" height="18"><use href="#i-video"/></svg>
+          </div>
+          <div class="pth2-tile-title">${esc(nextTask.title || 'Today\u2019s exercise')}</div>
+          <div class="pth2-tile-sub">${esc(nextTask.category || nextTask.task_type || 'Home practice')}</div>
+          <div class="pth2-tile-meta">${openTasks.length > 1 ? openTasks.length + ' pending' : 'Home practice'}</div>
+        </button>`);
+    } else {
+      tiles.push(`
+        <button class="pth2-tile pth2-tile--blue" onclick="window._navPatient('pt-wellness')">
+          <div class="pth2-tile-ico pth2-tile-ico--blue" aria-hidden="true">
+            <svg width="18" height="18"><use href="#i-video"/></svg>
+          </div>
+          <div class="pth2-tile-title">Homework</div>
+          <div class="pth2-tile-sub">No tasks assigned right now</div>
+          <div class="pth2-tile-meta">All clear</div>
+        </button>`);
+    }
+
+    tiles.push(`
+      <button class="pth2-tile pth2-tile--violet" onclick="window._navPatient('pt-learn')">
+        <div class="pth2-tile-ico pth2-tile-ico--violet" aria-hidden="true">
+          <svg width="18" height="18"><use href="#i-book-open"/></svg>
+        </div>
+        <div class="pth2-tile-title">Education library</div>
+        <div class="pth2-tile-sub">${targetAreaLine ? esc(targetAreaLine) : 'Articles for your course'}</div>
+        <div class="pth2-tile-meta">Explore</div>
+      </button>`);
+
+    const unreadCount = messages.filter(m => !m.is_read && m.sender_type !== 'patient').length;
+    if (latestUnread) {
+      const sender = latestUnread.sender_name || latestUnread.sender_display_name || 'Your care team';
+      const preview = latestUnread.preview || latestUnread.body || latestUnread.subject || '';
+      tiles.push(`
+        <button class="pth2-tile pth2-tile--rose" onclick="window._navPatient('patient-messages')">
+          <div class="pth2-tile-ico pth2-tile-ico--rose" aria-hidden="true">
+            <svg width="18" height="18"><use href="#i-mail"/></svg>
+          </div>
+          <div class="pth2-tile-title">Message from ${esc(sender)}</div>
+          <div class="pth2-tile-sub">${esc(String(preview).slice(0, 80))}</div>
+          <div class="pth2-tile-meta" style="color:var(--rose,#ff6b9d)">${unreadCount} unread</div>
+        </button>`);
+    } else {
+      tiles.push(`
+        <button class="pth2-tile pth2-tile--rose" onclick="window._navPatient('patient-messages')">
+          <div class="pth2-tile-ico pth2-tile-ico--rose" aria-hidden="true">
+            <svg width="18" height="18"><use href="#i-mail"/></svg>
+          </div>
+          <div class="pth2-tile-title">Messages</div>
+          <div class="pth2-tile-sub">No new messages from your team</div>
+          <div class="pth2-tile-meta">Inbox</div>
+        </button>`);
+    }
+
+    return tiles.join('');
+  }
+
+  function _pth2OutcomeBarsHtml() {
+    if (!outcomeGroups.length) {
+      return `<div class="pth2-empty-inline">Complete your first assessment to start tracking scores here.</div>`;
+    }
+    const rows = outcomeGroups.slice(0, 4).map(g => {
+      const gm = outcomeGoalMarker(g.latest, g.baseline);
+      const cur = g.latest ? Number(g.latest.score_numeric) : null;
+      const base = g.baseline ? Number(g.baseline.score_numeric) : null;
+      const goal = gm && gm.goal != null ? Number(gm.goal) : null;
+      const max = Math.max(base || 0, cur || 0, goal || 0, 1);
+      const pct = cur != null ? Math.max(4, Math.min(100, Math.round((1 - (cur / max)) * 100 + 12))) : 0;
+      const goalPct = goal != null ? Math.max(4, Math.min(100, Math.round((1 - (goal / max)) * 100 + 12))) : null;
+      const valTxt = cur != null ? cur : '—';
+      const goalTxt = goal != null ? ` <em>&rarr; goal ${goal}</em>` : '';
+      const subText = g.baseline && g.latest && g.baseline !== g.latest
+        ? `From ${base} at start · week ${outcomeGroups.indexOf(g) + 1}`
+        : 'Awaiting more data';
+      return `
+        <div class="pth2-outcome-row">
+          <div class="pth2-outcome-top">
+            <div>
+              <div class="pth2-outcome-name">${esc(g.template_name || 'Outcome')}</div>
+              <div class="pth2-outcome-sub">${esc(subText)}</div>
+            </div>
+            <div class="pth2-outcome-val">${esc(String(valTxt))}${goalTxt}</div>
+          </div>
+          <div class="pth2-outcome-bar pth2-outcome-bar--${gm && gm.down ? 'down' : 'up'}">
+            <span style="width:${pct}%"></span>
+            ${goalPct != null ? `<span class="pth2-outcome-marker" style="left:${goalPct}%" title="Goal"></span>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+
+    const adherence = (() => {
+      if (!homeTasks.length) return null;
+      const done = homeTasks.filter(t => t.completed || t.done).length;
+      return Math.round((done / homeTasks.length) * 100);
+    })();
+    const adherenceRow = adherence != null ? `
+      <div class="pth2-outcome-row">
+        <div class="pth2-outcome-top">
+          <div>
+            <div class="pth2-outcome-name">Homework adherence</div>
+            <div class="pth2-outcome-sub">${homeTasks.filter(t => t.completed || t.done).length} of ${homeTasks.length} tasks complete</div>
+          </div>
+          <div class="pth2-outcome-val">${adherence}<em>%</em></div>
+        </div>
+        <div class="pth2-outcome-bar"><span style="width:${adherence}%"></span></div>
+      </div>` : '';
+
+    return rows + adherenceRow;
+  }
+
+  function _pth2MoodGridHtml() {
+    const cells = [];
+    let logged = 0;
+    for (let i = 27; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000);
+      const iso = d.toISOString().slice(0, 10);
+      const raw = (() => { try { return localStorage.getItem('ds_checkin_' + iso); } catch (_e) { return null; } })();
+      let level = 0;
+      if (raw) {
+        try {
+          const c = JSON.parse(raw);
+          const avg = ((Number(c.mood) || 0) + (Number(c.sleep) || 0) + (Number(c.energy) || 0)) / 3;
+          if (avg >= 8) level = 5;
+          else if (avg >= 6) level = 4;
+          else if (avg >= 4) level = 3;
+          else if (avg >= 2) level = 2;
+          else if (avg > 0) level = 1;
+          if (avg > 0) logged++;
+        } catch (_e) { /* ignore */ }
+      }
+      const today = i === 0 ? ' data-today="1"' : '';
+      cells.push(`<div class="pth2-mood-cell" data-level="${level}"${today} title="${iso}"></div>`);
+    }
+    return {
+      html: cells.join(''),
+      logged,
+    };
+  }
+
+  function _pth2WellnessMetricsHtml() {
+    if (!wearable.hasData) {
+      return `
+        <div class="pth2-wellness-empty">
+          <div class="pth2-wellness-empty-title">No wearable data yet</div>
+          <div class="pth2-wellness-empty-sub">Connect a device for sleep, HRV, and heart-rate trends.</div>
+          <button class="pth2-inline-btn" onclick="window._navPatient('patient-wearables')">Connect device &rarr;</button>
+        </div>`;
+    }
+    const rows = [];
+    if (wearable.sleepAvg != null) {
+      const pct = Math.max(4, Math.min(100, Math.round((wearable.sleepAvg / 9) * 100)));
+      rows.push({ label: 'Sleep',       val: wearable.sleepAvg.toFixed(1) + 'h', pct, grad: 'linear-gradient(90deg,var(--teal,#00d4bc),var(--blue,#4a9eff))', col: 'var(--teal,#00d4bc)' });
+    }
+    if (wearable.hrvAvg != null) {
+      const pct = Math.max(4, Math.min(100, Math.round((wearable.hrvAvg / 80) * 100)));
+      rows.push({ label: 'HRV',         val: Math.round(wearable.hrvAvg) + 'ms', pct, grad: 'linear-gradient(90deg,var(--violet,#9b7fff),var(--blue,#4a9eff))', col: 'var(--violet,#9b7fff)' });
+    }
+    if (wearable.rhrAvg != null) {
+      const pct = Math.max(4, Math.min(100, Math.round(100 - ((wearable.rhrAvg - 50) / 50) * 100)));
+      rows.push({ label: 'Resting HR',  val: Math.round(wearable.rhrAvg) + ' bpm', pct, grad: 'linear-gradient(90deg,var(--green,#4ade80),var(--teal,#00d4bc))', col: 'var(--green,#4ade80)' });
+    }
+    if (wearable.stepsAvg != null) {
+      const pct = Math.max(4, Math.min(100, Math.round((wearable.stepsAvg / 10000) * 100)));
+      rows.push({ label: 'Steps',       val: (wearable.stepsAvg / 1000).toFixed(1) + 'k', pct, grad: 'linear-gradient(90deg,var(--amber,#ffb547),var(--teal,#00d4bc))', col: 'var(--amber,#ffb547)' });
+    }
+    if (!rows.length) {
+      return `<div class="pth2-wellness-empty-sub">Wearable syncing — metrics will appear shortly.</div>`;
+    }
+    return rows.map(r => `
+      <div class="pth2-metric-row">
+        <div class="pth2-metric-top">
+          <span class="pth2-metric-label">${esc(r.label)}</span>
+          <span class="pth2-metric-val" style="color:${r.col}">${esc(r.val)}</span>
+        </div>
+        <div class="pth2-metric-bar"><span style="width:${r.pct}%;background:${r.grad}"></span></div>
+      </div>`).join('');
+  }
+
+  function _pth2TargetPanelHtml() {
+    if (!activeCourse && !targetAreaLine) return '';
+    const mod = activeCourse?.modality_slug || activeCourse?.modality_name || '';
+    const cond = activeCourse?.condition_slug || activeCourse?.condition_name || '';
+    const modLabel = mod ? esc(String(mod).toUpperCase()) : 'Your treatment';
+    const condLabel = cond ? esc(cond) : '';
+    return `
+      <div class="pth2-target">
+        <div class="pth2-target-label">Your treatment${condLabel ? ' · ' + condLabel : ''}</div>
+        <div class="pth2-target-body">
+          <svg viewBox="0 0 120 120" width="56" height="56" aria-hidden="true" class="pth2-target-svg">
+            <circle cx="60" cy="60" r="48" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+            <polygon points="60,20 56,27 64,27" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.35)" stroke-width="1"/>
+            <ellipse cx="14" cy="60" rx="3" ry="8" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)"/>
+            <ellipse cx="106" cy="60" rx="3" ry="8" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)"/>
+            <circle cx="46" cy="46" r="7" fill="var(--teal,#00d4bc)" stroke="rgba(255,255,255,0.8)" stroke-width="1.5"/>
+            <circle cx="72" cy="36" r="6" fill="var(--rose,#ff6b9d)" stroke="rgba(255,255,255,0.8)" stroke-width="1.5"/>
+            <line x1="46" y1="46" x2="72" y2="36" stroke="rgba(255,255,255,0.35)" stroke-width="1.2" stroke-dasharray="3,2"/>
+          </svg>
+          <div class="pth2-target-text">
+            <div class="pth2-target-title">${modLabel}${condLabel ? ' — ' + condLabel : ''}</div>
+            <div class="pth2-target-sub">${targetAreaLine ? esc(targetAreaLine) : 'Target area set by your care team.'}</div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function _pth2HomeworkListHtml() {
+    if (!homeTasks.length) {
+      return `
+        <div class="pth2-empty">
+          <div class="pth2-empty-title">No tasks yet</div>
+          <div class="pth2-empty-sub">Your care team will add tasks here.</div>
+        </div>`;
+    }
+    const rows = homeTasks.slice(0, 4).map(t => {
+      const done = !!(t.completed || t.done);
+      const cat = t.category || t.task_type || 'Home task';
+      const title = t.title || t.name || 'Home task';
+      return `
+        <div class="pth2-hw-item${done ? ' pth2-hw-item--done' : ''}">
+          <div class="pth2-hw-ico"><svg width="16" height="16"><use href="#i-wave"/></svg></div>
+          <div class="pth2-hw-body">
+            <div class="pth2-hw-title">${esc(title)}</div>
+            <div class="pth2-hw-sub">${esc(cat)}</div>
+          </div>
+          <div class="pth2-hw-action">
+            ${done
+              ? '<span class="pth2-chip pth2-chip--green">&check; Done</span>'
+              : '<button class="pth2-inline-btn" onclick="window._navPatient(\'pt-wellness\')">Open</button>'}
+          </div>
+        </div>`;
+    }).join('');
+    const streakLine = streak > 0
+      ? `<div class="pth2-streak"><svg width="14" height="14" style="color:var(--teal,#00d4bc);flex-shrink:0"><use href="#i-sparkle"/></svg><span><strong>Streak: ${streak} day${streak === 1 ? '' : 's'}.</strong> Consistency is a strong predictor of treatment response.</span></div>`
+      : '';
+    return rows + streakLine;
+  }
+
+  function _pth2CareTeamHtml() {
+    if (!careTeam.length && !upcomingSessions.length) {
+      return `
+        <div class="pth2-empty">
+          <div class="pth2-empty-title">No care team assigned yet</div>
+          <div class="pth2-empty-sub">Once assigned, your clinicians will appear here.</div>
+        </div>`;
+    }
+    const members = careTeam.map(m => `
+      <div class="pth2-member">
+        <div class="pth2-avatar" style="background:${m.accent}">${esc(m.avatar)}</div>
+        <div class="pth2-member-body">
+          <div class="pth2-member-name">${esc(m.name)}</div>
+          <div class="pth2-member-role">${esc(m.role)}</div>
+        </div>
+      </div>`).join('');
+
+    const upcoming = upcomingSessions.slice(0, 2).map(s => {
+      const d = new Date(s.scheduled_at);
+      const dow = d.toLocaleDateString(loc, { weekday: 'short' });
+      const day = d.getDate();
+      const time = d.toLocaleTimeString(loc, { hour: 'numeric', minute: '2-digit' });
+      const title = s.modality || s.session_type || s.protocol_name || 'Session';
+      const sub = [time, s.location || s.room, s.duration_min ? s.duration_min + ' min' : null].filter(Boolean).join(' · ');
+      const status = s.confirmed || s.status === 'confirmed'
+        ? '<span class="pth2-chip pth2-chip--teal">Confirmed</span>'
+        : s.is_video || s.session_mode === 'video'
+          ? '<span class="pth2-chip pth2-chip--blue">Video</span>'
+          : '';
+      return `
+        <div class="pth2-appt">
+          <div class="pth2-appt-date">
+            <div class="pth2-appt-dow">${esc(dow)}</div>
+            <div class="pth2-appt-day">${day}</div>
+          </div>
+          <div class="pth2-appt-body">
+            <div class="pth2-appt-title">${esc(title)}</div>
+            <div class="pth2-appt-sub">${esc(sub)}</div>
+          </div>
+          ${status}
+        </div>`;
+    }).join('');
+
+    return `
+      <div class="pth2-members">${members}</div>
+      ${upcoming ? `
+        <div class="pth2-appt-section">
+          <div class="pth2-section-label">Upcoming</div>
+          <div class="pth2-appt-list">${upcoming}</div>
+        </div>` : ''}`;
+  }
+
+  const moodGrid = _pth2MoodGridHtml();
+
   // ── Render ────────────────────────────────────────────────────────────────
   el.innerHTML = `
-    <div class="ptd-dashboard pth-dashboard">
+    <div class="ptd-dashboard pth2-dashboard">
 
-      <!-- 1. Greeting hero (simpler) -->
-      <div class="pth-hero">
-        <div class="pth-hero-greet">${greeting}, ${firstName} <span class="pth-hero-wave" aria-hidden="true">👋</span></div>
-        <div class="pth-hero-date">${esc(dateLabel)}</div>
-        <span class="pth-hero-badge">Care team & specialist AI agents available anytime</span>
+      <!-- 1. Hero with greeting + countdown tile -->
+      <div class="pth2-hero">
+        <div class="pth2-hero-main">
+          <div class="pth2-hero-greet">${greeting}, ${firstName} <span aria-hidden="true">👋</span></div>
+          <div class="pth2-hero-sub">${_pth2HeroSubHtml()}</div>
+          <div class="pth2-hero-meta">${esc(dateLabel)}</div>
+        </div>
+        ${nextSess ? `
+          <div class="pth2-hero-next">
+            <div class="pth2-countdown">
+              <div class="pth2-countdown-num">${daysToNext != null ? daysToNext : '—'}</div>
+              <div class="pth2-countdown-lbl">${daysToNext === 0 ? 'today' : daysToNext === 1 ? 'day to go' : 'days to go'}</div>
+            </div>
+            <div class="pth2-hero-next-info">
+              <div class="pth2-hero-next-title">${esc(nextSessTitle || 'Next session')}${nextSessDowLabel ? ' · ' + esc(nextSessDowLabel) : ''}${nextSessTime ? ' ' + esc(nextSessTime) : ''}</div>
+              ${nextSessSub ? `<div class="pth2-hero-next-sub">${nextSessSub}</div>` : ''}
+              <button class="pth2-ghost-btn" onclick="window._navPatient('pt-sessions')">View sessions →</button>
+            </div>
+          </div>` : `
+          <div class="pth2-hero-next pth2-hero-next--empty">
+            <div class="pth2-hero-next-title">No upcoming session</div>
+            <div class="pth2-hero-next-sub">Contact your clinic to schedule your next appointment.</div>
+            <button class="pth2-ghost-btn" onclick="window._navPatient('patient-messages')">Message care team →</button>
+          </div>`}
       </div>
 
-      <!-- 2. Today's focus (soft-glow recommendation card) -->
-      ${_focusCardHtml()}
+      <!-- 2. Quick tiles (4) -->
+      <div class="pth2-tiles">${_pth2QuickTilesHtml()}</div>
 
-      <!-- 3. Quick tiles row (3) -->
-      <div class="pth-tiles">${_quickTilesHtml()}</div>
-
-      <!-- Inline daily check-in (hidden unless opened from tile/focus) -->
+      <!-- Inline daily check-in (hidden unless opened from tile) -->
       <div id="pt-checkin-form" class="pth-checkin-form" style="display:none">
         <div class="pth-checkin-title">Quick check-in</div>
         <div class="ptd-slider-rows">
@@ -829,28 +1188,92 @@ export async function pgPatientDashboard(user) {
         </div>
       </div>
 
-      <!-- 4. Progress card (single metric) -->
-      ${_progressCardHtml()}
+      <!-- 3. Progress + Wellness row -->
+      <div class="pth2-grid-32">
+        <div class="pth2-card">
+          <div class="pth2-card-head">
+            <div>
+              <div class="pth2-card-title">Your progress</div>
+              <div class="pth2-card-sub">Scores vs. course start · lower = better</div>
+            </div>
+            <button class="pth2-ghost-btn" onclick="window._navPatient('pt-outcomes')">Details →</button>
+          </div>
+          <div class="pth2-outcome-list">${_pth2OutcomeBarsHtml()}</div>
+          <div class="pth2-mood-section">
+            <div class="pth2-section-label">Weekly mood · last 28 days</div>
+            <div class="pth2-mood-grid">${moodGrid.html}</div>
+            <div class="pth2-mood-legend">
+              <span class="pth2-mood-legend-item"><span class="pth2-mood-cell" data-level="1" style="width:12px;height:12px"></span>Low</span>
+              <span class="pth2-mood-legend-item"><span class="pth2-mood-cell" data-level="3" style="width:12px;height:12px"></span>Okay</span>
+              <span class="pth2-mood-legend-item"><span class="pth2-mood-cell" data-level="5" style="width:12px;height:12px"></span>Great</span>
+              <span class="pth2-mood-logged">Logged: ${moodGrid.logged}/28 days</span>
+            </div>
+          </div>
+        </div>
 
-      <!-- 5 & 6. Homework + Care team (side-by-side) -->
-      <div class="pth-grid-2">
-        ${_homeworkCardHtml()}
-        ${_careTeamCardHtml()}
+        <div class="pth2-card">
+          <div class="pth2-card-head">
+            <div>
+              <div class="pth2-card-title">Wellness snapshot</div>
+              <div class="pth2-card-sub">From your wearable + check-ins</div>
+            </div>
+            <button class="pth2-ghost-btn" onclick="window._navPatient('pt-wellness')">Details →</button>
+          </div>
+          <div class="pth2-wellness-body">
+            <div class="pth2-ring" role="img" aria-label="Wellness score ${wellnessVal || 'not yet available'}">
+              <svg width="150" height="150" viewBox="0 0 150 150" aria-hidden="true" focusable="false">
+                <circle cx="75" cy="75" r="62" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="10"/>
+                <circle cx="75" cy="75" r="62" fill="none" stroke="url(#pth2-ring-grad)" stroke-width="10" stroke-linecap="round" stroke-dasharray="389" stroke-dashoffset="${Math.max(0, 389 - (wellnessVal / 100) * 389).toFixed(1)}"/>
+                <defs>
+                  <linearGradient id="pth2-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#00d4bc"/><stop offset="100%" stop-color="#9b7fff"/></linearGradient>
+                </defs>
+              </svg>
+              <div class="pth2-ring-center" aria-hidden="true">
+                <div class="pth2-ring-num">${wellnessVal || '—'}</div>
+                <div class="pth2-ring-lbl">Wellness</div>
+              </div>
+            </div>
+            <div class="pth2-metric-list">${_pth2WellnessMetricsHtml()}</div>
+          </div>
+          ${_pth2TargetPanelHtml()}
+        </div>
       </div>
 
-      <!-- 7. Wellness snapshot (below fold) -->
-      ${_wellnessSnapshotHtml()}
+      <!-- 4. Homework + Care team row -->
+      <div class="pth2-grid-32">
+        <div class="pth2-card">
+          <div class="pth2-card-head">
+            <div>
+              <div class="pth2-card-title">Your homework</div>
+              <div class="pth2-card-sub">${homeTasks.length ? `${homeTasks.filter(t => t.completed || t.done).length} of ${homeTasks.length} complete` : 'No tasks assigned'}</div>
+            </div>
+            <button class="pth2-ghost-btn" onclick="window._navPatient('pt-wellness')">View all →</button>
+          </div>
+          <div class="pth2-hw-list">${_pth2HomeworkListHtml()}</div>
+        </div>
 
-      <!-- 8. Need-help footer -->
-      <div class="pth-footer">
-        <div class="pth-footer-title">Need help?</div>
-        <div class="pth-footer-row">
-          <button class="pth-footer-btn" onclick="window._ptdOpenAssistant()">
-            <span class="pth-footer-btn-ico" aria-hidden="true">◈</span>
+        <div class="pth2-card">
+          <div class="pth2-card-head">
+            <div>
+              <div class="pth2-card-title">Your care team</div>
+              <div class="pth2-card-sub">${careTeam.length ? careTeam.length + ' clinician' + (careTeam.length === 1 ? '' : 's') : 'No team assigned yet'}</div>
+            </div>
+            <button class="pth2-ghost-btn" onclick="window._navPatient('patient-messages')">Message →</button>
+          </div>
+          ${_pth2CareTeamHtml()}
+        </div>
+      </div>
+
+      <!-- 5. Need-help footer -->
+      <div class="pth2-footer">
+        <div class="pth2-footer-title">Need help?</div>
+        <div class="pth2-footer-row">
+          <button class="pth2-footer-btn" onclick="window._ptdOpenAssistant()">
+            <span class="pth2-footer-btn-ico" aria-hidden="true">◈</span>
             <span>Ask a question</span>
           </button>
-          <button class="pth-footer-btn" onclick="window._navPatient('patient-messages')">
-            <span class="pth-footer-btn-ico" aria-hidden="true">✉</span>
+          <button class="pth2-footer-btn" onclick="window._navPatient('patient-messages')">
+            <span class="pth2-footer-btn-ico" aria-hidden="true">✉</span>
             <span>Message care team</span>
           </button>
         </div>
