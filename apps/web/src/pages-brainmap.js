@@ -591,6 +591,15 @@ function styleBlock() {
 
       .dv2bm-body { flex:1; min-height:0; overflow:hidden; display:flex; }
       .dv2bm-clinical { flex:1; display:grid; grid-template-columns:280px 1fr 320px; min-height:0; }
+      @media (max-width: 1200px) { .dv2bm-clinical { grid-template-columns:240px 1fr 280px; } }
+      @media (max-width: 980px) {
+        .dv2bm-clinical { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; overflow:auto; }
+        .dv2bm-clinical > :first-child { max-height: 200px; overflow-y: auto; border-right: 0; border-bottom: 1px solid ${T.border}; }
+        .dv2bm-clinical > :last-child  { border-left:  0; border-top:    1px solid ${T.border}; }
+      }
+      @media (max-width: 600px) {
+        .dv2bm-clinical > :first-child { max-height: 140px; }
+      }
 
       .dv2bm-left { border-right:1px solid ${T.border}; background:${T.panel}; display:flex; flex-direction:column; overflow:hidden; }
       .dv2bm-left-head { padding:14px; border-bottom:1px solid ${T.border}; }
