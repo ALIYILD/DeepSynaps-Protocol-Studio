@@ -245,7 +245,21 @@ export const api = {
   demoLogin: (token) => apiFetch('/api/v1/auth/demo-login', { method: 'POST', body: JSON.stringify({ token }) }),
 
   // ── Patients ────────────────────────────────────────────────────────────
-  listPatients: () => apiFetchWithRetry('/api/v1/patients'),
+  // `arg` is optional: pass a plain object of query params (status, q,
+  // condition, modality, clinician, sort, limit, offset) to activate server-
+  // side filtering. Omitting it keeps backward-compat with every caller that
+  // expects the full clinician cohort.
+  listPatients: (arg) => {
+    let qs = '';
+    if (arg && typeof arg === 'object') {
+      const entries = Object.entries(arg).filter(([_, v]) => v != null && v !== '');
+      if (entries.length) {
+        qs = '?' + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString();
+      }
+    }
+    return apiFetchWithRetry(`/api/v1/patients${qs}`);
+  },
+  getPatientsCohortSummary: () => apiFetchWithRetry('/api/v1/patients/cohort-summary'),
   getPatient: (id) => apiFetch(`/api/v1/patients/${id}`),
   createPatient: (data) => apiFetch('/api/v1/patients', { method: 'POST', body: JSON.stringify(data) }),
   updatePatient: (id, data) => apiFetch(`/api/v1/patients/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -1001,6 +1015,8 @@ export const api = {
     apiFetch('/api/v1/notifications/presence', { method: 'POST', body: JSON.stringify({ page_id }) }),
   getPresence: (page_id) =>
     apiFetch(`/api/v1/notifications/presence/${encodeURIComponent(page_id)}`),
+  getNotificationsUnreadCount: () =>
+    apiFetchWithRetry('/api/v1/notifications/unread-count'),
 
   // ── Reports (clinician report hub) ──────────────────────────────────────
   listReports: (patientId) =>

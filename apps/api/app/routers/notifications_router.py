@@ -7,7 +7,10 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Request, Header, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from ..auth import get_authenticated_actor, AuthenticatedActor
+from sqlalchemy import func as sa_func, select
+from sqlalchemy.orm import Session
+from ..auth import get_authenticated_actor, AuthenticatedActor, require_minimum_role
+from ..database import get_db_session
 from ..services.auth_service import decode_token
 
 logger = logging.getLogger(__name__)
@@ -150,7 +153,6 @@ async def send_test_notification(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ):
     """Push a test notification to the authenticated user. Requires clinician access."""
-    from ..auth import require_minimum_role
     require_minimum_role(actor, "clinician")
     await broadcast_to_user(actor.actor_id, "ae_alert", {
         "title": "Adverse Event Reported",
@@ -159,3 +161,48 @@ async def send_test_notification(
         "link": "adverse-events",
     })
     return {"ok": True}
+
+
+# ── Unread count ──────────────────────────────────────────────────────────────
+# The Patients list (and every other clinician surface) shows a notifications
+# bell with a numeric badge. Compute the count from persistent backend state
+# rather than the in-memory SSE queue so the number survives a page reload.
+# Components:
+#   - unread messages where the clinician is the recipient
+#   - open adverse events the clinician owns (AE alerts never auto-dismiss)
+
+
+class UnreadCountResponse(BaseModel):
+    count: int
+    unread_messages: int
+    open_adverse_events: int
+
+
+@router.get("/unread-count", response_model=UnreadCountResponse)
+def unread_count_endpoint(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> UnreadCountResponse:
+    """Unread items the clinician should see in their bell."""
+    require_minimum_role(actor, "clinician")
+    from ..persistence.models import AdverseEvent, Message
+
+    unread_msg_count = int(session.scalar(
+        select(sa_func.count(Message.id)).where(
+            Message.recipient_id == actor.actor_id,
+            Message.read_at.is_(None),
+        )
+    ) or 0)
+
+    open_ae_count = int(session.scalar(
+        select(sa_func.count(AdverseEvent.id)).where(
+            AdverseEvent.clinician_id == actor.actor_id,
+            AdverseEvent.resolved_at.is_(None),
+        )
+    ) or 0)
+
+    return UnreadCountResponse(
+        count=unread_msg_count + open_ae_count,
+        unread_messages=unread_msg_count,
+        open_adverse_events=open_ae_count,
+    )
