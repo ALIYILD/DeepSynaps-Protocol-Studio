@@ -184,6 +184,10 @@ let _id      = null;          // currently-open handbook id
 let _query   = '';            // left-rail filter
 let _section = null;          // active TOC section id
 let _el      = null;          // root container
+let _fModality = 'All';       // modality facet filter
+let _fProtocol = 'All';       // protocol facet filter
+let _fDevice   = 'All';       // device facet filter
+let _favOnly   = false;       // show favourites only
 
 // ── Build collections from data ──────────────────────────────────────────────
 // Combine real HANDBOOK_DATA-backed entries (conditions + protocols) with the
@@ -1098,6 +1102,10 @@ export async function pgHandbooks(setTopbar /*, navigate */) {
   _id = null;
   _query = '';
   _section = null;
+  _fModality = 'All';
+  _fProtocol = 'All';
+  _fDevice   = 'All';
+  _favOnly   = false;
 
   // Window-scoped handlers (string event handlers are the page convention)
   window._hbOpen = (id) => { _id = id; _section = null; render(); };
