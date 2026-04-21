@@ -5069,8 +5069,8 @@ export async function pgMonitorHub(setTopbar, navigate) {
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgVirtualCareHub(setTopbar, navigate) {
   try {
-    const { pgVirtualCare } = await import('./pages-virtualcare.js');
-    await pgVirtualCare(setTopbar, navigate);
+    const { pgVirtualCareInbox } = await import('./pages-virtualcare.js');
+    await pgVirtualCareInbox(setTopbar, navigate);
   } catch (err) {
     console.error('Virtual Care load error:', err);
     setTopbar('Virtual Care', '<span class="ph-ai-badge">AI</span>');
@@ -7823,3 +7823,118 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     '</div>';
 }
 
+
+// ── Marketplace Hub ───────────────────────────────────────────────────────────
+export async function pgMarketplaceHub(setTopbar, navigate) {
+  setTopbar('Marketplace');
+  const el = document.getElementById('content');
+  el.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
+
+  const CATEGORIES = [
+    { id: 'all',           label: 'All Listings',     icon: '🛒' },
+    { id: 'consultations', label: 'Consultations',    icon: '🩺' },
+    { id: 'products',      label: 'Products',         icon: '📦' },
+    { id: 'software',      label: 'Software',         icon: '💻' },
+    { id: 'seminars',      label: 'Seminars',         icon: '🎤' },
+    { id: 'workshops',     label: 'Workshops',        icon: '🔧' },
+    { id: 'courses',       label: 'Short Courses',    icon: '📚' },
+  ];
+
+  const DEMO_LISTINGS = [
+    { id: 'l1',  cat: 'consultations', title: 'Initial TMS Assessment',       clinic: 'BrainWave Clinic',    price: 120,  unit: 'session',  badge: 'Featured', rating: 4.9, reviews: 142, desc: 'Comprehensive first-consultation including QEEG screening and protocol recommendation.', img: '🩺' },
+    { id: 'l2',  cat: 'consultations', title: 'Follow-up Protocol Review',    clinic: 'NeuroMind Centre',    price: 75,   unit: 'session',  badge: '',         rating: 4.7, reviews: 89,  desc: 'Review progress, adjust stimulation parameters and outcomes targets mid-course.', img: '🩺' },
+    { id: 'l3',  cat: 'consultations', title: 'tDCS Home Setup Consultation', clinic: 'MindBoost UK',        price: 60,   unit: 'session',  badge: 'New',      rating: 4.5, reviews: 23,  desc: 'Remote session to configure home tDCS device and safety protocols.', img: '🩺' },
+    { id: 'l4',  cat: 'products',      title: 'NeuroCalm Electrode Gel 250ml',clinic: 'NeuroSupplies Ltd',   price: 24,   unit: 'item',     badge: 'Bestseller', rating: 4.8, reviews: 310, desc: 'Medical-grade conductive gel compatible with all major TMS and tDCS headsets.', img: '🧴' },
+    { id: 'l5',  cat: 'products',      title: 'EEG Cap 32 Channel',           clinic: 'CortexGear',          price: 349,  unit: 'item',     badge: '',         rating: 4.6, reviews: 57,  desc: 'Research-grade 32-channel EEG cap with pre-fitted Ag/AgCl electrodes.', img: '🎧' },
+    { id: 'l6',  cat: 'products',      title: 'TMS Coil Holder and Arm Kit',  clinic: 'NeuroSupplies Ltd',   price: 189,  unit: 'item',     badge: 'Sale',     rating: 4.4, reviews: 44,  desc: 'Adjustable arm mount for figure-8 and double-cone TMS coils.', img: '🦾' },
+    { id: 'l7',  cat: 'software',      title: 'DeepSynaps Protocol Builder',  clinic: 'DeepSynaps',          price: 49,   unit: 'month',    badge: 'Featured', rating: 4.9, reviews: 204, desc: 'AI-assisted protocol design, QEEG mapping, and outcome tracking platform.', img: '💻' },
+    { id: 'l8',  cat: 'software',      title: 'NeuroReport Generator Pro',    clinic: 'ClinData Ltd',        price: 29,   unit: 'month',    badge: '',         rating: 4.5, reviews: 78,  desc: 'Automated clinical report generation from raw EEG + outcomes data.', img: '📊' },
+    { id: 'l9',  cat: 'software',      title: 'PatientPulse Engagement App',  clinic: 'MindBoost UK',        price: 0,    unit: 'free',     badge: 'Free',     rating: 4.2, reviews: 331, desc: 'White-label patient app for homework tracking, mood logging and adherence.', img: '📱' },
+    { id: 'l10', cat: 'seminars',      title: 'rTMS in Treatment-Resistant Depression', clinic: 'BrainWave Clinic', price: 95, unit: 'seat', badge: 'Live', rating: 4.9, reviews: 67, desc: 'Half-day CPD seminar. Online, 14 May 2026.', img: '🎤' },
+    { id: 'l11', cat: 'seminars',      title: 'Neuromodulation for Chronic Pain', clinic: 'PainReliefPro',  price: 85,   unit: 'seat',     badge: '',         rating: 4.7, reviews: 41,  desc: 'Evidence-based seminar on SCS, TENS, and tDCS for pain management. Online, 22 May 2026.', img: '🎤' },
+    { id: 'l12', cat: 'workshops',     title: 'Hands-On TMS Coil Placement',  clinic: 'NeuroMind Centre',   price: 195,  unit: 'seat',     badge: 'Sold Out', rating: 5.0, reviews: 29,  desc: 'Practical workshop: figure-8 placement, motor threshold mapping, safety protocols. London.', img: '🔧' },
+    { id: 'l13', cat: 'workshops',     title: 'QEEG Interpretation Workshop', clinic: 'BrainWave Clinic',   price: 225,  unit: 'seat',     badge: 'New',      rating: 4.8, reviews: 15,  desc: 'Full-day workshop analysing real patient EEG traces and building personalised protocol maps.', img: '🔧' },
+    { id: 'l14', cat: 'courses',       title: 'Introduction to TMS 8 Weeks', clinic: 'BrainWave Academy',  price: 299,  unit: 'course',   badge: 'Featured', rating: 4.9, reviews: 188, desc: 'Accredited 8-week online course covering physics, clinical applications, safety, and case-based learning.', img: '📚' },
+    { id: 'l15', cat: 'courses',       title: 'Deep Brain Stimulation Essentials', clinic: 'NeuroAcademy', price: 349,  unit: 'course',   badge: '',         rating: 4.7, reviews: 94,  desc: '6-week course for neurologists and neurosurgeons entering DBS practice.', img: '📚' },
+    { id: 'l16', cat: 'courses',       title: 'tDCS for Cognitive Rehab',    clinic: 'CogRehabInstitute',  price: 199,  unit: 'course',   badge: 'Sale',     rating: 4.6, reviews: 52,  desc: 'Practical 4-week CPD course for occupational therapists and clinical psychologists.', img: '📚' },
+  ];
+
+  const BADGE_COLORS = { Featured: '#5dd9c4', New: '#6366f1', Bestseller: '#f59e0b', Sale: '#ef4444', Live: '#10b981', Free: '#8b5cf6', 'Sold Out': '#6b7280', '': 'transparent' };
+
+  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function renderStars(r) {
+    const full = Math.floor(r); const half = r % 1 >= 0.5 ? 1 : 0;
+    let s = '';
+    for (let i = 0; i < full; i++) s += '<span class="mp-star full">&#9733;</span>';
+    if (half) s += '<span class="mp-star half">&#9733;</span>';
+    for (let i = full + half; i < 5; i++) s += '<span class="mp-star empty">&#9733;</span>';
+    return s;
+  }
+
+  function renderCard(l) {
+    const priceStr = l.unit === 'free' ? 'Free' : l.unit === 'month' ? '&#163;' + l.price + '<span class="mp-card-unit">/mo</span>' : '&#163;' + l.price + '<span class="mp-card-unit">/' + l.unit + '</span>';
+    const badgeBg = BADGE_COLORS[l.badge] || 'transparent';
+    const soldOut = l.badge === 'Sold Out';
+    const catLabel = (CATEGORIES.find(c => c.id === l.cat) || {}).label || l.cat;
+    return '<div class="mp-card" data-id="' + esc(l.id) + '">' +
+      '<div class="mp-card-img">' + esc(l.img) + '</div>' +
+      (l.badge ? '<span class="mp-card-badge" style="background:' + badgeBg + '">' + esc(l.badge) + '</span>' : '') +
+      '<div class="mp-card-body">' +
+        '<div class="mp-card-cat">' + esc(catLabel) + '</div>' +
+        '<div class="mp-card-title">' + esc(l.title) + '</div>' +
+        '<div class="mp-card-clinic">by ' + esc(l.clinic) + '</div>' +
+        '<div class="mp-card-desc">' + esc(l.desc) + '</div>' +
+        '<div class="mp-card-meta"><div class="mp-card-stars">' + renderStars(l.rating) + '<span class="mp-card-rating">' + l.rating + '</span><span class="mp-card-reviews">(' + l.reviews + ')</span></div></div>' +
+      '</div>' +
+      '<div class="mp-card-footer">' +
+        '<div class="mp-card-price">' + priceStr + '</div>' +
+        '<button class="mp-card-cta' + (soldOut ? ' mp-card-cta--disabled' : '') + '" ' + (soldOut ? 'disabled' : '') + ' onclick="window._mpBook(\'' + esc(l.id) + '\')">' + (soldOut ? 'Sold Out' : l.unit === 'month' ? 'Subscribe' : l.unit === 'course' ? 'Enroll' : l.unit === 'free' ? 'Get Free' : 'Book') + '</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function renderGrid(listings) {
+    if (!listings.length) return '<div class="mp-empty"><div class="mp-empty-icon">&#128269;</div><p>No listings match your search.</p></div>';
+    return '<div class="mp-grid">' + listings.map(renderCard).join('') + '</div>';
+  }
+
+  function buildPage(cat, q) {
+    let list = DEMO_LISTINGS;
+    if (cat !== 'all') list = list.filter(l => l.cat === cat);
+    if (q) { const lq = q.toLowerCase(); list = list.filter(l => l.title.toLowerCase().includes(lq) || l.clinic.toLowerCase().includes(lq) || l.desc.toLowerCase().includes(lq)); }
+    const catTabs = CATEGORIES.map(c => '<button class="mp-cat-tab' + (c.id === cat ? ' active' : '') + '" onclick="window._mpCat(\'' + c.id + '\')">' + c.icon + ' ' + esc(c.label) + '</button>').join('');
+    const featuredList = DEMO_LISTINGS.filter(l => l.badge === 'Featured');
+    const heroSection = '<div class="mp-hero"><div class="mp-hero-text"><h1 class="mp-hero-title">Clinic Marketplace</h1><p class="mp-hero-sub">Discover consultations, products, software, courses and events from leading neuromodulation clinics.</p><div class="mp-search-wrap"><svg class="mp-search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg><input class="mp-search" id="mp-search-input" placeholder="Search listings, clinics, topics..." value="' + esc(q) + '" oninput="window._mpSearch(this.value)"/></div></div><div class="mp-hero-stats"><div class="mp-stat"><span class="mp-stat-num">' + DEMO_LISTINGS.length + '</span><span class="mp-stat-label">Listings</span></div><div class="mp-stat"><span class="mp-stat-num">12</span><span class="mp-stat-label">Clinics</span></div><div class="mp-stat"><span class="mp-stat-num">4.7&#9733;</span><span class="mp-stat-label">Avg Rating</span></div></div></div>';
+    const featuredSection = cat === 'all' && !q ? '<div class="mp-section"><div class="mp-section-header"><h2 class="mp-section-title">Featured</h2><a class="mp-section-link" onclick="window._mpCat(\'all\')">View all</a></div><div class="mp-grid mp-grid--featured">' + featuredList.map(renderCard).join('') + '</div></div>' : '';
+    const listSection = '<div class="mp-section"><div class="mp-section-header"><h2 class="mp-section-title">' + (cat === 'all' && !q ? 'All Listings' : (CATEGORIES.find(c => c.id === cat) || {}).label || 'Results') + '</h2><span class="mp-count">' + list.length + ' listing' + (list.length !== 1 ? 's' : '') + '</span></div>' + renderGrid(list) + '</div>';
+    const ctaSection = '<div class="mp-section mp-section--cta"><div class="mp-cta-card"><div class="mp-cta-icon">&#127978;</div><div class="mp-cta-body"><h3>List your clinic\'s services</h3><p>Reach thousands of clinicians and patients. Add consultations, courses, workshops, products and software in minutes.</p></div><button class="btn btn-primary mp-cta-btn" onclick="window._mpListNew()">+ List a Service</button></div></div>';
+    return '<div class="mp-shell">' + heroSection + '<div class="mp-cat-bar">' + catTabs + '</div><div class="mp-body">' + featuredSection + listSection + ctaSection + '</div></div>';
+  }
+
+  let _activeCat = 'all', _searchQ = '';
+
+  window._mpCat = (cat) => { _activeCat = cat; el.innerHTML = buildPage(_activeCat, _searchQ); };
+  window._mpSearch = (q) => {
+    _searchQ = q;
+    let list = DEMO_LISTINGS;
+    if (_activeCat !== 'all') list = list.filter(l => l.cat === _activeCat);
+    if (q) { const lq = q.toLowerCase(); list = list.filter(l => l.title.toLowerCase().includes(lq) || l.clinic.toLowerCase().includes(lq) || l.desc.toLowerCase().includes(lq)); }
+    const section = el.querySelector('.mp-section:last-of-type:not(.mp-section--cta), .mp-section + .mp-section:not(.mp-section--cta)');
+    const countEl = el.querySelector('.mp-count');
+    if (countEl) countEl.textContent = list.length + ' listing' + (list.length !== 1 ? 's' : '');
+    const gridEl = el.querySelector('.mp-section:not(.mp-section--cta):last-of-type .mp-grid, .mp-section:not(.mp-section--cta):last-of-type .mp-empty');
+    if (gridEl) gridEl.outerHTML = renderGrid(list);
+  };
+  window._mpBook = (id) => {
+    const l = DEMO_LISTINGS.find(x => x.id === id);
+    if (!l) return;
+    const verb = l.unit === 'month' ? 'Subscribe to' : l.unit === 'course' ? 'Enroll in' : l.unit === 'free' ? 'Get' : 'Book';
+    alert(verb + ': "' + l.title + '"\n\nClinic: ' + l.clinic + '\nPrice: ' + (l.unit === 'free' ? 'Free' : '£' + l.price + '/' + l.unit) + '\n\n(Booking flow coming soon)');
+  };
+  window._mpListNew = () => {
+    alert('List a Service\n\nContact marketplace@deepsynaps.com to publish your first listing.\n\n(Self-serve listing flow coming soon)');
+  };
+
+  el.innerHTML = buildPage(_activeCat, _searchQ);
+}
