@@ -23511,6 +23511,8 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   background: rgba(244,114,182,0.06);
   border: 1px solid rgba(244,114,182,0.15);
   border-radius: 8px;
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
    Design · Patient Education Library (el-*)
    Ported from deepsynaps-site-4.html EDUCATION LIBRARY block.
