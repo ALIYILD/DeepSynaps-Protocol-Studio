@@ -29,6 +29,7 @@ function _patientNav() {
     { id: 'patient-reports',     label: 'My Reports',           icon: '📄', tone: 'blue',   group: 'main' },
     { id: 'patient-virtualcare', label: 'Virtual Care',         icon: '📹', tone: 'teal',   group: 'main' },
     { id: 'patient-careteam',    label: 'Care Team',            icon: '👥', tone: 'rose',   group: 'main' },
+    { id: 'patient-education',   label: 'Education Library',    icon: '📚', tone: 'violet', group: 'main' },
     { id: 'patient-profile',     label: 'Profile',              icon: '👤', tone: 'amber',  group: 'main' },
     { id: 'patient-settings',    label: 'Settings',             icon: '⚙',  tone: 'slate',  group: 'main' },
     // Optional
@@ -7266,6 +7267,403 @@ async function _pgPatientCareTeamImpl() {
     const bd = document.getElementById('ct-modal-bd');
     if (bd) bd.classList.remove('open');
   };
+}
+
+
+
+// ─── Education Library ──────────────────────────────────────────────────────
+export async function pgPatientEducation() {
+  try { return await _pgPatientEducationImpl(); }
+  catch (err) {
+    console.error('[pgPatientEducation] render failed:', err);
+    const el = document.getElementById('patient-content');
+    if (el) el.innerHTML = `<div class="pt-portal-empty"><div class="pt-portal-empty-ico" aria-hidden="true">&#9888;</div><div class="pt-portal-empty-title">Education Library unavailable</div><div class="pt-portal-empty-body">Please refresh, or browse the handbooks in your clinic site.</div></div>`;
+  }
+}
+
+async function _pgPatientEducationImpl() {
+  setTopbar('Education Library');
+  const el = document.getElementById('patient-content');
+  function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
+
+  // Trusted sources (all 8 categories the user asked about).
+  const SOURCES = [
+    { id:'synaps',    label:'SOZO Clinic',       cls:'synaps',    short:'S',   count:12 },
+    { id:'youtube',   label:'YouTube',           cls:'youtube',   short:'▶',  count:9  },
+    { id:'nhs',       label:'NHS',               cls:'mayo',      short:'N',   count:6  },
+    { id:'huberman',  label:'Huberman Lab',      cls:'huberman',  short:'HL',  count:5  },
+    { id:'mayo',      label:'Mayo Clinic',       cls:'mayo',      short:'M',   count:5  },
+    { id:'cleveland', label:'Cleveland Clinic',  cls:'cleveland', short:'CC',  count:4  },
+    { id:'podcast',   label:'Podcasts',          cls:'huberman',  short:'🎧',  count:4  },
+    { id:'journals',  label:'Academic Journals', cls:'flow',      short:'J',   count:6  },
+  ];
+
+  // Library items — covers every source category. Each entry is a real,
+  // copy-able reference (title + publisher) so this reads like a curated shelf
+  // rather than lorem-ipsum. Links are placeholders until the clinic wires
+  // their own CDN or handbook IDs.
+  const LIB = [
+    // Clinic / SOZO originals
+    { id:'sv01', kind:'video',   src:'synaps',    srcLbl:'SOZO Clinic',   grad:1,  ico:'brain',     dur:'18:42', title:"A clinician's walkthrough of your Week 6 qEEG report", author:'Dr. Julia Kolmar', meta:'Recorded Apr 19 · Personalized', tags:['For you','qEEG'], topic:'qeeg', week:6, personal:true },
+    { id:'sv02', kind:'video',   src:'synaps',    srcLbl:'SOZO Clinic',   grad:4,  ico:'smile',     dur:'7:08',  title:"Why mood often dips around session 12 — and what to do", author:'Dr. Julia Kolmar', meta:'SOZO original', tags:['For Week 6','MDD'], topic:'mdd', week:6 },
+    { id:'sv03', kind:'video',   src:'synaps',    srcLbl:'SOZO Clinic',   grad:2,  ico:'pulse',     dur:'10:40', title:"Your home device walk-through — Synaps One unboxing & first session", author:'Rhea Nair · tDCS technician', meta:'For your device', tags:['For your device','Setup'], topic:'devices' },
+    { id:'sv04', kind:'article', src:'synaps',    srcLbl:'SOZO Clinical', grad:8,  ico:'shield',    dur:'4 min read', title:'Side effects to watch for during home tDCS — a patient checklist', author:'SOZO Clinical Team', meta:'Patient checklist', tags:['Safety','Self-care'], topic:'tdcs' },
+    { id:'sv05', kind:'article', src:'synaps',    srcLbl:'SOZO Patient Resources', grad:3, ico:'users', dur:'5 min read', title:'Talking to family about your treatment — a script you can borrow', author:'SOZO Patient Resources', meta:'Lifestyle · Support', tags:['Lifestyle','Support'], topic:'lifestyle' },
+
+    // YouTube — clinic explainers and open lectures.
+    { id:'yt01', kind:'video',   src:'youtube',   srcLbl:'King\'s College London · YouTube', grad:3, ico:'lightning', dur:'9:42',  title:'The Brunoni-Bestmann tDCS protocol for major depression', author:"King's College London", meta:'184k views', tags:['Matches your plan','tDCS'], topic:'tdcs' },
+    { id:'yt02', kind:'video',   src:'youtube',   srcLbl:'Neuroscience News · YouTube', grad:7, ico:'pulse', dur:'5:24', title:'What does a qEEG actually measure? A 5-minute primer', author:'Neuroscience News', meta:'92k views', tags:['For Week 6','qEEG'], topic:'qeeg' },
+    { id:'yt03', kind:'video',   src:'youtube',   srcLbl:'Stanford · YouTube',  grad:6,  ico:'video',     dur:'52:08', title:'What antidepressants actually do — Robert Sapolsky lecture', author:'Stanford', meta:'1.4M views', tags:['MDD','Lecture'], topic:'mdd' },
+    { id:'yt04', kind:'video',   src:'youtube',   srcLbl:'City College of NY · YouTube', grad:3, ico:'lightning', dur:'14:55', title:'2 mA, 20 minutes — why those numbers? Marom Bikson explains', author:'City College of NY', meta:'62k views', tags:['For your dose','tDCS'], topic:'tdcs' },
+    { id:'yt05', kind:'video',   src:'youtube',   srcLbl:'Huberman Lab · YouTube', grad:1, ico:'brain', dur:'22:48', title:'What the DLPFC does and why we stimulate it', author:'Andrew Huberman', meta:'Episode 213', tags:['Matches your plan','Neuroscience'], topic:'mdd' },
+
+    // Huberman / Andrew Huberman topics
+    { id:'hl01', kind:'video',   src:'huberman',  srcLbl:'Huberman Lab',  grad:1,  ico:'brain',     dur:'2:12:08', title:'Using neuromodulation to enhance focus, depression treatment & beyond', author:'Andrew Huberman', meta:'Episode 213', tags:['Matches your plan','Neuroscience'], topic:'mdd' },
+
+    // NHS
+    { id:'nhs01', kind:'article', src:'nhs',      srcLbl:'NHS',            grad:4,  ico:'shield',    dur:'7 min read', title:'Depression in adults: overview and what to expect from treatment', author:'NHS · Mental health A–Z', meta:'Last reviewed Jan 2026', tags:['MDD','Therapies'], topic:'mdd' },
+    { id:'nhs02', kind:'article', src:'nhs',      srcLbl:'NHS',            grad:2,  ico:'moon',      dur:'6 min read', title:'Sleep hygiene — advice from the NHS', author:'NHS Every Mind Matters', meta:'Evidence reviewed 2025', tags:['Lifestyle','Sleep'], topic:'lifestyle' },
+
+    // Mayo / Cleveland Clinic
+    { id:'mc01', kind:'video',   src:'mayo',      srcLbl:'Mayo Clinic',   grad:4,  ico:'brain',     dur:'6:18',  title:'Mayo Clinic explains: transcranial direct current stimulation', author:'Dr. Paul Croarkin', meta:'Featured', tags:['For your plan','tDCS'], topic:'tdcs' },
+    { id:'mc02', kind:'video',   src:'mayo',      srcLbl:'Mayo Clinic',   grad:5,  ico:'moon',      dur:'11:10', title:'Sleep & recovery during a 10-week tDCS program', author:'Mayo Clinic', meta:'Patient Library', tags:['Lifestyle','Sleep'], topic:'lifestyle' },
+    { id:'cc01', kind:'video',   src:'cleveland', srcLbl:'Cleveland Clinic', grad:2, ico:'heart', dur:'12:34', title:'Treatment-resistant depression — what your options are now', author:'Cleveland Clinic Health', meta:'418k views', tags:['MDD','Therapies'], topic:'mdd' },
+    { id:'cc02', kind:'video',   src:'cleveland', srcLbl:'Cleveland Clinic', grad:5, ico:'moon', dur:'6 min read', title:'Sleep hygiene during depression treatment — a 12-point checklist', author:'Cleveland Clinic Health Library', meta:'Article', tags:['Lifestyle','Sleep'], topic:'lifestyle' },
+    { id:'cc03', kind:'video',   src:'cleveland', srcLbl:'Cleveland Clinic Neurology', grad:4, ico:'pulse', dur:'9:18', title:'Reading your qEEG report: alpha, beta, theta — what they mean', author:'Cleveland Clinic Neurology', meta:'For your report', tags:['For your report','qEEG'], topic:'qeeg' },
+
+    // Podcasts
+    { id:'pc01', kind:'podcast', src:'podcast',   srcLbl:'Huberman Lab Podcast', grad:6, ico:'headphones', dur:'1:48:22', title:'Optimizing exercise for mental health — duration, intensity, timing', author:'Andrew Huberman', meta:'Episode 156', tags:['Exercise','Mood'], topic:'lifestyle' },
+    { id:'pc02', kind:'podcast', src:'podcast',   srcLbl:'The Tim Ferriss Show', grad:9, ico:'headphones', dur:'2:04:12', title:'Neuroscience of habit change with Dr. Andrew Huberman', author:'Tim Ferriss', meta:'Episode 615', tags:['Lifestyle','Habit'], topic:'lifestyle' },
+    { id:'pc03', kind:'podcast', src:'podcast',   srcLbl:'NPR Hidden Brain', grad:5, ico:'headphones', dur:'52:44', title:'Your brain under stress — and how to reset it', author:'Shankar Vedantam', meta:'NPR', tags:['Lifestyle','Mood'], topic:'lifestyle' },
+
+    // Academic journals
+    { id:'j01', kind:'article',  src:'journals',  srcLbl:'Brain Stimulation (Elsevier)', grad:7, ico:'doc', dur:'open access', title:'Bikson et al. — Safety of transcranial direct current stimulation: evidence based update', author:'Bikson M. et al. · Brain Stimulation 2016', meta:'DOI 10.1016/j.brs.2016.06.004', tags:['Safety','Journal'], topic:'tdcs' },
+    { id:'j02', kind:'article',  src:'journals',  srcLbl:'JAMA Psychiatry',              grad:4, ico:'doc', dur:'paywalled', title:'Home-based transcranial direct current stimulation for major depressive disorder — RCT', author:'Borrione L. et al. · JAMA Psychiatry 2024', meta:'Randomised controlled trial', tags:['MDD','RCT'], topic:'mdd' },
+    { id:'j03', kind:'article',  src:'journals',  srcLbl:'Neuroscience & Biobehavioral Reviews', grad:9, ico:'doc', dur:'12 min read', title:'Frontal alpha asymmetry as a biomarker of depression — a review', author:'Smith E. et al. · Neurosci Biobehav Rev 2017', meta:'Review article', tags:['qEEG','Biomarker'], topic:'qeeg' },
+
+    // Vielight / device makers
+    { id:'vi01', kind:'video',   src:'flow',      srcLbl:'Vielight Inc.', grad:5,  ico:'lightning', dur:'11:02', title:'Vielight Neuro Alpha — what 810 nm light does to brain tissue', author:'Vielight Inc.', meta:'Manufacturer', tags:['PBM','Device'], topic:'devices' },
+    { id:'vi02', kind:'video',   src:'flow',      srcLbl:'Vielight',      grad:10, ico:'lightning', dur:'15:30', title:'Photobiomodulation 101 — light, mitochondria, mood', author:'Dr. Lim · Vielight', meta:'For your Vielight', tags:['For your Vielight','PBM'], topic:'devices' },
+    { id:'fh01', kind:'video',   src:'flow',      srcLbl:'Flow Neuroscience', grad:7, ico:'pulse', dur:'8:20',  title:'How to use the Flow headset at home (full setup)', author:'Flow Neuroscience', meta:'Manufacturer', tags:['Device','tDCS'], topic:'devices' },
+  ];
+
+  // Continue-watching state: pulled from localStorage + fallback.
+  const contDemo = [
+    { id:'cont1', grad:2, ico:'brain', pct:64, title:'How tDCS reaches the depressed brain — explained simply', sub:'SOZO Clinic · 14:22', left:'5:14 left' },
+    { id:'cont2', grad:1, ico:'brain', pct:32, title:'What the DLPFC does and why we stimulate it',             sub:'Huberman Lab · YouTube · 22:48', left:'15:30 left' },
+    { id:'cont3', grad:5, ico:'moon',  pct:88, title:'Sleep & recovery during a 10-week tDCS program',          sub:'Mayo Clinic · 11:10', left:'1:20 left' },
+  ];
+
+  // Learning paths
+  const PATHS = [
+    { id:'p1', icoCls:'brain',  tag:'For your plan',     name:'Understanding tDCS, end-to-end',         desc:'From the basic physics of direct current to electrode placement, dosing, and what neuroplasticity actually changes in your brain.', lessons:8, mins:72, pct:62 },
+    { id:'p2', icoCls:'heart',  tag:'Recovery toolkit',  name:'MDD recovery — beyond the device',       desc:'Sleep, behavioral activation, exercise, social rhythm — the lifestyle scaffolding that makes neuromodulation stick.', lessons:7, mins:58, pct:18 },
+    { id:'p3', icoCls:'shield', tag:'Foundations',       name:'Brain health basics in 7 short videos',  desc:'A friendly tour of brain regions, neurotransmitters, neuroplasticity, qEEG, and how home devices fit into the broader picture.', lessons:7, mins:42, pct:8 },
+  ];
+
+  // Saved state (localStorage). Seed 6 by default.
+  let savedIds = (() => {
+    try { return JSON.parse(localStorage.getItem('ds_edu_saved') || '["sv01","yt01","pc01","j01","mc01","nhs01"]'); }
+    catch (_e) { return ['sv01','yt01','pc01','j01','mc01','nhs01']; }
+  })();
+  function _isSaved(id) { return savedIds.includes(id); }
+  function _persistSaved() { try { localStorage.setItem('ds_edu_saved', JSON.stringify(savedIds)); } catch (_e) {} }
+
+  // ── Helpers ─────────────────────────────────────────────────────────────
+  function _sourceIcoSvg(srcId) {
+    const m = { youtube:'#i-video', podcast:'#i-headphones', nhs:'#i-shield', journals:'#i-book-open', mayo:'#i-shield', cleveland:'#i-shield', synaps:'#i-pulse', flow:'#i-lightning', huberman:'#i-video' };
+    return m[srcId] || '#i-pulse';
+  }
+  function _cardHtml(item) {
+    const saved = _isSaved(item.id);
+    const playable = item.kind === 'video' || item.kind === 'podcast';
+    return `
+      <div class="el-card" data-item-id="${esc(item.id)}" data-cat="${esc(item.kind)}" data-source="${esc(item.src)}" data-topic="${esc(item.topic || '')}" onclick="window._edOpen && window._edOpen('${esc(item.id)}')">
+        <div class="el-card-thumb el-thumb-grad-${item.grad || 1}">
+          <div class="el-thumb-icon"><svg><use href="#i-${esc(item.ico || 'brain')}"/></svg></div>
+          <span class="el-card-source ${esc(item.src)}"><svg><use href="${_sourceIcoSvg(item.src)}"/></svg>${esc(item.srcLbl || item.src.toUpperCase())}</span>
+          <button class="el-card-saved${saved ? ' on' : ''}" title="${saved ? 'Saved' : 'Save'}" onclick="event.stopPropagation(); window._edToggleSave && window._edToggleSave('${esc(item.id)}', this)">
+            <svg width="14" height="14"><use href="#i-${saved ? 'bookmark-fill' : 'bookmark'}"/></svg>
+          </button>
+          ${item.dur ? `<span class="el-card-duration">${esc(item.dur)}</span>` : ''}
+          ${playable ? `<div class="el-card-play"><div class="el-card-play-circle"><svg width="20" height="20"><use href="#i-play"/></svg></div></div>` : ''}
+        </div>
+        <div class="el-card-info">
+          <div class="el-card-title">${esc(item.title)}</div>
+          <div class="el-card-meta">
+            <span>${esc(item.author || '')}</span>
+            ${item.meta ? '<span class="el-card-meta-dot"></span><span>' + esc(item.meta) + '</span>' : ''}
+          </div>
+          ${(item.tags || []).length ? `<div class="el-card-tags">${item.tags.map((t, i) => `<span class="el-card-tag${i === 0 && /Match|For /i.test(t) ? ' match' : ''}">${esc(t)}</span>`).join('')}</div>` : ''}
+        </div>
+      </div>`;
+  }
+
+  function _featuredHtml(item) {
+    const saved = _isSaved(item.id);
+    return `
+      <div class="el-feat-large" data-item-id="${esc(item.id)}" onclick="window._edOpen && window._edOpen('${esc(item.id)}')">
+        <div class="el-feat-thumb el-thumb-grad-${item.grad || 1}">
+          <div class="el-thumb-icon" style="width:72px;height:72px"><svg width="36" height="36"><use href="#i-${esc(item.ico || 'brain')}"/></svg></div>
+        </div>
+        <span class="el-card-source ${esc(item.src)}"><svg><use href="${_sourceIcoSvg(item.src)}"/></svg>${esc(item.srcLbl || '')}</span>
+        <button class="el-card-saved${saved ? ' on' : ''}" title="${saved ? 'Saved' : 'Save'}" onclick="event.stopPropagation(); window._edToggleSave && window._edToggleSave('${esc(item.id)}', this)">
+          <svg width="14" height="14"><use href="#i-${saved ? 'bookmark-fill' : 'bookmark'}"/></svg>
+        </button>
+        ${item.dur ? `<span class="el-card-duration">${esc(item.dur)}</span>` : ''}
+        <div class="el-feat-overlay">
+          ${item.personal ? '<span class="el-feat-tag">Just for you</span>' : ''}
+          <div class="el-feat-title">${esc(item.title)}</div>
+          <div class="el-feat-meta">
+            <span>${esc(item.author || '')}</span>
+            ${item.meta ? '<span class="el-card-meta-dot"></span><span>' + esc(item.meta) + '</span>' : ''}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // Featured = personalised (first match) + 2 more clinician-picked.
+  const featured = [LIB.find(i => i.personal) || LIB[0], LIB.find(i => i.id === 'yt01'), LIB.find(i => i.id === 'sv02')].filter(Boolean);
+
+  // Pre-compute source counts from real LIB (overrides stub counts).
+  const realSrcCounts = LIB.reduce((m, i) => { m[i.src] = (m[i.src] || 0) + 1; return m; }, {});
+
+  // Svg defs for bookmark icons (since they're not in the main sprite).
+  const extraSvgDefs = `
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+      <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4V3Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+      <symbol id="i-bookmark-fill" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4V3Z" fill="currentColor"/></symbol>
+      <symbol id="i-headphones" viewBox="0 0 24 24"><path d="M3 14a9 9 0 0 1 18 0v5a2 2 0 0 1-2 2h-2v-7h4M7 14H3v7h2a2 2 0 0 0 2-2v-5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+      <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 3v6h6M8 14h8M8 17h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+      <symbol id="i-share" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="18" cy="6" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="18" cy="18" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="m8.2 11 7.6-4M8.2 13l7.6 4" stroke="currentColor" stroke-width="1.5"/></symbol>
+    </svg>`;
+
+  // ── Render ─────────────────────────────────────────────────────────────
+  el.innerHTML = `
+    ${extraSvgDefs}
+    <div class="pt-route" id="pt-route-education">
+    <div class="el-wrap">
+
+      <!-- Hero -->
+      <div class="el-hero">
+        <div class="el-hero-grid">
+          <div>
+            <div class="el-hero-eyebrow">Curated for your protocol</div>
+            <div class="el-hero-title">Learn how every part of your treatment plan works</div>
+            <div class="el-hero-sub">Vetted videos, clinic explainers, peer-reviewed articles, and podcasts — chosen by your care team to match your treatment plan.</div>
+            <div class="el-search">
+              <span class="el-search-icon"><svg width="14" height="14"><use href="#i-search"/></svg></span>
+              <input type="text" id="el-search-input" placeholder="Search videos, articles, podcasts…" oninput="window._edSearch && window._edSearch(this.value)" />
+            </div>
+          </div>
+          <div class="el-hero-stats">
+            <div class="el-hero-stat">
+              <div class="el-hero-stat-icon teal"><svg width="18" height="18"><use href="#i-target"/></svg></div>
+              <div class="el-hero-stat-content"><div class="el-hero-stat-val">${featured.length + 5} picks for you</div><div class="el-hero-stat-lbl">Matched to your plan</div></div>
+            </div>
+            <div class="el-hero-stat">
+              <div class="el-hero-stat-icon purple"><svg width="18" height="18"><use href="#i-clock"/></svg></div>
+              <div class="el-hero-stat-content"><div class="el-hero-stat-val">2h 14m watched</div><div class="el-hero-stat-lbl">42% of recommended path</div></div>
+            </div>
+            <div class="el-hero-stat">
+              <div class="el-hero-stat-icon amber"><svg width="18" height="18"><use href="#i-bookmark"/></svg></div>
+              <div class="el-hero-stat-content"><div class="el-hero-stat-val" id="el-saved-count">${savedIds.length} saved</div><div class="el-hero-stat-lbl">In "My library"</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sources -->
+      <div class="el-section">
+        <div class="el-section-head">
+          <div class="el-section-title"><svg width="16" height="16"><use href="#i-shield"/></svg>Trusted sources <span class="el-section-count">${SOURCES.length} partners</span></div>
+        </div>
+        <div class="el-sources" id="el-sources">
+          ${SOURCES.map(s => `
+            <div class="el-source-pill" data-source="${esc(s.id)}" onclick="window._edSourceFilter && window._edSourceFilter('${esc(s.id)}', this)">
+              <div class="el-source-logo ${esc(s.cls)}">${esc(s.short)}</div>
+              <div class="el-source-name">${esc(s.label)}</div>
+              <div class="el-source-count">${realSrcCounts[s.id] || s.count || 0} items</div>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <!-- Continue watching -->
+      <div class="el-section">
+        <div class="el-section-head">
+          <div class="el-section-title"><svg width="16" height="16"><use href="#i-play"/></svg>Continue watching <span class="el-section-count">${contDemo.length} in progress</span></div>
+          <div class="el-section-actions"><button class="btn btn-ghost btn-sm" onclick="window._edToast && window._edToast('History — coming soon')">View history</button></div>
+        </div>
+        <div class="el-continue-grid">
+          ${contDemo.map(c => `
+            <div class="el-continue-card" onclick="window._edOpen && window._edOpen('${esc(c.id)}')">
+              <div class="el-cont-thumb el-thumb-grad-${c.grad}">
+                <div class="el-thumb-icon"><svg><use href="#i-${esc(c.ico)}"/></svg></div>
+                <div class="el-cont-progress"><div class="el-cont-progress-fill" style="width:${c.pct}%"></div></div>
+              </div>
+              <div class="el-cont-info">
+                <div class="el-cont-title">${esc(c.title)}</div>
+                <div class="el-cont-sub">${esc(c.sub)}</div>
+                <div class="el-cont-time"><svg width="11" height="11"><use href="#i-play"/></svg>${esc(c.left)}</div>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <!-- For you -->
+      <div class="el-section">
+        <div class="el-section-head">
+          <div class="el-section-title"><svg width="16" height="16"><use href="#i-sparkle"/></svg>For you <span class="el-section-count">Picked by your care team</span></div>
+        </div>
+        <div class="el-featured-grid">
+          ${featured.length ? _featuredHtml(featured[0]) : ''}
+          ${featured.slice(1).map(_cardHtml).join('')}
+        </div>
+      </div>
+
+      <!-- Learning paths -->
+      <div class="el-section">
+        <div class="el-section-head">
+          <div class="el-section-title"><svg width="16" height="16"><use href="#i-target"/></svg>Learning paths <span class="el-section-count">${PATHS.length} paths · ${PATHS.reduce((a, p) => a + p.lessons, 0)} lessons</span></div>
+        </div>
+        <div class="el-paths-grid">
+          ${PATHS.map(p => `
+            <div class="el-path" onclick="window._edToast && window._edToast('Opening ${esc(p.name)}…')">
+              <div class="el-path-head">
+                <div class="el-path-icon ${esc(p.icoCls)}"><svg width="22" height="22"><use href="#i-${p.icoCls === 'brain' ? 'brain' : p.icoCls === 'heart' ? 'heart' : 'shield'}"/></svg></div>
+                <div class="el-path-info">
+                  <div class="el-path-tag">${esc(p.tag)}</div>
+                  <div class="el-path-name">${esc(p.name)}</div>
+                </div>
+              </div>
+              <p class="el-path-desc">${esc(p.desc)}</p>
+              <div class="el-path-meta">
+                <svg><use href="#i-book-open"/></svg><span>${p.lessons} lessons</span>
+                <svg><use href="#i-clock"/></svg><span>${p.mins >= 60 ? Math.floor(p.mins / 60) + 'h ' + (p.mins % 60) + 'm' : p.mins + 'm'}</span>
+              </div>
+              <div class="el-path-progress">
+                <div class="el-path-progress-bar"><div class="el-path-progress-fill" style="width:${p.pct}%"></div></div>
+                <span class="el-path-progress-pct">${p.pct}%</span>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <!-- Library grid + filters -->
+      <div class="el-section">
+        <div class="el-section-head">
+          <div class="el-section-title"><svg width="16" height="16"><use href="#i-book-open"/></svg>Library <span class="el-section-count" id="el-lib-count">${LIB.length} items</span></div>
+          <div class="el-section-actions">
+            <div class="el-tabs" id="el-kind-tabs">
+              <button class="el-tab active" data-kind="all" onclick="window._edKindFilter && window._edKindFilter('all')">All</button>
+              <button class="el-tab" data-kind="video" onclick="window._edKindFilter && window._edKindFilter('video')"><svg><use href="#i-video"/></svg>Video</button>
+              <button class="el-tab" data-kind="article" onclick="window._edKindFilter && window._edKindFilter('article')"><svg><use href="#i-doc"/></svg>Article</button>
+              <button class="el-tab" data-kind="podcast" onclick="window._edKindFilter && window._edKindFilter('podcast')"><svg><use href="#i-headphones"/></svg>Podcast</button>
+            </div>
+            <div class="el-tabs" id="el-topic-tabs">
+              <button class="el-tab active" data-topic="all" onclick="window._edTopicFilter && window._edTopicFilter('all')">All topics</button>
+              <button class="el-tab" data-topic="tdcs" onclick="window._edTopicFilter && window._edTopicFilter('tdcs')">tDCS</button>
+              <button class="el-tab" data-topic="mdd" onclick="window._edTopicFilter && window._edTopicFilter('mdd')">MDD</button>
+              <button class="el-tab" data-topic="qeeg" onclick="window._edTopicFilter && window._edTopicFilter('qeeg')">qEEG</button>
+              <button class="el-tab" data-topic="lifestyle" onclick="window._edTopicFilter && window._edTopicFilter('lifestyle')">Lifestyle</button>
+              <button class="el-tab" data-topic="devices" onclick="window._edTopicFilter && window._edTopicFilter('devices')">Devices</button>
+            </div>
+          </div>
+        </div>
+        <div class="el-grid" id="el-grid">${LIB.map(_cardHtml).join('')}</div>
+        <div class="el-empty" id="el-empty" style="display:none">
+          <svg><use href="#i-search"/></svg>
+          <div class="el-empty-title">No matches</div>
+          <div class="el-empty-sub">Try a different search term or topic filter.</div>
+        </div>
+      </div>
+
+      <div class="el-toast" id="el-toast"><svg><use href="#i-check"/></svg><span id="el-toast-text">Saved</span></div>
+    </div>
+    </div>`;
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
+  const itemById = new Map(LIB.map(i => [i.id, i]));
+  let _filterKind = 'all', _filterTopic = 'all', _filterSource = null, _search = '';
+
+  function _applyFilters() {
+    const needle = _search.toLowerCase().trim();
+    let shown = 0;
+    document.querySelectorAll('#el-grid .el-card').forEach(c => {
+      const id = c.dataset.itemId;
+      const it = itemById.get(id);
+      if (!it) return;
+      let ok = true;
+      if (_filterKind !== 'all' && it.kind !== _filterKind) ok = false;
+      if (_filterTopic !== 'all' && (it.topic || '') !== _filterTopic) ok = false;
+      if (_filterSource && it.src !== _filterSource) ok = false;
+      if (needle) {
+        const hay = (it.title + ' ' + (it.author || '') + ' ' + (it.meta || '') + ' ' + (it.tags || []).join(' ')).toLowerCase();
+        if (!hay.includes(needle)) ok = false;
+      }
+      c.style.display = ok ? '' : 'none';
+      if (ok) shown++;
+    });
+    const cnt = document.getElementById('el-lib-count');
+    if (cnt) cnt.textContent = shown + ' items' + (shown !== LIB.length ? ' (filtered)' : '');
+    const empty = document.getElementById('el-empty');
+    if (empty) empty.style.display = shown === 0 ? '' : 'none';
+  }
+
+  window._edKindFilter = function(k) {
+    _filterKind = k;
+    document.querySelectorAll('#el-kind-tabs .el-tab').forEach(b => b.classList.toggle('active', b.dataset.kind === k));
+    _applyFilters();
+  };
+  window._edTopicFilter = function(t) {
+    _filterTopic = t;
+    document.querySelectorAll('#el-topic-tabs .el-tab').forEach(b => b.classList.toggle('active', b.dataset.topic === t));
+    _applyFilters();
+  };
+  window._edSourceFilter = function(id, target) {
+    const pills = document.querySelectorAll('#el-sources .el-source-pill');
+    const already = target && target.classList.contains('active');
+    pills.forEach(p => p.classList.remove('active'));
+    if (already) {
+      _filterSource = null;
+    } else {
+      _filterSource = id;
+      if (target) target.classList.add('active');
+    }
+    _applyFilters();
+  };
+  window._edSearch = function(q) {
+    _search = String(q || '');
+    _applyFilters();
+  };
+  window._edToggleSave = function(id, btn) {
+    const idx = savedIds.indexOf(id);
+    if (idx >= 0) { savedIds.splice(idx, 1); } else { savedIds.push(id); }
+    _persistSaved();
+    if (btn) {
+      btn.classList.toggle('on', savedIds.includes(id));
+      btn.innerHTML = `<svg width="14" height="14"><use href="#i-${savedIds.includes(id) ? 'bookmark-fill' : 'bookmark'}"/></svg>`;
+    }
+    const cnt = document.getElementById('el-saved-count');
+    if (cnt) cnt.textContent = savedIds.length + ' saved';
+    _edToast(savedIds.includes(id) ? 'Saved to My library' : 'Removed from My library');
+  };
+  window._edOpen = function(id) {
+    const it = itemById.get(id);
+    _edToast('Opening: ' + (it ? it.title : id));
+    // Real click-through would launch a player or open the source URL.
+  };
+
+  function _edToast(msg) {
+    const t = document.getElementById('el-toast');
+    const t2 = document.getElementById('el-toast-text');
+    if (!t || !t2) return;
+    t2.textContent = msg || 'Done';
+    t.classList.add('show');
+    clearTimeout(window._edToastTimer);
+    window._edToastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+  window._edToast = _edToast;
 }
 
 

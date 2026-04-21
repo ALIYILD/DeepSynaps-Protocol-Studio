@@ -989,6 +989,8 @@ async function renderPatientPage() {
     case 'virtualcare':         await m.pgPatientVirtualCare();           break;
     case 'patient-careteam':    await m.pgPatientCareTeam();              break;
     case 'careteam':            await m.pgPatientCareTeam();              break;
+    case 'patient-education':   await m.pgPatientEducation();             break;
+    case 'education':           await m.pgPatientEducation();             break;
     case 'patient-profile':     await m.pgPatientProfile(currentUser);    break;
     case 'patient-settings':    await m.pgPatientSettings(currentUser);   break;
     case 'pt-learn':            await m.pgPatientLearn();                 break;
