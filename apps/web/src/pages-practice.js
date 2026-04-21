@@ -10661,3 +10661,178 @@ function _wireClinicianAccount() {
   });
 }
 
+// ── Academy (clinic portal) ──────────────────────────────────────────────────
+// Curated hub of research, publications, seminars, workshops, short courses
+// and certification programmes relevant to neuromodulation clinics. External
+// links are opened in a new tab with rel=noopener noreferrer; they are
+// third-party resources the DeepSynaps team considers reputable, not
+// endorsements. ac-* CSS scope.
+export async function pgClinicAcademy(setTopbar, _currentUser) {
+  setTopbar('Academy', '');
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  const esc = (v) => {
+    if (v == null) return '';
+    return String(v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
+  };
+
+  const SECTIONS = [
+    {
+      id: 'research', label: 'Research', icon: '🔬', tone: 'blue',
+      sub: 'Registries, preprint servers, and primary literature for clinical evidence work.',
+      items: [
+        { name: 'PubMed',               org: 'US National Library of Medicine',        desc: 'Primary biomedical literature search — entry point for every neuromodulation evidence review.', href: 'https://pubmed.ncbi.nlm.nih.gov/', tag: 'Database' },
+        { name: 'ClinicalTrials.gov',   org: 'US National Institutes of Health',       desc: 'Registry of active + completed clinical trials worldwide. Use for protocol discovery and eligibility checks.', href: 'https://clinicaltrials.gov/',      tag: 'Registry' },
+        { name: 'Cochrane Library',     org: 'Cochrane Collaboration',                 desc: 'Systematic reviews and meta-analyses — gold standard for level-1 evidence synthesis.', href: 'https://www.cochranelibrary.com/', tag: 'Systematic reviews' },
+        { name: 'bioRxiv · Neuroscience',org: 'Cold Spring Harbor Laboratory',         desc: 'Open preprint server for neuroscience — early access to unpublished findings.', href: 'https://www.biorxiv.org/collection/neuroscience', tag: 'Preprints' },
+        { name: 'medRxiv',              org: 'BMJ / Yale / Cold Spring Harbor',        desc: 'Clinical-trial and health-sciences preprint server.', href: 'https://www.medrxiv.org/', tag: 'Preprints' },
+        { name: 'Open Neuroimaging Lab',org: 'OHBM',                                   desc: 'Open fMRI + EEG datasets for method validation.', href: 'https://openneuro.org/', tag: 'Dataset' },
+      ],
+    },
+    {
+      id: 'publications', label: 'Publications', icon: '📚', tone: 'violet',
+      sub: 'Peer-reviewed journals that publish the bulk of neuromodulation and neurotechnology research.',
+      items: [
+        { name: 'Brain Stimulation',          org: 'Elsevier',               desc: 'Flagship journal for non-invasive brain stimulation (TMS, tDCS, tACS) and invasive DBS.', href: 'https://www.sciencedirect.com/journal/brain-stimulation', tag: 'IF 9.9' },
+        { name: 'Neuromodulation',            org: 'INS (Wiley)',            desc: 'Journal of the International Neuromodulation Society — implantable devices and spinal/peripheral stimulation.', href: 'https://www.neuromodulationjournal.com/', tag: 'IF 3.5' },
+        { name: 'Journal of Neural Engineering',org: 'IOP Publishing',        desc: 'BCI, closed-loop stimulation, electrode design, neural recording.', href: 'https://iopscience.iop.org/journal/1741-2552', tag: 'IF 4.0' },
+        { name: 'Biological Psychiatry',      org: 'Elsevier / SOBP',        desc: 'Psychiatry + neuroscience intersection — many rTMS and ECT trials publish here.', href: 'https://www.sciencedirect.com/journal/biological-psychiatry', tag: 'IF 9.6' },
+        { name: 'Frontiers in Human Neuroscience', org: 'Frontiers',         desc: 'Open-access home for stimulation + cognition research.', href: 'https://www.frontiersin.org/journals/human-neuroscience', tag: 'Open access' },
+        { name: 'Clinical Neurophysiology',   org: 'IFCN (Elsevier)',        desc: 'EEG, MEG, EMG, evoked potentials, and stimulation-physiology studies.', href: 'https://www.clinph-journal.com/', tag: 'IFCN' },
+        { name: 'Neuroscience & Biobehavioral Reviews', org: 'Elsevier',     desc: 'Narrative + systematic reviews synthesising large neuroscience literatures.', href: 'https://www.sciencedirect.com/journal/neuroscience-and-biobehavioral-reviews', tag: 'Reviews' },
+      ],
+    },
+    {
+      id: 'seminars', label: 'Seminars & Webinars', icon: '🎤', tone: 'teal',
+      sub: 'Live talks, grand rounds, and webinar series — most stream free to clinicians.',
+      items: [
+        { name: 'International Neuromodulation Society Webinars', org: 'INS', desc: 'Monthly webinar series covering SCS, DBS, peripheral and sacral neuromodulation.', href: 'https://www.neuromodulation.com/webinars', tag: 'Monthly' },
+        { name: 'NANS Educational Webinars',  org: 'North American Neuromodulation Society', desc: 'CME-eligible webinars on evidence, technique, and billing for US clinicians.', href: 'https://www.neuromodulation.org/education', tag: 'CME' },
+        { name: 'Clinical TMS Society Webinars', org: 'Clinical TMS Society', desc: 'Seminars focused on repetitive TMS for depression, OCD, and emerging indications.', href: 'https://www.clinicaltmssociety.org/education', tag: 'rTMS' },
+        { name: 'IFCN Educational Programs',  org: 'International Federation of Clinical Neurophysiology', desc: 'Global webinars on EEG, EMG, evoked potentials, and stimulation safety.', href: 'https://www.ifcn.info/education', tag: 'Global' },
+        { name: 'ISNR Conferences & Webinars',org: 'International Society for Neurofeedback & Research', desc: 'Quarterly webinars and annual conference on neurofeedback science and practice.', href: 'https://isnr.org/', tag: 'Neurofeedback' },
+        { name: 'NIH Neuroscience Seminar Series', org: 'National Institutes of Health', desc: 'Free grand-rounds-style talks archived on the NIH VideoCast platform.', href: 'https://videocast.nih.gov/', tag: 'Free · Archive' },
+      ],
+    },
+    {
+      id: 'workshops', label: 'Workshops', icon: '🛠️', tone: 'orange',
+      sub: 'Hands-on training sessions — device operation, montage design, protocol development.',
+      items: [
+        { name: 'INS World Congress Workshops',  org: 'International Neuromodulation Society', desc: 'Pre-congress hands-on workshops on programming, trialing, and complication management.', href: 'https://www.neuromodulation.com/world-congress', tag: 'Annual' },
+        { name: 'NANS Annual Meeting Workshops', org: 'NANS',             desc: 'Cadaver labs and device-specific training tracks at the NANS annual meeting.', href: 'https://www.neuromodulation.org/annual-meeting', tag: 'Cadaver labs' },
+        { name: 'Clinical TMS Society Course',   org: 'Clinical TMS Society', desc: 'Two-day fundamentals course for clinicians launching rTMS programmes.', href: 'https://www.clinicaltmssociety.org/courses', tag: 'Fundamentals' },
+        { name: 'Soterix Medical tDCS/tES Training', org: 'Soterix Medical',  desc: 'Hands-on workshops on tDCS/tACS/HD-tDCS montage modelling and delivery.', href: 'https://soterixmedical.com/research/training', tag: 'tDCS · tACS' },
+        { name: 'Neurocare Academy Workshops',   org: 'Neurocare Group',  desc: 'Workshops on rTMS, tDCS, and neurofeedback integration for mental-health clinics.', href: 'https://www.neurocaregroup.com/academy.html', tag: 'Integrated' },
+        { name: 'OHBM Educational Course',       org: 'Organization for Human Brain Mapping', desc: 'Pre-conference workshops on neuroimaging methods and brain-stimulation integration.', href: 'https://www.humanbrainmapping.org/i4a/pages/index.cfm?pageid=3267', tag: 'Methods' },
+      ],
+    },
+    {
+      id: 'courses', label: 'Short Courses', icon: '📖', tone: 'amber',
+      sub: 'Self-paced online courses — fundamentals through advanced protocol design.',
+      items: [
+        { name: 'Medical Neuroscience (Duke)',  org: 'Coursera',          desc: 'Comprehensive neuroanatomy + neurophysiology fundamentals — recommended prereq for stimulation work.', href: 'https://www.coursera.org/learn/medical-neuroscience', tag: '~14 weeks · Free audit' },
+        { name: 'Fundamentals of Neuroscience',  org: 'HarvardX · edX',   desc: 'Three-part series from Harvard Medical School covering cellular, systems, and clinical neuroscience.', href: 'https://www.edx.org/xseries/harvardx-fundamentals-of-neuroscience', tag: 'edX · Free audit' },
+        { name: 'Computational Neuroscience',   org: 'UW · Coursera',     desc: 'Good primer on neural coding and modelling — useful for closed-loop stimulation design.', href: 'https://www.coursera.org/learn/computational-neuroscience', tag: '~9 weeks' },
+        { name: 'Neurohacking in R',            org: 'Johns Hopkins · Coursera', desc: 'Neuroimaging analysis in R — preprocessing, structural + functional MRI.', href: 'https://www.coursera.org/learn/neurohacking', tag: 'Imaging' },
+        { name: 'Brain Stimulation Primer',     org: 'FutureLearn',       desc: 'Short introductory course on TMS and tDCS for clinicians and researchers.', href: 'https://www.futurelearn.com/subjects/healthcare-medicine-courses/mental-health', tag: 'Introductory' },
+        { name: 'Neurofeedback Certificate Training', org: 'BCIA-accredited providers', desc: 'Blueprint training for BCIA Neurofeedback certification (36-hour didactic).', href: 'https://www.bcia.org/neurofeedback-certification', tag: 'Certification prep' },
+      ],
+    },
+    {
+      id: 'certifications', label: 'Certification Programs', icon: '🏅', tone: 'pink',
+      sub: 'Accredited credentialing pathways — verify expertise and meet payor requirements.',
+      items: [
+        { name: 'BCIA Board Certification in Neurofeedback (BCN)', org: 'Biofeedback Certification International Alliance', desc: 'Industry-standard neurofeedback credential. Requires 36 h didactic, mentorship, case studies, and exam.', href: 'https://www.bcia.org/neurofeedback-certification', tag: 'BCN' },
+        { name: 'BCIA Biofeedback Certification (BCB)',            org: 'BCIA',                                             desc: 'Biofeedback credential covering HRV, EMG, thermal and respiratory modalities.', href: 'https://www.bcia.org/biofeedback-certification', tag: 'BCB' },
+        { name: 'ABPN Psychiatry Board Certification',            org: 'American Board of Psychiatry and Neurology',         desc: 'US psychiatry board certification — a baseline credential for clinicians delivering rTMS for depression.', href: 'https://www.abpn.com/become-certified/', tag: 'Psychiatry' },
+        { name: 'ABCN Clinical Neuropsychology',                   org: 'American Board of Clinical Neuropsychology',        desc: 'Board certification in clinical neuropsychology — relevant for cognitive outcome work.', href: 'https://theabcn.org/', tag: 'Neuropsych' },
+        { name: 'ACNS EEG + Clinical Neurophysiology',             org: 'American Clinical Neurophysiology Society',         desc: 'Specialist certification pathway in clinical neurophysiology including qEEG.', href: 'https://www.acns.org/education', tag: 'qEEG' },
+        { name: 'ABNM Neuromodulation Fellowship',                 org: 'American Board of Neurological Surgery / pain societies', desc: 'Fellowship pathway for interventional pain and neuromodulation — SCS, DBS, intrathecal.', href: 'https://www.asra.com/fellowship', tag: 'Fellowship' },
+        { name: 'Clinical TMS Society Certification',              org: 'Clinical TMS Society',                              desc: 'Society-level credentialing for TMS practitioners including didactic, case review and procedural hours.', href: 'https://www.clinicaltmssociety.org/', tag: 'TMS' },
+      ],
+    },
+  ];
+
+  const totalItems = SECTIONS.reduce((a, s) => a + s.items.length, 0);
+
+  const itemCard = (it) => `
+    <a class="ac-card" href="${esc(it.href)}" target="_blank" rel="noopener noreferrer">
+      <div class="ac-card-body">
+        <div class="ac-card-head">
+          <h4 class="ac-card-name">${esc(it.name)}</h4>
+          ${it.tag ? `<span class="ac-card-tag">${esc(it.tag)}</span>` : ''}
+        </div>
+        <div class="ac-card-org">${esc(it.org)}</div>
+        <p class="ac-card-desc">${esc(it.desc)}</p>
+      </div>
+      <div class="ac-card-chev" aria-hidden="true">↗</div>
+    </a>`;
+
+  const sectionHTML = (s) => `
+    <section class="ac-section" id="ac-section-${esc(s.id)}">
+      <div class="ac-section-head">
+        <span class="pt-page-tile pt-nav-tile--${esc(s.tone)} ac-section-ico" aria-hidden="true">${s.icon}</span>
+        <div>
+          <h3 class="ac-section-title">${esc(s.label)} <span class="ac-section-count">${s.items.length}</span></h3>
+          <p class="ac-section-sub">${esc(s.sub)}</p>
+        </div>
+      </div>
+      <div class="ac-grid">${s.items.map(itemCard).join('')}</div>
+    </section>`;
+
+  el.innerHTML = `
+    <div class="ac-wrap">
+      <header class="ac-hero">
+        <div class="ac-hero-body">
+          <div class="ac-hero-eyebrow">Academy</div>
+          <h2 class="ac-hero-title">Research, education, and credentials — in one place</h2>
+          <p class="ac-hero-desc">A curated hub of reputable resources the DeepSynaps clinical team uses to stay current in neuromodulation, neurofeedback, and clinical neurophysiology. External links open in a new tab — DeepSynaps does not endorse any single provider.</p>
+        </div>
+        <div class="ac-hero-stats">
+          ${SECTIONS.map(s => `
+            <button type="button" class="ac-hero-stat" onclick="document.getElementById('ac-section-${esc(s.id)}').scrollIntoView({behavior:'smooth',block:'start'})">
+              <div class="ac-hero-stat-num">${s.items.length}</div>
+              <div class="ac-hero-stat-lbl">${esc(s.label)}</div>
+            </button>`).join('')}
+        </div>
+      </header>
+
+      <nav class="ac-filter" role="tablist" aria-label="Filter academy by type">
+        <button class="ac-filter-chip active" data-ac-filter="all"            role="tab" aria-selected="true">All <span class="ac-filter-count">${totalItems}</span></button>
+        ${SECTIONS.map(s => `
+          <button class="ac-filter-chip" data-ac-filter="${esc(s.id)}" role="tab" aria-selected="false">${esc(s.label)} <span class="ac-filter-count">${s.items.length}</span></button>`).join('')}
+      </nav>
+
+      ${SECTIONS.map(sectionHTML).join('')}
+
+      <div class="ac-footnote">
+        Know a resource that belongs here? Tell your DeepSynaps account manager — the library is reviewed and updated quarterly.
+      </div>
+    </div>
+  `;
+
+  _wireAcademy();
+}
+
+function _wireAcademy() {
+  const root = document.querySelector('.ac-wrap');
+  if (!root) return;
+  root.querySelectorAll('[data-ac-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const f = btn.dataset.acFilter;
+      root.querySelectorAll('[data-ac-filter]').forEach(b => {
+        const on = b === btn;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-selected', String(on));
+      });
+      root.querySelectorAll('.ac-section').forEach(sec => {
+        const id = sec.id.replace('ac-section-', '');
+        sec.style.display = (f === 'all' || f === id) ? '' : 'none';
+      });
+    });
+  });
+}
+
