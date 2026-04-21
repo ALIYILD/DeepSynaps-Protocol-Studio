@@ -5773,6 +5773,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     recent:    { label: 'Recent Reports',   color: 'var(--blue)'   },
     analytics: { label: 'Analytics',       color: 'var(--violet)' },
     export:    { label: 'Export',          color: 'var(--amber)'  },
+    research:  { label: 'Research',        color: '#5dd9c4'       },
   };
   const el = document.getElementById('content');
   function tabBar() {
@@ -6248,6 +6249,52 @@ export async function pgReportsHubNew(setTopbar, navigate) {
       URL.revokeObjectURL(url);
       window._dsToast?.({ title: 'Export ready', body: rows.length + ' rows downloaded.', severity: 'success' });
     };
+  }
+  else if (tab === 'research') {
+    // Research used to live as its own sidebar entry; now it's a Reports tab.
+    // Surface the four research deliverables as report categories. Clicking a
+    // card opens the full research surface (research-v2) with the matching
+    // sub-tab preselected so the rich views don't get duplicated here.
+    const CARDS = [
+      { id:'qa',   label:'Quality Assurance',    color:'#00d4bc', ico:'shield',
+        desc:'Clinic-wide QA metrics — response rates, adherence, adverse events, outcome deltas by protocol.',
+        meta:'Weekly · auto-generated' },
+      { id:'long', label:'Longitudinal Report',  color:'#4a9eff', ico:'chart',
+        desc:'Patient-trajectory reports across the full course — score trends, biomarker shifts, session adherence, responder classification.',
+        meta:'Per-patient · monthly' },
+      { id:'exp',  label:'Data Export',          color:'#b794ff', ico:'download',
+        desc:'Structured research exports — outcomes, adherence, biometrics — de-identified for IRB-approved studies.',
+        meta:'On-demand · CSV / JSON' },
+      { id:'irb',  label:'IRB Manager',          color:'#ffa85b', ico:'book-open',
+        desc:'Protocol submissions, consent tracking, amendment log, and enrolment dashboards for each active study.',
+        meta:'Live · audit-ready' },
+    ];
+    const cardsHtml = CARDS.map(c => (
+      '<div class="ch-card" style="cursor:pointer;transition:all 0.15s" ' +
+      'onclick="window._researchTab=\'' + c.id + '\';window._nav(\'research-v2\')" ' +
+      'onmouseover="this.style.borderColor=\'rgba(0,212,188,0.35)\'" ' +
+      'onmouseout="this.style.borderColor=\'\'">' +
+        '<div class="ch-card-hd" style="padding:14px 16px;display:flex;align-items:center;gap:12px">' +
+          '<div style="width:38px;height:38px;border-radius:10px;background:' + c.color + '18;border:1px solid ' + c.color + '40;display:flex;align-items:center;justify-content:center;color:' + c.color + '">' +
+            '<svg width="18" height="18"><use href="#i-' + c.ico + '"/></svg>' +
+          '</div>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="font-family:var(--font-display);font-size:14.5px;font-weight:600;color:var(--text-primary);letter-spacing:-0.01em">' +
+              c.label +
+            '</div>' +
+            '<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;font-family:var(--font-mono)">' + c.meta + '</div>' +
+          '</div>' +
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-tertiary)"><polyline points="9 18 15 12 9 6"/></svg>' +
+        '</div>' +
+        '<div style="padding:0 16px 14px;font-size:12px;color:var(--text-secondary);line-height:1.55">' + c.desc + '</div>' +
+      '</div>'
+    )).join('');
+    main = '<div style="margin-bottom:14px">' +
+      '<div style="font-family:var(--font-display);font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Research report types</div>' +
+      '<div style="font-size:12.5px;color:var(--text-secondary);max-width:640px;line-height:1.55">' +
+        'Research-grade deliverables that sit alongside the clinical reports above. Pick a type to open the full research workspace — QA dashboards, longitudinal trajectories, de-identified data exports, and IRB submissions.' +
+      '</div></div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">' + cardsHtml + '</div>';
   }
 
   el.innerHTML = `<div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px"><div class="ch-shell"><div class="ch-tab-bar">${tabBar()}</div><div class="ch-body">${main}</div></div></div>`;
