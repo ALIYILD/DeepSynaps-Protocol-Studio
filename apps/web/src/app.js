@@ -993,6 +993,7 @@ async function renderPatientPage() {
     case 'education':           await m.pgPatientEducation();             break;
     case 'patient-profile':     await m.pgPatientProfile(currentUser);    break;
     case 'patient-settings':    await m.pgPatientSettings(currentUser);   break;
+    case 'patient-marketplace': await m.pgPatientMarketplace(currentUser); break;
     case 'pt-learn':            await m.pgPatientLearn();                 break;
     case 'pt-journal':          await m.pgSymptomJournal(m.setTopbar);   break;
     case 'pt-notifications':    await m.pgPatientNotificationSettings(m.setTopbar); break;
