@@ -176,15 +176,22 @@ let _vc = {
 };
 
 // =============================================================================
-// pgVirtualCare — legacy entry. Delegates to pgLiveSession for the live-session
-// route; renders a redirect card for the old virtual-care-hub / messaging routes.
+// pgVirtualCare — entry point for the live-session route.
+// If a session seed is queued (set by pgVirtualCareDashboard "Launch" button),
+// consume it and go straight to pgLiveSession.  Otherwise show the dashboard.
 // =============================================================================
 export async function pgVirtualCare(setTopbar, navigate) {
   let currentRoute = '';
   try { currentRoute = new URLSearchParams(location.search).get('page') || ''; } catch {}
 
   if (currentRoute === 'live-session') {
-    return pgLiveSession(setTopbar, navigate);
+    // If a seed was queued by the dashboard "Launch" button, consume it and
+    // drop straight into the live session.  pgLiveSession reads window._lsSessionSeed
+    // for its demo fallback (seed is set, not cleared, so the live session can read it).
+    if (window._lsSessionSeed) {
+      return pgLiveSession(setTopbar, navigate);
+    }
+    return pgVirtualCareDashboard(setTopbar, navigate);
   }
 
   const stubEl = document.getElementById('main-content') || document.getElementById('content');
@@ -199,6 +206,508 @@ export async function pgVirtualCare(setTopbar, navigate) {
     return;
   }
   return;
+}
+
+// =============================================================================
+// pgVirtualCareDashboard — Rich clinical dashboard for the Virtual Care hub.
+// Sections: header greeting · alert banner · KPI tiles · today's schedule +
+// brain map · caseload table + evidence governance · activity log + outcomes.
+// CSS prefix: vc-db-*
+// =============================================================================
+async function pgVirtualCareDashboard(setTopbar, navigate) {
+  const mount = document.getElementById('main-content') || document.getElementById('content');
+  if (!mount) return;
+
+  try {
+    setTopbar({ title: 'Virtual Care', subtitle: 'Dashboard' });
+  } catch {
+    try { setTopbar('Virtual Care', 'Dashboard'); } catch {}
+  }
+
+  // ── Clinician name ────────────────────────────────────────────────────────
+  let clinicianName = 'Dr. Chen';
+  try {
+    const { currentUser } = await import('./auth.js');
+    if (currentUser?.display_name) clinicianName = currentUser.display_name;
+    else if (currentUser?.name) clinicianName = currentUser.name;
+  } catch {}
+
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
+  // ── Helper ────────────────────────────────────────────────────────────────
+  const _e = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+  // ── Demo seed data ────────────────────────────────────────────────────────
+  const DB_SCHEDULE = [
+    { time:'09:00', id:'db-p1', name:'Samantha L.',  initials:'SL', protocol:'tDCS · session 12/20',  condition:'MDD · stimulation phase',       room:'Room A',  consent:false },
+    { time:'10:00', id:'db-p2', name:'Marcus R.',    initials:'MR', protocol:'rTMS · session 6/30',   condition:'TRD · active course',            room:'Room B',  consent:false },
+    { time:'11:00', id:'db-p3', name:'Elena O.',     initials:'EO', protocol:'NF · session 4/12',     condition:'ADHD · baseline stabilisation',  room:'Remote',  consent:false },
+    { time:'12:00', id:'db-p4', name:'Jamal T.',     initials:'JT', protocol:'tDCS · session 8/20',   condition:'GAD · mid-course',               room:'Room A',  consent:true  },
+    { time:'14:00', id:'db-p5', name:'Priya N.',     initials:'PN', protocol:'CES · session 2/10',    condition:'Insomnia · initial phase',       room:'Home',    consent:false },
+    { time:'15:00', id:'open',  name:null,            initials:null, protocol:null,                    condition:null,                             room:null,      consent:false },
+  ];
+
+  const DB_CASELOAD = [
+    { id:'db-p1', name:'Samantha Li',    condition:'MDD',     protocol:'tDCS · DLPFC-L',    progress:60, next:'Session 13',       urgency:'routine' },
+    { id:'db-p4', name:'Jamal Thompson', condition:'GAD',     protocol:'tDCS · PFC-R',       progress:40, next:'Consent refresh', urgency:'urgent'  },
+    { id:'db-p2', name:'Marcus Reilly',  condition:'TRD',     protocol:'rTMS · DLPFC-L',    progress:20, next:'Session 7',        urgency:'routine' },
+    { id:'db-p5', name:'Priya Nambiar',  condition:'Insomnia',protocol:'CES · bilateral',   progress:20, next:'PHQ-9 due',        urgency:'new'     },
+    { id:'db-p3', name:'Elena Okafor',   condition:'ADHD',    protocol:'NF · SMR',           progress:33, next:'Mid-course review',urgency:'routine' },
+    { id:'db-p6', name:'Terence Wu',     condition:'MDD',     protocol:'rTMS · deep-TMS',   progress:90, next:'Discharge plan',   urgency:'discharging' },
+  ];
+
+  const DB_EVIDENCE = [
+    { grade:'A', name:'tDCS · DLPFC-L · 2 mA — 28 RCTs · pinned v3.1.0 · MDD primary',      rerender:false },
+    { grade:'B', name:'NF · SMR · 10 Hz — 14 RCTs · pinned v2.0.0 · ADHD primary',           rerender:false },
+    { grade:'C', name:'rTMS · iTBS · DLPFC-L — 41 RCTs · pinned v2.4.1 · MDD primary',       rerender:true  },
+    { grade:'B', name:'CES · bilateral · 0.5 Hz — 9 RCTs · pinned v1.2.0 · Insomnia',        rerender:false },
+    { grade:'A', name:'rTMS · 10Hz · DLPFC-L — 62 RCTs · pinned v4.0.0 · TRD primary',       rerender:false },
+  ];
+
+  const DB_ACTIVITY = [
+    { icon:'check',    text:'Samantha L. completed session 12/20 · tDCS. Side-effect check-in: clear.',    time:'8m'  },
+    { icon:'clip',     text:'Marcus R. pre-session note auto-generated by AI assistant.',                   time:'22m' },
+    { icon:'warn',     text:'Jamal T. consent refresh flagged — re-sign required before next session.',    time:'41m' },
+    { icon:'sparkle',  text:'Evidence sync: rTMS iTBS downgraded B → C. 3 protocols affected.',            time:'1h'  },
+    { icon:'person',   text:'Elena O. joined remote session from home device. Connection stable.',          time:'2h'  },
+  ];
+
+  // ── Sparkline SVG (mini) ──────────────────────────────────────────────────
+  function sparkline(pts, color) {
+    const W = 64, H = 24;
+    const min = Math.min(...pts), range = Math.max(...pts) - min || 1;
+    const coords = pts.map((v, i) => {
+      const x = (i / (pts.length - 1)) * W;
+      const y = H - ((v - min) / range) * H;
+      return `${x},${y}`;
+    }).join(' ');
+    return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;overflow:visible"><polyline points="${coords}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+
+  // ── Outcomes line chart SVG ───────────────────────────────────────────────
+  function outcomeChart() {
+    const W = 340, H = 120, PAD = 28;
+    const weeks = ['W1','W2','W3','W4'];
+    const phq = [14.2, 12.1, 9.8, 7.9];
+    const gad = [11.6, 10.2, 8.1, 6.4];
+    const maxV = 16, minV = 4;
+    function toY(v) { return PAD + (H - 2*PAD) * (1 - (v - minV)/(maxV - minV)); }
+    function toX(i) { return PAD + i * ((W - 2*PAD) / (weeks.length - 1)); }
+    const phqPts = phq.map((v,i) => `${toX(i)},${toY(v)}`).join(' ');
+    const gadPts = gad.map((v,i) => `${toX(i)},${toY(v)}`).join(' ');
+    // area fill
+    const phqArea = `M ${toX(0)},${toY(phq[0])} ` + phq.map((v,i)=>`L ${toX(i)},${toY(v)}`).join(' ') + ` L ${toX(phq.length-1)},${H-PAD} L ${toX(0)},${H-PAD} Z`;
+    const gadArea = `M ${toX(0)},${toY(gad[0])} ` + gad.map((v,i)=>`L ${toX(i)},${toY(v)}`).join(' ') + ` L ${toX(gad.length-1)},${H-PAD} L ${toX(0)},${H-PAD} Z`;
+    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;overflow:visible">
+      <defs>
+        <linearGradient id="vc-db-g-phq" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#4a9eff" stop-opacity=".22"/><stop offset="100%" stop-color="#4a9eff" stop-opacity="0"/></linearGradient>
+        <linearGradient id="vc-db-g-gad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#00d4bc" stop-opacity=".18"/><stop offset="100%" stop-color="#00d4bc" stop-opacity="0"/></linearGradient>
+      </defs>
+      <!-- grid lines -->
+      ${[6,8,10,12,14].map(v=>`<line x1="${PAD}" y1="${toY(v)}" x2="${W-PAD}" y2="${toY(v)}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/><text x="${PAD-4}" y="${toY(v)+4}" text-anchor="end" font-size="8" fill="rgba(255,255,255,0.25)">${v}</text>`).join('')}
+      <!-- area fills -->
+      <path d="${phqArea}" fill="url(#vc-db-g-phq)"/>
+      <path d="${gadArea}" fill="url(#vc-db-g-gad)"/>
+      <!-- lines -->
+      <polyline points="${phqPts}" fill="none" stroke="#4a9eff" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      <polyline points="${gadPts}" fill="none" stroke="#00d4bc" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      <!-- dots -->
+      ${phq.map((v,i)=>`<circle cx="${toX(i)}" cy="${toY(v)}" r="3.5" fill="#4a9eff"/>`).join('')}
+      ${gad.map((v,i)=>`<circle cx="${toX(i)}" cy="${toY(v)}" r="3.5" fill="#00d4bc"/>`).join('')}
+      <!-- x labels -->
+      ${weeks.map((w,i)=>`<text x="${toX(i)}" y="${H-2}" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.35)">${w}</text>`).join('')}
+    </svg>`;
+  }
+
+  // ── Brain map SVG (10-20 positions, colour-coded) ─────────────────────────
+  function dashboardBrainMap() {
+    // Today: 6 sessions, 4 montages. Anode sites highlighted.
+    const sites = {
+      'Fp1':[160,60],'Fp2':[240,60],
+      'F7':[100,125],'F3':[152,135],'Fz':[200,130],'F4':[248,135],'F8':[300,125],
+      'T3':[100,200],'C3':[145,200],'Cz':[200,200],'C4':[255,200],'T4':[300,200],
+      'T5':[115,270],'P3':[155,268],'Pz':[200,268],'P4':[245,268],'T6':[285,270],
+      'O1':[165,332],'O2':[235,332],
+    };
+    const anodes    = ['F3','Fz','C3','Fp2'];
+    const cathodes  = ['Fp2','F4','Cz','F3'];
+    const targetRing= ['F3','Fz'];
+
+    const dots = Object.entries(sites).map(([k,[x,y]]) => {
+      const isA = anodes.includes(k) && !cathodes.includes(k);
+      const isC = cathodes.includes(k) && !anodes.includes(k);
+      const isBoth = anodes.includes(k) && cathodes.includes(k);
+      const isT = targetRing.includes(k);
+      if (isBoth)  return `<circle cx="${x}" cy="${y}" r="9" fill="rgba(155,127,255,0.18)" stroke="#9b7fff" stroke-width="1.5"/><circle cx="${x}" cy="${y}" r="3.5" fill="#9b7fff"/><text x="${x}" y="${y-13}" text-anchor="middle" font-size="8.5" fill="#9b7fff" font-weight="600">${k}</text>`;
+      if (isA)     return `<circle cx="${x}" cy="${y}" r="9" fill="rgba(0,212,188,0.18)" stroke="#00d4bc" stroke-width="1.5"/><circle cx="${x}" cy="${y}" r="3.5" fill="#00d4bc"/><text x="${x}" y="${y-13}" text-anchor="middle" font-size="8.5" fill="#00d4bc" font-weight="600">${k}</text>`;
+      if (isC)     return `<circle cx="${x}" cy="${y}" r="9" fill="rgba(255,107,157,0.18)" stroke="#ff6b9d" stroke-width="1.5"/><circle cx="${x}" cy="${y}" r="3.5" fill="#ff6b9d"/><text x="${x}" y="${y-13}" text-anchor="middle" font-size="8.5" fill="#ff6b9d" font-weight="600">${k}</text>`;
+      if (isT)     return `<circle cx="${x}" cy="${y}" r="11" fill="none" stroke="rgba(255,181,71,0.45)" stroke-width="1.5" stroke-dasharray="3,2"/><circle cx="${x}" cy="${y}" r="3" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.2)" stroke-width="1"/><text x="${x}" y="${y-8}" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.3)">${k}</text>`;
+      return `<circle cx="${x}" cy="${y}" r="3.5" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.2)" stroke-width="1"/><text x="${x}" y="${y-8}" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.25)">${k}</text>`;
+    }).join('');
+
+    return `<svg viewBox="60 30 280 340" style="width:100%;max-height:320px">
+      <defs>
+        <radialGradient id="vc-db-skull" cx="50%" cy="45%" r="50%">
+          <stop offset="0%" stop-color="rgba(74,158,255,0.07)"/>
+          <stop offset="100%" stop-color="rgba(10,18,35,0)"/>
+        </radialGradient>
+      </defs>
+      <ellipse cx="200" cy="195" rx="148" ry="162" fill="url(#vc-db-skull)" stroke="rgba(255,255,255,0.1)" stroke-width="1.5"/>
+      <ellipse cx="200" cy="195" rx="148" ry="162" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="0.8"/>
+      <!-- nasion pointer -->
+      <polygon points="200,33 194,47 206,47" fill="rgba(255,255,255,0.08)"/>
+      ${dots}
+    </svg>`;
+  }
+
+  // ── Grade badge ───────────────────────────────────────────────────────────
+  function gradeBadge(g) {
+    const col = g==='A'?'#00d4bc':g==='B'?'#4a9eff':'#ffb547';
+    return `<span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${col}22;border:1.5px solid ${col};color:${col};font-size:11px;font-weight:800;flex-shrink:0">${g}</span>`;
+  }
+
+  // ── Activity icon ─────────────────────────────────────────────────────────
+  function actIcon(type) {
+    const icons = { check:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00d4bc" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>', clip:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4a9eff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>', warn:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffb547" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>', sparkle:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9b7fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>', person:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4a9eff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>' };
+    return `<span style="flex-shrink:0;display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,0.05)">${icons[type]||icons.clip}</span>`;
+  }
+
+  // ── Launch handler (attached to window for inline onclick) ─────────────────
+  window._vcdbLaunch = function(id, name, modality, sessionNo, sessionTotal) {
+    window._lsSessionSeed = { patient_id: id, patient_name: name, modality, session_no: sessionNo, session_total: sessionTotal };
+    window._nav('live-session');
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  const scheduleRows = DB_SCHEDULE.map(row => {
+    if (!row.name) {
+      return `<div class="vc-db-sched-row vc-db-sched-open">
+        <span class="vc-db-sched-time">—</span>
+        <span style="color:rgba(255,255,255,0.3);font-size:13px;font-style:italic">30 min open · add session</span>
+        <button class="vc-db-btn-ghost" style="margin-left:auto">+ Add</button>
+      </div>`;
+    }
+    const [mod, sessStr] = (row.protocol || '').split(' · ');
+    const sessNo = parseInt((sessStr || '1').split('/')[0]) || 1;
+    const sessTotal = parseInt((sessStr || '1/20').split('/')[1]) || 20;
+    return `<div class="vc-db-sched-row">
+      <span class="vc-db-sched-time">${_e(row.time)}</span>
+      <div class="vc-db-avatar">${_e(row.initials)}</div>
+      <div class="vc-db-sched-info">
+        <span class="vc-db-sched-name">${_e(row.name)}</span>
+        ${row.consent ? '<span class="vc-db-badge-warn">Consent refresh due</span>' : ''}
+      </div>
+      <span class="vc-db-chip">${_e(row.protocol)}</span>
+      <span class="vc-db-sched-cond">${_e(row.condition)}</span>
+      <button class="vc-db-launch-btn" onclick="window._vcdbLaunch('${_e(row.id)}','${_e(row.name)}','${_e(mod)}',${sessNo},${sessTotal})">Launch &#8594;</button>
+    </div>`;
+  }).join('');
+
+  const caseloadRows = DB_CASELOAD.map(row => {
+    const urgColor = row.urgency==='urgent'?'#ffb547':row.urgency==='new'?'#4a9eff':row.urgency==='discharging'?'#00d4bc':'rgba(255,255,255,0.3)';
+    return `<tr class="vc-db-cl-row">
+      <td><div style="display:flex;align-items:center;gap:8px"><div class="vc-db-avatar vc-db-avatar-sm">${_e(row.name.split(' ').map(w=>w[0]).join(''))}</div><div><div style="font-weight:500;font-size:13px">${_e(row.name)}</div><div style="font-size:11px;color:rgba(255,255,255,0.35)">${_e(row.condition)}</div></div></div></td>
+      <td><span class="vc-db-chip">${_e(row.protocol)}</span></td>
+      <td><div class="vc-db-prog-wrap"><div class="vc-db-prog-bar" style="width:${row.progress}%"></div></div><span style="font-size:10px;color:rgba(255,255,255,0.35);margin-left:4px">${row.progress}%</span></td>
+      <td><span class="vc-db-next-badge" style="border-color:${urgColor};color:${urgColor}">${_e(row.next)}</span></td>
+    </tr>`;
+  }).join('');
+
+  const evidenceRows = DB_EVIDENCE.map(row => `
+    <div class="vc-db-ev-row${row.rerender?' vc-db-ev-warn':''}">
+      ${gradeBadge(row.grade)}
+      <span class="vc-db-ev-name">${_e(row.name)}</span>
+      ${row.rerender ? '<button class="vc-db-rerender-btn">Re-render</button>' : ''}
+      <button class="vc-db-ev-arrow" title="View protocol">&#8250;</button>
+    </div>`).join('');
+
+  const activityRows = DB_ACTIVITY.map(row => `
+    <div class="vc-db-act-row">
+      ${actIcon(row.icon)}
+      <span class="vc-db-act-text">${_e(row.text)}</span>
+      <span class="vc-db-act-time">${_e(row.time)}</span>
+    </div>`).join('');
+
+  // ── Inline styles ─────────────────────────────────────────────────────────
+  const CSS = `<style>
+.vc-db-shell { font-family: var(--font-body, system-ui, sans-serif); color: var(--text-primary, #e2e8f0); padding: 20px 24px; max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+/* Header */
+.vc-db-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.vc-db-greeting { font-size: 22px; font-weight: 700; line-height: 1.2; }
+.vc-db-sub { font-size: 13px; color: rgba(255,255,255,0.45); margin-top: 4px; }
+.vc-db-header-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.vc-db-period-btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.5); font-size: 12px; padding: 5px 12px; border-radius: 6px; cursor: pointer; transition: all .15s; }
+.vc-db-period-btn:hover, .vc-db-period-btn.active { background: rgba(0,212,188,0.1); border-color: rgba(0,212,188,0.3); color: #00d4bc; }
+.vc-db-ht-btn { background: rgba(74,158,255,0.1); border: 1px solid rgba(74,158,255,0.25); color: #4a9eff; font-size: 12px; padding: 5px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.vc-db-ht-btn:hover { background: rgba(74,158,255,0.18); }
+/* Alert banner */
+.vc-db-alert { display: flex; align-items: center; gap: 12px; padding: 11px 16px; background: rgba(255,181,71,0.08); border: 1px solid rgba(255,181,71,0.25); border-radius: 10px; flex-wrap: wrap; }
+.vc-db-alert-icon { font-size: 15px; flex-shrink: 0; }
+.vc-db-alert-text { flex: 1; font-size: 13px; color: rgba(255,255,255,0.75); min-width: 200px; }
+.vc-db-alert-text strong { color: #ffb547; }
+.vc-db-alert-btn { background: rgba(255,181,71,0.15); border: 1px solid rgba(255,181,71,0.35); color: #ffb547; font-size: 12px; padding: 5px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+.vc-db-alert-btn:hover { background: rgba(255,181,71,0.25); }
+/* KPI tiles */
+.vc-db-kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+@media (max-width: 900px) { .vc-db-kpi-row { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 520px) { .vc-db-kpi-row { grid-template-columns: 1fr; } }
+.vc-db-kpi { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; min-height: 96px; justify-content: space-between; }
+.vc-db-kpi-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: rgba(255,255,255,0.35); }
+.vc-db-kpi-val { font-size: 26px; font-weight: 800; line-height: 1.1; }
+.vc-db-kpi-sub { font-size: 11.5px; color: rgba(255,255,255,0.4); }
+.vc-db-kpi-bottom { display: flex; align-items: flex-end; justify-content: space-between; }
+/* Two-col rows */
+.vc-db-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 820px) { .vc-db-row2 { grid-template-columns: 1fr; } }
+/* Cards */
+.vc-db-card { background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.07); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
+.vc-db-card-hd { padding: 14px 18px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); flex-wrap: wrap; }
+.vc-db-card-title { font-size: 13px; font-weight: 700; }
+.vc-db-card-meta { font-size: 11px; color: rgba(255,255,255,0.35); }
+.vc-db-card-body { padding: 12px 16px; flex: 1; overflow-y: auto; max-height: 360px; }
+/* Tab bar */
+.vc-db-tabs { display: flex; gap: 4px; }
+.vc-db-tab { background: transparent; border: 1px solid rgba(255,255,255,0.08); color: rgba(255,255,255,0.4); font-size: 11px; padding: 3px 10px; border-radius: 5px; cursor: pointer; }
+.vc-db-tab.active, .vc-db-tab:hover { background: rgba(0,212,188,0.08); border-color: rgba(0,212,188,0.25); color: #00d4bc; }
+/* Schedule */
+.vc-db-sched-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid rgba(255,255,255,0.04); flex-wrap: wrap; }
+.vc-db-sched-row:last-child { border-bottom: none; }
+.vc-db-sched-open { opacity: .55; }
+.vc-db-sched-time { font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.4); min-width: 38px; font-family: var(--font-mono, monospace); }
+.vc-db-sched-info { display: flex; flex-direction: column; gap: 2px; min-width: 90px; }
+.vc-db-sched-name { font-size: 13px; font-weight: 600; }
+.vc-db-sched-cond { font-size: 11px; color: rgba(255,255,255,0.35); margin-left: auto; text-align: right; }
+.vc-db-badge-warn { background: rgba(255,181,71,0.12); border: 1px solid rgba(255,181,71,0.3); color: #ffb547; font-size: 10px; padding: 1px 7px; border-radius: 4px; }
+/* Avatar */
+.vc-db-avatar { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, rgba(0,212,188,0.3), rgba(74,158,255,0.3)); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #e2e8f0; flex-shrink: 0; }
+.vc-db-avatar-sm { width: 26px; height: 26px; font-size: 9px; }
+/* Chips */
+.vc-db-chip { background: rgba(74,158,255,0.1); border: 1px solid rgba(74,158,255,0.2); color: #4a9eff; font-size: 10.5px; padding: 2px 8px; border-radius: 5px; white-space: nowrap; }
+/* Launch btn */
+.vc-db-launch-btn { margin-left: auto; background: rgba(0,212,188,0.1); border: 1px solid rgba(0,212,188,0.3); color: #00d4bc; font-size: 12px; font-weight: 600; padding: 5px 14px; border-radius: 7px; cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: all .15s; }
+.vc-db-launch-btn:hover { background: rgba(0,212,188,0.2); box-shadow: 0 0 12px rgba(0,212,188,0.2); }
+.vc-db-btn-ghost { background: transparent; border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.4); font-size: 11px; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+/* Caseload table */
+.vc-db-cl-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.vc-db-cl-row td { padding: 8px 6px; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: middle; }
+.vc-db-cl-row:last-child td { border-bottom: none; }
+.vc-db-cl-row:hover td { background: rgba(255,255,255,0.02); }
+.vc-db-prog-wrap { display: inline-flex; vertical-align: middle; width: 64px; height: 4px; background: rgba(255,255,255,0.07); border-radius: 2px; overflow: hidden; }
+.vc-db-prog-bar { height: 100%; background: linear-gradient(90deg, #00d4bc, #4a9eff); border-radius: 2px; }
+.vc-db-next-badge { display: inline-block; border: 1px solid; border-radius: 5px; padding: 2px 8px; font-size: 10.5px; }
+/* Evidence */
+.vc-db-ev-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.vc-db-ev-row:last-child { border-bottom: none; }
+.vc-db-ev-warn { background: rgba(255,181,71,0.04); border-radius: 8px; padding: 8px 6px; margin: 0 -6px; }
+.vc-db-ev-name { flex: 1; font-size: 12px; color: rgba(255,255,255,0.7); line-height: 1.4; }
+.vc-db-rerender-btn { background: rgba(255,181,71,0.15); border: 1px solid rgba(255,181,71,0.3); color: #ffb547; font-size: 11px; padding: 3px 10px; border-radius: 5px; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+.vc-db-ev-arrow { background: transparent; border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.35); font-size: 16px; line-height: 1; padding: 2px 7px; border-radius: 5px; cursor: pointer; flex-shrink: 0; }
+.vc-db-ev-arrow:hover { color: #4a9eff; border-color: rgba(74,158,255,0.3); }
+/* Activity */
+.vc-db-act-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.vc-db-act-row:last-child { border-bottom: none; }
+.vc-db-act-text { flex: 1; font-size: 12.5px; color: rgba(255,255,255,0.65); line-height: 1.4; }
+.vc-db-act-time { font-size: 11px; color: rgba(255,255,255,0.25); white-space: nowrap; margin-top: 1px; }
+/* Outcomes */
+.vc-db-chart-legend { display: flex; gap: 14px; margin-bottom: 10px; }
+.vc-db-legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; vertical-align: middle; }
+.vc-db-chart-toggles { display: flex; gap: 4px; }
+.vc-db-chart-toggle { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.4); font-size: 10.5px; padding: 3px 9px; border-radius: 5px; cursor: pointer; }
+.vc-db-chart-toggle.active, .vc-db-chart-toggle:hover { background: rgba(0,212,188,0.08); border-color: rgba(0,212,188,0.2); color: #00d4bc; }
+/* Brain map panel */
+.vc-db-bmap-wrap { padding: 12px; flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.vc-db-bmap-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: rgba(255,255,255,0.4); }
+.vc-db-bmap-legend span { display: flex; align-items: center; gap: 5px; }
+.vc-db-bmap-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+/* Thead */
+.vc-db-th { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: rgba(255,255,255,0.3); padding: 4px 6px 8px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.06); }
+</style>`;
+
+  mount.innerHTML = CSS + `
+<div class="vc-db-shell">
+
+  <!-- 1. Header -->
+  <div class="vc-db-header">
+    <div>
+      <div class="vc-db-greeting">${_e(greeting)}, ${_e(clinicianName)}.</div>
+      <div class="vc-db-sub">You have 8 sessions scheduled today &middot; 11 items need review before 11:00.</div>
+    </div>
+    <div class="vc-db-header-actions">
+      <button class="vc-db-period-btn active">Day</button>
+      <button class="vc-db-period-btn">Week</button>
+      <button class="vc-db-period-btn">Month</button>
+      <button class="vc-db-period-btn">Quarter</button>
+      <button class="vc-db-period-btn">Export</button>
+      <button class="vc-db-ht-btn" onclick="window._nav('home-task-manager')">Home Tasks</button>
+    </div>
+  </div>
+
+  <!-- 2. Alert banner -->
+  <div class="vc-db-alert">
+    <span class="vc-db-alert-icon">&#9888;</span>
+    <div class="vc-db-alert-text"><strong>Evidence update</strong> &middot; rTMS iTBS protocol downgraded B &#8594; C &mdash; 3 active protocols reference deprecated parameters. Review and re-render before next session.</div>
+    <button class="vc-db-alert-btn" onclick="window._nav('reg-virtual-care')">Review now</button>
+  </div>
+
+  <!-- 3. KPI tiles -->
+  <div class="vc-db-kpi-row">
+    <div class="vc-db-kpi">
+      <div class="vc-db-kpi-label">Active Caseload</div>
+      <div class="vc-db-kpi-bottom">
+        <div>
+          <div class="vc-db-kpi-val" style="color:#00d4bc">142</div>
+          <div class="vc-db-kpi-sub">&#8593;8 this week</div>
+        </div>
+        ${sparkline([118,122,128,131,134,138,142], '#00d4bc')}
+      </div>
+    </div>
+    <div class="vc-db-kpi">
+      <div class="vc-db-kpi-label">Sessions This Week</div>
+      <div class="vc-db-kpi-bottom">
+        <div>
+          <div class="vc-db-kpi-val" style="color:#4a9eff">87<span style="font-size:15px;font-weight:500;color:rgba(255,255,255,0.3)">/110</span></div>
+          <div class="vc-db-kpi-sub">79% utilisation</div>
+        </div>
+        ${sparkline([72,78,80,83,85,86,87], '#4a9eff')}
+      </div>
+    </div>
+    <div class="vc-db-kpi">
+      <div class="vc-db-kpi-label">Avg PHQ-9 &#916;</div>
+      <div class="vc-db-kpi-bottom">
+        <div>
+          <div class="vc-db-kpi-val" style="color:#00d4bc">-6.2<span style="font-size:13px">pts</span></div>
+          <div class="vc-db-kpi-sub">Best cohort since Q4</div>
+        </div>
+        ${sparkline([2.1, 3.4, 4.2, 4.9, 5.5, 5.9, 6.2], '#00d4bc')}
+      </div>
+    </div>
+    <div class="vc-db-kpi">
+      <div class="vc-db-kpi-label">Pending Review</div>
+      <div class="vc-db-kpi-bottom">
+        <div>
+          <div class="vc-db-kpi-val" style="color:#ffb547">11</div>
+          <div class="vc-db-kpi-sub">3 need re-render</div>
+        </div>
+        ${sparkline([5, 7, 9, 8, 10, 11, 11], '#ffb547')}
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Schedule + Brain map -->
+  <div class="vc-db-row2">
+    <!-- Schedule -->
+    <div class="vc-db-card">
+      <div class="vc-db-card-hd">
+        <div>
+          <div class="vc-db-card-title">Today's schedule</div>
+          <div class="vc-db-card-meta">8 sessions &middot; Room A / B / Home-supervised</div>
+        </div>
+        <div class="vc-db-tabs">
+          <button class="vc-db-tab active">All</button>
+          <button class="vc-db-tab">Room A</button>
+          <button class="vc-db-tab">Room B</button>
+          <button class="vc-db-tab">Remote</button>
+        </div>
+      </div>
+      <div class="vc-db-card-body">${scheduleRows}</div>
+    </div>
+    <!-- Brain map -->
+    <div class="vc-db-card">
+      <div class="vc-db-card-hd">
+        <div>
+          <div class="vc-db-card-title">Active targets &middot; today</div>
+          <div class="vc-db-card-meta">10-20 overlay &middot; 6 sessions &middot; 4 montages</div>
+        </div>
+      </div>
+      <div class="vc-db-bmap-wrap">
+        <div style="flex:1;display:flex;align-items:center;justify-content:center">${dashboardBrainMap()}</div>
+        <div class="vc-db-bmap-legend">
+          <span><span class="vc-db-bmap-dot" style="background:#00d4bc"></span>Anode</span>
+          <span><span class="vc-db-bmap-dot" style="background:#ff6b9d"></span>Cathode</span>
+          <span><span class="vc-db-bmap-dot" style="background:transparent;border:1.5px dashed rgba(255,181,71,0.6)"></span>Target ring</span>
+          <span><span class="vc-db-bmap-dot" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.2)"></span>Available</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. Caseload + Evidence -->
+  <div class="vc-db-row2">
+    <!-- Caseload -->
+    <div class="vc-db-card">
+      <div class="vc-db-card-hd">
+        <div class="vc-db-card-title">Active patient caseload</div>
+        <div class="vc-db-tabs">
+          <button class="vc-db-tab active">All</button>
+          <button class="vc-db-tab">Urgent</button>
+          <button class="vc-db-tab">New</button>
+          <button class="vc-db-tab">Discharging</button>
+        </div>
+      </div>
+      <div class="vc-db-card-body" style="padding:0 16px">
+        <table class="vc-db-cl-table">
+          <thead><tr>
+            <th class="vc-db-th">Patient &middot; Condition</th>
+            <th class="vc-db-th">Protocol</th>
+            <th class="vc-db-th">Progress</th>
+            <th class="vc-db-th">Next step</th>
+          </tr></thead>
+          <tbody>${caseloadRows}</tbody>
+        </table>
+      </div>
+    </div>
+    <!-- Evidence governance -->
+    <div class="vc-db-card">
+      <div class="vc-db-card-hd">
+        <div>
+          <div class="vc-db-card-title">Evidence governance</div>
+          <div class="vc-db-card-meta">Active registry grades &middot; last synced 12 min ago</div>
+        </div>
+        <button class="vc-db-tab active">All current</button>
+      </div>
+      <div class="vc-db-card-body">${evidenceRows}</div>
+    </div>
+  </div>
+
+  <!-- 6. Activity + Outcomes -->
+  <div class="vc-db-row2">
+    <!-- Activity -->
+    <div class="vc-db-card">
+      <div class="vc-db-card-hd">
+        <div class="vc-db-card-title">Clinic activity &mdash; Last 24 hours</div>
+        <button class="vc-db-btn-ghost" onclick="window._nav('audittrail')">View audit log</button>
+      </div>
+      <div class="vc-db-card-body">${activityRows}</div>
+    </div>
+    <!-- Outcomes chart -->
+    <div class="vc-db-card">
+      <div class="vc-db-card-hd">
+        <div>
+          <div class="vc-db-card-title">Outcomes &middot; cohort avg &#916;</div>
+          <div class="vc-db-card-meta">Week-over-week &middot; lower is better</div>
+        </div>
+        <div class="vc-db-chart-toggles">
+          <button class="vc-db-chart-toggle active">4W</button>
+          <button class="vc-db-chart-toggle">12W</button>
+          <button class="vc-db-chart-toggle">1Y</button>
+        </div>
+      </div>
+      <div class="vc-db-card-body">
+        <div class="vc-db-chart-legend">
+          <span><span class="vc-db-legend-dot" style="background:#4a9eff"></span><span style="font-size:12px">PHQ-9 avg</span></span>
+          <span><span class="vc-db-legend-dot" style="background:#00d4bc"></span><span style="font-size:12px">GAD-7 avg</span></span>
+        </div>
+        ${outcomeChart()}
+        <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:11px;color:rgba(255,255,255,0.3)">
+          <span>PHQ-9: 14.2 &#8594; 7.9</span>
+          <span>GAD-7: 11.6 &#8594; 6.4</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>`;
 }
 
 // =============================================================================
