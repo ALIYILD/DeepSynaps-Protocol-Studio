@@ -30,6 +30,7 @@ function _patientNav() {
     { id: 'patient-virtualcare', label: 'Virtual Care',         icon: '📹', tone: 'teal',   group: 'main' },
     { id: 'patient-careteam',    label: 'Care Team',            icon: '👥', tone: 'rose',   group: 'main' },
     { id: 'patient-education',   label: 'Education Library',    icon: '📚', tone: 'violet', group: 'main' },
+    { id: 'patient-marketplace', label: 'Marketplace',          icon: '🛒', tone: 'green',  group: 'main' },
     { id: 'patient-profile',     label: 'Profile',              icon: '👤', tone: 'amber',  group: 'main' },
     { id: 'patient-settings',    label: 'Settings',             icon: '⚙',  tone: 'slate',  group: 'main' },
     // Optional
@@ -8630,6 +8631,290 @@ function _wireSettingsPage() {
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && bd && bd.classList.contains('open')) closeConfirm();
+  });
+}
+
+// ── Marketplace ──────────────────────────────────────────────────────────────
+// Curated marketplace of services, devices, and software for patients. The
+// catalogue is static for now (no backend endpoint) but designed so each item
+// shape maps cleanly onto a future /api/v1/patient-portal/marketplace response.
+// Clinical-grade items (neuromodulation devices, clinician consultations,
+// prescription software) route through the care-team review queue rather than
+// direct checkout — mp-* CTA copy reflects that distinction.
+export async function pgPatientMarketplace(_user) {
+  setTopbar('Marketplace');
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+
+  const esc = (v) => {
+    if (v == null) return '';
+    return String(v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
+  };
+
+  const CATALOG = [
+    // ── Services ──────────────────────────────────────────────────────
+    { id: 'svc-second-opinion', kind: 'service', icon: '🧠', tone: 'teal',
+      name: 'Second opinion consult', provider: 'Board-certified neuropsychiatrist',
+      desc: '45-min video review of your qEEG, assessment history, and protocol with an outside specialist.',
+      price: '£180', priceUnit: 'one-time', clinical: true, featured: true,
+      tags: ['Consult', '45 min', 'Video'] },
+    { id: 'svc-coach-cbt', kind: 'service', icon: '💬', tone: 'blue',
+      name: 'Weekly CBT coaching', provider: 'Accredited CBT therapist',
+      desc: 'Six structured sessions pairing cognitive-behavioural tools with your neuromodulation course.',
+      price: '£65', priceUnit: '/ session', clinical: false,
+      tags: ['6 weeks', 'Video', 'Between-session support'] },
+    { id: 'svc-nutrition', kind: 'service', icon: '🥗', tone: 'green',
+      name: 'Neuro-nutrition plan', provider: 'Registered dietitian',
+      desc: 'Personalised eating plan optimised for cognitive recovery and sleep. Includes shopping list + recipes.',
+      price: '£120', priceUnit: '/ month', clinical: false,
+      tags: ['Monthly', 'Personalised', 'Chat support'] },
+    { id: 'svc-sleep-coach', kind: 'service', icon: '🌙', tone: 'violet',
+      name: 'Sleep coaching programme', provider: 'Behavioural sleep medicine specialist',
+      desc: '8-week CBT-I programme for insomnia, delivered asynchronously with weekly check-ins.',
+      price: '£240', priceUnit: 'programme', clinical: false,
+      tags: ['8 weeks', 'Async', 'CBT-I'] },
+    { id: 'svc-peer-group', kind: 'service', icon: '🤝', tone: 'rose',
+      name: 'Peer support group', provider: 'Facilitated by a licensed counsellor',
+      desc: 'Weekly 60-minute small-group calls with other patients on neuromodulation protocols.',
+      price: '£45', priceUnit: '/ month', clinical: false,
+      tags: ['Weekly', 'Small group'] },
+    { id: 'svc-referral-psych', kind: 'service', icon: '👩‍⚕️', tone: 'amber',
+      name: 'Psychiatry medication review', provider: 'Consultant psychiatrist',
+      desc: 'Review of current medications, interactions with your protocol, and adjustment options.',
+      price: '£220', priceUnit: 'one-time', clinical: true,
+      tags: ['Clinical', 'Video', 'Report included'] },
+
+    // ── Devices ───────────────────────────────────────────────────────
+    { id: 'dev-oura-ring', kind: 'device', icon: '💍', tone: 'blue',
+      name: 'Oura Ring Gen 3', provider: 'Oura Health',
+      desc: 'Sleep, HRV, body-temperature and readiness tracking — auto-syncs into your Biometrics reports.',
+      price: '£299', priceUnit: 'one-time', clinical: false, featured: true,
+      tags: ['Wearable', 'Ships in 3–5 days', 'HRV + sleep'] },
+    { id: 'dev-apple-watch', kind: 'device', icon: '⌚', tone: 'teal',
+      name: 'Apple Watch SE', provider: 'Apple',
+      desc: 'Cardio, activity, ECG and sleep tracking with deep Apple Health integration.',
+      price: '£259', priceUnit: 'one-time', clinical: false,
+      tags: ['Wearable', 'ECG', 'Apple Health'] },
+    { id: 'dev-focus-tdcs', kind: 'device', icon: '🧩', tone: 'violet',
+      name: 'At-home tDCS headset', provider: 'DeepSynaps partner hardware',
+      desc: 'Prescription-only home tDCS unit. Clinician must approve and configure electrode montage.',
+      price: 'By prescription', priceUnit: '', clinical: true,
+      tags: ['Prescription', 'Clinician-configured', 'Home use'] },
+    { id: 'dev-lightbox', kind: 'device', icon: '☀️', tone: 'amber',
+      name: '10 000-lux light therapy lamp', provider: 'Northern Light',
+      desc: 'Circadian light therapy lamp recommended for seasonal mood and sleep-phase support.',
+      price: '£149', priceUnit: 'one-time', clinical: false,
+      tags: ['10 000 lux', 'UV-free', '30-day trial'] },
+    { id: 'dev-hrv-strap', kind: 'device', icon: '🫀', tone: 'rose',
+      name: 'Polar H10 HRV strap', provider: 'Polar',
+      desc: 'Medical-grade ECG chest strap for precise HRV during breathing and meditation practice.',
+      price: '£89', priceUnit: 'one-time', clinical: false,
+      tags: ['Chest strap', 'HRV-biofeedback ready'] },
+    { id: 'dev-muse', kind: 'device', icon: '🧘', tone: 'teal',
+      name: 'Muse S headband', provider: 'Interaxon',
+      desc: 'Consumer EEG headband for guided meditation + sleep tracking. Not for diagnostic qEEG.',
+      price: '£299', priceUnit: 'one-time', clinical: false,
+      tags: ['Consumer EEG', 'Meditation'] },
+
+    // ── Software ──────────────────────────────────────────────────────
+    { id: 'sw-headspace', kind: 'software', icon: '🟠', tone: 'amber',
+      name: 'Headspace', provider: 'Headspace Inc.',
+      desc: 'Evidence-informed meditation app. DeepSynaps patients get 50% off the annual plan.',
+      price: '£34.99', priceUnit: '/ year', clinical: false, featured: true,
+      tags: ['50% off', 'Annual', 'iOS · Android'] },
+    { id: 'sw-wysa', kind: 'software', icon: '💙', tone: 'blue',
+      name: 'Wysa AI Coach', provider: 'Wysa',
+      desc: 'Evidence-based chatbot coach for mood, anxiety, and between-session support.',
+      price: '£9.99', priceUnit: '/ month', clinical: false,
+      tags: ['CBT-grounded', 'Chatbot', '24/7'] },
+    { id: 'sw-sleepio', kind: 'software', icon: '😴', tone: 'violet',
+      name: 'Sleepio CBT-I', provider: 'Big Health (NICE-approved)',
+      desc: 'Digital CBT for insomnia — the NICE-approved 6-week programme. Delivered via app.',
+      price: '£200', priceUnit: 'programme', clinical: true,
+      tags: ['NICE-approved', 'CBT-I', '6 weeks'] },
+    { id: 'sw-endeavor', kind: 'software', icon: '🎯', tone: 'teal',
+      name: 'EndeavorOTC', provider: 'Akili Interactive',
+      desc: 'FDA-cleared gamified attention training (15 min / day). Adjunct to ADHD treatment.',
+      price: '$24.99', priceUnit: '/ month', clinical: true,
+      tags: ['FDA-cleared', 'ADHD', '15 min/day'] },
+    { id: 'sw-somryst', kind: 'software', icon: '🌜', tone: 'rose',
+      name: 'Daylight', provider: 'Big Health',
+      desc: 'Digital therapeutic for generalised anxiety. Short daily practice built from CBT.',
+      price: '£150', priceUnit: 'programme', clinical: true,
+      tags: ['Digital therapeutic', 'Anxiety'] },
+    { id: 'sw-woebot', kind: 'software', icon: '🤖', tone: 'green',
+      name: 'Woebot', provider: 'Woebot Health',
+      desc: 'Relational AI mood companion that checks in daily and routes urgent messages to your clinician.',
+      price: 'Free', priceUnit: '', clinical: false,
+      tags: ['Free', 'Daily check-ins'] },
+  ];
+
+  const kindMeta = {
+    service:  { label: 'Services',  sub: 'Human experts you can book',            icon: '👥', tone: 'teal'  },
+    device:   { label: 'Devices',   sub: 'Wearables and clinical-grade hardware', icon: '🔌', tone: 'blue'  },
+    software: { label: 'Software',  sub: 'Apps and digital therapeutics',         icon: '💻', tone: 'violet' },
+  };
+
+  const services = CATALOG.filter(i => i.kind === 'service');
+  const devices  = CATALOG.filter(i => i.kind === 'device');
+  const software = CATALOG.filter(i => i.kind === 'software');
+  const featured = CATALOG.filter(i => i.featured);
+
+  const cardHTML = (i) => {
+    const tags = (i.tags || []).map(t => `<span class="mp-tag">${esc(t)}</span>`).join('');
+    const clinicalBadge = i.clinical
+      ? `<span class="mp-clinical-badge" title="Needs clinician review">🩺 Clinician review</span>`
+      : '';
+    const cta = i.clinical
+      ? `<button class="mp-cta mp-cta--clinical" data-mp-request="${esc(i.id)}">Request via care team</button>`
+      : `<button class="mp-cta mp-cta--buy" data-mp-buy="${esc(i.id)}">Buy · ${esc(i.price)}${esc(i.priceUnit || '')}</button>`;
+    const price = i.clinical
+      ? `<div class="mp-price">${esc(i.price)}${i.priceUnit ? ' <span class="mp-price-unit">' + esc(i.priceUnit) + '</span>' : ''}</div>`
+      : `<div class="mp-price">${esc(i.price)}${i.priceUnit ? ' <span class="mp-price-unit">' + esc(i.priceUnit) + '</span>' : ''}</div>`;
+    return `
+      <article class="mp-card" data-kind="${esc(i.kind)}" data-id="${esc(i.id)}">
+        <div class="mp-card-top">
+          <span class="pt-page-tile pt-nav-tile--${esc(i.tone || 'teal')} mp-card-ico" aria-hidden="true">${i.icon}</span>
+          <div class="mp-card-main">
+            <div class="mp-card-head">
+              <h4 class="mp-card-name">${esc(i.name)}</h4>
+              ${clinicalBadge}
+            </div>
+            <div class="mp-card-provider">${esc(i.provider)}</div>
+          </div>
+          ${price}
+        </div>
+        <p class="mp-card-desc">${esc(i.desc)}</p>
+        <div class="mp-tags">${tags}</div>
+        <div class="mp-card-actions">
+          ${cta}
+          <button class="mp-cta mp-cta--ghost" data-mp-details="${esc(i.id)}">Details</button>
+        </div>
+      </article>`;
+  };
+
+  const sectionHTML = (kind, items) => {
+    const meta = kindMeta[kind];
+    return `
+      <section class="mp-section" id="mp-section-${esc(kind)}">
+        <div class="mp-section-head">
+          <span class="pt-page-tile pt-nav-tile--${esc(meta.tone)} mp-section-ico" aria-hidden="true">${meta.icon}</span>
+          <div>
+            <h3 class="mp-section-title">${esc(meta.label)} <span class="mp-section-count">${items.length}</span></h3>
+            <p class="mp-section-sub">${esc(meta.sub)}</p>
+          </div>
+        </div>
+        <div class="mp-grid">${items.map(cardHTML).join('')}</div>
+      </section>`;
+  };
+
+  el.innerHTML = `
+    <div class="mp-wrap">
+      <header class="mp-hero">
+        <div class="mp-hero-body">
+          <div class="mp-hero-eyebrow">Marketplace</div>
+          <h2 class="mp-hero-title">Curated services, devices, and software for your care plan</h2>
+          <p class="mp-hero-desc">Every item has been reviewed by the DeepSynaps clinical team. Anything marked <span class="mp-clinical-badge mp-clinical-badge--inline">🩺 Clinician review</span> must be approved by your care team before it ships or activates.</p>
+        </div>
+        <div class="mp-hero-stats">
+          <div class="mp-stat"><div class="mp-stat-num">${services.length}</div><div class="mp-stat-lbl">Services</div></div>
+          <div class="mp-stat"><div class="mp-stat-num">${devices.length}</div><div class="mp-stat-lbl">Devices</div></div>
+          <div class="mp-stat"><div class="mp-stat-num">${software.length}</div><div class="mp-stat-lbl">Software</div></div>
+        </div>
+      </header>
+
+      <div class="mp-disclaimer">
+        <span aria-hidden="true">ℹ️</span>
+        <div>
+          <strong>Not medical advice.</strong> The items here complement your DeepSynaps care plan — they do not replace it. Talk to your care team before starting anything new, especially home-use devices or prescription software.
+        </div>
+      </div>
+
+      <nav class="mp-filter" role="tablist" aria-label="Filter marketplace by type">
+        <button class="mp-filter-chip active" data-mp-filter="all"       role="tab" aria-selected="true">All <span class="mp-filter-count">${CATALOG.length}</span></button>
+        <button class="mp-filter-chip"         data-mp-filter="service"  role="tab" aria-selected="false">Services <span class="mp-filter-count">${services.length}</span></button>
+        <button class="mp-filter-chip"         data-mp-filter="device"   role="tab" aria-selected="false">Devices <span class="mp-filter-count">${devices.length}</span></button>
+        <button class="mp-filter-chip"         data-mp-filter="software" role="tab" aria-selected="false">Software <span class="mp-filter-count">${software.length}</span></button>
+      </nav>
+
+      ${featured.length > 0 ? `
+        <section class="mp-section mp-section--featured" id="mp-section-featured">
+          <div class="mp-section-head">
+            <span class="pt-page-tile pt-nav-tile--amber mp-section-ico" aria-hidden="true">⭐</span>
+            <div>
+              <h3 class="mp-section-title">Featured</h3>
+              <p class="mp-section-sub">This month's picks from the DeepSynaps clinical team.</p>
+            </div>
+          </div>
+          <div class="mp-grid">${featured.map(cardHTML).join('')}</div>
+        </section>` : ''}
+
+      ${sectionHTML('service', services)}
+      ${sectionHTML('device', devices)}
+      ${sectionHTML('software', software)}
+
+      <div class="mp-toast" id="mp-toast"><span id="mp-toast-text">Added</span></div>
+    </div>
+  `;
+
+  _wireMarketplace();
+}
+
+function _wireMarketplace() {
+  const root = document.querySelector('.mp-wrap');
+  if (!root) return;
+
+  const toast = document.getElementById('mp-toast');
+  const toastText = document.getElementById('mp-toast-text');
+  let toastTimer = null;
+  function mpToast(msg) {
+    if (!toast) return;
+    if (toastText) toastText.textContent = msg;
+    toast.classList.add('show');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 2400);
+  }
+
+  // Filter tabs
+  root.querySelectorAll('[data-mp-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const f = btn.dataset.mpFilter;
+      root.querySelectorAll('[data-mp-filter]').forEach(b => {
+        const on = b === btn;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-selected', String(on));
+      });
+      // Hide/show kind sections; featured always visible.
+      root.querySelectorAll('.mp-section').forEach(sec => {
+        if (sec.id === 'mp-section-featured') { sec.style.display = ''; return; }
+        const kind = sec.id.replace('mp-section-', '');
+        sec.style.display = (f === 'all' || f === kind) ? '' : 'none';
+      });
+    });
+  });
+
+  // Buy
+  root.querySelectorAll('[data-mp-buy]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const name = btn.closest('.mp-card')?.querySelector('.mp-card-name')?.textContent || 'Item';
+      mpToast(`${name} added to cart · checkout coming soon`);
+    });
+  });
+  // Clinical request
+  root.querySelectorAll('[data-mp-request]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const name = btn.closest('.mp-card')?.querySelector('.mp-card-name')?.textContent || 'Item';
+      mpToast(`Requested · your care team will review ${name}`);
+    });
+  });
+  // Details (lightweight alert-toast)
+  root.querySelectorAll('[data-mp-details]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const name = btn.closest('.mp-card')?.querySelector('.mp-card-name')?.textContent || 'Item';
+      mpToast(`Opening details for ${name}…`);
+    });
   });
 }
 

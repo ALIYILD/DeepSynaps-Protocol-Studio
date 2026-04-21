@@ -23690,3 +23690,255 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   .el-sources { grid-template-columns: repeat(2, 1fr); }
   .el-wrap { padding: 16px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Patient Marketplace — mp-* scope
+   ═══════════════════════════════════════════════════════════════════ */
+.mp-wrap { display: flex; flex-direction: column; gap: 22px; padding: 4px 0 80px; }
+
+.mp-hero {
+  display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center;
+  padding: 26px 28px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 22px;
+  background:
+    radial-gradient(900px 320px at 10% 10%, rgba(52,211,153,0.14), transparent 60%),
+    radial-gradient(700px 260px at 95% 100%, rgba(183,148,255,0.1), transparent 65%),
+    linear-gradient(180deg, rgba(14,22,40,0.95), rgba(10,16,30,0.85));
+}
+.mp-hero-eyebrow {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.14em;
+  color: #4ade80; font-weight: 600; margin-bottom: 6px;
+}
+.mp-hero-title {
+  font-family: 'Outfit', sans-serif; font-weight: 600;
+  font-size: 26px; letter-spacing: -0.015em; color: #fff;
+  margin: 0 0 8px; line-height: 1.2; max-width: 640px;
+}
+.mp-hero-desc {
+  font-size: 13.5px; color: rgba(255,255,255,0.7); line-height: 1.55;
+  margin: 0; max-width: 640px;
+}
+.mp-hero-stats { display: flex; gap: 18px; }
+.mp-stat {
+  text-align: center; min-width: 64px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.02);
+}
+.mp-stat-num {
+  font-family: 'Outfit', sans-serif; font-weight: 600;
+  font-size: 24px; color: #4ade80; line-height: 1;
+}
+.mp-stat-lbl {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: rgba(255,255,255,0.55); margin-top: 4px; font-weight: 600;
+}
+@media (max-width: 760px) {
+  .mp-hero { grid-template-columns: 1fr; }
+  .mp-hero-stats { justify-content: flex-start; flex-wrap: wrap; }
+}
+
+.mp-disclaimer {
+  display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start;
+  padding: 14px 18px;
+  border: 1px solid rgba(245,158,11,0.25);
+  border-radius: 14px;
+  background: rgba(245,158,11,0.06);
+  color: rgba(255,255,255,0.85);
+  font-size: 13px; line-height: 1.55;
+}
+.mp-disclaimer strong { color: #fbbf24; font-weight: 600; }
+
+.mp-filter {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  padding: 6px; border-radius: 14px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  align-self: flex-start;
+}
+.mp-filter-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(255,255,255,0.65);
+  font-size: 12.5px; font-weight: 500; font-family: inherit;
+  cursor: pointer; transition: all 0.15s;
+}
+.mp-filter-chip:hover { color: #fff; background: rgba(255,255,255,0.04); }
+.mp-filter-chip.active {
+  background: rgba(74,222,128,0.12);
+  border-color: rgba(74,222,128,0.35);
+  color: #4ade80;
+}
+.mp-filter-count {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  padding: 1px 7px; border-radius: 999px;
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.6);
+}
+.mp-filter-chip.active .mp-filter-count {
+  background: rgba(74,222,128,0.18); color: #4ade80;
+}
+
+.mp-section {
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(14,22,40,0.85), rgba(10,16,30,0.5));
+  padding: 20px 22px;
+}
+.mp-section--featured {
+  border-color: rgba(245,158,11,0.2);
+  background:
+    radial-gradient(700px 260px at 0% 0%, rgba(245,158,11,0.08), transparent 65%),
+    linear-gradient(180deg, rgba(14,22,40,0.85), rgba(10,16,30,0.5));
+}
+.mp-section-head {
+  display: flex; align-items: flex-start; gap: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  margin-bottom: 18px;
+}
+.mp-section-ico {
+  width: 40px; height: 40px; font-size: 18px; border-radius: 12px;
+  flex-shrink: 0; display: grid; place-items: center;
+}
+.mp-section-title {
+  font-family: 'Outfit', sans-serif; font-weight: 600;
+  font-size: 18px; color: #fff; margin: 0;
+  display: inline-flex; align-items: baseline; gap: 8px;
+}
+.mp-section-count {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600;
+  color: #4ade80;
+  padding: 1px 8px; border-radius: 999px;
+  background: rgba(74,222,128,0.12); border: 1px solid rgba(74,222,128,0.3);
+}
+.mp-section-sub {
+  font-size: 12.5px; color: rgba(255,255,255,0.55);
+  margin: 3px 0 0; line-height: 1.5;
+}
+
+.mp-grid {
+  display: grid; gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+
+.mp-card {
+  padding: 18px;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.02);
+  display: flex; flex-direction: column; gap: 12px;
+  transition: all 0.15s;
+}
+.mp-card:hover {
+  border-color: rgba(0,212,188,0.3);
+  background: rgba(255,255,255,0.04);
+  transform: translateY(-1px);
+}
+
+.mp-card-top {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 12px;
+  align-items: start;
+}
+.mp-card-ico { width: 40px; height: 40px; font-size: 18px; border-radius: 11px; }
+.mp-card-main { min-width: 0; }
+.mp-card-head {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  margin-bottom: 3px;
+}
+.mp-card-name {
+  font-family: 'Outfit', sans-serif; font-weight: 600;
+  font-size: 15px; color: #fff; margin: 0;
+  letter-spacing: -0.01em;
+}
+.mp-card-provider {
+  font-family: 'JetBrains Mono', monospace; font-size: 11.5px;
+  color: rgba(255,255,255,0.5);
+}
+.mp-price {
+  font-family: 'Outfit', sans-serif; font-weight: 600; font-size: 15px;
+  color: #00d4bc; text-align: right; white-space: nowrap;
+}
+.mp-price-unit {
+  font-family: 'DM Sans', sans-serif; font-weight: 400; font-size: 11px;
+  color: rgba(255,255,255,0.5);
+}
+
+.mp-card-desc {
+  font-size: 13px; color: rgba(255,255,255,0.7); line-height: 1.5;
+  margin: 0;
+}
+
+.mp-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.mp-tag {
+  font-size: 10.5px; font-family: 'JetBrains Mono', monospace;
+  padding: 3px 9px; border-radius: 999px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.68);
+}
+
+.mp-clinical-badge {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 3px 8px; border-radius: 999px;
+  background: rgba(74,158,255,0.12);
+  border: 1px solid rgba(74,158,255,0.3);
+  color: #60a5fa;
+  display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+}
+.mp-clinical-badge--inline {
+  text-transform: none; letter-spacing: 0; font-size: 11px;
+}
+
+.mp-card-actions {
+  display: flex; gap: 8px; margin-top: auto;
+  padding-top: 4px;
+}
+.mp-cta {
+  flex: 1;
+  padding: 9px 14px;
+  border-radius: 10px;
+  font-size: 12.5px; font-weight: 500; font-family: inherit;
+  cursor: pointer; transition: all 0.15s;
+  border: 1px solid transparent;
+}
+.mp-cta--buy {
+  background: linear-gradient(135deg, rgba(0,212,188,0.9), rgba(74,222,128,0.9));
+  color: #04121c; border-color: rgba(0,212,188,0.8);
+  font-weight: 600;
+}
+.mp-cta--buy:hover { filter: brightness(1.08); }
+.mp-cta--clinical {
+  background: rgba(74,158,255,0.1);
+  border-color: rgba(74,158,255,0.35);
+  color: #60a5fa;
+}
+.mp-cta--clinical:hover { background: rgba(74,158,255,0.18); }
+.mp-cta--ghost {
+  flex: 0 0 auto;
+  background: rgba(255,255,255,0.03);
+  border-color: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.7);
+}
+.mp-cta--ghost:hover { color: #fff; background: rgba(255,255,255,0.06); }
+
+.mp-toast {
+  position: fixed; left: 50%; bottom: 24px;
+  transform: translate(-50%, 30px);
+  z-index: 200;
+  padding: 11px 20px;
+  border-radius: 999px;
+  background: rgba(18,28,50,0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(74,222,128,0.35);
+  color: #fff; font-size: 13px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+  opacity: 0; pointer-events: none;
+  transition: all 0.25s ease;
+}
+.mp-toast.show { opacity: 1; transform: translate(-50%, 0); }
