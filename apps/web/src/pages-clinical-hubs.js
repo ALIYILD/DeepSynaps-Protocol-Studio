@@ -40,42 +40,16 @@ export async function pgPatientHub(setTopbar, navigate) {
   const el = document.getElementById('content');
 
   // ── PATIENTS TAB (design-v2 screen 07) ──────────────────────────────────
+  // Server-driven list: every filter, sort, search, KPI, and notification
+  // count comes from the API. No client-side slicing of a pre-fetched full
+  // cohort, no fake aggregates, no placeholder onClicks.
   if (tab === 'patients') {
     const canAdd = ['clinician','admin','clinic-admin','supervisor'].includes(currentUser?.role);
     setTopbar('Patients',
-      canAdd ? '<button class="btn btn-primary btn-sm" onclick="window.showAddPatient()">+ New Patient</button>' +
+      canAdd ? '<button class="btn btn-primary btn-sm" onclick="window.showAddPatient()">+ Add patient</button>' +
                '<button class="btn btn-sm" onclick="window.showImportCSV()" style="margin-right:6px">Import CSV</button>' : ''
     );
     el.innerHTML = '<div class="ch-shell">' + spinner() + '</div>';
-
-    let patients = [], courses = [], teamMembers = [];
-    try {
-      const [pRes, cRes, tRes] = await Promise.all([
-        api.listPatients().catch(() => ({ items: [] })),
-        (api.listCourses ? api.listCourses({}) : Promise.resolve({ items: [] })).catch(() => ({ items: [] })),
-        (api.listTeam ? api.listTeam() : Promise.resolve({ items: [] })).catch(() => ({ items: [] })),
-      ]);
-      patients = pRes?.items || [];
-      courses  = cRes?.items || [];
-      teamMembers = tRes?.items || tRes?.members || [];
-    } catch {}
-
-    // Resolve clinician id → display name (used in the comprehensive table column).
-    const clinicianById = {};
-    (teamMembers || []).forEach(m => {
-      const id = m.user_id || m.id || m.clinician_id;
-      if (!id) return;
-      const name = m.display_name || m.full_name || m.name ||
-        ((m.first_name || '') + ' ' + (m.last_name || '')).trim() || m.email || id;
-      clinicianById[id] = name;
-    });
-
-    const coursesByPat = {};
-    courses.forEach(c => { if (c.patient_id) (coursesByPat[c.patient_id] = coursesByPat[c.patient_id] || []).push(c); });
-
-    // Detect seeded demo records — backend marks them with demo_seed=true (notes "[DEMO]" prefix).
-    const demoSeedCount = patients.filter(p => p.demo_seed || (p.notes || '').startsWith('[DEMO]')).length;
-    const hasDemoData = demoSeedCount > 0;
 
     function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
@@ -94,481 +68,408 @@ export async function pgPatientHub(setTopbar, navigate) {
       return '<span class="chip ' + tone + '">' + esc(label) + '</span>';
     }
 
-    // Design #08 — classify as "Responder" when a real outcome delta crosses a
-    // scale-specific MCID threshold. Returns false whenever we lack either end
-    // of the comparison so we never show a phantom chip.
-    function isResponder(p) {
-      if (p == null) return false;
-      if (p.is_responder === true) return true;
-      const base = Number(p.baseline_score);
-      const cur  = Number(p.current_score);
-      if (!Number.isFinite(base) || !Number.isFinite(cur)) return false;
-      const scale = String(p.primary_scale || 'PHQ-9').toUpperCase();
-      const drop  = base - cur;
-      if (drop <= 0) return false;
-      if (scale.startsWith('PHQ'))                   return drop >= 5;
-      if (scale.startsWith('GAD'))                   return drop >= 4;
-      if (scale.startsWith('PCL'))                   return drop >= 10;
-      if (scale.includes('MIDAS'))                   return base > 0 && (drop / base) >= 0.5;
-      if (scale.startsWith('Y-BOCS') || scale.startsWith('YBOCS')) return drop >= 6;
-      if (scale.startsWith('ISI'))                   return drop >= 6;
-      return base > 0 && (drop / base) >= 0.5;
-    }
-
     function outcomeCell(p) {
-      const scale = p.primary_scale || 'PHQ-9';
+      const scale = p.primary_scale;
       const base  = p.baseline_score;
       const cur   = p.current_score;
-      if (base != null && cur != null) {
+      if (scale && base != null && cur != null) {
         const down = cur < base;
         const color = down ? 'var(--teal)' : (cur > base ? 'var(--amber)' : 'var(--text-secondary)');
         return '<span style="font-family:var(--font-mono);font-size:11.5px;color:' + color + '">' + esc(scale) + ' · ' + base + ' → ' + cur + '</span>';
       }
       if (p.outcome_trend === 'worsened') return '<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--amber)">Trend ↓</span>';
+      if (p.outcome_trend === 'improved') return '<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--teal)">Trend ↑</span>';
       return '<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--text-tertiary)">No data</span>';
     }
 
+    // Next-step chip is rule-based: adverse event > scheduled session > assessment
+    // overdue > generic review due > intake fallback > adherence marker > default.
+    // The underlying signals all come from the server enrichment — no fabrication.
     function nextStepChip(p) {
       if (p.has_adverse_event) return '<span class="chip rose">Review AE</span>';
-      const nextRaw = p.next_session_at || p.next_session_date;
-      if (nextRaw) {
-        const d = new Date(nextRaw); const now = new Date();
-        const isToday = d.toDateString() === now.toDateString();
-        const t = d.toTimeString().slice(0,5);
-        return '<span class="chip green">' + (isToday ? 'Session today ' + t : 'Session ' + d.toLocaleDateString(undefined,{weekday:'short'}) + ' ' + t) + '</span>';
+      if (p.next_session_at || p.next_session_date) {
+        const when = p.next_session_at || p.next_session_date;
+        const d = new Date(when); const now = new Date();
+        if (!isNaN(d.getTime())) {
+          const isToday = d.toDateString() === now.toDateString();
+          const t = d.toTimeString().slice(0,5);
+          return '<span class="chip green">' + (isToday ? 'Session today ' + t : 'Session ' + d.toLocaleDateString(undefined,{weekday:'short'}) + ' ' + t) + '</span>';
+        }
       }
-      if (p.assessment_overdue || p.missing_assessment) return '<span class="chip amber">Assessment due</span>';
-      if (p.needs_review || p.review_overdue)           return '<span class="chip">Review due</span>';
-      if (p.status === 'intake')                         return '<span class="chip violet">Intake</span>';
+      if (p.assessment_overdue) return '<span class="chip amber">Assessment due</span>';
+      if (p.needs_review)       return '<span class="chip">Review due</span>';
+      if (p.status === 'intake' || p.status === 'new') return '<span class="chip violet">Intake</span>';
       if (p.home_adherence != null && p.home_adherence >= 0.8) return '<span class="chip green">Homework ' + Math.round(p.home_adherence*100) + '%</span>';
       return '<span class="chip">Weekly check-in</span>';
     }
 
-    // ── Helpers for the comprehensive Excel-like view ────────────────────
-    function shortMrn(p) {
-      if (p.mrn) return String(p.mrn);
-      // Stable short id derived from the UUID — clinicians use this as a working MRN.
-      const raw = String(p.id || '');
-      return raw ? raw.slice(0, 8).toUpperCase() : '—';
-    }
-    function ageOf(p) {
-      if (p.age != null) return p.age;
-      if (!p.dob) return null;
-      const d = new Date(p.dob);
-      if (isNaN(d.getTime())) return null;
-      const today = new Date();
-      let age = today.getFullYear() - d.getFullYear();
-      const m = today.getMonth() - d.getMonth();
-      if (m < 0 || (m === 0 && today.getDate() < d.getDate())) age--;
-      return age;
-    }
-    function ageSexCell(p) {
-      const a = ageOf(p);
-      const s = (p.gender || '').charAt(0).toUpperCase();
-      if (a == null && !s) return '—';
-      return (a != null ? a + 'y' : '—') + (s ? ' ' + s : '');
-    }
-    function activeCourseFor(p) {
-      const list = coursesByPat[p.id] || [];
-      return list.find(c => c.status === 'active' || c.status === 'in_progress' || c.status === 'approved') || list[0] || null;
-    }
-    function courseLabel(p) {
-      const c = activeCourseFor(p);
-      if (c) {
-        const mod = (c.modality_slug || c.modality_name || c.modality || '').toString().replace(/-/g, ' ');
-        const cond = (c.condition_slug || c.condition_name || c.condition || '').toString().replace(/-/g, ' ');
-        const parts = [mod, cond].filter(Boolean);
-        if (parts.length) return parts.join(' · ');
-        if (c.name) return c.name;
-      }
-      const fallbackMod = (p.primary_modality || '').replace(/-/g, ' ');
-      const fallbackCond = (p.primary_condition || p.condition_slug || '').replace(/-/g, ' ');
-      const fb = [fallbackMod, fallbackCond].filter(Boolean).join(' · ');
-      return fb || '—';
-    }
-    function statusLabel(p) {
-      const s = (p.status || '').toLowerCase();
-      const map = {
-        active: 'Active', intake: 'Intake', new: 'Intake',
-        paused: 'Paused', 'on-hold': 'Paused',
-        discharging: 'Discharging', completed: 'Completed',
-        discharged: 'Discharged', archived: 'Archived', inactive: 'Inactive',
-        pending: 'Pending',
-      };
-      return map[s] || (p.status ? p.status[0].toUpperCase() + p.status.slice(1) : '—');
-    }
-    function statusColor(p) {
-      const s = (p.status || '').toLowerCase();
-      if (s === 'active') return 'var(--green)';
-      if (s === 'intake' || s === 'new' || s === 'pending') return 'var(--violet)';
-      if (s === 'paused' || s === 'on-hold' || s === 'discharging') return 'var(--amber)';
-      if (s === 'completed') return 'var(--blue)';
-      return 'var(--text-tertiary)';
-    }
-    function statusPill(p) {
-      const c = statusColor(p);
-      return '<span style="display:inline-block;font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:999px;color:' + c + ';background:' + c + '18;border:1px solid ' + c + '44">' + esc(statusLabel(p)) + '</span>';
-    }
-    function fmtShortDate(iso) {
-      if (!iso) return '—';
-      const d = new Date(iso);
-      if (isNaN(d.getTime())) return '—';
-      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-    }
-    function adherenceCell(p) {
-      if (p.home_adherence == null) return '<span style="color:var(--text-tertiary);font-family:var(--font-mono);font-size:11px">—</span>';
-      const pct = Math.round(p.home_adherence * 100);
-      const c = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--amber)' : 'var(--red)';
-      return '<span style="font-family:var(--font-mono);font-size:11.5px;font-weight:600;color:' + c + '">' + pct + '%</span>';
-    }
-    function outcomeScoreCell(p) {
-      const scale = p.primary_scale || 'PHQ-9';
-      const cur = p.current_score;
-      const base = p.baseline_score;
-      if (cur == null && base == null) {
-        if (p.outcome_trend === 'worsened') return '<span style="font-family:var(--font-mono);font-size:11px;color:var(--amber)">' + esc(scale) + ' ↓</span>';
-        if (p.outcome_trend === 'improved') return '<span style="font-family:var(--font-mono);font-size:11px;color:var(--green)">' + esc(scale) + ' ↑</span>';
-        return '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)">—</span>';
-      }
-      if (cur != null && base != null) {
-        const down = cur < base;
-        const c = down ? 'var(--teal)' : (cur > base ? 'var(--amber)' : 'var(--text-secondary)');
-        return '<span style="font-family:var(--font-mono);font-size:11.5px;color:' + c + '">' + esc(scale) + ' ' + base + '→' + cur + '</span>';
-      }
-      return '<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--text-secondary)">' + esc(scale) + ' ' + (cur != null ? cur : base) + '</span>';
-    }
-    function clinicianNameFor(p) {
-      const id = p.clinician_id || p.assigned_clinician_id || p.primary_clinician_id;
-      if (id && clinicianById[id]) return clinicianById[id];
-      if (p.clinician_name || p.assigned_clinician) return p.clinician_name || p.assigned_clinician;
-      if (id) return '#' + String(id).slice(0, 6);
-      return '—';
-    }
-
-    // Comparable values for sortable columns. Returns string or number.
-    function sortValue(p, key) {
-      switch (key) {
-        case 'name':       return ((p.last_name || '') + ' ' + (p.first_name || '')).toLowerCase();
-        case 'mrn':        return shortMrn(p).toLowerCase();
-        case 'age':        return ageOf(p) ?? -1;
-        case 'condition':  return (p.primary_condition || p.condition_slug || '').toLowerCase();
-        case 'course':     return courseLabel(p).toLowerCase();
-        case 'status':     return statusLabel(p).toLowerCase();
-        case 'last':       return p.last_session_date || '';
-        case 'next':       return p.next_session_date || p.next_session_at || '';
-        case 'adherence':  return p.home_adherence == null ? -1 : p.home_adherence;
-        case 'outcome':    return p.current_score == null ? Number.POSITIVE_INFINITY : p.current_score;
-        case 'clinician':  return clinicianNameFor(p).toLowerCase();
-        default:           return '';
-      }
-    }
-    window._phSort = window._phSort || { key: 'name', dir: 'asc' };
-    function sortPatients(list) {
-      const { key, dir } = window._phSort;
-      const mult = dir === 'desc' ? -1 : 1;
-      return list.slice().sort((a, b) => {
-        const va = sortValue(a, key); const vb = sortValue(b, key);
-        if (va < vb) return -1 * mult;
-        if (va > vb) return  1 * mult;
-        return 0;
-      });
-    }
-
-    const counts = {
-      all:         patients.length,
-      active:      patients.filter(p=>p.status==='active').length,
-      intake:      patients.filter(p=>p.status==='intake' || p.status==='new').length,
-      discharging: patients.filter(p=>p.status==='discharging' || p.discharge_plan).length,
-      on_hold:     patients.filter(p=>p.status==='paused' || p.status==='on-hold').length,
-      archived:    patients.filter(p=>p.status==='archived' || p.status==='discharged' || p.status==='inactive').length,
+    // Persistent state across re-renders (survives tab navigation in-session).
+    window._phState = window._phState || {
+      status: 'all', q: '', condition: '', modality: '', clinician: '',
+      sort: 'last_activity', page: 1,
     };
+    const PAGE_SIZE = 10;
 
     const STATUS_TABS = [
       { id:'all',         label:'All' },
       { id:'active',      label:'Active' },
       { id:'intake',      label:'Intake' },
-      { id:'discharging', label: counts.archived ? 'Discharging · ' + counts.archived + ' discharged' : 'Discharging' },
+      { id:'discharging', label:'Discharging' },
       { id:'on_hold',     label:'On hold' },
       { id:'archived',    label:'Archived' },
     ];
 
-    const activeCourses = courses.filter(c=>c.status==='active').length;
-    let phqTotal = 0, phqN = 0;
-    patients.forEach(p => {
-      if ((p.primary_scale||'PHQ-9').toUpperCase().startsWith('PHQ') && p.baseline_score != null && p.current_score != null) {
-        phqTotal += (p.current_score - p.baseline_score); phqN++;
-      }
-    });
-    const phqDeltaRaw = phqN ? (phqTotal / phqN) : null;
-    const phqDelta    = phqDeltaRaw == null ? '—' : phqDeltaRaw.toFixed(1);
-    let adhTotal = 0, adhN = 0;
-    patients.forEach(p => { if (p.home_adherence != null) { adhTotal += p.home_adherence; adhN++; } });
-    const adhPct = adhN ? Math.round((adhTotal / adhN) * 100) : 0;
-    const followup = patients.filter(p=>p.needs_review||p.review_overdue||p.missing_assessment||p.assessment_overdue).length;
-    const followupOver7d = patients.filter(p=>p.review_overdue_days>7).length;
-
-    window._phStatus = window._phStatus || 'all';
-    window._phPage   = 1;
-    const PAGE_SIZE  = 10;
-
-    function cohortFilter(status) {
-      if (status === 'all') return patients;
-      if (status === 'active')      return patients.filter(p=>p.status==='active');
-      if (status === 'intake')      return patients.filter(p=>p.status==='intake'||p.status==='new');
-      if (status === 'discharging') return patients.filter(p=>p.status==='discharging'||p.discharge_plan);
-      if (status === 'on_hold')     return patients.filter(p=>p.status==='paused'||p.status==='on-hold');
-      if (status === 'archived')    return patients.filter(p=>p.status==='archived'||p.status==='discharged'||p.status==='inactive');
-      return patients;
-    }
-
-    function applySearch(list) {
-      const q = (document.getElementById('d2p7-search')?.value || '').toLowerCase().trim();
-      if (!q) return list;
-      return list.filter(p => {
-        const name = ((p.first_name||'') + ' ' + (p.last_name||'')).toLowerCase();
-        return name.includes(q) ||
-          shortMrn(p).toLowerCase().includes(q) ||
-          (p.email || '').toLowerCase().includes(q) ||
-          (p.primary_condition || p.condition_slug || '').toLowerCase().includes(q) ||
-          (p.primary_modality || '').toLowerCase().includes(q) ||
-          courseLabel(p).toLowerCase().includes(q) ||
-          clinicianNameFor(p).toLowerCase().includes(q);
-      });
-    }
-
-    // Prototype column set (DeepSynaps Studio design, screen 07 · lines 4836–4940):
-    //   Patient · Protocol · Progress · Last outcome · Next step · actions(90px)
-    // Sub-row meta carries Age/Sex · Condition · MRN inline beneath the name —
-    // matching the prototype's "34F · MDD treatment-resistant · MRN 10482" pattern.
-    // The sortValue() / shortMrn() / ageOf() / statusLabel() / fmtShortDate()
-    // helpers remain defined above (asserted by clinical-hub-patients-table.test.js)
-    // and are referenced for sub-row text, search, and footer status pills.
-    const TABLE_COLS = [
-      { key:'name',     label:'Patient',         align:'left',  width:'1.8fr' },
-      { key:'course',   label:'Protocol',        align:'left',  width:'1.1fr' },
-      { key:'progress', label:'Progress',        align:'left',  width:'1fr',   sortable:false },
-      { key:'outcome',  label:'Last outcome',    align:'left',  width:'1fr' },
-      { key:'next',     label:'Next step',       align:'left',  width:'1fr' },
-      { key:'actions',  label:'',                align:'right', width:'90px',  sortable:false },
+    const SORT_OPTIONS = [
+      { id:'last_activity',   label:'Sort: Last activity' },
+      { id:'name',            label:'Sort: Name' },
+      { id:'progress',        label:'Sort: Progress' },
+      { id:'outcome_delta',   label:'Sort: Outcome Δ' },
+      { id:'needs_follow_up', label:'Sort: Needs follow-up' },
     ];
-    const GRID_TEMPLATE = TABLE_COLS.map(c => c.width).join(' ');
 
-    function headerHTML() {
-      return TABLE_COLS.map(c => {
-        if (c.sortable === false) return '<div></div>';
-        const active = window._phSort.key === c.key;
-        const arrow = active ? (window._phSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
-        const align = c.align === 'right' ? 'text-align:right;' : '';
-        return '<div class="d2p7-th" style="cursor:pointer;' + align + '" onclick="window._phSetSort(\'' + c.key + '\')" title="Sort by ' + esc(c.label) + '">' +
-          esc(c.label) + arrow + '</div>';
-      }).join('');
-    }
+    // Current server response state (re-populated on every fetch).
+    let _currentSummary = null;
+    let _currentList = { items: [], total: 0 };
 
-    // Builds the prototype's "AGE+SEX · CONDITION · MRN" sub-row meta line.
-    function patientMetaLine(p) {
-      const a   = ageOf(p);
-      const s   = (p.gender || '').charAt(0).toUpperCase();
-      const ageSex = (a != null ? a + (s ? s : '') : (s || ''));
-      const cond   = (p.primary_condition || (p.condition_slug || '').replace(/-/g,' ')) || '';
-      const mrn    = shortMrn(p);
-      return [ageSex, cond, mrn !== '—' ? 'MRN ' + mrn : ''].filter(Boolean).join(' · ');
-    }
-
-    // Progress cell — prototype shows a thin gradient bar + mono N/M caption.
-    function progressCell(p) {
-      const c = activeCourseFor(p);
-      const total = c?.planned_sessions_total || 0;
-      const done  = c?.sessions_delivered || 0;
-      if (!total) {
-        return '<div class="queue-progress"><div class="queue-progress-bar"><div style="width:0%"></div></div>' +
-               '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-tertiary)">0/—</span></div>';
+    async function fetchSummary() {
+      try {
+        _currentSummary = await api.getPatientsCohortSummary();
+      } catch (err) {
+        // Cohort summary is additive; if it 404s on older servers, fall back
+        // to zeroed counts so the layout still renders.
+        _currentSummary = {
+          total: 0,
+          status_counts: { all:0, active:0, intake:0, discharging:0, on_hold:0, archived:0 },
+          distinct: { conditions: [], modalities: [], clinicians: [] },
+          kpis: {
+            active_courses: 0, active_courses_delta_7d: 0,
+            phq_delta_avg: null, phq_delta_n: 0,
+            responder_rate_pct: null, responder_n: 0,
+            homework_adherence_pct: null, homework_adherence_n: 0,
+            follow_up_count: 0, follow_up_overdue_7d: 0,
+            discharged_this_quarter: 0,
+          },
+        };
       }
-      const pct = Math.max(0, Math.min(100, Math.round((done / total) * 100)));
-      return '<div class="queue-progress"><div class="queue-progress-bar"><div style="width:' + pct + '%"></div></div>' +
-             '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-tertiary)">' + done + '/' + total + '</span></div>';
+    }
+
+    async function fetchList() {
+      const s = window._phState;
+      const params = {
+        status: s.status,
+        q: s.q || undefined,
+        condition: s.condition || undefined,
+        modality: s.modality || undefined,
+        clinician: s.clinician || undefined,
+        sort: s.sort,
+        limit: PAGE_SIZE,
+        offset: Math.max(0, (s.page - 1) * PAGE_SIZE),
+      };
+      try {
+        _currentList = await api.listPatients(params);
+      } catch (err) {
+        _currentList = { items: [], total: 0 };
+      }
+    }
+
+    function renderKpis() {
+      if (!_currentSummary) return '';
+      const k = _currentSummary.kpis || {};
+      const phqN = k.phq_delta_n || 0;
+      const phqVal = phqN && k.phq_delta_avg != null ? k.phq_delta_avg.toFixed(1) : null;
+      const phqSigned = phqVal ? (Number(phqVal) > 0 ? '+' + phqVal : phqVal) : '—';
+      const adh = k.homework_adherence_pct;
+      const adhN = k.homework_adherence_n || 0;
+      const follow = k.follow_up_count || 0;
+      const followOver = k.follow_up_overdue_7d || 0;
+      const activeCount = k.active_courses || 0;
+      const delta7 = k.active_courses_delta_7d || 0;
+      const responderPct = k.responder_rate_pct;
+      return (
+        '<div class="d2p7-kpi"><div class="d2p7-kpi-lbl"><span class="dot"></span>Active course</div>' +
+          '<div class="d2p7-kpi-num">' + activeCount + '</div>' +
+          '<div class="d2p7-kpi-delta ' + (delta7>0?'up':'') + '">' +
+            (delta7>0 ? ('↑ ' + delta7 + ' this week') : (activeCount ? (activeCount + ' active') : 'No active courses')) +
+          '</div></div>' +
+        '<div class="d2p7-kpi"><div class="d2p7-kpi-lbl blue"><span class="dot"></span>Avg response (PHQ-9 Δ)</div>' +
+          '<div class="d2p7-kpi-num">' + phqSigned + '<span class="unit">pts</span></div>' +
+          '<div class="d2p7-kpi-delta ' + (phqVal && Number(phqVal)<0 ? 'up' : '') + '">' +
+            (responderPct != null ? ('Responder rate ' + Math.round(responderPct) + '%')
+                                  : (phqN ? (phqN + ' scored') : 'No data')) +
+          '</div></div>' +
+        '<div class="d2p7-kpi"><div class="d2p7-kpi-lbl violet"><span class="dot"></span>Homework adherence</div>' +
+          '<div class="d2p7-kpi-num">' + (adh != null ? Math.round(adh) : '—') + (adh != null ? '<span class="unit">%</span>' : '') + '</div>' +
+          '<div class="d2p7-kpi-delta">' + (adhN ? ('across ' + adhN + ' patients') : 'No data') + '</div></div>' +
+        '<div class="d2p7-kpi"><div class="d2p7-kpi-lbl amber"><span class="dot"></span>Needs follow-up</div>' +
+          '<div class="d2p7-kpi-num">' + follow + '</div>' +
+          '<div class="d2p7-kpi-delta ' + (followOver ? 'down' : '') + '">' +
+            (followOver ? (followOver + ' overdue >7d') : (follow ? 'On track' : 'All on track')) +
+          '</div></div>'
+      );
+    }
+
+    function renderBreadcrumb() {
+      if (!_currentSummary) return '';
+      const activeCount = _currentSummary.status_counts?.active || 0;
+      const discharged = _currentSummary.kpis?.discharged_this_quarter || 0;
+      return activeCount + ' active' + (discharged ? (' · ' + discharged + ' discharged this quarter') : '');
+    }
+
+    function renderTabs() {
+      const counts = _currentSummary?.status_counts || {};
+      return STATUS_TABS.map(s =>
+        '<button data-st="' + s.id + '" class="' + (window._phState.status===s.id?'active':'') + '" onclick="window._phSetStatus(\'' + s.id + '\')">' +
+          s.label + ' · ' + (counts[s.id]||0) +
+        '</button>').join('');
+    }
+
+    function renderFacetMenu(id, label, selected, options, allLabel) {
+      const open = window._phOpenMenu === id;
+      const safeSelected = selected ? String(selected) : '';
+      const itemsHtml = options.map(o => {
+        const v = String(o.value);
+        return '<div class="d2p7-menu-item' + (safeSelected === v ? ' selected' : '') + '" ' +
+          'onclick="window._phSetFacet(\'' + id + '\',\'' + esc(v).replace(/'/g, "\\'") + '\')">' +
+          esc(o.label) + (o.count != null ? ' <span style="color:var(--text-tertiary);margin-left:6px">· ' + o.count + '</span>' : '') +
+          '</div>';
+      }).join('');
+      const current = selected
+        ? (options.find(o => String(o.value) === safeSelected)?.label || safeSelected)
+        : label;
+      return '<div class="d2p7-menu-wrap">' +
+        '<button class="d2p7-chip-btn' + (selected ? ' active' : '') + '" onclick="window._phToggleMenu(\'' + id + '\')">' +
+          esc(current) + ' <span style="margin-left:4px;opacity:.7">▾</span>' +
+        '</button>' +
+        (open ? ('<div class="d2p7-menu">' +
+          '<div class="d2p7-menu-item' + (!selected ? ' selected' : '') + '" onclick="window._phSetFacet(\'' + id + '\',\'\')">' + esc(allLabel) + '</div>' +
+          (options.length ? itemsHtml : '<div class="d2p7-menu-empty">None yet</div>') +
+        '</div>') : '') +
+      '</div>';
+    }
+
+    function renderFilterRow() {
+      const distinct = _currentSummary?.distinct || { conditions: [], modalities: [], clinicians: [] };
+      return renderFacetMenu('condition', 'Condition', window._phState.condition, distinct.conditions, 'All conditions')
+           + renderFacetMenu('modality',  'Modality',  window._phState.modality,  distinct.modalities,  'All modalities')
+           + renderFacetMenu('clinician', 'Clinician', window._phState.clinician, distinct.clinicians,  'All clinicians')
+           + renderFacetMenu('sort',      SORT_OPTIONS.find(o=>o.id===window._phState.sort)?.label || 'Sort',
+                             window._phState.sort, SORT_OPTIONS, 'Sort: Default');
     }
 
     function renderList() {
-      const sorted = sortPatients(applySearch(cohortFilter(window._phStatus)));
-      const total = sorted.length;
-      const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-      if (window._phPage > pages) window._phPage = 1;
-      const start = (window._phPage - 1) * PAGE_SIZE;
-      const page  = sorted.slice(start, start + PAGE_SIZE);
-
-      // Refresh sortable header so arrows track current sort state.
-      const head = document.getElementById('d2p7-head');
-      if (head) head.innerHTML = headerHTML();
-      // Keep the "Sort: …" affordance label in sync with the active column.
-      const sortBtn = document.getElementById('d2p7-sort-affordance');
-      if (sortBtn) {
-        const col = TABLE_COLS.find(c => c.key === window._phSort.key);
-        sortBtn.textContent = 'Sort: ' + ((col && col.label) || 'Patient') + ' ' + (window._phSort.dir === 'asc' ? '↑' : '↓');
-      }
-
       const out = document.getElementById('d2p7-list');
       if (!out) return;
-      if (!page.length) {
-        // Honest empty state — distinguishes "no roster yet" from "filter excluded all".
-        const totalRoster = patients.length;
-        const hasFilter   = window._phStatus !== 'all' || (document.getElementById('d2p7-search')?.value || '').trim();
-        const ico   = totalRoster ? '◎' : '👥';
-        const title = totalRoster
-          ? (hasFilter ? 'No patients match your filters' : 'No patients to show')
-          : 'No patients yet';
-        const body  = totalRoster
-          ? 'Try clearing the search or switching to All to see your full roster.'
-          : 'Add a patient to begin recording assessments, treatment courses, and outcomes.';
-        const cta = (!totalRoster && canAdd)
-          ? '<button class="btn btn-primary btn-sm" onclick="window.showAddPatient && window.showAddPatient()">+ Add patient</button>'
-          : (hasFilter ? '<button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'d2p7-search\').value=\'\';window._phSetStatus(\'all\')">Clear filters</button>' : '');
-        out.innerHTML =
-          '<div class="d2p7-empty" role="status">' +
-            '<div class="d2p7-empty-ico" aria-hidden="true">' + ico + '</div>' +
-            '<div class="d2p7-empty-title">' + esc(title) + '</div>' +
-            '<div class="d2p7-empty-body">' + esc(body) + '</div>' +
-            (cta ? '<div class="d2p7-empty-cta">' + cta + '</div>' : '') +
+      const items = _currentList?.items || [];
+      const total = _currentList?.total || 0;
+      if (!items.length) {
+        out.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary)">' +
+          (window._phState.q || window._phState.status !== 'all'
+            ? 'No patients match the current filters.'
+            : 'No patients yet — add your first patient to get started.') +
           '</div>';
       } else {
-        out.innerHTML = page.map(p => {
+        out.innerHTML = items.map(p => {
           const fname = p.first_name || '';
           const lname = p.last_name || '';
           const name  = (fname + ' ' + lname).trim() || 'Unknown';
           const ini   = ((fname[0]||'') + (lname[0]||'')).toUpperCase() || '?';
           const av    = AVATAR_TONES[Math.abs(String(p.id||name).split('').reduce((a,c)=>a+c.charCodeAt(0),0)) % AVATAR_TONES.length];
-          const isDemo = p.demo_seed || (p.notes || '').startsWith('[DEMO]');
-          const demoTag = isDemo ? ' <span title="Seeded demo record" class="d2p7-demo-tag">DEMO</span>' : '';
-          const pid = esc(p.id);
-          const openProfile = "window._selectedPatientId='" + pid + "';window._profilePatientId='" + pid + "';try{sessionStorage.setItem('ds_pat_selected_id','" + pid + "')}catch(e){}window._nav('patient-profile')";
-          const openHistory = "event.stopPropagation();window._selectedPatientId='" + pid + "';window._phMhPatientId='" + pid + "';window._patientHubTab='history';window._nav('patients-hub')";
-          // Sub-row meta uses the prototype pattern: "34F · MDD treatment-resistant · MRN 10482"
-          const meta = patientMetaLine(p);
-          return '<div class="queue-row pt-row" style="grid-template-columns:' + GRID_TEMPLATE + '" onclick="' + openProfile + '">' +
+          const cond  = (p.condition_slug||'').replace(/-/g,' ') || (p.primary_condition||'—');
+          const age   = p.age || (p.dob ? (new Date().getFullYear() - new Date(p.dob).getFullYear()) : null);
+          const sex   = (p.gender||'').charAt(0).toUpperCase();
+          const sub   = (age ? age + (sex||'') + ' · ' : '') + cond + (p.mrn ? ' · MRN ' + esc(p.mrn) : '');
+          const delivered = p.sessions_delivered ?? 0;
+          const planned   = p.planned_sessions_total ?? 0;
+          const prog = planned > 0 ? Math.min(100, Math.round(delivered / planned * 100)) : 0;
+          return '<div class="queue-row pt-row" style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 90px" ' +
+            'onclick="window._selectedPatientId=\'' + esc(p.id) + '\';window._profilePatientId=\'' + esc(p.id) + '\';try{sessionStorage.setItem(\'ds_pat_selected_id\',\'' + esc(p.id) + '\')}catch(e){}window._nav(\'patient-profile\')">' +
               '<div class="queue-pt"><div class="pt-av ' + av + '">' + esc(ini) + '</div>' +
-                '<div><div class="queue-pt-name">' + esc(name) + (typeof isResponder === 'function' && isResponder(p) ? ' <span class="pl-responder-chip">Responder</span>' : '') + demoTag + '</div>' +
-                  '<div class="queue-pt-cond">' + esc(meta || (p.email || '')) + '</div></div></div>' +
+                '<div><div class="queue-pt-name">' + esc(name) + (p.is_responder ? ' <span class="pl-responder-chip">Responder</span>' : '') + '</div>' +
+                  '<div class="queue-pt-cond">' + esc(sub) + '</div></div></div>' +
               '<div>' + protocolChip(p) + '</div>' +
-              '<div>' + progressCell(p) + '</div>' +
+              '<div class="queue-progress"><div class="queue-progress-bar"><div style="width:' + prog + '%"></div></div>' +
+                '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-tertiary)">' + delivered + '/' + (planned||'—') + '</span></div>' +
               '<div>' + outcomeCell(p) + '</div>' +
               '<div>' + nextStepChip(p) + '</div>' +
-              '<div style="text-align:right;display:flex;gap:6px;justify-content:flex-end;align-items:center" class="d2p7-row-actions">' +
-                '<button class="topbar-btn d2p7-history-btn" title="Open Medical History" onclick="' + openHistory + '">History</button>' +
-                '<button class="topbar-btn" style="width:26px;height:26px" onclick="event.stopPropagation();' + openProfile + '" title="Open patient chart" aria-label="Open ' + esc(name) + ' chart">' +
-                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>' +
-                '</button>' +
-              '</div>' +
+              '<div style="text-align:right"><button class="topbar-btn d2p7-chev" aria-label="Open patient" style="width:26px;height:26px" onclick="event.stopPropagation();window._selectedPatientId=\'' + esc(p.id) + '\';window._profilePatientId=\'' + esc(p.id) + '\';window._nav(\'patient-profile\')">' +
+                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button></div>' +
             '</div>';
         }).join('');
       }
 
       const foot = document.getElementById('d2p7-foot');
       if (foot) {
-        const statusLbl = (STATUS_TABS.find(s=>s.id===window._phStatus)||STATUS_TABS[0]).label;
-        const sortCol = TABLE_COLS.find(c => c.key === window._phSort.key);
-        const sortLbl = sortCol ? sortCol.label : window._phSort.key;
-        // Prototype footer (HTML lines 4930–4937): "Showing N of M · filtered" + mono pager.
+        const start = (window._phState.page - 1) * PAGE_SIZE;
+        const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+        const statusLbl = (STATUS_TABS.find(s=>s.id===window._phState.status)||STATUS_TABS[0]).label;
         foot.innerHTML =
-          '<span>Showing ' + (total ? (start+1) : 0) + '–' + Math.min(start+PAGE_SIZE,total) + ' of ' + total + ' · filtered by "' + esc(statusLbl) + '" · sorted by ' + esc(sortLbl) + ' ' + (window._phSort.dir === 'asc' ? '↑' : '↓') + '</span>' +
-          '<div class="d2p7-foot-pager">' +
-            '<button class="topbar-btn" style="width:26px;height:26px" onclick="window._phGoPage(-1)" aria-label="Previous page">‹</button>' +
-            '<span style="font-family:var(--font-mono)">' + window._phPage + ' / ' + pages + '</span>' +
-            '<button class="topbar-btn" style="width:26px;height:26px" onclick="window._phGoPage(1)" aria-label="Next page">›</button>' +
+          '<span>Showing ' + (total ? (start+1) : 0) + '–' + Math.min(start+PAGE_SIZE,total) + ' of ' + total + ' · filtered by "' + esc(statusLbl) + '"</span>' +
+          '<div style="display:flex;gap:6px;align-items:center">' +
+            '<button class="topbar-btn" style="width:26px;height:26px" onclick="window._phGoPage(-1)" ' + (window._phState.page<=1?'disabled':'') + '>‹</button>' +
+            '<span style="font-family:var(--font-mono)">' + window._phState.page + ' / ' + pages + '</span>' +
+            '<button class="topbar-btn" style="width:26px;height:26px" onclick="window._phGoPage(1)" ' + (window._phState.page>=pages?'disabled':'') + '>›</button>' +
           '</div>';
       }
     }
 
-    window._phSetSort = (key) => {
-      const col = TABLE_COLS.find(c => c.key === key);
-      if (!col || col.sortable === false) return;
-      if (window._phSort.key === key) {
-        window._phSort.dir = window._phSort.dir === 'asc' ? 'desc' : 'asc';
-      } else {
-        window._phSort.key = key;
-        window._phSort.dir = 'asc';
-      }
-      window._phPage = 1;
+    function renderHeader() {
+      const bc = document.getElementById('d2p7-bc');
+      if (bc) bc.textContent = renderBreadcrumb();
+      const kg = document.getElementById('d2p7-kpi-grid');
+      if (kg) kg.innerHTML = renderKpis();
+      const tr = document.getElementById('d2p7-tabrow');
+      if (tr) tr.innerHTML = renderTabs();
+      const fr = document.getElementById('d2p7-filter-row');
+      if (fr) fr.innerHTML = renderFilterRow();
+    }
+
+    async function refreshAll() {
+      await Promise.all([fetchSummary(), fetchList()]);
+      renderHeader();
       renderList();
+    }
+
+    async function refreshListOnly() {
+      await fetchList();
+      renderList();
+    }
+
+    // Debounce so typing doesn't spam the server.
+    let _searchTimer = null;
+    window._phOnSearch = function(ev) {
+      const val = (ev && ev.target) ? ev.target.value : '';
+      if (_searchTimer) clearTimeout(_searchTimer);
+      _searchTimer = setTimeout(() => {
+        window._phState.q = val;
+        window._phState.page = 1;
+        refreshListOnly();
+      }, 250);
     };
 
-    window._phSetStatus = id => { window._phStatus = id; window._phPage = 1;
+    window._phSetStatus = async id => {
+      window._phState.status = id;
+      window._phState.page = 1;
       document.querySelectorAll('.d2p7-tabrow button').forEach(b => b.classList.toggle('active', b.dataset.st === id));
-      renderList();
+      await refreshListOnly();
     };
-    window._phGoPage = delta => {
-      const filtered = applySearch(cohortFilter(window._phStatus));
-      const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-      window._phPage = Math.min(pages, Math.max(1, window._phPage + delta));
-      renderList();
+
+    window._phGoPage = async delta => {
+      const total = _currentList?.total || 0;
+      const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      const next = Math.min(pages, Math.max(1, window._phState.page + delta));
+      if (next === window._phState.page) return;
+      window._phState.page = next;
+      await refreshListOnly();
     };
-    window._phOnSearch = () => { window._phPage = 1; renderList(); };
+
+    window._phToggleMenu = id => {
+      window._phOpenMenu = (window._phOpenMenu === id) ? null : id;
+      const fr = document.getElementById('d2p7-filter-row');
+      if (fr) fr.innerHTML = renderFilterRow();
+    };
+
+    window._phSetFacet = async (id, value) => {
+      window._phOpenMenu = null;
+      if (id === 'sort') {
+        window._phState.sort = value || 'last_activity';
+      } else if (id === 'condition' || id === 'modality' || id === 'clinician') {
+        window._phState[id] = value || '';
+      }
+      window._phState.page = 1;
+      const fr = document.getElementById('d2p7-filter-row');
+      if (fr) fr.innerHTML = renderFilterRow();
+      await refreshListOnly();
+    };
+
+    // Notifications bell (header). Count comes from real backend.
+    async function refreshBell() {
+      const badge = document.getElementById('d2p7-bell-badge');
+      if (!badge) return;
+      try {
+        const res = await api.getNotificationsUnreadCount?.();
+        const n = Number(res?.count || 0);
+        if (n > 0) {
+          badge.textContent = n > 99 ? '99+' : String(n);
+          badge.style.display = 'inline-flex';
+        } else {
+          badge.style.display = 'none';
+        }
+      } catch {
+        badge.style.display = 'none';
+      }
+    }
+    window._phOpenNotifications = () => {
+      // Adverse-event & review items live under the clinical hub's review queue.
+      // Route there rather than rebuild a notifications panel inline.
+      if (typeof window._nav === 'function') window._nav('review-queue');
+    };
+
+    // Refresh the list after a successful "+ Add patient" flow. The create
+    // modal dispatches this custom event on success today.
+    window.addEventListener('ds:patient-created', () => { refreshAll(); refreshBell(); }, { once: false });
 
     el.innerHTML = `
     <div class="ch-shell">
       <style>
-        /* Prototype tokens — DeepSynaps Studio screen 07 (lines 4765–4942 of HTML bundle).
-           Class names kept as d2p7- to avoid colliding with the global stylesheet. */
+        /* ── Design-v2 screen 07 tokens ── */
         .d2p7-wrap { color: var(--text-primary); }
 
-        /* Page header strip — replaces the missing topbar breadcrumbs slot. */
-        .d2p7-header { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; padding:4px 0 14px; flex-wrap:wrap; }
-        .d2p7-header-title { font-family:var(--font-display,inherit); font-size:17px; font-weight:600; letter-spacing:-0.3px; }
-        .d2p7-header-crumbs { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-tertiary); margin-top:4px; flex-wrap:wrap; }
-        .d2p7-header-crumbs .sep { opacity:0.4; }
+        /* Topbar strip inside the content area — matches prototype header */
+        .d2p7-topbar { display:flex; align-items:center; gap:12px; margin-bottom:6px; flex-wrap:wrap; }
+        .d2p7-topbar-title { font-family:var(--font-display,inherit); font-size:17px; font-weight:600; letter-spacing:-0.3px; }
+        .d2p7-topbar-bc { font-size:11.5px; color:var(--text-tertiary); display:flex; align-items:center; gap:5px; margin-top:3px; }
+        .d2p7-topbar-bc .sep { opacity:0.4; }
+        .d2p7-topbar-search { position:relative; flex:1; min-width:200px; max-width:340px; }
+        .d2p7-topbar-search input { width:100%; background:var(--bg-surface); border:1px solid var(--border); border-radius:10px; padding:8px 10px 8px 30px; color:var(--text-primary); font-size:12.5px; outline:none; font-family:inherit; }
+        .d2p7-topbar-search input:focus { border-color:var(--border-hover); }
+        .d2p7-topbar-search svg { position:absolute; left:9px; top:50%; transform:translateY(-50%); width:13px; height:13px; stroke:var(--text-tertiary); fill:none; stroke-width:2; stroke-linecap:round; pointer-events:none; }
+        .d2p7-topbar-search .kbd { position:absolute; right:8px; top:50%; transform:translateY(-50%); font-family:var(--font-mono); font-size:10px; color:var(--text-tertiary); padding:1px 5px; border:1px solid var(--border); border-radius:4px; background:rgba(255,255,255,0.02); pointer-events:none; }
+        .d2p7-bell-wrap { position:relative; display:inline-flex; align-items:center; }
+        .d2p7-bell-badge { position:absolute; top:-4px; right:-4px; min-width:16px; height:16px; border-radius:999px; background:var(--rose); color:#fff; font-size:9.5px; font-weight:700; display:none; align-items:center; justify-content:center; padding:0 3px; }
 
-        /* Search box (matches prototype topbar-search-wrap) */
-        .d2p7-search-wrap { position:relative; min-width:240px; max-width:340px; flex:1; }
-        .d2p7-search-wrap input { width:100%; background:var(--bg-surface); border:1px solid var(--border); border-radius:10px; padding:9px 12px 9px 32px; color:var(--text-primary); font-size:12.5px; outline:none; transition: border-color .15s ease; }
-        .d2p7-search-wrap input:focus { border-color:var(--border-hover); }
-        .d2p7-search-wrap svg { position:absolute; left:11px; top:50%; transform:translateY(-50%); width:14px; height:14px; stroke:var(--text-tertiary); fill:none; stroke-width:2; stroke-linecap:round; pointer-events:none; }
-        .d2p7-search-wrap .kbd { position:absolute; right:8px; top:50%; transform:translateY(-50%); font-family:var(--font-mono); font-size:10px; color:var(--text-tertiary); padding:2px 6px; border:1px solid var(--border); border-radius:5px; background:rgba(255,255,255,0.02); pointer-events:none; }
-
-        /* Filter row — prototype tab-row + ghost filter buttons */
-        .d2p7-filter-row { display:flex; gap:12px; margin-bottom:18px; align-items:center; flex-wrap:wrap; }
+        /* Status tabs */
         .d2p7-tabrow { display:flex; gap:4px; background:var(--bg-surface); padding:3px; border-radius:8px; border:1px solid var(--border); flex-wrap:wrap; }
         .d2p7-tabrow button { padding:5px 10px; font-size:11.5px; font-weight:600; color:var(--text-secondary); border-radius:5px; background:transparent; border:none; cursor:pointer; }
         .d2p7-tabrow button.active { background:rgba(255,255,255,0.08); color:var(--text-primary); }
-        .d2p7-tabrow button:hover:not(.active) { color: var(--text-primary); }
-        .d2p7-chip-btn {
-          padding:7px 12px; font-size:12px; border-radius:10px; background:rgba(255,255,255,0.04);
-          border:1px solid var(--border); color:var(--text-primary); cursor:pointer;
-          display:inline-flex; align-items:center; gap:5px; font-weight:600; transition: border-color .15s ease;
-        }
-        .d2p7-chip-btn:hover { border-color:var(--border-hover); }
-        .d2p7-chip-btn[disabled] { opacity:0.55; cursor:not-allowed; }
+        .d2p7-tabrow button:hover:not(.active) { color:var(--text-primary); }
 
-        /* KPI cards — prototype .kpi (lines 587–602). */
+        /* Facet / sort dropdown chips */
+        .d2p7-menu-wrap { position:relative; display:inline-block; }
+        .d2p7-chip-btn { padding:5px 10px; font-size:11.5px; border-radius:6px; background:transparent; border:1px solid var(--border); color:var(--text-secondary); cursor:pointer; display:inline-flex; align-items:center; gap:4px; font-family:inherit; }
+        .d2p7-chip-btn:hover, .d2p7-chip-btn.active { border-color:var(--teal); color:var(--text-primary); }
+        .d2p7-menu { position:absolute; top:calc(100% + 4px); left:0; min-width:180px; background:var(--navy-800,#0e1628); border:1px solid var(--border-hover); border-radius:10px; padding:4px; z-index:200; box-shadow:0 8px 32px rgba(0,0,0,0.35); }
+        .d2p7-menu-item { padding:7px 10px; font-size:12px; border-radius:6px; cursor:pointer; color:var(--text-secondary); }
+        .d2p7-menu-item:hover { background:rgba(255,255,255,0.06); color:var(--text-primary); }
+        .d2p7-menu-item.selected { color:var(--teal); font-weight:600; }
+        .d2p7-menu-empty { padding:10px; font-size:11.5px; color:var(--text-tertiary); text-align:center; }
+
+        /* KPI grid */
         .d2p7-kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:18px; }
-        @media (max-width: 980px) { .d2p7-kpi-grid { grid-template-columns:repeat(2,1fr); } }
-        .d2p7-kpi { padding:18px 18px 16px; border-radius:16px; background:var(--bg-card); border:1px solid var(--border); position:relative; overflow:hidden; }
-        .d2p7-kpi-lbl { font-size:11px; color:var(--text-tertiary); letter-spacing:0.5px; text-transform:uppercase; font-weight:600; margin-bottom:14px; display:flex; align-items:center; gap:7px; }
-        .d2p7-kpi-lbl .dot { width:6px; height:6px; border-radius:50%; background:var(--teal); box-shadow:0 0 6px var(--teal); }
-        .d2p7-kpi-lbl.blue   .dot { background:var(--blue);   box-shadow:0 0 6px var(--blue); }
-        .d2p7-kpi-lbl.violet .dot { background:var(--violet); box-shadow:0 0 6px var(--violet); }
-        .d2p7-kpi-lbl.amber  .dot { background:var(--amber);  box-shadow:0 0 6px var(--amber); }
-        .d2p7-kpi-num { font-family:var(--font-display,inherit); font-size:30px; font-weight:600; letter-spacing:-0.9px; line-height:1; color:var(--text-primary); }
-        .d2p7-kpi-num .unit { font-size:14px; color:var(--text-tertiary); font-weight:500; margin-left:4px; }
-        .d2p7-kpi-delta { display:inline-flex; align-items:center; gap:5px; margin-top:10px; font-family:var(--font-mono); font-size:11px; padding:2px 7px; border-radius:4px; color:var(--text-tertiary); background:rgba(255,255,255,0.04); }
-        .d2p7-kpi-delta.up   { color:var(--green); background:rgba(74,222,128,0.10); }
-        .d2p7-kpi-delta.down { color:var(--red);   background:rgba(255,107,107,0.10); }
-        .d2p7-kpi-delta.flat { color:var(--text-tertiary); background:rgba(255,255,255,0.04); }
+        @media (max-width:900px) { .d2p7-kpi-grid { grid-template-columns:repeat(2,1fr); } }
+        .d2p7-kpi { padding:14px 16px 12px; border:1px solid var(--border); background:var(--bg-card); border-radius:14px; }
+        .d2p7-kpi-lbl { font-size:10.5px; letter-spacing:1px; text-transform:uppercase; color:var(--text-tertiary); font-weight:600; display:flex; align-items:center; gap:6px; }
+        .d2p7-kpi-lbl .dot { width:6px; height:6px; border-radius:50%; background:var(--teal); box-shadow:0 0 5px var(--teal); }
+        .d2p7-kpi-lbl.blue .dot   { background:var(--blue);   box-shadow:0 0 5px var(--blue); }
+        .d2p7-kpi-lbl.violet .dot { background:var(--violet); box-shadow:0 0 5px var(--violet); }
+        .d2p7-kpi-lbl.amber .dot  { background:var(--amber);  box-shadow:0 0 5px var(--amber); }
+        .d2p7-kpi-num { font-family:var(--font-display,inherit); font-size:28px; font-weight:600; margin-top:8px; color:var(--text-primary); line-height:1; }
+        .d2p7-kpi-num .unit { font-size:14px; color:var(--text-tertiary); font-weight:500; margin-left:3px; }
+        .d2p7-kpi-delta { font-size:11px; color:var(--text-tertiary); margin-top:8px; display:inline-flex; align-items:center; gap:4px; padding:2px 6px; border-radius:4px; background:rgba(255,255,255,0.04); }
+        .d2p7-kpi-delta.up   { color:var(--green);  background:rgba(74,222,128,0.10); }
+        .d2p7-kpi-delta.down { color:var(--amber);  background:rgba(255,181,71,0.10); }
 
-        /* Table card — prototype .card (lines 610–613). */
-        .d2p7-card { background:var(--bg-card); border:1px solid var(--border); border-radius:16px; padding:14px 18px 14px; position:relative; }
-        .d2p7-card-hd { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; flex-wrap:wrap; }
-        .d2p7-card-title { font-family:var(--font-display,inherit); font-size:14.5px; font-weight:600; letter-spacing:-0.2px; }
-        .d2p7-card-sub { font-size:11.5px; color:var(--text-tertiary); margin-top:2px; }
-
-        /* Queue rows — prototype .queue-row (lines 651–663) */
-        .d2p7-wrap .queue-row { display:grid; align-items:center; gap:12px; padding:12px 4px; border-bottom:1px solid var(--border); font-size:12.5px; }
+        /* Table card */
+        .d2p7-card { background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:8px 16px 16px; }
+        .d2p7-wrap .queue-row { display:grid; align-items:center; gap:12px; padding:10px 4px; border-bottom:1px solid var(--border); }
         .d2p7-wrap .queue-row:last-child { border-bottom:none; }
         .d2p7-wrap .queue-row.head { color:var(--text-tertiary); font-size:10.5px; letter-spacing:1px; text-transform:uppercase; font-weight:600; padding:4px 4px 10px; }
-        .d2p7-wrap .queue-row.pt-row { cursor:pointer; transition: background .1s ease; border-radius:8px; }
-        .d2p7-wrap .queue-row.pt-row:hover { background: rgba(0,212,188,0.04); }
+        .d2p7-wrap .queue-row.pt-row { cursor:pointer; transition:background .1s ease; border-radius:8px; }
+        .d2p7-wrap .queue-row.pt-row:hover { background:rgba(0,212,188,0.04); }
         .d2p7-wrap .queue-pt { display:flex; align-items:center; gap:10px; min-width:0; }
         .d2p7-wrap .queue-pt > div:last-child { min-width:0; }
-        .d2p7-wrap .queue-pt-name { font-weight:600; font-size:13px; color:var(--text-primary); display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+        .d2p7-wrap .queue-pt-name { font-weight:600; font-size:13px; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         .d2p7-wrap .queue-pt-cond { font-size:10.5px; color:var(--text-tertiary); margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-        .d2p7-wrap .pt-av { width:26px; height:26px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:10.5px; font-weight:600; color:#fff; }
+        .d2p7-wrap .pt-av { width:28px; height:28px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:10.5px; font-weight:700; color:#04121c; }
         .d2p7-wrap .pt-av.a { background:linear-gradient(135deg,#00d4bc,#00a896); }
         .d2p7-wrap .pt-av.b { background:linear-gradient(135deg,#4a9eff,#2d7fe0); }
         .d2p7-wrap .pt-av.c { background:linear-gradient(135deg,#9b7fff,#7c5fe0); }
@@ -577,150 +478,71 @@ export async function pgPatientHub(setTopbar, navigate) {
         .d2p7-wrap .queue-progress { display:flex; align-items:center; gap:8px; }
         .d2p7-wrap .queue-progress-bar { flex:1; height:5px; background:rgba(255,255,255,0.06); border-radius:3px; overflow:hidden; }
         .d2p7-wrap .queue-progress-bar > div { height:100%; background:linear-gradient(90deg,var(--teal),var(--blue)); border-radius:3px; }
-
-        /* Chips — prototype tokens (lines 618–624) */
         .d2p7-wrap .chip { display:inline-block; padding:4px 9px; border-radius:5px; font-size:11px; font-weight:600; background:var(--bg-surface); color:var(--text-secondary); }
         .d2p7-wrap .chip.teal   { background:rgba(0,212,188,0.12);   color:var(--teal); }
         .d2p7-wrap .chip.blue   { background:rgba(74,158,255,0.12);  color:var(--blue); }
-        .d2p7-wrap .chip.violet { background:rgba(155,127,255,0.12); color:var(--violet); }
-        .d2p7-wrap .chip.rose   { background:rgba(255,107,157,0.12); color:var(--rose); }
-        .d2p7-wrap .chip.amber  { background:rgba(255,181,71,0.12);  color:var(--amber); }
-        .d2p7-wrap .chip.green  { background:rgba(74,222,128,0.12);  color:var(--green); }
-
-        /* Action buttons */
-        .d2p7-wrap .topbar-btn { background:transparent; border:1px solid var(--border); color:var(--text-secondary); border-radius:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition: color .15s ease, border-color .15s ease; }
-        .d2p7-wrap .topbar-btn:hover { color:var(--text-primary); border-color:var(--border-hover); }
-        .d2p7-history-btn { height:26px; padding:0 10px; font-size:10.5px; opacity:0; transition: opacity .12s ease, color .15s ease, border-color .15s ease; }
-        .d2p7-wrap .queue-row.pt-row:hover .d2p7-history-btn { opacity:1; }
-        .d2p7-wrap .queue-row.pt-row:focus-within .d2p7-history-btn { opacity:1; }
-        .d2p7-history-btn:focus-visible { opacity:1; outline:2px solid var(--teal); outline-offset:2px; }
-
-        /* Demo tag inline with the patient name — replaces the heavier banner-style pill. */
-        .d2p7-demo-tag { font-family:var(--font-mono); font-size:9px; font-weight:700; letter-spacing:0.6px; color:var(--amber); background:rgba(255,181,71,0.10); border:1px solid rgba(255,181,71,0.4); padding:1px 6px; border-radius:4px; vertical-align:middle; }
-
-        /* Sortable header arrow indicator */
-        .d2p7-th { user-select:none; transition: color .12s ease; }
-        .d2p7-th:hover { color: var(--text-primary); }
-
-        /* Demo banner — prototype alert-strip pattern (lines 711–720). */
-        .d2p7-demo-banner {
-          display:flex; align-items:center; gap:14px;
-          padding:12px 16px; margin:0 0 16px 0; border-radius:12px;
-          background: linear-gradient(90deg, rgba(255,181,71,0.08), rgba(255,107,107,0.04));
-          border: 1px solid rgba(255,181,71,0.22);
-        }
-        .d2p7-demo-ico {
-          width:32px; height:32px; border-radius:9px;
-          background: rgba(255,181,71,0.14); color: var(--amber);
-          display:flex; align-items:center; justify-content:center; flex-shrink:0;
-          font-size:16px;
-        }
-        .d2p7-demo-body { flex:1; min-width:0; }
-        .d2p7-demo-title { font-size:12.5px; font-weight:600; color:var(--text-primary); }
-        .d2p7-demo-sub   { font-size:11.5px; color:var(--text-secondary); margin-top:2px; line-height:1.45; }
-        .d2p7-demo-sub code { font-family:var(--font-mono); background:rgba(0,0,0,0.25); padding:1px 5px; border-radius:3px; color:var(--amber); }
-
-        /* Empty state */
-        .d2p7-empty { padding:48px 24px; text-align:center; color:var(--text-tertiary); }
-        .d2p7-empty-ico { font-size:30px; margin-bottom:12px; opacity:0.85; }
-        .d2p7-empty-title { font-family:var(--font-display,inherit); font-size:16px; font-weight:600; color:var(--text-primary); margin-bottom:6px; }
-        .d2p7-empty-body { font-size:12.5px; max-width:480px; margin:0 auto 16px; line-height:1.55; }
-        .d2p7-empty-cta { margin-top:6px; }
-
-        /* Footer */
-        .d2p7-foot { display:flex; justify-content:space-between; align-items:center; padding:14px 4px 4px; font-size:11.5px; color:var(--text-tertiary); border-top:1px solid var(--border); margin-top:8px; gap:12px; flex-wrap:wrap; }
-        .d2p7-foot-pager { display:flex; gap:6px; align-items:center; }
-
-        /* Horizontal scroll affordance */
-        .d2p7-table-scroll::-webkit-scrollbar { height: 8px; }
-        .d2p7-table-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+        .d2p7-wrap .chip.violet { background:rgba(155,127,255,0.14); color:var(--violet); }
+        .d2p7-wrap .chip.rose   { background:rgba(255,107,157,0.14); color:var(--rose); }
+        .d2p7-wrap .chip.amber  { background:rgba(255,181,71,0.14);  color:var(--amber); }
+        .d2p7-wrap .chip.green  { background:rgba(74,222,128,0.14);  color:var(--green); }
+        .d2p7-wrap .topbar-btn { background:transparent; border:1px solid var(--border); color:var(--text-secondary); border-radius:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
+        .d2p7-wrap .topbar-btn:hover { border-color:var(--border-hover); color:var(--text-primary); }
+        .pl-responder-chip { font-size:9.5px; font-weight:700; padding:1px 6px; border-radius:4px; background:rgba(0,212,188,0.12); color:var(--teal); border:1px solid rgba(0,212,188,0.3); vertical-align:middle; }
       </style>
 
       <div class="ch-tab-bar">${tabBar()}</div>
 
       <div class="d2p7-wrap">
-        <!-- Page header strip — re-creates prototype topbar inside the content shell. -->
-        <div class="d2p7-header">
-          <div>
-            <div class="d2p7-header-title">Patient roster</div>
-            <div class="d2p7-header-crumbs">
+        <!-- Topbar: title + search + bell — mirrors prototype screen-07 header -->
+        <div class="d2p7-topbar">
+          <div style="flex:0 0 auto">
+            <div class="d2p7-topbar-title">Patients</div>
+            <div class="d2p7-topbar-bc">
               <span>Clinic</span><span class="sep">/</span><span>Patients</span><span class="sep">/</span>
-              <span>${counts.all} total · ${counts.active} active${counts.archived ? ' · ' + counts.archived + ' archived' : ''}</span>
+              <span id="d2p7-bc">Loading…</span>
             </div>
           </div>
-          <div class="d2p7-search-wrap">
+          <div class="d2p7-topbar-search" style="margin-left:auto">
             <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            <input id="d2p7-search" type="text" placeholder="Search by name, MRN, condition, protocol…" oninput="window._phOnSearch()" aria-label="Search patients">
+            <input id="d2p7-search" type="text" placeholder="Search by name, MRN, condition, protocol…"
+              oninput="window._phOnSearch(event)" aria-label="Search patients">
             <span class="kbd">⌘K</span>
           </div>
-        </div>
-
-        ${hasDemoData ? `
-        <div class="d2p7-demo-banner" role="status" aria-live="polite">
-          <div class="d2p7-demo-ico" aria-hidden="true">⚠</div>
-          <div class="d2p7-demo-body">
-            <div class="d2p7-demo-title">Demo data — not real patient information</div>
-            <div class="d2p7-demo-sub">${demoSeedCount} seeded sample patient${demoSeedCount === 1 ? '' : 's'} shown for demonstration. Records prefixed with <code>[DEMO]</code> in clinician notes are excluded from clinical reports and audit exports.</div>
-          </div>
-        </div>` : ''}
-
-        <!-- Filter / status row -->
-        <div class="d2p7-filter-row">
-          <div class="d2p7-tabrow">
-            ${STATUS_TABS.map(s =>
-              '<button data-st="' + s.id + '" class="' + (window._phStatus===s.id?'active':'') + '" onclick="window._phSetStatus(\'' + s.id + '\')">' +
-                s.label + ' · ' + (counts[s.id]||0) +
-              '</button>').join('')}
-          </div>
-          <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
-            <button id="d2p7-sort-affordance" class="d2p7-chip-btn" type="button" disabled title="Click any column header to change sort direction.">Sort: ${esc((TABLE_COLS.find(c => c.key === window._phSort.key) || {}).label || 'Patient')} ${window._phSort.dir === 'asc' ? '↑' : '↓'}</button>
+          <div class="d2p7-bell-wrap">
+            <button class="topbar-btn" style="width:32px;height:32px" onclick="window._phOpenNotifications()" aria-label="Notifications">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            </button>
+            <span id="d2p7-bell-badge" class="d2p7-bell-badge" aria-live="polite"></span>
           </div>
         </div>
 
-        <!-- KPI strip — prototype kpi-grid (lines 587–602) -->
-        <div class="d2p7-kpi-grid">
-          <div class="d2p7-kpi">
-            <div class="d2p7-kpi-lbl"><span class="dot"></span>Active courses</div>
-            <div class="d2p7-kpi-num">${activeCourses}</div>
-            <div class="d2p7-kpi-delta ${counts.active ? 'up' : 'flat'}">${counts.active} patient${counts.active === 1 ? '' : 's'}</div>
-          </div>
-          <div class="d2p7-kpi">
-            <div class="d2p7-kpi-lbl blue"><span class="dot"></span>Avg PHQ-9 Δ</div>
-            <div class="d2p7-kpi-num">${phqDelta === '—' ? '—' : ((phqDeltaRaw > 0 ? '+' : '') + phqDelta)}${phqDelta === '—' ? '' : '<span class="unit">pts</span>'}</div>
-            <div class="d2p7-kpi-delta ${phqN ? (phqDeltaRaw < 0 ? 'up' : (phqDeltaRaw > 0 ? 'down' : 'flat')) : 'flat'}">${phqN ? phqN + ' scored' : 'No data'}</div>
-          </div>
-          <div class="d2p7-kpi">
-            <div class="d2p7-kpi-lbl violet"><span class="dot"></span>Homework adherence</div>
-            <div class="d2p7-kpi-num">${adhN ? adhPct : '—'}${adhN ? '<span class="unit">%</span>' : ''}</div>
-            <div class="d2p7-kpi-delta ${adhN ? 'flat' : 'flat'}">${adhN ? 'across ' + adhN + ' patient' + (adhN === 1 ? '' : 's') : 'No data'}</div>
-          </div>
-          <div class="d2p7-kpi">
-            <div class="d2p7-kpi-lbl amber"><span class="dot"></span>Needs follow-up</div>
-            <div class="d2p7-kpi-num">${followup}</div>
-            <div class="d2p7-kpi-delta ${followupOver7d ? 'down' : (followup ? 'flat' : 'up')}">${followupOver7d ? followupOver7d + ' overdue >7d' : (followup ? 'within window' : 'All on track')}</div>
-          </div>
+        <!-- Status tabs + facet filters -->
+        <div style="display:flex;gap:12px;margin-bottom:18px;align-items:center;flex-wrap:wrap">
+          <div id="d2p7-tabrow" class="d2p7-tabrow"></div>
+          <div id="d2p7-filter-row" style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap"></div>
         </div>
+
+        <!-- KPI cards — populated by renderHeader() after summary fetch -->
+        <div id="d2p7-kpi-grid" class="d2p7-kpi-grid"></div>
 
         <!-- Patient table card -->
         <div class="d2p7-card">
-          <div class="d2p7-card-hd">
-            <div>
-              <div class="d2p7-card-title">Active patient caseload</div>
-              <div class="d2p7-card-sub">Click any column header to sort · row click opens the patient chart</div>
-            </div>
-          </div>
-          <div class="d2p7-table-scroll" style="overflow-x:auto">
-            <div style="min-width:920px">
-              <div id="d2p7-head" class="queue-row head" style="grid-template-columns:${GRID_TEMPLATE}">${headerHTML()}</div>
+          <div style="overflow-x:auto">
+            <div style="min-width:860px">
+              <div class="queue-row head" style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 90px">
+                <div>Patient</div><div>Protocol</div><div>Progress</div><div>Last outcome</div><div>Next step</div><div></div>
+              </div>
               <div id="d2p7-list"></div>
             </div>
           </div>
-          <div id="d2p7-foot" class="d2p7-foot"></div>
+          <div id="d2p7-foot" style="display:flex;justify-content:space-between;align-items:center;padding:12px 4px 4px;font-size:11.5px;color:var(--text-tertiary);border-top:1px solid var(--border);margin-top:4px"></div>
         </div>
       </div>
     </div>`;
 
-    renderList();
+    // Kick off parallel fetch of summary (KPIs + counts) and page-1 list.
+    refreshAll();
+    refreshBell();
   }
 
   // ── TREATMENT COURSES TAB ────────────────────────────────────────────────
@@ -5773,7 +5595,6 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     recent:    { label: 'Recent Reports',   color: 'var(--blue)'   },
     analytics: { label: 'Analytics',       color: 'var(--violet)' },
     export:    { label: 'Export',          color: 'var(--amber)'  },
-    research:  { label: 'Research',        color: '#5dd9c4'       },
   };
   const el = document.getElementById('content');
   function tabBar() {
@@ -6249,52 +6070,6 @@ export async function pgReportsHubNew(setTopbar, navigate) {
       URL.revokeObjectURL(url);
       window._dsToast?.({ title: 'Export ready', body: rows.length + ' rows downloaded.', severity: 'success' });
     };
-  }
-  else if (tab === 'research') {
-    // Research used to live as its own sidebar entry; now it's a Reports tab.
-    // Surface the four research deliverables as report categories. Clicking a
-    // card opens the full research surface (research-v2) with the matching
-    // sub-tab preselected so the rich views don't get duplicated here.
-    const CARDS = [
-      { id:'qa',   label:'Quality Assurance',    color:'#00d4bc', ico:'shield',
-        desc:'Clinic-wide QA metrics — response rates, adherence, adverse events, outcome deltas by protocol.',
-        meta:'Weekly · auto-generated' },
-      { id:'long', label:'Longitudinal Report',  color:'#4a9eff', ico:'chart',
-        desc:'Patient-trajectory reports across the full course — score trends, biomarker shifts, session adherence, responder classification.',
-        meta:'Per-patient · monthly' },
-      { id:'exp',  label:'Data Export',          color:'#b794ff', ico:'download',
-        desc:'Structured research exports — outcomes, adherence, biometrics — de-identified for IRB-approved studies.',
-        meta:'On-demand · CSV / JSON' },
-      { id:'irb',  label:'IRB Manager',          color:'#ffa85b', ico:'book-open',
-        desc:'Protocol submissions, consent tracking, amendment log, and enrolment dashboards for each active study.',
-        meta:'Live · audit-ready' },
-    ];
-    const cardsHtml = CARDS.map(c => (
-      '<div class="ch-card" style="cursor:pointer;transition:all 0.15s" ' +
-      'onclick="window._researchTab=\'' + c.id + '\';window._nav(\'research-v2\')" ' +
-      'onmouseover="this.style.borderColor=\'rgba(0,212,188,0.35)\'" ' +
-      'onmouseout="this.style.borderColor=\'\'">' +
-        '<div class="ch-card-hd" style="padding:14px 16px;display:flex;align-items:center;gap:12px">' +
-          '<div style="width:38px;height:38px;border-radius:10px;background:' + c.color + '18;border:1px solid ' + c.color + '40;display:flex;align-items:center;justify-content:center;color:' + c.color + '">' +
-            '<svg width="18" height="18"><use href="#i-' + c.ico + '"/></svg>' +
-          '</div>' +
-          '<div style="flex:1;min-width:0">' +
-            '<div style="font-family:var(--font-display);font-size:14.5px;font-weight:600;color:var(--text-primary);letter-spacing:-0.01em">' +
-              c.label +
-            '</div>' +
-            '<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;font-family:var(--font-mono)">' + c.meta + '</div>' +
-          '</div>' +
-          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-tertiary)"><polyline points="9 18 15 12 9 6"/></svg>' +
-        '</div>' +
-        '<div style="padding:0 16px 14px;font-size:12px;color:var(--text-secondary);line-height:1.55">' + c.desc + '</div>' +
-      '</div>'
-    )).join('');
-    main = '<div style="margin-bottom:14px">' +
-      '<div style="font-family:var(--font-display);font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Research report types</div>' +
-      '<div style="font-size:12.5px;color:var(--text-secondary);max-width:640px;line-height:1.55">' +
-        'Research-grade deliverables that sit alongside the clinical reports above. Pick a type to open the full research workspace — QA dashboards, longitudinal trajectories, de-identified data exports, and IRB submissions.' +
-      '</div></div>' +
-      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">' + cardsHtml + '</div>';
   }
 
   el.innerHTML = `<div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px"><div class="ch-shell"><div class="ch-tab-bar">${tabBar()}</div><div class="ch-body">${main}</div></div></div>`;
@@ -8048,179 +7823,3 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     '</div>';
 }
 
-
-// ── Marketplace Hub ───────────────────────────────────────────────────────────
-export async function pgMarketplaceHub(setTopbar, navigate) {
-  setTopbar('Marketplace');
-  const el = document.getElementById('content');
-  el.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
-
-  const CATEGORIES = [
-    { id: 'all',           label: 'All Listings',     icon: '🛒' },
-    { id: 'consultations', label: 'Consultations',    icon: '🩺' },
-    { id: 'products',      label: 'Products',         icon: '📦' },
-    { id: 'software',      label: 'Software',         icon: '💻' },
-    { id: 'seminars',      label: 'Seminars',         icon: '🎤' },
-    { id: 'workshops',     label: 'Workshops',        icon: '🔧' },
-    { id: 'courses',       label: 'Short Courses',    icon: '📚' },
-  ];
-
-  const DEMO_LISTINGS = [
-    { id: 'l1',  cat: 'consultations', title: 'Initial TMS Assessment',       clinic: 'BrainWave Clinic',    price: 120,  unit: 'session',  badge: 'Featured', rating: 4.9, reviews: 142, desc: 'Comprehensive first-consultation including QEEG screening and protocol recommendation.', img: '🩺' },
-    { id: 'l2',  cat: 'consultations', title: 'Follow-up Protocol Review',    clinic: 'NeuroMind Centre',    price: 75,   unit: 'session',  badge: '',         rating: 4.7, reviews: 89,  desc: 'Review progress, adjust stimulation parameters and outcomes targets mid-course.', img: '🩺' },
-    { id: 'l3',  cat: 'consultations', title: 'tDCS Home Setup Consultation', clinic: 'MindBoost UK',        price: 60,   unit: 'session',  badge: 'New',      rating: 4.5, reviews: 23,  desc: 'Remote session to configure home tDCS device and safety protocols.', img: '🩺' },
-    { id: 'l4',  cat: 'products',      title: 'NeuroCalm Electrode Gel 250ml',clinic: 'NeuroSupplies Ltd',   price: 24,   unit: 'item',     badge: 'Bestseller', rating: 4.8, reviews: 310, desc: 'Medical-grade conductive gel compatible with all major TMS & tDCS headsets.', img: '🧴' },
-    { id: 'l5',  cat: 'products',      title: 'EEG Cap — 32 Channel',        clinic: 'CortexGear',          price: 349,  unit: 'item',     badge: '',         rating: 4.6, reviews: 57,  desc: 'Research-grade 32-channel EEG cap with pre-fitted Ag/AgCl electrodes.', img: '🎧' },
-    { id: 'l6',  cat: 'products',      title: 'TMS Coil Holder & Arm Kit',   clinic: 'NeuroSupplies Ltd',   price: 189,  unit: 'item',     badge: 'Sale',     rating: 4.4, reviews: 44,  desc: 'Adjustable arm mount for figure-8 and double-cone TMS coils.', img: '🦾' },
-    { id: 'l7',  cat: 'software',      title: 'DeepSynaps Protocol Builder',  clinic: 'DeepSynaps',          price: 49,   unit: 'month',    badge: 'Featured', rating: 4.9, reviews: 204, desc: 'AI-assisted protocol design, QEEG mapping, and outcome tracking platform.', img: '💻' },
-    { id: 'l8',  cat: 'software',      title: 'NeuroReport Generator Pro',    clinic: 'ClinData Ltd',        price: 29,   unit: 'month',    badge: '',         rating: 4.5, reviews: 78,  desc: 'Automated clinical report generation from raw EEG + outcomes data.', img: '📊' },
-    { id: 'l9',  cat: 'software',      title: 'PatientPulse Engagement App', clinic: 'MindBoost UK',        price: 0,    unit: 'free',     badge: 'Free',     rating: 4.2, reviews: 331, desc: 'White-label patient app for homework tracking, mood logging and adherence.', img: '📱' },
-    { id: 'l10', cat: 'seminars',      title: 'rTMS in Treatment-Resistant Depression', clinic: 'BrainWave Clinic', price: 95, unit: 'seat', badge: 'Live',  rating: 4.9, reviews: 67,  desc: 'Half-day CPD seminar covering latest evidence, protocols and case studies. Online, 14 May 2026.', img: '🎤' },
-    { id: 'l11', cat: 'seminars',      title: 'Neuromodulation for Chronic Pain', clinic: 'PainReliefPro',  price: 85,   unit: 'seat',     badge: '',         rating: 4.7, reviews: 41,  desc: 'Evidence-based seminar on SCS, TENS, and tDCS for pain management. Online, 22 May 2026.', img: '🎤' },
-    { id: 'l12', cat: 'workshops',     title: 'Hands-On TMS Coil Placement',  clinic: 'NeuroMind Centre',   price: 195,  unit: 'seat',     badge: 'Sold Out', rating: 5.0, reviews: 29,  desc: 'Practical workshop: correct figure-8 placement, motor threshold mapping, safety protocols. London.', img: '🔧' },
-    { id: 'l13', cat: 'workshops',     title: 'QEEG Interpretation Workshop', clinic: 'BrainWave Clinic',   price: 225,  unit: 'seat',     badge: 'New',      rating: 4.8, reviews: 15,  desc: 'Full-day workshop analysing real patient EEG traces and building personalised protocol maps.', img: '🔧' },
-    { id: 'l14', cat: 'courses',       title: 'Introduction to TMS — 8 Weeks', clinic: 'BrainWave Academy', price: 299,  unit: 'course',   badge: 'Featured', rating: 4.9, reviews: 188, desc: 'Accredited 8-week online course covering physics, clinical applications, safety, and case-based learning.', img: '📚' },
-    { id: 'l15', cat: 'courses',       title: 'Deep Brain Stimulation Essentials', clinic: 'NeuroAcademy', price: 349,  unit: 'course',   badge: '',         rating: 4.7, reviews: 94,  desc: '6-week course for neurologists and neurosurgeons entering DBS practice.', img: '📚' },
-    { id: 'l16', cat: 'courses',       title: 'tDCS for Cognitive Rehab',    clinic: 'CogRehabInstitute',  price: 199,  unit: 'course',   badge: 'Sale',     rating: 4.6, reviews: 52,  desc: 'Practical 4-week CPD course for occupational therapists and clinical psychologists.', img: '📚' },
-  ];
-
-  const BADGE_COLORS = {
-    Featured: '#5dd9c4', New: '#6366f1', Bestseller: '#f59e0b', Sale: '#ef4444', Live: '#10b981', Free: '#8b5cf6', 'Sold Out': '#6b7280', '': 'transparent',
-  };
-
-  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-  function renderStars(r) {
-    const full = Math.floor(r); const half = r % 1 >= 0.5 ? 1 : 0;
-    let s = '';
-    for (let i = 0; i < full; i++) s += '<span class="mp-star full">★</span>';
-    if (half) s += '<span class="mp-star half">★</span>';
-    for (let i = full + half; i < 5; i++) s += '<span class="mp-star empty">★</span>';
-    return s;
-  }
-
-  function renderCard(l) {
-    const priceStr = l.unit === 'free' ? 'Free' : l.unit === 'month' ? `£${l.price}<span class="mp-card-unit">/mo</span>` : `£${l.price}<span class="mp-card-unit">/${l.unit}</span>`;
-    const badgeBg = BADGE_COLORS[l.badge] || 'transparent';
-    const soldOut = l.badge === 'Sold Out';
-    return `<div class="mp-card" data-id="${esc(l.id)}">
-      <div class="mp-card-img">${esc(l.img)}</div>
-      ${l.badge ? `<span class="mp-card-badge" style="background:${badgeBg}">${esc(l.badge)}</span>` : ''}
-      <div class="mp-card-body">
-        <div class="mp-card-cat">${esc(CATEGORIES.find(c=>c.id===l.cat)?.label||l.cat)}</div>
-        <div class="mp-card-title">${esc(l.title)}</div>
-        <div class="mp-card-clinic">by ${esc(l.clinic)}</div>
-        <div class="mp-card-desc">${esc(l.desc)}</div>
-        <div class="mp-card-meta">
-          <div class="mp-card-stars">${renderStars(l.rating)}<span class="mp-card-rating">${l.rating}</span><span class="mp-card-reviews">(${l.reviews})</span></div>
-        </div>
-      </div>
-      <div class="mp-card-footer">
-        <div class="mp-card-price">${priceStr}</div>
-        <button class="mp-card-cta${soldOut?' mp-card-cta--disabled':''}" ${soldOut?'disabled':''} onclick="window._mpBook('${esc(l.id)}')">${soldOut?'Sold Out':l.unit==='month'?'Subscribe':l.unit==='course'?'Enroll':l.unit==='free'?'Get Free':'Book'}</button>
-      </div>
-    </div>`;
-  }
-
-  function renderGrid(listings) {
-    if (!listings.length) return '<div class="mp-empty"><div class="mp-empty-icon">🔍</div><p>No listings match your search.</p></div>';
-    return '<div class="mp-grid">' + listings.map(renderCard).join('') + '</div>';
-  }
-
-  function buildPage(cat, q) {
-    let list = DEMO_LISTINGS;
-    if (cat !== 'all') list = list.filter(l => l.cat === cat);
-    if (q) { const lq = q.toLowerCase(); list = list.filter(l => l.title.toLowerCase().includes(lq) || l.clinic.toLowerCase().includes(lq) || l.desc.toLowerCase().includes(lq)); }
-
-    const catTabs = CATEGORIES.map(c => `<button class="mp-cat-tab${c.id===cat?' active':''}" onclick="window._mpCat('${c.id}')">${c.icon} ${esc(c.label)}</button>`).join('');
-
-    const featuredList = DEMO_LISTINGS.filter(l => l.badge === 'Featured');
-
-    const heroSection = `<div class="mp-hero">
-      <div class="mp-hero-text">
-        <h1 class="mp-hero-title">Clinic Marketplace</h1>
-        <p class="mp-hero-sub">Discover consultations, products, software, courses and events from leading neuromodulation clinics.</p>
-        <div class="mp-search-wrap">
-          <svg class="mp-search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          <input class="mp-search" id="mp-search-input" placeholder="Search listings, clinics, topics…" value="${esc(q)}" oninput="window._mpSearch(this.value)"/>
-        </div>
-      </div>
-      <div class="mp-hero-stats">
-        <div class="mp-stat"><span class="mp-stat-num">${DEMO_LISTINGS.length}</span><span class="mp-stat-label">Listings</span></div>
-        <div class="mp-stat"><span class="mp-stat-num">12</span><span class="mp-stat-label">Clinics</span></div>
-        <div class="mp-stat"><span class="mp-stat-num">4.7★</span><span class="mp-stat-label">Avg Rating</span></div>
-      </div>
-    </div>`;
-
-    const featuredSection = cat === 'all' && !q ? `<div class="mp-section">
-      <div class="mp-section-header"><h2 class="mp-section-title">Featured</h2><a class="mp-section-link" onclick="window._mpCat('all')">View all</a></div>
-      <div class="mp-grid mp-grid--featured">${featuredList.map(renderCard).join('')}</div>
-    </div>` : '';
-
-    const listSection = `<div class="mp-section">
-      <div class="mp-section-header">
-        <h2 class="mp-section-title">${cat==='all'&&!q?'All Listings':CATEGORIES.find(c=>c.id===cat)?.label||'Results'}</h2>
-        <span class="mp-count">${list.length} listing${list.length!==1?'s':''}</span>
-      </div>
-      ${renderGrid(list)}
-    </div>`;
-
-    const listMySection = `<div class="mp-section mp-section--cta">
-      <div class="mp-cta-card">
-        <div class="mp-cta-icon">🏪</div>
-        <div class="mp-cta-body">
-          <h3>List your clinic's services</h3>
-          <p>Reach thousands of clinicians and patients. Add consultations, courses, workshops, products and software in minutes.</p>
-        </div>
-        <button class="btn btn-primary mp-cta-btn" onclick="window._mpListNew()">+ List a Service</button>
-      </div>
-    </div>`;
-
-    return `<div class="mp-shell">
-      ${heroSection}
-      <div class="mp-cat-bar">${catTabs}</div>
-      <div class="mp-body">
-        ${featuredSection}
-        ${listSection}
-        ${listMySection}
-      </div>
-    </div>`;
-  }
-
-  let _activeCat = 'all', _searchQ = '';
-
-  window._mpCat = (cat) => {
-    _activeCat = cat;
-    el.innerHTML = buildPage(_activeCat, _searchQ);
-    document.getElementById('mp-search-input')?.focus();
-  };
-
-  window._mpSearch = (q) => {
-    _searchQ = q;
-    const gridEl = el.querySelector('.mp-body');
-    if (gridEl) {
-      let list = DEMO_LISTINGS;
-      if (_activeCat !== 'all') list = list.filter(l => l.cat === _activeCat);
-      if (q) { const lq = q.toLowerCase(); list = list.filter(l => l.title.toLowerCase().includes(lq) || l.clinic.toLowerCase().includes(lq) || l.desc.toLowerCase().includes(lq)); }
-      const section = el.querySelector('.mp-section:not(.mp-section--cta)');
-      if (section) {
-        section.querySelector('.mp-count').textContent = list.length + ' listing' + (list.length !== 1 ? 's' : '');
-        const gridContainer = section.querySelector('.mp-grid, .mp-empty');
-        if (gridContainer) gridContainer.outerHTML = renderGrid(list);
-      }
-    }
-  };
-
-  window._mpBook = (id) => {
-    const l = DEMO_LISTINGS.find(x => x.id === id);
-    if (!l) return;
-    const verb = l.unit === 'month' ? 'Subscribe to' : l.unit === 'course' ? 'Enroll in' : l.unit === 'free' ? 'Get' : 'Book';
-    alert(`${verb}: "${l.title}"\n\nClinic: ${l.clinic}\nPrice: ${l.unit === 'free' ? 'Free' : '£' + l.price + '/' + l.unit}\n\n(Booking flow coming soon)`);
-  };
-
-  window._mpListNew = () => {
-    alert('List a Service\n\nContact marketplace@deepsynaps.com or use the Clinic Settings → Marketplace tab to publish your first listing.\n\n(Self-serve listing flow coming soon)');
-  };
-
-  el.innerHTML = buildPage(_activeCat, _searchQ);
-}

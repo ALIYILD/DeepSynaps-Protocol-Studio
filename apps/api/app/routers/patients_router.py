@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import string
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -109,6 +110,19 @@ class PatientOut(BaseModel):
     outcome_trend: Optional[str] = None  # improved | stable | worsened
     sessions_today: int = 0
     next_session_date: Optional[str] = None
+    next_session_at: Optional[str] = None
+    # Cohort-list surface fields (Patients list design spec)
+    mrn: Optional[str] = None
+    age: Optional[int] = None
+    condition_slug: Optional[str] = None
+    primary_scale: Optional[str] = None
+    baseline_score: Optional[float] = None
+    current_score: Optional[float] = None
+    is_responder: bool = False
+    review_overdue_days: Optional[int] = None
+    sessions_delivered: int = 0
+    planned_sessions_total: int = 0
+    last_activity_at: Optional[str] = None
     demo_seed: bool = False
 
     @classmethod
@@ -152,8 +166,49 @@ class PatientOut(BaseModel):
             outcome_trend=enrichment.get("outcome_trend"),
             sessions_today=enrichment.get("sessions_today", 0),
             next_session_date=enrichment.get("next_session_date"),
+            next_session_at=enrichment.get("next_session_date"),
+            mrn=enrichment.get("mrn"),
+            age=enrichment.get("age"),
+            condition_slug=enrichment.get("condition_slug") or _slugify(r.primary_condition),
+            primary_scale=enrichment.get("primary_scale"),
+            baseline_score=enrichment.get("baseline_score"),
+            current_score=enrichment.get("current_score"),
+            is_responder=enrichment.get("is_responder", False),
+            review_overdue_days=enrichment.get("review_overdue_days"),
+            sessions_delivered=enrichment.get("sessions_delivered", 0),
+            planned_sessions_total=enrichment.get("planned_sessions_total", 0),
+            last_activity_at=enrichment.get("last_activity_at"),
             demo_seed=bool((r.notes or "").startswith("[DEMO]")),
         )
+
+
+def _slugify(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return slug or None
+
+
+def _derive_mrn(patient_id: str) -> str:
+    """MRN has no dedicated column; surface a deterministic short ID until one lands."""
+    if not patient_id:
+        return ""
+    tail = re.sub(r"[^a-zA-Z0-9]", "", patient_id)[-8:].upper()
+    return tail or patient_id[:8].upper()
+
+
+def _age_from_dob(dob: Optional[str]) -> Optional[int]:
+    if not dob:
+        return None
+    try:
+        year = int(str(dob)[:4])
+    except Exception:
+        return None
+    now_year = datetime.now(timezone.utc).year
+    age = now_year - year
+    if age < 0 or age > 130:
+        return None
+    return age
 
 
 def _as_aware_utc(dt):
@@ -168,7 +223,12 @@ def _as_aware_utc(dt):
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
-def _build_patient_enrichment(session: Session, patient_ids: list[str]) -> dict:
+def _build_patient_enrichment(
+    session: Session,
+    patient_ids: list[str],
+    *,
+    patients: Optional[list] = None,
+) -> dict:
     """Bulk-compute attention/enrichment signals for a batch of patient ids.
 
     Uses related tables (TreatmentCourse, AssessmentRecord, AdverseEvent,
@@ -181,18 +241,46 @@ def _build_patient_enrichment(session: Session, patient_ids: list[str]) -> dict:
     thirty_ago = now - timedelta(days=30)
     out: dict[str, dict] = {pid: {} for pid in patient_ids}
 
-    # Treatment courses → active count, off-label, needs_review
+    # Pre-seed MRN / age / condition slug from the patient record so the cohort
+    # list renders the subtitle "34F · MDD · MRN 10482" without a second round-trip.
+    if patients is None:
+        from app.persistence.models import Patient as _Patient
+        patients = session.scalars(
+            select(_Patient).where(_Patient.id.in_(patient_ids))
+        ).all()
+    for p in patients:
+        e = out.setdefault(p.id, {})
+        e["mrn"] = _derive_mrn(p.id)
+        e["age"] = _age_from_dob(p.dob)
+        e["condition_slug"] = _slugify(p.primary_condition)
+
+    # Treatment courses → active count, off-label, needs_review, progress.
+    # Progress picks the most-progressed active course for the patient (what the
+    # clinician is most likely to be treating) so the cohort list bar matches the
+    # detail page.
     courses = session.execute(
         select(TreatmentCourse).where(TreatmentCourse.patient_id.in_(patient_ids))
     ).scalars().all()
+    progress_by_pat: dict[str, tuple[int, int]] = {}
     for c in courses:
         e = out.setdefault(c.patient_id, {})
         if c.status in ("active", "in_progress", "approved"):
             e["active_courses_count"] = e.get("active_courses_count", 0) + 1
+            delivered = int(c.sessions_delivered or 0)
+            planned = int(c.planned_sessions_total or 0)
+            cur = progress_by_pat.get(c.patient_id, (0, 0))
+            # prefer the course furthest along (max delivered). Ties go to the
+            # one with the larger plan for a more meaningful progress fraction.
+            if delivered > cur[0] or (delivered == cur[0] and planned > cur[1]):
+                progress_by_pat[c.patient_id] = (delivered, planned)
         if c.on_label is False:
             e["off_label_flag"] = True
         if c.review_required:
             e["needs_review"] = True
+    for pid, (delivered, planned) in progress_by_pat.items():
+        e = out.setdefault(pid, {})
+        e["sessions_delivered"] = delivered
+        e["planned_sessions_total"] = planned
 
     # Adverse events
     aes = session.execute(
@@ -275,31 +363,132 @@ def _build_patient_enrichment(session: Session, patient_ids: list[str]) -> dict:
             if cur is None or sched_at < cur:
                 e["next_session_date"] = sched_at
 
-    # Outcome trend: compare latest two OutcomeSeries score_numeric per patient
+    # Outcome trend + baseline/current score pair: iterate newest-first so the
+    # first row per patient is the current score. We keep a per-(patient,scale)
+    # bucket so we can match the primary_scale reported by the clinician.
     outcome_rows = session.execute(
         select(
             OutcomeSeries.patient_id,
+            OutcomeSeries.template_id,
+            OutcomeSeries.template_title,
             OutcomeSeries.score_numeric,
             OutcomeSeries.administered_at,
+            OutcomeSeries.measurement_point,
         )
         .where(OutcomeSeries.patient_id.in_(patient_ids))
         .order_by(OutcomeSeries.administered_at.desc())
     ).all()
-    by_pat: dict[str, list[float]] = {}
-    for pid, score, _ in outcome_rows:
+
+    # newest-first list of score_numerics per patient (any scale) for trend
+    by_pat_all: dict[str, list[float]] = {}
+    # newest-first list of (score, measurement_point) per (patient, scale) for baseline/current
+    by_pat_scale: dict[tuple[str, str], list[tuple[float, str]]] = {}
+    # last outcome timestamp per patient (string iso) — feeds last_activity_at
+    last_outcome_at: dict[str, str] = {}
+    for pid, tmpl_id, tmpl_title, score, admin_at, mp in outcome_rows:
+        admin_iso = admin_at.isoformat() if isinstance(admin_at, datetime) else str(admin_at or "")
+        if admin_iso and pid not in last_outcome_at:
+            last_outcome_at[pid] = admin_iso
         if score is None:
             continue
-        by_pat.setdefault(pid, []).append(float(score))
-    for pid, scores in by_pat.items():
+        by_pat_all.setdefault(pid, []).append(float(score))
+        # Scale key: prefer the template title (PHQ-9, GAD-7...) falling back to template_id
+        scale_key = (tmpl_title or tmpl_id or "").strip() or "unknown"
+        by_pat_scale.setdefault((pid, scale_key), []).append((float(score), mp or ""))
+
+    for pid, scores in by_pat_all.items():
         if len(scores) >= 2:
             latest, prior = scores[0], scores[1]
-            # Lower score typically = better on most depression/anxiety scales.
             if latest < prior - 1:
                 out.setdefault(pid, {})["outcome_trend"] = "improved"
             elif latest > prior + 1:
                 out.setdefault(pid, {})["outcome_trend"] = "worsened"
             else:
                 out.setdefault(pid, {})["outcome_trend"] = "stable"
+
+    # Pick the primary scale for each patient: whichever scale has the most rows.
+    scale_counts: dict[str, dict[str, int]] = {}
+    for (pid, scale), rows in by_pat_scale.items():
+        scale_counts.setdefault(pid, {})[scale] = len(rows)
+    for pid in patient_ids:
+        scales = scale_counts.get(pid) or {}
+        if not scales:
+            continue
+        primary = max(scales.items(), key=lambda kv: kv[1])[0]
+        rows = by_pat_scale.get((pid, primary)) or []
+        if not rows:
+            continue
+        current = rows[0][0]  # newest-first
+        # Baseline: row explicitly tagged baseline, else the oldest row
+        baseline = None
+        for score, mp in rows:
+            if mp and "baseline" in mp.lower():
+                baseline = score
+                break
+        if baseline is None and len(rows) >= 2:
+            baseline = rows[-1][0]
+        e = out.setdefault(pid, {})
+        e["primary_scale"] = primary
+        e["current_score"] = current
+        if baseline is not None:
+            e["baseline_score"] = baseline
+            drop = baseline - current
+            scale_up = primary.upper()
+            # Scale-specific MCID thresholds mirror the UI's isResponder() heuristic.
+            if scale_up.startswith("PHQ"):
+                responder = drop >= 5
+            elif scale_up.startswith("GAD"):
+                responder = drop >= 4
+            elif scale_up.startswith("PCL"):
+                responder = drop >= 10
+            elif scale_up.startswith("Y-BOCS") or scale_up.startswith("YBOCS"):
+                responder = drop >= 6
+            elif scale_up.startswith("ISI"):
+                responder = drop >= 6
+            elif "MIDAS" in scale_up:
+                responder = baseline > 0 and (drop / baseline) >= 0.5
+            else:
+                responder = baseline > 0 and (drop / baseline) >= 0.5
+            e["is_responder"] = bool(responder)
+
+    # review_overdue_days = days since the earliest pending/draft assessment's due_date.
+    # We reuse `assess_rows` computed above to avoid a second scan.
+    overdue_by_pat: dict[str, int] = {}
+    for pid, status, due in assess_rows:
+        if status not in ("draft", "pending"):
+            continue
+        due_cmp = _as_aware_utc(due)
+        if due_cmp is None or due_cmp >= now:
+            continue
+        days = (now - due_cmp).days
+        cur = overdue_by_pat.get(pid, 0)
+        if days > cur:
+            overdue_by_pat[pid] = days
+    for pid, days in overdue_by_pat.items():
+        out.setdefault(pid, {})["review_overdue_days"] = days
+
+    # last_activity_at = max(last_session, last_outcome, patient.updated_at).
+    # Clinicians sort by this in the "Sort: Last activity" dropdown.
+    last_session_by_pat: dict[str, str] = {}
+    for pid in patient_ids:
+        e = out.get(pid) or {}
+        d = e.get("last_session_date")
+        if d:
+            last_session_by_pat[pid] = d
+    for p in patients:
+        candidates = []
+        ls = last_session_by_pat.get(p.id)
+        if ls:
+            candidates.append(ls)
+        lo = last_outcome_at.get(p.id)
+        if lo:
+            candidates.append(lo)
+        if p.updated_at is not None:
+            updated = _as_aware_utc(p.updated_at)
+            if updated is not None:
+                candidates.append(updated.isoformat())
+        if candidates:
+            out.setdefault(p.id, {})["last_activity_at"] = max(candidates)
 
     return out
 
@@ -309,18 +498,317 @@ class PatientListResponse(BaseModel):
     total: int
 
 
+# ── Status tab canonicalisation ───────────────────────────────────────────────
+# UI tab slug → set of Patient.status values that belong to that tab. The FE
+# and the backend both canonicalise through this map so "on_hold" / "on-hold"
+# / "paused" all resolve the same way regardless of who wrote the row.
+
+_STATUS_TAB_MEMBERS: dict[str, tuple[str, ...]] = {
+    "all": (),  # empty tuple means "no filter"
+    "active": ("active",),
+    "intake": ("intake", "new"),
+    "discharging": ("discharging",),
+    "on_hold": ("paused", "on-hold", "on_hold"),
+    "archived": ("archived", "discharged", "inactive"),
+}
+
+
+def _apply_tab_filter(patients: list, tab: str) -> list:
+    members = _STATUS_TAB_MEMBERS.get(tab, ())
+    if not members:
+        return patients
+    return [p for p in patients if (p.status or "") in members]
+
+
+def _apply_search(patients: list, q: str, enrichment: dict) -> list:
+    if not q:
+        return patients
+    needle = q.strip().lower()
+    out = []
+    for p in patients:
+        name = f"{p.first_name or ''} {p.last_name or ''}".lower()
+        cond = (p.primary_condition or "").lower()
+        modality = (p.primary_modality or "").lower()
+        mrn = (enrichment.get(p.id, {}).get("mrn") or "").lower()
+        slug = (enrichment.get(p.id, {}).get("condition_slug") or "").lower()
+        hay = " ".join([name, cond, modality, mrn, slug, p.id.lower()])
+        if needle in hay:
+            out.append(p)
+    return out
+
+
+def _apply_facet_filters(
+    patients: list,
+    enrichment: dict,
+    *,
+    condition: Optional[str],
+    modality: Optional[str],
+    clinician: Optional[str],
+) -> list:
+    out = patients
+    if condition:
+        needle = condition.strip().lower()
+        out = [
+            p for p in out
+            if needle in (enrichment.get(p.id, {}).get("condition_slug") or "").lower()
+            or needle in (p.primary_condition or "").lower()
+        ]
+    if modality:
+        needle = modality.strip().lower()
+        out = [p for p in out if needle in (p.primary_modality or "").lower()]
+    if clinician:
+        needle = clinician.strip().lower()
+        out = [p for p in out if needle in (p.clinician_id or "").lower()]
+    return out
+
+
+def _apply_sort(patients: list, enrichment: dict, sort: str) -> list:
+    sort = (sort or "last_activity").lower().replace("-", "_")
+    if sort == "name":
+        return sorted(
+            patients,
+            key=lambda p: ((p.last_name or "").lower(), (p.first_name or "").lower()),
+        )
+    if sort == "progress":
+        def progress(p):
+            e = enrichment.get(p.id, {})
+            planned = int(e.get("planned_sessions_total") or 0)
+            delivered = int(e.get("sessions_delivered") or 0)
+            return delivered / planned if planned > 0 else -1
+        return sorted(patients, key=progress, reverse=True)
+    if sort == "outcome" or sort == "outcome_delta":
+        def delta(p):
+            e = enrichment.get(p.id, {})
+            base = e.get("baseline_score")
+            cur = e.get("current_score")
+            if base is None or cur is None:
+                return 9999
+            return cur - base  # more negative = bigger improvement first
+        return sorted(patients, key=delta)
+    if sort == "follow_up" or sort == "needs_follow_up":
+        def urgency(p):
+            e = enrichment.get(p.id, {})
+            return (
+                0 if e.get("has_adverse_event") else 1,
+                -(e.get("review_overdue_days") or 0),
+            )
+        return sorted(patients, key=urgency)
+    # default: last_activity (newest first)
+    def activity(p):
+        e = enrichment.get(p.id, {})
+        return e.get("last_activity_at") or ""
+    return sorted(patients, key=activity, reverse=True)
+
+
+def _distinct_values(patients: list, enrichment: dict) -> dict:
+    conds: dict[str, int] = {}
+    modalities: dict[str, int] = {}
+    clinicians: dict[str, int] = {}
+    for p in patients:
+        slug = enrichment.get(p.id, {}).get("condition_slug") or _slugify(p.primary_condition)
+        if slug:
+            conds[slug] = conds.get(slug, 0) + 1
+        if p.primary_modality:
+            modalities[p.primary_modality] = modalities.get(p.primary_modality, 0) + 1
+        if p.clinician_id:
+            clinicians[p.clinician_id] = clinicians.get(p.clinician_id, 0) + 1
+    return {
+        "conditions": [
+            {"value": k, "label": k.replace("-", " ").title(), "count": v}
+            for k, v in sorted(conds.items(), key=lambda kv: -kv[1])
+        ],
+        "modalities": [
+            {"value": k, "label": k, "count": v}
+            for k, v in sorted(modalities.items(), key=lambda kv: -kv[1])
+        ],
+        "clinicians": [
+            {"value": k, "label": k, "count": v}
+            for k, v in sorted(clinicians.items(), key=lambda kv: -kv[1])
+        ],
+    }
+
+
+def _status_counts(patients: list) -> dict:
+    counts = {tab: 0 for tab in _STATUS_TAB_MEMBERS}
+    counts["all"] = len(patients)
+    for p in patients:
+        st = p.status or ""
+        for tab, members in _STATUS_TAB_MEMBERS.items():
+            if tab == "all":
+                continue
+            if st in members:
+                counts[tab] += 1
+    return counts
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @router.get("", response_model=PatientListResponse)
 def list_patients_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
+    status: Optional[str] = Query(None, description="Status tab (all|active|intake|discharging|on_hold|archived)"),
+    q: Optional[str] = Query(None, description="Search by name, MRN, condition, or modality"),
+    condition: Optional[str] = Query(None),
+    modality: Optional[str] = Query(None),
+    clinician: Optional[str] = Query(None),
+    sort: Optional[str] = Query("last_activity"),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
 ) -> PatientListResponse:
     require_minimum_role(actor, "clinician")
     patients = list_patients(session, actor.actor_id)
-    enrichment = _build_patient_enrichment(session, [p.id for p in patients])
-    items = [PatientOut.from_record(p, enrichment.get(p.id)) for p in patients]
-    return PatientListResponse(items=items, total=len(items))
+    enrichment = _build_patient_enrichment(session, [p.id for p in patients], patients=patients)
+
+    # Filter pipeline (server-side): status tab → search → facet filters → sort → paginate.
+    filtered = _apply_tab_filter(patients, (status or "all").lower())
+    filtered = _apply_search(filtered, q or "", enrichment)
+    filtered = _apply_facet_filters(
+        filtered, enrichment, condition=condition, modality=modality, clinician=clinician,
+    )
+    filtered = _apply_sort(filtered, enrichment, sort or "last_activity")
+
+    total = len(filtered)
+    page = filtered[offset:offset + limit]
+    items = [PatientOut.from_record(p, enrichment.get(p.id)) for p in page]
+    return PatientListResponse(items=items, total=total)
+
+
+class CohortKPIs(BaseModel):
+    active_courses: int
+    active_courses_delta_7d: int
+    phq_delta_avg: Optional[float]
+    phq_delta_n: int
+    responder_rate_pct: Optional[float]
+    responder_n: int
+    homework_adherence_pct: Optional[float]
+    homework_adherence_n: int
+    follow_up_count: int
+    follow_up_overdue_7d: int
+    discharged_this_quarter: int
+
+
+class CohortSummary(BaseModel):
+    total: int
+    status_counts: dict
+    distinct: dict
+    kpis: CohortKPIs
+
+
+@router.get("/cohort-summary", response_model=CohortSummary)
+def cohort_summary_endpoint(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> CohortSummary:
+    """Aggregate KPIs + facet values across the clinician's full cohort.
+
+    The Patients list page renders KPI cards ("Active course", "Avg PHQ-9 Δ",
+    "Homework adherence", "Needs follow-up") that describe the whole cohort, not
+    the paginated page. Compute them server-side so the numbers stay honest when
+    pagination is enabled.
+    """
+    require_minimum_role(actor, "clinician")
+    patients = list_patients(session, actor.actor_id)
+    enrichment = _build_patient_enrichment(session, [p.id for p in patients], patients=patients)
+
+    # Status + facets
+    status_counts = _status_counts(patients)
+    distinct = _distinct_values(patients, enrichment)
+
+    # Active courses + 7-day delta: new approvals/started in the last 7 days.
+    now = datetime.now(timezone.utc)
+    week_ago = now - timedelta(days=7)
+    quarter_start = now - timedelta(days=90)
+    patient_ids = [p.id for p in patients]
+    courses = session.execute(
+        select(TreatmentCourse).where(TreatmentCourse.patient_id.in_(patient_ids))
+    ).scalars().all() if patient_ids else []
+    active_courses = [c for c in courses if c.status in ("active", "in_progress", "approved")]
+    active_courses_count = len(active_courses)
+
+    def _course_start(c):
+        for attr in ("started_at", "approved_at", "created_at"):
+            v = _as_aware_utc(getattr(c, attr, None))
+            if v is not None:
+                return v
+        return None
+
+    active_courses_delta_7d = sum(
+        1 for c in active_courses if (_course_start(c) or now) >= week_ago
+    )
+
+    # PHQ-9 Δ and responder rate across the cohort (primary_scale == PHQ-*).
+    phq_deltas: list[float] = []
+    responders_considered = 0
+    responders_count = 0
+    for p in patients:
+        e = enrichment.get(p.id, {})
+        scale = (e.get("primary_scale") or "").upper()
+        if not scale.startswith("PHQ"):
+            continue
+        base = e.get("baseline_score")
+        cur = e.get("current_score")
+        if base is None or cur is None:
+            continue
+        phq_deltas.append(float(cur) - float(base))
+        responders_considered += 1
+        if e.get("is_responder"):
+            responders_count += 1
+    phq_delta_avg = round(sum(phq_deltas) / len(phq_deltas), 2) if phq_deltas else None
+    responder_rate_pct = (
+        round(responders_count / responders_considered * 100, 1)
+        if responders_considered else None
+    )
+
+    # Homework adherence: mean across patients that reported any adherence.
+    adherences = [e.get("home_adherence") for e in enrichment.values() if e.get("home_adherence") is not None]
+    homework_adherence_pct = round(sum(adherences) / len(adherences) * 100, 1) if adherences else None
+    homework_adherence_n = len(adherences)
+
+    # Follow-up counts
+    follow_up_count = sum(
+        1 for p in patients
+        if (
+            enrichment.get(p.id, {}).get("needs_review")
+            or enrichment.get(p.id, {}).get("assessment_overdue")
+            or enrichment.get(p.id, {}).get("has_adverse_event")
+        )
+    )
+    follow_up_overdue_7d = sum(
+        1 for p in patients
+        if (enrichment.get(p.id, {}).get("review_overdue_days") or 0) > 7
+    )
+
+    # Discharges this quarter: AuditEvent would be cleanest, but Patient.status
+    # transitions aren't currently audited. Use `updated_at` on archived/
+    # discharged rows as a proxy. `status=discharged` is the strongest signal.
+    discharged_this_quarter = 0
+    for p in patients:
+        st = (p.status or "").lower()
+        if st not in ("discharged", "archived"):
+            continue
+        updated = _as_aware_utc(p.updated_at)
+        if updated is not None and updated >= quarter_start:
+            discharged_this_quarter += 1
+
+    return CohortSummary(
+        total=len(patients),
+        status_counts=status_counts,
+        distinct=distinct,
+        kpis=CohortKPIs(
+            active_courses=active_courses_count,
+            active_courses_delta_7d=active_courses_delta_7d,
+            phq_delta_avg=phq_delta_avg,
+            phq_delta_n=len(phq_deltas),
+            responder_rate_pct=responder_rate_pct,
+            responder_n=responders_count,
+            homework_adherence_pct=homework_adherence_pct,
+            homework_adherence_n=homework_adherence_n,
+            follow_up_count=follow_up_count,
+            follow_up_overdue_7d=follow_up_overdue_7d,
+            discharged_this_quarter=discharged_this_quarter,
+        ),
+    )
 
 
 @router.post("", response_model=PatientOut, status_code=201)
