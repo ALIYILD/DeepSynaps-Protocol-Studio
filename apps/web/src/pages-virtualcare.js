@@ -1371,9 +1371,8 @@ function _lsRender() {
   const tabStrip = `
     <div class="dv2l-ht-tabstrip">
       <button class="dv2l-ht-tabbtn${activeTab==='session'?' on':''}" data-ls-tab="session" onclick="window._lsSetTab('session')">Session</button>
-      <button class="dv2l-ht-tabbtn${activeTab==='tasks'?' on':''}"   data-ls-tab="tasks"   onclick="window._lsSetTab('tasks')">Home Tasks</button>
       <button class="dv2l-ht-tabbtn${activeTab==='log'?' on':''}"     data-ls-tab="log"     onclick="window._lsSetTab('log')">Event Log</button>
-      <button class="dv2l-ht-tabbtn"                                  data-ls-tab="htm"     onclick="window._lsSetTab('htm')" title="Home Task Manager — all patients, templates, adherence">🏠 Home Task Manager</button>
+      <button class="dv2l-ht-tabbtn"                                  data-ls-tab="htm"     onclick="window._lsSetTab('htm')" title="Assign tasks to patients, track adherence">🏠 Home Task Manager</button>
       <span class="dv2l-ht-tabspacer"></span>
       <span class="dv2l-ht-tabctx">${_e(patient.display_name || '')} &middot; ${_e(session.modality || '')} &middot; Session ${session.session_no || 1}/${session.session_total || 20}</span>
     </div>`;
@@ -1887,11 +1886,12 @@ function _lsSetTab(tab) {
     const overlay = document.createElement('div');
     overlay.id = 'ls-htm-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;z-index:600;background:var(--bg-root,#040c14);overflow:auto;display:flex;flex-direction:column';
+    const patientName = s.patient?.display_name || s.session?.patient_name || '';
     overlay.innerHTML = `
       <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-shrink:0;background:var(--bg-sidebar,rgba(4,12,20,0.95));backdrop-filter:blur(8px)">
         <button id="ls-htm-close" class="btn btn-sm">← Back to Session</button>
         <span style="font-size:13px;font-weight:600">Home Task Manager</span>
-        <span style="font-size:11px;color:var(--text-tertiary)">All patients · templates · adherence</span>
+        ${patientName ? `<span style="font-size:11px;color:var(--teal,#00d4bc);font-weight:600">${patientName}</span><span style="font-size:11px;color:var(--text-tertiary)">· current session patient</span>` : `<span style="font-size:11px;color:var(--text-tertiary)">All patients · assign tasks · track adherence</span>`}
       </div>
       <div id="ls-htm-content" style="flex:1;overflow:auto"></div>`;
     document.body.appendChild(overlay);
@@ -1899,6 +1899,10 @@ function _lsSetTab(tab) {
       overlay.remove();
       _lsSetTab('session');
     });
+    // Pre-select the current session's patient so the clinician lands on their task view.
+    if (s.session?.patient_id) {
+      window._hpPatViewPid = s.session.patient_id;
+    }
     // Temporarily promote the overlay content div to #content so pgHomePrograms renders into it.
     const realContent = document.getElementById('content');
     if (realContent) realContent.id = '__ls_content_bak__';
