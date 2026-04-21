@@ -465,6 +465,7 @@ const NAV = [
   // Research has moved into Reports (Reports → Research tab).
   { id: 'governance-v2',      label: 'Governance',        icon: '🛡️' },
   { id: 'academy',            label: 'Academy',           icon: '🎓' },
+  { id: 'marketplace',        label: 'Marketplace',       icon: '🛒' },
 ];
 
 // ── Lucide-style SVG icons for nav items ──────────────────────────────────────
@@ -527,6 +528,7 @@ NAV_ICONS['ai-agent-v2']     = NAV_ICONS['protocol-hub'];
 NAV_ICONS['research-v2']     = NAV_ICONS['protocol-wizard'];
 NAV_ICONS['governance-v2']   = NAV_ICONS['adverse-events'];
 NAV_ICONS['academy']         = `<svg viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`;
+NAV_ICONS['marketplace']     = `<svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" x2="21" y1="6" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>`;
 
 // ── Section labels ────────────────────────────────────────────────────────────
 const SECTION_LABELS = {
@@ -815,7 +817,7 @@ const PAGE_TITLES = {
   'clinical-trials': 'Clinical Trial Management',
   'trial-enrollment': 'Trial Enrollment',
   'staff-scheduling': 'Staff Scheduling & Shifts',
-  reports: 'Reports', admin: 'Admin Panel', 'clinic-settings': 'Clinic Settings & Branding', settings: 'Settings', 'clinician-account': 'My Account', academy: 'Academy',
+  reports: 'Reports', admin: 'Admin Panel', 'clinic-settings': 'Clinic Settings & Branding', settings: 'Settings', 'clinician-account': 'My Account', academy: 'Academy', marketplace: 'Marketplace',
   permissions: 'Permissions & Security Admin',
   calendar: 'Schedule & Calendar',
   scheduling: 'Scheduling', telehealth: 'Telehealth', 'telehealth-recorder': 'Telehealth Session Recorder', messaging: 'Virtual Care',
@@ -1376,6 +1378,11 @@ async function renderPage() {
     case 'academy': {
       const m = await loadPractice();
       await m.pgClinicAcademy(setTopbar, currentUser);
+      break;
+    }
+    case 'marketplace': {
+      const m = await loadClinicalHubs();
+      await m.pgMarketplaceHub(setTopbar, navigate);
       break;
     }
     case 'reminders': { const { pgReminderAutomation } = await loadPractice(); await pgReminderAutomation(setTopbar); break; }
