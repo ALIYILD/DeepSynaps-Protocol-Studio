@@ -23942,3 +23942,179 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   transition: all 0.25s ease;
 }
 .mp-toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Clinic Academy — ac-* scope
+   ═══════════════════════════════════════════════════════════════════ */
+.ac-wrap { display: flex; flex-direction: column; gap: 22px; padding: 20px 28px 80px; max-width: 1400px; margin: 0 auto; }
+
+.ac-hero {
+  display: grid; grid-template-columns: 1fr auto; gap: 28px; align-items: center;
+  padding: 28px 30px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 22px;
+  background:
+    radial-gradient(900px 320px at 10% 10%, rgba(74,158,255,0.12), transparent 60%),
+    radial-gradient(700px 260px at 95% 100%, rgba(183,148,255,0.1), transparent 65%),
+    linear-gradient(180deg, rgba(14,22,40,0.95), rgba(10,16,30,0.85));
+}
+@media (max-width: 1000px) { .ac-hero { grid-template-columns: 1fr; } }
+.ac-hero-eyebrow {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.14em;
+  color: #4a9eff; font-weight: 600; margin-bottom: 6px;
+}
+.ac-hero-title {
+  font-family: 'Outfit', sans-serif; font-weight: 600;
+  font-size: 26px; letter-spacing: -0.015em; color: #fff;
+  margin: 0 0 8px; line-height: 1.2; max-width: 640px;
+}
+.ac-hero-desc {
+  font-size: 13.5px; color: rgba(255,255,255,0.7); line-height: 1.55;
+  margin: 0; max-width: 640px;
+}
+.ac-hero-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+@media (max-width: 640px) { .ac-hero-stats { grid-template-columns: repeat(2, 1fr); } }
+.ac-hero-stat {
+  padding: 12px 14px; border-radius: 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: inherit; font-family: inherit; text-align: left;
+  cursor: pointer; transition: all 0.15s;
+}
+.ac-hero-stat:hover {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(74,158,255,0.35);
+  transform: translateY(-1px);
+}
+.ac-hero-stat-num {
+  font-family: 'Outfit', sans-serif; font-weight: 600;
+  font-size: 20px; color: #4a9eff; line-height: 1;
+}
+.ac-hero-stat-lbl {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: rgba(255,255,255,0.55); margin-top: 4px; font-weight: 600;
+}
+
+.ac-filter {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 6px; border-radius: 14px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  align-self: flex-start;
+}
+.ac-filter-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(255,255,255,0.65);
+  font-size: 12.5px; font-weight: 500; font-family: inherit;
+  cursor: pointer; transition: all 0.15s;
+}
+.ac-filter-chip:hover { color: #fff; background: rgba(255,255,255,0.04); }
+.ac-filter-chip.active {
+  background: rgba(74,158,255,0.12);
+  border-color: rgba(74,158,255,0.35);
+  color: #60a5fa;
+}
+.ac-filter-count {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  padding: 1px 7px; border-radius: 999px;
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.6);
+}
+.ac-filter-chip.active .ac-filter-count {
+  background: rgba(74,158,255,0.18); color: #60a5fa;
+}
+
+.ac-section {
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(14,22,40,0.85), rgba(10,16,30,0.5));
+  padding: 22px 24px;
+}
+.ac-section-head {
+  display: flex; align-items: flex-start; gap: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  margin-bottom: 18px;
+}
+.ac-section-ico {
+  width: 40px; height: 40px; font-size: 18px; border-radius: 12px;
+  flex-shrink: 0; display: grid; place-items: center;
+}
+.ac-section-title {
+  font-family: 'Outfit', sans-serif; font-weight: 600;
+  font-size: 18px; color: #fff; margin: 0;
+  display: inline-flex; align-items: baseline; gap: 8px;
+}
+.ac-section-count {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600;
+  color: #60a5fa;
+  padding: 1px 8px; border-radius: 999px;
+  background: rgba(74,158,255,0.12); border: 1px solid rgba(74,158,255,0.3);
+}
+.ac-section-sub {
+  font-size: 12.5px; color: rgba(255,255,255,0.55);
+  margin: 3px 0 0; line-height: 1.5;
+}
+
+.ac-grid {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+.ac-card {
+  display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start;
+  padding: 16px 18px;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 13px;
+  background: rgba(255,255,255,0.02);
+  text-decoration: none; color: inherit;
+  transition: all 0.15s;
+}
+.ac-card:hover {
+  border-color: rgba(74,158,255,0.35);
+  background: rgba(74,158,255,0.05);
+  transform: translateY(-1px);
+}
+.ac-card-body { min-width: 0; }
+.ac-card-head {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline;
+  margin-bottom: 3px;
+}
+.ac-card-name {
+  font-family: 'Outfit', sans-serif; font-weight: 600;
+  font-size: 14.5px; color: #fff; margin: 0;
+  letter-spacing: -0.01em;
+}
+.ac-card-tag {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 7px; border-radius: 999px;
+  background: rgba(74,158,255,0.1); border: 1px solid rgba(74,158,255,0.25);
+  color: #93c5fd;
+}
+.ac-card-org {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  color: rgba(255,255,255,0.5); margin-bottom: 8px;
+}
+.ac-card-desc {
+  font-size: 12.5px; color: rgba(255,255,255,0.68); line-height: 1.5;
+  margin: 0;
+}
+.ac-card-chev {
+  color: rgba(255,255,255,0.35); font-size: 15px;
+  transition: color 0.15s, transform 0.15s;
+}
+.ac-card:hover .ac-card-chev {
+  color: #60a5fa; transform: translate(2px, -2px);
+}
+
+.ac-footnote {
+  font-size: 12px; color: rgba(255,255,255,0.5);
+  font-style: italic;
+  text-align: center;
+  padding: 18px 0 4px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  margin-top: 4px;
+}
