@@ -464,6 +464,7 @@ const NAV = [
   { id: 'ai-agent-v2',        label: 'AI Practice Agents', icon: '🤖', ai: true },
   { id: 'research-v2',        label: 'Research',          icon: '🔬' },
   { id: 'governance-v2',      label: 'Governance',        icon: '🛡️' },
+  { id: 'academy',            label: 'Academy',           icon: '🎓' },
 ];
 
 // ── Lucide-style SVG icons for nav items ──────────────────────────────────────
@@ -525,6 +526,7 @@ NAV_ICONS['finance-v2']      = NAV_ICONS['finance-hub'];
 NAV_ICONS['ai-agent-v2']     = NAV_ICONS['protocol-hub'];
 NAV_ICONS['research-v2']     = NAV_ICONS['protocol-wizard'];
 NAV_ICONS['governance-v2']   = NAV_ICONS['adverse-events'];
+NAV_ICONS['academy']         = `<svg viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`;
 
 // ── Section labels ────────────────────────────────────────────────────────────
 const SECTION_LABELS = {
