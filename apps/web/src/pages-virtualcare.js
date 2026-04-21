@@ -202,11 +202,16 @@ export async function pgVirtualCare(setTopbar, navigate) {
 }
 
 // =============================================================================
-// pgVirtualCareLegacyFull — Original VC inbox retained internally (unreachable
-// from nav after the merge, but kept to preserve working implementation).
+// pgVirtualCareInbox — Clinician communication hub: messages, video/voice
+// calls, call requests, shared media, AI notes. Entry point for the
+// Virtual Care sidebar item.
 // =============================================================================
+export async function pgVirtualCareInbox(setTopbar, navigate) {
+  return pgVirtualCareLegacyFull(setTopbar, navigate);
+}
+
 async function pgVirtualCareLegacyFull(setTopbar, navigate) {
-  setTopbar({ title: 'Virtual Care', subtitle: 'Inbox · video visits · voice calls · shared media · AI notes' });
+  try { setTopbar('Virtual Care', '<button class="btn btn-primary btn-sm" onclick="window._nav(\'live-session-monitor\')">🖥 Live Session</button>'); } catch { try { setTopbar('Virtual Care', ''); } catch {} }
 
   const el = document.getElementById('main-content') || document.getElementById('content');
   if (!el) return;
@@ -797,6 +802,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
           <button class="vc-top-btn vc-top-btn-primary" onclick="window._vcScheduleNew('voice')">\uD83D\uDCDE Start Voice Call</button>
           <button class="vc-top-btn" onclick="window._vcTab('inbox');window._vcCompose()">\u2709 New Message</button>
           <button class="vc-top-btn" onclick="window._vcCaptureNote('','')">&#127908; Record Note</button>
+          <button class="vc-top-btn vc-top-btn-session" onclick="window._nav('live-session-monitor')" title="Open the in-person treatment session monitor">\uD83D\uDDA5 Live Session \u2192</button>
         </div>
 
         <div class="vc-summary-strip">

@@ -5069,8 +5069,8 @@ export async function pgMonitorHub(setTopbar, navigate) {
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgVirtualCareHub(setTopbar, navigate) {
   try {
-    const { pgVirtualCare } = await import('./pages-virtualcare.js');
-    await pgVirtualCare(setTopbar, navigate);
+    const { pgVirtualCareInbox } = await import('./pages-virtualcare.js');
+    await pgVirtualCareInbox(setTopbar, navigate);
   } catch (err) {
     console.error('Virtual Care load error:', err);
     setTopbar('Virtual Care', '<span class="ph-ai-badge">AI</span>');
