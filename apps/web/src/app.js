@@ -462,7 +462,7 @@ const NAV = [
   { id: 'reports-v2',         label: 'Reports',           icon: '📈' },
   { id: 'finance-v2',         label: 'Finance',           icon: '💰' },
   { id: 'ai-agent-v2',        label: 'AI Practice Agents', icon: '🤖', ai: true },
-  { id: 'research-v2',        label: 'Research',          icon: '🔬' },
+  // Research has moved into Reports (Reports → Research tab).
   { id: 'governance-v2',      label: 'Governance',        icon: '🛡️' },
 ];
 
