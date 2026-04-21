@@ -8052,7 +8052,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
 // ── Marketplace Hub ───────────────────────────────────────────────────────────
 export async function pgMarketplaceHub(setTopbar, navigate) {
   setTopbar('Marketplace');
-  const el = document.getElementById('main-content');
+  const el = document.getElementById('content');
   el.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
 
   const CATEGORIES = [
