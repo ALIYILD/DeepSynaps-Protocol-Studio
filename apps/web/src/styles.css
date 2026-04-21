@@ -15388,6 +15388,8 @@ body.light-theme .ch-modal { background:#fff; }
   background:var(--primary); color:#fff; border-color:var(--primary);
 }
 .vc-top-btn-primary:hover { background:var(--primary-dark,#1a5fb4); border-color:var(--primary-dark,#1a5fb4); }
+.vc-top-btn-session { background:rgba(93,217,196,.1); border-color:#5dd9c4; color:#5dd9c4; margin-left:auto; }
+.vc-top-btn-session:hover { background:#5dd9c4; color:#0a1a22; }
 
 /* ── Summary strip ── */
 .vc-summary-strip {
