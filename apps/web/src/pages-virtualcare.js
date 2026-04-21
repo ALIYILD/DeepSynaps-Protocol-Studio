@@ -1370,9 +1370,10 @@ function _lsRender() {
   const activeTab = s.activeTab || 'session';
   const tabStrip = `
     <div class="dv2l-ht-tabstrip">
-      <button class="dv2l-ht-tabbtn${activeTab==='session'?' on':''}" onclick="window._lsSetTab('session')">Session</button>
-      <button class="dv2l-ht-tabbtn${activeTab==='tasks'?' on':''}" onclick="window._lsSetTab('tasks')">Home Tasks</button>
-      <button class="dv2l-ht-tabbtn${activeTab==='log'?' on':''}" onclick="window._lsSetTab('log')">Event Log</button>
+      <button class="dv2l-ht-tabbtn${activeTab==='session'?' on':''}" data-ls-tab="session" onclick="window._lsSetTab('session')">Session</button>
+      <button class="dv2l-ht-tabbtn${activeTab==='tasks'?' on':''}"   data-ls-tab="tasks"   onclick="window._lsSetTab('tasks')">Home Tasks</button>
+      <button class="dv2l-ht-tabbtn${activeTab==='log'?' on':''}"     data-ls-tab="log"     onclick="window._lsSetTab('log')">Event Log</button>
+      <button class="dv2l-ht-tabbtn"                                  data-ls-tab="htm"     onclick="window._lsSetTab('htm')" title="Open the full Home Task Manager — all patients, templates, adherence">🏠 Home Task Manager ↗</button>
       <span class="dv2l-ht-tabspacer"></span>
       <span class="dv2l-ht-tabctx">${_e(patient.display_name || '')} &middot; ${_e(session.modality || '')} &middot; Session ${session.session_no || 1}/${session.session_total || 20}</span>
     </div>`;
@@ -1878,6 +1879,16 @@ function _lsHtWrite(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } 
 
 function _lsSetTab(tab) {
   const s = _lsState; if (!s) return;
+  // Home Task Manager is a full standalone page — open via the normal
+  // navigation so its own timers, modals, and storage wiring work correctly.
+  // Live Session teardown happens in the router, so we don't need to cancel
+  // state here explicitly.
+  if (tab === 'htm') {
+    if (typeof window !== 'undefined' && typeof window._nav === 'function') {
+      window._nav('home-task-manager');
+    }
+    return;
+  }
   s.activeTab = tab;
   const panels = {
     session: document.getElementById('ls-session-panel'),
@@ -1886,9 +1897,9 @@ function _lsSetTab(tab) {
   };
   Object.entries(panels).forEach(([k, el]) => { if (el) el.style.display = (k === tab) ? 'block' : 'none'; });
   const strip = document.querySelectorAll('.dv2l-ht-tabbtn');
-  strip.forEach((b, idx) => {
-    const key = ['session','tasks','log'][idx];
-    b.classList.toggle('on', key === tab);
+  strip.forEach(b => {
+    const key = b.getAttribute('data-ls-tab');
+    if (key) b.classList.toggle('on', key === tab);
   });
   if (tab === 'tasks') _lsRenderTasks();
   if (tab === 'log') _lsRenderLogPanel();
