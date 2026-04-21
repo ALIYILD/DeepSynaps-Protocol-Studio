@@ -541,6 +541,10 @@ export const api = {
     apiFetch('/api/v1/intake/preview', { method: 'POST', body: JSON.stringify(data) }),
   generateProtocol: (data) =>
     apiFetch('/api/v1/protocols/generate-draft', { method: 'POST', body: JSON.stringify(data) }),
+  generateBrainScanProtocol: (data) =>
+    apiFetch('/api/v1/protocols/generate-brain-scan', { method: 'POST', body: JSON.stringify(data) }),
+  generatePersonalizedProtocol: (data) =>
+    apiFetch('/api/v1/protocols/generate-personalized', { method: 'POST', body: JSON.stringify(data) }),
 
   // ── Protocol Persistence ────────────────────────────────────────────────
   saveProtocol: (data) => apiFetch('/api/v1/protocols/saved', { method: 'POST', body: JSON.stringify(data) }),

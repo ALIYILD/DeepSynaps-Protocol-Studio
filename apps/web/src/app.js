@@ -1148,7 +1148,7 @@ async function renderPage() {
     case 'calendar': { const m = await loadCourses(); await m.pgCalendar(setTopbar); break; }
     // ── Protocol Intelligence ────────────────────────────────────────────
     case 'protocol-wizard':
-    case 'protocols':       { window._protocolHubTab = 'search';   window._nav('protocol-hub'); break; }
+    case 'protocols':       { window._protocolHubTab = 'browse';   window._nav('protocol-hub'); break; }
     case 'brain-map-planner':
     case 'brain-map-full':
     case 'reg-protocols':   { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar); break; }
@@ -1178,8 +1178,8 @@ async function renderPage() {
     // personalized + brain-scan protocols now route to the studio wizard with
     // explicit hints; until the wizard grows those tabs this at least keeps
     // the label meaningful.
-    case 'personalized-protocol': { window._protocolHubTab = 'personalized'; window._nav('protocol-hub'); break; }
-    case 'brain-scan-protocol':   { window._protocolHubTab = 'brainscan';    window._nav('protocol-hub'); break; }
+    case 'personalized-protocol': { window._protocolHubTab = 'generate'; window._psWizard = Object.assign(window._psWizard || {}, { mode: 'personalized', result: null, error: null, saving: false }); window._nav('protocol-hub'); break; }
+    case 'brain-scan-protocol':   { window._protocolHubTab = 'generate'; window._psWizard = Object.assign(window._psWizard || {}, { mode: 'brainscan', result: null, error: null, saving: false });    window._nav('protocol-hub'); break; }
     case 'protocol-search-full': {
       const m = await loadProtocols();
       await m.pgProtocolSearch(setTopbar, navigate);
