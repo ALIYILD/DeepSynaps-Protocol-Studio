@@ -1373,7 +1373,7 @@ function _lsRender() {
       <button class="dv2l-ht-tabbtn${activeTab==='session'?' on':''}" data-ls-tab="session" onclick="window._lsSetTab('session')">Session</button>
       <button class="dv2l-ht-tabbtn${activeTab==='tasks'?' on':''}"   data-ls-tab="tasks"   onclick="window._lsSetTab('tasks')">Home Tasks</button>
       <button class="dv2l-ht-tabbtn${activeTab==='log'?' on':''}"     data-ls-tab="log"     onclick="window._lsSetTab('log')">Event Log</button>
-      <button class="dv2l-ht-tabbtn"                                  data-ls-tab="htm"     onclick="window._lsSetTab('htm')" title="Open the full Home Task Manager — all patients, templates, adherence">🏠 Home Task Manager ↗</button>
+      <button class="dv2l-ht-tabbtn"                                  data-ls-tab="htm"     onclick="window._lsSetTab('htm')" title="Home Task Manager — all patients, templates, adherence">🏠 Home Task Manager</button>
       <span class="dv2l-ht-tabspacer"></span>
       <span class="dv2l-ht-tabctx">${_e(patient.display_name || '')} &middot; ${_e(session.modality || '')} &middot; Session ${session.session_no || 1}/${session.session_total || 20}</span>
     </div>`;
@@ -1879,14 +1879,44 @@ function _lsHtWrite(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } 
 
 function _lsSetTab(tab) {
   const s = _lsState; if (!s) return;
-  // Home Task Manager is a full standalone page — open via the normal
-  // navigation so its own timers, modals, and storage wiring work correctly.
-  // Live Session teardown happens in the router, so we don't need to cancel
-  // state here explicitly.
   if (tab === 'htm') {
-    if (typeof window !== 'undefined' && typeof window._nav === 'function') {
-      window._nav('home-task-manager');
-    }
+    // Render Home Task Manager in a full-screen overlay so the clinician
+    // stays in the Virtual Care context (no page navigation).
+    const existing = document.getElementById('ls-htm-overlay');
+    if (existing) { existing.remove(); }
+    const overlay = document.createElement('div');
+    overlay.id = 'ls-htm-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:600;background:var(--bg-root,#040c14);overflow:auto;display:flex;flex-direction:column';
+    overlay.innerHTML = `
+      <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-shrink:0;background:var(--bg-sidebar,rgba(4,12,20,0.95));backdrop-filter:blur(8px)">
+        <button id="ls-htm-close" class="btn btn-sm">← Back to Session</button>
+        <span style="font-size:13px;font-weight:600">Home Task Manager</span>
+        <span style="font-size:11px;color:var(--text-tertiary)">All patients · templates · adherence</span>
+      </div>
+      <div id="ls-htm-content" style="flex:1;overflow:auto"></div>`;
+    document.body.appendChild(overlay);
+    document.getElementById('ls-htm-close')?.addEventListener('click', () => {
+      overlay.remove();
+      _lsSetTab('session');
+    });
+    // Temporarily promote the overlay content div to #content so pgHomePrograms renders into it.
+    const realContent = document.getElementById('content');
+    if (realContent) realContent.id = '__ls_content_bak__';
+    const htmContent = document.getElementById('ls-htm-content');
+    if (htmContent) htmContent.id = 'content';
+    (async () => {
+      try {
+        const { pgHomePrograms } = await import('./pages-clinical-tools.js');
+        await pgHomePrograms(() => {}, null);
+      } catch {
+        const c = document.getElementById('content');
+        if (c) c.innerHTML = `<div style="padding:48px;text-align:center;color:var(--text-tertiary)"><div style="font-size:32px;margin-bottom:12px">🏠</div><div>Could not load Home Task Manager.</div></div>`;
+      }
+      // Restore IDs — overlay content no longer needs to be #content.
+      const overlayInner = document.getElementById('content');
+      if (overlayInner && overlayInner.closest('#ls-htm-overlay')) overlayInner.id = 'ls-htm-content';
+      if (realContent) realContent.id = 'content';
+    })();
     return;
   }
   s.activeTab = tab;
