@@ -454,7 +454,6 @@ const NAV = [
   // ── SESSIONS ─────────────────────────────────────────────────────────────────
   { section: 'Sessions', sectionId: 'sessions', collapsed: false },
   { id: 'live-session',       label: 'Virtual Care',      icon: '📹', ai: true },
-  { id: 'home-tasks-v2',      label: 'Home Task Manager', icon: '🏠' },
 
   // ── ADMIN ────────────────────────────────────────────────────────────────────
   { section: 'Admin', sectionId: 'admin', collapsed: false },
