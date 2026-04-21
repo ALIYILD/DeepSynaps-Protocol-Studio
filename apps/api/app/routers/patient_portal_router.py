@@ -32,6 +32,7 @@ from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import (
     AssessmentRecord,
+    ClinicalSession,
     ClinicianHomeProgramTask,
     DeliveredSessionParameters,
     DeviceConnection,
@@ -127,13 +128,33 @@ class PortalCourseOut(BaseModel):
 
 
 class PortalSessionOut(BaseModel):
+    """Unified row for the patient sessions feed.
+
+    Two record kinds flow through here and only some fields are populated for each:
+      * Delivered telemetry (``DeliveredSessionParameters``) — populates ``course_id``,
+        ``device_slug``, ``tolerance_rating``, ``post_session_notes``, ``duration_minutes``,
+        ``delivered_at``. ``status`` is reported as ``"delivered"``.
+      * Clinical bookings (``ClinicalSession``) — populates ``scheduled_at``, ``status``
+        ("scheduled" / "confirmed" / etc.), ``modality``, ``session_number``,
+        ``total_sessions``, ``duration_minutes``. ``course_id`` is left ``None`` because
+        bookings are not linked to a treatment-course row in the current schema.
+
+    The Patient Dashboard reads ``scheduled_at`` + ``status`` for the upcoming-session
+    countdown; treatment-history views read ``delivered_at``.
+    """
+
     id: str
-    course_id: str
-    device_slug: Optional[str]
-    tolerance_rating: Optional[str]
-    post_session_notes: Optional[str]
-    duration_minutes: Optional[int]
-    delivered_at: str  # created_at of the session record
+    course_id: Optional[str] = None
+    device_slug: Optional[str] = None
+    tolerance_rating: Optional[str] = None
+    post_session_notes: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    delivered_at: Optional[str] = None  # created_at of the delivered-telemetry record
+    scheduled_at: Optional[str] = None  # ISO datetime for upcoming bookings
+    status: Optional[str] = None  # "scheduled" / "confirmed" / ... / "delivered"
+    modality: Optional[str] = None
+    session_number: Optional[int] = None
+    total_sessions: Optional[int] = None
 
 
 class PortalAssessmentOut(BaseModel):
@@ -286,33 +307,58 @@ def get_portal_sessions(
 
     patient = _require_patient(actor, db)
 
-    # Get all course IDs for this patient
+    rows: list[PortalSessionOut] = []
+
+    # 1. Delivered telemetry — keyed off the patient's treatment courses.
     course_ids = [
         c.id for c in db.query(TreatmentCourse.id)
         .filter(TreatmentCourse.patient_id == patient.id).all()
     ]
-    if not course_ids:
-        return []
+    if course_ids:
+        delivered = (
+            db.query(DeliveredSessionParameters)
+            .filter(DeliveredSessionParameters.course_id.in_(course_ids))
+            .order_by(DeliveredSessionParameters.created_at.desc())
+            .all()
+        )
+        rows.extend(
+            PortalSessionOut(
+                id=s.id,
+                course_id=s.course_id,
+                device_slug=s.device_slug,
+                tolerance_rating=s.tolerance_rating,
+                post_session_notes=s.post_session_notes,
+                duration_minutes=s.duration_minutes,
+                delivered_at=_dt(s.created_at),
+                status="delivered",
+            )
+            for s in delivered
+        )
 
-    sessions = (
-        db.query(DeliveredSessionParameters)
-        .filter(DeliveredSessionParameters.course_id.in_(course_ids))
-        .order_by(DeliveredSessionParameters.created_at.desc())
+    # 2. Clinical bookings — patient-scoped (independent of treatment courses).
+    #    These power the "next session" countdown on the Patient Dashboard. The
+    #    POST /api/v1/sessions endpoint stores scheduled_at as an ISO string,
+    #    which is also what the Patient Portal returns to the UI verbatim.
+    bookings = (
+        db.query(ClinicalSession)
+        .filter(ClinicalSession.patient_id == patient.id)
+        .order_by(ClinicalSession.scheduled_at.desc())
         .all()
     )
-
-    return [
+    rows.extend(
         PortalSessionOut(
-            id=s.id,
-            course_id=s.course_id,
-            device_slug=s.device_slug,
-            tolerance_rating=s.tolerance_rating,
-            post_session_notes=s.post_session_notes,
-            duration_minutes=s.duration_minutes,
-            delivered_at=_dt(s.created_at),
+            id=b.id,
+            scheduled_at=b.scheduled_at,
+            status=b.status,
+            modality=b.modality,
+            session_number=b.session_number,
+            total_sessions=b.total_sessions,
+            duration_minutes=b.duration_minutes,
         )
-        for s in sessions
-    ]
+        for b in bookings
+    )
+
+    return rows
 
 
 @router.get("/assessments", response_model=list[PortalAssessmentOut])
