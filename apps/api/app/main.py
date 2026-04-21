@@ -85,6 +85,7 @@ from app.routers.documents_router import router as documents_router
 from app.routers.documents_router import patient_docs_router
 from app.routers.recordings_router import router as recordings_router
 from app.routers.protocols_saved_router import router as protocols_saved_router
+from app.routers.protocols_generate_router import router as protocols_generate_router
 from app.routers.leads_reception_router import router as leads_reception_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
@@ -179,6 +180,7 @@ app.include_router(documents_router)
 app.include_router(patient_docs_router)
 app.include_router(recordings_router)
 app.include_router(protocols_saved_router)
+app.include_router(protocols_generate_router)
 app.include_router(leads_reception_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
 # follow-up subagents. Grouped together for discoverability.

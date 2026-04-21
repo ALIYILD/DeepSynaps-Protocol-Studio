@@ -2166,12 +2166,685 @@ export async function pgProtocolStudio(setTopbar, navigate) {
   try { window._studioRenderDrafts(); } catch {}
 }
 
-// Compat alias so existing protocol-hub route keeps working.
-export { pgProtocolStudio as pgProtocolHub };
+// ═══════════════════════════════════════════════════════════════════════════════
+// pgProtocolHub — 4-tab Protocol Studio entry point
+// Tab 1: Conditions   (from Library Hub)
+// Tab 2: Generate     (3-mode wizard: Evidence-Based AI / Brain Scan / Personalized)
+// Tab 3: Browse       (inline protocol search shell)
+// Tab 4: My Drafts    (GET /api/v1/protocols/saved)
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function pgProtocolHub(setTopbar, navigate) {
+  const esc = (s) => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-// Legacy protocol hub removed — functionality merged into pgProtocolStudio.
-// Handbooks moved to pgHandbooks (handbooks-v2 route).
-// Brain Map Planner moved to its own screen (brain-map-planner route).
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  const VALID_TABS = ['conditions', 'generate', 'browse', 'drafts'];
+  let _tab = VALID_TABS.includes(window._protocolHubTab) ? window._protocolHubTab : 'conditions';
+
+  // Pre-fill condition when coming from Library Hub "Find Protocol" link
+  let _prefillCondition = window._protocolHubCondition || null;
+
+  setTopbar('Protocol Studio', '');
+
+  // ── CSS injected once ──────────────────────────────────────────────────────
+  if (!document.getElementById('ps-styles')) {
+    const _st = document.createElement('style');
+    _st.id = 'ps-styles';
+    _st.textContent =
+      '.ps-shell{display:flex;flex-direction:column;height:100%;min-height:0}' +
+      '.ps-tab-bar{display:flex;gap:2px;padding:14px 20px 0;border-bottom:1px solid var(--border);background:var(--bg-card);flex-shrink:0}' +
+      '.ps-tab{padding:8px 16px;border:none;background:transparent;color:var(--text-secondary);font-size:13px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;border-radius:6px 6px 0 0;transition:color 0.15s}' +
+      '.ps-tab:hover{color:var(--text-primary)}' +
+      '.ps-tab.active{color:var(--dv2-teal,var(--teal));border-bottom-color:var(--dv2-teal,var(--teal));background:rgba(0,212,188,0.04)}' +
+      '.ps-body{flex:1;overflow-y:auto;padding:20px}' +
+      '.ps-gen-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px}' +
+      '@media(max-width:900px){.ps-gen-cards{grid-template-columns:1fr}}' +
+      '.ps-gen-card{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:20px;cursor:pointer;transition:border-color 0.15s,box-shadow 0.15s}' +
+      '.ps-gen-card:hover{border-color:var(--dv2-teal,var(--teal));box-shadow:0 0 0 3px rgba(0,212,188,0.1)}' +
+      '.ps-gen-card.ps-gen-card--active{border-color:var(--dv2-teal,var(--teal));background:rgba(0,212,188,0.04)}' +
+      '.ps-gen-card-icon{font-size:26px;margin-bottom:10px}' +
+      '.ps-gen-card-title{font-size:14px;font-weight:600;margin-bottom:4px}' +
+      '.ps-gen-card-sub{font-size:12px;color:var(--text-secondary);line-height:1.5}' +
+      '.ps-wizard{background:var(--bg-card);border:1px solid var(--dv2-teal,var(--teal));border-radius:14px;padding:22px;margin-top:4px}' +
+      '.ps-wizard-title{font-size:15px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:10px}' +
+      '.ps-form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}' +
+      '@media(max-width:700px){.ps-form-row{grid-template-columns:1fr}}' +
+      '.ps-form-group{display:flex;flex-direction:column;gap:4px}' +
+      '.ps-form-label{font-size:11px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:var(--text-tertiary)}' +
+      '.ps-form-input{padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-surface);color:var(--text-primary);font-size:13px;font-family:inherit}' +
+      '.ps-form-input:focus{outline:none;border-color:var(--dv2-teal,var(--teal))}' +
+      '.ps-form-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px}' +
+      '.ps-result-card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:18px;margin-top:16px}' +
+      '.ps-result-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px}' +
+      '.ps-result-title{font-size:14px;font-weight:600}' +
+      '.ps-result-section{font-size:12px;color:var(--text-secondary);margin-bottom:8px;line-height:1.6}' +
+      '.ps-result-section strong{color:var(--text-primary)}' +
+      '.ps-result-badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:0.4px}' +
+      '.ps-badge-a{background:rgba(0,212,188,0.14);color:var(--dv2-teal,var(--teal))}' +
+      '.ps-badge-b{background:rgba(74,158,255,0.14);color:#4a9eff}' +
+      '.ps-badge-c{background:rgba(245,158,11,0.14);color:#f59e0b}' +
+      '.ps-badge-draft{background:rgba(155,127,255,0.14);color:#b29cff}' +
+      '.ps-badge-approved{background:rgba(0,212,188,0.14);color:var(--dv2-teal,var(--teal))}' +
+      '.ps-result-actions{display:flex;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)}' +
+      '.ps-save-btn{padding:7px 16px;border-radius:8px;border:none;background:var(--dv2-teal,var(--teal));color:#04121c;font-size:12.5px;font-weight:600;cursor:pointer}' +
+      '.ps-save-btn:hover{opacity:0.88}' +
+      '.ps-save-btn:disabled{opacity:0.4;cursor:not-allowed}' +
+      '.ps-disclaimer{font-size:10.5px;color:var(--text-tertiary);line-height:1.5;margin-top:10px;padding:8px 12px;background:rgba(245,158,11,0.06);border-radius:6px;border-left:3px solid var(--amber,#f59e0b)}' +
+      '.ps-cond-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}' +
+      '.ps-cond-card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:16px;cursor:pointer;transition:border-color 0.15s}' +
+      '.ps-cond-card:hover{border-color:var(--dv2-teal,var(--teal))}' +
+      '.ps-cond-name{font-size:13.5px;font-weight:600;margin-bottom:6px}' +
+      '.ps-cond-meta{font-size:11px;color:var(--text-tertiary);display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}' +
+      '.ps-cond-feats{font-size:11.5px;color:var(--text-secondary);line-height:1.7}' +
+      '.ps-cond-actions{margin-top:10px;display:flex;gap:6px;flex-wrap:wrap}' +
+      '.ps-drafts-list{display:flex;flex-direction:column;gap:10px}' +
+      '.ps-draft-row{display:flex;align-items:center;gap:12px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:12px 14px}' +
+      '.ps-draft-name{flex:1;min-width:0;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+      '.ps-draft-meta{font-size:11px;color:var(--text-tertiary)}' +
+      '.ps-state-badge{padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:0.4px}' +
+      '.ps-state-draft{background:rgba(148,163,184,0.14);color:var(--text-secondary)}' +
+      '.ps-state-submitted{background:rgba(245,158,11,0.14);color:#f59e0b}' +
+      '.ps-state-approved{background:rgba(0,212,188,0.14);color:var(--dv2-teal,var(--teal))}' +
+      '.ps-empty{padding:40px 20px;text-align:center;color:var(--text-tertiary);font-size:13px}' +
+      '.ps-spin{display:inline-block;width:18px;height:18px;border:2px solid rgba(0,212,188,0.2);border-top-color:var(--dv2-teal,var(--teal));border-radius:50%;animation:ps-spin 0.7s linear infinite;vertical-align:middle;margin-right:6px}' +
+      '@keyframes ps-spin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(_st);
+  }
+
+  // ── State shared across wizard panels ──────────────────────────────────────
+  window._psWizard = window._psWizard || { mode: null, result: null, saving: false, error: null };
+  const W = window._psWizard;
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  const _gradeBadge = (g) => {
+    const cls = g === 'A' ? 'ps-badge-a' : g === 'B' ? 'ps-badge-b' : 'ps-badge-c';
+    return '<span class="ps-result-badge ' + cls + '">Grade ' + esc(g || 'E') + '</span>';
+  };
+  const _approvalBadge = (badge) => {
+    const cls = (badge || '').includes('approved') ? 'ps-badge-approved' : 'ps-badge-draft';
+    return '<span class="ps-result-badge ' + cls + '">' + esc(badge || 'draft') + '</span>';
+  };
+  const _stateBadge = (state) => {
+    const cls = state === 'approved' ? 'ps-state-approved' : state === 'submitted' ? 'ps-state-submitted' : 'ps-state-draft';
+    return '<span class="ps-state-badge ' + cls + '">' + esc(state || 'draft') + '</span>';
+  };
+
+  // ── Render result card from a ProtocolDraftResponse ───────────────────────
+  function _renderResultCard(draft, extraHtml) {
+    const contra = (draft.contraindications || []).filter(Boolean);
+    return '<div class="ps-result-card">' +
+      '<div class="ps-result-header">' +
+        '<span class="ps-result-title">Generated Protocol</span>' +
+        '<div style="display:flex;gap:6px">' +
+          _gradeBadge(draft.evidence_grade) +
+          _approvalBadge(draft.approval_status_badge) +
+        '</div>' +
+      '</div>' +
+      '<div class="ps-result-section"><strong>Rationale: </strong>' + esc(draft.rationale) + '</div>' +
+      '<div class="ps-result-section"><strong>Target Region: </strong>' + esc(draft.target_region) + '</div>' +
+      '<div class="ps-result-section"><strong>Session Frequency: </strong>' + esc(draft.session_frequency) + '</div>' +
+      '<div class="ps-result-section"><strong>Duration: </strong>' + esc(draft.duration) + '</div>' +
+      (contra.length ? '<div class="ps-result-section"><strong>Contraindications: </strong>' + contra.map(c => esc(c)).join('; ') + '</div>' : '') +
+      (extraHtml || '') +
+      '<div class="ps-disclaimer">' +
+        esc((draft.disclaimers && draft.disclaimers.general_disclaimer) || 'For use by licensed clinicians only. Not a substitute for clinical judgment.') +
+      '</div>' +
+      '<div class="ps-result-actions">' +
+        '<button class="ps-save-btn" id="ps-save-draft-btn" onclick="window._psSaveDraft()">Save as Draft</button>' +
+        '<button class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._nav(\'protocol-builder\')">Open in Builder</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // ── Tab 1: Conditions ──────────────────────────────────────────────────────
+  async function _renderConditions() {
+    const host = document.getElementById('ps-tab-content');
+    if (!host) return;
+    host.innerHTML = '<div class="ps-empty"><span class="ps-spin"></span>Loading conditions...</div>';
+
+    let conditions = [];
+    let errMsg = null;
+    try {
+      const ov = await api.libraryOverview();
+      conditions = ov?.conditions || [];
+    } catch (e) { errMsg = e?.message || 'Library offline'; }
+
+    // Fallback to registry
+    if (!conditions.length && !errMsg) {
+      try {
+        const r = await fetch('/api/v1/registry/conditions');
+        if (r.ok) { const d = await r.json(); conditions = d?.items || d?.conditions || []; }
+      } catch {}
+    }
+
+    if (errMsg || !conditions.length) {
+      host.innerHTML = '<div class="ps-empty">' +
+        (errMsg ? ('Library unavailable: ' + esc(errMsg) + '<br>') : 'No conditions in registry.<br>') +
+        '<button class="ps-save-btn" style="margin-top:12px" onclick="window._nav(\'library-hub\')">Open Library</button>' +
+      '</div>';
+      return;
+    }
+
+    const cats = ['All', ...Array.from(new Set(conditions.map(c => c.category).filter(Boolean))).sort()];
+    let _catFilt = 'All';
+    let _q = '';
+
+    function _renderGrid() {
+      const rows = conditions.filter(c => {
+        if (_catFilt !== 'All' && c.category !== _catFilt) return false;
+        if (_q) {
+          const blob = ((c.name || '') + ' ' + (c.icd_10 || '') + ' ' + (c.category || '')).toLowerCase();
+          if (!blob.includes(_q.toLowerCase())) return false;
+        }
+        return true;
+      });
+      const gradeClass = (g) => {
+        const map = {A:'ps-badge-a',B:'ps-badge-b',C:'ps-badge-c'};
+        return map[String(g||'').toUpperCase().replace('EV-','')] || 'ps-badge-c';
+      };
+      const eligBadge = (c) => {
+        const elig = c.neuromod_eligible;
+        if (elig === true || elig === 1) return '<span class="ps-result-badge ps-badge-approved">Ready</span>';
+        return '<span class="ps-result-badge ps-badge-c">Needs Evidence</span>';
+      };
+      return '<div class="ps-cond-grid">' +
+        (rows.length ? rows.map(c => {
+          const grade = String(c.highest_evidence_level || c.evidence_grade || 'E').replace('EV-','');
+          return '<article class="ps-cond-card" aria-label="' + esc(c.name) + '">' +
+            '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">' +
+              '<div class="ps-cond-name">' + esc(c.name) + '</div>' +
+              eligBadge(c) +
+            '</div>' +
+            '<div class="ps-cond-meta">' +
+              (c.icd_10 ? '<span>' + esc(c.icd_10) + '</span>' : '') +
+              (c.category ? '<span>' + esc(c.category) + '</span>' : '') +
+              '<span class="ps-result-badge ' + gradeClass(grade) + '">Grade ' + esc(grade) + '</span>' +
+            '</div>' +
+            '<div class="ps-cond-feats">' +
+              (c.reviewed_protocol_count ? '&#9679; ' + (c.reviewed_protocol_count) + ' reviewed protocol' + (c.reviewed_protocol_count !== 1 ? 's' : '') + '<br>' : '') +
+              (c.compatible_device_count ? '&#9679; ' + c.compatible_device_count + ' device' + (c.compatible_device_count !== 1 ? 's' : '') + '<br>' : '') +
+            '</div>' +
+            '<div class="ps-cond-actions">' +
+              '<button class="ps-save-btn" onclick="window._psCondToGenerate(\'' + esc(c.id) + '\',\'' + esc(c.name).replace(/'/g,'\\'+'\'') + '\')">Generate Protocol &#8594;</button>' +
+              ((c.reviewed_protocol_count || 0) > 0 ? '<button class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psCondToBrowse(\'' + esc(c.id) + '\')">Browse &#8594;</button>' : '') +
+            '</div>' +
+          '</article>';
+        }).join('') : '<div class="ps-empty" style="grid-column:1/-1">No conditions match.</div>') +
+      '</div>';
+    }
+
+    host.innerHTML =
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">' +
+        '<div style="position:relative;flex:1;min-width:180px;max-width:300px">' +
+          '<input type="search" placeholder="Search conditions..." class="ps-form-input" style="width:100%;box-sizing:border-box" id="ps-cond-search" value="' + esc(_q) + '" oninput="window._psCatSearch(this.value)">' +
+        '</div>' +
+        '<div style="display:flex;gap:4px;flex-wrap:wrap">' + cats.map(cat =>
+          '<button class="reg-domain-pill' + (cat === _catFilt ? ' active' : '') + '" onclick="window._psCatFilter(\'' + esc(cat) + '\')">' + esc(cat) + '</button>'
+        ).join('') + '</div>' +
+      '</div>' +
+      '<div id="ps-cond-grid">' + _renderGrid() + '</div>';
+
+    window._psCatFilter = (cat) => {
+      _catFilt = cat;
+      const g = document.getElementById('ps-cond-grid');
+      if (g) g.innerHTML = _renderGrid();
+      // Re-paint the pill buttons
+      host.querySelectorAll('.reg-domain-pill').forEach(b => {
+        b.classList.toggle('active', b.textContent.trim() === cat);
+      });
+    };
+    window._psCatSearch = (q) => {
+      _q = q;
+      const g = document.getElementById('ps-cond-grid');
+      if (g) g.innerHTML = _renderGrid();
+    };
+  }
+
+  // ── Tab 2: Generate ────────────────────────────────────────────────────────
+  function _renderGenerate() {
+    const host = document.getElementById('ps-tab-content');
+    if (!host) return;
+
+    const prefill = _prefillCondition ? _prefillCondition.name : '';
+    const prefillId = _prefillCondition ? _prefillCondition.id : '';
+
+    // Card A = Evidence-Based AI
+    const cardA = '<div class="ps-gen-card' + (W.mode === 'evidence' ? ' ps-gen-card--active' : '') + '" onclick="window._psOpenMode(\'evidence\')">' +
+      '<div class="ps-gen-card-icon">&#129504;</div>' +
+      '<div class="ps-gen-card-title">Evidence-Based AI</div>' +
+      '<div class="ps-gen-card-sub">Condition + modality + device + evidence threshold. Calls POST /api/v1/protocols/generate-draft.</div>' +
+    '</div>';
+    // Card B = Brain Scan Guided
+    const cardB = '<div class="ps-gen-card' + (W.mode === 'brainscan' ? ' ps-gen-card--active' : '') + '" onclick="window._psOpenMode(\'brainscan\')">' +
+      '<div class="ps-gen-card-icon">&#129504;</div>' +
+      '<div class="ps-gen-card-title">Brain Scan Guided</div>' +
+      '<div class="ps-gen-card-sub">qEEG / fMRI / NIRS data drives montage selection. Calls POST /api/v1/protocols/generate-brain-scan.</div>' +
+    '</div>';
+    // Card C = Personalized
+    const cardC = '<div class="ps-gen-card' + (W.mode === 'personalized' ? ' ps-gen-card--active' : '') + '" onclick="window._psOpenMode(\'personalized\')">' +
+      '<div class="ps-gen-card-icon">&#129300;</div>' +
+      '<div class="ps-gen-card-title">Personalized Protocol</div>' +
+      '<div class="ps-gen-card-sub">PHQ-9, GAD-7, MoCA, chronotype. Calls POST /api/v1/protocols/generate-personalized.</div>' +
+    '</div>';
+
+    let wizardPanel = '';
+    if (W.mode === 'evidence') {
+      wizardPanel = '<div class="ps-wizard">' +
+        '<div class="ps-wizard-title">&#129504; Evidence-Based AI Generator</div>' +
+        '<div class="ps-form-row">' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-label">Condition *</label>' +
+            '<input class="ps-form-input" id="ps-ev-condition" type="text" placeholder="e.g. Major Depressive Disorder" value="' + esc(prefill) + '">' +
+          '</div>' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-label">Modality *</label>' +
+            '<select class="ps-form-input" id="ps-ev-modality">' +
+              '<option value="tDCS">tDCS</option>' +
+              '<option value="rTMS">rTMS</option>' +
+              '<option value="tACS">tACS</option>' +
+              '<option value="Neurofeedback">Neurofeedback</option>' +
+            '</select>' +
+          '</div>' +
+        '</div>' +
+        '<div class="ps-form-row">' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-label">Device</label>' +
+            '<input class="ps-form-input" id="ps-ev-device" type="text" placeholder="e.g. Soterix 1x1">' +
+          '</div>' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-label">Evidence Threshold</label>' +
+            '<select class="ps-form-input" id="ps-ev-threshold">' +
+              '<option value="Guideline">Grade A — Guideline</option>' +
+              '<option value="Systematic Review" selected>Grade B — Systematic Review</option>' +
+              '<option value="Consensus">Grade C — Consensus</option>' +
+              '<option value="Registry">Registry</option>' +
+            '</select>' +
+          '</div>' +
+        '</div>' +
+        '<div class="ps-form-row">' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-toggle"><input type="checkbox" id="ps-ev-offlabel"> Off-label mode</label>' +
+          '</div>' +
+        '</div>' +
+        (W.error ? '<div style="color:#ef4444;font-size:12px;margin-bottom:10px">' + esc(W.error) + '</div>' : '') +
+        (W.mode === 'evidence' && W.result ? _renderResultCard(W.result, '') : '') +
+        '<button class="ps-save-btn" id="ps-ev-generate-btn" onclick="window._psGenerateEvidence()">' +
+          (W.saving ? '<span class="ps-spin"></span>Generating...' : 'Generate Protocol') +
+        '</button>' +
+      '</div>';
+    } else if (W.mode === 'brainscan') {
+      wizardPanel = '<div class="ps-wizard">' +
+        '<div class="ps-wizard-title">&#129308; Brain Scan Guided Generator</div>' +
+        '<div class="ps-form-row">' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-label">Condition *</label>' +
+            '<input class="ps-form-input" id="ps-bs-condition" type="text" placeholder="e.g. Major Depressive Disorder" value="' + esc(prefill) + '">' +
+          '</div>' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-label">Scan Type</label>' +
+            '<select class="ps-form-input" id="ps-bs-scan-type">' +
+              '<option value="qEEG">qEEG</option>' +
+              '<option value="fMRI">fMRI</option>' +
+              '<option value="NIRS">NIRS</option>' +
+            '</select>' +
+          '</div>' +
+        '</div>' +
+        '<div class="ps-form-row">' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-label">Primary Target</label>' +
+            '<input class="ps-form-input" id="ps-bs-target" type="text" placeholder="e.g. DLPFC, ACC, M1" value="DLPFC">' +
+          '</div>' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-label">EEG Markers (comma-separated)</label>' +
+            '<input class="ps-form-input" id="ps-bs-markers" type="text" placeholder="e.g. alpha-asymmetry, theta">' +
+          '</div>' +
+        '</div>' +
+        '<div class="ps-form-row">' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-label">Phenotype</label>' +
+            '<input class="ps-form-input" id="ps-bs-phenotype" type="text" placeholder="e.g. anxious, melancholic">' +
+          '</div>' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-label">Device</label>' +
+            '<input class="ps-form-input" id="ps-bs-device" type="text" placeholder="e.g. Soterix 1x1">' +
+          '</div>' +
+        '</div>' +
+        (W.error ? '<div style="color:#ef4444;font-size:12px;margin-bottom:10px">' + esc(W.error) + '</div>' : '') +
+        (W.mode === 'brainscan' && W.result ? _renderResultCard(W.result,
+          '<div class="ps-result-section"><strong>Recommended Montage: </strong>' + esc(W.result.recommended_montage || '') + '</div>' +
+          '<div class="ps-result-section"><strong>Scan Guidance: </strong>' + esc(W.result.scan_guidance || '') + '</div>' +
+          '<div class="ps-result-section"><strong>Marker Adjustment: </strong>' + esc(W.result.marker_adjustment || '') + '</div>'
+        ) : '') +
+        '<button class="ps-save-btn" id="ps-bs-generate-btn" onclick="window._psGenerateBrainScan()">' +
+          (W.saving ? '<span class="ps-spin"></span>Generating...' : 'Generate Protocol') +
+        '</button>' +
+      '</div>';
+    } else if (W.mode === 'personalized') {
+      wizardPanel = '<div class="ps-wizard">' +
+        '<div class="ps-wizard-title">&#129300; Personalized Protocol Generator</div>' +
+        '<div class="ps-form-row">' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-label">Condition *</label>' +
+            '<input class="ps-form-input" id="ps-pe-condition" type="text" placeholder="e.g. Major Depressive Disorder" value="' + esc(prefill) + '">' +
+          '</div>' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-label">Patient ID</label>' +
+            '<input class="ps-form-input" id="ps-pe-patient" type="text" placeholder="Patient ID or &quot;Demo Patient&quot;" value="demo">' +
+          '</div>' +
+        '</div>' +
+        '<div class="ps-form-row">' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-label">PHQ-9 Score</label>' +
+            '<input class="ps-form-input" id="ps-pe-phq9" type="number" min="0" max="27" placeholder="0–27">' +
+          '</div>' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-label">GAD-7 Score</label>' +
+            '<input class="ps-form-input" id="ps-pe-gad7" type="number" min="0" max="21" placeholder="0–21">' +
+          '</div>' +
+        '</div>' +
+        '<div class="ps-form-row">' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-label">MoCA Score</label>' +
+            '<input class="ps-form-input" id="ps-pe-moca" type="number" min="0" max="30" placeholder="0–30">' +
+          '</div>' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-label">Chronotype</label>' +
+            '<select class="ps-form-input" id="ps-pe-chronotype">' +
+              '<option value="">Not specified</option>' +
+              '<option value="morning">Morning</option>' +
+              '<option value="evening">Evening</option>' +
+              '<option value="neutral">Neutral</option>' +
+            '</select>' +
+          '</div>' +
+        '</div>' +
+        '<div class="ps-form-row">' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-label">Medication Load</label>' +
+            '<input class="ps-form-input" id="ps-pe-meds" type="text" placeholder="e.g. SSRI, lithium">' +
+          '</div>' +
+          '<div class="ps-form-group">' +
+            '<label class="ps-form-label">Device</label>' +
+            '<input class="ps-form-input" id="ps-pe-device" type="text" placeholder="e.g. Soterix 1x1">' +
+          '</div>' +
+        '</div>' +
+        '<div class="ps-form-group" style="margin-bottom:12px">' +
+          '<label class="ps-form-label">Treatment History</label>' +
+          '<textarea class="ps-form-input" id="ps-pe-history" rows="2" placeholder="Prior treatments, responses, failures..."></textarea>' +
+        '</div>' +
+        (W.error ? '<div style="color:#ef4444;font-size:12px;margin-bottom:10px">' + esc(W.error) + '</div>' : '') +
+        (W.mode === 'personalized' && W.result ? _renderResultCard(W.result,
+          '<div class="ps-result-section"><strong>Personalization Rationale: </strong>' + esc(W.result.personalization_rationale || '') + '</div>'
+        ) : '') +
+        '<button class="ps-save-btn" id="ps-pe-generate-btn" onclick="window._psGeneratePersonalized()">' +
+          (W.saving ? '<span class="ps-spin"></span>Generating...' : 'Generate Protocol') +
+        '</button>' +
+      '</div>';
+    }
+
+    host.innerHTML =
+      '<div style="margin-bottom:6px;font-size:12px;color:var(--text-tertiary)">Choose a generation mode to open the wizard:</div>' +
+      '<div class="ps-gen-cards">' + cardA + cardB + cardC + '</div>' +
+      wizardPanel;
+  }
+
+  // ── Tab 3: Browse ──────────────────────────────────────────────────────────
+  async function _renderBrowse() {
+    const host = document.getElementById('ps-tab-content');
+    if (!host) return;
+    host.innerHTML = '<div class="ps-empty"><span class="ps-spin"></span>Loading protocol library...</div>';
+    // Lazy-import pgProtocolSearch and run it in a sub-container
+    try {
+      const m = await import('./pages-protocols.js');
+      if (typeof m.pgProtocolSearch === 'function') {
+        await m.pgProtocolSearch(
+          () => {},  // suppress topbar changes from inner call
+          navigate,
+        );
+      } else {
+        host.innerHTML = '<div class="ps-empty">Protocol search module unavailable.</div>';
+      }
+    } catch (e) {
+      host.innerHTML = '<div class="ps-empty">Could not load protocol browser: ' + esc(e?.message || 'error') + '</div>';
+    }
+  }
+
+  // ── Tab 4: My Drafts ───────────────────────────────────────────────────────
+  async function _renderDrafts() {
+    const host = document.getElementById('ps-tab-content');
+    if (!host) return;
+    host.innerHTML = '<div class="ps-empty"><span class="ps-spin"></span>Loading drafts...</div>';
+    let items = [];
+    let err = null;
+    try {
+      const r = await api.listSavedProtocols();
+      items = r?.items || [];
+    } catch (e) { err = e?.message || 'endpoint error'; }
+
+    if (err) {
+      host.innerHTML = '<div class="ps-empty">Could not load drafts: ' + esc(err) + '<br><button class="ps-save-btn" style="margin-top:10px" onclick="window._psRenderCurrentTab()">Retry</button></div>';
+      return;
+    }
+    if (!items.length) {
+      host.innerHTML = '<div class="ps-empty">No saved protocol drafts yet.<br>Generate a protocol and click "Save as Draft" to see it here.</div>';
+      return;
+    }
+
+    const _stateClass = (s) => s === 'approved' ? 'ps-state-approved' : s === 'submitted' ? 'ps-state-submitted' : 'ps-state-draft';
+    host.innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
+        '<span style="font-size:13px;font-weight:600">' + items.length + ' saved draft' + (items.length !== 1 ? 's' : '') + '</span>' +
+        '<button class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:4px 10px" onclick="window._psRenderCurrentTab()">&#8635; Refresh</button>' +
+      '</div>' +
+      '<div class="ps-drafts-list">' + items.map(d => {
+        const proto = d.parameters_json || {};
+        const date = d.created_at ? new Date(d.created_at).toLocaleDateString() : '';
+        return '<div class="ps-draft-row">' +
+          '<div style="flex:1;min-width:0">' +
+            '<div class="ps-draft-name">' + esc(d.name || d.condition || 'Draft') + '</div>' +
+            '<div class="ps-draft-meta">' + esc(d.condition || '') + (d.device_slug ? ' \u00B7 ' + esc(d.device_slug) : '') + (date ? ' \u00B7 ' + date : '') + '</div>' +
+          '</div>' +
+          _stateBadge(d.governance_state) +
+          '<button class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:4px 10px;flex-shrink:0" onclick="window._psOpenInBuilder(\'' + esc(d.id) + '\')">Open in Builder</button>' +
+        '</div>';
+      }).join('') + '</div>';
+  }
+
+  // ── Tab switcher ───────────────────────────────────────────────────────────
+  function _renderTabBar() {
+    const tabs = [
+      { id: 'conditions', label: 'Conditions' },
+      { id: 'generate',   label: 'Generate Protocol' },
+      { id: 'browse',     label: 'Browse Protocols' },
+      { id: 'drafts',     label: 'My Drafts' },
+    ];
+    return tabs.map(t =>
+      '<button class="ps-tab' + (_tab === t.id ? ' active' : '') + '" onclick="window._psTab(\'' + t.id + '\')">' + t.label + '</button>'
+    ).join('');
+  }
+
+  // Paint shell once, swap content on tab change
+  el.innerHTML =
+    '<div class="ps-shell">' +
+      '<div class="ps-tab-bar">' + _renderTabBar() + '</div>' +
+      '<div class="ps-body" id="ps-tab-content"></div>' +
+    '</div>';
+
+  // ── Window handlers ────────────────────────────────────────────────────────
+  window._psTab = (tab) => {
+    _tab = tab;
+    window._protocolHubTab = tab;
+    // Re-draw tab bar active state
+    document.querySelectorAll('.ps-tab').forEach(b => {
+      b.classList.toggle('active', b.textContent.trim() === { conditions:'Conditions', generate:'Generate Protocol', browse:'Browse Protocols', drafts:'My Drafts' }[tab]);
+    });
+    window._psRenderCurrentTab();
+  };
+
+  window._psRenderCurrentTab = () => {
+    if (_tab === 'conditions')  _renderConditions();
+    else if (_tab === 'generate')   _renderGenerate();
+    else if (_tab === 'browse')     _renderBrowse();
+    else if (_tab === 'drafts')     _renderDrafts();
+  };
+
+  window._psCondToGenerate = (condId, condName) => {
+    _prefillCondition = { id: condId, name: condName };
+    window._protocolHubCondition = _prefillCondition;
+    W.mode = 'evidence';
+    W.result = null;
+    W.error = null;
+    window._psTab('generate');
+  };
+
+  window._psCondToBrowse = (condId) => {
+    window._protFilterCondition?.(condId);
+    window._psTab('browse');
+  };
+
+  window._psOpenMode = (mode) => {
+    W.mode = mode;
+    W.result = null;
+    W.error = null;
+    W.saving = false;
+    _renderGenerate();
+  };
+
+  window._psGenerateEvidence = async () => {
+    const condEl = document.getElementById('ps-ev-condition');
+    const modEl  = document.getElementById('ps-ev-modality');
+    const devEl  = document.getElementById('ps-ev-device');
+    const thrEl  = document.getElementById('ps-ev-threshold');
+    const olEl   = document.getElementById('ps-ev-offlabel');
+    const condition = (condEl && condEl.value.trim()) || '';
+    const modality  = (modEl && modEl.value) || 'tDCS';
+    if (!condition) { W.error = 'Condition is required.'; _renderGenerate(); return; }
+    W.saving = true; W.error = null; W.result = null;
+    _renderGenerate();
+    try {
+      const payload = {
+        condition,
+        symptom_cluster: 'General',
+        modality,
+        device: (devEl && devEl.value.trim()) || '',
+        setting: 'Clinic',
+        evidence_threshold: (thrEl && thrEl.value) || 'Systematic Review',
+        off_label: !!(olEl && olEl.checked),
+      };
+      W.result = await api.generateProtocol(payload);
+      W.error = null;
+    } catch (e) { W.error = e?.message || 'Generation failed.'; }
+    W.saving = false;
+    _renderGenerate();
+  };
+
+  window._psGenerateBrainScan = async () => {
+    const condEl    = document.getElementById('ps-bs-condition');
+    const scanEl    = document.getElementById('ps-bs-scan-type');
+    const targetEl  = document.getElementById('ps-bs-target');
+    const markersEl = document.getElementById('ps-bs-markers');
+    const phenoEl   = document.getElementById('ps-bs-phenotype');
+    const devEl     = document.getElementById('ps-bs-device');
+    const condition = (condEl && condEl.value.trim()) || '';
+    if (!condition) { W.error = 'Condition is required.'; _renderGenerate(); return; }
+    W.saving = true; W.error = null; W.result = null;
+    _renderGenerate();
+    try {
+      const markers = (markersEl && markersEl.value) ? markersEl.value.split(',').map(s => s.trim()).filter(Boolean) : [];
+      const payload = {
+        condition,
+        scan_type: (scanEl && scanEl.value) || 'qEEG',
+        primary_target: (targetEl && targetEl.value.trim()) || 'DLPFC',
+        eeg_markers: markers,
+        phenotype: (phenoEl && phenoEl.value.trim()) || '',
+        device: (devEl && devEl.value.trim()) || '',
+      };
+      W.result = await api.generateBrainScanProtocol(payload);
+      W.error = null;
+    } catch (e) { W.error = e?.message || 'Generation failed.'; }
+    W.saving = false;
+    _renderGenerate();
+  };
+
+  window._psGeneratePersonalized = async () => {
+    const condEl    = document.getElementById('ps-pe-condition');
+    const patEl     = document.getElementById('ps-pe-patient');
+    const phq9El    = document.getElementById('ps-pe-phq9');
+    const gad7El    = document.getElementById('ps-pe-gad7');
+    const mocaEl    = document.getElementById('ps-pe-moca');
+    const chrEl     = document.getElementById('ps-pe-chronotype');
+    const medsEl    = document.getElementById('ps-pe-meds');
+    const devEl     = document.getElementById('ps-pe-device');
+    const histEl    = document.getElementById('ps-pe-history');
+    const condition = (condEl && condEl.value.trim()) || '';
+    if (!condition) { W.error = 'Condition is required.'; _renderGenerate(); return; }
+    W.saving = true; W.error = null; W.result = null;
+    _renderGenerate();
+    try {
+      const parseScore = (el) => { const v = el && el.value.trim(); return (v !== '' && !isNaN(v)) ? parseFloat(v) : null; };
+      const payload = {
+        condition,
+        patient_id: (patEl && patEl.value.trim()) || 'demo',
+        phq9: parseScore(phq9El),
+        gad7: parseScore(gad7El),
+        moca: parseScore(mocaEl),
+        medication_load: (medsEl && medsEl.value.trim()) || '',
+        chronotype: (chrEl && chrEl.value) || '',
+        treatment_history: (histEl && histEl.value.trim()) || '',
+        device: (devEl && devEl.value.trim()) || '',
+      };
+      W.result = await api.generatePersonalizedProtocol(payload);
+      W.error = null;
+    } catch (e) { W.error = e?.message || 'Generation failed.'; }
+    W.saving = false;
+    _renderGenerate();
+  };
+
+  window._psSaveDraft = async () => {
+    if (!W.result) return;
+    const btn = document.getElementById('ps-save-draft-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+    const condition = (W.result.rationale || '').split('/')[0]?.trim() || 'unknown';
+    const patientId = window._builderPatientId || null;
+    if (!patientId) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save as Draft'; }
+      window._showNotifToast?.({ title: 'No Patient Selected', body: 'Attach a patient context to save to backend. Use the 5-step wizard for patient-linked saves.', severity: 'warn' });
+      return;
+    }
+    try {
+      await api.saveProtocol({
+        patient_id: patientId,
+        name: 'Generated: ' + condition,
+        condition,
+        modality: 'tDCS',
+        governance_state: 'draft',
+        parameters_json: {
+          target_region: W.result.target_region,
+          session_frequency: W.result.session_frequency,
+          duration: W.result.duration,
+        },
+        evidence_refs: [],
+      });
+      window._showNotifToast?.({ title: 'Saved', body: 'Protocol draft saved.', severity: 'success' });
+    } catch (e) {
+      window._showNotifToast?.({ title: 'Save Failed', body: e?.message || 'endpoint error', severity: 'error' });
+    }
+    if (btn) { btn.disabled = false; btn.textContent = 'Save as Draft'; }
+  };
+
+  window._psOpenInBuilder = (draftId) => {
+    window._protDetailId = draftId;
+    window._nav('protocol-builder');
+  };
+
+  // ── Initial render ─────────────────────────────────────────────────────────
+  window._psRenderCurrentTab();
+}
+
+// Legacy 5-step wizard: still accessible via protocol-builder-full route.
+// pgProtocolStudio remains exported for direct use from that route.
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -3732,7 +4405,14 @@ export const libraryHelpers = {
 };
 
 export async function pgLibraryHub(setTopbar, navigate) {
-  const tab = window._libraryHubTab || 'conditions';
+  // Conditions tab moved to Protocol Studio. Redirect stale deep-links.
+  if (window._libraryHubTab === 'conditions') {
+    window._libraryHubTab = 'devices';
+    window._protocolHubTab = 'conditions';
+    window._nav('protocol-hub');
+    return;
+  }
+  const tab = window._libraryHubTab || 'devices';
   window._libraryHubTab = tab;
   const el = document.getElementById('content');
   const esc = libraryHelpers.esc;
@@ -3755,8 +4435,9 @@ export async function pgLibraryHub(setTopbar, navigate) {
   );
   const _needsReviewCount = _needsReviewRows.length;
 
+  // "Conditions" tab moved to Protocol Studio (protocol-hub route, Tab 1).
+  // Library Hub retains Devices, Packages, Evidence, and Needs Review.
   const TAB_META = {
-    conditions:    { label: 'Conditions',         color: 'var(--blue)'   },
     devices:       { label: 'Devices',            color: 'var(--teal)'   },
     packages:      { label: 'Condition Packages', color: 'var(--rose)'   },
     evidence:      { label: 'Evidence & Search',  color: 'var(--violet)' },
@@ -3828,8 +4509,9 @@ export async function pgLibraryHub(setTopbar, navigate) {
 
   // ── Window handlers (page-scoped — do not leak beyond this page) ───────
   window._libFindProtocol = (condId, condName) => {
+    // Route to Protocol Studio Generate tab with condition pre-filled.
     window._protocolHubCondition = { id: condId, name: condName };
-    window._protocolHubTab = 'search';
+    window._protocolHubTab = 'generate';
     window._nav('protocol-hub');
   };
   window._libOpenPackage = (slug) => {
