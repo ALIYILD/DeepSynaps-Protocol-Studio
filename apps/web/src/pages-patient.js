@@ -345,6 +345,8 @@ export async function pgPatientDashboard(user) {
     wearableSummaryRaw,
     homeTasksRaw,
     homeTasksPortalRaw,
+    wellnessLogsRaw,
+    dashboardRaw,
   ] = await Promise.all([
     api.patientPortalSessions().catch(() => null),
     api.patientPortalCourses().catch(() => null),
@@ -353,6 +355,8 @@ export async function pgPatientDashboard(user) {
     api.patientPortalWearableSummary(7).catch(() => null),
     (patientId ? api.listHomeProgramTasks({ patient_id: patientId }).catch(() => null) : Promise.resolve(null)),
     (api.portalListHomeProgramTasks ? api.portalListHomeProgramTasks().catch(() => null) : Promise.resolve(null)),
+    (api.patientPortalWellnessLogs ? api.patientPortalWellnessLogs(7).catch(() => null) : Promise.resolve(null)),
+    (api.patientPortalDashboard ? api.patientPortalDashboard().catch(() => null) : Promise.resolve(null)),
   ]);
 
   const sessions     = Array.isArray(portalSessions) ? portalSessions : [];
@@ -560,7 +564,10 @@ export async function pgPatientDashboard(user) {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const todayStr = new Date().toISOString().slice(0, 10);
-  const checkedInToday = localStorage.getItem('ds_last_checkin') === todayStr;
+  const _wellnessLogs = Array.isArray(wellnessLogsRaw) ? wellnessLogsRaw : [];
+  const checkedInToday = dashboardRaw?.last_checkin_date === todayStr
+    || _wellnessLogs.some(function(l) { return l.date === todayStr; })
+    || localStorage.getItem('ds_last_checkin') === todayStr;
   const dateLabel = (() => {
     try { return new Date().toLocaleDateString(loc, { weekday: 'long', month: 'long', day: 'numeric' }); }
     catch (_e) { return todayStr; }
@@ -569,20 +576,19 @@ export async function pgPatientDashboard(user) {
   // ── Outcome grouping ───────────────────────────────────────────────────────
   const outcomeGroups = groupOutcomesByTemplate(outcomes, 4);
 
-  // ── Wellness ring value (kept — derived from check-in + wearable) ──────────
+  // ── Wellness ring value (derived from API wellness-logs + wearable) ────────
   function _ptdWellnessRingValue() {
     const pieces = [];
-    // Mood recency (last 7 days of ds_checkin_* in localStorage)
-    const last7 = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-      const raw = localStorage.getItem('ds_checkin_' + d);
-      if (raw) {
-        try {
-          const c = JSON.parse(raw);
-          const avg = ((Number(c.mood) || 0) + (Number(c.sleep) || 0) + (Number(c.energy) || 0)) / 3;
-          if (avg > 0) last7.push(avg);
-        } catch (_e) {}
+    // Mood recency from API logs (last 7 days)
+    const last7 = _wellnessLogs.slice(0, 7).map(function(l) {
+      return ((Number(l.mood) || 0) + (Number(l.sleep) || 0) + (Number(l.energy) || 0)) / 3;
+    }).filter(function(v) { return v > 0; });
+    // Fallback to localStorage if API returned nothing
+    if (!last7.length) {
+      for (var i = 6; i >= 0; i--) {
+        var d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+        var raw2 = localStorage.getItem('ds_checkin_' + d);
+        if (raw2) { try { var c2 = JSON.parse(raw2); var avg2 = ((Number(c2.mood)||0)+(Number(c2.sleep)||0)+(Number(c2.energy)||0))/3; if(avg2>0) last7.push(avg2); } catch(_e){} }
       }
     }
     if (last7.length) {
@@ -635,8 +641,10 @@ export async function pgPatientDashboard(user) {
     return unread[0] || null;
   })();
 
-  // ── Streak (persisted client-side) ─────────────────────────────────────────
-  const streak = parseInt(localStorage.getItem('ds_wellness_streak') || '0', 10) || 0;
+  // ── Streak (from API dashboard, fallback to localStorage) ─────────────────
+  const streak = dashboardRaw?.wellness_streak != null
+    ? dashboardRaw.wellness_streak
+    : (parseInt(localStorage.getItem('ds_wellness_streak') || '0', 10) || 0);
 
   // ── Alt-variant soft line (patient-friendly wording only) ──────────────────
   const altVariant = activeCourse?.alt_variant
@@ -1901,7 +1909,8 @@ export async function pgPatientDashboard(user) {
   window._hmLogMood = async function() {
     const v = parseInt(localStorage.getItem('ds_hm_pending_mood') || '5', 10) || 5;
     const iso = new Date().toISOString().slice(0, 10);
-    const payload = { mood: v, sleep: 5, energy: 5, side_effects: 'none', date: new Date().toISOString() };
+    const payload = { mood: v, sleep: 5, energy: 5, side_effects: 'none', date: iso };
+    // Persist to localStorage as fast fallback
     try {
       localStorage.setItem('ds_last_checkin', iso);
       localStorage.setItem('ds_checkin_' + iso, JSON.stringify(payload));
@@ -1911,7 +1920,15 @@ export async function pgPatientDashboard(user) {
       localStorage.setItem('ds_wellness_streak', String(prev === yest ? cur + 1 : 1));
       localStorage.setItem('ds_last_checkin_prev', iso);
     } catch (_e) {}
-    try { const uid = user?.patient_id || user?.id; if (uid) await api.submitAssessment(uid, { type: 'wellness_checkin', ...payload }).catch(() => {}); } catch (_e) {}
+    // POST to backend wellness-logs endpoint (preferred)
+    try {
+      if (api.patientPortalSubmitWellnessLog) {
+        await api.patientPortalSubmitWellnessLog(payload).catch(() => {});
+      } else {
+        const uid = user?.patient_id || user?.id;
+        if (uid) await api.submitAssessment(uid, { type: 'wellness_checkin', ...payload }).catch(() => {});
+      }
+    } catch (_e) {}
     _hmShowToast('Mood logged \u2013 great job');
   };
   window._hmStartTask = function(id, kind) {
@@ -9873,9 +9890,19 @@ export async function pgPatientLearn() {
   setTopbar(t('patient.nav.learn'));
   const el = document.getElementById('patient-content');
 
-  // Track read articles
+  // Track read articles — fetch from API, fall back to localStorage
   let readArticles = [];
-  try { readArticles = JSON.parse(localStorage.getItem('ds_read_articles') || '[]'); } catch (_e) {}
+  try {
+    const { api: _api } = await import('./api.js');
+    const prog = _api.patientPortalLearnProgress ? await _api.patientPortalLearnProgress().catch(() => null) : null;
+    if (prog && Array.isArray(prog.read_article_ids)) {
+      readArticles = prog.read_article_ids;
+    } else {
+      readArticles = JSON.parse(localStorage.getItem('ds_read_articles') || '[]');
+    }
+  } catch (_e) {
+    try { readArticles = JSON.parse(localStorage.getItem('ds_read_articles') || '[]'); } catch (_e2) {}
+  }
 
   const categories = ['All', ...Array.from(new Set(LEARN_ARTICLES.map(a => a.category)))];
   let activeCategory = 'All';
@@ -10029,6 +10056,10 @@ export async function pgPatientLearn() {
     if (!readArticles.includes(id)) {
       readArticles.push(id);
       try { localStorage.setItem('ds_read_articles', JSON.stringify(readArticles)); } catch (_e) {}
+      // Sync to backend
+      import('./api.js').then(function(m) {
+        if (m.api && m.api.patientPortalMarkLearnRead) m.api.patientPortalMarkLearnRead(id).catch(function() {});
+      }).catch(function() {});
     }
     const wrap = document.getElementById('learn-mark-read-wrap');
     if (wrap) {

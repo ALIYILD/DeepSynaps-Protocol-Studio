@@ -1025,6 +1025,19 @@ window._bootPatient = function() {
   window._currentPatientPage = 'patient-portal';
   _injectPatientLangPicker();
   renderPatientPage();
+  // Seed bell notifications from patient portal API (non-blocking)
+  if (api.patientPortalNotifications) {
+    api.patientPortalNotifications().then(function(items) {
+      if (!Array.isArray(items)) return;
+      items.forEach(function(n) {
+        if (_notifs.find(function(x) { return x.id === n.id; })) return;
+        _notifs.push({ id: n.id, type: n.type, title: n.title, body: n.body,
+          link: n.action_url || '', ts: n.created_at, read: n.is_read });
+        if (!n.is_read) _notifCount++;
+      });
+      window._updateNotifBadge();
+    }).catch(function() {});
+  }
   // Re-render nav + current page on locale change
   window.removeEventListener('ds:locale-changed', window._ptLocaleHandler);
   window._ptLocaleHandler = () => renderPatientPage();
