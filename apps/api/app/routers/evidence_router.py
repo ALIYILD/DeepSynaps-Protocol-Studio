@@ -53,6 +53,20 @@ from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimu
 from app.database import get_db_session
 from app.logging_setup import get_logger
 from app.persistence.models import LiteraturePaper
+from app.services.neuromodulation_research import (
+    build_research_summary,
+    dataset_keys,
+    dataset_path,
+    get_condition_knowledge as get_research_condition_knowledge,
+    list_condition_knowledge as list_research_condition_knowledge,
+    list_datasets as list_research_datasets,
+    list_evidence_graph as list_research_evidence_graph,
+    list_exact_protocols as list_research_exact_protocols,
+    list_protocol_templates as list_research_protocol_templates,
+    list_safety_signals as list_research_safety_signals,
+    research_health as neuromodulation_research_health,
+    search_ai_ingestion as search_research_ai_ingestion,
+)
 
 
 router = APIRouter(prefix="/api/v1/evidence", tags=["Evidence"])
@@ -163,6 +177,123 @@ class PromoteOut(BaseModel):
     title: str
 
 
+class ResearchDatasetOut(BaseModel):
+    key: str
+    label: str
+    description: str
+    filename: str
+    path: str
+    rows: int
+    size_bytes: int
+    modified_at: float
+
+
+class ResearchHealthOut(BaseModel):
+    ok: bool
+    bundle_root: str
+    dataset_count: int
+    datasets: list[ResearchDatasetOut]
+
+
+class ResearchPaperOut(BaseModel):
+    paper_key: Optional[str] = None
+    title: Optional[str] = None
+    authors: Optional[str] = None
+    journal: Optional[str] = None
+    year: Optional[int] = None
+    doi: Optional[str] = None
+    pmid: Optional[str] = None
+    pmcid: Optional[str] = None
+    primary_modality: Optional[str] = None
+    canonical_modalities: list[str] = Field(default_factory=list)
+    indication_tags: list[str] = Field(default_factory=list)
+    population_tags: list[str] = Field(default_factory=list)
+    target_tags: list[str] = Field(default_factory=list)
+    parameter_signal_tags: list[str] = Field(default_factory=list)
+    study_type_normalized: Optional[str] = None
+    evidence_tier: Optional[str] = None
+    protocol_relevance_score: int = 0
+    citation_count: int = 0
+    open_access_flag: bool = False
+    record_url: Optional[str] = None
+    source_exports: list[str] = Field(default_factory=list)
+
+
+class ResearchTemplateOut(BaseModel):
+    modality: Optional[str] = None
+    indication: Optional[str] = None
+    target: Optional[str] = None
+    invasiveness: Optional[str] = None
+    paper_count: int = 0
+    citation_sum: int = 0
+    template_support_score: int = 0
+    top_study_types: str = ""
+    top_parameter_tags: str = ""
+    top_population_tags: str = ""
+    top_safety_tags: str = ""
+    example_titles: str = ""
+
+
+class ResearchGraphOut(BaseModel):
+    indication: Optional[str] = None
+    modality: Optional[str] = None
+    target: Optional[str] = None
+    paper_count: int = 0
+    citation_sum: int = 0
+    evidence_weight_sum: int = 0
+    mean_citations_per_paper: float = 0.0
+    top_study_types: str = ""
+    top_parameter_tags: str = ""
+    top_safety_tags: str = ""
+    open_access_count: int = 0
+    year_min: Optional[int] = None
+    year_max: Optional[int] = None
+
+
+class ResearchSafetySignalOut(BaseModel):
+    paper_key: Optional[str] = None
+    title: Optional[str] = None
+    year: Optional[int] = None
+    primary_modality: Optional[str] = None
+    canonical_modalities: list[str] = Field(default_factory=list)
+    indication_tags: list[str] = Field(default_factory=list)
+    study_type_normalized: Optional[str] = None
+    evidence_tier: Optional[str] = None
+    safety_signal_tags: list[str] = Field(default_factory=list)
+    contraindication_signal_tags: list[str] = Field(default_factory=list)
+    population_tags: list[str] = Field(default_factory=list)
+    target_tags: list[str] = Field(default_factory=list)
+    parameter_signal_tags: list[str] = Field(default_factory=list)
+    record_url: Optional[str] = None
+
+
+class ResearchFacetCount(BaseModel):
+    key: str
+    count: int
+
+
+class ResearchSummaryOut(BaseModel):
+    filters: dict[str, Optional[str]]
+    paper_count: int
+    open_access_paper_count: int
+    top_evidence_tiers: list[ResearchFacetCount] = Field(default_factory=list)
+    top_study_types: list[ResearchFacetCount] = Field(default_factory=list)
+    top_modalities: list[ResearchFacetCount] = Field(default_factory=list)
+    top_indications: list[ResearchFacetCount] = Field(default_factory=list)
+    top_safety_tags: list[ResearchFacetCount] = Field(default_factory=list)
+    top_evidence_links: list[ResearchGraphOut] = Field(default_factory=list)
+    top_protocol_templates: list[ResearchTemplateOut] = Field(default_factory=list)
+    recent_safety_signals: list[ResearchSafetySignalOut] = Field(default_factory=list)
+
+
+class ResearchConditionOut(BaseModel):
+    condition_slug: str
+    condition_label: str
+    research_paper_count: int = 0
+    priority_modalities: list[str] = Field(default_factory=list)
+    top_safety_signals: list[dict] = Field(default_factory=list)
+
+
 # ── Evidence score (mirrors services/evidence-pipeline/query.py) ──────────────
 
 _PUB_TYPE_TIER = {
@@ -204,6 +335,54 @@ def _paper_row_to_out(row: sqlite3.Row, include_abstract: bool = False) -> Paper
     return out
 
 
+# ── Schemas for new convenience endpoints ────────────────────────────────────
+
+class SuggestPaperOut(BaseModel):
+    id: int
+    pmid: Optional[str] = None
+    doi: Optional[str] = None
+    title: Optional[str] = None
+    year: Optional[int] = None
+    journal: Optional[str] = None
+    authors: list[str] = Field(default_factory=list)
+    pub_types: list[str] = Field(default_factory=list)
+    cited_by_count: Optional[int] = None
+    is_oa: bool = False
+    oa_url: Optional[str] = None
+    evidence_grade: Optional[str] = None
+
+
+class SuggestTrialOut(BaseModel):
+    nct_id: str
+    title: Optional[str] = None
+    phase: Optional[str] = None
+    status: Optional[str] = None
+    enrollment: Optional[int] = None
+    sponsor: Optional[str] = None
+
+
+class SuggestOut(BaseModel):
+    papers: list[SuggestPaperOut] = Field(default_factory=list)
+    trials: list[SuggestTrialOut] = Field(default_factory=list)
+    indication_slug: Optional[str] = None
+    indication_label: Optional[str] = None
+    evidence_grade: Optional[str] = None
+
+
+class ForProtocolOut(BaseModel):
+    protocol_id: str
+    papers: list[PaperOut] = Field(default_factory=list)
+    trials: list[TrialOut] = Field(default_factory=list)
+    devices: list[DeviceOut] = Field(default_factory=list)
+
+
+class StatusOut(BaseModel):
+    total_papers: int
+    total_trials: int
+    total_fda: int
+    last_updated: Optional[str] = None
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("/health", response_model=HealthOut)
@@ -218,6 +397,257 @@ def evidence_health(actor: AuthenticatedActor = Depends(get_authenticated_actor)
     finally:
         conn.close()
     return HealthOut(ok=True, db_path=_default_db_path(), counts=counts)
+
+
+@router.get("/status", response_model=StatusOut)
+def evidence_status() -> StatusOut:
+    """Public endpoint — no auth. Returns total record counts and last ingest
+    timestamp from the evidence DB. Returns zeros if the DB is absent.
+    Used by the Protocol Detail footer: 'Evidence DB: N records · updated Xh ago'."""
+    path = _default_db_path()
+    if not os.path.exists(path):
+        return StatusOut(total_papers=0, total_trials=0, total_fda=0, last_updated=None)
+    try:
+        conn = sqlite3.connect(path, timeout=5)
+        conn.execute("PRAGMA query_only = 1")
+        total_papers = conn.execute("SELECT count(*) FROM papers").fetchone()[0]
+        total_trials = conn.execute("SELECT count(*) FROM trials").fetchone()[0]
+        total_fda = conn.execute("SELECT count(*) FROM devices").fetchone()[0]
+        last_updated = conn.execute(
+            "SELECT MAX(last_ingested) FROM papers"
+        ).fetchone()[0]
+        conn.close()
+    except Exception:
+        return StatusOut(total_papers=0, total_trials=0, total_fda=0, last_updated=None)
+    return StatusOut(
+        total_papers=total_papers,
+        total_trials=total_trials,
+        total_fda=total_fda,
+        last_updated=last_updated,
+    )
+
+
+@router.get("/suggest", response_model=SuggestOut)
+def evidence_suggest(
+    modality: Optional[str] = Query(None, description="Modality slug e.g. rtms, tdcs, vns."),
+    indication: Optional[str] = Query(None, description="Condition/indication free-text or slug e.g. depression, mdd."),
+    limit: int = Query(5, ge=1, le=20),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> SuggestOut:
+    """Top papers + trials ranked by citation count / recency for a given
+    modality + indication pair. Used by Protocol Builder to populate the
+    'Evidence basis' collapsible panel when the clinician selects device+condition.
+
+    Matching strategy (most-specific first):
+    1. Exact indication slug match (indications.slug LIKE '%{indication}%')
+    2. Modality column match (indications.modality = modality)
+    3. Falls back to full-text search over paper titles/abstracts.
+    """
+    require_minimum_role(actor, "clinician")
+    conn = _evidence_conn()
+    try:
+        # Resolve indication slug — try exact then fuzzy
+        ind_row = None
+        if indication:
+            ind_row = conn.execute(
+                "SELECT id, slug, label, modality, evidence_grade "
+                "FROM indications WHERE slug = ? LIMIT 1",
+                (indication,),
+            ).fetchone()
+            if not ind_row:
+                ind_row = conn.execute(
+                    "SELECT id, slug, label, modality, evidence_grade "
+                    "FROM indications WHERE slug LIKE ? OR label LIKE ? LIMIT 1",
+                    (f"%{indication}%", f"%{indication}%"),
+                ).fetchone()
+        if not ind_row and modality:
+            ind_row = conn.execute(
+                "SELECT id, slug, label, modality, evidence_grade "
+                "FROM indications WHERE modality = ? LIMIT 1",
+                (modality,),
+            ).fetchone()
+
+        papers: list[SuggestPaperOut] = []
+        trials: list[SuggestTrialOut] = []
+
+        if ind_row:
+            ind_id = ind_row["id"]
+            raw_papers = conn.execute(
+                "SELECT p.id, p.pmid, p.doi, p.title, p.year, p.journal, "
+                "p.cited_by_count, p.is_oa, p.oa_url, p.pub_types_json, "
+                "p.authors_json, i.evidence_grade "
+                "FROM papers p "
+                "JOIN paper_indications pi ON pi.paper_id = p.id "
+                "JOIN indications i ON i.id = pi.indication_id "
+                "WHERE pi.indication_id = ? "
+                "LIMIT ?",
+                (ind_id, limit * 4),
+            ).fetchall()
+            ranked = sorted(raw_papers, key=_score, reverse=True)[:limit]
+            for r in ranked:
+                papers.append(SuggestPaperOut(
+                    id=r["id"], pmid=r["pmid"], doi=r["doi"],
+                    title=r["title"], year=r["year"], journal=r["journal"],
+                    authors=json.loads(r["authors_json"] or "[]"),
+                    pub_types=json.loads(r["pub_types_json"] or "[]"),
+                    cited_by_count=r["cited_by_count"],
+                    is_oa=bool(r["is_oa"]),
+                    oa_url=r["oa_url"],
+                    evidence_grade=r["evidence_grade"],
+                ))
+
+            raw_trials = conn.execute(
+                "SELECT t.nct_id, t.title, t.phase, t.status, t.enrollment, t.sponsor "
+                "FROM trials t "
+                "JOIN trial_indications ti ON ti.trial_id = t.id "
+                "WHERE ti.indication_id = ? "
+                "ORDER BY t.last_update DESC LIMIT ?",
+                (ind_id, limit),
+            ).fetchall()
+            for r in raw_trials:
+                trials.append(SuggestTrialOut(
+                    nct_id=r["nct_id"], title=r["title"], phase=r["phase"],
+                    status=r["status"], enrollment=r["enrollment"], sponsor=r["sponsor"],
+                ))
+        elif indication or modality:
+            # Fallback: FTS over paper titles
+            fts_q = indication or modality or ""
+            try:
+                raw_papers = conn.execute(
+                    "SELECT p.id, p.pmid, p.doi, p.title, p.year, p.journal, "
+                    "p.cited_by_count, p.is_oa, p.oa_url, p.pub_types_json, p.authors_json "
+                    "FROM papers p "
+                    "JOIN papers_fts f ON f.rowid = p.id "
+                    "WHERE papers_fts MATCH ? LIMIT ?",
+                    (fts_q, limit * 4),
+                ).fetchall()
+                ranked = sorted(raw_papers, key=_score, reverse=True)[:limit]
+                for r in ranked:
+                    papers.append(SuggestPaperOut(
+                        id=r["id"], pmid=r["pmid"], doi=r["doi"],
+                        title=r["title"], year=r["year"], journal=r["journal"],
+                        authors=json.loads(r["authors_json"] or "[]"),
+                        pub_types=json.loads(r["pub_types_json"] or "[]"),
+                        cited_by_count=r["cited_by_count"],
+                        is_oa=bool(r["is_oa"]),
+                        oa_url=r["oa_url"],
+                    ))
+            except Exception:
+                pass  # FTS not available — return empty
+
+    finally:
+        conn.close()
+
+    _audit("evidence.suggest", actor, modality=modality, indication=indication, result_count=len(papers) + len(trials))
+    return SuggestOut(
+        papers=papers,
+        trials=trials,
+        indication_slug=ind_row["slug"] if ind_row else None,
+        indication_label=ind_row["label"] if ind_row else None,
+        evidence_grade=ind_row["evidence_grade"] if ind_row else None,
+    )
+
+
+@router.get("/for-protocol/{protocol_id}", response_model=ForProtocolOut)
+def evidence_for_protocol(
+    protocol_id: str = PathParam(...),
+    limit: int = Query(10, ge=1, le=50),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ForProtocolOut:
+    """Papers, trials, and FDA device records linked to a protocol.
+
+    Matching strategy: the protocol_id is decoded as '{modality}_{condition}'
+    (e.g. 'rtms_mdd', 'tdcs_depression') or a plain condition slug. Falls back
+    to FTS search on the id string. Returns empty lists when the DB is absent —
+    never raises.
+    """
+    require_minimum_role(actor, "clinician")
+    conn = _evidence_conn()
+    try:
+        # Heuristic: protocol IDs often encode modality+condition as 'mod-cond-...'
+        # or 'mod_cond'. Extract both parts.
+        parts = protocol_id.replace("-", "_").split("_")
+        modality_guess = parts[0] if parts else ""
+        condition_guess = "_".join(parts[1:]) if len(parts) > 1 else protocol_id
+
+        # Try to find a matching indication
+        ind_row = conn.execute(
+            "SELECT id, slug, label, modality, evidence_grade "
+            "FROM indications WHERE slug LIKE ? OR slug LIKE ? OR label LIKE ? LIMIT 1",
+            (f"%{condition_guess}%", f"%{protocol_id}%", f"%{condition_guess}%"),
+        ).fetchone()
+
+        papers: list[PaperOut] = []
+        trials: list[TrialOut] = []
+        devices: list[DeviceOut] = []
+
+        if ind_row:
+            ind_id = ind_row["id"]
+            raw_papers = conn.execute(
+                "SELECT p.id, p.pmid, p.doi, p.openalex_id, p.title, p.year, p.journal, "
+                "p.cited_by_count, p.is_oa, p.oa_url, p.pub_types_json, "
+                "p.authors_json, p.sources_json "
+                "FROM papers p "
+                "JOIN paper_indications pi ON pi.paper_id = p.id "
+                "WHERE pi.indication_id = ? LIMIT ?",
+                (ind_id, limit * 4),
+            ).fetchall()
+            ranked = sorted(raw_papers, key=_score, reverse=True)[:limit]
+            papers = [_paper_row_to_out(r) for r in ranked]
+
+            raw_trials = conn.execute(
+                "SELECT t.nct_id, t.title, t.phase, t.status, t.enrollment, t.sponsor, "
+                "t.conditions_json, t.interventions_json, t.outcomes_json, "
+                "t.brief_summary, t.start_date, t.last_update "
+                "FROM trials t "
+                "JOIN trial_indications ti ON ti.trial_id = t.id "
+                "WHERE ti.indication_id = ? "
+                "ORDER BY t.last_update DESC LIMIT ?",
+                (ind_id, limit),
+            ).fetchall()
+            for r in raw_trials:
+                trials.append(TrialOut(
+                    nct_id=r["nct_id"], title=r["title"], phase=r["phase"],
+                    status=r["status"], enrollment=r["enrollment"], sponsor=r["sponsor"],
+                    conditions=json.loads(r["conditions_json"] or "[]"),
+                    interventions=json.loads(r["interventions_json"] or "[]"),
+                    outcomes=json.loads(r["outcomes_json"] or "[]"),
+                    brief_summary=r["brief_summary"],
+                    start_date=r["start_date"],
+                    last_update=r["last_update"],
+                ))
+
+            raw_devices = conn.execute(
+                "SELECT d.kind, d.number, d.applicant, d.trade_name, d.product_code, d.decision_date "
+                "FROM devices d "
+                "JOIN device_indications di ON di.device_id = d.id "
+                "WHERE di.indication_id = ? "
+                "ORDER BY d.decision_date DESC LIMIT ?",
+                (ind_id, limit),
+            ).fetchall()
+            devices = [DeviceOut(**dict(r)) for r in raw_devices]
+        else:
+            # Fallback FTS
+            try:
+                fts_q = condition_guess or protocol_id
+                raw_papers = conn.execute(
+                    "SELECT p.id, p.pmid, p.doi, p.openalex_id, p.title, p.year, p.journal, "
+                    "p.cited_by_count, p.is_oa, p.oa_url, p.pub_types_json, "
+                    "p.authors_json, p.sources_json "
+                    "FROM papers p "
+                    "JOIN papers_fts f ON f.rowid = p.id "
+                    "WHERE papers_fts MATCH ? LIMIT ?",
+                    (fts_q, limit * 4),
+                ).fetchall()
+                ranked = sorted(raw_papers, key=_score, reverse=True)[:limit]
+                papers = [_paper_row_to_out(r) for r in ranked]
+            except Exception:
+                pass
+    finally:
+        conn.close()
+
+    _audit("evidence.for_protocol", actor, protocol_id=protocol_id, result_count=len(papers) + len(trials))
+    return ForProtocolOut(protocol_id=protocol_id, papers=papers, trials=trials, devices=devices)
 
 
 @router.get("/stats")
@@ -239,6 +669,170 @@ def evidence_stats() -> dict:
     except Exception:
         return {"ok": False, "counts": {}}
     return {"ok": True, "counts": counts}
+
+
+@router.get("/research/health", response_model=ResearchHealthOut)
+def neuromodulation_artifact_health(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ResearchHealthOut:
+    require_minimum_role(actor, "clinician")
+    return ResearchHealthOut(**neuromodulation_research_health())
+
+
+@router.get("/research/datasets", response_model=list[ResearchDatasetOut])
+def list_neuromodulation_research_datasets(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[ResearchDatasetOut]:
+    require_minimum_role(actor, "clinician")
+    return [ResearchDatasetOut(**item) for item in list_research_datasets()]
+
+
+@router.get("/research/datasets/{dataset_key}/download")
+def download_neuromodulation_research_dataset(
+    dataset_key: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> FileResponse:
+    require_minimum_role(actor, "clinician")
+    if dataset_key not in dataset_keys():
+        raise HTTPException(status_code=404, detail="unknown research dataset")
+    path = dataset_path(dataset_key)
+    return FileResponse(str(path), media_type="text/csv", filename=path.name)
+
+
+@router.get("/research/conditions", response_model=list[ResearchConditionOut])
+def list_neuromodulation_research_conditions(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[ResearchConditionOut]:
+    require_minimum_role(actor, "clinician")
+    return [ResearchConditionOut(**item) for item in list_research_condition_knowledge()]
+
+
+@router.get("/research/conditions/{condition_slug}")
+def get_neuromodulation_research_condition(
+    condition_slug: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict:
+    require_minimum_role(actor, "clinician")
+    payload = get_research_condition_knowledge(condition_slug)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="condition knowledge not found")
+    return payload
+
+
+@router.get("/research/papers", response_model=list[ResearchPaperOut])
+def search_neuromodulation_research_papers(
+    q: Optional[str] = Query(None, description="Free-text search over title and AI-ingestion text."),
+    modality: Optional[str] = Query(None),
+    indication: Optional[str] = Query(None),
+    study_type: Optional[str] = Query(None),
+    evidence_tier: Optional[str] = Query(None),
+    year_min: Optional[int] = Query(None),
+    year_max: Optional[int] = Query(None),
+    open_access_only: bool = Query(False),
+    limit: int = Query(20, ge=1, le=100),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[ResearchPaperOut]:
+    require_minimum_role(actor, "clinician")
+    rows = search_research_ai_ingestion(
+        q=q,
+        modality=modality,
+        indication=indication,
+        study_type=study_type,
+        evidence_tier=evidence_tier,
+        year_min=year_min,
+        year_max=year_max,
+        open_access_only=open_access_only,
+        limit=limit,
+    )
+    _audit(
+        "research.papers.search",
+        actor,
+        q=q,
+        modality=modality,
+        indication=indication,
+        study_type=study_type,
+        evidence_tier=evidence_tier,
+        year_min=year_min,
+        year_max=year_max,
+        open_access_only=open_access_only,
+        result_count=len(rows),
+    )
+    return [ResearchPaperOut(**row) for row in rows]
+
+
+@router.get("/research/exact-protocols")
+def list_neuromodulation_exact_protocols(
+    condition_slug: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[dict[str, str]]:
+    require_minimum_role(actor, "clinician")
+    return list_research_exact_protocols(condition_slug=condition_slug, limit=limit)
+
+
+@router.get("/research/protocol-templates", response_model=list[ResearchTemplateOut])
+def list_neuromodulation_protocol_templates(
+    indication: Optional[str] = Query(None),
+    modality: Optional[str] = Query(None),
+    invasiveness: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[ResearchTemplateOut]:
+    require_minimum_role(actor, "clinician")
+    rows = list_research_protocol_templates(
+        indication=indication,
+        modality=modality,
+        invasiveness=invasiveness,
+        limit=limit,
+    )
+    return [ResearchTemplateOut(**row) for row in rows]
+
+
+@router.get("/research/evidence-graph", response_model=list[ResearchGraphOut])
+def list_neuromodulation_evidence_graph(
+    indication: Optional[str] = Query(None),
+    modality: Optional[str] = Query(None),
+    target: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[ResearchGraphOut]:
+    require_minimum_role(actor, "clinician")
+    rows = list_research_evidence_graph(
+        indication=indication,
+        modality=modality,
+        target=target,
+        limit=limit,
+    )
+    return [ResearchGraphOut(**row) for row in rows]
+
+
+@router.get("/research/safety-signals", response_model=list[ResearchSafetySignalOut])
+def list_neuromodulation_safety_signals(
+    indication: Optional[str] = Query(None),
+    modality: Optional[str] = Query(None),
+    safety_tag: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[ResearchSafetySignalOut]:
+    require_minimum_role(actor, "clinician")
+    rows = list_research_safety_signals(
+        indication=indication,
+        modality=modality,
+        safety_tag=safety_tag,
+        limit=limit,
+    )
+    return [ResearchSafetySignalOut(**row) for row in rows]
+
+
+@router.get("/research/summary", response_model=ResearchSummaryOut)
+def get_neuromodulation_research_summary(
+    indication: Optional[str] = Query(None),
+    modality: Optional[str] = Query(None),
+    limit: int = Query(5, ge=1, le=20),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ResearchSummaryOut:
+    require_minimum_role(actor, "clinician")
+    return ResearchSummaryOut(**build_research_summary(indication=indication, modality=modality, limit=limit))
 
 
 @router.get("/indications", response_model=list[IndicationOut])
