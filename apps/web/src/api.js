@@ -891,6 +891,24 @@ export const api = {
   portalGetHomeProgramTaskCompletion: (serverTaskId) =>
     apiFetch(`/api/v1/patient-portal/home-program-tasks/${encodeURIComponent(serverTaskId)}/completion`),
 
+  // ── Wellness logs ─────────────────────────────────────────────────────────
+  patientPortalWellnessLogs: (days = 30) => apiFetch(`/api/v1/patient-portal/wellness-logs?days=${days}`),
+  patientPortalSubmitWellnessLog: (data) =>
+    apiFetch('/api/v1/patient-portal/wellness-logs', { method: 'POST', body: JSON.stringify(data) }),
+
+  // ── Dashboard aggregation ─────────────────────────────────────────────────
+  patientPortalDashboard: () => apiFetch('/api/v1/patient-portal/dashboard'),
+
+  // ── Notifications ─────────────────────────────────────────────────────────
+  patientPortalNotifications: () => apiFetch('/api/v1/patient-portal/notifications'),
+  patientPortalMarkNotificationRead: (id) =>
+    apiFetch(`/api/v1/patient-portal/notifications/${encodeURIComponent(id)}/read`, { method: 'PATCH' }),
+
+  // ── Learn progress ────────────────────────────────────────────────────────
+  patientPortalLearnProgress: () => apiFetch('/api/v1/patient-portal/learn-progress'),
+  patientPortalMarkLearnRead: (articleId) =>
+    apiFetch('/api/v1/patient-portal/learn-progress', { method: 'POST', body: JSON.stringify({ article_id: articleId }) }),
+
   // ── Forms & Assessments ───────────────────────────────────────────────────
   getForms: (params = {}) => {
     const q = new URLSearchParams(params).toString();

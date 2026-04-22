@@ -1104,3 +1104,338 @@ def get_home_program_task_completion(
         feedback_text=row.feedback_text,
         media_upload_id=row.media_upload_id,
     )
+
+
+# ── Wellness Logs ──────────────────────────────────────────────────────────────
+
+class WellnessLogIn(BaseModel):
+    mood: float = 5.0
+    sleep: float = 5.0
+    energy: float = 5.0
+    side_effects: str = "none"
+    notes: str = ""
+    date: Optional[str] = None
+
+
+class WellnessLogOut(BaseModel):
+    id: str
+    date: str
+    mood: float
+    sleep: float
+    energy: float
+    side_effects: str
+    notes: str
+    created_at: str
+
+
+@router.get("/wellness-logs", response_model=list[WellnessLogOut])
+def list_wellness_logs(
+    days: int = Query(default=30, ge=1, le=365),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> list[WellnessLogOut]:
+    patient = _require_patient(actor, db)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = (
+        db.query(AssessmentRecord)
+        .filter(
+            AssessmentRecord.patient_id == patient.id,
+            AssessmentRecord.template_id == "wellness_checkin",
+            AssessmentRecord.created_at >= cutoff,
+        )
+        .order_by(AssessmentRecord.created_at.desc())
+        .limit(days)
+        .all()
+    )
+    result = []
+    for row in rows:
+        try:
+            data = json.loads(row.data_json or "{}")
+        except Exception:
+            data = {}
+        result.append(WellnessLogOut(
+            id=row.id,
+            date=row.created_at.strftime("%Y-%m-%d") if row.created_at else "",
+            mood=float(data.get("mood", 5)),
+            sleep=float(data.get("sleep", 5)),
+            energy=float(data.get("energy", 5)),
+            side_effects=str(data.get("side_effects", "none")),
+            notes=str(data.get("notes", "")),
+            created_at=_dt(row.created_at),
+        ))
+    return result
+
+
+@router.post("/wellness-logs", response_model=WellnessLogOut, status_code=201)
+def submit_wellness_log(
+    body: WellnessLogIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> WellnessLogOut:
+    patient = _require_patient(actor, db)
+    today_str = body.date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    existing = (
+        db.query(AssessmentRecord)
+        .filter(
+            AssessmentRecord.patient_id == patient.id,
+            AssessmentRecord.template_id == "wellness_checkin",
+            AssessmentRecord.source == "patient_portal",
+        )
+        .order_by(AssessmentRecord.created_at.desc())
+        .first()
+    )
+    data_payload = json.dumps({
+        "mood": body.mood, "sleep": body.sleep, "energy": body.energy,
+        "side_effects": body.side_effects, "notes": body.notes, "date": today_str,
+    })
+    score_val = str(round((body.mood + body.sleep + body.energy) / 3, 1))
+    if existing and _dt(existing.created_at)[:10] == today_str:
+        row = existing
+        row.data_json = data_payload
+        row.score = score_val
+        row.updated_at = datetime.now(timezone.utc)
+    else:
+        row = AssessmentRecord(
+            id=str(uuid.uuid4()),
+            patient_id=patient.id,
+            clinician_id="patient-self",
+            template_id="wellness_checkin",
+            template_title="Daily Wellness Check-in",
+            data_json=data_payload,
+            status="completed",
+            score=score_val,
+            respondent_type="patient",
+            source="patient_portal",
+            completed_at=datetime.now(timezone.utc),
+        )
+        db.add(row)
+    db.commit()
+    db.refresh(row)
+    return WellnessLogOut(
+        id=row.id, date=_dt(row.created_at)[:10],
+        mood=body.mood, sleep=body.sleep, energy=body.energy,
+        side_effects=body.side_effects, notes=body.notes, created_at=_dt(row.created_at),
+    )
+
+
+# ── Dashboard aggregation ──────────────────────────────────────────────────────
+
+class PortalDashboardOut(BaseModel):
+    upcoming_sessions: int
+    sessions_completed: int
+    course_progress_pct: int
+    active_goals: int
+    unread_messages: int
+    wellness_streak: int
+    last_checkin_date: Optional[str]
+    next_session_at: Optional[str]
+
+
+@router.get("/dashboard", response_model=PortalDashboardOut)
+def get_portal_dashboard(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PortalDashboardOut:
+    patient = _require_patient(actor, db)
+    now = datetime.now(timezone.utc)
+
+    upcoming = (
+        db.query(ClinicalSession)
+        .filter(ClinicalSession.patient_id == patient.id, ClinicalSession.status == "scheduled", ClinicalSession.scheduled_at >= now)
+        .count()
+    )
+    completed = (
+        db.query(ClinicalSession)
+        .filter(ClinicalSession.patient_id == patient.id, ClinicalSession.status == "completed")
+        .count()
+    )
+    next_sess = (
+        db.query(ClinicalSession)
+        .filter(ClinicalSession.patient_id == patient.id, ClinicalSession.status == "scheduled", ClinicalSession.scheduled_at >= now)
+        .order_by(ClinicalSession.scheduled_at)
+        .first()
+    )
+    course = (
+        db.query(TreatmentCourse)
+        .filter(TreatmentCourse.patient_id == patient.id, TreatmentCourse.status == "active")
+        .first()
+    )
+    total_sessions = getattr(course, "total_sessions", 0) or 0
+    progress_pct = int(round((completed / total_sessions) * 100)) if total_sessions > 0 else 0
+    unread = (
+        db.query(Message)
+        .filter(Message.patient_id == patient.id, Message.is_read.is_(False), Message.sender_type != "patient")
+        .count()
+    )
+    logs = (
+        db.query(AssessmentRecord)
+        .filter(AssessmentRecord.patient_id == patient.id, AssessmentRecord.template_id == "wellness_checkin")
+        .order_by(AssessmentRecord.created_at.desc())
+        .limit(90)
+        .all()
+    )
+    log_dates = sorted({_dt(r.created_at)[:10] for r in logs if r.created_at}, reverse=True)
+    streak = 0
+    check_date = now.date()
+    for d in log_dates:
+        if d == str(check_date):
+            streak += 1
+            check_date = check_date - timedelta(days=1)
+        else:
+            break
+    return PortalDashboardOut(
+        upcoming_sessions=upcoming, sessions_completed=completed,
+        course_progress_pct=progress_pct, active_goals=0,
+        unread_messages=unread, wellness_streak=streak,
+        last_checkin_date=log_dates[0] if log_dates else None,
+        next_session_at=_dt(next_sess.scheduled_at) if next_sess else None,
+    )
+
+
+# ── Notifications ──────────────────────────────────────────────────────────────
+
+class PortalNotificationOut(BaseModel):
+    id: str
+    type: str
+    title: str
+    body: str
+    is_read: bool
+    created_at: str
+    action_url: Optional[str] = None
+
+
+@router.get("/notifications", response_model=list[PortalNotificationOut])
+def list_portal_notifications(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> list[PortalNotificationOut]:
+    patient = _require_patient(actor, db)
+    now = datetime.now(timezone.utc)
+    notifications: list[PortalNotificationOut] = []
+
+    for m in (
+        db.query(Message)
+        .filter(Message.patient_id == patient.id, Message.sender_type != "patient")
+        .order_by(Message.created_at.desc()).limit(20).all()
+    ):
+        notifications.append(PortalNotificationOut(
+            id="msg-" + m.id, type="message",
+            title="Message from your care team",
+            body=(m.body or "")[:140],
+            is_read=bool(m.is_read), created_at=_dt(m.created_at), action_url="patient-messages",
+        ))
+
+    soon = now + timedelta(hours=48)
+    for s in (
+        db.query(ClinicalSession)
+        .filter(ClinicalSession.patient_id == patient.id, ClinicalSession.status == "scheduled",
+                ClinicalSession.scheduled_at >= now, ClinicalSession.scheduled_at <= soon)
+        .order_by(ClinicalSession.scheduled_at).limit(3).all()
+    ):
+        notifications.append(PortalNotificationOut(
+            id="sess-" + s.id, type="session_reminder",
+            title="Upcoming session",
+            body="Session on " + _dt(s.scheduled_at)[:16].replace("T", " "),
+            is_read=False, created_at=_dt(s.scheduled_at), action_url="pt-sessions",
+        ))
+
+    for a in (
+        db.query(AssessmentRecord)
+        .filter(AssessmentRecord.patient_id == patient.id, AssessmentRecord.status == "pending")
+        .order_by(AssessmentRecord.created_at.desc()).limit(5).all()
+    ):
+        notifications.append(PortalNotificationOut(
+            id="asst-" + a.id, type="assessment_due",
+            title="Assessment due: " + (a.template_title or ""),
+            body="Please complete your " + (a.template_title or "assessment"),
+            is_read=False, created_at=_dt(a.created_at), action_url="pt-assessments",
+        ))
+
+    notifications.sort(key=lambda n: n.created_at, reverse=True)
+    return notifications[:30]
+
+
+@router.patch("/notifications/{notification_id}/read", response_model=PortalNotificationOut)
+def mark_notification_read(
+    notification_id: str = Path(...),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PortalNotificationOut:
+    patient = _require_patient(actor, db)
+    if notification_id.startswith("msg-"):
+        msg_id = notification_id[4:]
+        msg = db.query(Message).filter(Message.id == msg_id, Message.patient_id == patient.id).first()
+        if msg:
+            msg.is_read = True
+            db.commit()
+            return PortalNotificationOut(
+                id=notification_id, type="message", title="Message from your care team",
+                body=(msg.body or "")[:140], is_read=True,
+                created_at=_dt(msg.created_at), action_url="patient-messages",
+            )
+    return PortalNotificationOut(
+        id=notification_id, type="system", title="Notification",
+        body="", is_read=True, created_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+# ── Learn progress ─────────────────────────────────────────────────────────────
+
+class LearnProgressOut(BaseModel):
+    read_article_ids: list[str]
+
+
+class MarkLearnReadIn(BaseModel):
+    article_id: str
+
+
+@router.get("/learn-progress", response_model=LearnProgressOut)
+def get_learn_progress(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> LearnProgressOut:
+    from app.persistence.models import UserPreferences, User
+    _require_patient(actor, db)
+    user = db.query(User).filter(User.id == actor.user_id).first()
+    if not user:
+        return LearnProgressOut(read_article_ids=[])
+    prefs = db.query(UserPreferences).filter(UserPreferences.user_id == user.id).first()
+    if not prefs:
+        return LearnProgressOut(read_article_ids=[])
+    try:
+        notif = json.loads(prefs.notification_prefs or "{}")
+        read_ids = notif.get("read_article_ids", [])
+    except Exception:
+        read_ids = []
+    return LearnProgressOut(read_article_ids=read_ids if isinstance(read_ids, list) else [])
+
+
+@router.post("/learn-progress", response_model=LearnProgressOut, status_code=201)
+def mark_learn_article_read(
+    body: MarkLearnReadIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> LearnProgressOut:
+    from app.persistence.models import UserPreferences, User
+    _require_patient(actor, db)
+    user = db.query(User).filter(User.id == actor.user_id).first()
+    if not user:
+        return LearnProgressOut(read_article_ids=[body.article_id])
+    prefs = db.query(UserPreferences).filter(UserPreferences.user_id == user.id).first()
+    if not prefs:
+        prefs = UserPreferences(user_id=user.id)
+        db.add(prefs)
+    try:
+        notif = json.loads(prefs.notification_prefs or "{}")
+    except Exception:
+        notif = {}
+    read_ids = notif.get("read_article_ids", [])
+    if not isinstance(read_ids, list):
+        read_ids = []
+    if body.article_id not in read_ids:
+        read_ids.append(body.article_id)
+    notif["read_article_ids"] = read_ids
+    prefs.notification_prefs = json.dumps(notif)
+    prefs.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return LearnProgressOut(read_article_ids=read_ids)
