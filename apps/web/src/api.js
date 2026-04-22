@@ -507,6 +507,23 @@ export const api = {
   promoteEvidencePaper: (id) =>
     apiFetch(`/api/v1/evidence/papers/${encodeURIComponent(id)}/promote-to-library`, { method: 'POST' }),
 
+  // Suggest top papers+trials for a modality+indication pair.
+  // Used by Protocol Builder "Evidence basis" panel.
+  evidenceSuggest: ({ modality = '', indication = '', limit = 5 } = {}) => {
+    const params = new URLSearchParams();
+    if (modality)   params.set('modality', modality);
+    if (indication) params.set('indication', indication);
+    if (limit)      params.set('limit', String(limit));
+    return apiFetch(`/api/v1/evidence/suggest?${params.toString()}`);
+  },
+
+  // Papers+trials+FDA for a specific saved protocol (Protocol Detail Evidence tab).
+  evidenceForProtocol: (protocolId, { limit = 10 } = {}) =>
+    apiFetch(`/api/v1/evidence/for-protocol/${encodeURIComponent(protocolId)}?limit=${limit}`),
+
+  // Public counts + last_updated timestamp (no auth required).
+  evidenceStatus: () => apiFetch('/api/v1/evidence/status'),
+
   // Admin-only: trigger / inspect a full evidence refresh.
   adminRefreshEvidence: () =>
     apiFetch('/api/v1/evidence/admin/refresh', { method: 'POST' }),

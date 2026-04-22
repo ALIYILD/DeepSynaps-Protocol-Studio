@@ -200,6 +200,27 @@ export async function pgProtocolSearch(setTopbar, navigate) {
         ${_clsChip('scan', 'Scan-Guided', scanCount)}
       </div>`;
 
+    // Evidence level chips — filter by evidenceGrade state
+    const _evChip = (grade, label) => {
+      const cnt = grade === '' ? totalProtocols : LIBRARY.filter(p => p.evidenceGrade === grade).length;
+      const active = _state.evidenceGrade === grade;
+      const def = grade ? (EVIDENCE_GRADES[grade] || {}) : {};
+      const style = active && grade
+        ? `background:${def.bg || 'var(--teal)'};color:${def.color || 'var(--bg-card)'};border-color:${def.color || 'var(--teal)'}`
+        : active ? 'background:var(--teal);color:var(--bg-card);border-color:var(--teal)' : '';
+      return `<button class="prot-ev-chip${active ? ' active' : ''}" style="${style}" onclick="window._protFilterGrade('${grade}')">${_esc(label)}<span class="prot-cls-count">${cnt}</span></button>`;
+    };
+    const evidenceLevelChips = `
+      <div class="prot-ev-row" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
+        <span style="font-size:11px;color:var(--text-tertiary);font-family:var(--font-mono);margin-right:4px">Evidence:</span>
+        ${_evChip('', 'All')}
+        ${_evChip('A', 'A — Strong')}
+        ${_evChip('B', 'B — Moderate')}
+        ${_evChip('C', 'C — Emerging')}
+        ${_evChip('D', 'D — Limited')}
+        ${_evChip('E', 'Unrated')}
+      </div>`;
+
     const filterBar = `
       <div class="prot-filter-bar">
         <input class="prot-search" type="text" placeholder="Search protocols, conditions, targets, tags\u2026" value="${_esc(_state.query)}" oninput="window._protSearch(this.value)">
@@ -323,6 +344,7 @@ export async function pgProtocolSearch(setTopbar, navigate) {
               <span class="prot-results-count">${results.length} protocol${results.length!==1?'s':''} found</span>
             </div>
             ${classificationChips}
+            ${evidenceLevelChips}
             ${filterBar}
             <div id="prot-live-evidence"></div>
             ${mainContent}
@@ -542,6 +564,19 @@ export async function pgProtocolDetail(setTopbar, navigate) {
             <div class="prot-tags">${(proto.tags||[]).map(t=>`<span class="prot-tag">${_esc(t)}</span>`).join('')}</div>
           </div>` : ''}
 
+          <div class="prot-detail-card" id="prot-detail-evidence-card">
+            <div class="prot-detail-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+              <span>Evidence</span>
+              <span id="prot-ev-status-footer" style="font-size:10px;color:var(--text-tertiary);font-family:var(--font-mono);font-weight:400"></span>
+            </div>
+            <div class="prot-ev-tabs" style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:10px">
+              <button class="prot-ev-tab prot-ev-tab-active" data-tab="papers" onclick="window._protEvTab('papers')" style="padding:5px 12px;font-size:11px;background:none;border:none;border-bottom:2px solid var(--teal);color:var(--teal);cursor:pointer">Papers</button>
+              <button class="prot-ev-tab" data-tab="trials" onclick="window._protEvTab('trials')" style="padding:5px 12px;font-size:11px;background:none;border:none;border-bottom:2px solid transparent;color:var(--text-secondary);cursor:pointer">Trials</button>
+              <button class="prot-ev-tab" data-tab="fda" onclick="window._protEvTab('fda')" style="padding:5px 12px;font-size:11px;background:none;border:none;border-bottom:2px solid transparent;color:var(--text-secondary);cursor:pointer">FDA</button>
+            </div>
+            <div id="prot-detail-ev-body" style="font-size:12px;color:var(--text-secondary)">Loading evidence\u2026</div>
+          </div>
+
           ${relatedSection}
         </div>
       </div>
@@ -621,6 +656,76 @@ export async function pgProtocolDetail(setTopbar, navigate) {
       _refreshBtn.textContent = '\u21BB Refresh (PubMed)';
     };
   }
+
+  // ── Evidence tab (for-protocol endpoint) ──────────────────────────────────
+  let _evData = null;
+  let _evActiveTab = 'papers';
+
+  const _renderEvTab = () => {
+    const body = document.getElementById('prot-detail-ev-body');
+    if (!body || !_evData) return;
+    const papers = _evData.papers || [];
+    const trials = _evData.trials || [];
+    const devices = _evData.devices || [];
+    // Sync tab button styles
+    document.querySelectorAll('.prot-ev-tab').forEach(btn => {
+      const active = btn.dataset.tab === _evActiveTab;
+      btn.style.borderBottomColor = active ? 'var(--teal)' : 'transparent';
+      btn.style.color = active ? 'var(--teal)' : 'var(--text-secondary)';
+    });
+    if (_evActiveTab === 'papers') {
+      if (!papers.length) { body.innerHTML = '<div style="color:var(--text-tertiary);padding:6px 0">No indexed papers for this protocol yet.</div>'; return; }
+      body.innerHTML = papers.map(p => {
+        const authors = (p.authors || []).slice(0, 3).join(', ');
+        const pmid = p.pmid ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${_esc(p.pmid)}" target="_blank" rel="noopener" style="color:var(--teal);text-decoration:none">\u2197</a>` : '';
+        return `<div style="padding:6px 0;border-bottom:1px solid var(--border)">
+          <div style="font-weight:500;color:var(--text-primary)">${_esc(p.title || '(untitled)')} ${pmid}</div>
+          <div style="color:var(--text-tertiary)">${_esc(authors)}${p.year ? ' \u00B7 ' + p.year : ''}${p.journal ? ' \u00B7 ' + _esc(p.journal) : ''}${p.cited_by_count ? ' \u00B7 ' + p.cited_by_count + ' cites' : ''}</div>
+        </div>`;
+      }).join('');
+    } else if (_evActiveTab === 'trials') {
+      if (!trials.length) { body.innerHTML = '<div style="color:var(--text-tertiary);padding:6px 0">No indexed clinical trials for this protocol.</div>'; return; }
+      body.innerHTML = trials.map(t => `
+        <div style="padding:6px 0;border-bottom:1px solid var(--border)">
+          <a href="https://clinicaltrials.gov/ct2/show/${_esc(t.nct_id)}" target="_blank" rel="noopener" style="font-family:var(--font-mono);color:var(--teal);text-decoration:none">${_esc(t.nct_id)}</a>
+          <span style="color:var(--text-primary);margin-left:8px">${_esc(t.title || '')}</span>
+          ${t.phase ? `<span style="color:var(--text-tertiary);margin-left:8px;font-size:11px">${_esc(t.phase)}</span>` : ''}
+          ${t.status ? `<span style="color:var(--text-tertiary);margin-left:6px;font-size:11px">\u00B7 ${_esc(t.status)}</span>` : ''}
+        </div>`).join('');
+    } else if (_evActiveTab === 'fda') {
+      if (!devices.length) { body.innerHTML = '<div style="color:var(--text-tertiary);padding:6px 0">No FDA device records linked to this protocol.</div>'; return; }
+      body.innerHTML = devices.map(d => `
+        <div style="padding:6px 0;border-bottom:1px solid var(--border)">
+          <span style="font-family:var(--font-mono);color:var(--teal);font-size:11px">${_esc(d.kind?.toUpperCase())} ${_esc(d.number)}</span>
+          <span style="color:var(--text-primary);margin-left:8px">${_esc(d.trade_name || d.applicant || '')}</span>
+          ${d.decision_date ? `<span style="color:var(--text-tertiary);margin-left:8px;font-size:11px">${_esc(d.decision_date)}</span>` : ''}
+        </div>`).join('');
+    }
+  };
+
+  window._protEvTab = tab => { _evActiveTab = tab; _renderEvTab(); };
+
+  // Load evidence + status concurrently
+  Promise.all([
+    api.evidenceForProtocol(proto.id, { limit: 10 }),
+    api.evidenceStatus(),
+  ]).then(([evData, statusData]) => {
+    _evData = evData;
+    _renderEvTab();
+    const footer = document.getElementById('prot-ev-status-footer');
+    if (footer && statusData) {
+      const total = (statusData.total_papers || 0) + (statusData.total_trials || 0) + (statusData.total_fda || 0);
+      let age = '';
+      if (statusData.last_updated) {
+        const hrs = Math.round((Date.now() - new Date(statusData.last_updated).getTime()) / 3600000);
+        age = hrs < 1 ? ' \u00B7 updated recently' : ` \u00B7 updated ${hrs}h ago`;
+      }
+      footer.textContent = `Evidence DB: ${total.toLocaleString()} records${age}`;
+    }
+  }).catch(() => {
+    const body = document.getElementById('prot-detail-ev-body');
+    if (body) body.innerHTML = '<div style="color:var(--text-tertiary)">Evidence DB offline or not ingested yet.</div>';
+  });
 }
 
 // =============================================================================
@@ -841,6 +946,16 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
               <div class="prot-gov-checks">${govCheckboxes}</div>
             </div>
 
+            <div class="prot-b-section" id="prot-b-evidence-basis">
+              <div class="prot-b-section-title" style="display:flex;align-items:center;justify-content:space-between">
+                <span>Evidence Basis</span>
+                ${_b.conditionId && _b.device ? '' : '<span style="font-size:10px;color:var(--text-tertiary);font-weight:400">Select condition + device to load</span>'}
+              </div>
+              <div id="prot-b-evidence-body" style="font-size:11.5px;color:var(--text-secondary)">
+                ${_b.conditionId && _b.device ? '<div style="color:var(--text-tertiary)">Loading\u2026</div>' : '<div style="color:var(--text-tertiary)">Select a condition and device above.</div>'}
+              </div>
+            </div>
+
             <div class="prot-b-section">
               <div class="prot-b-section-title">Protocol Preview</div>
               <div class="prot-preview-card">
@@ -868,6 +983,56 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
           </div>
         </div>
       </div>`;
+
+    // ── Evidence basis — async populate after render ──────────────────────
+    // Fires only when condition + device are both selected.
+    if (_b.conditionId && _b.device) {
+      const evBody = document.getElementById('prot-b-evidence-body');
+      if (evBody) {
+        api.evidenceSuggest({ modality: _b.device, indication: _b.conditionId, limit: 5 })
+          .then(data => {
+            if (!evBody) return;
+            const papers = data?.papers || [];
+            const trials = data?.trials || [];
+            if (!papers.length && !trials.length) {
+              evBody.innerHTML = '<div style="color:var(--text-tertiary)">No indexed evidence for this combination yet.</div>';
+              return;
+            }
+            const gradeLabel = data.evidence_grade ? ` \u00B7 Grade ${data.evidence_grade}` : '';
+            const indLabel = data.indication_label ? `<div style="font-size:11px;color:var(--teal);margin-bottom:6px">${_esc(data.indication_label)}${gradeLabel}</div>` : '';
+            const paperHtml = papers.map(p => {
+              const authors = (p.authors || []).slice(0, 2).join(', ');
+              const pmidLink = p.pmid ? ` <a href="https://pubmed.ncbi.nlm.nih.gov/${_esc(p.pmid)}" target="_blank" rel="noopener" style="color:var(--teal);text-decoration:none" title="View on PubMed">\u2197</a>` : '';
+              const cites = p.cited_by_count ? `<span style="color:var(--text-tertiary)">${p.cited_by_count} cites</span> ` : '';
+              return `<div style="padding:5px 0;border-bottom:1px solid var(--border)">
+                <div style="font-weight:500;color:var(--text-primary);line-height:1.3">${_esc(p.title || '(untitled)')}${pmidLink}</div>
+                <div style="color:var(--text-tertiary)">${_esc(authors)}${p.year ? ' \u00B7 ' + p.year : ''}${p.journal ? ' \u00B7 ' + _esc(p.journal) : ''}</div>
+                <div>${cites}</div>
+              </div>`;
+            }).join('');
+            const trialHtml = trials.length ? `
+              <div style="margin-top:8px;font-size:11px;font-weight:600;color:var(--text-secondary)">Clinical Trials (${trials.length})</div>
+              ${trials.map(t => `<div style="padding:4px 0;border-bottom:1px solid var(--border)">
+                <span style="font-family:var(--font-mono);color:var(--teal);font-size:11px">${_esc(t.nct_id)}</span>
+                <span style="color:var(--text-secondary);margin-left:6px">${_esc(t.title || '')}</span>
+                ${t.phase ? `<span style="color:var(--text-tertiary);margin-left:6px">${_esc(t.phase)}</span>` : ''}
+              </div>`).join('')}` : '';
+            evBody.innerHTML = `
+              <details open>
+                <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:6px">
+                  Evidence basis (${papers.length + trials.length})
+                </summary>
+                ${indLabel}
+                ${paperHtml}
+                ${trialHtml}
+              </details>`;
+          })
+          .catch(() => {
+            const b = document.getElementById('prot-b-evidence-body');
+            if (b) b.innerHTML = '<div style="color:var(--text-tertiary)">Evidence DB offline or not ingested yet.</div>';
+          });
+      }
+    }
   };
 
   // ── Handlers ──────────────────────────────────────────────────────────────
