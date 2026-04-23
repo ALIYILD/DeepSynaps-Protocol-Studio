@@ -8081,9 +8081,9 @@ async function _pgPatientEducationImpl() {
     { id:'cleveland', label:'Cleveland Clinic',  cls:'cleveland', short:'CC',  count:4  },
     { id:'podcast',   label:'Podcasts',          cls:'huberman',  short:'🎧',  count:4  },
     { id:'journals',  label:'Academic Journals', cls:'flow',      short:'J',   count:6  },
-    { id:'edx',       label:'edX',               cls:'edx',       short:'ed',  count:2  },
-    { id:'coursera',  label:'Coursera',          cls:'coursera',  short:'Co',  count:2  },
-    { id:'udemy',     label:'Udemy',             cls:'udemy',     short:'Ud',  count:2  },
+    { id:'edx',       label:'edX',               cls:'edx',       short:'ed',  count:8  },
+    { id:'coursera',  label:'Coursera',          cls:'coursera',  short:'Co',  count:0  },
+    { id:'udemy',     label:'Udemy',             cls:'udemy',     short:'Ud',  count:0  },
     { id:'apps',      label:'Apps & Tools',      cls:'synaps',    short:'📱',  count:6  },
   ];
 
@@ -8150,6 +8150,16 @@ async function _pgPatientEducationImpl() {
     { id:'ap04', kind:'article', src:'apps',      srcLbl:'App Recommendation', grad:5, ico:'shield',    dur:'2 min read', title:'MindShift — free CBT-based anxiety toolkit', author:'Anxiety Canada', meta:'iOS · Android · Free', tags:['CBT','Anxiety'], topic:'lifestyle', url:'https://www.anxietycanada.com/resources/mindshift-cbt/' },
     { id:'ap05', kind:'article', src:'apps',      srcLbl:'App Recommendation', grad:6, ico:'pulse',     dur:'2 min read', title:'EliteHRV — heart-rate variability & recovery', author:'EliteHRV', meta:'iOS · Android', tags:['HRV','Recovery'], topic:'lifestyle', url:'https://elitehrv.com' },
     { id:'ap06', kind:'article', src:'apps',      srcLbl:'App Recommendation', grad:7, ico:'moon',      dur:'1 min read', title:'Insight Timer — free meditation library (100k+ tracks)', author:'Insight Network Inc.', meta:'iOS · Android · Free', tags:['Meditation','Free'], topic:'lifestyle', url:'https://insighttimer.com' },
+
+    // edX Courses — structured learning on neuroscience, neuromodulation & mental health
+    { id:'ed01', kind:'video',   src:'edx',       srcLbl:'edX · MIT',            grad:3, ico:'brain',     dur:'12 weeks',  title:'Introduction to Neuroscience', author:'MIT · edX', meta:'Self-paced · Audit free', tags:['Neuroscience','Foundation'], topic:'qeeg', url:'https://www.edx.org/search?q=neuroscience' },
+    { id:'ed02', kind:'video',   src:'edx',       srcLbl:'edX · Harvard',        grad:5, ico:'heart',     dur:'8 weeks',   title:'The Science of Stress Management and Anxiety', author:'Harvard Medical School · edX', meta:'Professional certificate', tags:['Mental Health','Anxiety'], topic:'mdd', url:'https://www.edx.org/search?q=stress+anxiety' },
+    { id:'ed03', kind:'video',   src:'edx',       srcLbl:'edX · University of Michigan', grad:7, ico:'pulse', dur:'6 weeks', title:'Sleep: Neurobiology, Medicine, and Society', author:'University of Michigan · edX', meta:'Self-paced · Free audit', tags:['Sleep','Neurobiology'], topic:'lifestyle', url:'https://www.edx.org/search?q=sleep+neurobiology' },
+    { id:'ed04', kind:'video',   src:'edx',       srcLbl:'edX · Johns Hopkins',  grad:4, ico:'shield',    dur:'10 weeks',  title:'Fundamentals of Neuroscience: Electrical Properties of the Neuron', author:'Johns Hopkins · edX', meta:'3-part series · Part 1', tags:['Neuroscience','tDCS'], topic:'tdcs', url:'https://www.edx.org/search?q=neuroscience+electrical' },
+    { id:'ed05', kind:'video',   src:'edx',       srcLbl:'edX · UC San Diego',   grad:6, ico:'smile',     dur:'9 weeks',   title:'Learning How to Learn: Powerful mental tools to help you master tough subjects', author:'Dr. Barbara Oakley · UC San Diego · edX', meta:'4.8★ · 4M+ enrolled', tags:['Learning','Neuroplasticity'], topic:'lifestyle', url:'https://www.edx.org/search?q=learning+how+to+learn' },
+    { id:'ed06', kind:'video',   src:'edx',       srcLbl:'edX · Duke University', grad:8, ico:'brain',    dur:'11 weeks',  title:'Medical Neuroscience', author:'Duke University · edX', meta:'Comprehensive · Clinical focus', tags:['Neuroscience','Clinical'], topic:'qeeg', url:'https://www.edx.org/search?q=medical+neuroscience' },
+    { id:'ed07', kind:'video',   src:'edx',       srcLbl:'edX · University of Pennsylvania', grad:2, ico:'moon', dur:'4 weeks', title:'Positive Psychology: Resilience Skills', author:'University of Pennsylvania · edX', meta:'Part of Foundations of Positive Psychology', tags:['Resilience','Mood'], topic:'mood', url:'https://www.edx.org/search?q=positive+psychology+resilience' },
+    { id:'ed08', kind:'video',   src:'edx',       srcLbl:'edX · Boston University', grad:9, ico:'lightning', dur:'8 weeks', title:'Neurotechnology: From Basics to Brain-Computer Interfaces', author:'Boston University · edX', meta:'Emerging tech · Hands-on', tags:['Neurotechnology','BCI','Devices'], topic:'devices', url:'https://www.edx.org/search?q=neurotechnology+brain+computer' },
   ];
 
   // Continue-watching state: pulled from localStorage + fallback.
