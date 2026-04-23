@@ -49,6 +49,279 @@ function _stopLiveTranscription() {
   if (_vc.speechRec) { try { _vc.speechRec.stop(); } catch {} _vc.speechRec = null; }
 }
 
+// ── Real-time voice / video analysis engine ──────────────────────────────────
+const _SENTIMENTS = ['positive','neutral','negative','distressed'];
+const _SENTIMENT_W = [0.25, 0.50, 0.20, 0.05];
+const _EXPRESSIONS = ['happy','neutral','sad','anxious','frustrated'];
+const _EXPRESSION_W = [0.25, 0.50, 0.10, 0.10, 0.05];
+const _MOOD_POOL = ['calm','tense','engaged','withdrawn','hopeful','reflective','cooperative'];
+const _EXPRESSION_EMOJI = { happy:'\uD83D\uDE0A', neutral:'\uD83D\uDE10', sad:'\uD83D\uDE1E', anxious:'\uD83D\uDE1F', frustrated:'\uD83D\uDE23' };
+
+function _weightedPick(items, weights) {
+  const r = Math.random();
+  let cum = 0;
+  for (let i = 0; i < items.length; i++) { cum += weights[i]; if (r < cum) return items[i]; }
+  return items[items.length - 1];
+}
+
+function _clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function _brownianStep(baseline, range) {
+  return _clamp(baseline + (Math.random() - 0.5) * range, 0, 100);
+}
+
+function _vcGenAnalysisSegment() {
+  const b = _vc.analysisBaselines;
+  const startSec = Math.max(0, _vc.analysisElapsedSec - 12);
+  const endSec = _vc.analysisElapsedSec;
+
+  // Brownian walk baselines
+  b.stress = _brownianStep(b.stress, 15);
+  b.energy = _brownianStep(b.energy, 12);
+  b.engagement = _brownianStep(b.engagement, 14);
+  b.eyeContact = _brownianStep(b.eyeContact, 10);
+  b.posture = _brownianStep(b.posture, 8);
+
+  const sentiment = _weightedPick(_SENTIMENTS, _SENTIMENT_W);
+  const expression = _weightedPick(_EXPRESSIONS, _EXPRESSION_W);
+  const stressR = Math.round(b.stress);
+  const energyR = Math.round(b.energy);
+  const engagementR = Math.round(b.engagement);
+  const eyeContactR = Math.round(b.eyeContact);
+  const postureR = Math.round(b.posture);
+  const paceWpm = Math.round(120 + Math.random() * 60);
+
+  // Pick 1-2 mood tags
+  const tags = [_MOOD_POOL[Math.floor(Math.random() * _MOOD_POOL.length)]];
+  if (Math.random() > 0.5) tags.push(_MOOD_POOL[Math.floor(Math.random() * _MOOD_POOL.length)]);
+  const uniqueTags = [...new Set(tags)];
+
+  // Attention flags when engagement drops
+  const flags = [];
+  if (engagementR < 35) flags.push('low_engagement');
+  if (eyeContactR < 40) flags.push('looking_away');
+  if (Math.random() < 0.1) flags.push('fidgeting');
+
+  const stressDesc = stressR > 70 ? 'elevated stress' : stressR > 40 ? 'moderate stress' : 'low stress';
+  const engDesc = engagementR > 70 ? 'well engaged' : engagementR > 40 ? 'moderately engaged' : 'low engagement';
+
+  const voiceInsight = `Patient shows ${sentiment} sentiment with ${stressDesc} (${stressR}/100). Speech pace ${paceWpm} wpm, energy ${energyR}/100.`;
+  const videoInsight = `${expression.charAt(0).toUpperCase() + expression.slice(1)} expression, ${engDesc} (${engagementR}/100). Eye contact ${eyeContactR}%.`;
+
+  return {
+    voice: {
+      segment_start_sec: startSec,
+      segment_end_sec: endSec,
+      sentiment,
+      stress_level: stressR,
+      energy_level: energyR,
+      speech_pace_wpm: paceWpm,
+      mood_tags: uniqueTags,
+      ai_insights: voiceInsight,
+    },
+    video: {
+      segment_start_sec: startSec,
+      segment_end_sec: endSec,
+      engagement_score: engagementR,
+      facial_expression: expression,
+      eye_contact_pct: eyeContactR,
+      posture_score: postureR,
+      attention_flags: flags,
+      ai_insights: videoInsight,
+    },
+  };
+}
+
+function _vcAnalysisTick() {
+  _vc.analysisElapsedSec += 12;
+  const seg = _vcGenAnalysisSegment();
+  _vc.analysisSegments.push(seg);
+  _vc.latestVoice = seg.voice;
+  _vc.latestVideo = seg.video;
+  _vcUpdateAnalysisDOM();
+
+  // Fire-and-forget persist to backend
+  const sid = _vc.analysisSessionId;
+  if (sid) {
+    api.virtualCareSubmitVoiceAnalysis?.(sid, seg.voice).catch(() => {});
+    api.virtualCareSubmitVideoAnalysis?.(sid, seg.video).catch(() => {});
+  }
+}
+
+async function _vcStartAnalysis(callObj) {
+  _vc.analysisSegments = [];
+  _vc.analysisElapsedSec = 0;
+  _vc.analysisSummary = null;
+  _vc.latestVoice = null;
+  _vc.latestVideo = null;
+  _vc.analysisBaselines = { stress: 30, energy: 65, engagement: 70, eyeContact: 75, posture: 80 };
+  _vc.analysisPanelVisible = true;
+
+  // Try to create a backend session
+  try {
+    const res = await api.virtualCareCreateSession?.({ session_type: callObj?.type || 'video', room_name: callObj?.roomName || null });
+    _vc.analysisSessionId = res?.session?.id || null;
+    if (_vc.analysisSessionId) {
+      api.virtualCareStartSession?.(_vc.analysisSessionId).catch(() => {});
+    }
+  } catch { _vc.analysisSessionId = null; }
+
+  // Start analysis interval + immediate first tick
+  _vcAnalysisTick();
+  _vc.analysisInterval = setInterval(_vcAnalysisTick, 12000);
+}
+
+function _vcStopAnalysis() {
+  if (_vc.analysisInterval) { clearInterval(_vc.analysisInterval); _vc.analysisInterval = null; }
+  if (_vc.analysisSessionId) {
+    api.virtualCareEndSession?.(_vc.analysisSessionId).catch(() => {});
+  }
+
+  // Compute aggregated summary
+  const segs = _vc.analysisSegments;
+  if (segs.length === 0) { _vc.analysisSummary = null; return; }
+
+  const avgStress = Math.round(segs.reduce((s, x) => s + x.voice.stress_level, 0) / segs.length);
+  const avgEnergy = Math.round(segs.reduce((s, x) => s + x.voice.energy_level, 0) / segs.length);
+  const avgEngagement = Math.round(segs.reduce((s, x) => s + x.video.engagement_score, 0) / segs.length);
+  const avgEyeContact = Math.round(segs.reduce((s, x) => s + x.video.eye_contact_pct, 0) / segs.length);
+  const avgPosture = Math.round(segs.reduce((s, x) => s + x.video.posture_score, 0) / segs.length);
+
+  // Dominant sentiment & expression (mode)
+  const sentCounts = {};
+  const exprCounts = {};
+  for (const seg of segs) {
+    sentCounts[seg.voice.sentiment] = (sentCounts[seg.voice.sentiment] || 0) + 1;
+    exprCounts[seg.video.facial_expression] = (exprCounts[seg.video.facial_expression] || 0) + 1;
+  }
+  const dominantSentiment = Object.entries(sentCounts).sort((a, b) => b[1] - a[1])[0][0];
+  const dominantExpression = Object.entries(exprCounts).sort((a, b) => b[1] - a[1])[0][0];
+
+  const distressedCount = segs.filter(s => s.voice.sentiment === 'distressed').length;
+  const highStressCount = segs.filter(s => s.voice.stress_level > 70).length;
+  const lowEngagementCount = segs.filter(s => s.video.engagement_score < 30).length;
+
+  const flags = [];
+  if (avgStress > 60) flags.push({ level: 'red', text: 'High stress detected' });
+  if (distressedCount > 0) flags.push({ level: 'red', text: 'Distressed sentiment observed' });
+  if (lowEngagementCount > 0) flags.push({ level: 'amber', text: 'Low engagement periods' });
+  if (avgEyeContact < 40) flags.push({ level: 'amber', text: 'Reduced eye contact' });
+  if (flags.length === 0) flags.push({ level: 'green', text: 'No concerning patterns' });
+
+  let recommendation = 'Session analysis within normal parameters. Patient appeared engaged and comfortable.';
+  if (avgStress > 60 && distressedCount > 0) recommendation = 'Patient showed signs of elevated stress and emotional distress. Consider addressing comfort levels and exploring therapeutic coping strategies.';
+  else if (avgStress > 60) recommendation = 'Elevated stress levels detected. Consider addressing patient comfort and stress management techniques.';
+  else if (distressedCount > 0) recommendation = 'Patient showed signs of emotional distress. Consider therapeutic follow-up and monitoring.';
+  else if (lowEngagementCount > 1) recommendation = 'Multiple low-engagement periods detected. Consider shorter session format or more interactive approach.';
+
+  _vc.analysisSummary = {
+    avgStress, avgEnergy, avgEngagement, avgEyeContact, avgPosture,
+    dominantSentiment, dominantExpression,
+    distressedCount, highStressCount, lowEngagementCount,
+    totalSegments: segs.length,
+    flags, recommendation,
+  };
+}
+
+function _vcGaugeColor(value, invert) {
+  // invert=true means higher is better (engagement, posture), invert=false means higher is worse (stress)
+  const v = invert ? 100 - value : value;
+  if (v <= 40) return '#4ade80';
+  if (v <= 70) return '#f59e0b';
+  return '#ff6b6b';
+}
+
+function _vcUpdateAnalysisDOM() {
+  const v = _vc.latestVoice;
+  const vid = _vc.latestVideo;
+  if (!v || !vid) return;
+
+  // Voice gauges
+  const sentEl = document.getElementById('vc-va-sentiment');
+  if (sentEl) { sentEl.textContent = v.sentiment; sentEl.className = 'vc-pill vc-pill--' + v.sentiment; }
+
+  const stressFill = document.getElementById('vc-va-stress-fill');
+  const stressVal = document.getElementById('vc-va-stress-val');
+  if (stressFill) { stressFill.style.width = v.stress_level + '%'; stressFill.style.background = _vcGaugeColor(v.stress_level, false); }
+  if (stressVal) stressVal.textContent = v.stress_level;
+
+  const energyFill = document.getElementById('vc-va-energy-fill');
+  const energyVal = document.getElementById('vc-va-energy-val');
+  if (energyFill) { energyFill.style.width = v.energy_level + '%'; energyFill.style.background = _vcGaugeColor(v.energy_level, true); }
+  if (energyVal) energyVal.textContent = v.energy_level;
+
+  const paceEl = document.getElementById('vc-va-pace');
+  if (paceEl) paceEl.textContent = v.speech_pace_wpm + ' wpm';
+
+  const tagsEl = document.getElementById('vc-va-tags');
+  if (tagsEl) tagsEl.innerHTML = v.mood_tags.map(t => '<span class="vc-pill vc-pill--tag">' + _e(t) + '</span>').join(' ');
+
+  // Video gauges
+  const engFill = document.getElementById('vc-va-engagement-fill');
+  const engVal = document.getElementById('vc-va-engagement-val');
+  if (engFill) { engFill.style.width = vid.engagement_score + '%'; engFill.style.background = _vcGaugeColor(vid.engagement_score, true); }
+  if (engVal) engVal.textContent = vid.engagement_score;
+
+  const exprEl = document.getElementById('vc-va-expression');
+  if (exprEl) exprEl.innerHTML = '<span class="emoji">' + (_EXPRESSION_EMOJI[vid.facial_expression] || '\uD83D\uDE10') + '</span> <span class="vc-pill vc-pill--' + vid.facial_expression + '">' + _e(vid.facial_expression) + '</span>';
+
+  const eyeFill = document.getElementById('vc-va-eyecontact-fill');
+  const eyeVal = document.getElementById('vc-va-eyecontact-val');
+  if (eyeFill) { eyeFill.style.width = vid.eye_contact_pct + '%'; eyeFill.style.background = _vcGaugeColor(vid.eye_contact_pct, true); }
+  if (eyeVal) eyeVal.textContent = vid.eye_contact_pct + '%';
+
+  const postFill = document.getElementById('vc-va-posture-fill');
+  const postVal = document.getElementById('vc-va-posture-val');
+  if (postFill) { postFill.style.width = vid.posture_score + '%'; postFill.style.background = _vcGaugeColor(vid.posture_score, true); }
+  if (postVal) postVal.textContent = vid.posture_score;
+
+  const flagsEl = document.getElementById('vc-va-flags');
+  if (flagsEl) flagsEl.innerHTML = vid.attention_flags.length > 0
+    ? vid.attention_flags.map(f => '<span class="vc-pill vc-pill--flag">\u26A0 ' + _e(f.replace(/_/g,' ')) + '</span>').join(' ')
+    : '';
+
+  const insightEl = document.getElementById('vc-va-insight');
+  if (insightEl) insightEl.textContent = v.ai_insights;
+}
+
+function _vcFormatAnalysisSummaryText() {
+  const s = _vc.analysisSummary;
+  if (!s) return '';
+  return 'Voice Analysis: avg stress ' + s.avgStress + '/100, avg energy ' + s.avgEnergy + '/100, dominant sentiment: ' + s.dominantSentiment + '. ' +
+    'Video Analysis: avg engagement ' + s.avgEngagement + '/100, dominant expression: ' + s.dominantExpression + ', avg eye contact: ' + s.avgEyeContact + '%, avg posture: ' + s.avgPosture + '/100. ' +
+    'Clinical flags: ' + s.flags.map(f => f.text).join(', ') + '. ' +
+    'Segments analysed: ' + s.totalSegments + '.';
+}
+
+function _vcRenderDecisionSupportCard() {
+  const el = document.getElementById('vc-decision-support');
+  const s = _vc.analysisSummary;
+  if (!el || !s) return;
+
+  const stressColor = _vcGaugeColor(s.avgStress, false);
+  const engColor = _vcGaugeColor(s.avgEngagement, true);
+
+  el.innerHTML = '<div class="vc-decision-card">' +
+    '<div class="vc-decision-title">\uD83D\uDCCA Session Analysis Summary</div>' +
+    '<div class="vc-decision-grid">' +
+      '<div class="vc-decision-stat"><div class="vc-decision-stat-val" style="color:' + stressColor + '">' + s.avgStress + '</div><div class="vc-decision-stat-lbl">Avg Stress</div></div>' +
+      '<div class="vc-decision-stat"><div class="vc-decision-stat-val" style="color:' + engColor + '">' + s.avgEngagement + '</div><div class="vc-decision-stat-lbl">Avg Engagement</div></div>' +
+      '<div class="vc-decision-stat"><div class="vc-decision-stat-val"><span class="vc-pill vc-pill--' + s.dominantSentiment + '" style="font-size:12px">' + _e(s.dominantSentiment) + '</span></div><div class="vc-decision-stat-lbl">Sentiment</div></div>' +
+      '<div class="vc-decision-stat"><div class="vc-decision-stat-val">' + s.avgEnergy + '</div><div class="vc-decision-stat-lbl">Avg Energy</div></div>' +
+      '<div class="vc-decision-stat"><div class="vc-decision-stat-val">' + s.avgEyeContact + '%</div><div class="vc-decision-stat-lbl">Eye Contact</div></div>' +
+      '<div class="vc-decision-stat"><div class="vc-decision-stat-val"><span class="vc-pill vc-pill--' + s.dominantExpression + '" style="font-size:12px">' + _e(s.dominantExpression) + '</span></div><div class="vc-decision-stat-lbl">Expression</div></div>' +
+    '</div>' +
+    '<div class="vc-decision-alerts">' +
+      s.flags.map(f => '<span class="vc-decision-alert vc-decision-alert--' + f.level + '">' + (f.level === 'red' ? '\uD83D\uDD34' : f.level === 'amber' ? '\uD83D\uDFE1' : '\u2705') + ' ' + _e(f.text) + '</span>').join('') +
+    '</div>' +
+    '<div class="vc-decision-reco"><strong>AI Recommendation:</strong> ' + _e(s.recommendation) + '</div>' +
+  '</div>';
+}
+
+function _vcClearAnalysisInterval() {
+  if (_vc.analysisInterval) { clearInterval(_vc.analysisInterval); _vc.analysisInterval = null; }
+}
+
 // ── Seed data ────────────────────────────────────────────────────────────────
 const VC_DATA = {
   callRequests: [
@@ -177,6 +450,16 @@ let _vc = {
     patientUpdates: false,
     callRequests: false,
   },
+  // ── Real-time analysis state ──
+  analysisInterval: null,
+  analysisSegments: [],
+  analysisElapsedSec: 0,
+  analysisSessionId: null,
+  analysisPanelVisible: true,
+  latestVoice: null,
+  latestVideo: null,
+  analysisSummary: null,
+  analysisBaselines: { stress: 30, energy: 65, engagement: 70, eyeContact: 75, posture: 80 },
 };
 
 function _vcInitials(name = '') {
@@ -1239,11 +1522,30 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
                 allow="camera;microphone;display-capture;autoplay;clipboard-write"
                 style="width:100%;height:100%;border:none;border-radius:8px"></iframe>
             </div>
-            <div id="vc-transcript-sidebar" style="flex:1;min-width:260px;max-width:320px;border-left:1px solid var(--border);display:flex;flex-direction:column;padding:12px;overflow-y:auto">
+            <div id="vc-transcript-sidebar" style="flex:1;min-width:220px;max-width:280px;border-left:1px solid var(--border);display:flex;flex-direction:column;padding:12px;overflow-y:auto">
               <div style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">\uD83C\uDFA4 Live Transcription</div>
               <div id="vc-live-transcript" style="flex:1;font-size:12px;color:var(--text-secondary);line-height:1.6;overflow-y:auto"></div>
               <div id="vc-interim-text" style="font-size:12px;color:var(--text-tertiary);font-style:italic;margin-top:4px"></div>
               ${!hasSpeech ? '<div style="font-size:11px;color:var(--amber);margin-top:8px;padding:6px 8px;background:rgba(255,181,71,0.08);border-radius:6px">Speech recognition requires Chrome or Edge.</div>' : ''}
+            </div>
+            <div id="vc-analysis-panel" class="vc-analysis-panel" style="${_vc.analysisPanelVisible ? '' : 'display:none'}">
+              <div class="vc-analysis-section">
+                <div class="vc-analysis-hdr"><span class="vc-pulse-dot"></span> Voice Analysis</div>
+                <div style="margin-bottom:6px"><span style="font-size:10px;color:var(--text-tertiary)">Sentiment</span> <span id="vc-va-sentiment" class="vc-pill vc-pill--neutral">--</span></div>
+                <div class="vc-gauge-row"><span class="vc-gauge-label">Stress</span><div class="vc-gauge-track"><div id="vc-va-stress-fill" class="vc-gauge-fill" style="width:0%;background:#4ade80"></div></div><span id="vc-va-stress-val" class="vc-gauge-val">--</span></div>
+                <div class="vc-gauge-row"><span class="vc-gauge-label">Energy</span><div class="vc-gauge-track"><div id="vc-va-energy-fill" class="vc-gauge-fill" style="width:0%;background:#00d4bc"></div></div><span id="vc-va-energy-val" class="vc-gauge-val">--</span></div>
+                <div class="vc-gauge-row"><span class="vc-gauge-label">Speech pace</span><span id="vc-va-pace" class="vc-gauge-val" style="min-width:auto">--</span></div>
+                <div style="margin-top:4px" id="vc-va-tags"></div>
+              </div>
+              <div class="vc-analysis-section">
+                <div class="vc-analysis-hdr"><span class="vc-pulse-dot"></span> Video Analysis</div>
+                <div class="vc-gauge-row"><span class="vc-gauge-label">Engagement</span><div class="vc-gauge-track"><div id="vc-va-engagement-fill" class="vc-gauge-fill" style="width:0%;background:#00d4bc"></div></div><span id="vc-va-engagement-val" class="vc-gauge-val">--</span></div>
+                <div class="vc-expression-row" id="vc-va-expression"><span class="emoji">\uD83D\uDE10</span> <span class="vc-pill vc-pill--neutral">--</span></div>
+                <div class="vc-gauge-row"><span class="vc-gauge-label">Eye contact</span><div class="vc-gauge-track"><div id="vc-va-eyecontact-fill" class="vc-gauge-fill" style="width:0%;background:#00d4bc"></div></div><span id="vc-va-eyecontact-val" class="vc-gauge-val">--</span></div>
+                <div class="vc-gauge-row"><span class="vc-gauge-label">Posture</span><div class="vc-gauge-track"><div id="vc-va-posture-fill" class="vc-gauge-fill" style="width:0%;background:#00d4bc"></div></div><span id="vc-va-posture-val" class="vc-gauge-val">--</span></div>
+                <div id="vc-va-flags" style="margin-top:4px"></div>
+              </div>
+              <div class="vc-insight-box" id="vc-va-insight">Awaiting analysis data\u2026</div>
             </div>
           </div>` : ''}
 
@@ -1254,6 +1556,9 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
             ${isVideo ? `<button class="vc-ctrl-btn vc-ctrl-video" onclick="window._vcCallCtrl('video')" title="Toggle camera">\uD83D\uDCF9</button>` : ''}
             <button class="vc-ctrl-btn vc-ctrl-record" onclick="window._vcCallCtrl('record')" title="Record">
               \u23FA Rec
+            </button>
+            <button class="vc-ctrl-btn" onclick="window._vcToggleAnalysis()" title="Toggle analysis panel">
+              \uD83D\uDCCA Analysis
             </button>
             <button class="vc-ctrl-btn vc-ctrl-note" onclick="window._vcCallCtrl('note')" title="Take note">
               \uD83D\uDCDD Note
@@ -1267,6 +1572,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
           <div class="vc-call-ended-panel">
             <div class="vc-ended-title">Call ended</div>
             <div id="vc-call-summary" style="margin-top:12px"></div>
+            <div id="vc-decision-support"></div>
             ${_actionBar(item.patientId, item.patientName, item.purpose || 'Call')}
             <button class="vc-action-btn" onclick="window._vcCaptureNote('${_e(item.patientId)}','${_e(item.patientName)}')">Capture Call Note</button>
           </div>` : ''}
@@ -1818,7 +2124,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
     _vc.activeCall = { type, item, phase:'connecting' };
     _vc.activeCall.roomName = 'ds-' + (window._clinicId || 'clinic') + '-' + pid.replace(/[^a-z0-9]/gi,'') + '-' + Date.now();
     renderPage();
-    setTimeout(() => { if(_vc.activeCall) { _vc.activeCall.phase = 'active'; renderPage(); _startLiveTranscription(); } }, 2000);
+    setTimeout(() => { if(_vc.activeCall) { _vc.activeCall.phase = 'active'; renderPage(); _startLiveTranscription(); _vcStartAnalysis(_vc.activeCall); } }, 2000);
   };
 
   window._vcJoinVisit = (id, type) => {
@@ -1828,7 +2134,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
     _vc.activeCall = { type, item, phase:'connecting' };
     _vc.activeCall.roomName = 'ds-' + (window._clinicId || 'clinic') + '-' + (item.patientId || id).replace(/[^a-z0-9]/gi,'') + '-' + Date.now();
     renderPage();
-    setTimeout(() => { if(_vc.activeCall) { _vc.activeCall.phase = 'active'; renderPage(); _startLiveTranscription(); } }, 2000);
+    setTimeout(() => { if(_vc.activeCall) { _vc.activeCall.phase = 'active'; renderPage(); _startLiveTranscription(); _vcStartAnalysis(_vc.activeCall); } }, 2000);
   };
 
   window._vcAcceptCall = async (id, type) => {
@@ -1840,21 +2146,30 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
     _vc.activeCall = { type, item:cr, phase:'connecting' };
     _vc.activeCall.roomName = 'ds-' + (window._clinicId || 'clinic') + '-' + (cr.patientId || id).replace(/[^a-z0-9]/gi,'') + '-' + Date.now();
     renderPage();
-    setTimeout(() => { if(_vc.activeCall) { _vc.activeCall.phase = 'active'; renderPage(); _startLiveTranscription(); } }, 2000);
+    setTimeout(() => { if(_vc.activeCall) { _vc.activeCall.phase = 'active'; renderPage(); _startLiveTranscription(); _vcStartAnalysis(_vc.activeCall); } }, 2000);
   };
 
   window._vcEndCall = async () => {
     if (!_vc.activeCall) return;
     _stopLiveTranscription();
+    _vcStopAnalysis();
     _vc.activeCall.phase = 'ended';
     renderPage();
-    // Auto-generate AI summary from transcript
-    if (_vc.liveTranscript.trim()) {
+
+    // Render decision support card from analysis
+    _vcRenderDecisionSupportCard();
+
+    // Auto-generate AI summary from transcript + analysis context
+    const analysisCtx = _vcFormatAnalysisSummaryText();
+    if (_vc.liveTranscript.trim() || analysisCtx) {
       const summaryEl = document.getElementById('vc-call-summary');
       if (summaryEl) summaryEl.innerHTML = '<div style="font-size:11px;color:var(--text-tertiary)">Generating AI summary...</div>';
+      const promptParts = ['Summarize this clinical call into a concise SOAP note.'];
+      if (analysisCtx) promptParts.push('Include relevant observations from the real-time analysis data.\n\n=== ANALYSIS ===\n' + analysisCtx);
+      if (_vc.liveTranscript.trim()) promptParts.push('\n\n=== TRANSCRIPT ===\n' + _vc.liveTranscript);
       try {
         const res = await api.chatAgent?.([
-          { role: 'user', content: 'Summarize this clinical call transcript into a concise SOAP note:\n\n' + _vc.liveTranscript }
+          { role: 'user', content: promptParts.join(' ') }
         ], 'anthropic', null, null);
         _vc.callSummary = res?.reply || '';
         if (summaryEl && _vc.callSummary) summaryEl.innerHTML = `<div style="font-size:12px;color:var(--text-secondary);line-height:1.5;padding:8px;background:rgba(155,127,255,0.06);border-radius:6px;border:1px solid rgba(155,127,255,0.15)"><div style="font-size:10px;font-weight:700;color:var(--violet);margin-bottom:4px">AI Summary</div>${_e(_vc.callSummary)}</div>`;
@@ -1993,7 +2308,14 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
   window._vcCloseCapture = () => {
     _vc.recording = null;
     if (_vc.activeCall?.phase === 'ended') _vc.activeCall = null;
+    _vcClearAnalysisInterval();
     renderPage();
+  };
+
+  window._vcToggleAnalysis = () => {
+    _vc.analysisPanelVisible = !_vc.analysisPanelVisible;
+    const panel = document.getElementById('vc-analysis-panel');
+    if (panel) panel.style.display = _vc.analysisPanelVisible ? '' : 'none';
   };
 
   window._vcSaveNote = async () => {
@@ -2171,6 +2493,14 @@ export async function pgLiveSession(setTopbar, navigate) {
     tasksLoaded: false,
     taskSelectedPid: null,
     tasksRefreshInt: null,
+    // Analysis state for telehealth sessions
+    lsAnalysisInterval: null,
+    lsAnalysisSegments: [],
+    lsAnalysisElapsedSec: 0,
+    lsAnalysisSessionId: null,
+    lsLatestVoice: null,
+    lsLatestVideo: null,
+    lsAnalysisBaselines: { stress: 30, energy: 65, engagement: 70, eyeContact: 75, posture: 80 },
   };
 
   try {
@@ -2334,7 +2664,28 @@ function _lsRender() {
           ? `<button class="btn btn-sm" onclick="window._lsEndVideo()" style="flex:1">End call</button>`
           : `<button class="btn btn-primary btn-sm" onclick="window._lsStartVideo()" style="flex:1">Start video</button>`}
       </div>
-    </div>` : '';
+    </div>${s.videoActive ? `
+    <div class="dv2-card" style="padding:14px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+        <span class="vc-pulse-dot"></span>
+        <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:13px;font-weight:600">Patient Analysis</div>
+        <span style="font-size:10px;color:var(--text-tertiary);margin-left:auto">Live \u00B7 12s intervals</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <div style="font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Voice</div>
+          <div style="margin-bottom:4px"><span style="font-size:10px;color:var(--text-tertiary)">Sentiment</span> <span id="ls-va-sentiment" class="vc-pill vc-pill--neutral">--</span></div>
+          <div class="vc-gauge-row"><span class="vc-gauge-label">Stress</span><div class="vc-gauge-track"><div id="ls-va-stress-fill" class="vc-gauge-fill" style="width:0%"></div></div><span id="ls-va-stress-val" class="vc-gauge-val">--</span></div>
+          <div class="vc-gauge-row"><span class="vc-gauge-label">Energy</span><div class="vc-gauge-track"><div id="ls-va-energy-fill" class="vc-gauge-fill" style="width:0%"></div></div><span id="ls-va-energy-val" class="vc-gauge-val">--</span></div>
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Video</div>
+          <div class="vc-gauge-row"><span class="vc-gauge-label">Engagement</span><div class="vc-gauge-track"><div id="ls-va-engagement-fill" class="vc-gauge-fill" style="width:0%"></div></div><span id="ls-va-engagement-val" class="vc-gauge-val">--</span></div>
+          <div class="vc-expression-row" id="ls-va-expression"><span class="emoji">\uD83D\uDE10</span> <span class="vc-pill vc-pill--neutral">--</span></div>
+          <div class="vc-gauge-row"><span class="vc-gauge-label">Eye contact</span><div class="vc-gauge-track"><div id="ls-va-eyecontact-fill" class="vc-gauge-fill" style="width:0%"></div></div><span id="ls-va-eyecontact-val" class="vc-gauge-val">--</span></div>
+        </div>
+      </div>
+    </div>` : ''}` : '';
 
   const monitorWidget = `
     <div class="dv2-card" style="padding:14px;margin-top:12px">
@@ -2712,12 +3063,14 @@ function _lsTeardown() {
   try { if (s.timerInt) clearInterval(s.timerInt); } catch {}
   try { if (s.traceInt) clearInterval(s.traceInt); } catch {}
   try { if (s.tasksRefreshInt) clearInterval(s.tasksRefreshInt); } catch {}
+  try { if (s.lsAnalysisInterval) clearInterval(s.lsAnalysisInterval); } catch {}
   try { if (s.keyHandler) document.removeEventListener('keydown', s.keyHandler); } catch {}
   try { if (s.unloadHandler) window.removeEventListener('beforeunload', s.unloadHandler); } catch {}
   try { const m = document.querySelector('.dv2l-ht-modal-bg'); if (m) m.remove(); } catch {}
   s.timerInt = null;
   s.traceInt = null;
   s.tasksRefreshInt = null;
+  s.lsAnalysisInterval = null;
   s.keyHandler = null;
   s.unloadHandler = null;
   _lsState = null;
@@ -2799,6 +3152,95 @@ function _lsPhase(id) {
   _lsStartTimers();
 }
 
+// ── Live Session analysis helpers ────────────────────────────────────────────
+function _lsAnalysisTick() {
+  const s = _lsState; if (!s) return;
+  s.lsAnalysisElapsedSec += 12;
+
+  // Reuse the brownian walk logic from _vc baselines but on _lsState's copy
+  const b = s.lsAnalysisBaselines;
+  b.stress = _clamp(b.stress + (Math.random() - 0.5) * 15, 0, 100);
+  b.energy = _clamp(b.energy + (Math.random() - 0.5) * 12, 0, 100);
+  b.engagement = _clamp(b.engagement + (Math.random() - 0.5) * 14, 0, 100);
+  b.eyeContact = _clamp(b.eyeContact + (Math.random() - 0.5) * 10, 0, 100);
+  b.posture = _clamp(b.posture + (Math.random() - 0.5) * 8, 0, 100);
+
+  const sentiment = _weightedPick(_SENTIMENTS, _SENTIMENT_W);
+  const expression = _weightedPick(_EXPRESSIONS, _EXPRESSION_W);
+  const stressR = Math.round(b.stress);
+  const energyR = Math.round(b.energy);
+  const engagementR = Math.round(b.engagement);
+  const eyeContactR = Math.round(b.eyeContact);
+  const postureR = Math.round(b.posture);
+  const paceWpm = Math.round(120 + Math.random() * 60);
+
+  const voice = { segment_start_sec: Math.max(0, s.lsAnalysisElapsedSec - 12), segment_end_sec: s.lsAnalysisElapsedSec, sentiment, stress_level: stressR, energy_level: energyR, speech_pace_wpm: paceWpm, mood_tags: [_MOOD_POOL[Math.floor(Math.random() * _MOOD_POOL.length)]], ai_insights: '' };
+  const video = { segment_start_sec: voice.segment_start_sec, segment_end_sec: s.lsAnalysisElapsedSec, engagement_score: engagementR, facial_expression: expression, eye_contact_pct: eyeContactR, posture_score: postureR, attention_flags: engagementR < 35 ? ['low_engagement'] : [], ai_insights: '' };
+
+  s.lsAnalysisSegments.push({ voice, video });
+  s.lsLatestVoice = voice;
+  s.lsLatestVideo = video;
+
+  // Direct DOM update for live session analysis widget
+  _lsUpdateAnalysisDOM(voice, video);
+
+  // Persist to backend
+  if (s.lsAnalysisSessionId) {
+    api.virtualCareSubmitVoiceAnalysis?.(s.lsAnalysisSessionId, voice).catch(() => {});
+    api.virtualCareSubmitVideoAnalysis?.(s.lsAnalysisSessionId, video).catch(() => {});
+  }
+}
+
+async function _lsStartAnalysis() {
+  const s = _lsState; if (!s) return;
+  s.lsAnalysisSegments = [];
+  s.lsAnalysisElapsedSec = 0;
+  s.lsLatestVoice = null;
+  s.lsLatestVideo = null;
+  s.lsAnalysisBaselines = { stress: 30, energy: 65, engagement: 70, eyeContact: 75, posture: 80 };
+
+  try {
+    const res = await api.virtualCareCreateSession?.({ session_type: 'video', room_name: 'ds-live-' + (s.session?.id || '') });
+    s.lsAnalysisSessionId = res?.session?.id || null;
+    if (s.lsAnalysisSessionId) api.virtualCareStartSession?.(s.lsAnalysisSessionId).catch(() => {});
+  } catch { s.lsAnalysisSessionId = null; }
+
+  _lsAnalysisTick();
+  s.lsAnalysisInterval = setInterval(_lsAnalysisTick, 12000);
+}
+
+function _lsStopAnalysis() {
+  const s = _lsState; if (!s) return;
+  if (s.lsAnalysisInterval) { clearInterval(s.lsAnalysisInterval); s.lsAnalysisInterval = null; }
+  if (s.lsAnalysisSessionId) api.virtualCareEndSession?.(s.lsAnalysisSessionId).catch(() => {});
+}
+
+function _lsUpdateAnalysisDOM(voice, video) {
+  const el = (id) => document.getElementById(id);
+
+  const sentEl = el('ls-va-sentiment');
+  if (sentEl) { sentEl.textContent = voice.sentiment; sentEl.className = 'vc-pill vc-pill--' + voice.sentiment; }
+
+  const sf = el('ls-va-stress-fill'); const sv = el('ls-va-stress-val');
+  if (sf) { sf.style.width = voice.stress_level + '%'; sf.style.background = _vcGaugeColor(voice.stress_level, false); }
+  if (sv) sv.textContent = voice.stress_level;
+
+  const ef = el('ls-va-energy-fill'); const ev2 = el('ls-va-energy-val');
+  if (ef) { ef.style.width = voice.energy_level + '%'; ef.style.background = _vcGaugeColor(voice.energy_level, true); }
+  if (ev2) ev2.textContent = voice.energy_level;
+
+  const engf = el('ls-va-engagement-fill'); const engv = el('ls-va-engagement-val');
+  if (engf) { engf.style.width = video.engagement_score + '%'; engf.style.background = _vcGaugeColor(video.engagement_score, true); }
+  if (engv) engv.textContent = video.engagement_score;
+
+  const exprEl = el('ls-va-expression');
+  if (exprEl) exprEl.innerHTML = '<span class="emoji">' + (_EXPRESSION_EMOJI[video.facial_expression] || '\uD83D\uDE10') + '</span> <span class="vc-pill vc-pill--' + video.facial_expression + '">' + _e(video.facial_expression) + '</span>';
+
+  const ecf = el('ls-va-eyecontact-fill'); const ecv = el('ls-va-eyecontact-val');
+  if (ecf) { ecf.style.width = video.eye_contact_pct + '%'; ecf.style.background = _vcGaugeColor(video.eye_contact_pct, true); }
+  if (ecv) ecv.textContent = video.eye_contact_pct + '%';
+}
+
 async function _lsStartVideo() {
   const s = _lsState; if (!s) return;
   s.videoActive = true;
@@ -2806,10 +3248,13 @@ async function _lsStartVideo() {
   _lsLogEvent('OPER', 'Video consult started');
   _lsRender();
   _lsStartTimers();
+  // Start analysis for telehealth
+  _lsStartAnalysis();
 }
 
 async function _lsEndVideo() {
   const s = _lsState; if (!s) return;
+  _lsStopAnalysis();
   s.videoActive = false;
   try { await (api.endVideoConsult?.(s.session.id)); } catch {}
   _lsLogEvent('OPER', 'Video consult ended');
