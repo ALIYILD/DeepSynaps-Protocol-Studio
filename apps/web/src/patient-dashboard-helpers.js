@@ -678,6 +678,19 @@ export function demoMessagesSeed(now = Date.now()) {
       created_at: iso(now - 4 * HOUR),
       _demo: true,
     },
+    {
+      id: 'demo-self-symptoms',
+      template_id: 'self_daily_symptoms',
+      template_title: 'Daily Symptom Tracker',
+      status: 'completed',
+      completed_at: iso(now - 2 * ONE_DAY),
+      administered_at: iso(now - 2 * ONE_DAY),
+      score: '78',
+      score_numeric: 78,
+      source: 'patient_self_report',
+      created_at: iso(now - 2 * ONE_DAY),
+      _demo: true,
+    },
   ];
 }
 
@@ -745,6 +758,33 @@ export const SELF_ASSESSMENT_SURVEYS = Object.freeze({
       const progress = Number(responses.progress) || 3;
       const alignment = Number(responses.alignment) || 3;
       return Math.round(((progress + alignment - 2) / 8) * 100);
+    },
+  },
+  daily_symptoms: {
+    key: 'daily_symptoms',
+    title: 'Daily Symptom Tracker',
+    shortTitle: 'Symptoms',
+    frequency: 'daily',
+    timeLabel: '1m',
+    emoji: 'Symptoms',
+    tone: 'amber',
+    questions: [
+      { key: 'headache', label: 'Headache', type: 'slider', min: 0, max: 10, labels: ['None', 'Severe'] },
+      { key: 'nausea', label: 'Nausea', type: 'slider', min: 0, max: 10, labels: ['None', 'Severe'] },
+      { key: 'dizziness', label: 'Dizziness', type: 'slider', min: 0, max: 10, labels: ['None', 'Severe'] },
+      { key: 'mood_swings', label: 'Mood swings', type: 'slider', min: 0, max: 10, labels: ['None', 'Severe'] },
+      { key: 'cognitive_fog', label: 'Cognitive fog / confusion', type: 'slider', min: 0, max: 10, labels: ['None', 'Severe'] },
+      { key: 'sleep_disturbance', label: 'Sleep disturbance', type: 'slider', min: 0, max: 10, labels: ['None', 'Severe'] },
+      { key: 'anxiety', label: 'Anxiety', type: 'slider', min: 0, max: 10, labels: ['None', 'Severe'] },
+      { key: 'fatigue', label: 'Fatigue / low energy', type: 'slider', min: 0, max: 10, labels: ['None', 'Severe'] },
+      { key: 'pain', label: 'General pain', type: 'slider', min: 0, max: 10, labels: ['None', 'Severe'] },
+      { key: 'note', label: 'Anything else your care team should know? (optional)', type: 'text', maxLength: 300, optional: true },
+    ],
+    computeScore(responses) {
+      const keys = ['headache','nausea','dizziness','mood_swings','cognitive_fog','sleep_disturbance','anxiety','fatigue','pain'];
+      const sum = keys.reduce((acc, k) => acc + (Number(responses[k]) || 0), 0);
+      const max = keys.length * 10;
+      return Math.max(0, Math.round(100 - (sum / max) * 100));
     },
   },
 });

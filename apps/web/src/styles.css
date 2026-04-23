@@ -24337,3 +24337,6 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 .as-sa-textarea { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border, rgba(255,255,255,0.08)); background: rgba(255,255,255,0.03); color: var(--text-primary, #fff); font-family: inherit; font-size: 13px; resize: vertical; min-height: 64px; }
 .as-sa-textarea:focus { outline: none; border-color: rgba(0,212,188,0.4); }
 .as-sa-textarea::placeholder { color: var(--text-tertiary, rgba(255,255,255,0.35)); }
+
+.as-sa-card.amber { background: linear-gradient(135deg, rgba(245,158,11,0.08), rgba(14,22,40,0.6)); }
+.as-sa-card.amber .as-sa-ico { background: rgba(245,158,11,0.15); color: #f59e0b; }
