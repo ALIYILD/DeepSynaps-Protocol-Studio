@@ -718,7 +718,7 @@ select.form-control option { background: #1a2235; color: #e2e8f0; }
 
 /* ── Global select option fix (dark theme) ── */
 select { color-scheme: dark; }
-select option { background: #1a2235; color: #e2e8f0; }
+select option, select optgroup { background: #1a2235; color: #e2e8f0; }
 
 /* ── AI pulse ── */
 .ai-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--teal); animation: aiPulse 0.9s ease-in-out infinite alternate; box-shadow: 0 0 8px var(--teal-glow); }
@@ -3131,7 +3131,7 @@ body.light-theme .form-control {
   color: var(--text-primary);
 }
 body.light-theme select { color-scheme: light; }
-body.light-theme select option { background: #fff; color: #1e293b; }
+body.light-theme select option, body.light-theme select optgroup { background: #fff; color: #1e293b; }
 body.light-theme .form-control::placeholder { color: var(--text-tertiary); }
 
 /* ── Light: Modals & overlays ── */
@@ -17863,7 +17863,8 @@ details > summary::marker { display: none; }
 .prot-results-count { font-size: .82rem; color: var(--text-muted); font-weight: 500; }
 .prot-filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
 .prot-search { flex: 1; min-width: 200px; border: 1px solid var(--border); border-radius: 7px; padding: 8px 12px; font-size: .82rem; background: var(--bg-card,#fff); color: var(--text); }
-.prot-filter-sel { border: 1px solid var(--border); border-radius: 7px; padding: 7px 9px; font-size: .78rem; background: var(--bg-card,#fff); color: var(--text); cursor: pointer; max-width: 160px; }
+.prot-filter-sel { border: 1px solid var(--border); border-radius: 7px; padding: 7px 9px; font-size: .78rem; background: var(--bg-card,#fff); color: var(--text); cursor: pointer; max-width: 160px; color-scheme: dark; }
+.prot-filter-sel option, .prot-filter-sel optgroup { background: #1a2235; color: #e2e8f0; }
 .prot-view-toggle { display: flex; gap: 4px; }
 .prot-view-btn { padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card,#fff); color: var(--text-muted); cursor: pointer; font-size: .85rem; }
 .prot-view-btn.active { background: var(--accent,#3b82f6); color: #fff; border-color: var(--accent,#3b82f6); }
