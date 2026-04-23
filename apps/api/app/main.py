@@ -8,7 +8,7 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -273,6 +273,26 @@ async def log_requests(request: Request, call_next):
     return response
 
 
+# ── SPA fallback middleware ──────────────────────────────────────────────────
+# Client-side routes (e.g. /patient-education) must serve index.html so the
+# React router can handle them. This middleware intercepts 404s from the
+# StaticFiles mount and rewrites them to index.html, preserving API 404s.
+_frontend_dist = Path(__file__).resolve().parents[3] / "apps" / "web" / "dist"
+
+@app.middleware("http")
+async def spa_fallback_middleware(request: Request, call_next):
+    response = await call_next(request)
+    if response.status_code == 404:
+        path = request.url.path
+        # Don't rewrite API or static uploads
+        if not path.startswith("/api/") and not path.startswith("/static/"):
+            # Only rewrite if the file doesn't actually exist in dist
+            file_path = _frontend_dist / path.lstrip("/")
+            if not file_path.exists() or not file_path.is_file():
+                return FileResponse(_frontend_dist / "index.html")
+    return response
+
+
 def _health_payload(session: Session) -> dict[str, object]:
     session.execute(text("SELECT 1"))
     snapshot = get_latest_snapshot(session)
@@ -459,7 +479,7 @@ _DATA_DIR.mkdir(exist_ok=True)
 (_DATA_DIR / "clinics").mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(_DATA_DIR)), name="static")
 
-# Serve React frontend — must be mounted after all API routes
-_frontend_dist = Path(__file__).resolve().parents[3] / "apps" / "web" / "dist"
+# Serve React frontend — must be mounted after all API routes.
+# SPA fallback is handled by spa_fallback_middleware above.
 if _frontend_dist.exists():
     app.mount("/", StaticFiles(directory=str(_frontend_dist), html=True), name="frontend")
