@@ -1060,6 +1060,16 @@ export const api = {
   // ── Dashboard aggregation ─────────────────────────────────────────────────
   patientPortalDashboard: () => apiFetch('/api/v1/patient-portal/dashboard'),
 
+  // ── Marketplace ─────────────────────────────────────────────────────────────
+  marketplaceItems: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/patient-portal/marketplace/items${q ? '?' + q : ''}`);
+  },
+  marketplaceItem: (id) => apiFetch(`/api/v1/patient-portal/marketplace/items/${encodeURIComponent(id)}`),
+  marketplaceCreateOrder: (data) =>
+    apiFetch('/api/v1/patient-portal/marketplace/orders', { method: 'POST', body: JSON.stringify(data) }),
+  marketplaceMyOrders: () => apiFetch('/api/v1/patient-portal/marketplace/my-orders'),
+
   // ── Notifications ─────────────────────────────────────────────────────────
   patientPortalNotifications: () => apiFetch('/api/v1/patient-portal/notifications'),
   patientPortalMarkNotificationRead: (id) =>

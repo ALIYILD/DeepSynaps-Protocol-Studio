@@ -1409,11 +1409,11 @@ export async function pgPatientDashboard(user) {
       if (done) {
         right = `<div class="hm-tl-done">\u2713 ${esc(t._doneAt || 'done')}</div>`;
       } else if (t.task_type === 'walk' || /walk/.test(String(t.title||'').toLowerCase())) {
-        right = `<button class="hm-tl-action primary" onclick="window._hmStartTask(${JSON.stringify(t.id)}, 'walk')">Start</button>`;
+        right = `<button class="hm-tl-action primary" onclick="window._hmStartTask('${esc(t.id)}', 'walk')">Start</button>`;
       } else if (t.task_type === 'tdcs' || /tdcs/.test(String(t.title||'').toLowerCase())) {
-        right = `<button class="hm-tl-action" onclick="window._hmStartTask(${JSON.stringify(t.id)}, 'tdcs')">Prep</button>`;
+        right = `<button class="hm-tl-action" onclick="window._hmStartTask('${esc(t.id)}', 'tdcs')">Prep</button>`;
       } else {
-        right = `<button class="hm-tl-action" onclick="window._hmStartTask(${JSON.stringify(t.id)}, 'reminder')">Remind me</button>`;
+        right = `<button class="hm-tl-action" onclick="window._hmStartTask('${esc(t.id)}', 'reminder')">Remind me</button>`;
       }
       const pill = done
         ? '<span class="hm-tl-pill done">Done</span>'
@@ -3600,14 +3600,24 @@ export async function pgPatientSessions() {
       g.style.display = anyVisible ? '' : 'none';
     });
   };
-  window._psReportStop = function() {
+  window._psReportStop = async function() {
     if (typeof window._showNotifToast === 'function') {
       window._showNotifToast({ title: 'Session pause requested', body: 'Your technician has been alerted. Please sit tight.', severity: 'warning' });
     }
+    if (uid && api.sendPortalMessage) {
+      try {
+        await api.sendPortalMessage({ body: 'Patient pressed STOP during a live session — immediate attention requested.', category: 'safety_alert', priority: 'high' });
+      } catch (_e) { console.error('[session] stop alert failed:', _e); }
+    }
   };
-  window._psReportDiscomfort = function() {
+  window._psReportDiscomfort = async function() {
     if (typeof window._showNotifToast === 'function') {
       window._showNotifToast({ title: 'Discomfort reported', body: 'Your technician will check in with you immediately.', severity: 'warning' });
+    }
+    if (uid && api.sendPortalMessage) {
+      try {
+        await api.sendPortalMessage({ body: 'Patient reported discomfort during a live session — please check in immediately.', category: 'safety_alert', priority: 'high' });
+      } catch (_e) { console.error('[session] discomfort alert failed:', _e); }
     }
   };
   // Highlight the initial item.
@@ -3709,6 +3719,21 @@ async function _pgPatientHomeworkImpl() {
   const courses = Array.isArray(coursesRaw) ? coursesRaw : [];
   const sessions = Array.isArray(sessionsRaw) ? sessionsRaw : [];
   const activeCourse = courses.find(c => c.status === 'active') || courses[0] || null;
+
+  // ── Merge library tasks added by patient from localStorage ────────────────
+  try {
+    const libAddedRaw = localStorage.getItem('ds_hw_library_tasks');
+    if (libAddedRaw) {
+      const libAdded = JSON.parse(libAddedRaw);
+      if (Array.isArray(libAdded) && libAdded.length) {
+        libAdded.forEach(function(lt) {
+          if (!tasks.find(function(t) { return t.id === lt.id; })) {
+            tasks.push(lt);
+          }
+        });
+      }
+    }
+  } catch (_e) {}
 
   // ── Demo seed (first-time user / empty backend) ───────────────────────────
   const _isDemo = tasks.length === 0 && courses.length === 0;
@@ -3833,16 +3858,18 @@ async function _pgPatientHomeworkImpl() {
     else if (t.due_by)   meta.push(`<span class="hw-due"><svg width="11" height="11"><use href="#i-alert"/></svg>Due by ${esc(t.due_by)}</span>`);
     else if (t.time_bucket) meta.push(`<span>${esc(t.time_bucket)}</span>`);
     const foot = done
-      ? `<button class="hw-check is-on" onclick="window._hwToggle && window._hwToggle(${JSON.stringify(t.id)})" title="Mark incomplete"><svg width="14" height="14"><use href="#i-check"/></svg></button>
+      ? `<button class="hw-check is-on" onclick="window._hwToggle && window._hwToggle('${esc(t.id)}')" title="Mark incomplete"><svg width="14" height="14"><use href="#i-check"/></svg></button>
          <span style="font-size:11.5px;color:var(--text-secondary)">${t.mood_before != null && t.mood_after != null ? 'Mood <strong style="color:var(--text-primary)">' + t.mood_before + ' \u2192 ' + t.mood_after + '</strong> \u00b7 ' : ''}${esc(t.note ? '\u201C' + t.note + '\u201D' : 'Completed')}</span>
-         <button class="btn btn-ghost btn-sm hw-go" onclick="window._hwOpen && window._hwOpen(${JSON.stringify(t.id)})">View<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>`
-      : `<button class="hw-check" onclick="window._hwToggle && window._hwToggle(${JSON.stringify(t.id)})" title="Mark complete"><svg width="14" height="14"><use href="#i-check"/></svg></button>
+         <button class="btn btn-ghost btn-sm hw-go" onclick="window._hwOpen && window._hwOpen('${esc(t.id)}')">View<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>`
+      : `<button class="hw-check" onclick="window._hwToggle && window._hwToggle('${esc(t.id)}')" title="Mark complete"><svg width="14" height="14"><use href="#i-check"/></svg></button>
          <span style="font-size:11.5px;color:var(--text-tertiary)">${esc(t.clinician_note ? 'Clinician note \u2014 tap to read' : 'Tap check when done')}</span>
          ${t.task_type === 'tdcs'
            ? '<button class="btn btn-primary btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'tdcs\')">Start session<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>'
            : t.task_type === 'breathing'
              ? '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'breathing\')"><svg width="11" height="11"><use href="#i-play"/></svg>Guided</button>'
-             : '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwOpen && window._hwOpen(' + JSON.stringify(t.id) + ')">Open<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>'}`;
+             : t.task_type === 'walk' || t.task_type === 'activation'
+               ? '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'walk\')"><svg width="11" height="11"><use href="#i-play"/></svg>Start</button>'
+               : '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwOpen && window._hwOpen(\'' + esc(t.id) + '\')">Open<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>'}`;
     return `
       <div class="hw-task${done ? ' done' : ''}" data-cat="${esc(t.category || '')}" data-task-id="${esc(t.id || '')}">
         <div class="hw-task-hd">
@@ -3870,7 +3897,7 @@ async function _pgPatientHomeworkImpl() {
     return `
       <div class="hw-row${done ? ' done' : ''}" data-cat="${esc(t.category || '')}" data-task-id="${esc(t.id || '')}">
         <div class="hw-row-ico"><svg width="18" height="18"><use href="${ico}"/></svg></div>
-        <div class="hw-row-body" onclick="window._hwOpen && window._hwOpen(${JSON.stringify(t.id)})">
+        <div class="hw-row-body" onclick="window._hwOpen && window._hwOpen('${esc(t.id)}')">
           <div class="hw-row-title">${esc(t.title || 'Task')}</div>
           <div class="hw-row-sub">${esc(t.description || t.instructions || (_catLabel(t.category) + (t.duration_min ? ' \u00b7 ~' + t.duration_min + ' min' : '')))}</div>
         </div>
@@ -3878,7 +3905,7 @@ async function _pgPatientHomeworkImpl() {
           <span class="hw-row-cat">${esc(_catLabel(t.category || t.task_type))}</span>
           <span${t._priority === 'due' ? ' style="color:var(--amber,#ffb547);font-weight:600"' : ''}>${esc(dueLbl)}</span>
         </div>
-        <button class="hw-row-check${done ? ' is-on' : ''}" onclick="window._hwToggle && window._hwToggle(${JSON.stringify(t.id)})"><svg width="13" height="13"><use href="#i-check"/></svg></button>
+        <button class="hw-row-check${done ? ' is-on' : ''}" onclick="window._hwToggle && window._hwToggle('${esc(t.id)}')"><svg width="13" height="13"><use href="#i-check"/></svg></button>
       </div>`;
   }
 
@@ -4026,7 +4053,7 @@ async function _pgPatientHomeworkImpl() {
                 <div class="hw-lib-desc">${esc(l.desc)}</div>
                 <div class="hw-lib-foot">
                   <span>${l.active ? 'Active in your plan' : 'General library'}</span>
-                  <button class="hw-lib-read" onclick="window._hwAddLibrary && window._hwAddLibrary(${JSON.stringify(l.id)})">${l.active ? 'Open' : 'Use'} <svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>
+                  <button class="hw-lib-read" onclick="window._hwAddLibrary && window._hwAddLibrary('${esc(l.id)}')">${l.active ? 'Open' : 'Use'} <svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>
                 </div>
               </div>`).join('')}
           </div>
@@ -4229,7 +4256,7 @@ async function _pgPatientHomeworkImpl() {
         ${noteHtml}
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
           <button class="btn btn-ghost btn-sm" onclick="document.getElementById('hw-task-modal').remove()">Close</button>
-          <button class="btn btn-primary btn-sm" onclick="window._hwToggle && window._hwToggle(${JSON.stringify(task.id)});document.getElementById('hw-task-modal').remove()">${task.completed || task.done ? 'Reopen' : 'Mark done'}</button>
+          <button class="btn btn-primary btn-sm" onclick="window._hwToggle && window._hwToggle('${esc(task.id)}');document.getElementById('hw-task-modal').remove()">${task.completed || task.done ? 'Reopen' : 'Mark done'}</button>
         </div>
       </div>`;
     document.body.appendChild(modal);
@@ -4243,12 +4270,98 @@ async function _pgPatientHomeworkImpl() {
     } else if (kind === 'breathing') {
       _hwToast('Opening breathing guide\u2026');
       setTimeout(() => window._navPatient && window._navPatient('patient-education'), 500);
+    } else if (kind === 'walk') {
+      _hwOpenWalkTimer(task);
     } else {
       _hwToast('Started');
     }
     if (task && !(task.completed || task.done)) {
       // Don't auto-complete — let the patient confirm after finishing.
     }
+  };
+
+  function _hwOpenWalkTimer(task) {
+    if (!task) return;
+    const dur = task.duration_min || 20;
+    const existing = document.getElementById('hw-walk-modal');
+    if (existing) existing.remove();
+    const modal = document.createElement('div');
+    modal.id = 'hw-walk-modal';
+    modal.className = 'hw-modal';
+    modal.innerHTML = `
+      <div class="hw-modal-overlay" onclick="document.getElementById('hw-walk-modal').remove()"></div>
+      <div class="hw-modal-body" style="max-width:420px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <div style="width:36px;height:36px;border-radius:10px;background:rgba(74,222,128,0.15);color:#4ade80;display:flex;align-items:center;justify-content:center;font-size:18px">&#128694;</div>
+          <div><div style="font-weight:700;font-size:1rem;color:var(--text-primary)">${esc(task.title || 'Walk')}</div><div style="font-size:0.78rem;color:var(--text-secondary)">${dur} min \u00b7 note mood before &amp; after</div></div>
+        </div>
+        <div style="margin:16px 0;text-align:center">
+          <div id="hw-walk-timer" style="font-family:var(--font-display);font-size:3.2rem;font-weight:800;color:var(--teal)">${dur}:00</div>
+          <div style="font-size:0.75rem;color:var(--text-tertiary);margin-top:4px">Timer</div>
+        </div>
+        <div style="margin-bottom:14px">
+          <label style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px">Mood before (1\u201310)</label>
+          <input type="range" id="hw-walk-mood-before" min="1" max="10" value="5" style="width:100%;accent-color:var(--teal)" oninput="document.getElementById('hw-walk-mood-before-val').textContent=this.value">
+          <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:var(--text-tertiary);margin-top:2px"><span>Low</span><span id="hw-walk-mood-before-val">5</span><span>High</span></div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:18px">
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('hw-walk-modal').remove()">Close</button>
+          <button class="btn btn-primary btn-sm" id="hw-walk-start-btn" onclick="window._hwWalkBegin && window._hwWalkBegin('${esc(task.id)}', ${dur})">Start ${dur} min walk</button>
+          <button class="btn btn-primary btn-sm" id="hw-walk-done-btn" style="display:none" onclick="window._hwWalkDone && window._hwWalkDone('${esc(task.id)}')">Log completion</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  }
+
+  var _hwWalkTimerId = null;
+  window._hwWalkBegin = function(taskId, dur) {
+    const startBtn = document.getElementById('hw-walk-start-btn');
+    const doneBtn = document.getElementById('hw-walk-done-btn');
+    const timerEl = document.getElementById('hw-walk-timer');
+    if (startBtn) startBtn.style.display = 'none';
+    if (doneBtn) doneBtn.style.display = 'inline-flex';
+    var remaining = dur * 60;
+    if (_hwWalkTimerId) clearInterval(_hwWalkTimerId);
+    _hwWalkTimerId = setInterval(function() {
+      remaining--;
+      if (remaining <= 0) {
+        clearInterval(_hwWalkTimerId);
+        _hwWalkTimerId = null;
+        if (timerEl) timerEl.textContent = '0:00';
+        _hwToast('Walk complete \u2014 great work!');
+        return;
+      }
+      var m = Math.floor(remaining / 60);
+      var s = remaining % 60;
+      if (timerEl) timerEl.textContent = m + ':' + (s < 10 ? '0' : '') + s;
+    }, 1000);
+  };
+  window._hwWalkDone = function(taskId) {
+    if (_hwWalkTimerId) { clearInterval(_hwWalkTimerId); _hwWalkTimerId = null; }
+    const moodBefore = document.getElementById('hw-walk-mood-before');
+    const mb = moodBefore ? parseInt(moodBefore.value, 10) : null;
+    const task = _taskById.get(String(taskId));
+    if (task) {
+      task.completed = true;
+      task.done = true;
+      task.completed_at = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      if (mb != null) { task.mood_before = mb; }
+    }
+    // Persist to API if available
+    if (!_isDemo && api.mutateHomeProgramTask && uid && task) {
+      api.mutateHomeProgramTask({ ...task, patient_id: uid }).catch(function() {});
+    }
+    // Update UI
+    const card = document.querySelector('[data-task-id="' + taskId + '"]');
+    if (card) {
+      card.classList.add('done');
+      const foot = card.querySelector('.hw-task-foot');
+      if (foot) {
+        foot.innerHTML = '<button class="hw-check is-on" onclick="window._hwToggle && window._hwToggle(\'' + esc(taskId) + '\')" title="Mark incomplete"><svg width="14" height="14"><use href="#i-check"/></svg></button><span style="font-size:11.5px;color:var(--text-secondary)">' + (task.mood_before != null ? 'Mood <strong style="color:var(--text-primary)">' + task.mood_before + '</strong> \u00b7 ' : '') + 'Completed</span><button class="btn btn-ghost btn-sm hw-go" onclick="window._hwOpen && window._hwOpen(\'' + esc(taskId) + '\')">View<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>';
+      }
+    }
+    document.getElementById('hw-walk-modal')?.remove();
+    _hwToast('Logged \u2014 nice work!');
   };
 
   window._hwFilter = function(f) {
@@ -4328,22 +4441,54 @@ async function _pgPatientHomeworkImpl() {
     const lib = library.find(l => l.id === libId);
     if (!lib) return;
     _hwToast(lib.active ? 'Opening ' + lib.title : 'Adding to your plan\u2026');
+    const newTask = {
+      id: 'lib-' + lib.id + '-' + Date.now(),
+      title: lib.title,
+      category: lib.category,
+      task_type: lib.task_type,
+      duration_min: lib.duration_min,
+      description: lib.desc,
+      source_library_id: lib.id,
+      completed: false,
+      done: false,
+      due_on: new Date().toISOString().slice(0, 10),
+      _bucket: 'today',
+      _priority: 'normal',
+      time_bucket: 'Any time',
+    };
+    // Always persist locally so the task appears immediately
+    try {
+      var stored = JSON.parse(localStorage.getItem('ds_hw_library_tasks') || '[]');
+      if (!Array.isArray(stored)) stored = [];
+      stored.push(newTask);
+      localStorage.setItem('ds_hw_library_tasks', JSON.stringify(stored));
+    } catch (_e) {}
+    // Also call API if available (background)
     if (!_isDemo && api.mutateHomeProgramTask && uid) {
       try {
-        await api.mutateHomeProgramTask({
-          id: 'lib-' + lib.id + '-' + Date.now(),
-          patient_id: uid,
-          title: lib.title,
-          category: lib.category,
-          task_type: lib.task_type,
-          duration_min: lib.duration_min,
-          description: lib.desc,
-          source_library_id: lib.id,
-          completed: false,
-        });
+        await api.mutateHomeProgramTask({ ...newTask, patient_id: uid });
         _hwToast('Added \u2014 your clinician will confirm');
       } catch (e) { console.warn('[homework] add lib failed:', e); }
+    } else {
+      _hwToast('Added to today\u2019s plan');
     }
+    // Add to in-memory state
+    tasks.push(newTask);
+    _taskById.set(String(newTask.id), newTask);
+    // Insert card into today's grid without full re-render
+    const grid = document.querySelector('.hw-today-grid');
+    if (grid) {
+      const empty = grid.querySelector('.pth2-empty');
+      if (empty) empty.remove();
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = _taskCardHtml(newTask);
+      grid.appendChild(wrapper.firstElementChild);
+    }
+    // Update filter counts
+    const todayFilter = document.querySelector('#hw-filters .hw-filter[data-f="today"] .count');
+    if (todayFilter) todayFilter.textContent = tasks.filter(t => (t.due_on || '').slice(0, 10) === todayIso).length;
+    const catFilter = document.querySelector('#hw-filters .hw-filter[data-f="' + esc(lib.category) + '"] .count');
+    if (catFilter) catFilter.textContent = tasks.filter(t => t.category === lib.category).length;
   };
 
   window._hwBrowseLibrary = function() {
@@ -6743,7 +6888,7 @@ async function _pgPatientVirtualCareImpl() {
       : last.kind === 'biometrics' ? '<span class="you">You:</span> Shared biometric data'
       : (last.sender === 'me' ? '<span class="you">You:</span> ' : '') + esc(last.body || '');
     return `
-      <div class="vc-thread${t.id === activeId ? ' active' : ''}" data-tid="${esc(t.id)}" onclick="window._vcPickThread && window._vcPickThread(${JSON.stringify(t.id)})">
+      <div class="vc-thread${t.id === activeId ? ' active' : ''}" data-tid="${esc(t.id)}" onclick="window._vcPickThread && window._vcPickThread('${esc(t.id)}')">
         <div class="vc-thread-av ${t.avClass || ''}" data-online="${t.online || 'false'}">${t.avatar || (t.avClass === 'av-ai' ? '<svg width="18" height="18"><use href="#i-sparkle"/></svg>' : t.avClass === 'av-team' ? '<svg width="18" height="18"><use href="#i-users"/></svg>' : t.name.slice(0,2).toUpperCase())}</div>
         <div class="vc-thread-body">
           <div class="vc-thread-name">${esc(t.name)} <span class="vc-role">\u00b7 ${esc(t.role || '')}</span></div>
@@ -7206,15 +7351,18 @@ async function _pgPatientVirtualCareImpl() {
         t.messages.push({ id: 'ai-' + Date.now(), sender: 'them', senderName: 'Synaps AI', at: new Date().toISOString(), body: "Assistant is offline. For urgent concerns, message your care team directly." });
       }
       const sc2 = document.getElementById('vc-conv-scroll');
-      if (sc2) { sc2.innerHTML = _convHtml(activeId); sc2.scrollTop = sc.scrollHeight; }
-    } else if (!_isDemo && uid && api.patientPortalSendMessage) {
-      // Real clinician thread — POST to API
+      if (sc2) { sc2.innerHTML = _convHtml(activeId); sc2.scrollTop = sc2.scrollHeight; }
+    } else if (!_isDemo && uid && api.sendPortalMessage) {
+      // Real clinician thread — POST to care team via patient portal messages.
       try {
-        await api.patientPortalSendMessage({ thread_id: activeId, body });
+        await api.sendPortalMessage({ body, category: 'patient_message', thread_id: activeId === 'primary' ? undefined : activeId });
         _showToast('Sent');
       } catch (err) {
+        console.error('[virtualcare] send failed:', err);
         _showToast('Failed to send — try again');
-        console.error('[virtualcare] send failed', err);
+        t.messages.push({ id: 'err-' + Date.now(), sender: 'them', senderName: 'System', at: new Date().toISOString(), body: 'Message could not be sent. Please try again or use Messages.' });
+        const sc3 = document.getElementById('vc-conv-scroll');
+        if (sc3) { sc3.innerHTML = _convHtml(activeId); sc3.scrollTop = sc3.scrollHeight; }
       }
     } else {
       _showToast('Sent');
@@ -7933,6 +8081,9 @@ async function _pgPatientEducationImpl() {
     { id:'cleveland', label:'Cleveland Clinic',  cls:'cleveland', short:'CC',  count:4  },
     { id:'podcast',   label:'Podcasts',          cls:'huberman',  short:'🎧',  count:4  },
     { id:'journals',  label:'Academic Journals', cls:'flow',      short:'J',   count:6  },
+    { id:'edx',       label:'edX',               cls:'edx',       short:'ed',  count:2  },
+    { id:'coursera',  label:'Coursera',          cls:'coursera',  short:'Co',  count:2  },
+    { id:'udemy',     label:'Udemy',             cls:'udemy',     short:'Ud',  count:2  },
     { id:'apps',      label:'Apps & Tools',      cls:'synaps',    short:'📱',  count:6  },
   ];
 
@@ -7949,14 +8100,14 @@ async function _pgPatientEducationImpl() {
     { id:'sv05', kind:'article', src:'synaps',    srcLbl:'SOZO Patient Resources', grad:3, ico:'users', dur:'5 min read', title:'Talking to family about your treatment — a script you can borrow', author:'SOZO Patient Resources', meta:'Lifestyle · Support', tags:['Lifestyle','Support'], topic:'lifestyle' },
 
     // YouTube — clinic explainers and open lectures.
-    { id:'yt01', kind:'video',   src:'youtube',   srcLbl:'King\'s College London · YouTube', grad:3, ico:'lightning', dur:'9:42',  title:'The Brunoni-Bestmann tDCS protocol for major depression', author:"King's College London", meta:'184k views', tags:['Matches your plan','tDCS'], topic:'tdcs' },
-    { id:'yt02', kind:'video',   src:'youtube',   srcLbl:'Neuroscience News · YouTube', grad:7, ico:'pulse', dur:'5:24', title:'What does a qEEG actually measure? A 5-minute primer', author:'Neuroscience News', meta:'92k views', tags:['For Week 6','qEEG'], topic:'qeeg' },
-    { id:'yt03', kind:'video',   src:'youtube',   srcLbl:'Stanford · YouTube',  grad:6,  ico:'video',     dur:'52:08', title:'What antidepressants actually do — Robert Sapolsky lecture', author:'Stanford', meta:'1.4M views', tags:['MDD','Lecture'], topic:'mdd' },
-    { id:'yt04', kind:'video',   src:'youtube',   srcLbl:'City College of NY · YouTube', grad:3, ico:'lightning', dur:'14:55', title:'2 mA, 20 minutes — why those numbers? Marom Bikson explains', author:'City College of NY', meta:'62k views', tags:['For your dose','tDCS'], topic:'tdcs' },
-    { id:'yt05', kind:'video',   src:'youtube',   srcLbl:'Huberman Lab · YouTube', grad:1, ico:'brain', dur:'22:48', title:'What the DLPFC does and why we stimulate it', author:'Andrew Huberman', meta:'Episode 213', tags:['Matches your plan','Neuroscience'], topic:'mdd' },
+    { id:'yt01', kind:'video',   src:'youtube',   srcLbl:'King\'s College London · YouTube', grad:3, ico:'lightning', dur:'9:42',  title:'The Brunoni-Bestmann tDCS protocol for major depression', author:"King's College London", meta:'184k views', tags:['Matches your plan','tDCS'], topic:'tdcs', url:'https://www.youtube.com/results?search_query=Brunoni+Bestmann+tDCS+protocol+depression' },
+    { id:'yt02', kind:'video',   src:'youtube',   srcLbl:'Neuroscience News · YouTube', grad:7, ico:'pulse', dur:'5:24', title:'What does a qEEG actually measure? A 5-minute primer', author:'Neuroscience News', meta:'92k views', tags:['For Week 6','qEEG'], topic:'qeeg', url:'https://www.youtube.com/results?search_query=qEEG+explained+primer' },
+    { id:'yt03', kind:'video',   src:'youtube',   srcLbl:'Stanford · YouTube',  grad:6,  ico:'video',     dur:'52:08', title:'What antidepressants actually do — Robert Sapolsky lecture', author:'Stanford', meta:'1.4M views', tags:['MDD','Lecture'], topic:'mdd', url:'https://www.youtube.com/watch?v=NOAgplgTxfc' },
+    { id:'yt04', kind:'video',   src:'youtube',   srcLbl:'City College of NY · YouTube', grad:3, ico:'lightning', dur:'14:55', title:'2 mA, 20 minutes — why those numbers? Marom Bikson explains', author:'City College of NY', meta:'62k views', tags:['For your dose','tDCS'], topic:'tdcs', url:'https://www.youtube.com/watch?v=7O1mcDzjeaE' },
+    { id:'yt05', kind:'video',   src:'youtube',   srcLbl:'Huberman Lab · YouTube', grad:1, ico:'brain', dur:'22:48', title:'What the DLPFC does and why we stimulate it', author:'Andrew Huberman', meta:'Episode 213', tags:['Matches your plan','Neuroscience'], topic:'mdd', url:'https://www.youtube.com/watch?v=yb5zpo5NDw0' },
 
     // Huberman / Andrew Huberman topics
-    { id:'hl01', kind:'video',   src:'huberman',  srcLbl:'Huberman Lab',  grad:1,  ico:'brain',     dur:'2:12:08', title:'Using neuromodulation to enhance focus, depression treatment & beyond', author:'Andrew Huberman', meta:'Episode 213', tags:['Matches your plan','Neuroscience'], topic:'mdd' },
+    { id:'hl01', kind:'video',   src:'huberman',  srcLbl:'Huberman Lab',  grad:1,  ico:'brain',     dur:'2:12:08', title:'Using neuromodulation to enhance focus, depression treatment & beyond', author:'Andrew Huberman', meta:'Episode 213', tags:['Matches your plan','Neuroscience'], topic:'mdd', url:'https://www.youtube.com/watch?v=mA3XAuA4fP4' },
 
     // NHS
     { id:'nhs01', kind:'article', src:'nhs',      srcLbl:'NHS',            grad:4,  ico:'shield',    dur:'7 min read', title:'Depression in adults: overview and what to expect from treatment', author:'NHS · Mental health A–Z', meta:'Last reviewed Jan 2026', tags:['MDD','Therapies'], topic:'mdd', url:'https://www.nhs.uk/mental-health/conditions/depression-in-adults/treatment/' },
@@ -7964,25 +8115,33 @@ async function _pgPatientEducationImpl() {
 
     // Mayo / Cleveland Clinic
     { id:'mc01', kind:'video',   src:'mayo',      srcLbl:'Mayo Clinic',   grad:4,  ico:'brain',     dur:'6:18',  title:'Mayo Clinic explains: transcranial direct current stimulation', author:'Dr. Paul Croarkin', meta:'Featured', tags:['For your plan','tDCS'], topic:'tdcs', url:'https://www.mayoclinic.org/diseases-conditions/depression/multimedia/transcranial-magnetic-stimulation-vid-20084603' },
-    { id:'mc02', kind:'video',   src:'mayo',      srcLbl:'Mayo Clinic',   grad:5,  ico:'moon',      dur:'11:10', title:'Sleep & recovery during a 10-week tDCS program', author:'Mayo Clinic', meta:'Patient Library', tags:['Lifestyle','Sleep'], topic:'lifestyle' },
+    { id:'mc02', kind:'video',   src:'mayo',      srcLbl:'Mayo Clinic',   grad:5,  ico:'moon',      dur:'11:10', title:'Sleep & recovery during a 10-week tDCS program', author:'Mayo Clinic', meta:'Patient Library', tags:['Lifestyle','Sleep'], topic:'lifestyle', url:'https://www.mayoclinic.org/diseases-conditions/depression/in-depth/depression-and-exercise/art-20046495' },
     { id:'cc01', kind:'video',   src:'cleveland', srcLbl:'Cleveland Clinic', grad:2, ico:'heart', dur:'12:34', title:'Treatment-resistant depression — what your options are now', author:'Cleveland Clinic Health', meta:'418k views', tags:['MDD','Therapies'], topic:'mdd', url:'https://my.clevelandclinic.org/health/diseases/9290-depression' },
-    { id:'cc02', kind:'video',   src:'cleveland', srcLbl:'Cleveland Clinic', grad:5, ico:'moon', dur:'6 min read', title:'Sleep hygiene during depression treatment — a 12-point checklist', author:'Cleveland Clinic Health Library', meta:'Article', tags:['Lifestyle','Sleep'], topic:'lifestyle' },
-    { id:'cc03', kind:'video',   src:'cleveland', srcLbl:'Cleveland Clinic Neurology', grad:4, ico:'pulse', dur:'9:18', title:'Reading your qEEG report: alpha, beta, theta — what they mean', author:'Cleveland Clinic Neurology', meta:'For your report', tags:['For your report','qEEG'], topic:'qeeg' },
+    { id:'cc02', kind:'article', src:'cleveland', srcLbl:'Cleveland Clinic', grad:5, ico:'moon', dur:'6 min read', title:'Sleep hygiene during depression treatment — a 12-point checklist', author:'Cleveland Clinic Health Library', meta:'Article', tags:['Lifestyle','Sleep'], topic:'lifestyle', url:'https://my.clevelandclinic.org/health/articles/12148-sleep-basics' },
+    { id:'cc03', kind:'video',   src:'cleveland', srcLbl:'Cleveland Clinic Neurology', grad:4, ico:'pulse', dur:'9:18', title:'Reading your qEEG report: alpha, beta, theta — what they mean', author:'Cleveland Clinic Neurology', meta:'For your report', tags:['For your report','qEEG'], topic:'qeeg', url:'https://my.clevelandclinic.org/health/diagnostics/22561-electroencephalogram-eeg' },
 
     // Podcasts
-    { id:'pc01', kind:'podcast', src:'podcast',   srcLbl:'Huberman Lab Podcast', grad:6, ico:'headphones', dur:'1:48:22', title:'Optimizing exercise for mental health — duration, intensity, timing', author:'Andrew Huberman', meta:'Episode 156', tags:['Exercise','Mood'], topic:'lifestyle' },
-    { id:'pc02', kind:'podcast', src:'podcast',   srcLbl:'The Tim Ferriss Show', grad:9, ico:'headphones', dur:'2:04:12', title:'Neuroscience of habit change with Dr. Andrew Huberman', author:'Tim Ferriss', meta:'Episode 615', tags:['Lifestyle','Habit'], topic:'lifestyle' },
-    { id:'pc03', kind:'podcast', src:'podcast',   srcLbl:'NPR Hidden Brain', grad:5, ico:'headphones', dur:'52:44', title:'Your brain under stress — and how to reset it', author:'Shankar Vedantam', meta:'NPR', tags:['Lifestyle','Mood'], topic:'lifestyle' },
+    { id:'pc01', kind:'podcast', src:'podcast',   srcLbl:'Huberman Lab Podcast', grad:6, ico:'headphones', dur:'1:48:22', title:'Optimizing exercise for mental health — duration, intensity, timing', author:'Andrew Huberman', meta:'Episode 156', tags:['Exercise','Mood'], topic:'lifestyle', url:'https://www.hubermanlab.com/episode/optimize-your-exercise' },
+    { id:'pc02', kind:'podcast', src:'podcast',   srcLbl:'The Tim Ferriss Show', grad:9, ico:'headphones', dur:'2:04:12', title:'Neuroscience of habit change with Dr. Andrew Huberman', author:'Tim Ferriss', meta:'Episode 615', tags:['Lifestyle','Habit'], topic:'lifestyle', url:'https://tim.blog/2024/03/28/dr-andrew-huberman-2/' },
+    { id:'pc03', kind:'podcast', src:'podcast',   srcLbl:'NPR Hidden Brain', grad:5, ico:'headphones', dur:'52:44', title:'Your brain under stress — and how to reset it', author:'Shankar Vedantam', meta:'NPR', tags:['Lifestyle','Mood'], topic:'lifestyle', url:'https://hiddenbrain.org/podcast/under-pressure/' },
 
     // Academic journals
-    { id:'j01', kind:'article',  src:'journals',  srcLbl:'Brain Stimulation (Elsevier)', grad:7, ico:'doc', dur:'open access', title:'Bikson et al. — Safety of transcranial direct current stimulation: evidence based update', author:'Bikson M. et al. · Brain Stimulation 2016', meta:'DOI 10.1016/j.brs.2016.06.004', tags:['Safety','Journal'], topic:'tdcs' },
-    { id:'j02', kind:'article',  src:'journals',  srcLbl:'JAMA Psychiatry',              grad:4, ico:'doc', dur:'paywalled', title:'Home-based transcranial direct current stimulation for major depressive disorder — RCT', author:'Borrione L. et al. · JAMA Psychiatry 2024', meta:'Randomised controlled trial', tags:['MDD','RCT'], topic:'mdd' },
-    { id:'j03', kind:'article',  src:'journals',  srcLbl:'Neuroscience & Biobehavioral Reviews', grad:9, ico:'doc', dur:'12 min read', title:'Frontal alpha asymmetry as a biomarker of depression — a review', author:'Smith E. et al. · Neurosci Biobehav Rev 2017', meta:'Review article', tags:['qEEG','Biomarker'], topic:'qeeg' },
+    { id:'j01', kind:'article',  src:'journals',  srcLbl:'Brain Stimulation (Elsevier)', grad:7, ico:'doc', dur:'open access', title:'Bikson et al. — Safety of transcranial direct current stimulation: evidence based update', author:'Bikson M. et al. · Brain Stimulation 2016', meta:'DOI 10.1016/j.brs.2016.06.004', tags:['Safety','Journal'], topic:'tdcs', url:'https://doi.org/10.1016/j.brs.2016.06.004' },
+    { id:'j02', kind:'article',  src:'journals',  srcLbl:'JAMA Psychiatry',              grad:4, ico:'doc', dur:'paywalled', title:'Home-based transcranial direct current stimulation for major depressive disorder — RCT', author:'Borrione L. et al. · JAMA Psychiatry 2024', meta:'Randomised controlled trial', tags:['MDD','RCT'], topic:'mdd', url:'https://jamanetwork.com/journals/jamapsychiatry/fullarticle' },
+    { id:'j03', kind:'article',  src:'journals',  srcLbl:'Neuroscience & Biobehavioral Reviews', grad:9, ico:'doc', dur:'12 min read', title:'Frontal alpha asymmetry as a biomarker of depression — a review', author:'Smith E. et al. · Neurosci Biobehav Rev 2017', meta:'Review article', tags:['qEEG','Biomarker'], topic:'qeeg', url:'https://scholar.google.com/scholar?q=frontal+alpha+asymmetry+biomarker+depression' },
 
     // Vielight / device makers
-    { id:'vi01', kind:'video',   src:'flow',      srcLbl:'Vielight Inc.', grad:5,  ico:'lightning', dur:'11:02', title:'Vielight Neuro Alpha — what 810 nm light does to brain tissue', author:'Vielight Inc.', meta:'Manufacturer', tags:['PBM','Device'], topic:'devices' },
-    { id:'vi02', kind:'video',   src:'flow',      srcLbl:'Vielight',      grad:10, ico:'lightning', dur:'15:30', title:'Photobiomodulation 101 — light, mitochondria, mood', author:'Dr. Lim · Vielight', meta:'For your Vielight', tags:['For your Vielight','PBM'], topic:'devices' },
-    { id:'fh01', kind:'video',   src:'flow',      srcLbl:'Flow Neuroscience', grad:7, ico:'pulse', dur:'8:20',  title:'How to use the Flow headset at home (full setup)', author:'Flow Neuroscience', meta:'Manufacturer', tags:['Device','tDCS'], topic:'devices' },
+    { id:'vi01', kind:'video',   src:'flow',      srcLbl:'Vielight Inc.', grad:5,  ico:'lightning', dur:'11:02', title:'Vielight Neuro Alpha — what 810 nm light does to brain tissue', author:'Vielight Inc.', meta:'Manufacturer', tags:['PBM','Device'], topic:'devices', url:'https://www.youtube.com/@Vielight/search?query=Neuro+Alpha' },
+    { id:'vi02', kind:'video',   src:'flow',      srcLbl:'Vielight',      grad:10, ico:'lightning', dur:'15:30', title:'Photobiomodulation 101 — light, mitochondria, mood', author:'Dr. Lim · Vielight', meta:'For your Vielight', tags:['For your Vielight','PBM'], topic:'devices', url:'https://vielight.com/photobiomodulation-101/' },
+    { id:'fh01', kind:'video',   src:'flow',      srcLbl:'Flow Neuroscience', grad:7, ico:'pulse', dur:'8:20',  title:'How to use the Flow headset at home (full setup)', author:'Flow Neuroscience', meta:'Manufacturer', tags:['Device','tDCS'], topic:'devices', url:'https://flowneuroscience.com/how-it-works/' },
+
+    // Online Courses — edX, Coursera, Udemy
+    { id:'ed01', kind:'course',  src:'edx',       srcLbl:'edX · Harvard',  grad:2,  ico:'graduation', dur:'12 weeks', title:'The Science of Well-Being — Yale University', author:'Professor Laurie Santos', meta:'Free to audit · Certificate available', tags:['Well-being','Course'], topic:'lifestyle', url:'https://www.edx.org/learn/happiness/yale-university-the-science-of-well-being' },
+    { id:'ed02', kind:'course',  src:'edx',       srcLbl:'edX · MIT',      grad:4,  ico:'graduation', dur:'9 weeks', title:'Introduction to Psychology — MIT', author:'MIT Open Learning', meta:'Free · Self-paced', tags:['Psychology','Course'], topic:'mdd', url:'https://www.edx.org/learn/psychology/massachusetts-institute-of-technology-introduction-to-psychology' },
+    { id:'co01', kind:'course',  src:'coursera',  srcLbl:'Coursera · Johns Hopkins', grad:3, ico:'graduation', dur:'4 weeks', title:'Psychological First Aid — Johns Hopkins University', author:'George Everly, PhD', meta:'Free to audit · Certificate', tags:['Mental Health','Course'], topic:'mdd', url:'https://www.coursera.org/learn/psychological-first-aid' },
+    { id:'co02', kind:'course',  src:'coursera',  srcLbl:'Coursera · University of Toronto', grad:5, ico:'graduation', dur:'6 weeks', title:'The Arts and Science of Relationships — University of Toronto', author:'University of Toronto', meta:'Free to audit', tags:['Relationships','Course'], topic:'lifestyle', url:'https://www.coursera.org/learn/the-arts-and-science-of-relationships' },
+    { id:'ud01', kind:'course',  src:'udemy',     srcLbl:'Udemy',          grad:6,  ico:'graduation', dur:'5.5 hours', title:'Neuroscience for Neurofeedback — A Complete Guide', author:'Thomas Feiner · Institute for EEG Neurofeedback', meta:'Paid course · 4.6★', tags:['Neurofeedback','Course'], topic:'qeeg', url:'https://www.udemy.com/courses/search/?q=neuroscience+neurofeedback' },
+    { id:'ud02', kind:'course',  src:'udemy',     srcLbl:'Udemy',          grad:8,  ico:'graduation', dur:'3 hours', title:'CBT for Depression, Anxiety and Phobias', author:'Libby Seery · Udemy Instructor', meta:'Paid course · 4.5★', tags:['CBT','Course'], topic:'mdd', url:'https://www.udemy.com/courses/search/?q=CBT+depression+anxiety' },
 
     // Apps & Tools — software clinicians commonly recommend alongside neuromodulation
     { id:'ap01', kind:'article', src:'apps',      srcLbl:'App Recommendation', grad:2, ico:'smile',     dur:'2 min read', title:'Headspace — guided meditation & sleep', author:'Headspace Inc.', meta:'iOS · Android · Web', tags:['Meditation','Sleep'], topic:'lifestyle', url:'https://www.headspace.com' },
@@ -8017,7 +8176,7 @@ async function _pgPatientEducationImpl() {
 
   // ── Helpers ─────────────────────────────────────────────────────────────
   function _sourceIcoSvg(srcId) {
-    const m = { youtube:'#i-video', podcast:'#i-headphones', nhs:'#i-shield', journals:'#i-book-open', mayo:'#i-shield', cleveland:'#i-shield', synaps:'#i-pulse', flow:'#i-lightning', huberman:'#i-video' };
+    const m = { youtube:'#i-video', podcast:'#i-headphones', nhs:'#i-shield', journals:'#i-book-open', mayo:'#i-shield', cleveland:'#i-shield', synaps:'#i-pulse', flow:'#i-lightning', huberman:'#i-video', edx:'#i-graduation', coursera:'#i-graduation', udemy:'#i-graduation' };
     return m[srcId] || '#i-pulse';
   }
   function _cardHtml(item) {
@@ -8082,6 +8241,7 @@ async function _pgPatientEducationImpl() {
       <symbol id="i-headphones" viewBox="0 0 24 24"><path d="M3 14a9 9 0 0 1 18 0v5a2 2 0 0 1-2 2h-2v-7h4M7 14H3v7h2a2 2 0 0 0 2-2v-5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
       <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 3v6h6M8 14h8M8 17h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
       <symbol id="i-share" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="18" cy="6" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="18" cy="18" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="m8.2 11 7.6-4M8.2 13l7.6 4" stroke="currentColor" stroke-width="1.5"/></symbol>
+      <symbol id="i-graduation" viewBox="0 0 24 24"><path d="M22 10L12 5 2 10l10 5 10-5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 12v4.5a6 6 0 0 0 12 0V12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
     </svg>`;
 
   // ── Render ─────────────────────────────────────────────────────────────
@@ -8205,6 +8365,7 @@ async function _pgPatientEducationImpl() {
               <button class="el-tab" data-kind="video" onclick="window._edKindFilter && window._edKindFilter('video')"><svg><use href="#i-video"/></svg>Video</button>
               <button class="el-tab" data-kind="article" onclick="window._edKindFilter && window._edKindFilter('article')"><svg><use href="#i-doc"/></svg>Article</button>
               <button class="el-tab" data-kind="podcast" onclick="window._edKindFilter && window._edKindFilter('podcast')"><svg><use href="#i-headphones"/></svg>Podcast</button>
+              <button class="el-tab" data-kind="course" onclick="window._edKindFilter && window._edKindFilter('course')"><svg><use href="#i-graduation"/></svg>Course</button>
             </div>
             <div class="el-tabs" id="el-topic-tabs">
               <button class="el-tab active" data-topic="all" onclick="window._edTopicFilter && window._edTopicFilter('all')">All topics</button>
@@ -8311,6 +8472,15 @@ async function _pgPatientEducationImpl() {
     }
     if (it.src === 'journals') {
       return 'https://scholar.google.com/scholar?q=' + q;
+    }
+    if (it.src === 'edx') {
+      return 'https://www.edx.org/search?q=' + encodeURIComponent(it.title);
+    }
+    if (it.src === 'coursera') {
+      return 'https://www.coursera.org/courses?query=' + encodeURIComponent(it.title);
+    }
+    if (it.src === 'udemy') {
+      return 'https://www.udemy.com/courses/search/?q=' + encodeURIComponent(it.title);
     }
     if (it.src === 'flow') {
       if (/Vielight/i.test(it.author || '')) return 'https://vielight.com';
@@ -9366,103 +9536,54 @@ export async function pgPatientMarketplace(_user) {
       .replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
   };
 
-  const CATALOG = [
-    // ── Services ──────────────────────────────────────────────────────
-    { id: 'svc-second-opinion', kind: 'service', icon: '🧠', tone: 'teal',
-      name: 'Second opinion consult', provider: 'Board-certified neuropsychiatrist',
-      desc: '45-min video review of your qEEG, assessment history, and protocol with an outside specialist.',
-      price: '£180', priceUnit: 'one-time', clinical: true, featured: true,
-      tags: ['Consult', '45 min', 'Video'] },
-    { id: 'svc-coach-cbt', kind: 'service', icon: '💬', tone: 'blue',
-      name: 'Weekly CBT coaching', provider: 'Accredited CBT therapist',
-      desc: 'Six structured sessions pairing cognitive-behavioural tools with your neuromodulation course.',
-      price: '£65', priceUnit: '/ session', clinical: false,
-      tags: ['6 weeks', 'Video', 'Between-session support'] },
-    { id: 'svc-nutrition', kind: 'service', icon: '🥗', tone: 'green',
-      name: 'Neuro-nutrition plan', provider: 'Registered dietitian',
-      desc: 'Personalised eating plan optimised for cognitive recovery and sleep. Includes shopping list + recipes.',
-      price: '£120', priceUnit: '/ month', clinical: false,
-      tags: ['Monthly', 'Personalised', 'Chat support'] },
-    { id: 'svc-sleep-coach', kind: 'service', icon: '🌙', tone: 'violet',
-      name: 'Sleep coaching programme', provider: 'Behavioural sleep medicine specialist',
-      desc: '8-week CBT-I programme for insomnia, delivered asynchronously with weekly check-ins.',
-      price: '£240', priceUnit: 'programme', clinical: false,
-      tags: ['8 weeks', 'Async', 'CBT-I'] },
-    { id: 'svc-peer-group', kind: 'service', icon: '🤝', tone: 'rose',
-      name: 'Peer support group', provider: 'Facilitated by a licensed counsellor',
-      desc: 'Weekly 60-minute small-group calls with other patients on neuromodulation protocols.',
-      price: '£45', priceUnit: '/ month', clinical: false,
-      tags: ['Weekly', 'Small group'] },
-    { id: 'svc-referral-psych', kind: 'service', icon: '👩‍⚕️', tone: 'amber',
-      name: 'Psychiatry medication review', provider: 'Consultant psychiatrist',
-      desc: 'Review of current medications, interactions with your protocol, and adjustment options.',
-      price: '£220', priceUnit: 'one-time', clinical: true,
-      tags: ['Clinical', 'Video', 'Report included'] },
-
-    // ── Devices ───────────────────────────────────────────────────────
-    { id: 'dev-oura-ring', kind: 'device', icon: '💍', tone: 'blue',
-      name: 'Oura Ring Gen 3', provider: 'Oura Health',
-      desc: 'Sleep, HRV, body-temperature and readiness tracking — auto-syncs into your Biometrics reports.',
-      price: '£299', priceUnit: 'one-time', clinical: false, featured: true,
-      tags: ['Wearable', 'Ships in 3–5 days', 'HRV + sleep'] },
-    { id: 'dev-apple-watch', kind: 'device', icon: '⌚', tone: 'teal',
-      name: 'Apple Watch SE', provider: 'Apple',
-      desc: 'Cardio, activity, ECG and sleep tracking with deep Apple Health integration.',
-      price: '£259', priceUnit: 'one-time', clinical: false,
-      tags: ['Wearable', 'ECG', 'Apple Health'] },
-    { id: 'dev-focus-tdcs', kind: 'device', icon: '🧩', tone: 'violet',
-      name: 'At-home tDCS headset', provider: 'DeepSynaps partner hardware',
-      desc: 'Prescription-only home tDCS unit. Clinician must approve and configure electrode montage.',
-      price: 'By prescription', priceUnit: '', clinical: true,
-      tags: ['Prescription', 'Clinician-configured', 'Home use'] },
-    { id: 'dev-lightbox', kind: 'device', icon: '☀️', tone: 'amber',
-      name: '10 000-lux light therapy lamp', provider: 'Northern Light',
-      desc: 'Circadian light therapy lamp recommended for seasonal mood and sleep-phase support.',
-      price: '£149', priceUnit: 'one-time', clinical: false,
-      tags: ['10 000 lux', 'UV-free', '30-day trial'] },
-    { id: 'dev-hrv-strap', kind: 'device', icon: '🫀', tone: 'rose',
-      name: 'Polar H10 HRV strap', provider: 'Polar',
-      desc: 'Medical-grade ECG chest strap for precise HRV during breathing and meditation practice.',
-      price: '£89', priceUnit: 'one-time', clinical: false,
-      tags: ['Chest strap', 'HRV-biofeedback ready'] },
-    { id: 'dev-muse', kind: 'device', icon: '🧘', tone: 'teal',
-      name: 'Muse S headband', provider: 'Interaxon',
-      desc: 'Consumer EEG headband for guided meditation + sleep tracking. Not for diagnostic qEEG.',
-      price: '£299', priceUnit: 'one-time', clinical: false,
-      tags: ['Consumer EEG', 'Meditation'] },
-
-    // ── Software ──────────────────────────────────────────────────────
-    { id: 'sw-headspace', kind: 'software', icon: '🟠', tone: 'amber',
-      name: 'Headspace', provider: 'Headspace Inc.',
-      desc: 'Evidence-informed meditation app. DeepSynaps patients get 50% off the annual plan.',
-      price: '£34.99', priceUnit: '/ year', clinical: false, featured: true,
-      tags: ['50% off', 'Annual', 'iOS · Android'] },
-    { id: 'sw-wysa', kind: 'software', icon: '💙', tone: 'blue',
-      name: 'Wysa AI Coach', provider: 'Wysa',
-      desc: 'Evidence-based chatbot coach for mood, anxiety, and between-session support.',
-      price: '£9.99', priceUnit: '/ month', clinical: false,
-      tags: ['CBT-grounded', 'Chatbot', '24/7'] },
-    { id: 'sw-sleepio', kind: 'software', icon: '😴', tone: 'violet',
-      name: 'Sleepio CBT-I', provider: 'Big Health (NICE-approved)',
-      desc: 'Digital CBT for insomnia — the NICE-approved 6-week programme. Delivered via app.',
-      price: '£200', priceUnit: 'programme', clinical: true,
-      tags: ['NICE-approved', 'CBT-I', '6 weeks'] },
-    { id: 'sw-endeavor', kind: 'software', icon: '🎯', tone: 'teal',
-      name: 'EndeavorOTC', provider: 'Akili Interactive',
-      desc: 'FDA-cleared gamified attention training (15 min / day). Adjunct to ADHD treatment.',
-      price: '$24.99', priceUnit: '/ month', clinical: true,
-      tags: ['FDA-cleared', 'ADHD', '15 min/day'] },
-    { id: 'sw-somryst', kind: 'software', icon: '🌜', tone: 'rose',
-      name: 'Daylight', provider: 'Big Health',
-      desc: 'Digital therapeutic for generalised anxiety. Short daily practice built from CBT.',
-      price: '£150', priceUnit: 'programme', clinical: true,
-      tags: ['Digital therapeutic', 'Anxiety'] },
-    { id: 'sw-woebot', kind: 'software', icon: '🤖', tone: 'green',
-      name: 'Woebot', provider: 'Woebot Health',
-      desc: 'Relational AI mood companion that checks in daily and routes urgent messages to your clinician.',
-      price: 'Free', priceUnit: '', clinical: false,
-      tags: ['Free', 'Daily check-ins'] },
+  // ── Hardcoded fallback catalog (used if API fails) ──
+  const FALLBACK_CATALOG = [
+    { id: 'svc-second-opinion', kind: 'service', icon: '🧠', tone: 'teal', name: 'Second opinion consult', provider: 'Board-certified neuropsychiatrist', desc: '45-min video review of your qEEG, assessment history, and protocol with an outside specialist.', price: '£180', priceUnit: 'one-time', clinical: true, featured: true, tags: ['Consult', '45 min', 'Video'], external_url: null },
+    { id: 'svc-coach-cbt', kind: 'service', icon: '💬', tone: 'blue', name: 'Weekly CBT coaching', provider: 'Accredited CBT therapist', desc: 'Six structured sessions pairing cognitive-behavioural tools with your neuromodulation course.', price: '£65', priceUnit: '/ session', clinical: false, featured: false, tags: ['6 weeks', 'Video', 'Between-session support'], external_url: null },
+    { id: 'svc-nutrition', kind: 'service', icon: '🥗', tone: 'green', name: 'Neuro-nutrition plan', provider: 'Registered dietitian', desc: 'Personalised eating plan optimised for cognitive recovery and sleep. Includes shopping list + recipes.', price: '£120', priceUnit: '/ month', clinical: false, featured: false, tags: ['Monthly', 'Personalised', 'Chat support'], external_url: null },
+    { id: 'svc-sleep-coach', kind: 'service', icon: '🌙', tone: 'violet', name: 'Sleep coaching programme', provider: 'Behavioural sleep medicine specialist', desc: '8-week CBT-I programme for insomnia, delivered asynchronously with weekly check-ins.', price: '£240', priceUnit: 'programme', clinical: false, featured: false, tags: ['8 weeks', 'Async', 'CBT-I'], external_url: null },
+    { id: 'svc-peer-group', kind: 'service', icon: '🤝', tone: 'rose', name: 'Peer support group', provider: 'Facilitated by a licensed counsellor', desc: 'Weekly 60-minute small-group calls with other patients on neuromodulation protocols.', price: '£45', priceUnit: '/ month', clinical: false, featured: false, tags: ['Weekly', 'Small group'], external_url: null },
+    { id: 'svc-referral-psych', kind: 'service', icon: '👩‍⚕️', tone: 'amber', name: 'Psychiatry medication review', provider: 'Consultant psychiatrist', desc: 'Review of current medications, interactions with your protocol, and adjustment options.', price: '£220', priceUnit: 'one-time', clinical: true, featured: false, tags: ['Clinical', 'Video', 'Report included'], external_url: null },
+    { id: 'dev-oura-ring', kind: 'device', icon: '💍', tone: 'blue', name: 'Oura Ring Gen 3', provider: 'Oura Health', desc: 'Sleep, HRV, body-temperature and readiness tracking — auto-syncs into your Biometrics reports.', price: '£299', priceUnit: 'one-time', clinical: false, featured: true, tags: ['Wearable', 'Ships in 3–5 days', 'HRV + sleep'], external_url: 'https://ouraring.com' },
+    { id: 'dev-apple-watch', kind: 'device', icon: '⌚', tone: 'teal', name: 'Apple Watch SE', provider: 'Apple', desc: 'Cardio, activity, ECG and sleep tracking with deep Apple Health integration.', price: '£259', priceUnit: 'one-time', clinical: false, featured: false, tags: ['Wearable', 'ECG', 'Apple Health'], external_url: 'https://www.apple.com/apple-watch-se/' },
+    { id: 'dev-focus-tdcs', kind: 'device', icon: '🧩', tone: 'violet', name: 'At-home tDCS headset', provider: 'DeepSynaps partner hardware', desc: 'Prescription-only home tDCS unit. Clinician must approve and configure electrode montage.', price: 'By prescription', priceUnit: '', clinical: true, featured: false, tags: ['Prescription', 'Clinician-configured', 'Home use'], external_url: null },
+    { id: 'dev-lightbox', kind: 'device', icon: '☀️', tone: 'amber', name: '10 000-lux light therapy lamp', provider: 'Northern Light', desc: 'Circadian light therapy lamp recommended for seasonal mood and sleep-phase support.', price: '£149', priceUnit: 'one-time', clinical: false, featured: false, tags: ['10 000 lux', 'UV-free', '30-day trial'], external_url: 'https://www.northernlighttechnologies.com' },
+    { id: 'dev-hrv-strap', kind: 'device', icon: '🫀', tone: 'rose', name: 'Polar H10 HRV strap', provider: 'Polar', desc: 'Medical-grade ECG chest strap for precise HRV during breathing and meditation practice.', price: '£89', priceUnit: 'one-time', clinical: false, featured: false, tags: ['Chest strap', 'HRV-biofeedback ready'], external_url: 'https://www.polar.com/en/products/accessories/h10-heart-rate-sensor' },
+    { id: 'dev-muse', kind: 'device', icon: '🧘', tone: 'teal', name: 'Muse S headband', provider: 'Interaxon', desc: 'Consumer EEG headband for guided meditation + sleep tracking. Not for diagnostic qEEG.', price: '£299', priceUnit: 'one-time', clinical: false, featured: false, tags: ['Consumer EEG', 'Meditation'], external_url: 'https://choosemuse.com/muse-s/' },
+    { id: 'sw-headspace', kind: 'software', icon: '🟠', tone: 'amber', name: 'Headspace', provider: 'Headspace Inc.', desc: 'Evidence-informed meditation app. DeepSynaps patients get 50% off the annual plan.', price: '£34.99', priceUnit: '/ year', clinical: false, featured: true, tags: ['50% off', 'Annual', 'iOS · Android'], external_url: 'https://www.headspace.com' },
+    { id: 'sw-wysa', kind: 'software', icon: '💙', tone: 'blue', name: 'Wysa AI Coach', provider: 'Wysa', desc: 'Evidence-based chatbot coach for mood, anxiety, and between-session support.', price: '£9.99', priceUnit: '/ month', clinical: false, featured: false, tags: ['CBT-grounded', 'Chatbot', '24/7'], external_url: 'https://www.wysa.io' },
+    { id: 'sw-sleepio', kind: 'software', icon: '😴', tone: 'violet', name: 'Sleepio CBT-I', provider: 'Big Health (NICE-approved)', desc: 'Digital CBT for insomnia — the NICE-approved 6-week programme. Delivered via app.', price: '£200', priceUnit: 'programme', clinical: true, featured: false, tags: ['NICE-approved', 'CBT-I', '6 weeks'], external_url: 'https://www.bighealth.com/sleepio' },
+    { id: 'sw-endeavor', kind: 'software', icon: '🎯', tone: 'teal', name: 'EndeavorOTC', provider: 'Akili Interactive', desc: 'FDA-cleared gamified attention training (15 min / day). Adjunct to ADHD treatment.', price: '$24.99', priceUnit: '/ month', clinical: true, featured: false, tags: ['FDA-cleared', 'ADHD', '15 min/day'], external_url: 'https://www.akiliinteractive.com/endeavorotc' },
+    { id: 'sw-somryst', kind: 'software', icon: '🌜', tone: 'rose', name: 'Daylight', provider: 'Big Health', desc: 'Digital therapeutic for generalised anxiety. Short daily practice built from CBT.', price: '£150', priceUnit: 'programme', clinical: true, featured: false, tags: ['Digital therapeutic', 'Anxiety'], external_url: 'https://www.bighealth.com/daylight' },
+    { id: 'sw-woebot', kind: 'software', icon: '🤖', tone: 'green', name: 'Woebot', provider: 'Woebot Health', desc: 'Relational AI mood companion that checks in daily and routes urgent messages to your clinician.', price: 'Free', priceUnit: '', clinical: false, featured: false, tags: ['Free', 'Daily check-ins'], external_url: 'https://woebothealth.com' },
   ];
+
+  // ── Try fetch live data ──
+  let CATALOG = FALLBACK_CATALOG;
+  let apiOk = false;
+  try {
+    const data = await api.marketplaceItems();
+    if (data && Array.isArray(data.items)) {
+      CATALOG = data.items.map(it => ({
+        id: it.id,
+        kind: it.kind,
+        icon: it.icon || '📦',
+        tone: it.tone || 'slate',
+        name: it.name,
+        provider: it.provider,
+        desc: it.description || '',
+        price: it.price != null ? `${it.price_unit && it.price_unit.startsWith('USD') ? '$' : '£'}${it.price}` : (it.price_unit || '—'),
+        priceUnit: '',
+        clinical: it.clinical,
+        featured: it.featured,
+        tags: it.tags || [],
+        external_url: it.external_url || null,
+      }));
+      apiOk = true;
+    }
+  } catch (e) {
+    // Fallback to hardcoded catalog
+  }
 
   const kindMeta = {
     service:  { label: 'Services',  sub: 'Human experts you can book',            icon: '👥', tone: 'teal'  },
@@ -9480,12 +9601,13 @@ export async function pgPatientMarketplace(_user) {
     const clinicalBadge = i.clinical
       ? `<span class="mp-clinical-badge" title="Needs clinician review">🩺 Clinician review</span>`
       : '';
+    const hasExternal = i.external_url && !i.clinical;
     const cta = i.clinical
       ? `<button class="mp-cta mp-cta--clinical" data-mp-request="${esc(i.id)}">Request via care team</button>`
-      : `<button class="mp-cta mp-cta--buy" data-mp-buy="${esc(i.id)}">Buy · ${esc(i.price)}${esc(i.priceUnit || '')}</button>`;
-    const price = i.clinical
-      ? `<div class="mp-price">${esc(i.price)}${i.priceUnit ? ' <span class="mp-price-unit">' + esc(i.priceUnit) + '</span>' : ''}</div>`
-      : `<div class="mp-price">${esc(i.price)}${i.priceUnit ? ' <span class="mp-price-unit">' + esc(i.priceUnit) + '</span>' : ''}</div>`;
+      : (hasExternal
+        ? `<button class="mp-cta mp-cta--buy" data-mp-buy="${esc(i.id)}">Buy · ${esc(i.price)}${esc(i.priceUnit || '')}</button>`
+        : `<button class="mp-cta mp-cta--buy" data-mp-buy="${esc(i.id)}">Get · ${esc(i.price)}${esc(i.priceUnit || '')}</button>`);
+    const price = `<div class="mp-price">${esc(i.price)}${i.priceUnit ? ' <span class="mp-price-unit">' + esc(i.priceUnit) + '</span>' : ''}</div>`;
     return `
       <article class="mp-card" data-kind="${esc(i.kind)}" data-id="${esc(i.id)}">
         <div class="mp-card-top">
@@ -9538,6 +9660,11 @@ export async function pgPatientMarketplace(_user) {
         </div>
       </header>
 
+      ${!apiOk ? `<div class="mp-disclaimer" style="background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.25)">
+        <span aria-hidden="true">⚡</span>
+        <div><strong>Offline mode.</strong> Showing cached catalog. Connect to the server for the latest items and to place orders.</div>
+      </div>` : ''}
+
       <div class="mp-disclaimer">
         <span aria-hidden="true">ℹ️</span>
         <div>
@@ -9572,10 +9699,10 @@ export async function pgPatientMarketplace(_user) {
     </div>
   `;
 
-  _wireMarketplace();
+  _wireMarketplace(CATALOG);
 }
 
-function _wireMarketplace() {
+function _wireMarketplace(CATALOG) {
   const root = document.querySelector('.mp-wrap');
   if (!root) return;
 
@@ -9590,7 +9717,51 @@ function _wireMarketplace() {
     toastTimer = setTimeout(() => toast.classList.remove('show'), 2400);
   }
 
-  // Filter tabs
+  // ── Details modal ──
+  function showDetails(id) {
+    const item = CATALOG.find(c => c.id === id);
+    if (!item) return;
+    const existing = document.getElementById('mp-details-panel');
+    if (existing) existing.remove();
+
+    const tags = (item.tags || []).map(t => `<span class="mp-tag">${esc(t)}</span>`).join('');
+    const externalSection = item.external_url && !item.clinical
+      ? `<div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08)">
+          <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:8px">External purchase link</div>
+          <a href="${esc(item.external_url)}" target="_blank" rel="noopener noreferrer" class="mp-cta mp-cta--buy" style="display:inline-block;text-decoration:none">Open ${esc(item.provider)} ↗</a>
+         </div>`
+      : '';
+
+    const panel = document.createElement('div');
+    panel.id = 'mp-details-panel';
+    panel.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px';
+    panel.innerHTML = `
+      <div style="background:var(--navy-850,#0f172a);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:16px;max-width:520px;width:100%;max-height:80vh;overflow:auto;box-shadow:0 16px 48px rgba(0,0,0,.5)">
+        <div style="padding:20px 20px 12px;display:flex;align-items:flex-start;gap:12px">
+          <span class="pt-page-tile pt-nav-tile--${esc(item.tone || 'teal')}" style="width:44px;height:44px;font-size:22px;flex-shrink:0">${item.icon}</span>
+          <div style="flex:1;min-width:0">
+            <h3 style="margin:0 0 4px;font-size:17px;font-weight:600;color:var(--text-primary)">${esc(item.name)}</h3>
+            <div style="font-size:13px;color:var(--text-secondary)">${esc(item.provider)}</div>
+          </div>
+          <button id="mp-details-close" style="background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:20px;line-height:1;padding:4px">×</button>
+        </div>
+        <div style="padding:0 20px 20px">
+          <p style="margin:0 0 12px;font-size:13.5px;line-height:1.6;color:var(--text-secondary)">${esc(item.desc)}</p>
+          <div class="mp-tags">${tags}</div>
+          ${item.clinical ? '<div style="margin-top:12px;font-size:12px;color:#fbbf24">🩺 This item requires clinician review before it can be requested.</div>' : ''}
+          ${externalSection}
+        </div>
+      </div>
+    `;
+    document.body.appendChild(panel);
+    panel.addEventListener('click', (e) => {
+      if (e.target === panel || e.target.id === 'mp-details-close') {
+        panel.remove();
+      }
+    });
+  }
+
+  // ── Filter tabs ──
   root.querySelectorAll('[data-mp-filter]').forEach(btn => {
     btn.addEventListener('click', () => {
       const f = btn.dataset.mpFilter;
@@ -9599,7 +9770,6 @@ function _wireMarketplace() {
         b.classList.toggle('active', on);
         b.setAttribute('aria-selected', String(on));
       });
-      // Hide/show kind sections; featured always visible.
       root.querySelectorAll('.mp-section').forEach(sec => {
         if (sec.id === 'mp-section-featured') { sec.style.display = ''; return; }
         const kind = sec.id.replace('mp-section-', '');
@@ -9608,25 +9778,45 @@ function _wireMarketplace() {
     });
   });
 
-  // Buy
+  // ── Buy / External link ──
   root.querySelectorAll('[data-mp-buy]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const name = btn.closest('.mp-card')?.querySelector('.mp-card-name')?.textContent || 'Item';
-      mpToast(`${name} added to cart · checkout coming soon`);
+      const id = btn.dataset.mpBuy;
+      const item = CATALOG.find(c => c.id === id);
+      if (!item) return;
+      if (item.external_url && !item.clinical) {
+        window.open(item.external_url, '_blank', 'noopener,noreferrer');
+        mpToast(`Opening ${item.provider}…`);
+      } else {
+        mpToast(`${item.name} · checkout coming soon`);
+      }
     });
   });
-  // Clinical request
+
+  // ── Clinical request via care team ──
   root.querySelectorAll('[data-mp-request]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const name = btn.closest('.mp-card')?.querySelector('.mp-card-name')?.textContent || 'Item';
-      mpToast(`Requested · your care team will review ${name}`);
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.mpRequest;
+      const item = CATALOG.find(c => c.id === id);
+      if (!item) return;
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+      try {
+        await api.marketplaceCreateOrder({ item_id: item.id, patient_notes: '' });
+        mpToast(`Requested · your care team will review ${item.name}`);
+      } catch (e) {
+        mpToast(`Request failed · ${e.message || 'try again later'}`);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Request via care team';
+      }
     });
   });
-  // Details (lightweight alert-toast)
+
+  // ── Details ──
   root.querySelectorAll('[data-mp-details]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const name = btn.closest('.mp-card')?.querySelector('.mp-card-name')?.textContent || 'Item';
-      mpToast(`Opening details for ${name}…`);
+      showDetails(btn.dataset.mpDetails);
     });
   });
 }
@@ -10003,6 +10193,7 @@ export async function pgPatientWellness() {
       'sleep':        window._launcherSleep,
       'mood-journal': window._launcherMoodJournal,
       'activity':     window._launcherExercise,
+      'walk':         window._launcherExercise,
       'home-device':  window._launcherHomeDevice,
       'caregiver':    window._launcherCaregiver,
       'pre-session':  window._launcherPreSession,
@@ -15569,7 +15760,25 @@ async function _ptoLoadLive() {
     _timeout(3000),
   ]);
   try {
-    const resp = await _raceNull(api.patientPortalOutcomes());
+    // Fetch all patient data sources in parallel
+    const [
+      resp,
+      wearableRaw,
+      wellnessRaw,
+      tasksRaw,
+      sessionsRaw,
+      learnRaw,
+      assessmentsRaw,
+    ] = await Promise.all([
+      _raceNull(api.patientPortalOutcomes()),
+      _raceNull(api.patientPortalWearableSummary(7)),
+      _raceNull(api.patientPortalWellnessLogs(14)),
+      _raceNull(api.portalListHomeProgramTasks()),
+      _raceNull(api.portalListHomeSessions()),
+      _raceNull(api.patientPortalLearnProgress()),
+      _raceNull(api.patientPortalAssessments()),
+    ]);
+
     const items = Array.isArray(resp) ? resp : (resp && Array.isArray(resp.items) ? resp.items : null);
     if (!items || !items.length) return _ptoSeed();
 
@@ -15615,10 +15824,45 @@ async function _ptoLoadLive() {
     const patientInfo = Object.assign({}, seed.patient);
     if (items[0] && items[0].course_id) patientInfo.courseId = items[0].course_id;
 
+    // Process wearable summary
+    var wearableSummary = null;
+    if (wearableRaw && Array.isArray(wearableRaw.daily) && wearableRaw.daily.length) {
+      var wdays = wearableRaw.daily;
+      wearableSummary = {
+        sleep: _pgpAverage(wdays.map(function(d) { return d.sleep_duration_h; })),
+        hrv: _pgpAverage(wdays.map(function(d) { return d.hrv_ms; })),
+        rhr: _pgpAverage(wdays.map(function(d) { return d.rhr_bpm; })),
+        steps: _pgpAverage(wdays.map(function(d) { return d.steps; })),
+        readiness: _pgpAverage(wdays.map(function(d) { return d.readiness_score; })),
+        daily: wdays,
+      };
+    }
+
+    // Process wellness logs
+    var wellnessLogs = Array.isArray(wellnessRaw) ? wellnessRaw : [];
+
+    // Process home tasks
+    var homeTasks = Array.isArray(tasksRaw) ? tasksRaw : [];
+
+    // Process home sessions
+    var homeSessions = Array.isArray(sessionsRaw) ? sessionsRaw : [];
+
+    // Process learn progress
+    var learnProgress = learnRaw && typeof learnRaw === 'object' ? learnRaw : { read_article_ids: [], total_available: 0 };
+
+    // Process assessments
+    var assessments = Array.isArray(assessmentsRaw) ? assessmentsRaw : [];
+
     const liveData = {
       patient: patientInfo,
       nextAssessmentDate: seed.nextAssessmentDate,
       measures: measures,
+      wearableSummary: wearableSummary,
+      wellnessLogs: wellnessLogs,
+      homeTasks: homeTasks,
+      homeSessions: homeSessions,
+      learnProgress: learnProgress,
+      assessments: assessments,
     };
 
     // Cache to localStorage so _ptoLoad() picks it up too
@@ -15793,6 +16037,12 @@ function _pgpNormalizeData() {
     last7AvgSleep: last7AvgSleep,
     last7AvgStress: last7AvgStress,
     locale: _rptLoc,
+    wearableSummary: ptoData.wearableSummary || null,
+    wellnessLogs: Array.isArray(ptoData.wellnessLogs) ? ptoData.wellnessLogs : [],
+    homeTasks: Array.isArray(ptoData.homeTasks) ? ptoData.homeTasks : [],
+    homeSessions: Array.isArray(ptoData.homeSessions) ? ptoData.homeSessions : [],
+    learnProgress: ptoData.learnProgress || { read_article_ids: [], total_available: 0 },
+    assessments: Array.isArray(ptoData.assessments) ? ptoData.assessments : [],
   };
 }
 
@@ -16211,7 +16461,7 @@ function _pgpSaCardHtml(key) {
   } else { dueSoon = true; }
   const freqLabel = survey.frequency.replace(/^./, function(c) { return c.toUpperCase(); });
   const tone = survey.tone || 'teal';
-  const icons = { daily_mood:'&#127749;', weekly_wellness:'&#128200;', monthly_reflection:'&#127769;', daily_symptoms:'&#128293;' };
+  const icons = { daily_mood:'&#127749;', weekly_wellness:'&#128200;', monthly_reflection:'&#127769;', daily_symptoms:'&#128293;', post_session:'&#128221;', adherence:'&#9989;', sleep_diary:'&#127769;' };
   return (
     '<div class="pgp-sa-card ' + esc(tone) + (dueSoon ? ' due-soon' : '') + '" data-sa="' + esc(key) + '">' +
       '<div class="pgp-sa-card-hd">' +
@@ -16364,6 +16614,292 @@ function _pgpActionsSection() {
   );
 }
 
+// ── Wearable biometrics card (live API data) ──────────────────────────────────
+function _pgpBiometricsLive(progress) {
+  var w = progress.wearableSummary;
+  if (!w) {
+    return _pgpBiometrics(); // fallback to localStorage version
+  }
+  var sleepVal = w.sleep != null ? w.sleep.toFixed(1) + ' hrs' : '—';
+  var hrvVal   = w.hrv   != null ? Math.round(w.hrv) + ' ms' : '—';
+  var rhrVal   = w.rhr   != null ? Math.round(w.rhr) + ' bpm' : '—';
+  var stepsVal = w.steps != null ? Math.round(w.steps).toLocaleString() + ' steps' : '—';
+  var readinessVal = w.readiness != null ? Math.round(w.readiness) + '/100' : '—';
+  var sleepN = w.sleep || 0, hrvN = w.hrv || 0, rhrN = w.rhr || 0, readinessN = w.readiness || 0;
+  var sleepSt = sleepN >= 7 ? 'green' : sleepN >= 5.5 ? 'amber' : 'red';
+  var hrvSt   = hrvN   >= 50 ? 'green' : hrvN   >= 30  ? 'amber' : 'red';
+  var rhrSt   = rhrN   <= 65 ? 'green' : rhrN   <= 80  ? 'amber' : 'red';
+  var readinessSt = readinessN >= 70 ? 'green' : readinessN >= 50 ? 'amber' : 'red';
+  // Simple 7-day sparkline for readiness
+  var readinessSpark = '';
+  if (w.daily && w.daily.length > 1) {
+    var rs = w.daily.map(function(d) { return d.readiness_score || 0; }).filter(function(v) { return v > 0; });
+    readinessSpark = _sparkline(rs, 180, 60);
+  }
+  var tiles = [
+    { label: 'Sleep',      val: sleepVal,       sub: 'avg last 7 nights',  icon: '🌙', st: sleepSt },
+    { label: 'HRV',        val: hrvVal,         sub: 'avg last 7 days',    icon: '💚', st: hrvSt   },
+    { label: 'Resting HR', val: rhrVal,         sub: 'avg last 7 days',    icon: '❤️', st: rhrSt   },
+    { label: 'Readiness',  val: readinessVal,   sub: 'recovery score',     icon: '🔋', st: readinessSt },
+  ];
+  return '<section class="pgp-panel">' +
+    '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Biometrics</div><h3>Recovery & sleep</h3></div></div>' +
+    '<div class="pgp-bio-grid">' +
+    tiles.map(function(t) {
+      return '<div class="pgp-bio-tile">' +
+        '<div class="pgp-bio-icon">' + t.icon + '</div>' +
+        '<div class="pgp-bio-label">' + t.label + '</div>' +
+        '<div class="pgp-bio-val">' + t.val + '</div>' +
+        '<div class="pgp-bio-sub">' + t.sub + '</div>' +
+        '<div style="margin-top:5px">' + _vizTrafficLight(t.st, '') + '</div>' +
+      '</div>';
+    }).join('') +
+    '</div>' +
+    (readinessSpark ? '<div style="margin-top:14px">' + readinessSpark + '</div>' : '') +
+    '<div class="pgp-bio-sync">Last synced today &nbsp;·&nbsp; <a href="#" style="color:var(--accent-teal,#2dd4bf);text-decoration:none" onclick="window._navPatient(\'patient-wearables\');return false">Manage devices →</a></div>' +
+  '</section>';
+}
+
+// ── Wellness log trend chart ────────────────────────────────────────────────────
+function _pgpWellnessTrendChart(progress) {
+  var logs = progress.wellnessLogs;
+  if (!logs || logs.length < 3) {
+    return '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Wellness check-ins</div><h3>Daily wellness trends</h3></div></div>' +
+      '<div class="pgp-chart-empty">Your wellness trend will appear once you have completed a few daily check-ins.</div>' +
+    '</section>';
+  }
+  var sorted = logs.slice().sort(function(a, b) {
+    var da = (a.created_at || a.date || '').slice(0, 10);
+    var db = (b.created_at || b.date || '').slice(0, 10);
+    return da < db ? -1 : da > db ? 1 : 0;
+  });
+  var labels = sorted.map(function(it) {
+    var d = new Date(it.created_at || it.date);
+    return isNaN(d) ? '' : d.toLocaleDateString(progress.locale, { month: 'short', day: 'numeric' });
+  });
+  var moodVals = sorted.map(function(it) { return it.mood_score; }).filter(function(v) { return Number.isFinite(v); });
+  var sleepVals = sorted.map(function(it) { return it.sleep_score; }).filter(function(v) { return Number.isFinite(v); });
+  var energyVals = sorted.map(function(it) { return it.energy_score; }).filter(function(v) { return Number.isFinite(v); });
+  var series = [];
+  if (moodVals.length >= 2) series.push({ key: 'Mood', color: '#2dd4bf', good: 'up', points: sorted.map(function(it, i) { return { label: labels[i], value: it.mood_score }; }).filter(function(p) { return Number.isFinite(p.value); }) });
+  if (sleepVals.length >= 2) series.push({ key: 'Sleep', color: '#60a5fa', good: 'up', points: sorted.map(function(it, i) { return { label: labels[i], value: it.sleep_score }; }).filter(function(p) { return Number.isFinite(p.value); }) });
+  if (energyVals.length >= 2) series.push({ key: 'Energy', color: '#f59e0b', good: 'up', points: sorted.map(function(it, i) { return { label: labels[i], value: it.energy_score }; }).filter(function(p) { return Number.isFinite(p.value); }) });
+  if (!series.length) {
+    return '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Wellness check-ins</div><h3>Daily wellness trends</h3></div></div>' +
+      '<div class="pgp-chart-empty">Your wellness trend will appear once you have completed a few daily check-ins.</div>' +
+    '</section>';
+  }
+  var flat = [];
+  series.forEach(function(line) {
+    line.points.forEach(function(point) { if (Number.isFinite(point.value)) flat.push(point.value); });
+  });
+  var min = Math.min.apply(null, flat);
+  var max = Math.max.apply(null, flat);
+  var range = max - min || 1;
+  var width = 900, height = 220, padL = 48, padR = 24, padT = 24, padB = 56;
+  var innerW = width - padL - padR, innerH = height - padT - padB;
+  var grid = '';
+  [0, 0.25, 0.5, 0.75, 1].forEach(function(step) {
+    var y = padT + innerH * step;
+    var value = Math.round(max - range * step);
+    grid += '<line x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (width - padR) + '" y2="' + y.toFixed(1) + '" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>';
+    grid += '<text x="' + (padL - 10) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="end" font-size="10" fill="rgba(148,163,184,0.7)">' + value + '</text>';
+  });
+  var lines = series.map(function(line) {
+    var pts = line.points.map(function(point, idx) {
+      var x = padL + (idx / Math.max(1, line.points.length - 1)) * innerW;
+      var y = padT + (1 - ((point.value - min) / range)) * innerH;
+      return { x: x, y: y, value: point.value };
+    });
+    var polyline = pts.map(function(point) { return point.x.toFixed(1) + ',' + point.y.toFixed(1); }).join(' ');
+    var dots = pts.map(function(point, idx) {
+      var halo = idx === pts.length - 1 ? '<circle cx="' + point.x.toFixed(1) + '" cy="' + point.y.toFixed(1) + '" r="9" fill="' + line.color + '" opacity="0.14"/>' : '';
+      return halo + '<circle cx="' + point.x.toFixed(1) + '" cy="' + point.y.toFixed(1) + '" r="' + (idx === pts.length - 1 ? 4.5 : 3) + '" fill="' + line.color + '" stroke="#0f172a" stroke-width="1.5"/>';
+    }).join('');
+    return '<polyline points="' + polyline + '" fill="none" stroke="' + line.color + '" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>' + dots;
+  }).join('');
+  var xLabels = labels.slice(-series[0].points.length).map(function(label, idx) {
+    var x = padL + (idx / Math.max(1, series[0].points.length - 1)) * innerW;
+    return '<text x="' + x.toFixed(1) + '" y="' + (height - 18) + '" text-anchor="middle" font-size="10" fill="rgba(148,163,184,0.7)">' + label + '</text>';
+  }).join('');
+  var legend = series.map(function(line) {
+    var first = line.points[0] ? line.points[0].value : null;
+    var last = line.points[line.points.length - 1] ? line.points[line.points.length - 1].value : null;
+    var delta = _pgpMetricDelta(last, first, line.good === 'up');
+    var deltaText = delta === null ? 'stable' : (delta > 0 ? '+' + delta + '%' : delta < 0 ? delta + '%' : 'stable');
+    return '<span class="pgp-legend-item"><span class="pgp-legend-dot" style="background:' + line.color + '"></span>' + line.key + ' <strong>' + deltaText + '</strong></span>';
+  }).join('');
+  return '<section class="pgp-panel">' +
+    '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Wellness check-ins</div><h3>Daily wellness trends</h3></div></div>' +
+    '<div class="pgp-chart-card">' +
+      '<svg viewBox="0 0 ' + width + ' ' + height + '" class="pgp-chart-svg" role="img" aria-label="Wellness trends chart">' + grid + lines + xLabels + '</svg>' +
+      '<div class="pgp-legend">' + legend + '</div>' +
+      '<div class="pgp-chart-footnote">Based on your daily wellness check-ins (mood, sleep, energy).</div>' +
+    '</div>' +
+  '</section>';
+}
+
+// ── Home task adherence strip ───────────────────────────────────────────────────
+function _pgpHomeTaskStrip(progress) {
+  var tasks = progress.homeTasks;
+  if (!tasks || !tasks.length) {
+    return '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Home program</div><h3>Your tasks this week</h3></div></div>' +
+      '<div class="pgp-chart-empty">Your clinician will assign home tasks as part of your treatment program.</div>' +
+    '</section>';
+  }
+  var now = new Date();
+  var weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - now.getDay());
+  weekStart.setHours(0, 0, 0, 0);
+  var days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var dayDots = days.map(function(label, idx) {
+    var d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + idx);
+    var dKey = d.toISOString().slice(0, 10);
+    var dayTasks = tasks.filter(function(t) {
+      var due = (t.due_date || '').slice(0, 10);
+      var done = (t.completed_at || '').slice(0, 10);
+      return due === dKey || done === dKey;
+    });
+    var allDone = dayTasks.length > 0 && dayTasks.every(function(t) { return t.status === 'completed' || t.completed_at; });
+    var someDone = dayTasks.some(function(t) { return t.status === 'completed' || t.completed_at; });
+    var dotClass = allDone ? 'pgp-task-dot done' : someDone ? 'pgp-task-dot partial' : dayTasks.length ? 'pgp-task-dot pending' : 'pgp-task-dot empty';
+    return '<div class="pgp-task-day"><div class="' + dotClass + '"></div><div class="pgp-task-day-label">' + label + '</div></div>';
+  }).join('');
+  var completed = tasks.filter(function(t) { return t.status === 'completed' || t.completed_at; }).length;
+  var pending = tasks.filter(function(t) { return t.status !== 'completed' && !t.completed_at; }).length;
+  var recent = tasks.slice(0, 3).map(function(t) {
+    var st = t.status === 'completed' || t.completed_at ? 'completed' : 'pending';
+    var stClass = st === 'completed' ? 'pgp-task-chip done' : 'pgp-task-chip pending';
+    return '<div class="pgp-task-row"><span class="pgp-task-title">' + (t.title || 'Task') + '</span><span class="' + stClass + '">' + st + '</span></div>';
+  }).join('');
+  return '<section class="pgp-panel">' +
+    '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Home program</div><h3>Your tasks this week</h3></div></div>' +
+    '<div class="pgp-task-strip">' + dayDots + '</div>' +
+    '<div style="display:flex;gap:16px;margin:14px 0 10px;font-size:0.85rem;color:var(--text-secondary,#94a3b8)">' +
+      '<span><strong style="color:var(--teal,#2dd4bf)">' + completed + '</strong> completed</span>' +
+      '<span><strong style="color:var(--accent-blue,#60a5fa)">' + pending + '</strong> pending</span>' +
+    '</div>' +
+    '<div class="pgp-task-list">' + recent + '</div>' +
+  '</section>';
+}
+
+// ── Home device session timeline ────────────────────────────────────────────────
+function _pgpHomeSessionTimeline(progress) {
+  var sessions = progress.homeSessions;
+  if (!sessions || !sessions.length) {
+    return '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Home sessions</div><h3>Neuromodulation at home</h3></div></div>' +
+      '<div class="pgp-chart-empty">Log your home neuromodulation sessions to track progress and share with your care team.</div>' +
+    '</section>';
+  }
+  var sorted = sessions.slice().sort(function(a, b) {
+    var da = new Date(a.started_at || 0).getTime();
+    var db = new Date(b.started_at || 0).getTime();
+    return db - da;
+  });
+  var items = sorted.slice(0, 5).map(function(s) {
+    var date = s.started_at ? new Date(s.started_at).toLocaleDateString(progress.locale, { month: 'short', day: 'numeric' }) : '—';
+    var device = s.device_name || 'Home device';
+    var dur = s.duration_min ? s.duration_min + ' min' : '—';
+    var tol = s.tolerance_score;
+    var tolLabel = tol >= 4 ? 'Great' : tol >= 3 ? 'Good' : tol >= 2 ? 'Okay' : 'Poor';
+    var tolColor = tol >= 4 ? '#22c55e' : tol >= 3 ? '#2dd4bf' : tol >= 2 ? '#f59e0b' : '#ef4444';
+    var moodBefore = s.mood_before != null ? s.mood_before : '—';
+    var moodAfter = s.mood_after != null ? s.mood_after : '—';
+    var moodDelta = (s.mood_after != null && s.mood_before != null) ? (s.mood_after - s.mood_before) : null;
+    var moodArrow = moodDelta === null ? '' : moodDelta > 0 ? '<span style="color:#22c55e">↑</span>' : moodDelta < 0 ? '<span style="color:#ef4444">↓</span>' : '<span style="color:#94a3b8">→</span>';
+    return '<div class="pgp-session-row">' +
+      '<div class="pgp-session-meta">' +
+        '<span class="pgp-session-date">' + date + '</span>' +
+        '<span class="pgp-session-device">' + device + '</span>' +
+        '<span class="pgp-session-dur">' + dur + '</span>' +
+      '</div>' +
+      '<div class="pgp-session-details">' +
+        '<span class="pgp-session-tol" style="color:' + tolColor + '">Tolerance: ' + tolLabel + '</span>' +
+        '<span class="pgp-session-mood">Mood ' + moodBefore + ' → ' + moodAfter + ' ' + moodArrow + '</span>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+  return '<section class="pgp-panel">' +
+    '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Home sessions</div><h3>Neuromodulation at home</h3></div></div>' +
+    '<div class="pgp-session-timeline">' + items + '</div>' +
+  '</section>';
+}
+
+// ── Learn progress mini-section ─────────────────────────────────────────────────
+function _pgpLearnProgress(progress) {
+  var lp = progress.learnProgress || { read_article_ids: [], total_available: 0 };
+  var read = Array.isArray(lp.read_article_ids) ? lp.read_article_ids.length : 0;
+  var total = lp.total_available || 0;
+  var pct = total > 0 ? Math.round((read / total) * 100) : 0;
+  if (!total && !read) {
+    return '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Education</div><h3>Learning library</h3></div></div>' +
+      '<div class="pgp-chart-empty">Condition-specific articles and guides will appear here as your care team shares them.</div>' +
+    '</section>';
+  }
+  var barWidth = Math.max(4, pct) + '%';
+  return '<section class="pgp-panel">' +
+    '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Education</div><h3>Learning library</h3></div></div>' +
+    '<div class="pgp-learn-card">' +
+      '<div class="pgp-learn-stats">' +
+        '<div class="pgp-learn-num">' + read + '<span class="pgp-learn-den">/' + total + '</span></div>' +
+        '<div class="pgp-learn-label">articles read</div>' +
+      '</div>' +
+      '<div class="pgp-learn-bar-wrap">' +
+        '<div class="pgp-learn-bar-bg"><div class="pgp-learn-bar-fill" style="width:' + barWidth + '"></div></div>' +
+        '<div class="pgp-learn-pct">' + pct + '% complete</div>' +
+      '</div>' +
+      '<button class="pgp-btn-ghost" style="margin-top:14px" onclick="window._navPatient(\'patient-library\');return false">Continue learning →</button>' +
+    '</div>' +
+  '</section>';
+}
+
+// ── Assessment history ──────────────────────────────────────────────────────────
+function _pgpAssessmentHistory(progress) {
+  var assessments = progress.assessments;
+  if (!assessments || !assessments.length) {
+    return '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Assessments</div><h3>Your questionnaire history</h3></div></div>' +
+      '<div class="pgp-chart-empty">Assessment history will appear once you complete your first questionnaire.</div>' +
+    '</section>';
+  }
+  var sorted = assessments.slice().sort(function(a, b) {
+    var da = new Date(a.completed_at || a.created_at || 0).getTime();
+    var db = new Date(b.completed_at || b.created_at || 0).getTime();
+    return db - da;
+  });
+  var items = sorted.slice(0, 5).map(function(a) {
+    var title = a.template_title || 'Assessment';
+    var isCompleted = a.status === 'completed' || a.completed_at;
+    var score = a.score_numeric != null ? Math.round(a.score_numeric) : null;
+    var date = a.completed_at || a.due_date || a.created_at;
+    var dateLabel = date ? new Date(date).toLocaleDateString(progress.locale, { month: 'short', day: 'numeric' }) : '—';
+    var chipClass = isCompleted ? 'pgp-task-chip done' : 'pgp-task-chip pending';
+    var chipText = isCompleted ? 'Completed' : 'Pending';
+    var scoreHtml = score != null ? '<span class="pgp-assess-score">Score: ' + score + '</span>' : '';
+    return '<div class="pgp-assess-row">' +
+      '<div class="pgp-assess-title">' + title + '</div>' +
+      '<div class="pgp-assess-meta">' +
+        '<span class="' + chipClass + '">' + chipText + '</span>' +
+        scoreHtml +
+        '<span class="pgp-assess-date">' + dateLabel + '</span>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+  var pendingCount = assessments.filter(function(a) { return a.status !== 'completed' && !a.completed_at; }).length;
+  var pendingBanner = pendingCount > 0 ? '<div style="margin-bottom:14px;padding:10px 14px;border-radius:10px;background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.18);color:var(--teal,#2dd4bf);font-size:0.85rem;font-weight:600">' + pendingCount + ' assessment' + (pendingCount > 1 ? 's' : '') + ' pending — <a href="#" style="color:var(--teal,#2dd4bf);text-decoration:underline" onclick="window._navPatient(\'patient-assessments\');return false">Complete now →</a></div>' : '';
+  return '<section class="pgp-panel">' +
+    '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Assessments</div><h3>Your questionnaire history</h3></div></div>' +
+    pendingBanner +
+    '<div class="pgp-assess-list">' + items + '</div>' +
+  '</section>';
+}
+
 function _renderProgressPage() {
   var progress = _pgpNormalizeData();
   if (!progress || !progress.el) return;
@@ -16375,7 +16911,13 @@ function _renderProgressPage() {
           _pgpSummaryBlock(progress) +
           _pgpKpis(progress) +
           _pgpInterpretation(progress) +
+          _pgpBiometricsLive(progress) +
           _pgpSymptomTrendChart(progress) +
+          _pgpWellnessTrendChart(progress) +
+          _pgpHomeTaskStrip(progress) +
+          _pgpHomeSessionTimeline(progress) +
+          _pgpLearnProgress(progress) +
+          _pgpAssessmentHistory(progress) +
           _pgpBrainCards(progress) +
           _pgpDomainCards(progress) +
           _pgpMilestones(progress) +
