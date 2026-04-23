@@ -1,3 +1,4 @@
+# Dependencies & build artifacts
 node_modules
 apps/web/node_modules
 apps/web/dist
@@ -10,21 +11,25 @@ apps/web/dist
 .gitignore
 .env
 .env.*
-# Large/generated artifacts only
+
+# Large/generated artifacts
 data/*.db
 data/*.db-journal
 data/evidence-matrix/*.xlsx
 data/snapshots/**/*.json
-services/evidence-pipeline/__pycache__/
-Desktop/ds-worktrees/
+data/
+!data/imports/
+!data/imports/clinical-database/
+!data/imports/clinical-database/*.csv
+
+services/
+!services/evidence-pipeline/
+!services/evidence-pipeline/**/*.py
+
+# Dev & docs
 e2e/
 docs/
 *.md
 **/*.ipynb
 **/*.json.gz
-
-# Explicitly include clinical database CSVs required for app startup
-!data/
-!data/imports/
-!data/imports/clinical-database/
-!data/imports/clinical-database/*.csv
+Desktop/ds-worktrees/
