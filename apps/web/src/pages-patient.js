@@ -4612,7 +4612,8 @@ async function _pgPatientAssessmentsImpl() {
   assessments.forEach(a => {
     const st = String(a.status || '').toLowerCase();
     const kind = String(a.template_slug || a.template_name || '').toLowerCase();
-    const cat = /phq/.test(kind) ? 'depression' : /gad/.test(kind) ? 'anxiety' : /isi/.test(kind) ? 'sleep' : /who/.test(kind) ? 'wellbeing' : 'other';
+    let cat = /phq/.test(kind) ? 'depression' : /gad/.test(kind) ? 'anxiety' : /isi/.test(kind) ? 'sleep' : /who/.test(kind) ? 'wellbeing' : 'other';
+    if (/self_/.test(kind)) cat = 'self';
     const item = {
       id: a.id, slug: a.template_slug || kind, title: a.template_name || a.template_slug || 'Assessment',
       cat, raw: a,
@@ -4748,10 +4749,112 @@ async function _pgPatientAssessmentsImpl() {
       </div>`;
   }
 
+  // ── Self-Assessment helpers ─────────────────────────────────────────────
+  function _selfAssessLastLabel(key) {
+    const last = getSelfAssessmentLastFiled(key);
+    if (!last) return '<span class="as-sa-last">Not filed yet</span>';
+    const d = new Date(last);
+    const daysAgo = Math.floor((Date.now() - d.getTime()) / 86400000);
+    if (daysAgo === 0) return '<span class="as-sa-last">Last filed: Today</span>';
+    if (daysAgo === 1) return '<span class="as-sa-last">Last filed: Yesterday</span>';
+    return `<span class="as-sa-last">Last filed: ${daysAgo} days ago</span>`;
+  }
+
+  function _selfAssessCardHtml(key) {
+    const survey = SELF_ASSESSMENT_SURVEYS[key];
+    const last = getSelfAssessmentLastFiled(key);
+    let dueSoon = false;
+    if (last) {
+      const daysAgo = Math.floor((Date.now() - new Date(last).getTime()) / 86400000);
+      dueSoon = survey.frequency === 'daily' ? daysAgo >= 1 : survey.frequency === 'weekly' ? daysAgo >= 5 : daysAgo >= 25;
+    } else {
+      dueSoon = true;
+    }
+    const freqLabel = survey.frequency.replace(/^./, c => c.toUpperCase());
+    return `
+      <div class="as-sa-card ${esc(survey.tone)} ${dueSoon ? 'due-soon' : ''}" data-sa="${esc(key)}">
+        <div class="as-sa-card-hd">
+          <div class="as-sa-ico">${esc(survey.emoji)}</div>
+          <div class="as-sa-badge">${esc(freqLabel)} · ${esc(survey.timeLabel)}</div>
+        </div>
+        <div class="as-sa-card-title">${esc(survey.title)}</div>
+        <div class="as-sa-card-sub">${esc(survey.questions.length)} questions · ${esc(survey.timeLabel)}</div>
+        ${_selfAssessLastLabel(key)}
+        <button class="btn btn-primary btn-sm as-sa-start" onclick="window._asSelfStart && window._asSelfStart('${esc(key)}')">File now</button>
+      </div>`;
+  }
+
+  function _selfAssessFormHtml(key) {
+    const survey = SELF_ASSESSMENT_SURVEYS[key];
+    const draft = getSelfAssessmentDraft(key) || {};
+    const answers = draft.answers || {};
+    function _qHtml(q, idx) {
+      const val = answers[q.key] ?? '';
+      if (q.type === 'emoji_scale') {
+        const emojis = [{v:1,f:'\uD83D\uDE23',l:'Very low'},{v:2,f:'\uD83D\uDE15',l:'Low'},{v:3,f:'\uD83D\uDE10',l:'OK'},{v:4,f:'\uD83D\uDE42',l:'Good'},{v:5,f:'\uD83D\uDE0A',l:'Great'}];
+        return `
+          <div class="as-sa-q" data-q="${esc(q.key)}">
+            <div class="as-sa-q-lbl">${esc(q.label)}${q.optional ? '' : ' <span class="req">*</span>'}</div>
+            <div class="as-sa-emoji-scale">
+              ${emojis.map(e => `<button type="button" class="as-sa-emoji-btn ${val == e.v ? 'on' : ''}" data-v="${e.v}" onclick="window._asSelfPick && window._asSelfPick('${esc(key)}','${esc(q.key)}',${e.v})"><span class="f">${e.f}</span><span class="l">${esc(e.l)}</span></button>`).join('')}
+            </div>
+          </div>`;
+      }
+      if (q.type === 'slider') {
+        const opts = [];
+        for (let i = q.min; i <= q.max; i++) opts.push(i);
+        return `
+          <div class="as-sa-q" data-q="${esc(q.key)}">
+            <div class="as-sa-q-lbl">${esc(q.label)}${q.optional ? '' : ' <span class="req">*</span>'}</div>
+            <div class="as-sa-slider-wrap">
+              <input type="range" min="${q.min}" max="${q.max}" value="${val || Math.floor((q.min+q.max)/2)}" class="as-sa-slider" id="sa-slider-${esc(key)}-${esc(q.key)}" oninput="window._asSelfSlider && window._asSelfSlider('${esc(key)}','${esc(q.key)}',this.value)">
+              <div class="as-sa-slider-labels"><span>${esc(q.labels[0])}</span><span id="sa-slider-val-${esc(key)}-${esc(q.key)}">${val || Math.floor((q.min+q.max)/2)}</span><span>${esc(q.labels[1])}</span></div>
+            </div>
+          </div>`;
+      }
+      if (q.type === 'checkboxes') {
+        const selected = Array.isArray(val) ? val : (val ? [val] : []);
+        return `
+          <div class="as-sa-q" data-q="${esc(q.key)}">
+            <div class="as-sa-q-lbl">${esc(q.label)}${q.optional ? '' : ' <span class="req">*</span>'}</div>
+            <div class="as-sa-checks">
+              ${q.options.map(opt => `<label class="as-sa-check"><input type="checkbox" value="${esc(opt)}" ${selected.includes(opt) ? 'checked' : ''} onchange="window._asSelfCheck && window._asSelfCheck('${esc(key)}','${esc(q.key)}',this.value,this.checked)"><span>${esc(opt)}</span></label>`).join('')}
+            </div>
+          </div>`;
+      }
+      if (q.type === 'text') {
+        return `
+          <div class="as-sa-q" data-q="${esc(q.key)}">
+            <div class="as-sa-q-lbl">${esc(q.label)}${q.optional ? '' : ' <span class="req">*</span>'}</div>
+            <textarea class="as-sa-textarea" rows="3" maxlength="${q.maxLength || 500}" placeholder="Type here..." oninput="window._asSelfText && window._asSelfText('${esc(key)}','${esc(q.key)}',this.value)">${esc(val)}</textarea>
+          </div>`;
+      }
+      return '';
+    }
+    return `
+      <div class="as-sa-form" id="as-sa-form-${esc(key)}">
+        <div class="as-sa-form-hd">
+          <div>
+            <div class="as-sa-form-title">${esc(survey.title)}</div>
+            <div class="as-sa-form-sub">${esc(survey.questions.length)} questions · ${esc(survey.timeLabel)} · ${esc(survey.frequency)}</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="window._asSelfCancel && window._asSelfCancel('${esc(key)}')">Cancel</button>
+        </div>
+        <div class="as-sa-form-body">
+          ${survey.questions.map((q, i) => _qHtml(q, i)).join('')}
+        </div>
+        <div class="as-sa-form-actions">
+          <button class="btn btn-primary" onclick="window._asSelfSubmit && window._asSelfSubmit('${esc(key)}')">Submit check-in</button>
+          <span class="as-sa-form-saving" id="as-sa-saving-${esc(key)}"></span>
+        </div>
+      </div>`;
+  }
+
   // Tabs — start on "due" by default.
   const dueItems = _isDemo ? demoDue : due;
   const optItems = _isDemo ? demoOptional : [];
-  const historyItems = _isDemo ? demoHistory : history;
+  const demoSelfAssess = _isDemo ? demoSelfAssessmentSeed() : [];
+  const historyItems = _isDemo ? [...demoHistory, ...demoSelfAssess.map(s => ({ id: s.id, slug: s.template_id, title: s.template_title, dateIso: s.administered_at ? s.administered_at.slice(0, 10) : s.created_at.slice(0, 10), score: s.score_numeric ?? s.score, cat: 'self', delta: null }))] : history;
   const scheduledItems = _isDemo ? demoScheduled : scheduled;
 
   // ── Render ─────────────────────────────────────────────────────────────
@@ -4830,6 +4933,7 @@ async function _pgPatientAssessmentsImpl() {
             <button data-f="gad-7" onclick="window._asHistFilter && window._asHistFilter('gad-7')">GAD-7<span class="count">${historyItems.filter(h => h.slug === 'gad-7').length}</span></button>
             <button data-f="isi" onclick="window._asHistFilter && window._asHistFilter('isi')">ISI<span class="count">${historyItems.filter(h => h.slug === 'isi').length}</span></button>
             <button data-f="daily" onclick="window._asHistFilter && window._asHistFilter('daily')">Daily check-in<span class="count">${historyItems.filter(h => h.slug === 'daily').length}</span></button>
+            <button data-f="self" onclick="window._asHistFilter && window._asHistFilter('self')">Self-Assessments<span class="count">${historyItems.filter(h => h.cat === 'self').length}</span></button>
           </div>
         </div>
         <div class="as-hist-list" id="as-hist-list">
@@ -4949,7 +5053,7 @@ async function _pgPatientAssessmentsImpl() {
       const matchedSlug = ico ? ico.className.replace('as-hist-name-ico', '').trim() : '';
       // We stored cat on the name-ico class name; map back to slug.
       const bySlug = {
-        'depression': 'phq-9', 'anxiety': 'gad-7', 'sleep': 'isi', 'wellbeing': 'who5', 'daily': 'daily',
+        'depression': 'phq-9', 'anxiety': 'gad-7', 'sleep': 'isi', 'wellbeing': 'who5', 'daily': 'daily', 'self': 'self',
       };
       const slug = bySlug[matchedSlug] || 'other';
       r.style.display = (f === 'all' || slug === f) ? '' : 'none';
@@ -4976,6 +5080,101 @@ async function _pgPatientAssessmentsImpl() {
     _toast('History exported');
   };
 
+  // ── Self-Assessment handlers ────────────────────────────────────────────
+  window._asSelfStart = function(key) {
+    const wrap = document.getElementById('as-selfassess-form-wrap');
+    if (!wrap) return;
+    wrap.innerHTML = _selfAssessFormHtml(key);
+    wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+
+  window._asSelfCancel = function(key) {
+    const wrap = document.getElementById('as-selfassess-form-wrap');
+    if (wrap) wrap.innerHTML = '';
+  };
+
+  window._asSelfPick = function(key, qKey, val) {
+    let draft = getSelfAssessmentDraft(key) || { answers: {} };
+    draft.answers[qKey] = val;
+    setSelfAssessmentDraft(key, draft);
+    document.querySelectorAll('#as-sa-form-' + key + ' [data-q="' + qKey + '"] .as-sa-emoji-btn').forEach(b => b.classList.toggle('on', Number(b.dataset.v) === val));
+  };
+
+  window._asSelfSlider = function(key, qKey, val) {
+    let draft = getSelfAssessmentDraft(key) || { answers: {} };
+    draft.answers[qKey] = Number(val);
+    setSelfAssessmentDraft(key, draft);
+    const lbl = document.getElementById('sa-slider-val-' + key + '-' + qKey);
+    if (lbl) lbl.textContent = val;
+  };
+
+  window._asSelfCheck = function(key, qKey, val, checked) {
+    let draft = getSelfAssessmentDraft(key) || { answers: {} };
+    let arr = Array.isArray(draft.answers[qKey]) ? draft.answers[qKey] : (draft.answers[qKey] ? [draft.answers[qKey]] : []);
+    if (checked) { if (!arr.includes(val)) arr.push(val); }
+    else { arr = arr.filter(v => v !== val); }
+    draft.answers[qKey] = arr;
+    setSelfAssessmentDraft(key, draft);
+  };
+
+  window._asSelfText = function(key, qKey, val) {
+    let draft = getSelfAssessmentDraft(key) || { answers: {} };
+    draft.answers[qKey] = val;
+    setSelfAssessmentDraft(key, draft);
+  };
+
+  window._asSelfSubmit = async function(key) {
+    const survey = SELF_ASSESSMENT_SURVEYS[key];
+    if (!survey) return;
+    const draft = getSelfAssessmentDraft(key) || { answers: {} };
+    const answers = draft.answers || {};
+    // Validate required questions
+    for (const q of survey.questions) {
+      if (q.optional) continue;
+      const v = answers[q.key];
+      if (v == null || v === '' || (Array.isArray(v) && v.length === 0)) {
+        _toast('Please answer: ' + q.label);
+        return;
+      }
+    }
+    const score = survey.computeScore(answers);
+    const saving = document.getElementById('as-sa-saving-' + key);
+    if (saving) saving.textContent = 'Saving...';
+    try {
+      const payload = {
+        survey_type: key,
+        frequency: survey.frequency,
+        responses: answers,
+        score: score,
+        notes: answers.note || answers.concerns || null,
+        ai_context: { score, answered_at: new Date().toISOString(), question_count: survey.questions.length },
+      };
+      if (api.submitSelfAssessment) {
+        await api.submitSelfAssessment(payload);
+      }
+      setSelfAssessmentLastFiled(key, new Date().toISOString());
+      clearSelfAssessmentDraft(key);
+      _toast(survey.shortTitle + ' check-in saved');
+      // Refresh the card grid
+      const grid = document.getElementById('as-selfassess-grid');
+      if (grid) {
+        const card = grid.querySelector('[data-sa="' + key + '"]');
+        if (card) {
+          const lastWrap = card.querySelector('.as-sa-last');
+          if (lastWrap) lastWrap.outerHTML = _selfAssessLastLabel(key);
+          card.classList.remove('due-soon');
+        }
+      }
+      // Close form
+      const wrap = document.getElementById('as-selfassess-form-wrap');
+      if (wrap) wrap.innerHTML = '';
+    } catch (err) {
+      console.error('[self-assessment] submit failed:', err);
+      _toast('Save failed — kept your draft');
+      if (saving) saving.textContent = 'Retry';
+    }
+  };
+
   window._asToggleReminder = function(on) { _toast('Daily reminder ' + (on ? 'on' : 'off')); };
   window._asViewHistory = function(_id) { _toast('Opening history entry…'); };
 }
@@ -4994,17 +5193,18 @@ export async function pgPatientReports() {
     Promise.resolve(p).catch(() => null),
     _timeout(3000),
   ]);
-  let outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw, wearableSummaryRaw;
+  let outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw, wearableSummaryRaw, reportsRaw;
   try {
-    [outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw, wearableSummaryRaw] = await Promise.all([
+    [outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw, wearableSummaryRaw, reportsRaw] = await Promise.all([
       _raceNull(api.patientPortalOutcomes()),
       _raceNull(api.patientPortalAssessments()),
       _raceNull(api.patientPortalCourses()),
       _raceNull(api.patientPortalSessions()),
       _raceNull(api.patientPortalWearableSummary(30)),
+      _raceNull(api.patientPortalReports()),
     ]);
   } catch (_e) {
-    outcomesRaw = assessmentsRaw = coursesRaw = sessionsRaw = wearableSummaryRaw = null;
+    outcomesRaw = assessmentsRaw = coursesRaw = sessionsRaw = wearableSummaryRaw = reportsRaw = null;
   }
   // Soft-error: fall through to an empty docs list (which renders an
   // empty-state card) instead of the hard "Could not load" state when
@@ -5034,6 +5234,7 @@ export async function pgPatientReports() {
   const assessments = Array.isArray(assessmentsRaw) ? assessmentsRaw : [];
   const courses     = Array.isArray(coursesRaw)     ? coursesRaw     : [];
   const sessions    = Array.isArray(sessionsRaw)    ? sessionsRaw    : [];
+  const reports     = Array.isArray(reportsRaw)     ? reportsRaw     : [];
 
   // ── Plain-language knowledge base ────────────────────────────────────────
   // Extension point: clinician-approved per-patient summaries can be supplied
@@ -5241,6 +5442,35 @@ export async function pgPatientReports() {
   docs.forEach(d => {
     d.origin = docOrigin(d, _rawById[String(d.id)] || {});
   });
+
+  // ── Merge clinician-uploaded / generated reports ──────────────────────────
+  // These come from PatientMediaUpload (media_type="text") and carry actual
+  // file_ref URLs the patient can view or download.
+  reports.forEach(r => {
+    const pl = docPlainLang(r.report_type);
+    docs.push({
+      id: r.id,
+      _source: 'report',
+      title: r.title || 'Report',
+      date: r.created_at,
+      displayDate: fmtDate(r.created_at),
+      templateKey: (r.report_type || '').toLowerCase(),
+      category: categorise({ doc_type: r.report_type, _source: 'report' }),
+      score: null,
+      scoreInterp: null,
+      measurePoint: null,
+      plainLang: pl,
+      sessionRef: null,
+      courseRef: null,
+      url: r.file_url || null,
+      status: (r.status || 'available').toLowerCase(),
+      clinicianNotes: r.text_content || null,
+      origin: 'clinic',
+    });
+  });
+
+  // Re-sort after adding reports so newest are at the top
+  docs.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
   // ── Biometrics synthesis from wearable summary ──────────────────────────
   // Collapse up to ~30 daily rows into a single weekly snapshot "doc" so the
