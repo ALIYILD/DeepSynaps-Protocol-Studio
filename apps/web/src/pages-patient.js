@@ -3600,14 +3600,24 @@ export async function pgPatientSessions() {
       g.style.display = anyVisible ? '' : 'none';
     });
   };
-  window._psReportStop = function() {
+  window._psReportStop = async function() {
     if (typeof window._showNotifToast === 'function') {
       window._showNotifToast({ title: 'Session pause requested', body: 'Your technician has been alerted. Please sit tight.', severity: 'warning' });
     }
+    if (uid && api.sendPortalMessage) {
+      try {
+        await api.sendPortalMessage({ body: 'Patient pressed STOP during a live session — immediate attention requested.', category: 'safety_alert', priority: 'high' });
+      } catch (_e) { console.error('[session] stop alert failed:', _e); }
+    }
   };
-  window._psReportDiscomfort = function() {
+  window._psReportDiscomfort = async function() {
     if (typeof window._showNotifToast === 'function') {
       window._showNotifToast({ title: 'Discomfort reported', body: 'Your technician will check in with you immediately.', severity: 'warning' });
+    }
+    if (uid && api.sendPortalMessage) {
+      try {
+        await api.sendPortalMessage({ body: 'Patient reported discomfort during a live session — please check in immediately.', category: 'safety_alert', priority: 'high' });
+      } catch (_e) { console.error('[session] discomfort alert failed:', _e); }
     }
   };
   // Highlight the initial item.
@@ -3709,6 +3719,21 @@ async function _pgPatientHomeworkImpl() {
   const courses = Array.isArray(coursesRaw) ? coursesRaw : [];
   const sessions = Array.isArray(sessionsRaw) ? sessionsRaw : [];
   const activeCourse = courses.find(c => c.status === 'active') || courses[0] || null;
+
+  // ── Merge library tasks added by patient from localStorage ────────────────
+  try {
+    const libAddedRaw = localStorage.getItem('ds_hw_library_tasks');
+    if (libAddedRaw) {
+      const libAdded = JSON.parse(libAddedRaw);
+      if (Array.isArray(libAdded) && libAdded.length) {
+        libAdded.forEach(function(lt) {
+          if (!tasks.find(function(t) { return t.id === lt.id; })) {
+            tasks.push(lt);
+          }
+        });
+      }
+    }
+  } catch (_e) {}
 
   // ── Demo seed (first-time user / empty backend) ───────────────────────────
   const _isDemo = tasks.length === 0 && courses.length === 0;
@@ -3842,7 +3867,9 @@ async function _pgPatientHomeworkImpl() {
            ? '<button class="btn btn-primary btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'tdcs\')">Start session<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>'
            : t.task_type === 'breathing'
              ? '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'breathing\')"><svg width="11" height="11"><use href="#i-play"/></svg>Guided</button>'
-             : '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwOpen && window._hwOpen(' + JSON.stringify(t.id) + ')">Open<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>'}`;
+             : t.task_type === 'walk' || t.task_type === 'activation'
+               ? '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'walk\')"><svg width="11" height="11"><use href="#i-play"/></svg>Start</button>'
+               : '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwOpen && window._hwOpen(' + JSON.stringify(t.id) + ')">Open<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>'}`;
     return `
       <div class="hw-task${done ? ' done' : ''}" data-cat="${esc(t.category || '')}" data-task-id="${esc(t.id || '')}">
         <div class="hw-task-hd">
@@ -4243,12 +4270,98 @@ async function _pgPatientHomeworkImpl() {
     } else if (kind === 'breathing') {
       _hwToast('Opening breathing guide\u2026');
       setTimeout(() => window._navPatient && window._navPatient('patient-education'), 500);
+    } else if (kind === 'walk') {
+      _hwOpenWalkTimer(task);
     } else {
       _hwToast('Started');
     }
     if (task && !(task.completed || task.done)) {
       // Don't auto-complete — let the patient confirm after finishing.
     }
+  };
+
+  function _hwOpenWalkTimer(task) {
+    if (!task) return;
+    const dur = task.duration_min || 20;
+    const existing = document.getElementById('hw-walk-modal');
+    if (existing) existing.remove();
+    const modal = document.createElement('div');
+    modal.id = 'hw-walk-modal';
+    modal.className = 'hw-modal';
+    modal.innerHTML = `
+      <div class="hw-modal-overlay" onclick="document.getElementById('hw-walk-modal').remove()"></div>
+      <div class="hw-modal-body" style="max-width:420px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <div style="width:36px;height:36px;border-radius:10px;background:rgba(74,222,128,0.15);color:#4ade80;display:flex;align-items:center;justify-content:center;font-size:18px">&#128694;</div>
+          <div><div style="font-weight:700;font-size:1rem;color:var(--text-primary)">${esc(task.title || 'Walk')}</div><div style="font-size:0.78rem;color:var(--text-secondary)">${dur} min \u00b7 note mood before &amp; after</div></div>
+        </div>
+        <div style="margin:16px 0;text-align:center">
+          <div id="hw-walk-timer" style="font-family:var(--font-display);font-size:3.2rem;font-weight:800;color:var(--teal)">${dur}:00</div>
+          <div style="font-size:0.75rem;color:var(--text-tertiary);margin-top:4px">Timer</div>
+        </div>
+        <div style="margin-bottom:14px">
+          <label style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px">Mood before (1\u201310)</label>
+          <input type="range" id="hw-walk-mood-before" min="1" max="10" value="5" style="width:100%;accent-color:var(--teal)" oninput="document.getElementById('hw-walk-mood-before-val').textContent=this.value">
+          <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:var(--text-tertiary);margin-top:2px"><span>Low</span><span id="hw-walk-mood-before-val">5</span><span>High</span></div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:18px">
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('hw-walk-modal').remove()">Close</button>
+          <button class="btn btn-primary btn-sm" id="hw-walk-start-btn" onclick="window._hwWalkBegin && window._hwWalkBegin('${esc(task.id)}', ${dur})">Start ${dur} min walk</button>
+          <button class="btn btn-primary btn-sm" id="hw-walk-done-btn" style="display:none" onclick="window._hwWalkDone && window._hwWalkDone('${esc(task.id)}')">Log completion</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  }
+
+  var _hwWalkTimerId = null;
+  window._hwWalkBegin = function(taskId, dur) {
+    const startBtn = document.getElementById('hw-walk-start-btn');
+    const doneBtn = document.getElementById('hw-walk-done-btn');
+    const timerEl = document.getElementById('hw-walk-timer');
+    if (startBtn) startBtn.style.display = 'none';
+    if (doneBtn) doneBtn.style.display = 'inline-flex';
+    var remaining = dur * 60;
+    if (_hwWalkTimerId) clearInterval(_hwWalkTimerId);
+    _hwWalkTimerId = setInterval(function() {
+      remaining--;
+      if (remaining <= 0) {
+        clearInterval(_hwWalkTimerId);
+        _hwWalkTimerId = null;
+        if (timerEl) timerEl.textContent = '0:00';
+        _hwToast('Walk complete \u2014 great work!');
+        return;
+      }
+      var m = Math.floor(remaining / 60);
+      var s = remaining % 60;
+      if (timerEl) timerEl.textContent = m + ':' + (s < 10 ? '0' : '') + s;
+    }, 1000);
+  };
+  window._hwWalkDone = function(taskId) {
+    if (_hwWalkTimerId) { clearInterval(_hwWalkTimerId); _hwWalkTimerId = null; }
+    const moodBefore = document.getElementById('hw-walk-mood-before');
+    const mb = moodBefore ? parseInt(moodBefore.value, 10) : null;
+    const task = _taskById.get(String(taskId));
+    if (task) {
+      task.completed = true;
+      task.done = true;
+      task.completed_at = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      if (mb != null) { task.mood_before = mb; }
+    }
+    // Persist to API if available
+    if (!_isDemo && api.mutateHomeProgramTask && uid && task) {
+      api.mutateHomeProgramTask({ ...task, patient_id: uid }).catch(function() {});
+    }
+    // Update UI
+    const card = document.querySelector('[data-task-id="' + taskId + '"]');
+    if (card) {
+      card.classList.add('done');
+      const foot = card.querySelector('.hw-task-foot');
+      if (foot) {
+        foot.innerHTML = '<button class="hw-check is-on" onclick="window._hwToggle && window._hwToggle(' + JSON.stringify(taskId) + ')" title="Mark incomplete"><svg width="14" height="14"><use href="#i-check"/></svg></button><span style="font-size:11.5px;color:var(--text-secondary)">' + (task.mood_before != null ? 'Mood <strong style="color:var(--text-primary)">' + task.mood_before + '</strong> \u00b7 ' : '') + 'Completed</span><button class="btn btn-ghost btn-sm hw-go" onclick="window._hwOpen && window._hwOpen(' + JSON.stringify(taskId) + ')">View<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>';
+      }
+    }
+    document.getElementById('hw-walk-modal')?.remove();
+    _hwToast('Logged \u2014 nice work!');
   };
 
   window._hwFilter = function(f) {
@@ -4328,22 +4441,39 @@ async function _pgPatientHomeworkImpl() {
     const lib = library.find(l => l.id === libId);
     if (!lib) return;
     _hwToast(lib.active ? 'Opening ' + lib.title : 'Adding to your plan\u2026');
+    const newTask = {
+      id: 'lib-' + lib.id + '-' + Date.now(),
+      title: lib.title,
+      category: lib.category,
+      task_type: lib.task_type,
+      duration_min: lib.duration_min,
+      description: lib.desc,
+      source_library_id: lib.id,
+      completed: false,
+      done: false,
+      due_on: new Date().toISOString().slice(0, 10),
+      _bucket: 'today',
+      _priority: 'normal',
+      time_bucket: 'Any time',
+    };
+    // Always persist locally so the task appears immediately
+    try {
+      var stored = JSON.parse(localStorage.getItem('ds_hw_library_tasks') || '[]');
+      if (!Array.isArray(stored)) stored = [];
+      stored.push(newTask);
+      localStorage.setItem('ds_hw_library_tasks', JSON.stringify(stored));
+    } catch (_e) {}
+    // Also call API if available (background)
     if (!_isDemo && api.mutateHomeProgramTask && uid) {
       try {
-        await api.mutateHomeProgramTask({
-          id: 'lib-' + lib.id + '-' + Date.now(),
-          patient_id: uid,
-          title: lib.title,
-          category: lib.category,
-          task_type: lib.task_type,
-          duration_min: lib.duration_min,
-          description: lib.desc,
-          source_library_id: lib.id,
-          completed: false,
-        });
+        await api.mutateHomeProgramTask({ ...newTask, patient_id: uid });
         _hwToast('Added \u2014 your clinician will confirm');
       } catch (e) { console.warn('[homework] add lib failed:', e); }
+    } else {
+      _hwToast('Added to today\u2019s plan');
     }
+    // Re-render homework page so the new task appears
+    _pgPatientHomeworkImpl().catch(function() {});
   };
 
   window._hwBrowseLibrary = function() {
@@ -7108,11 +7238,16 @@ async function _pgPatientVirtualCareImpl() {
       }
       const sc2 = document.getElementById('vc-conv-scroll');
       if (sc2) { sc2.innerHTML = _convHtml(activeId); sc2.scrollTop = sc2.scrollHeight; }
-    } else if (!_isDemo && uid && api.patientPortalMessages) {
-      // Real clinician thread — try to POST via any available endpoint.
-      // The read-only endpoint currently doesn't support POST from patient side;
-      // we store locally so the UX stays responsive and log for ops visibility.
-      console.info('[virtualcare] would POST message to thread', activeId, body);
+    } else if (!_isDemo && uid && api.sendPortalMessage) {
+      // Real clinician thread — POST to care team via patient portal messages.
+      try {
+        await api.sendPortalMessage({ body, category: 'patient_message', thread_id: activeId === 'primary' ? undefined : activeId });
+      } catch (err) {
+        console.error('[virtualcare] send failed:', err);
+        t.messages.push({ id: 'err-' + Date.now(), sender: 'them', senderName: 'System', at: new Date().toISOString(), body: 'Message could not be sent. Please try again or use Messages.' });
+        const sc2 = document.getElementById('vc-conv-scroll');
+        if (sc2) { sc2.innerHTML = _convHtml(activeId); sc2.scrollTop = sc2.scrollHeight; }
+      }
     }
     _showToast('Sent');
   };
@@ -9667,6 +9802,7 @@ export async function pgPatientWellness() {
       'sleep':        window._launcherSleep,
       'mood-journal': window._launcherMoodJournal,
       'activity':     window._launcherExercise,
+      'walk':         window._launcherExercise,
       'home-device':  window._launcherHomeDevice,
       'caregiver':    window._launcherCaregiver,
       'pre-session':  window._launcherPreSession,
@@ -15233,7 +15369,25 @@ async function _ptoLoadLive() {
     _timeout(3000),
   ]);
   try {
-    const resp = await _raceNull(api.patientPortalOutcomes());
+    // Fetch all patient data sources in parallel
+    const [
+      resp,
+      wearableRaw,
+      wellnessRaw,
+      tasksRaw,
+      sessionsRaw,
+      learnRaw,
+      assessmentsRaw,
+    ] = await Promise.all([
+      _raceNull(api.patientPortalOutcomes()),
+      _raceNull(api.patientPortalWearableSummary(7)),
+      _raceNull(api.patientPortalWellnessLogs(14)),
+      _raceNull(api.portalListHomeProgramTasks()),
+      _raceNull(api.portalListHomeSessions()),
+      _raceNull(api.patientPortalLearnProgress()),
+      _raceNull(api.patientPortalAssessments()),
+    ]);
+
     const items = Array.isArray(resp) ? resp : (resp && Array.isArray(resp.items) ? resp.items : null);
     if (!items || !items.length) return _ptoSeed();
 
@@ -15279,10 +15433,45 @@ async function _ptoLoadLive() {
     const patientInfo = Object.assign({}, seed.patient);
     if (items[0] && items[0].course_id) patientInfo.courseId = items[0].course_id;
 
+    // Process wearable summary
+    var wearableSummary = null;
+    if (wearableRaw && Array.isArray(wearableRaw.daily) && wearableRaw.daily.length) {
+      var wdays = wearableRaw.daily;
+      wearableSummary = {
+        sleep: _pgpAverage(wdays.map(function(d) { return d.sleep_duration_h; })),
+        hrv: _pgpAverage(wdays.map(function(d) { return d.hrv_ms; })),
+        rhr: _pgpAverage(wdays.map(function(d) { return d.rhr_bpm; })),
+        steps: _pgpAverage(wdays.map(function(d) { return d.steps; })),
+        readiness: _pgpAverage(wdays.map(function(d) { return d.readiness_score; })),
+        daily: wdays,
+      };
+    }
+
+    // Process wellness logs
+    var wellnessLogs = Array.isArray(wellnessRaw) ? wellnessRaw : [];
+
+    // Process home tasks
+    var homeTasks = Array.isArray(tasksRaw) ? tasksRaw : [];
+
+    // Process home sessions
+    var homeSessions = Array.isArray(sessionsRaw) ? sessionsRaw : [];
+
+    // Process learn progress
+    var learnProgress = learnRaw && typeof learnRaw === 'object' ? learnRaw : { read_article_ids: [], total_available: 0 };
+
+    // Process assessments
+    var assessments = Array.isArray(assessmentsRaw) ? assessmentsRaw : [];
+
     const liveData = {
       patient: patientInfo,
       nextAssessmentDate: seed.nextAssessmentDate,
       measures: measures,
+      wearableSummary: wearableSummary,
+      wellnessLogs: wellnessLogs,
+      homeTasks: homeTasks,
+      homeSessions: homeSessions,
+      learnProgress: learnProgress,
+      assessments: assessments,
     };
 
     // Cache to localStorage so _ptoLoad() picks it up too
@@ -15457,6 +15646,12 @@ function _pgpNormalizeData() {
     last7AvgSleep: last7AvgSleep,
     last7AvgStress: last7AvgStress,
     locale: _rptLoc,
+    wearableSummary: ptoData.wearableSummary || null,
+    wellnessLogs: Array.isArray(ptoData.wellnessLogs) ? ptoData.wellnessLogs : [],
+    homeTasks: Array.isArray(ptoData.homeTasks) ? ptoData.homeTasks : [],
+    homeSessions: Array.isArray(ptoData.homeSessions) ? ptoData.homeSessions : [],
+    learnProgress: ptoData.learnProgress || { read_article_ids: [], total_available: 0 },
+    assessments: Array.isArray(ptoData.assessments) ? ptoData.assessments : [],
   };
 }
 
