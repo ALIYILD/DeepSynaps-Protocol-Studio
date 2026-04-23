@@ -24340,3 +24340,10 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 
 .as-sa-card.amber { background: linear-gradient(135deg, rgba(245,158,11,0.08), rgba(14,22,40,0.6)); }
 .as-sa-card.amber .as-sa-ico { background: rgba(245,158,11,0.15); color: #f59e0b; }
+
+.as-sa-card.rose { background: linear-gradient(135deg, rgba(244,114,182,0.08), rgba(14,22,40,0.6)); }
+.as-sa-card.rose .as-sa-ico { background: rgba(244,114,182,0.15); color: #f472b6; }
+.as-sa-card.green { background: linear-gradient(135deg, rgba(52,211,153,0.08), rgba(14,22,40,0.6)); }
+.as-sa-card.green .as-sa-ico { background: rgba(52,211,153,0.15); color: #34d399; }
+.as-sa-card.indigo { background: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(14,22,40,0.6)); }
+.as-sa-card.indigo .as-sa-ico { background: rgba(99,102,241,0.15); color: #6366f1; }

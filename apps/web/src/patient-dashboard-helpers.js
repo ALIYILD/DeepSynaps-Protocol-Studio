@@ -787,6 +787,77 @@ export const SELF_ASSESSMENT_SURVEYS = Object.freeze({
       return Math.max(0, Math.round(100 - (sum / max) * 100));
     },
   },
+  post_session: {
+    key: 'post_session',
+    title: 'Post-Session Experience',
+    shortTitle: 'Session',
+    frequency: 'as-needed',
+    timeLabel: '1m',
+    emoji: 'Session',
+    tone: 'rose',
+    questions: [
+      { key: 'comfort', label: 'How comfortable was the session?', type: 'slider', min: 1, max: 5, labels: ['Very uncomfortable', 'Very comfortable'] },
+      { key: 'sensations', label: 'What sensations did you feel?', type: 'checkboxes', options: ['Tingling', 'Warmth', 'Pressure', 'Pulsing', 'Mild discomfort', 'None'], optional: true },
+      { key: 'mood_change', label: 'Immediate mood change after session', type: 'slider', min: 1, max: 5, labels: ['Much worse', 'Much better'] },
+      { key: 'energy', label: 'Energy level after session', type: 'slider', min: 1, max: 5, labels: ['Very drained', 'Very energized'] },
+      { key: 'note', label: 'Notes for your clinician (optional)', type: 'text', maxLength: 300, optional: true },
+    ],
+    computeScore(responses) {
+      const comfort = Number(responses.comfort) || 3;
+      const mood = Number(responses.mood_change) || 3;
+      const energy = Number(responses.energy) || 3;
+      return Math.round(((comfort + mood + energy - 3) / 12) * 100);
+    },
+  },
+  adherence: {
+    key: 'adherence',
+    title: 'Protocol Adherence',
+    shortTitle: 'Adherence',
+    frequency: 'daily',
+    timeLabel: '30s',
+    emoji: 'Adherence',
+    tone: 'green',
+    questions: [
+      { key: 'medications', label: 'Took prescribed medications / supplements today?', type: 'emoji_scale', min: 1, max: 2, labels: ['No', 'Yes'] },
+      { key: 'exercises', label: 'Completed home program exercises?', type: 'emoji_scale', min: 1, max: 2, labels: ['No', 'Yes'] },
+      { key: 'device', label: 'Used / wore prescribed device today?', type: 'emoji_scale', min: 1, max: 2, labels: ['No', 'Yes'] },
+      { key: 'sleep_hygiene', label: 'Followed sleep hygiene protocol?', type: 'emoji_scale', min: 1, max: 2, labels: ['No', 'Yes'] },
+      { key: 'missed', label: 'Missed anything? (optional)', type: 'text', maxLength: 200, optional: true },
+    ],
+    computeScore(responses) {
+      const keys = ['medications', 'exercises', 'device', 'sleep_hygiene'];
+      const yesCount = keys.reduce((acc, k) => acc + ((Number(responses[k]) || 0) >= 2 ? 1 : 0), 0);
+      return Math.round((yesCount / keys.length) * 100);
+    },
+  },
+  sleep_diary: {
+    key: 'sleep_diary',
+    title: 'Sleep Diary',
+    shortTitle: 'Sleep',
+    frequency: 'daily',
+    timeLabel: '1m',
+    emoji: 'Sleep',
+    tone: 'indigo',
+    questions: [
+      { key: 'bedtime', label: 'What time did you go to bed?', type: 'text', maxLength: 20, optional: false },
+      { key: 'wake_time', label: 'What time did you wake up?', type: 'text', maxLength: 20, optional: false },
+      { key: 'fall_asleep_min', label: 'Minutes to fall asleep', type: 'slider', min: 0, max: 60, labels: ['Instant', '60+ min'] },
+      { key: 'awakenings', label: 'Nighttime awakenings', type: 'slider', min: 0, max: 5, labels: ['None', '5+ times'] },
+      { key: 'quality', label: 'Overall sleep quality', type: 'slider', min: 1, max: 5, labels: ['Very poor', 'Excellent'] },
+      { key: 'rested', label: 'Did you feel rested this morning?', type: 'emoji_scale', min: 1, max: 3, labels: ['No', 'Somewhat', 'Yes'] },
+      { key: 'dreams', label: 'Notable dreams or nightmares? (optional)', type: 'text', maxLength: 300, optional: true },
+    ],
+    computeScore(responses) {
+      const quality = Number(responses.quality) || 3;
+      const rested = Number(responses.rested) || 2;
+      const awakenings = Number(responses.awakenings) || 0;
+      const fallAsleep = Number(responses.fall_asleep_min) || 15;
+      let score = ((quality + rested) / 8) * 100;
+      score -= awakenings * 8;
+      score -= Math.min(fallAsleep, 60) * 0.5;
+      return Math.max(0, Math.round(score));
+    },
+  },
 });
 
 export const SELF_ASSESSMENT_KEYS = Object.freeze(Object.keys(SELF_ASSESSMENT_SURVEYS));
@@ -872,6 +943,45 @@ export function demoSelfAssessmentSeed(now = Date.now()) {
       score_numeric: 80,
       source: 'patient_self_report',
       created_at: iso(now - 14 * ONE_DAY),
+      _demo: true,
+    },
+    {
+      id: 'demo-self-session',
+      template_id: 'self_post_session',
+      template_title: 'Post-Session Experience',
+      status: 'completed',
+      completed_at: iso(now - 1 * ONE_DAY),
+      administered_at: iso(now - 1 * ONE_DAY),
+      score: '85',
+      score_numeric: 85,
+      source: 'patient_self_report',
+      created_at: iso(now - 1 * ONE_DAY),
+      _demo: true,
+    },
+    {
+      id: 'demo-self-adherence',
+      template_id: 'self_adherence',
+      template_title: 'Protocol Adherence',
+      status: 'completed',
+      completed_at: iso(now - 1 * ONE_DAY),
+      administered_at: iso(now - 1 * ONE_DAY),
+      score: '75',
+      score_numeric: 75,
+      source: 'patient_self_report',
+      created_at: iso(now - 1 * ONE_DAY),
+      _demo: true,
+    },
+    {
+      id: 'demo-self-sleep',
+      template_id: 'self_sleep_diary',
+      template_title: 'Sleep Diary',
+      status: 'completed',
+      completed_at: iso(now - 1 * ONE_DAY),
+      administered_at: iso(now - 1 * ONE_DAY),
+      score: '62',
+      score_numeric: 62,
+      source: 'patient_self_report',
+      created_at: iso(now - 1 * ONE_DAY),
       _demo: true,
     },
   ];
