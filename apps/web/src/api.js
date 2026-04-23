@@ -973,6 +973,8 @@ export const api = {
     apiFetch('/api/v1/patient-portal/messages', { method: 'POST', body: JSON.stringify(data) }),
   patientPortalMarkMessageRead: (messageId) =>
     apiFetch(`/api/v1/patient-portal/messages/${encodeURIComponent(messageId)}/read`, { method: 'PATCH' }),
+  submitSelfAssessment: (data) =>
+    apiFetch('/api/v1/patient-portal/self-assessments', { method: 'POST', body: JSON.stringify(data) }),
 
   // ── Wearable monitoring ───────────────────────────────────────────────────
   patientPortalWearables: () => apiFetch('/api/v1/patient-portal/wearables'),

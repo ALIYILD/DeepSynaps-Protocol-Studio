@@ -680,3 +680,159 @@ export function demoMessagesSeed(now = Date.now()) {
     },
   ];
 }
+
+// -- Self-Assessment Survey Definitions -------------------------------------
+
+export const SELF_ASSESSMENT_SURVEYS = Object.freeze({
+  daily_mood: {
+    key: 'daily_mood',
+    title: 'Daily Mood Check-in',
+    shortTitle: 'Mood',
+    frequency: 'daily',
+    timeLabel: '30s',
+    emoji: 'Mood',
+    tone: 'teal',
+    questions: [
+      { key: 'mood', label: 'How is your mood right now?', type: 'emoji_scale', min: 1, max: 5, labels: ['Very low', 'Low', 'OK', 'Good', 'Great'] },
+      { key: 'energy', label: 'Energy level', type: 'slider', min: 1, max: 10, labels: ['Exhausted', 'Energized'] },
+      { key: 'note', label: 'Anything on your mind? (optional)', type: 'text', maxLength: 200, optional: true },
+    ],
+    computeScore(responses) {
+      const mood = Number(responses.mood) || 3;
+      const energy = Number(responses.energy) || 5;
+      return Math.round(((mood - 1) / 4) * 50 + ((energy - 1) / 9) * 50);
+    },
+  },
+  weekly_wellness: {
+    key: 'weekly_wellness',
+    title: 'Weekly Wellness Check-in',
+    shortTitle: 'Wellness',
+    frequency: 'weekly',
+    timeLabel: '2m',
+    emoji: 'Wellness',
+    tone: 'blue',
+    questions: [
+      { key: 'sleep', label: 'Sleep quality this week', type: 'slider', min: 1, max: 5, labels: ['Very poor', 'Excellent'] },
+      { key: 'anxiety', label: 'Anxiety level this week', type: 'slider', min: 1, max: 5, labels: ['None', 'Severe'] },
+      { key: 'social', label: 'Social connection', type: 'slider', min: 1, max: 5, labels: ['Very isolated', 'Very connected'] },
+      { key: 'focus', label: 'Focus / attention', type: 'slider', min: 1, max: 5, labels: ['Very poor', 'Excellent'] },
+      { key: 'side_effects', label: 'Any side effects since last session?', type: 'checkboxes', options: ['Headache', 'Nausea', 'Dizziness', 'Mood swing', 'Sleep change', 'None'], optional: true },
+    ],
+    computeScore(responses) {
+      const sleep = Number(responses.sleep) || 3;
+      const anxiety = Number(responses.anxiety) || 3;
+      const social = Number(responses.social) || 3;
+      const focus = Number(responses.focus) || 3;
+      const avg = (sleep + (6 - anxiety) + social + focus) / 4;
+      return Math.round(((avg - 1) / 4) * 100);
+    },
+  },
+  monthly_reflection: {
+    key: 'monthly_reflection',
+    title: 'Monthly Reflection',
+    shortTitle: 'Reflection',
+    frequency: 'monthly',
+    timeLabel: '3m',
+    emoji: 'Reflection',
+    tone: 'violet',
+    questions: [
+      { key: 'progress', label: 'Treatment progress this month', type: 'slider', min: 1, max: 5, labels: ['Much worse', 'Much better'] },
+      { key: 'alignment', label: 'Goal alignment', type: 'slider', min: 1, max: 5, labels: ['Not aligned', 'Fully aligned'] },
+      { key: 'helped', label: 'What helped most this month? (optional)', type: 'text', maxLength: 500, optional: true },
+      { key: 'concerns', label: 'Concerns for your care team (optional)', type: 'text', maxLength: 500, optional: true },
+    ],
+    computeScore(responses) {
+      const progress = Number(responses.progress) || 3;
+      const alignment = Number(responses.alignment) || 3;
+      return Math.round(((progress + alignment - 2) / 8) * 100);
+    },
+  },
+});
+
+export const SELF_ASSESSMENT_KEYS = Object.freeze(Object.keys(SELF_ASSESSMENT_SURVEYS));
+
+export function getSelfAssessmentLastFiled(key, storage) {
+  const s = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
+  if (!s) return null;
+  try {
+    const raw = s.getItem('ds_selfassess_last_' + key);
+    if (!raw) return null;
+    const d = new Date(raw);
+    return Number.isFinite(d.getTime()) ? raw : null;
+  } catch (_e) { return null; }
+}
+
+export function setSelfAssessmentLastFiled(key, iso, storage) {
+  const s = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
+  if (!s) return false;
+  try { s.setItem('ds_selfassess_last_' + key, iso); return true; } catch (_e) { return false; }
+}
+
+export function getSelfAssessmentDraft(key, storage) {
+  const s = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
+  if (!s) return null;
+  try {
+    const raw = s.getItem('ds_selfassess_draft_' + key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (_e) { return null; }
+}
+
+export function setSelfAssessmentDraft(key, data, storage) {
+  const s = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
+  if (!s) return false;
+  try { s.setItem('ds_selfassess_draft_' + key, JSON.stringify(data)); return true; } catch (_e) { return false; }
+}
+
+export function clearSelfAssessmentDraft(key, storage) {
+  const s = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
+  if (!s) return false;
+  try { s.removeItem('ds_selfassess_draft_' + key); return true; } catch (_e) { return false; }
+}
+
+export function demoSelfAssessmentSeed(now = Date.now()) {
+  const ONE_DAY = 86400000;
+  const iso = (ms) => new Date(ms).toISOString();
+  return [
+    {
+      id: 'demo-self-mood',
+      template_id: 'self_daily_mood',
+      template_title: 'Daily Mood Check-in',
+      status: 'completed',
+      completed_at: iso(now - 1 * ONE_DAY),
+      administered_at: iso(now - 1 * ONE_DAY),
+      score: '72',
+      score_numeric: 72,
+      source: 'patient_self_report',
+      created_at: iso(now - 1 * ONE_DAY),
+      _demo: true,
+    },
+    {
+      id: 'demo-self-wellness',
+      template_id: 'self_weekly_wellness',
+      template_title: 'Weekly Wellness Check-in',
+      status: 'completed',
+      completed_at: iso(now - 3 * ONE_DAY),
+      administered_at: iso(now - 3 * ONE_DAY),
+      score: '65',
+      score_numeric: 65,
+      source: 'patient_self_report',
+      created_at: iso(now - 3 * ONE_DAY),
+      _demo: true,
+    },
+    {
+      id: 'demo-self-reflection',
+      template_id: 'self_monthly_reflection',
+      template_title: 'Monthly Reflection',
+      status: 'completed',
+      completed_at: iso(now - 14 * ONE_DAY),
+      administered_at: iso(now - 14 * ONE_DAY),
+      score: '80',
+      score_numeric: 80,
+      source: 'patient_self_report',
+      created_at: iso(now - 14 * ONE_DAY),
+      _demo: true,
+    },
+  ];
+}
