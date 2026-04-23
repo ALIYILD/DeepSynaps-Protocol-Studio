@@ -16223,6 +16223,292 @@ function _pgpActionsSection() {
   );
 }
 
+// ── Wearable biometrics card (live API data) ──────────────────────────────────
+function _pgpBiometricsLive(progress) {
+  var w = progress.wearableSummary;
+  if (!w) {
+    return _pgpBiometrics(); // fallback to localStorage version
+  }
+  var sleepVal = w.sleep != null ? w.sleep.toFixed(1) + ' hrs' : '—';
+  var hrvVal   = w.hrv   != null ? Math.round(w.hrv) + ' ms' : '—';
+  var rhrVal   = w.rhr   != null ? Math.round(w.rhr) + ' bpm' : '—';
+  var stepsVal = w.steps != null ? Math.round(w.steps).toLocaleString() + ' steps' : '—';
+  var readinessVal = w.readiness != null ? Math.round(w.readiness) + '/100' : '—';
+  var sleepN = w.sleep || 0, hrvN = w.hrv || 0, rhrN = w.rhr || 0, readinessN = w.readiness || 0;
+  var sleepSt = sleepN >= 7 ? 'green' : sleepN >= 5.5 ? 'amber' : 'red';
+  var hrvSt   = hrvN   >= 50 ? 'green' : hrvN   >= 30  ? 'amber' : 'red';
+  var rhrSt   = rhrN   <= 65 ? 'green' : rhrN   <= 80  ? 'amber' : 'red';
+  var readinessSt = readinessN >= 70 ? 'green' : readinessN >= 50 ? 'amber' : 'red';
+  // Simple 7-day sparkline for readiness
+  var readinessSpark = '';
+  if (w.daily && w.daily.length > 1) {
+    var rs = w.daily.map(function(d) { return d.readiness_score || 0; }).filter(function(v) { return v > 0; });
+    readinessSpark = _sparkline(rs, 180, 60);
+  }
+  var tiles = [
+    { label: 'Sleep',      val: sleepVal,       sub: 'avg last 7 nights',  icon: '🌙', st: sleepSt },
+    { label: 'HRV',        val: hrvVal,         sub: 'avg last 7 days',    icon: '💚', st: hrvSt   },
+    { label: 'Resting HR', val: rhrVal,         sub: 'avg last 7 days',    icon: '❤️', st: rhrSt   },
+    { label: 'Readiness',  val: readinessVal,   sub: 'recovery score',     icon: '🔋', st: readinessSt },
+  ];
+  return '<section class="pgp-panel">' +
+    '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Biometrics</div><h3>Recovery & sleep</h3></div></div>' +
+    '<div class="pgp-bio-grid">' +
+    tiles.map(function(t) {
+      return '<div class="pgp-bio-tile">' +
+        '<div class="pgp-bio-icon">' + t.icon + '</div>' +
+        '<div class="pgp-bio-label">' + t.label + '</div>' +
+        '<div class="pgp-bio-val">' + t.val + '</div>' +
+        '<div class="pgp-bio-sub">' + t.sub + '</div>' +
+        '<div style="margin-top:5px">' + _vizTrafficLight(t.st, '') + '</div>' +
+      '</div>';
+    }).join('') +
+    '</div>' +
+    (readinessSpark ? '<div style="margin-top:14px">' + readinessSpark + '</div>' : '') +
+    '<div class="pgp-bio-sync">Last synced today &nbsp;·&nbsp; <a href="#" style="color:var(--accent-teal,#2dd4bf);text-decoration:none" onclick="window._navPatient(\'patient-wearables\');return false">Manage devices →</a></div>' +
+  '</section>';
+}
+
+// ── Wellness log trend chart ────────────────────────────────────────────────────
+function _pgpWellnessTrendChart(progress) {
+  var logs = progress.wellnessLogs;
+  if (!logs || logs.length < 3) {
+    return '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Wellness check-ins</div><h3>Daily wellness trends</h3></div></div>' +
+      '<div class="pgp-chart-empty">Your wellness trend will appear once you have completed a few daily check-ins.</div>' +
+    '</section>';
+  }
+  var sorted = logs.slice().sort(function(a, b) {
+    var da = (a.created_at || a.date || '').slice(0, 10);
+    var db = (b.created_at || b.date || '').slice(0, 10);
+    return da < db ? -1 : da > db ? 1 : 0;
+  });
+  var labels = sorted.map(function(it) {
+    var d = new Date(it.created_at || it.date);
+    return isNaN(d) ? '' : d.toLocaleDateString(progress.locale, { month: 'short', day: 'numeric' });
+  });
+  var moodVals = sorted.map(function(it) { return it.mood_score; }).filter(function(v) { return Number.isFinite(v); });
+  var sleepVals = sorted.map(function(it) { return it.sleep_score; }).filter(function(v) { return Number.isFinite(v); });
+  var energyVals = sorted.map(function(it) { return it.energy_score; }).filter(function(v) { return Number.isFinite(v); });
+  var series = [];
+  if (moodVals.length >= 2) series.push({ key: 'Mood', color: '#2dd4bf', good: 'up', points: sorted.map(function(it, i) { return { label: labels[i], value: it.mood_score }; }).filter(function(p) { return Number.isFinite(p.value); }) });
+  if (sleepVals.length >= 2) series.push({ key: 'Sleep', color: '#60a5fa', good: 'up', points: sorted.map(function(it, i) { return { label: labels[i], value: it.sleep_score }; }).filter(function(p) { return Number.isFinite(p.value); }) });
+  if (energyVals.length >= 2) series.push({ key: 'Energy', color: '#f59e0b', good: 'up', points: sorted.map(function(it, i) { return { label: labels[i], value: it.energy_score }; }).filter(function(p) { return Number.isFinite(p.value); }) });
+  if (!series.length) {
+    return '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Wellness check-ins</div><h3>Daily wellness trends</h3></div></div>' +
+      '<div class="pgp-chart-empty">Your wellness trend will appear once you have completed a few daily check-ins.</div>' +
+    '</section>';
+  }
+  var flat = [];
+  series.forEach(function(line) {
+    line.points.forEach(function(point) { if (Number.isFinite(point.value)) flat.push(point.value); });
+  });
+  var min = Math.min.apply(null, flat);
+  var max = Math.max.apply(null, flat);
+  var range = max - min || 1;
+  var width = 900, height = 220, padL = 48, padR = 24, padT = 24, padB = 56;
+  var innerW = width - padL - padR, innerH = height - padT - padB;
+  var grid = '';
+  [0, 0.25, 0.5, 0.75, 1].forEach(function(step) {
+    var y = padT + innerH * step;
+    var value = Math.round(max - range * step);
+    grid += '<line x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (width - padR) + '" y2="' + y.toFixed(1) + '" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>';
+    grid += '<text x="' + (padL - 10) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="end" font-size="10" fill="rgba(148,163,184,0.7)">' + value + '</text>';
+  });
+  var lines = series.map(function(line) {
+    var pts = line.points.map(function(point, idx) {
+      var x = padL + (idx / Math.max(1, line.points.length - 1)) * innerW;
+      var y = padT + (1 - ((point.value - min) / range)) * innerH;
+      return { x: x, y: y, value: point.value };
+    });
+    var polyline = pts.map(function(point) { return point.x.toFixed(1) + ',' + point.y.toFixed(1); }).join(' ');
+    var dots = pts.map(function(point, idx) {
+      var halo = idx === pts.length - 1 ? '<circle cx="' + point.x.toFixed(1) + '" cy="' + point.y.toFixed(1) + '" r="9" fill="' + line.color + '" opacity="0.14"/>' : '';
+      return halo + '<circle cx="' + point.x.toFixed(1) + '" cy="' + point.y.toFixed(1) + '" r="' + (idx === pts.length - 1 ? 4.5 : 3) + '" fill="' + line.color + '" stroke="#0f172a" stroke-width="1.5"/>';
+    }).join('');
+    return '<polyline points="' + polyline + '" fill="none" stroke="' + line.color + '" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>' + dots;
+  }).join('');
+  var xLabels = labels.slice(-series[0].points.length).map(function(label, idx) {
+    var x = padL + (idx / Math.max(1, series[0].points.length - 1)) * innerW;
+    return '<text x="' + x.toFixed(1) + '" y="' + (height - 18) + '" text-anchor="middle" font-size="10" fill="rgba(148,163,184,0.7)">' + label + '</text>';
+  }).join('');
+  var legend = series.map(function(line) {
+    var first = line.points[0] ? line.points[0].value : null;
+    var last = line.points[line.points.length - 1] ? line.points[line.points.length - 1].value : null;
+    var delta = _pgpMetricDelta(last, first, line.good === 'up');
+    var deltaText = delta === null ? 'stable' : (delta > 0 ? '+' + delta + '%' : delta < 0 ? delta + '%' : 'stable');
+    return '<span class="pgp-legend-item"><span class="pgp-legend-dot" style="background:' + line.color + '"></span>' + line.key + ' <strong>' + deltaText + '</strong></span>';
+  }).join('');
+  return '<section class="pgp-panel">' +
+    '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Wellness check-ins</div><h3>Daily wellness trends</h3></div></div>' +
+    '<div class="pgp-chart-card">' +
+      '<svg viewBox="0 0 ' + width + ' ' + height + '" class="pgp-chart-svg" role="img" aria-label="Wellness trends chart">' + grid + lines + xLabels + '</svg>' +
+      '<div class="pgp-legend">' + legend + '</div>' +
+      '<div class="pgp-chart-footnote">Based on your daily wellness check-ins (mood, sleep, energy).</div>' +
+    '</div>' +
+  '</section>';
+}
+
+// ── Home task adherence strip ───────────────────────────────────────────────────
+function _pgpHomeTaskStrip(progress) {
+  var tasks = progress.homeTasks;
+  if (!tasks || !tasks.length) {
+    return '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Home program</div><h3>Your tasks this week</h3></div></div>' +
+      '<div class="pgp-chart-empty">Your clinician will assign home tasks as part of your treatment program.</div>' +
+    '</section>';
+  }
+  var now = new Date();
+  var weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - now.getDay());
+  weekStart.setHours(0, 0, 0, 0);
+  var days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var dayDots = days.map(function(label, idx) {
+    var d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + idx);
+    var dKey = d.toISOString().slice(0, 10);
+    var dayTasks = tasks.filter(function(t) {
+      var due = (t.due_date || '').slice(0, 10);
+      var done = (t.completed_at || '').slice(0, 10);
+      return due === dKey || done === dKey;
+    });
+    var allDone = dayTasks.length > 0 && dayTasks.every(function(t) { return t.status === 'completed' || t.completed_at; });
+    var someDone = dayTasks.some(function(t) { return t.status === 'completed' || t.completed_at; });
+    var dotClass = allDone ? 'pgp-task-dot done' : someDone ? 'pgp-task-dot partial' : dayTasks.length ? 'pgp-task-dot pending' : 'pgp-task-dot empty';
+    return '<div class="pgp-task-day"><div class="' + dotClass + '"></div><div class="pgp-task-day-label">' + label + '</div></div>';
+  }).join('');
+  var completed = tasks.filter(function(t) { return t.status === 'completed' || t.completed_at; }).length;
+  var pending = tasks.filter(function(t) { return t.status !== 'completed' && !t.completed_at; }).length;
+  var recent = tasks.slice(0, 3).map(function(t) {
+    var st = t.status === 'completed' || t.completed_at ? 'completed' : 'pending';
+    var stClass = st === 'completed' ? 'pgp-task-chip done' : 'pgp-task-chip pending';
+    return '<div class="pgp-task-row"><span class="pgp-task-title">' + (t.title || 'Task') + '</span><span class="' + stClass + '">' + st + '</span></div>';
+  }).join('');
+  return '<section class="pgp-panel">' +
+    '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Home program</div><h3>Your tasks this week</h3></div></div>' +
+    '<div class="pgp-task-strip">' + dayDots + '</div>' +
+    '<div style="display:flex;gap:16px;margin:14px 0 10px;font-size:0.85rem;color:var(--text-secondary,#94a3b8)">' +
+      '<span><strong style="color:var(--teal,#2dd4bf)">' + completed + '</strong> completed</span>' +
+      '<span><strong style="color:var(--accent-blue,#60a5fa)">' + pending + '</strong> pending</span>' +
+    '</div>' +
+    '<div class="pgp-task-list">' + recent + '</div>' +
+  '</section>';
+}
+
+// ── Home device session timeline ────────────────────────────────────────────────
+function _pgpHomeSessionTimeline(progress) {
+  var sessions = progress.homeSessions;
+  if (!sessions || !sessions.length) {
+    return '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Home sessions</div><h3>Neuromodulation at home</h3></div></div>' +
+      '<div class="pgp-chart-empty">Log your home neuromodulation sessions to track progress and share with your care team.</div>' +
+    '</section>';
+  }
+  var sorted = sessions.slice().sort(function(a, b) {
+    var da = new Date(a.started_at || 0).getTime();
+    var db = new Date(b.started_at || 0).getTime();
+    return db - da;
+  });
+  var items = sorted.slice(0, 5).map(function(s) {
+    var date = s.started_at ? new Date(s.started_at).toLocaleDateString(progress.locale, { month: 'short', day: 'numeric' }) : '—';
+    var device = s.device_name || 'Home device';
+    var dur = s.duration_min ? s.duration_min + ' min' : '—';
+    var tol = s.tolerance_score;
+    var tolLabel = tol >= 4 ? 'Great' : tol >= 3 ? 'Good' : tol >= 2 ? 'Okay' : 'Poor';
+    var tolColor = tol >= 4 ? '#22c55e' : tol >= 3 ? '#2dd4bf' : tol >= 2 ? '#f59e0b' : '#ef4444';
+    var moodBefore = s.mood_before != null ? s.mood_before : '—';
+    var moodAfter = s.mood_after != null ? s.mood_after : '—';
+    var moodDelta = (s.mood_after != null && s.mood_before != null) ? (s.mood_after - s.mood_before) : null;
+    var moodArrow = moodDelta === null ? '' : moodDelta > 0 ? '<span style="color:#22c55e">↑</span>' : moodDelta < 0 ? '<span style="color:#ef4444">↓</span>' : '<span style="color:#94a3b8">→</span>';
+    return '<div class="pgp-session-row">' +
+      '<div class="pgp-session-meta">' +
+        '<span class="pgp-session-date">' + date + '</span>' +
+        '<span class="pgp-session-device">' + device + '</span>' +
+        '<span class="pgp-session-dur">' + dur + '</span>' +
+      '</div>' +
+      '<div class="pgp-session-details">' +
+        '<span class="pgp-session-tol" style="color:' + tolColor + '">Tolerance: ' + tolLabel + '</span>' +
+        '<span class="pgp-session-mood">Mood ' + moodBefore + ' → ' + moodAfter + ' ' + moodArrow + '</span>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+  return '<section class="pgp-panel">' +
+    '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Home sessions</div><h3>Neuromodulation at home</h3></div></div>' +
+    '<div class="pgp-session-timeline">' + items + '</div>' +
+  '</section>';
+}
+
+// ── Learn progress mini-section ─────────────────────────────────────────────────
+function _pgpLearnProgress(progress) {
+  var lp = progress.learnProgress || { read_article_ids: [], total_available: 0 };
+  var read = Array.isArray(lp.read_article_ids) ? lp.read_article_ids.length : 0;
+  var total = lp.total_available || 0;
+  var pct = total > 0 ? Math.round((read / total) * 100) : 0;
+  if (!total && !read) {
+    return '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Education</div><h3>Learning library</h3></div></div>' +
+      '<div class="pgp-chart-empty">Condition-specific articles and guides will appear here as your care team shares them.</div>' +
+    '</section>';
+  }
+  var barWidth = Math.max(4, pct) + '%';
+  return '<section class="pgp-panel">' +
+    '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Education</div><h3>Learning library</h3></div></div>' +
+    '<div class="pgp-learn-card">' +
+      '<div class="pgp-learn-stats">' +
+        '<div class="pgp-learn-num">' + read + '<span class="pgp-learn-den">/' + total + '</span></div>' +
+        '<div class="pgp-learn-label">articles read</div>' +
+      '</div>' +
+      '<div class="pgp-learn-bar-wrap">' +
+        '<div class="pgp-learn-bar-bg"><div class="pgp-learn-bar-fill" style="width:' + barWidth + '"></div></div>' +
+        '<div class="pgp-learn-pct">' + pct + '% complete</div>' +
+      '</div>' +
+      '<button class="pgp-btn-ghost" style="margin-top:14px" onclick="window._navPatient(\'patient-library\');return false">Continue learning →</button>' +
+    '</div>' +
+  '</section>';
+}
+
+// ── Assessment history ──────────────────────────────────────────────────────────
+function _pgpAssessmentHistory(progress) {
+  var assessments = progress.assessments;
+  if (!assessments || !assessments.length) {
+    return '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Assessments</div><h3>Your questionnaire history</h3></div></div>' +
+      '<div class="pgp-chart-empty">Assessment history will appear once you complete your first questionnaire.</div>' +
+    '</section>';
+  }
+  var sorted = assessments.slice().sort(function(a, b) {
+    var da = new Date(a.completed_at || a.created_at || 0).getTime();
+    var db = new Date(b.completed_at || b.created_at || 0).getTime();
+    return db - da;
+  });
+  var items = sorted.slice(0, 5).map(function(a) {
+    var title = a.template_title || 'Assessment';
+    var isCompleted = a.status === 'completed' || a.completed_at;
+    var score = a.score_numeric != null ? Math.round(a.score_numeric) : null;
+    var date = a.completed_at || a.due_date || a.created_at;
+    var dateLabel = date ? new Date(date).toLocaleDateString(progress.locale, { month: 'short', day: 'numeric' }) : '—';
+    var chipClass = isCompleted ? 'pgp-task-chip done' : 'pgp-task-chip pending';
+    var chipText = isCompleted ? 'Completed' : 'Pending';
+    var scoreHtml = score != null ? '<span class="pgp-assess-score">Score: ' + score + '</span>' : '';
+    return '<div class="pgp-assess-row">' +
+      '<div class="pgp-assess-title">' + title + '</div>' +
+      '<div class="pgp-assess-meta">' +
+        '<span class="' + chipClass + '">' + chipText + '</span>' +
+        scoreHtml +
+        '<span class="pgp-assess-date">' + dateLabel + '</span>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+  var pendingCount = assessments.filter(function(a) { return a.status !== 'completed' && !a.completed_at; }).length;
+  var pendingBanner = pendingCount > 0 ? '<div style="margin-bottom:14px;padding:10px 14px;border-radius:10px;background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.18);color:var(--teal,#2dd4bf);font-size:0.85rem;font-weight:600">' + pendingCount + ' assessment' + (pendingCount > 1 ? 's' : '') + ' pending — <a href="#" style="color:var(--teal,#2dd4bf);text-decoration:underline" onclick="window._navPatient(\'patient-assessments\');return false">Complete now →</a></div>' : '';
+  return '<section class="pgp-panel">' +
+    '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Assessments</div><h3>Your questionnaire history</h3></div></div>' +
+    pendingBanner +
+    '<div class="pgp-assess-list">' + items + '</div>' +
+  '</section>';
+}
+
 function _renderProgressPage() {
   var progress = _pgpNormalizeData();
   if (!progress || !progress.el) return;
@@ -16234,7 +16520,13 @@ function _renderProgressPage() {
           _pgpSummaryBlock(progress) +
           _pgpKpis(progress) +
           _pgpInterpretation(progress) +
+          _pgpBiometricsLive(progress) +
           _pgpSymptomTrendChart(progress) +
+          _pgpWellnessTrendChart(progress) +
+          _pgpHomeTaskStrip(progress) +
+          _pgpHomeSessionTimeline(progress) +
+          _pgpLearnProgress(progress) +
+          _pgpAssessmentHistory(progress) +
           _pgpBrainCards(progress) +
           _pgpDomainCards(progress) +
           _pgpMilestones(progress) +
