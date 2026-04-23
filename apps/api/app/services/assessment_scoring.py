@@ -12,7 +12,6 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from app.services.assessment_summary import (
-    _BANDS,
     _template_key,
     normalize_assessment_score,
 )

@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import StatementError
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
@@ -21,7 +20,6 @@ from app.persistence.models import (
     ClinicalSession,
     DeliveredSessionParameters,
     Patient,
-    ReviewQueueItem,
     TreatmentCourse,
     WearableAlertFlag,
 )

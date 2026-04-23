@@ -9,7 +9,6 @@ PATCH /api/v1/qeeg-records/{id}                 Update summary notes / findings
 """
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query

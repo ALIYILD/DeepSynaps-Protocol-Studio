@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +146,7 @@ async def analyze_patient_upload(
     RuntimeError
         If Anthropic API key is not configured, or if the API call fails.
     """
-    api_key = _require_anthropic_key(settings)
+    _require_anthropic_key(settings)
 
     # ---- build user prompt ------------------------------------------------
     condition = patient_context.get("condition", "unspecified")
@@ -299,7 +299,7 @@ async def generate_clinician_note_draft(
     RuntimeError
         If Anthropic API key is not configured, or if the API call fails.
     """
-    api_key = _require_anthropic_key(settings)
+    _require_anthropic_key(settings)
 
     # ---- build user prompt ------------------------------------------------
     condition = patient_context.get("condition", "unspecified")

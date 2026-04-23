@@ -80,8 +80,10 @@ def test_clinician_cannot_see_other_clinician_reports(
         ))
         db.commit()
     finally:
-        try: next(gen)
-        except StopIteration: pass
+        try:
+            next(gen)
+        except StopIteration:
+            pass
 
     r = client.get("/api/v1/reports", headers=auth_headers["clinician"])
     assert r.status_code == 200

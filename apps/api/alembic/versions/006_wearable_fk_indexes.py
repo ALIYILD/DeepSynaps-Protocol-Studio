@@ -11,7 +11,6 @@ Adds:
 - Index on wearable_observations(patient_id, observed_at) for time-range queries
 """
 from alembic import op
-import sqlalchemy as sa
 
 revision = '006_wearable_fk_indexes'
 down_revision = '005_wearable_monitoring'

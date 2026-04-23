@@ -782,8 +782,8 @@ def get_review_queue(
             .filter(
                 MediaRedFlag.upload_id.in_(upload_ids),
                 MediaRedFlag.severity == "high",
-                MediaRedFlag.dismissed == False,
-                MediaRedFlag.ai_generated == False,
+                MediaRedFlag.dismissed.is_(False),
+                MediaRedFlag.ai_generated.is_(False),
             )
             .all()
         )

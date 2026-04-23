@@ -1,4 +1,4 @@
-from deepsynaps_core_schema import BrainRegion, BrainRegionListResponse
+from deepsynaps_core_schema import BrainRegionListResponse
 
 from app.services.neuro_csv import list_brain_regions_from_csv
 

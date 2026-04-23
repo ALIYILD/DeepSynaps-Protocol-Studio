@@ -5,7 +5,6 @@ Revises: 012_billing_status_enum
 Create Date: 2026-04-12
 """
 from alembic import op
-import sqlalchemy as sa
 
 revision = '013_indexes_and_constraints'
 down_revision = '012_billing_status_enum'

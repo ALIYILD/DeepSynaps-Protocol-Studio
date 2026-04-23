@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import select, and_, or_, func
+from sqlalchemy import select, or_
 from sqlalchemy.orm import Session
 
 from app.persistence.models import ClinicalSession
@@ -119,7 +119,6 @@ def check_conflicts(
     # Parse the proposed time window
     proposed_start = datetime.fromisoformat(scheduled_at)
     proposed_end = proposed_start + timedelta(minutes=duration_minutes)
-    proposed_start_str = proposed_start.isoformat()
     proposed_end_str = proposed_end.isoformat()
 
     # Active statuses — cancelled / no_show sessions don't block

@@ -8,11 +8,8 @@ Produces: snapshot, new CSVs, new Excel workbook, integration report.
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import csv
-import json
 import os
-import re
 from datetime import datetime
-from copy import copy
 
 OUTPUT_DIR = "/home/user/workspace/deepsynaps_output"
 CSV_DIR = os.path.join(OUTPUT_DIR, "csv")
@@ -86,7 +83,7 @@ new_modalities = [
 ]
 
 all_modalities = existing_modalities + new_modalities
-print(f"  Added 4 new modalities: tACS, PEMF, LIFU/tFUS, tRNS")
+print("  Added 4 new modalities: tACS, PEMF, LIFU/tFUS, tRNS")
 print(f"  Total modalities: {len(all_modalities)}")
 
 # ============================================================
@@ -1281,15 +1278,15 @@ print("\n" + "=" * 60)
 print("INTEGRATION COMPLETE")
 print("=" * 60)
 print(f"\nTotal records: {total_records}")
-print(f"Tables: 12")
-print(f"Files generated:")
+print("Tables: 12")
+print("Files generated:")
 print(f"  - Excel: {excel_path}")
 print(f"  - CSVs: {CSV_DIR}/ (12 files)")
 print(f"  - Integration Report: {report_path}")
 print(f"  - Data Dictionary: {dict_path}")
-print(f"\nPending review items:")
+print("\nPending review items:")
 print(f"  - {pending_count} protocols")
 print(f"  - {pending_conditions} conditions")
-print(f"\nGovernance flags summary:")
+print("\nGovernance flags summary:")
 for flag, count in sorted(gov_flag_counts.items()):
     print(f"  - {flag}: {count} protocols flagged")

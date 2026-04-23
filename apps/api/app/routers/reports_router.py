@@ -72,8 +72,10 @@ def _ai_summarize_report(title: str, report_type: str, content_hint: str) -> dic
         s = raw.strip()
         if s.startswith("```"):
             s = s.split("\n", 1)[1] if "\n" in s else s[3:]
-            if s.endswith("```"): s = s[:-3]
-            if s.lstrip().lower().startswith("json"): s = s.lstrip()[4:]
+            if s.endswith("```"):
+                s = s[:-3]
+            if s.lstrip().lower().startswith("json"):
+                s = s.lstrip()[4:]
         data = _json.loads(s.strip())
         return {
             "summary": data.get("summary", "Summary not available."),

@@ -124,7 +124,7 @@ def list_marketplace_items(
     db: Session = Depends(get_db_session),
 ) -> dict:
     """List active marketplace items. Optional filters."""
-    query = db.query(MarketplaceItem).filter(MarketplaceItem.active == True)
+    query = db.query(MarketplaceItem).filter(MarketplaceItem.active.is_(True))
     if kind:
         query = query.filter(MarketplaceItem.kind == kind)
     if featured is not None:
@@ -145,7 +145,7 @@ def get_marketplace_item(
     """Get a single marketplace item by ID."""
     item = db.query(MarketplaceItem).filter(
         MarketplaceItem.id == item_id,
-        MarketplaceItem.active == True,
+        MarketplaceItem.active.is_(True),
     ).first()
     if item is None:
         raise ApiServiceError(code="not_found", message="Item not found.", status_code=404)
@@ -164,7 +164,7 @@ def create_marketplace_order(
 
     item = db.query(MarketplaceItem).filter(
         MarketplaceItem.id == body.item_id,
-        MarketplaceItem.active == True,
+        MarketplaceItem.active.is_(True),
     ).first()
     if item is None:
         raise ApiServiceError(code="not_found", message="Item not found.", status_code=404)

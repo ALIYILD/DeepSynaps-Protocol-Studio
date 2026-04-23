@@ -13,7 +13,6 @@ Pre-condition: any rows with non-standard values are normalised to 'unbilled'
 before the table is recreated.
 """
 from alembic import op
-import sqlalchemy as sa
 
 revision = '012_billing_status_enum'
 down_revision = '011_fk_constraints'

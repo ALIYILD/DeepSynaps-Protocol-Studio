@@ -6,7 +6,7 @@ let _agentBusy = false;
 let _agentProvider = localStorage.getItem('ds_agent_provider') || 'glm-free';
 let _agentOAKey = localStorage.getItem('ds_agent_oa_key') || '';
 const PROVIDERS = [
-  { id: 'glm-free', label: 'GLM-4 Free', desc: 'Free tier — no API key needed.', icon: '🆓' },
+  { id: 'glm-free', label: 'GLM-4 Free', desc: 'Free tier — no API key needed. Works with OpenClaw.', icon: '🆓' },
   { id: 'anthropic', label: 'Claude', desc: 'System key. No config needed.', icon: '🧠' },
   { id: 'openai', label: 'GPT-4o', desc: 'Requires your own API key.', icon: '✦' },
 ];
@@ -399,6 +399,7 @@ function _renderHub(setTopbar) {
         </div>
         <div style="display:flex;gap:8px;align-items:center">
           <span style="font-size:10px;padding:3px 10px;border-radius:99px;background:rgba(74,222,128,0.12);color:var(--green,#22c55e);font-weight:600">${provLabel} active</span>
+          <span class="agent-openclaw-badge">Powered by OpenClaw</span>
           ${tgConnected
             ? '<span style="font-size:10px;padding:3px 10px;border-radius:99px;background:rgba(74,222,128,0.12);color:var(--green,#22c55e);font-weight:600">✈ Telegram</span>'
             : `<button class="btn btn-sm" style="font-size:10px;border-color:var(--blue);color:var(--blue)" onclick="window._agentOpenConfig()">Connect Telegram</button>`}
@@ -414,6 +415,7 @@ function _renderHub(setTopbar) {
           <span style="font-size:15px;font-weight:700;color:var(--text-primary)">Clinic Agent</span>
           <span class="agent-card__status-dot agent-card__status-dot--active" style="margin-left:auto"></span>
         </div>
+        <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:4px">OpenClaw Agent</div>
         <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">Your AI receptionist and clinical assistant. Manages patients, reports, scheduling, and clinic communications.</div>
       </button>
       <button class="card agent-card--patient" style="cursor:pointer;text-align:left;padding:16px 20px" onclick="window._agentOpenChat('patient')">
@@ -422,6 +424,7 @@ function _renderHub(setTopbar) {
           <span style="font-size:15px;font-weight:700;color:var(--text-primary)">Patient Agent</span>
           <span class="agent-card__status-dot agent-card__status-dot--active" style="margin-left:auto"></span>
         </div>
+        <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:4px">OpenClaw Agent</div>
         <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">Patient-facing assistant. Answers treatment questions, tracks homework, explains care — scoped per patient.</div>
       </button>
     </div>
@@ -572,6 +575,7 @@ function _renderConfig(setTopbar) {
   if (!el) return;
   const tgConnected = localStorage.getItem('ds_agent_tg_connected') === '1';
   const tgNotifs = JSON.parse(localStorage.getItem('ds_agent_tg_notifs') || '{"sessions":true,"reviews":true,"ae":true,"digest":false}');
+  const provLabel = (PROVIDERS.find(p => p.id === _agentProvider) || PROVIDERS[0]).label;
 
   el.innerHTML = `<div style="max-width:600px;margin:0 auto;padding:20px 0">
 
@@ -596,6 +600,32 @@ function _renderConfig(setTopbar) {
             <input id="agent-oa-key-input" type="password" class="form-control" placeholder="sk-..." value="${_esc(_agentOAKey)}" oninput="window._agentSaveOAKey(this.value)" style="font-family:monospace;font-size:12px">
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- OpenClaw Setup -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><span style="font-weight:700;font-size:14px">OpenClaw Setup</span></div>
+      <div class="card-body">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px">Use your clinic agent on Telegram &amp; WhatsApp via OpenClaw &mdash; the open-source AI assistant.</div>
+        <div class="agent-openclaw-step">
+          <div style="display:flex;align-items:center;margin-bottom:6px">
+            <span class="agent-openclaw-step-num">1</span>
+            <span style="font-size:12px;font-weight:600;color:var(--text-primary)">Install OpenClaw</span>
+          </div>
+          <div class="agent-openclaw-cmd">
+            <code>npm i -g openclaw &amp;&amp; openclaw onboard</code>
+            <button class="btn btn-sm btn-ghost" onclick="window._agentCopyOpenClawCmd()" style="font-size:10px;padding:2px 8px">Copy</button>
+          </div>
+        </div>
+        <div class="agent-openclaw-step">
+          <div style="display:flex;align-items:center;margin-bottom:6px">
+            <span class="agent-openclaw-step-num">2</span>
+            <span style="font-size:12px;font-weight:600;color:var(--text-primary)">Connect a messaging channel</span>
+          </div>
+          <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">During onboarding, select <strong>Telegram</strong> or <strong>WhatsApp</strong> as your channel, and choose a free model (GLM-4, Gemini, or Groq). Your clinic agent will be available on the messaging platform you choose.</div>
+        </div>
+        <div style="margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(0,212,188,0.04);border:1px solid rgba(0,212,188,0.1);font-size:11px;color:var(--text-secondary)">&#8505; Your OpenClaw agent uses the same AI as your in-app assistant (currently: <strong>${provLabel}</strong>).</div>
       </div>
     </div>
 
@@ -883,6 +913,11 @@ window._agentConfirmTelegram = function() {
 window._agentDisconnectTelegram = function() {
   localStorage.removeItem('ds_agent_tg_connected');
   _agentView = 'config'; pgAgentChat(_lastSetTopbar);
+};
+window._agentCopyOpenClawCmd = function() {
+  navigator.clipboard.writeText('npm i -g openclaw && openclaw onboard').then(() => {
+    if (typeof window._showNotifToast === 'function') window._showNotifToast('Copied to clipboard', 'ok');
+  }).catch(() => {});
 };
 window._agentToggleTgNotif = function(key, val) {
   const n = JSON.parse(localStorage.getItem('ds_agent_tg_notifs') || '{"sessions":true,"reviews":true,"ae":true,"digest":false}');

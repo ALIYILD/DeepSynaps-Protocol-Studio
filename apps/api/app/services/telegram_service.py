@@ -9,7 +9,7 @@ import asyncio
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Literal, Optional
+from typing import Literal
 
 from sqlalchemy.orm import Session
 

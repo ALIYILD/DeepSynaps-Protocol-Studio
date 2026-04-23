@@ -1,5 +1,6 @@
-from __future__ import annotations
 """Unpaywall: resolve a DOI to its best open-access URL."""
+from __future__ import annotations
+
 import json
 import os
 import time

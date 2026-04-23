@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from pathlib import Path
 
 from app.services.clinical_data import _read_csv_records, _split_values
 from app.settings import CLINICAL_DATA_ROOT

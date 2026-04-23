@@ -113,7 +113,7 @@ def get_seller_me(
     active_count = db.query(MarketplaceItem).filter(
         MarketplaceItem.seller_id == user.id,
         MarketplaceItem.source == "seller_listed",
-        MarketplaceItem.active == True,
+        MarketplaceItem.active.is_(True),
     ).count()
     return {
         "user_id": user.id,

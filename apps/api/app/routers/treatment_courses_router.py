@@ -34,7 +34,7 @@ from app.persistence.models import (
     TreatmentCourse,
 )
 from app.services.protocol_registry import build_course_structure_from_protocol, get_protocol_parameters
-from app.services.registries import get_condition, get_protocol
+from app.services.registries import get_protocol
 
 router = APIRouter(prefix="/api/v1/treatment-courses", tags=["Treatment Courses"])
 review_router = APIRouter(prefix="/api/v1/review-queue", tags=["Review Queue"])

@@ -1,5 +1,6 @@
-from __future__ import annotations
 """PubMed E-utilities adapter: esearch → efetch → upsert into papers."""
+from __future__ import annotations
+
 import json
 import os
 import time

@@ -11,11 +11,11 @@ from sqlalchemy.orm import Session
 
 from app.errors import ApiServiceError
 from app.persistence.models import ClinicianHomeProgramTask, Patient
+from deepsynaps_core_schema import parse_home_program_selection
 
 
 def get_task_by_server_task_id(session: Session, server_task_id: str) -> ClinicianHomeProgramTask | None:
     return session.scalar(select(ClinicianHomeProgramTask).where(ClinicianHomeProgramTask.server_task_id == server_task_id))
-from deepsynaps_core_schema import parse_home_program_selection
 
 
 def load_task_dict(task_json: str) -> dict[str, Any]:

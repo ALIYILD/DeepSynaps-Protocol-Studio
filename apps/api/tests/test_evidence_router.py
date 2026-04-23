@@ -9,12 +9,10 @@ from __future__ import annotations
 
 import os
 import sqlite3
-import sys
 import tempfile
 import json
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 PIPELINE = Path(__file__).resolve().parents[3] / "services" / "evidence-pipeline"

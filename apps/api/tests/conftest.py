@@ -32,7 +32,7 @@ SOURCE_PATHS = [
 for source_path in SOURCE_PATHS:
     sys.path.insert(0, str(source_path))
 
-from app.database import init_database, reset_database  # noqa: E402
+from app.database import reset_database  # noqa: E402
 from app.limiter import limiter  # noqa: E402
 from app.main import app  # noqa: E402
 

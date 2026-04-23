@@ -7,7 +7,7 @@ from deepsynaps_core_schema import (
 from deepsynaps_safety_engine import apply_governance_rules, check_contraindications
 
 from app.auth import AuthenticatedActor, require_minimum_role
-from app.entitlements import require_any_feature, require_feature
+from app.entitlements import require_any_feature
 from app.errors import ApiServiceError
 from app.packages import Feature
 from app.services.clinical_data import (

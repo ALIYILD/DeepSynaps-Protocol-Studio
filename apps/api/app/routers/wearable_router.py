@@ -136,7 +136,7 @@ def get_patient_wearable_summary(
         db.query(WearableAlertFlag)
         .filter(
             WearableAlertFlag.patient_id == patient_id,
-            WearableAlertFlag.dismissed == False,
+            WearableAlertFlag.dismissed.is_(False),
         )
         .order_by(WearableAlertFlag.triggered_at.desc())
         .limit(20)

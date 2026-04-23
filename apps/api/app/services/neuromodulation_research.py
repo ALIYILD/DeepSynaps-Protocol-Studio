@@ -492,8 +492,8 @@ def _ranking_tuple(row: dict[str, Any], ranking_mode: str) -> tuple[int, int, in
     priority = _to_int(str(row.get("priority_score")))
     citations = _to_int(str(row.get("citation_count")))
     year = _to_int(str(row.get("year")))
-    trial_matches = _to_int(str(row.get("trial_match_count")))
-    fda_matches = _to_int(str(row.get("fda_match_count")))
+    _to_int(str(row.get("trial_match_count")))
+    _to_int(str(row.get("fda_match_count")))
     trial_signal = _to_int(str(row.get("trial_signal_score")))
     fda_signal = _to_int(str(row.get("fda_signal_score")))
     real_world = 1 if row.get("real_world_evidence_flag") else 0

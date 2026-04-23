@@ -1,11 +1,11 @@
-from __future__ import annotations
 """openFDA adapter: PMA, 510(k), HDE, and MAUDE adverse events."""
+from __future__ import annotations
+
 import json
 import os
 import time
 import urllib.parse
 import urllib.request
-from datetime import datetime
 
 KEY = os.environ.get("OPENFDA_API_KEY", "")
 BASE = "https://api.fda.gov"

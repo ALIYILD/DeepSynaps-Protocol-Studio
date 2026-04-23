@@ -15,7 +15,6 @@ urgent_symptom         Any adherence event submitted with severity='urgent'
 from __future__ import annotations
 
 import uuid
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 

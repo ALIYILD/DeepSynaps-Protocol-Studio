@@ -10,7 +10,7 @@ import pytest
 
 from app.entitlements import actor_has_feature, require_any_feature, require_feature
 from app.errors import ApiServiceError
-from app.packages import DEFAULT_PACKAGE_ID, Feature, PACKAGES, minimum_package_for
+from app.packages import Feature, PACKAGES, minimum_package_for
 
 
 # ── Package feature set correctness ──────────────────────────────────────────

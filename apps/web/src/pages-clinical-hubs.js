@@ -8639,22 +8639,37 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
   ];
 
   const DEMO_LISTINGS = [
-    { id: 'l1',  cat: 'consultations', title: 'Initial TMS Assessment',       clinic: 'BrainWave Clinic',    price: 120,  unit: 'session',  badge: 'Featured', rating: 4.9, reviews: 142, desc: 'Comprehensive first-consultation including QEEG screening and protocol recommendation.', img: '🩺' },
-    { id: 'l2',  cat: 'consultations', title: 'Follow-up Protocol Review',    clinic: 'NeuroMind Centre',    price: 75,   unit: 'session',  badge: '',         rating: 4.7, reviews: 89,  desc: 'Review progress, adjust stimulation parameters and outcomes targets mid-course.', img: '🩺' },
-    { id: 'l3',  cat: 'consultations', title: 'tDCS Home Setup Consultation', clinic: 'MindBoost UK',        price: 60,   unit: 'session',  badge: 'New',      rating: 4.5, reviews: 23,  desc: 'Remote session to configure home tDCS device and safety protocols.', img: '🩺' },
-    { id: 'l4',  cat: 'products',      title: 'NeuroCalm Electrode Gel 250ml',clinic: 'NeuroSupplies Ltd',   price: 24,   unit: 'item',     badge: 'Bestseller', rating: 4.8, reviews: 310, desc: 'Medical-grade conductive gel compatible with all major TMS and tDCS headsets.', img: '🧴' },
-    { id: 'l5',  cat: 'products',      title: 'EEG Cap 32 Channel',           clinic: 'CortexGear',          price: 349,  unit: 'item',     badge: '',         rating: 4.6, reviews: 57,  desc: 'Research-grade 32-channel EEG cap with pre-fitted Ag/AgCl electrodes.', img: '🎧' },
-    { id: 'l6',  cat: 'products',      title: 'TMS Coil Holder and Arm Kit',  clinic: 'NeuroSupplies Ltd',   price: 189,  unit: 'item',     badge: 'Sale',     rating: 4.4, reviews: 44,  desc: 'Adjustable arm mount for figure-8 and double-cone TMS coils.', img: '🦾' },
-    { id: 'l7',  cat: 'software',      title: 'DeepSynaps Protocol Builder',  clinic: 'DeepSynaps',          price: 49,   unit: 'month',    badge: 'Featured', rating: 4.9, reviews: 204, desc: 'AI-assisted protocol design, QEEG mapping, and outcome tracking platform.', img: '💻' },
-    { id: 'l8',  cat: 'software',      title: 'NeuroReport Generator Pro',    clinic: 'ClinData Ltd',        price: 29,   unit: 'month',    badge: '',         rating: 4.5, reviews: 78,  desc: 'Automated clinical report generation from raw EEG + outcomes data.', img: '📊' },
-    { id: 'l9',  cat: 'software',      title: 'PatientPulse Engagement App',  clinic: 'MindBoost UK',        price: 0,    unit: 'free',     badge: 'Free',     rating: 4.2, reviews: 331, desc: 'White-label patient app for homework tracking, mood logging and adherence.', img: '📱' },
-    { id: 'l10', cat: 'seminars',      title: 'rTMS in Treatment-Resistant Depression', clinic: 'BrainWave Clinic', price: 95, unit: 'seat', badge: 'Live', rating: 4.9, reviews: 67, desc: 'Half-day CPD seminar. Online, 14 May 2026.', img: '🎤' },
-    { id: 'l11', cat: 'seminars',      title: 'Neuromodulation for Chronic Pain', clinic: 'PainReliefPro',  price: 85,   unit: 'seat',     badge: '',         rating: 4.7, reviews: 41,  desc: 'Evidence-based seminar on SCS, TENS, and tDCS for pain management. Online, 22 May 2026.', img: '🎤' },
-    { id: 'l12', cat: 'workshops',     title: 'Hands-On TMS Coil Placement',  clinic: 'NeuroMind Centre',   price: 195,  unit: 'seat',     badge: 'Sold Out', rating: 5.0, reviews: 29,  desc: 'Practical workshop: figure-8 placement, motor threshold mapping, safety protocols. London.', img: '🔧' },
-    { id: 'l13', cat: 'workshops',     title: 'QEEG Interpretation Workshop', clinic: 'BrainWave Clinic',   price: 225,  unit: 'seat',     badge: 'New',      rating: 4.8, reviews: 15,  desc: 'Full-day workshop analysing real patient EEG traces and building personalised protocol maps.', img: '🔧' },
-    { id: 'l14', cat: 'courses',       title: 'Introduction to TMS 8 Weeks', clinic: 'BrainWave Academy',  price: 299,  unit: 'course',   badge: 'Featured', rating: 4.9, reviews: 188, desc: 'Accredited 8-week online course covering physics, clinical applications, safety, and case-based learning.', img: '📚' },
-    { id: 'l15', cat: 'courses',       title: 'Deep Brain Stimulation Essentials', clinic: 'NeuroAcademy', price: 349,  unit: 'course',   badge: '',         rating: 4.7, reviews: 94,  desc: '6-week course for neurologists and neurosurgeons entering DBS practice.', img: '📚' },
-    { id: 'l16', cat: 'courses',       title: 'tDCS for Cognitive Rehab',    clinic: 'CogRehabInstitute',  price: 199,  unit: 'course',   badge: 'Sale',     rating: 4.6, reviews: 52,  desc: 'Practical 4-week CPD course for occupational therapists and clinical psychologists.', img: '📚' },
+    // ── Consultations ──
+    { id: 'l1',  cat: 'consultations', title: 'Initial TMS Assessment',       clinic: 'BrainWave Clinic',    price: 120,  unit: 'session',  badge: 'Featured', rating: 4.9, reviews: 142, desc: 'Comprehensive first-consultation including QEEG screening and protocol recommendation.', img: '🩺', url: '' },
+    { id: 'l2',  cat: 'consultations', title: 'Follow-up Protocol Review',    clinic: 'NeuroMind Centre',    price: 75,   unit: 'session',  badge: '',         rating: 4.7, reviews: 89,  desc: 'Review progress, adjust stimulation parameters and outcomes targets mid-course.', img: '🩺', url: '' },
+    { id: 'l3',  cat: 'consultations', title: 'tDCS Home Setup Consultation', clinic: 'MindBoost UK',        price: 60,   unit: 'session',  badge: 'New',      rating: 4.5, reviews: 23,  desc: 'Remote session to configure home tDCS device and safety protocols.', img: '🩺', url: '' },
+    // ── Products (real Amazon links) ──
+    { id: 'l4',  cat: 'products',      title: 'Ten20 Conductive EEG Paste 228g', clinic: 'Weaver and Company', price: 12,   unit: 'item',     badge: 'Bestseller', rating: 4.7, reviews: 1250, desc: 'Industry-standard conductive paste for EEG, EMG, and neurofeedback electrode application.', img: '🧴', url: 'https://www.amazon.com/dp/B00GTX2MNE' },
+    { id: 'l5',  cat: 'products',      title: 'Muse 2 Brain Sensing Headband', clinic: 'Interaxon',          price: 199,  unit: 'item',     badge: 'Featured', rating: 4.3, reviews: 3200, desc: 'EEG-powered meditation headband with real-time biofeedback for brain activity, heart rate, breathing, and movement.', img: '🧠', url: 'https://www.amazon.com/dp/B07HL2JQQJ' },
+    { id: 'l6',  cat: 'products',      title: 'Polar H10 Heart Rate Sensor',  clinic: 'Polar',              price: 89,   unit: 'item',     badge: '',         rating: 4.7, reviews: 18500, desc: 'Medical-grade ECG chest strap with dual Bluetooth + ANT+. Gold standard for HRV monitoring in clinical settings.', img: '🫀', url: 'https://www.amazon.com/dp/B07PM54P4N' },
+    { id: 'l17', cat: 'products',      title: 'Oura Ring Gen 4',              clinic: 'Oura Health',         price: 349,  unit: 'item',     badge: 'New',      rating: 4.2, reviews: 5400, desc: 'Titanium smart ring with advanced sleep staging, HRV, blood oxygen, and activity tracking. 7-day battery life.', img: '💍', url: 'https://www.amazon.com/dp/B0DKLHHMZ5' },
+    { id: 'l18', cat: 'products',      title: 'Verilux HappyLight Touch Plus', clinic: 'Verilux',           price: 64,   unit: 'item',     badge: '',         rating: 4.5, reviews: 9800, desc: '10,000 lux UV-free LED light therapy lamp. Adjustable brightness and colour temperature for SAD and circadian therapy.', img: '☀️', url: 'https://www.amazon.com/dp/B07WC7KT4G' },
+    { id: 'l19', cat: 'products',      title: 'Garmin vivosmart 5 Fitness Tracker', clinic: 'Garmin',       price: 149,  unit: 'item',     badge: '',         rating: 4.3, reviews: 7200, desc: 'Fitness tracker with stress tracking, Body Battery energy monitoring, sleep score, and Garmin Connect integration.', img: '⌚', url: 'https://www.amazon.com/dp/B09W1TVFS7' },
+    { id: 'l20', cat: 'products',      title: 'LectroFan Evo White Noise Machine', clinic: 'Adaptive Sound', price: 49,  unit: 'item',     badge: '',         rating: 4.6, reviews: 11400, desc: 'High-fidelity white noise, fan, and ocean sounds with precise volume control. 22 non-looping sounds for sleep and focus.', img: '🔊', url: 'https://www.amazon.com/dp/B07XXR2NVB' },
+    // ── Software ──
+    { id: 'l7',  cat: 'software',      title: 'DeepSynaps Protocol Builder',  clinic: 'DeepSynaps',          price: 49,   unit: 'month',    badge: 'Featured', rating: 4.9, reviews: 204, desc: 'AI-assisted protocol design, QEEG mapping, and outcome tracking platform.', img: '💻', url: '' },
+    { id: 'l8',  cat: 'software',      title: 'NeuroReport Generator Pro',    clinic: 'ClinData Ltd',        price: 29,   unit: 'month',    badge: '',         rating: 4.5, reviews: 78,  desc: 'Automated clinical report generation from raw EEG + outcomes data.', img: '📊', url: '' },
+    { id: 'l9',  cat: 'software',      title: 'PatientPulse Engagement App',  clinic: 'MindBoost UK',        price: 0,    unit: 'free',     badge: 'Free',     rating: 4.2, reviews: 331, desc: 'White-label patient app for homework tracking, mood logging and adherence.', img: '📱', url: '' },
+    // ── Seminars ──
+    { id: 'l10', cat: 'seminars',      title: 'rTMS in Treatment-Resistant Depression', clinic: 'Clinical TMS Society', price: 95, unit: 'seat', badge: 'Live', rating: 4.9, reviews: 67, desc: 'Half-day CPD seminar covering evidence, protocols, and real-world outcomes.', img: '🎤', url: 'https://www.clinicaltmssociety.org/education' },
+    { id: 'l11', cat: 'seminars',      title: 'Neuromodulation for Chronic Pain', clinic: 'INS',            price: 85,   unit: 'seat',     badge: '',         rating: 4.7, reviews: 41,  desc: 'Evidence-based webinar on SCS, TENS, and tDCS for pain management by the International Neuromodulation Society.', img: '🎤', url: 'https://www.neuromodulation.com/webinars' },
+    // ── Workshops ──
+    { id: 'l12', cat: 'workshops',     title: 'Hands-On TMS Coil Placement',  clinic: 'Clinical TMS Society', price: 195, unit: 'seat',     badge: '', rating: 5.0, reviews: 29,  desc: 'Practical workshop: figure-8 placement, motor threshold mapping, safety protocols.', img: '🔧', url: 'https://www.clinicaltmssociety.org/courses' },
+    { id: 'l13', cat: 'workshops',     title: 'QEEG Interpretation Workshop', clinic: 'Neurocare Academy',  price: 225,  unit: 'seat',     badge: 'New',      rating: 4.8, reviews: 15,  desc: 'Full-day workshop analysing real patient EEG traces and building personalised protocol maps.', img: '🔧', url: 'https://www.neurocaregroup.com/academy.html' },
+    // ── Short Courses (real platform links) ──
+    { id: 'l14', cat: 'courses',       title: 'Medical Neuroscience — Duke University', clinic: 'Coursera', price: 0,   unit: 'free audit', badge: 'Featured', rating: 4.9, reviews: 4200, desc: 'Comprehensive neuroanatomy and neurophysiology. ~14 weeks. Free audit or paid certificate.', img: '📚', url: 'https://www.coursera.org/learn/medical-neuroscience' },
+    { id: 'l15', cat: 'courses',       title: 'Fundamentals of Neuroscience — HarvardX', clinic: 'edX',    price: 0,   unit: 'free audit', badge: '',         rating: 4.8, reviews: 2800, desc: 'Three-part Harvard Medical School series covering cellular, systems, and clinical neuroscience.', img: '📚', url: 'https://www.edx.org/xseries/harvardx-fundamentals-of-neuroscience' },
+    { id: 'l16', cat: 'courses',       title: 'Computational Neuroscience — University of Washington', clinic: 'Coursera', price: 0, unit: 'free audit', badge: '',  rating: 4.7, reviews: 1600, desc: 'Neural coding, modelling, and closed-loop stimulation design primer. ~9 weeks.', img: '📚', url: 'https://www.coursera.org/learn/computational-neuroscience' },
+    { id: 'l21', cat: 'courses',       title: 'The Brain and Space — Duke University', clinic: 'Coursera',  price: 0,   unit: 'free audit', badge: 'New', rating: 4.7, reviews: 900, desc: 'How the brain creates our sense of spatial awareness. Covers spatial perception, sensory systems, brain mapping.', img: '📚', url: 'https://www.coursera.org/learn/the-brain-and-space' },
+    { id: 'l22', cat: 'courses',       title: 'Introduction to Psychology — Yale University', clinic: 'Coursera', price: 0, unit: 'free audit', badge: '', rating: 4.9, reviews: 12500, desc: 'Paul Bloom\'s famous course covering brain structure, neural development, perception, learning, memory, and more.', img: '📚', url: 'https://www.coursera.org/learn/introduction-psychology' },
+    { id: 'l23', cat: 'courses',       title: 'Neuroscience and Neuroimaging — Johns Hopkins', clinic: 'Coursera', price: 0, unit: 'free audit', badge: '', rating: 4.6, reviews: 1100, desc: 'Neurohacking in R — neuroimaging analysis including preprocessing, structural and functional MRI.', img: '📚', url: 'https://www.coursera.org/learn/neurohacking' },
+    { id: 'l24', cat: 'courses',       title: 'Understanding the Brain — University of Chicago', clinic: 'Coursera', price: 0, unit: 'free audit', badge: '', rating: 4.8, reviews: 3500, desc: 'Neurobiology of everyday life — how the brain generates behaviour and how it is affected by disease.', img: '📚', url: 'https://www.coursera.org/learn/neurobiology' },
+    { id: 'l25', cat: 'courses',       title: 'Biohacking Your Brain\'s Health — Udemy', clinic: 'Udemy',    price: 19,  unit: 'course',     badge: '',  rating: 4.5, reviews: 5200, desc: 'Practical strategies for optimising brain health through sleep, nutrition, exercise, and neurofeedback techniques.', img: '📚', url: 'https://www.udemy.com/topic/neuroscience/' },
   ];
 
   const BADGE_COLORS = { Featured: '#5dd9c4', New: '#6366f1', Bestseller: '#f59e0b', Sale: '#ef4444', Live: '#10b981', Free: '#8b5cf6', 'Sold Out': '#6b7280', '': 'transparent' };
@@ -8671,15 +8686,24 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
   }
 
   function renderCard(l) {
-    const priceStr = l.unit === 'free' ? 'Free' : l.unit === 'month' ? '&#163;' + l.price + '<span class="mp-card-unit">/mo</span>' : '&#163;' + l.price + '<span class="mp-card-unit">/' + l.unit + '</span>';
+    const isFreeAudit = l.unit === 'free audit' || l.unit === 'free';
+    const priceStr = isFreeAudit ? 'Free' : l.unit === 'month' ? '&#163;' + l.price + '<span class="mp-card-unit">/mo</span>' : '&#163;' + l.price + '<span class="mp-card-unit">/' + l.unit + '</span>';
     const badgeBg = BADGE_COLORS[l.badge] || 'transparent';
     const soldOut = l.badge === 'Sold Out';
     const catLabel = (CATEGORIES.find(c => c.id === l.cat) || {}).label || l.cat;
+    const hasUrl = l.url && l.url.length > 0;
+    const isAmazon = hasUrl && l.url.includes('amazon');
+    const isCoursePlatform = hasUrl && (l.url.includes('coursera') || l.url.includes('edx') || l.url.includes('udemy') || l.url.includes('futurelearn'));
+    const amazonBadge = isAmazon ? '<span style="display:inline-block;background:rgba(255,153,0,0.15);color:#f59e0b;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;margin-left:6px">Amazon</span>' : '';
+    const platformBadge = isCoursePlatform ? '<span style="display:inline-block;background:rgba(99,102,241,0.15);color:#818cf8;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;margin-left:6px">' + esc(l.clinic) + '</span>' : '';
+    let ctaLabel = soldOut ? 'Sold Out' : l.unit === 'month' ? 'Subscribe' : (l.unit === 'course' || l.unit === 'free audit') ? 'Enroll' : isFreeAudit ? 'Get Free' : 'Book';
+    if (isAmazon) ctaLabel = 'Buy on Amazon';
+    if (isCoursePlatform) ctaLabel = 'View Course';
     return '<div class="mp-card" data-id="' + esc(l.id) + '">' +
       '<div class="mp-card-img">' + esc(l.img) + '</div>' +
       (l.badge ? '<span class="mp-card-badge" style="background:' + badgeBg + '">' + esc(l.badge) + '</span>' : '') +
       '<div class="mp-card-body">' +
-        '<div class="mp-card-cat">' + esc(catLabel) + '</div>' +
+        '<div class="mp-card-cat">' + esc(catLabel) + amazonBadge + platformBadge + '</div>' +
         '<div class="mp-card-title">' + esc(l.title) + '</div>' +
         '<div class="mp-card-clinic">by ' + esc(l.clinic) + '</div>' +
         '<div class="mp-card-desc">' + esc(l.desc) + '</div>' +
@@ -8687,7 +8711,7 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
       '</div>' +
       '<div class="mp-card-footer">' +
         '<div class="mp-card-price">' + priceStr + '</div>' +
-        '<button class="mp-card-cta' + (soldOut ? ' mp-card-cta--disabled' : '') + '" ' + (soldOut ? 'disabled' : '') + ' onclick="window._mpBook(\'' + esc(l.id) + '\')">' + (soldOut ? 'Sold Out' : l.unit === 'month' ? 'Subscribe' : l.unit === 'course' ? 'Enroll' : l.unit === 'free' ? 'Get Free' : 'Book') + '</button>' +
+        '<button class="mp-card-cta' + (soldOut ? ' mp-card-cta--disabled' : '') + (isAmazon ? ' mp-card-cta--amazon' : '') + '" ' + (soldOut ? 'disabled' : '') + ' onclick="window._mpBook(\'' + esc(l.id) + '\')">' + ctaLabel + '</button>' +
       '</div>' +
     '</div>';
   }
@@ -8727,11 +8751,57 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
   window._mpBook = (id) => {
     const l = DEMO_LISTINGS.find(x => x.id === id);
     if (!l) return;
+    if (l.url && l.url.length > 0) {
+      window.open(l.url, '_blank', 'noopener,noreferrer');
+      return;
+    }
     const verb = l.unit === 'month' ? 'Subscribe to' : l.unit === 'course' ? 'Enroll in' : l.unit === 'free' ? 'Get' : 'Book';
-    alert(verb + ': "' + l.title + '"\n\nClinic: ' + l.clinic + '\nPrice: ' + (l.unit === 'free' ? 'Free' : '£' + l.price + '/' + l.unit) + '\n\n(Booking flow coming soon)');
+    alert(verb + ': "' + l.title + '"\n\nProvider: ' + l.clinic + '\nPrice: ' + (l.unit === 'free' ? 'Free' : '\u00A3' + l.price + '/' + l.unit) + '\n\nPlease contact the provider directly to proceed.');
   };
   window._mpListNew = () => {
-    alert('List a Service\n\nContact marketplace@deepsynaps.com to publish your first listing.\n\n(Self-serve listing flow coming soon)');
+    const existing = document.getElementById('mp-list-modal');
+    if (existing) { existing.remove(); return; }
+    const modal = document.createElement('div');
+    modal.id = 'mp-list-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px';
+    modal.innerHTML = `
+      <div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:520px;width:100%;box-shadow:0 16px 48px rgba(0,0,0,.5);overflow:hidden">
+        <div style="padding:20px 24px 12px;display:flex;align-items:center;justify-content:space-between">
+          <h3 style="margin:0;font-size:17px;font-weight:600;color:var(--text-primary)">List Your Clinic's Service</h3>
+          <button onclick="document.getElementById('mp-list-modal').remove()" style="background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:20px;line-height:1">x</button>
+        </div>
+        <form id="mp-list-form" style="padding:8px 24px 24px;display:flex;flex-direction:column;gap:12px">
+          <input type="text" name="title" placeholder="Service / Product Title" required maxlength="200" style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900,#0b1120);color:var(--text-primary);font-size:13px">
+          <input type="text" name="clinic" placeholder="Clinic Name" required maxlength="200" style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900,#0b1120);color:var(--text-primary);font-size:13px">
+          <select name="category" style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900,#0b1120);color:var(--text-primary);font-size:13px">
+            <option value="consultations">Consultation</option>
+            <option value="products">Product</option>
+            <option value="software">Software</option>
+            <option value="seminars">Seminar</option>
+            <option value="workshops">Workshop</option>
+            <option value="courses">Short Course</option>
+          </select>
+          <textarea name="desc" placeholder="Description" rows="3" maxlength="1000" style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900,#0b1120);color:var(--text-primary);font-size:13px;resize:vertical"></textarea>
+          <div style="display:flex;gap:8px">
+            <input type="number" name="price" placeholder="Price (GBP)" step="0.01" min="0" style="flex:1;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900,#0b1120);color:var(--text-primary);font-size:13px">
+            <input type="url" name="url" placeholder="Product / Booking URL (optional)" style="flex:2;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900,#0b1120);color:var(--text-primary);font-size:13px">
+          </div>
+          <input type="email" name="email" placeholder="Contact Email" required style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900,#0b1120);color:var(--text-primary);font-size:13px">
+          <button type="submit" style="padding:10px 16px;background:#5dd9c4;color:#0a1a22;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px">Submit Listing</button>
+          <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">Listings are reviewed within 24 hours. You will be contacted at the email provided.</div>
+        </form>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+    modal.querySelector('#mp-list-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const data = { title: fd.get('title'), clinic: fd.get('clinic'), category: fd.get('category'), description: fd.get('desc'), price: fd.get('price'), url: fd.get('url'), email: fd.get('email') };
+      try {
+        await api.salesInquiry(data.clinic, data.email, 'Marketplace listing request: ' + data.title + ' (' + data.category + ') - ' + (data.description || ''), 'marketplace');
+      } catch {}
+      modal.innerHTML = '<div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:420px;width:100%;padding:40px 32px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)"><div style="font-size:2.5rem;margin-bottom:12px">&#10003;</div><h3 style="color:var(--text-primary);margin:0 0 8px">Listing Submitted</h3><p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;line-height:1.5">Thank you! Our team will review your listing and reach out to <strong>' + esc(data.email) + '</strong> within 24 hours.</p><button onclick="document.getElementById(\'mp-list-modal\').remove()" style="padding:8px 24px;background:#5dd9c4;color:#0a1a22;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Close</button></div>';
+    });
   };
 
   el.innerHTML = buildPage(_activeCat, _searchQ);

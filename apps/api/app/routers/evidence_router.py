@@ -36,14 +36,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-
-# ── Cross-platform temp paths for admin-refresh lock + log ──────────────────
-# `/tmp` is POSIX-only; on Windows it resolves to C:\tmp which may not exist.
-# Using tempfile.gettempdir() makes local Windows dev and container Linux
-# behave the same way without changing the container behaviour (still /tmp).
-_REFRESH_LOCK = Path(tempfile.gettempdir()) / "deepsynaps_evidence_refresh.lock"
-_REFRESH_LOG = Path(tempfile.gettempdir()) / "deepsynaps_evidence_refresh.log"
-
 from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -69,6 +61,13 @@ from app.services.neuromodulation_research import (
     research_health as neuromodulation_research_health,
     search_ranked_papers as search_research_ranked_papers,
 )
+
+# ── Cross-platform temp paths for admin-refresh lock + log ──────────────────
+# `/tmp` is POSIX-only; on Windows it resolves to C:\tmp which may not exist.
+# Using tempfile.gettempdir() makes local Windows dev and container Linux
+# behave the same way without changing the container behaviour (still /tmp).
+_REFRESH_LOCK = Path(tempfile.gettempdir()) / "deepsynaps_evidence_refresh.lock"
+_REFRESH_LOG = Path(tempfile.gettempdir()) / "deepsynaps_evidence_refresh.log"
 
 
 router = APIRouter(prefix="/api/v1/evidence", tags=["Evidence"])
@@ -728,7 +727,6 @@ def evidence_for_protocol(
         # Heuristic: protocol IDs often encode modality+condition as 'mod-cond-...'
         # or 'mod_cond'. Extract both parts.
         parts = protocol_id.replace("-", "_").split("_")
-        modality_guess = parts[0] if parts else ""
         condition_guess = "_".join(parts[1:]) if len(parts) > 1 else protocol_id
 
         # Try to find a matching indication

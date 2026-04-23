@@ -86,7 +86,7 @@ class TestPortalMe:
     def test_no_linked_record_returns_404(self, client: TestClient) -> None:
         """Patient user whose email has no matching patient record."""
         # Register a standalone user (not via invite path — email won't match a patient)
-        reg = client.post(
+        client.post(
             "/api/v1/auth/register",
             json={"email": "orphan_patient@example.com",
                   "display_name": "Orphan", "password": "Test1234!", "role": "clinician"},

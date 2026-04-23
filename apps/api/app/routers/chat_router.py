@@ -223,14 +223,22 @@ def _build_wearable_context(patient_id: str, db: Session) -> str:
     else:
         for s in summaries:
             parts = [f"Date: {s.date}", f"Source: {s.source}"]
-            if s.rhr_bpm:   parts.append(f"RHR: {s.rhr_bpm:.0f}bpm")
-            if s.hrv_ms:    parts.append(f"HRV: {s.hrv_ms:.0f}ms")
-            if s.sleep_duration_h: parts.append(f"Sleep: {s.sleep_duration_h:.1f}h")
-            if s.steps:     parts.append(f"Steps: {s.steps}")
-            if s.spo2_pct:  parts.append(f"SpO2: {s.spo2_pct:.1f}%")
-            if s.mood_score:  parts.append(f"Mood: {s.mood_score:.0f}/5")
-            if s.pain_score:  parts.append(f"Pain: {s.pain_score:.0f}/10")
-            if s.anxiety_score: parts.append(f"Anxiety: {s.anxiety_score:.0f}/10")
+            if s.rhr_bpm:
+                parts.append(f"RHR: {s.rhr_bpm:.0f}bpm")
+            if s.hrv_ms:
+                parts.append(f"HRV: {s.hrv_ms:.0f}ms")
+            if s.sleep_duration_h:
+                parts.append(f"Sleep: {s.sleep_duration_h:.1f}h")
+            if s.steps:
+                parts.append(f"Steps: {s.steps}")
+            if s.spo2_pct:
+                parts.append(f"SpO2: {s.spo2_pct:.1f}%")
+            if s.mood_score:
+                parts.append(f"Mood: {s.mood_score:.0f}/5")
+            if s.pain_score:
+                parts.append(f"Pain: {s.pain_score:.0f}/10")
+            if s.anxiety_score:
+                parts.append(f"Anxiety: {s.anxiety_score:.0f}/10")
             lines.append(" | ".join(parts))
 
     if alerts:

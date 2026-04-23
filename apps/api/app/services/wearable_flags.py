@@ -70,7 +70,7 @@ def run_flag_checks(
         .filter(
             WearableAlertFlag.patient_id == patient_id,
             WearableAlertFlag.triggered_at >= now - timedelta(days=7),
-            WearableAlertFlag.dismissed == False,
+            WearableAlertFlag.dismissed.is_(False),
         )
         .all()
     )
@@ -94,7 +94,7 @@ def run_flag_checks(
             WearableAlertFlag.patient_id == patient_id,
             WearableAlertFlag.flag_type == flag_type,
             WearableAlertFlag.triggered_at >= now - timedelta(hours=48),
-            WearableAlertFlag.dismissed == False,
+            WearableAlertFlag.dismissed.is_(False),
         ).first()
         if already:
             dedup_48h.add(flag_type)  # update in-memory set for subsequent _emit calls

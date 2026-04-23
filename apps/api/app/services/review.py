@@ -9,7 +9,7 @@ from app.auth import AuthenticatedActor, require_minimum_role
 from app.entitlements import require_feature
 from app.packages import Feature
 from app.registries.audit import AUDIT_DISCLAIMERS, AUDIT_EVENTS
-from app.repositories.audit import count_audit_events, create_audit_event, seed_audit_events
+from app.repositories.audit import create_audit_event, seed_audit_events
 
 
 def record_review_action(

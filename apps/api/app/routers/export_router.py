@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from io import BytesIO
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -14,7 +13,7 @@ from deepsynaps_core_schema import (
     ProtocolDraftRequest,
 )
 
-from app.auth import AuthenticatedActor, require_minimum_role, get_authenticated_actor
+from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.errors import ApiServiceError
 from app.services.clinical_data import (
     generate_handbook_from_clinical_data,

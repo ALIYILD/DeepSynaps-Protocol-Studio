@@ -1,6 +1,7 @@
-from __future__ import annotations
 """ClinicalTrials.gov v2 adapter. Preserves the intervention block verbatim so
 stim parameters (Hz, µs, mA, session counts) survive into the DB for later parsing."""
+from __future__ import annotations
+
 import json
 import time
 import urllib.parse

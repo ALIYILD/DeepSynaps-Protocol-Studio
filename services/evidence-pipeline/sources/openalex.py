@@ -1,6 +1,7 @@
-from __future__ import annotations
 """OpenAlex adapter: search and upsert papers, supplementing PubMed data with
 citation counts and OpenAlex IDs. No API key required (polite pool via mailto)."""
+from __future__ import annotations
+
 import json
 import os
 import time

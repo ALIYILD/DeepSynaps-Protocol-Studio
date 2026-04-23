@@ -97,7 +97,6 @@ def test_telegram_webhook_no_secret_configured_accepts_all(client: TestClient) -
 
 def test_telegram_webhook_wrong_secret_silently_ignored(client: TestClient, monkeypatch) -> None:
     """Wrong X-Telegram-Bot-Api-Secret-Token returns 200/ok but ignores the payload."""
-    from app import settings as _settings_module
 
     # Patch get_settings to return a settings object with a webhook secret set
     import app.settings as _sm
@@ -149,7 +148,7 @@ def test_telegram_webhook_correct_secret_accepted(client: TestClient, monkeypatc
 
 def test_review_queue_action_blocked_for_non_owner(client: TestClient) -> None:
     """Clinician B cannot approve/reject a review queue item owned by Clinician A."""
-    token_a = _register_clinician(client, "rq_a")
+    _token_a = _register_clinician(client, "rq_a")
     token_b = _register_clinician(client, "rq_b")
 
     # Seed a ReviewQueueItem owned by clinician A directly in the DB

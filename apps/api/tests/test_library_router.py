@@ -10,7 +10,6 @@ import os
 import tempfile
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from test_evidence_router import _build_fixture_db

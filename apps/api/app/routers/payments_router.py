@@ -20,7 +20,6 @@ from ..repositories.users import (
 )
 from ..database import get_db_session
 from ..settings import get_settings
-from ..errors import ApiServiceError
 
 router = APIRouter(prefix="", tags=["payments"])
 

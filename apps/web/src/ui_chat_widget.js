@@ -144,6 +144,7 @@ export function mountSalesChatWidget() {
 export function mountAppAgentWidget(kind) {
   // kind: 'patient' | 'clinician'
   const root = _ensureRoot('ds-app-agent');
+  const _tgConnected = localStorage.getItem('ds_patient_tg_connected') === '1';
   root.innerHTML = `
     <button class="ds-chat-fab ds-chat-fab--agent" id="ds-agent-fab" type="button" aria-label="AI agents">
       <span class="ds-chat-fab__icon">🧠</span>
@@ -151,18 +152,36 @@ export function mountAppAgentWidget(kind) {
     <div class="ds-chat-panel" id="ds-agent-panel" aria-hidden="true">
       <div class="ds-chat-panel__hd">
         <div>
-          <div class="ds-chat-panel__title">${kind === 'patient' ? 'Your support agents' : 'Clinic support agents'}</div>
-          <div class="ds-chat-panel__sub">${kind === 'patient' ? 'Ask about your progress, scores, and next steps.' : 'Ask about workflow, queue, and patients.'}</div>
+          <div class="ds-chat-panel__title">${kind === 'patient' ? 'Your AI Agent' : 'Clinic AI Agent'}</div>
+          <div class="ds-chat-panel__sub">Powered by OpenClaw \u00b7 GLM-4 Free</div>
         </div>
         <button class="ds-chat-x" id="ds-agent-close" type="button" aria-label="Close">×</button>
       </div>
       <div class="ds-chat-panel__body">
-        <div class="ds-chat-log" id="ds-agent-log"></div>
-        <div class="ds-chat-compose">
-          <input id="ds-agent-input" class="form-control" placeholder="Ask a question…">
-          <button id="ds-agent-send" class="btn btn-sm" type="button">Send</button>
+        <div class="ds-agent-tabs">
+          <button class="ds-agent-tab active" data-atab="chat">Chat</button>
+          <button class="ds-agent-tab" data-atab="settings">\u2699 Settings</button>
         </div>
-        <div class="ds-chat-footnote">${kind === 'patient' ? 'Not a substitute for your clinician.' : 'AI suggestions are advisory; verify clinically.'}</div>
+        <div data-atabpanel="chat">
+          <div class="ds-chat-log" id="ds-agent-log"></div>
+          <div class="ds-chat-compose">
+            <input id="ds-agent-input" class="form-control" placeholder="Ask a question\u2026">
+            <button id="ds-agent-send" class="btn btn-sm" type="button">Send</button>
+          </div>
+          <div class="ds-chat-footnote">${kind === 'patient' ? 'Not a substitute for your clinician.' : 'AI suggestions are advisory; verify clinically.'}</div>
+        </div>
+        <div data-atabpanel="settings" style="display:none;padding:10px 14px;font-size:12px">
+          <div style="font-weight:700;font-size:13px;margin-bottom:10px">\u2708 Connect Telegram</div>
+          <div style="color:var(--text-secondary);margin-bottom:10px">Get your AI agent on Telegram in 2 steps:</div>
+          <div id="ds-agent-tg-area">${_tgConnected
+            ? '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="font-size:11px;font-weight:600;padding:4px 12px;border-radius:99px;background:rgba(74,222,128,0.12);color:var(--green,#22c55e)">Connected</span><button class="btn btn-sm btn-ghost" style="font-size:10px;color:var(--red,#ef4444)" onclick="window._patientDisconnectTg()">Disconnect</button></div>'
+            : '<div style="font-size:12px;color:var(--text-secondary);line-height:1.8;margin-bottom:10px">1. Click below to get your link code<br>2. Open <strong>@DeepSynapsPatientBot</strong> on Telegram<br>3. Send the code \u2014 done!</div><button class="btn btn-primary btn-sm" onclick="window._patientGetTgCode()">Get Link Code</button>'
+          }</div>
+          <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
+            <div style="font-size:11px;color:var(--text-tertiary)">Model: <strong>GLM-4.5 Flash (Free)</strong></div>
+            <div style="font-size:10px;color:var(--text-tertiary);margin-top:4px">Powered by OpenClaw</div>
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -173,6 +192,52 @@ export function mountAppAgentWidget(kind) {
   if (!fab || !panel || !close || !log) return;
   fab.onclick = () => _toggleVisible(panel, !panel.classList.contains('is-open'));
   close.onclick = () => _toggleVisible(panel, false);
+
+  // Tab switching
+  root.querySelectorAll('.ds-agent-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      root.querySelectorAll('.ds-agent-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const key = btn.getAttribute('data-atab');
+      root.querySelectorAll('[data-atabpanel]').forEach(p => {
+        p.style.display = p.getAttribute('data-atabpanel') === key ? '' : 'none';
+      });
+    });
+  });
+
+  // Patient Telegram handlers
+  window._patientGetTgCode = async function() {
+    const area = document.getElementById('ds-agent-tg-area');
+    if (!area) return;
+    area.innerHTML = '<div style="color:var(--text-secondary)">Requesting link code\u2026</div>';
+    try {
+      const res = await api.telegramLinkCode('patient');
+      const code = res?.code || res?.data?.code || '------';
+      area.innerHTML = `
+        <div style="font-family:monospace;font-size:22px;font-weight:700;color:var(--teal);letter-spacing:3px;margin:10px 0">${code}</div>
+        <div style="font-size:11px;color:var(--text-secondary);line-height:1.6;margin-bottom:10px">
+          Open <strong>@DeepSynapsPatientBot</strong> on Telegram and send:<br>
+          <code style="background:rgba(255,255,255,0.05);padding:2px 6px;border-radius:4px">LINK ${code}</code>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="window._patientConfirmTg()">Mark as linked \u2713</button>
+      `;
+    } catch {
+      area.innerHTML = '<div style="color:var(--red,#ef4444)">Could not get link code. Try again later.</div>';
+    }
+  };
+
+  window._patientConfirmTg = function() {
+    localStorage.setItem('ds_patient_tg_connected', '1');
+    if (typeof window._showNotifToast === 'function') window._showNotifToast('Telegram connected!', 'ok');
+    const area = document.getElementById('ds-agent-tg-area');
+    if (area) area.innerHTML = '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;font-weight:600;padding:4px 12px;border-radius:99px;background:rgba(74,222,128,0.12);color:var(--green,#22c55e)">Connected</span><button class="btn btn-sm btn-ghost" style="font-size:10px;color:var(--red,#ef4444)" onclick="window._patientDisconnectTg()">Disconnect</button></div>';
+  };
+
+  window._patientDisconnectTg = function() {
+    localStorage.removeItem('ds_patient_tg_connected');
+    const area = document.getElementById('ds-agent-tg-area');
+    if (area) area.innerHTML = '<div style="font-size:12px;color:var(--text-secondary);line-height:1.8;margin-bottom:10px">1. Click below to get your link code<br>2. Open <strong>@DeepSynapsPatientBot</strong> on Telegram<br>3. Send the code \u2014 done!</div><button class="btn btn-primary btn-sm" onclick="window._patientGetTgCode()">Get Link Code</button>';
+  };
 
   const append = (role, text) => {
     const div = document.createElement('div');
