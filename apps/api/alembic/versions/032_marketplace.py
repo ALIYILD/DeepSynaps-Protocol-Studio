@@ -38,7 +38,7 @@ def upgrade() -> None:
         sa.Column("tone", sa.String(20), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
-        sa.CheckConstraint("kind IN ('product','service','software')", name="ck_marketplace_items_kind"),
+        sa.CheckConstraint("kind IN ('service','device','software')", name="ck_marketplace_items_kind"),
     )
     op.create_table(
         "marketplace_orders",

@@ -1571,7 +1571,7 @@ class MarketplaceItem(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
-        CheckConstraint("kind IN ('product','service','software')", name='ck_marketplace_items_kind'),
+        CheckConstraint("kind IN ('service','device','software')", name='ck_marketplace_items_kind'),
     )
 
 
