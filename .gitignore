@@ -39,8 +39,24 @@ test-results/
 
 # Local agent tooling / worktrees
 .claude/
+.qoder/
 .gstack/
 design-v2-prototype.html
+
+# Python package build artifacts
+packages/*/build/
+
+# Test / lint output files
+pytest_out.txt
+pytest_output.txt
+pytest_results.xml
+pytest_summary.txt
+ruff_out.txt
+smoke.txt
+testfile.txt
+testresult.txt
+tests_full.txt
+batch1.txt
 
 # Local Netlify folder
 .netlify

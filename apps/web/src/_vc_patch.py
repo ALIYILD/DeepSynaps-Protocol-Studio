@@ -1,5 +1,6 @@
 """Virtual Care patch — rename messaging + implement pgVirtualCare."""
-import sys, io, re
+import sys
+import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 # ─── 1. app.js ────────────────────────────────────────────────────────────────
@@ -28,9 +29,11 @@ start_pos = src.find(OLD_START)
 end_pos   = src.find(OLD_END)
 
 if start_pos < 0:
-    print('ERROR: pgMessaging start not found', file=sys.stderr); sys.exit(1)
+    print('ERROR: pgMessaging start not found', file=sys.stderr)
+    sys.exit(1)
 if end_pos < 0:
-    print('ERROR: Protocol Builder end marker not found', file=sys.stderr); sys.exit(1)
+    print('ERROR: Protocol Builder end marker not found', file=sys.stderr)
+    sys.exit(1)
 
 NEW_VC = r'''// ─── Virtual Care ────────────────────────────────────────────────────────────
 

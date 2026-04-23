@@ -19,9 +19,9 @@ def render_protocol_docx(protocol_plan, handbook_plan=None) -> bytes:
     Uses python-docx.
     """
     try:
-        from docx import Document
-        from docx.shared import Pt, RGBColor, Inches
-        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx import Document  # noqa: F401
+        from docx.shared import Pt, RGBColor, Inches  # noqa: F401
+        from docx.enum.text import WD_ALIGN_PARAGRAPH  # noqa: F401
     except ImportError:
         raise ImportError("python-docx required: pip install python-docx")
 

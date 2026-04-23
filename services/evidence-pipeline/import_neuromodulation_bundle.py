@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Stage and import the repo-local neuromodulation research bundle.
 
 This script does two things:
@@ -11,6 +9,7 @@ Usage:
     python3 import_neuromodulation_bundle.py --import-db
     python3 import_neuromodulation_bundle.py --stage --import-db
 """
+from __future__ import annotations
 
 import argparse
 import csv

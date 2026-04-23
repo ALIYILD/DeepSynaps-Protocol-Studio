@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Verify FDA product codes in indications_seed.MODALITY_PRODUCT_CODES
 against openFDA's /device/classification.json.
 
@@ -7,6 +6,8 @@ Outputs a Markdown report at docs/fda-product-codes.md.
 Run:
     python3 services/evidence-pipeline/scripts/verify_product_codes.py
 """
+from __future__ import annotations
+
 import json
 import os
 import sys

@@ -589,10 +589,8 @@ def score_trial_record(row: dict) -> tuple[int, list[str]]:
     score = 0
     reasons: list[str] = []
 
-    matched_modality = False
     for term in modality_terms(modality):
         if term and term in haystack:
-            matched_modality = True
             score += 4
             reasons.append(f"modality:{term}")
             break

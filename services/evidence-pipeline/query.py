@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Query the DeepSynaps evidence DB. Returns papers + trials + FDA records
 ranked by an informed evidence tier (publication type + recency + OA + citations).
 
@@ -8,6 +7,8 @@ Usage:
     python3 query.py "sacral neuromodulation" --trials-only
     python3 query.py --slug rtms_mdd --oa-only
 """
+from __future__ import annotations
+
 import argparse
 import json
 import sys

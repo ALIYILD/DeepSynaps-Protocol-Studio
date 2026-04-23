@@ -1,4 +1,3 @@
-from __future__ import annotations
 """DeepSynaps evidence DB — minimal stdio MCP server (no external deps).
 
 Implements the MCP 2024-11-05 subset Claude Code actually uses:
@@ -17,6 +16,8 @@ Exposed tools:
   evidence_query_devices  (slug?, applicant?, limit?)
   evidence_health
 """
+from __future__ import annotations
+
 import json
 import sys
 from pathlib import Path

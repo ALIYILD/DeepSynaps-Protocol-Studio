@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Protocol extractor — pulls stim parameters out of the verbatim text stored in
 `trials.interventions_json` and `devices.raw_json`. Writes to a new `protocols`
 table with structured columns so the Studio can display "10 Hz, 120% MT, 3000
@@ -11,6 +10,8 @@ emit multiple rows — each rooted in a single source text block.
 Usage:
     python3 services/evidence-pipeline/extract_protocols.py [--dry] [--limit N]
 """
+from __future__ import annotations
+
 import argparse
 import json
 import re

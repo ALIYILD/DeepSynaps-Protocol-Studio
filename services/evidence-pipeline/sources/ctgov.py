@@ -6,19 +6,11 @@ import json
 import time
 import urllib.parse
 import urllib.request
-from datetime import datetime
 
 
 def search(query: str, max_records: int = 200) -> list[dict]:
     out = []
     next_token = None
-    fields = [
-        "NCTId", "BriefTitle", "OfficialTitle", "OverallStatus", "Phase",
-        "EnrollmentCount", "Condition", "InterventionType", "InterventionName",
-        "InterventionDescription", "PrimaryOutcomeMeasure", "BriefSummary",
-        "StartDate", "LastUpdatePostDate", "StudyType", "LeadSponsorName",
-        "LocationCountry",
-    ]
     base = (
         "https://clinicaltrials.gov/api/v2/studies?query.term="
         + urllib.parse.quote(query)
@@ -48,7 +40,6 @@ def _get(p, *keys, default=None):
 
 def upsert_trials(conn, results: list[dict], indication_id: int | None = None) -> int:
     n = 0
-    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
     for s in results:
         proto = s.get("protocolSection", {})
         idmod = _get(proto, "identificationModule") or {}

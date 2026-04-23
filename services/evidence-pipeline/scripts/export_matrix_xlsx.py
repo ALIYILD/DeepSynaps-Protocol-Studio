@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Export the full evidence DB to a doctor-readable Excel file.
 
 Sheet 1 Papers    — one row per paper with PMID + DOI + OA links.
@@ -8,16 +7,18 @@ Sheet 4 Summary   — counts per indication.
 Usage:
     python3 services/evidence-pipeline/scripts/export_matrix_xlsx.py [OUT]
 """
+from __future__ import annotations
+
 import json
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve()
 PIPELINE = HERE.parents[1]
-sys.path.insert(0, str(PIPELINE))
-import db
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+sys.path.insert(0, str(PIPELINE))  # noqa: E402
+import db  # noqa: E402
+from openpyxl import Workbook  # noqa: E402
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side  # noqa: E402
 
 
 GRADE_FILL = {
@@ -35,7 +36,9 @@ BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 
 def _style_header(ws, widths):
     for i, c in enumerate(ws[1], 1):
-        c.fill = HEADER_FILL; c.font = HEADER_FONT; c.border = BORDER
+        c.fill = HEADER_FILL
+        c.font = HEADER_FONT
+        c.border = BORDER
         c.alignment = Alignment(vertical="center", wrap_text=True)
     for i, w in enumerate(widths, 1):
         col_letter = ws.cell(row=1, column=i).column_letter
@@ -73,7 +76,8 @@ def build(out_path: str) -> None:
         for t in ("Meta-Analysis", "Systematic Review", "Practice Guideline",
                   "Randomized Controlled Trial", "Clinical Trial", "Review", "Case Reports"):
             if t in pub_types:
-                study = t; break
+                study = t
+                break
         ws.append([
             r["title"],
             first_author + (" et al." if len(authors) > 1 else ""),

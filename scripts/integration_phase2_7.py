@@ -263,7 +263,7 @@ def map_evidence_level(raw_evidence, lit_count, modality_id):
     if lit_count:
         try:
             count = int(str(lit_count).strip().replace('+', '').replace('~', '').split()[0])
-        except:
+        except (ValueError, TypeError, IndexError):
             count = 0
     
     # RCT + Meta-analysis with high paper count
@@ -664,7 +664,7 @@ for paper in all_high_papers:
     # Determine authority level
     try:
         cit_num = int(citations)
-    except:
+    except (ValueError, TypeError):
         cit_num = 0
     
     if cit_num >= 500:

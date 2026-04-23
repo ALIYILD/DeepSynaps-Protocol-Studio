@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Ingest one or all seed indications into the DeepSynaps evidence DB.
 
 Usage:
@@ -6,6 +5,8 @@ Usage:
     python3 ingest.py --slug rtms_mdd --papers 300
     python3 ingest.py --init-only                         # create DB and exit
 """
+from __future__ import annotations
+
 import argparse
 import sys
 import time
@@ -81,11 +82,13 @@ def main():
     if args.slug:
         entries = [e for e in SEED if e["slug"] == args.slug]
         if not entries:
-            print(f"unknown slug: {args.slug}", file=sys.stderr); sys.exit(2)
+            print(f"unknown slug: {args.slug}", file=sys.stderr)
+            sys.exit(2)
     elif args.all:
         entries = SEED
     else:
-        print("pass --all or --slug SLUG (or --init-only)", file=sys.stderr); sys.exit(2)
+        print("pass --all or --slug SLUG (or --init-only)", file=sys.stderr)
+        sys.exit(2)
 
     t0 = time.time()
     for i, e in enumerate(entries, start=1):

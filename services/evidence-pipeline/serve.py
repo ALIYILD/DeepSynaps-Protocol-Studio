@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Minimal HTTP API over evidence.db. Localhost only — stdlib only, zero deps.
 
 Endpoints:
@@ -16,6 +15,8 @@ Run:
 Not production — this is a local read-only service for DeepSynaps Studio's
 internal dev loop. Front-ends should call the Studio's `apps/api` in prod.
 """
+from __future__ import annotations
+
 import json
 import os
 import sys

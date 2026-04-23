@@ -12,7 +12,6 @@ Env:
                       but not strictly enforced; we include it when present.
     NCBI_API_KEY    — fallback, since the rest of the codebase uses this name.
 """
-
 from __future__ import annotations
 
 import json

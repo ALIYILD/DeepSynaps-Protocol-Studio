@@ -1,5 +1,6 @@
 """Sprint 1 patch - apply all remaining changes to pgPatientReports()"""
-import sys, re, io
+import sys
+import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 with open('apps/web/src/pages-patient.js', 'r', encoding='utf-8') as f:
