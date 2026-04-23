@@ -1080,6 +1080,25 @@ export const api = {
   marketplaceSellerDeleteItem: (id) =>
     apiFetch(`/api/v1/marketplace/seller/items/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
+  // ── Virtual Care ──────────────────────────────────────────────────────────
+  virtualCareCreateSession: (data) =>
+    apiFetch('/api/v1/virtual-care/sessions', { method: 'POST', body: JSON.stringify(data) }),
+  virtualCareGetSession: (id) => apiFetch(`/api/v1/virtual-care/sessions/${encodeURIComponent(id)}`),
+  virtualCareStartSession: (id) =>
+    apiFetch(`/api/v1/virtual-care/sessions/${encodeURIComponent(id)}/start`, { method: 'PATCH' }),
+  virtualCareEndSession: (id) =>
+    apiFetch(`/api/v1/virtual-care/sessions/${encodeURIComponent(id)}/end`, { method: 'PATCH' }),
+  virtualCareSubmitBiometrics: (id, data) =>
+    apiFetch(`/api/v1/virtual-care/sessions/${encodeURIComponent(id)}/biometrics`, { method: 'POST', body: JSON.stringify(data) }),
+  virtualCareListBiometrics: (id) => apiFetch(`/api/v1/virtual-care/sessions/${encodeURIComponent(id)}/biometrics`),
+  virtualCareSubmitVoiceAnalysis: (id, data) =>
+    apiFetch(`/api/v1/virtual-care/sessions/${encodeURIComponent(id)}/voice-analysis`, { method: 'POST', body: JSON.stringify(data) }),
+  virtualCareListVoiceAnalysis: (id) => apiFetch(`/api/v1/virtual-care/sessions/${encodeURIComponent(id)}/voice-analysis`),
+  virtualCareSubmitVideoAnalysis: (id, data) =>
+    apiFetch(`/api/v1/virtual-care/sessions/${encodeURIComponent(id)}/video-analysis`, { method: 'POST', body: JSON.stringify(data) }),
+  virtualCareListVideoAnalysis: (id) => apiFetch(`/api/v1/virtual-care/sessions/${encodeURIComponent(id)}/video-analysis`),
+  virtualCareGetAnalysis: (id) => apiFetch(`/api/v1/virtual-care/sessions/${encodeURIComponent(id)}/analysis`),
+
   // ── Notifications ─────────────────────────────────────────────────────────
   patientPortalNotifications: () => apiFetch('/api/v1/patient-portal/notifications'),
   patientPortalMarkNotificationRead: (id) =>
