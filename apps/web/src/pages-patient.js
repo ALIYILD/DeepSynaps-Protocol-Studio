@@ -15875,7 +15875,7 @@ function _pgpSaCardHtml(key) {
   } else { dueSoon = true; }
   const freqLabel = survey.frequency.replace(/^./, function(c) { return c.toUpperCase(); });
   const tone = survey.tone || 'teal';
-  const icons = { daily_mood:'&#127749;', weekly_wellness:'&#128200;', monthly_reflection:'&#127769;', daily_symptoms:'&#128293;' };
+  const icons = { daily_mood:'&#127749;', weekly_wellness:'&#128200;', monthly_reflection:'&#127769;', daily_symptoms:'&#128293;', post_session:'&#128221;', adherence:'&#9989;', sleep_diary:'&#127769;' };
   return (
     '<div class="pgp-sa-card ' + esc(tone) + (dueSoon ? ' due-soon' : '') + '" data-sa="' + esc(key) + '">' +
       '<div class="pgp-sa-card-hd">' +
