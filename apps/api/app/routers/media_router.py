@@ -536,6 +536,113 @@ async def patient_upload_audio(
     return _upload_to_dict(upload)
 
 
+@router.post("/patient/upload/video")
+async def patient_upload_video(
+    file: UploadFile,
+    course_id: Optional[str] = Form(default=None),
+    session_id: Optional[str] = Form(default=None),
+    patient_note: Optional[str] = Form(default=None),
+    consent_id: str = Form(...),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """Patient submits a video upload."""
+    if actor.role != "patient":
+        raise ApiServiceError(
+            code="forbidden",
+            message="Only patients may submit uploads.",
+            status_code=403,
+        )
+
+    consent = (
+        db.query(MediaConsent)
+        .filter_by(id=consent_id, patient_id=actor.actor_id)
+        .first()
+    )
+    if consent is None or not consent.granted or consent.consent_type not in ("upload_video", "video_notes"):
+        raise ApiServiceError(
+            code="consent_required",
+            message="Valid video-upload consent is required to submit a video upload.",
+            status_code=400,
+        )
+
+    settings = get_settings()
+
+    if file.content_type not in media_storage.allowed_video_types():
+        raise ApiServiceError(
+            code="invalid_file_type",
+            message=f"File type '{file.content_type}' is not allowed. Accepted: {media_storage.allowed_video_types()}",
+            status_code=422,
+        )
+
+    file_bytes = await file.read()
+
+    if len(file_bytes) > media_storage.max_upload_bytes(settings):
+        raise ApiServiceError(
+            code="file_too_large",
+            message=f"Upload exceeds maximum size of {media_storage.max_upload_bytes(settings)} bytes.",
+            status_code=422,
+        )
+
+    upload_id = str(uuid.uuid4())
+    ext = (file.filename or "video.webm").rsplit(".", 1)[-1]
+
+    try:
+        file_ref = await media_storage.save_upload(
+            patient_id=actor.actor_id,
+            upload_id=upload_id,
+            file_bytes=file_bytes,
+            extension=ext,
+            settings=settings,
+        )
+    except IOError as exc:
+        raise ApiServiceError(
+            code="storage_error",
+            message=f"Failed to save upload: {exc}",
+            status_code=500,
+        )
+
+    upload = PatientMediaUpload(
+        id=upload_id,
+        patient_id=actor.actor_id,
+        course_id=course_id,
+        session_id=session_id,
+        uploaded_by=actor.actor_id,
+        media_type="video",
+        file_ref=file_ref,
+        file_size_bytes=len(file_bytes),
+        patient_note=patient_note,
+        status="pending_review",
+        consent_id=consent_id,
+    )
+    db.add(upload)
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        await media_storage.delete_upload(file_ref, settings)
+        raise ApiServiceError(
+            code="storage_error",
+            message="Failed to record upload. Please try again.",
+            status_code=500,
+        ) from exc
+    db.refresh(upload)
+
+    _write_audit(
+        db,
+        target_id=upload.id,
+        target_type="patient_media_upload",
+        action="media_upload_video",
+        actor=actor,
+        note=f"patient={actor.actor_id} bytes={len(file_bytes)} course={course_id}",
+    )
+    db.commit()
+
+    _logger.info("patient_video_upload upload=%s bytes=%d", upload.id, len(file_bytes))
+
+    return _upload_to_dict(upload)
+
+
 @router.get("/patient/uploads")
 def patient_list_uploads(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

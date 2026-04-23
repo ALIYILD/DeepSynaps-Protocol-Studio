@@ -6735,7 +6735,9 @@ async function _pgPatientVirtualCareImpl() {
   function _threadItemHtml(t) {
     const last = t.messages[t.messages.length - 1] || {};
     const unreadCount = t.messages.filter(m => m.unread).length;
-    const preview = last.kind === 'voice' ? '<span class="you">You:</span> \ud83c\udf99 Voice note \u00b7 ' + (last.duration || '0:00')
+    const preview = last.kind === 'voice' ? '<span class="you">You:</span> 🎙 Voice note · ' + (last.duration || '0:00')
+      : last.kind === 'video' ? '<span class="you">You:</span> 🎥 Video note · ' + (last.duration || '0:00')
+      : last.kind === 'file' ? '<span class="you">You:</span> 📎 ' + esc(last.fileName || 'Attachment')
       : last.kind === 'report' ? '<span class="you">They:</span> Shared a progress report'
       : last.kind === 'schedule' ? '<span class="you">They:</span> Proposed a schedule change'
       : last.kind === 'biometrics' ? '<span class="you">You:</span> Shared biometric data'
@@ -6762,9 +6764,33 @@ async function _pgPatientVirtualCareImpl() {
           <div class="vc-msg-stack">
             <div class="vc-msg-hd"><span class="vc-msg-name">You</span><span class="vc-msg-time">${esc(_fullTime(m.at))}</span></div>
             <div class="vc-bubble voice">
-              <button class="vc-voice-play" onclick="window._vcToast && window._vcToast('Voice note playback \u2014 demo')"><svg width="12" height="12"><use href="#i-play"/></svg></button>
+              ${m.objectUrl ? `<audio controls src="${esc(m.objectUrl)}" style="width:200px;height:28px"></audio>` : `<button class="vc-voice-play" onclick="window._vcToast && window._vcToast('Voice note playback \u2014 demo')"><svg width="12" height="12"><use href="#i-play"/></svg></button>`}
               <div class="vc-voice-waveform">${Array.from({length:16}).map(() => '<span style="height:' + (30 + Math.round(Math.random() * 55)) + '%"></span>').join('')}</div>
               <span class="vc-voice-duration">${esc(m.duration || '0:00')}</span>
+            </div>
+          </div>
+        </div>`;
+      if (m.kind === 'video') return `
+        <div class="vc-msg me">
+          <div class="vc-msg-stack">
+            <div class="vc-msg-hd"><span class="vc-msg-name">You</span><span class="vc-msg-time">${esc(_fullTime(m.at))}</span></div>
+            <div class="vc-bubble attach" style="padding:4px">
+              ${m.objectUrl ? `<video controls src="${esc(m.objectUrl)}" style="max-width:260px;max-height:200px;border-radius:8px;display:block"></video>` : '<div>Video note</div>'}
+              <div style="font-size:11px;color:var(--text-tertiary);padding:6px 8px 2px">${esc(m.duration || '')}</div>
+            </div>
+          </div>
+        </div>`;
+      if (m.kind === 'file') return `
+        <div class="vc-msg me">
+          <div class="vc-msg-stack">
+            <div class="vc-msg-hd"><span class="vc-msg-name">You</span><span class="vc-msg-time">${esc(_fullTime(m.at))}</span></div>
+            <div class="vc-bubble attach" style="display:flex;align-items:center;gap:10px;padding:10px 14px">
+              <div style="width:36px;height:36px;border-radius:8px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16"><use href="#i-doc"/></svg></div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.fileName || 'Attachment')}</div>
+                <div style="font-size:11px;color:var(--text-tertiary)">${m.fileSize ? (m.fileSize / 1024).toFixed(1) + ' KB' : ''}</div>
+              </div>
+              ${m.objectUrl ? `<a href="${esc(m.objectUrl)}" target="_blank" style="font-size:11px;color:var(--primary);text-decoration:none;flex-shrink:0">Open</a>` : ''}
             </div>
           </div>
         </div>`;
@@ -6849,6 +6875,30 @@ async function _pgPatientVirtualCareImpl() {
           </div>
         </div>
       </div>`;
+    if (m.kind === 'analysis') {
+      const a = m.analysis || {};
+      const sentiment = a.sentiment || a.mood || 'Pending';
+      const summary = a.summary || a.clinical_summary || 'Analysis in progress. Your clinician will review shortly.';
+      const uploadType = m.uploadType === 'voice' ? 'Voice analysis' : m.uploadType === 'video' ? 'Video analysis' : 'AI analysis';
+      return `
+        <div class="vc-msg">
+          <div class="vc-msg-av av-ai"><svg width="18" height="18"><use href="#i-sparkle"/></svg></div>
+          <div class="vc-msg-stack">
+            <div class="vc-msg-hd"><span class="vc-msg-name">Synaps AI</span><span class="vc-msg-time">${esc(_fullTime(m.at))}</span></div>
+            <div class="vc-bubble attach vc-card" style="border-left:3px solid #a78bfa">
+              <div class="vc-card-hd">
+                <div class="vc-card-ico" style="background:rgba(167,139,250,.15);color:#a78bfa"><svg width="16" height="16"><use href="#i-sparkle"/></svg></div>
+                <div style="flex:1;min-width:0">
+                  <div class="vc-card-hd-title">${esc(uploadType)}</div>
+                  <div class="vc-card-hd-sub">Sentiment: ${esc(sentiment)} · Clinician will review</div>
+                </div>
+              </div>
+              <div class="vc-card-body">${esc(summary)}</div>
+              ${m.transcript ? `<div style="margin-top:8px;padding:8px 10px;background:rgba(255,255,255,.04);border-radius:6px;border:1px solid var(--border);font-size:12px;color:var(--text-secondary);line-height:1.5"><strong>Transcript:</strong> ${esc(m.transcript.substring(0, 200))}${m.transcript.length > 200 ? '...' : ''}</div>` : ''}
+            </div>
+          </div>
+        </div>`;
+    }
     return `
       <div class="vc-msg">
         <div class="vc-msg-av ${thread.avClass || ''}">${av}</div>
@@ -6949,8 +6999,8 @@ async function _pgPatientVirtualCareImpl() {
             <div class="vc-input-row">
               <div class="vc-input-tools">
                 <button class="vc-tool" title="Attach file" onclick="window._vcAttach && window._vcAttach()"><svg width="16" height="16"><use href="#i-plus"/></svg></button>
-                <button class="vc-tool rec" title="Voice note" onclick="window._vcToast && window._vcToast('Voice note \u2014 hold to record (coming soon)')"><svg width="16" height="16"><use href="#i-mic"/></svg></button>
-                <button class="vc-tool" title="Video note" onclick="window._vcToast && window._vcToast('Video note \u2014 coming soon')"><svg width="16" height="16"><use href="#i-video"/></svg></button>
+                <button class="vc-tool rec" title="Voice note" onclick="window._vcRecordVoice && window._vcRecordVoice()"><svg width="16" height="16"><use href="#i-mic"/></svg></button>
+                <button class="vc-tool" title="Video note" onclick="window._vcRecordVideo && window._vcRecordVideo()"><svg width="16" height="16"><use href="#i-video"/></svg></button>
               </div>
               <div class="vc-input-wrap">
                 <textarea class="vc-input" id="vc-input" placeholder="Message \u2014 this goes to your care team, not 911." rows="1" oninput="window._vcInputChange && window._vcInputChange()"></textarea>
@@ -7082,6 +7132,54 @@ async function _pgPatientVirtualCareImpl() {
     const btn = document.getElementById('vc-send');
     if (btn) btn.disabled = !inp || !inp.value.trim();
   };
+  // ── Message polling for real-time updates ───────────────────────────────
+  async function _vcPollMessages() {
+    if (!_isDemo && uid && api.patientPortalMessages) {
+      try {
+        const msgs = await api.patientPortalMessages();
+        if (!Array.isArray(msgs)) return;
+        msgs.forEach(m => {
+          const tid = String(m.thread_id || m.sender_id || m.sender_name || 'other');
+          const th = threads[tid];
+          if (!th) return;
+          const exists = th.messages.some(x => x.id === m.id);
+          if (!exists) {
+            th.messages.push({
+              id: m.id,
+              sender: m.sender_type === 'patient' ? 'me' : 'them',
+              senderName: m.sender_name || (m.sender_type === 'patient' ? 'You' : 'Care team'),
+              at: m.created_at,
+              body: m.body || m.preview || '',
+              unread: !m.is_read && m.sender_type !== 'patient',
+              kind: m.category || null,
+            });
+            if (tid === activeId) {
+              const sc = document.getElementById('vc-conv-scroll');
+              if (sc) { sc.innerHTML = _convHtml(activeId); sc.scrollTop = sc.scrollHeight; }
+            } else {
+              const list = document.getElementById('vc-thread-list');
+              if (list) list.innerHTML = threadList.map(_threadItemHtml).join('');
+            }
+          }
+        });
+      } catch (_e) { /* silent poll failure */ }
+    }
+  }
+  window._vcPollTimer = setInterval(_vcPollMessages, 10000);
+
+  // ── Consent helper for media uploads ──────────────────────────────────────
+  async function _vcEnsureConsent(consentType) {
+    const pid = currentUser?.patient_id || currentUser?.id;
+    if (!pid) return null;
+    try {
+      const consents = await api.getMediaConsents(pid);
+      const c = (consents || []).find(x => x.consent_type === consentType && x.granted);
+      if (c) return c.id;
+      const created = await api.recordMediaConsent({ consent_type: consentType, granted: true, retention_days: 365 });
+      return created?.id || null;
+    } catch (_e) { return null; }
+  }
+
   window._vcSend = async function() {
     const inp = document.getElementById('vc-input');
     if (!inp || !inp.value.trim() || !activeId || !threads[activeId]) return;
@@ -7089,7 +7187,8 @@ async function _pgPatientVirtualCareImpl() {
     inp.value = '';
     window._vcInputChange();
     const t = threads[activeId];
-    t.messages.push({ id: 'local-' + Date.now(), sender: 'me', senderName: 'You', at: new Date().toISOString(), body });
+    const localId = 'local-' + Date.now();
+    t.messages.push({ id: localId, sender: 'me', senderName: 'You', at: new Date().toISOString(), body });
     const sc = document.getElementById('vc-conv-scroll');
     if (sc) { sc.innerHTML = _convHtml(activeId); sc.scrollTop = sc.scrollHeight; }
     // For AI thread, call api.chatPatient and render reply.
@@ -7107,14 +7206,19 @@ async function _pgPatientVirtualCareImpl() {
         t.messages.push({ id: 'ai-' + Date.now(), sender: 'them', senderName: 'Synaps AI', at: new Date().toISOString(), body: "Assistant is offline. For urgent concerns, message your care team directly." });
       }
       const sc2 = document.getElementById('vc-conv-scroll');
-      if (sc2) { sc2.innerHTML = _convHtml(activeId); sc2.scrollTop = sc2.scrollHeight; }
-    } else if (!_isDemo && uid && api.patientPortalMessages) {
-      // Real clinician thread — try to POST via any available endpoint.
-      // The read-only endpoint currently doesn't support POST from patient side;
-      // we store locally so the UX stays responsive and log for ops visibility.
-      console.info('[virtualcare] would POST message to thread', activeId, body);
+      if (sc2) { sc2.innerHTML = _convHtml(activeId); sc2.scrollTop = sc.scrollHeight; }
+    } else if (!_isDemo && uid && api.patientPortalSendMessage) {
+      // Real clinician thread — POST to API
+      try {
+        await api.patientPortalSendMessage({ thread_id: activeId, body });
+        _showToast('Sent');
+      } catch (err) {
+        _showToast('Failed to send — try again');
+        console.error('[virtualcare] send failed', err);
+      }
+    } else {
+      _showToast('Sent');
     }
-    _showToast('Sent');
   };
   window._vcQuick = function(kind) {
     const inp = document.getElementById('vc-input');
@@ -7131,7 +7235,219 @@ async function _pgPatientVirtualCareImpl() {
     inp.focus();
     window._vcInputChange();
   };
-  window._vcAttach = function() { _showToast('File upload — demo mode'); };
+  // ── File attachment ──────────────────────────────────────────────────────
+  window._vcAttach = function() {
+    let inp = document.getElementById('vc-file-input');
+    if (!inp) {
+      inp = document.createElement('input');
+      inp.id = 'vc-file-input';
+      inp.type = 'file';
+      inp.accept = 'image/*,application/pdf,.doc,.docx,.txt';
+      inp.style.display = 'none';
+      inp.onchange = async () => {
+        const file = inp.files && inp.files[0];
+        if (!file || !activeId || !threads[activeId]) return;
+        const t = threads[activeId];
+        const localId = 'file-' + Date.now();
+        const isImage = file.type.startsWith('image/');
+        const objectUrl = isImage ? URL.createObjectURL(file) : null;
+        t.messages.push({ id: localId, sender: 'me', senderName: 'You', at: new Date().toISOString(), body: '', kind: 'file', fileName: file.name, fileSize: file.size, fileType: file.type, objectUrl });
+        const sc = document.getElementById('vc-conv-scroll');
+        if (sc) { sc.innerHTML = _convHtml(activeId); sc.scrollTop = sc.scrollHeight; }
+        _showToast('Attachment sent');
+        inp.value = '';
+      };
+      document.body.appendChild(inp);
+    }
+    inp.click();
+  };
+
+  // ── Voice recording ──────────────────────────────────────────────────────
+  window._vcMediaRecorder = null;
+  window._vcMediaChunks = [];
+  window._vcRecordStartTime = 0;
+  window._vcRecordTimer = null;
+
+  window._vcRecordVoice = async function() {
+    if (!activeId || !threads[activeId]) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      window._vcMediaRecorder = mr;
+      window._vcMediaChunks = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) window._vcMediaChunks.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(window._vcMediaChunks, { type: 'audio/webm' });
+        const durationSec = Math.round((Date.now() - window._vcRecordStartTime) / 1000);
+        const mm = String(Math.floor(durationSec / 60)).padStart(2, '0');
+        const ss = String(durationSec % 60).padStart(2, '0');
+        const t = threads[activeId];
+        const localId = 'voice-' + Date.now();
+        const objectUrl = URL.createObjectURL(blob);
+        t.messages.push({ id: localId, sender: 'me', senderName: 'You', at: new Date().toISOString(), body: '', kind: 'voice', duration: mm + ':' + ss, durationSec, objectUrl });
+        const sc = document.getElementById('vc-conv-scroll');
+        if (sc) { sc.innerHTML = _convHtml(activeId); sc.scrollTop = sc.scrollHeight; }
+        _vcRemoveRecOverlay();
+        _showToast('Voice note sent');
+        // Upload to backend in background
+        if (!_isDemo && api.patientUploadAudio) {
+          const consentId = await _vcEnsureConsent('upload_voice');
+          if (consentId) {
+            const form = new FormData();
+            form.append('file', blob, 'voice-note.webm');
+            form.append('consent_id', consentId);
+            form.append('patient_note', 'Voice note from virtual care');
+            try {
+              const upload = await api.patientUploadAudio(form);
+              if (upload && upload.id) window._vcPollUploadAnalysis(upload.id);
+            } catch (_e) {}
+          }
+        }
+      };
+      mr.start();
+      window._vcRecordStartTime = Date.now();
+      _vcShowRecOverlay('voice');
+    } catch (err) {
+      _showToast('Microphone access denied');
+      console.error('[virtualcare] voice record error', err);
+    }
+  };
+
+  // ── Video recording ──────────────────────────────────────────────────────
+  window._vcRecordVideo = async function() {
+    if (!activeId || !threads[activeId]) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const mr = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      window._vcMediaRecorder = mr;
+      window._vcMediaChunks = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) window._vcMediaChunks.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(window._vcMediaChunks, { type: 'video/webm' });
+        const durationSec = Math.round((Date.now() - window._vcRecordStartTime) / 1000);
+        const mm = String(Math.floor(durationSec / 60)).padStart(2, '0');
+        const ss = String(durationSec % 60).padStart(2, '0');
+        const t = threads[activeId];
+        const localId = 'video-' + Date.now();
+        const objectUrl = URL.createObjectURL(blob);
+        t.messages.push({ id: localId, sender: 'me', senderName: 'You', at: new Date().toISOString(), body: '', kind: 'video', duration: mm + ':' + ss, durationSec, objectUrl });
+        const sc = document.getElementById('vc-conv-scroll');
+        if (sc) { sc.innerHTML = _convHtml(activeId); sc.scrollTop = sc.scrollHeight; }
+        _vcRemoveRecOverlay();
+        _showToast('Video note sent');
+        // Upload to backend in background
+        if (!_isDemo && api.patientUploadVideo) {
+          const consentId = await _vcEnsureConsent('upload_video');
+          if (consentId) {
+            const form = new FormData();
+            form.append('file', blob, 'video-note.webm');
+            form.append('consent_id', consentId);
+            form.append('patient_note', 'Video note from virtual care');
+            try {
+              const upload = await api.patientUploadVideo(form);
+              if (upload && upload.id) window._vcPollUploadAnalysis(upload.id);
+            } catch (_e) {}
+          }
+        }
+      };
+      mr.start();
+      window._vcRecordStartTime = Date.now();
+      _vcShowRecOverlay('video', stream);
+    } catch (err) {
+      _showToast('Camera access denied');
+      console.error('[virtualcare] video record error', err);
+    }
+  };
+
+  window._vcStopRecording = function() {
+    if (window._vcMediaRecorder && window._vcMediaRecorder.state !== 'inactive') {
+      window._vcMediaRecorder.stop();
+    }
+    clearInterval(window._vcRecordTimer);
+  };
+
+  function _vcShowRecOverlay(mode, stream) {
+    const existing = document.getElementById('vc-rec-overlay');
+    if (existing) existing.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'vc-rec-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:250;background:rgba(0,0,0,.85);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;gap:16px;';
+    const isVideo = mode === 'video';
+    overlay.innerHTML = `
+      <div style="font-size:14px;font-weight:600;color:#fff">Recording ${isVideo ? 'video' : 'voice'} note</div>
+      ${isVideo && stream ? '<video id="vc-rec-preview" autoplay muted playsinline style="width:280px;height:210px;object-fit:cover;border-radius:12px;background:#111"></video>' : ''}
+      <div style="display:flex;align-items:center;gap:8px">
+        <span id="vc-rec-dot" style="width:10px;height:10px;border-radius:50%;background:#ef4444;animation:vc-rec-pulse 1s infinite"></span>
+        <span id="vc-rec-timer" style="font-size:18px;font-weight:700;color:#fff;font-family:monospace">00:00</span>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button onclick="window._vcStopRecording && window._vcStopRecording()" style="padding:10px 24px;border-radius:99px;background:#dc2626;color:#fff;font-weight:600;border:0;cursor:pointer;font-size:14px">Stop recording</button>
+        <button onclick="window._vcCancelRecording && window._vcCancelRecording()" style="padding:10px 20px;border-radius:99px;background:rgba(255,255,255,.15);color:#fff;font-weight:600;border:0;cursor:pointer;font-size:14px">Cancel</button>
+      </div>`;
+    document.body.appendChild(overlay);
+    if (isVideo && stream) {
+      const preview = document.getElementById('vc-rec-preview');
+      if (preview) preview.srcObject = stream;
+    }
+    let sec = 0;
+    window._vcRecordTimer = setInterval(() => {
+      sec++;
+      const el = document.getElementById('vc-rec-timer');
+      if (el) el.textContent = String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0');
+    }, 1000);
+  }
+
+  window._vcCancelRecording = function() {
+    if (window._vcMediaRecorder && window._vcMediaRecorder.state !== 'inactive') {
+      window._vcMediaRecorder.stop();
+      window._vcMediaChunks = [];
+    }
+    clearInterval(window._vcRecordTimer);
+    _vcRemoveRecOverlay();
+  };
+
+  function _vcRemoveRecOverlay() {
+    const o = document.getElementById('vc-rec-overlay');
+    if (o) o.remove();
+  }
+
+  // ── AI analysis polling ──────────────────────────────────────────────────
+  window._vcPollUploadAnalysis = function(uploadId) {
+    if (!uploadId || !activeId || !threads[activeId]) return;
+    let attempts = 0;
+    const maxAttempts = 40; // ~10 minutes at 15s intervals
+    const timer = setInterval(async () => {
+      attempts++;
+      if (attempts > maxAttempts) { clearInterval(timer); return; }
+      try {
+        const upload = await api.patientGetUpload(uploadId);
+        if (!upload) return;
+        // If analysis is available, inject into thread
+        const analysis = upload.analysis_summary;
+        const transcript = upload.transcript;
+        if (analysis || transcript) {
+          clearInterval(timer);
+          const t = threads[activeId];
+          t.messages.push({
+            id: 'analysis-' + uploadId,
+            sender: 'them',
+            senderName: 'Synaps AI',
+            at: new Date().toISOString(),
+            body: '',
+            kind: 'analysis',
+            analysis: analysis || {},
+            transcript: transcript || null,
+            uploadType: upload.media_type,
+          });
+          const sc = document.getElementById('vc-conv-scroll');
+          if (sc) { sc.innerHTML = _convHtml(activeId); sc.scrollTop = sc.scrollHeight; }
+        }
+      } catch (_e) { /* silent */ }
+    }, 15000);
+  };
+
   window._vcCrisis = function(action) {
     if (action === 'call') {
       window.location.href = 'tel:988';
@@ -7145,30 +7461,50 @@ async function _pgPatientVirtualCareImpl() {
   };
   try { if (sessionStorage.getItem('ds_vc_crisis_dismiss')) { const c = document.getElementById('vc-crisis'); if (c) c.classList.add('hidden'); } } catch (_e) {}
 
+  // ── Jitsi video/voice calls ──────────────────────────────────────────────
   window._vcCall = function(mode) {
-    const overlay = document.getElementById('vc-call-overlay');
-    const status = document.getElementById('vc-call-status');
-    const timer = document.getElementById('vc-call-timer');
-    if (!overlay) return;
-    overlay.classList.add('show');
-    if (status) status.textContent = (mode === 'video' ? 'Video ' : 'Voice ') + 'calling\u2026 \u00b7 end-to-end encrypted';
-    let sec = 0;
-    if (timer) timer.textContent = '00:00';
-    clearInterval(window._vcCallTimer);
-    setTimeout(() => {
-      if (status) status.textContent = 'Connected · ' + (mode === 'video' ? 'video' : 'voice') + ' call · end-to-end encrypted';
-      window._vcCallTimer = setInterval(() => {
-        sec++;
-        const mm = String(Math.floor(sec / 60)).padStart(2, '0');
-        const ss = String(sec % 60).padStart(2, '0');
-        if (timer) timer.textContent = mm + ':' + ss;
-      }, 1000);
-    }, 1500);
+    const thread = threads[activeId];
+    const clinicianName = thread ? thread.name : 'Care team';
+    const pid = currentUser?.patient_id || currentUser?.id || 'patient';
+    const room = 'ds-' + pid + '-' + activeId + '-' + Date.now();
+    const jitsiUrl = 'https://meet.jit.si/' + encodeURIComponent(room)
+      + '#config.prejoinPageEnabled=false'
+      + '&config.startWithVideoMuted=' + (mode === 'voice' ? 'true' : 'false')
+      + '&config.startWithAudioMuted=false'
+      + '&config.disableDeepLinking=true'
+      + '&userInfo.displayName=' + encodeURIComponent(currentUser?.display_name || currentUser?.name || 'Patient');
+
+    const existing = document.getElementById('vc-jitsi-modal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'vc-jitsi-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.75);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;';
+    modal.innerHTML = `
+      <div style="position:relative;width:100%;max-width:900px;height:70vh;background:#000;border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+        <iframe id="vc-jitsi-frame" src="${jitsiUrl}" allow="camera; microphone; fullscreen; display-capture" style="width:100%;height:100%;border:0"></iframe>
+        <div style="position:absolute;bottom:16px;left:0;right:0;display:flex;justify-content:center;gap:12px;z-index:10">
+          <button onclick="window._vcHangup && window._vcHangup()" style="padding:10px 20px;border-radius:99px;background:#dc2626;color:#fff;font-weight:600;border:0;cursor:pointer;font-size:14px;display:flex;align-items:center;gap:6px">
+            <svg width="14" height="14"><use href="#i-pulse"/></svg>End call
+          </button>
+        </div>
+        <div style="position:absolute;top:12px;left:12px;z-index:10;background:rgba(0,0,0,.5);padding:6px 12px;border-radius:99px;color:#fff;font-size:12px">
+          ${mode === 'video' ? 'Video' : 'Voice'} call &middot; ${esc(clinicianName)}
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    window._vcCallStartTime = Date.now();
   };
   window._vcHangup = function() {
-    const overlay = document.getElementById('vc-call-overlay');
-    if (overlay) overlay.classList.remove('show');
-    clearInterval(window._vcCallTimer);
+    const modal = document.getElementById('vc-jitsi-modal');
+    if (modal) modal.remove();
+    const duration = window._vcCallStartTime ? Math.round((Date.now() - window._vcCallStartTime) / 1000) : 0;
+    if (duration > 0) {
+      const mm = String(Math.floor(duration / 60)).padStart(2, '0');
+      const ss = String(duration % 60).padStart(2, '0');
+      _showToast('Call ended · ' + mm + ':' + ss);
+    }
+    window._vcCallStartTime = null;
   };
 
   // Initial scroll to bottom of conversation.

@@ -907,6 +907,17 @@ export const api = {
       body: JSON.stringify({ action, reason }),
     }),
 
+  // ── Patient media uploads ─────────────────────────────────────────────────
+  patientUploadAudio: (formData) =>
+    apiFetch('/api/v1/media/patient/upload/audio', { method: 'POST', body: formData }),
+  patientUploadVideo: (formData) =>
+    apiFetch('/api/v1/media/patient/upload/video', { method: 'POST', body: formData }),
+  patientListUploads: () => apiFetch('/api/v1/media/patient/uploads'),
+  patientGetUpload: (uploadId) => apiFetch(`/api/v1/media/patient/uploads/${encodeURIComponent(uploadId)}`),
+  recordMediaConsent: (data) =>
+    apiFetch('/api/v1/media/consent', { method: 'POST', body: JSON.stringify(data) }),
+  getMediaConsents: (patientId) => apiFetch(`/api/v1/media/consent/${encodeURIComponent(patientId)}`),
+
   // ── Clinician notes ───────────────────────────────────────────────────────
   createClinicianNote: (data) =>
     apiFetch('/api/v1/media/clinician/note/text', { method: 'POST', body: JSON.stringify(data) }),

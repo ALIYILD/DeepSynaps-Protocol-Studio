@@ -15874,6 +15874,18 @@ body.light-theme .ch-modal { background:#fff; }
 .vc-reply-act { width:36px; height:28px; border-radius:6px; font-size:.85rem; cursor:pointer; border:1px solid var(--border); background:rgba(255,255,255,.04); color:var(--text-secondary); transition:background .12s; }
 .vc-reply-act:hover { background:rgba(255,255,255,.1); }
 
+/* ── Recording overlay ── */
+#vc-rec-overlay { backdrop-filter:blur(4px); }
+#vc-rec-overlay audio, #vc-rec-overlay video { outline:none; }
+
+/* ── Jitsi call modal ── */
+#vc-jitsi-modal { backdrop-filter:blur(8px); }
+#vc-jitsi-modal iframe { border:0; }
+
+/* ── Voice/video bubbles with real media ── */
+.vc-bubble video { max-width:100%; border-radius:8px; display:block; }
+.vc-bubble audio { border-radius:99px; }
+
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .vc-split { grid-template-columns:1fr; height:auto; }
