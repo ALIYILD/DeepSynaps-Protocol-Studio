@@ -382,6 +382,49 @@ const VC_DATA = {
       transcription:'Checking behaviour has gone from about fifteen times a day down to ten. Work stress seems to be maintaining it. Homework compliance has been good. No new side effects.',
       aiSummary:'Checking: ~15→10x/day. Work stress as maintaining factor. Good homework compliance. No new adverse events.' },
   ],
+  // ── Past analysis sessions (seed data) ──
+  analysisSessions: [
+    { id:'as1', patientId:'p001', patientName:'Emma Larson', initials:'EL', condition:'TRD', modality:'TMS',
+      sessionType:'video', callRef:'vv2', date:'2026-04-12T10:30:00Z', durationMin:20,
+      voice: { avgStress:58, avgEnergy:42, dominantSentiment:'negative', speechPaceAvg:135, moodTags:['tense','withdrawn'],
+               segments:8, aiInsight:'Patient showed elevated stress during discussion of side effects. Speech pace slowed significantly toward end.' },
+      video: { avgEngagement:52, dominantExpression:'anxious', avgEyeContact:48, avgPosture:65, attentionFlags:['low_engagement','looking_away'],
+               segments:8, aiInsight:'Patient exhibited reduced eye contact when discussing treatment concerns. Posture shifted to more guarded positioning mid-session.' },
+      flags:[{level:'amber',text:'Elevated stress detected'},{level:'amber',text:'Reduced eye contact'}],
+      recommendation:'Patient showed signs of treatment anxiety. Consider addressing side-effect concerns directly and exploring coping strategies.' },
+    { id:'as2', patientId:'p002', patientName:'James Okafor', initials:'JO', condition:'GAD', modality:'NF',
+      sessionType:'voice', callRef:'vc2', date:'2026-04-11T14:00:00Z', durationMin:15,
+      voice: { avgStress:28, avgEnergy:71, dominantSentiment:'positive', speechPaceAvg:148, moodTags:['calm','engaged','hopeful'],
+               segments:6, aiInsight:'Patient demonstrated consistently positive affect. Energy levels high, stress well-managed throughout.' },
+      video: { avgEngagement:0, dominantExpression:'n/a', avgEyeContact:0, avgPosture:0, attentionFlags:[],
+               segments:0, aiInsight:'Voice-only call — no video analysis available.' },
+      flags:[{level:'green',text:'No concerning patterns'}],
+      recommendation:'Session analysis within normal parameters. Patient appeared engaged and comfortable. Positive treatment trajectory.' },
+    { id:'as3', patientId:'p004', patientName:'David Chen', initials:'DC', condition:'OCD', modality:'TMS',
+      sessionType:'video', callRef:'vv2', date:'2026-04-11T18:00:00Z', durationMin:25,
+      voice: { avgStress:35, avgEnergy:68, dominantSentiment:'neutral', speechPaceAvg:142, moodTags:['engaged','cooperative','reflective'],
+               segments:10, aiInsight:'Patient maintained neutral-to-positive tone throughout. Good speech rhythm and engagement.' },
+      video: { avgEngagement:78, dominantExpression:'neutral', avgEyeContact:82, avgPosture:85, attentionFlags:[],
+               segments:10, aiInsight:'Strong engagement throughout. Good eye contact and relaxed posture. No attention concerns.' },
+      flags:[{level:'green',text:'No concerning patterns'}],
+      recommendation:'Session analysis within normal parameters. Patient appeared engaged and comfortable.' },
+    { id:'as4', patientId:'p001', patientName:'Emma Larson', initials:'EL', condition:'TRD', modality:'TMS',
+      sessionType:'video', callRef:'vv1', date:'2026-04-10T14:00:00Z', durationMin:30,
+      voice: { avgStress:72, avgEnergy:38, dominantSentiment:'distressed', speechPaceAvg:108, moodTags:['tense','withdrawn'],
+               segments:12, aiInsight:'Patient displayed elevated distress throughout. Low energy and slowed speech suggest fatigue or emotional withdrawal.' },
+      video: { avgEngagement:34, dominantExpression:'sad', avgEyeContact:32, avgPosture:55, attentionFlags:['low_engagement','looking_away','fidgeting'],
+               segments:12, aiInsight:'Concerning engagement levels. Patient avoided eye contact and displayed restless movement patterns.' },
+      flags:[{level:'red',text:'High stress detected'},{level:'red',text:'Distressed sentiment observed'},{level:'amber',text:'Low engagement periods'}],
+      recommendation:'Patient showed signs of elevated stress and emotional distress. Consider addressing comfort levels and exploring therapeutic coping strategies.' },
+    { id:'as5', patientId:'p003', patientName:'Ana Reyes', initials:'AR', condition:'PTSD', modality:'tDCS',
+      sessionType:'voice', callRef:'vc3', date:'2026-04-09T11:00:00Z', durationMin:20,
+      voice: { avgStress:45, avgEnergy:55, dominantSentiment:'neutral', speechPaceAvg:130, moodTags:['reflective','hopeful'],
+               segments:8, aiInsight:'Patient was reflective, moderate stress levels consistent with PTSD discussion. Energy stable.' },
+      video: { avgEngagement:0, dominantExpression:'n/a', avgEyeContact:0, avgPosture:0, attentionFlags:[],
+               segments:0, aiInsight:'Voice-only call — no video analysis available.' },
+      flags:[{level:'green',text:'No concerning patterns'}],
+      recommendation:'Session analysis within normal parameters for a PTSD patient. Moderate stress is expected during therapeutic conversations.' },
+  ],
   clinicianNotes: [
     { id:'cn1', patientId:'p001', patientName:'Emma Larson',  initials:'EL', condition:'TRD', modality:'TMS',
       type:'voice', recordedAt:'2026-04-11T17:00:00Z', subject:'Session 9 — Clinical observation',
@@ -460,6 +503,7 @@ let _vc = {
   latestVideo: null,
   analysisSummary: null,
   analysisBaselines: { stress: 30, energy: 65, engagement: 70, eyeContact: 75, posture: 80 },
+  selectedAnalysis: null,
 };
 
 function _vcInitials(name = '') {
@@ -1660,6 +1704,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
     { id:'voice-calls',   label:'Voice Calls',    count:VC_DATA.voiceCalls.filter(v=>v.status==='scheduled').length },
     { id:'shared-media',  label:'Shared Media',   count:unreviewed,    attn:unreviewed>0 },
     { id:'ai-notes',      label:'AI Notes',       count:pendingNotes,  attn:pendingNotes>0, ai:true },
+    { id:'analysis',      label:'Analysis',       count:VC_DATA.analysisSessions.length, ai:true },
   ];
 
   const tabBar = () => TABS.map(t => `
@@ -1767,7 +1812,9 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
     </div>`;
 
   // ── Video Visits tab ─────────────────────────────────────────────────
-  const videoVisitsTab = () => `
+  const videoVisitsTab = () => {
+    const _findAnalysis = patientId => VC_DATA.analysisSessions.find(a => a.patientId === patientId && a.sessionType === 'video');
+    return `
     <div class="vc-list-view">
       <div class="vc-visit-top-btns">
         <button class="vc-act-primary" onclick="window._vcScheduleNew('video')">+ Schedule Video Visit</button>
@@ -1775,7 +1822,9 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
       <div class="vc-list-header">
         <span>Patient</span><span>Purpose</span><span>Scheduled</span><span>Duration</span><span>Status</span><span>Actions</span>
       </div>
-      ${VC_DATA.videoVisits.map(v => `
+      ${VC_DATA.videoVisits.map(v => {
+        const an = _findAnalysis(v.patientId);
+        return `
         <div class="vc-list-row">
           <div class="vc-list-pt">
             <div class="vc-avatar-sm">${_e(v.initials)}</div>
@@ -1787,11 +1836,15 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
           <div class="vc-list-reason">${_e(v.purpose)}</div>
           <div class="vc-list-time">${_fmtTime(v.scheduledAt)}</div>
           <div class="vc-list-dur">${v.duration} min</div>
-          <div>${_statusBadge(v.status)}</div>
+          <div>
+            ${_statusBadge(v.status)}
+            ${an ? '<div style="margin-top:4px"><span class="vc-analysis-badge" style="background:rgba(155,127,255,0.1);color:#b29cff;border:1px solid rgba(155,127,255,0.25);cursor:pointer" onclick="event.stopPropagation();window._vcTab(\'analysis\');window._vcSelectAnalysis(\'' + an.id + '\')">\uD83D\uDCCA <span class="vc-pill vc-pill--' + an.voice.dominantSentiment + '" style="font-size:8px;padding:0 4px">' + _e(an.voice.dominantSentiment) + '</span></span></div>' : ''}
+          </div>
           <div class="vc-list-acts">
             ${v.status==='scheduled' ? `<button class="vc-act-primary" onclick="window._vcJoinVisit('${v.id}','video')">\uD83D\uDCF9 Join</button>` : ''}
             ${v.status==='completed' ? `<button class="vc-act-btn" onclick="window._vcCaptureNote('${v.patientId}','${_e(v.patientName)}')">Write Note</button>` : ''}
             ${v.status==='missed' ? `<button class="vc-act-btn vc-act-amber" onclick="window._vcScheduleNew('video')">Reschedule</button>` : ''}
+            ${an ? `<button class="vc-act-btn" onclick="window._vcTab('analysis');window._vcSelectAnalysis('${an.id}')">\uD83D\uDCCA Analysis</button>` : ''}
             <div class="vc-act-more" onclick="event.stopPropagation();this.nextElementSibling.classList.toggle('vc-drop-open')">\u22EF</div>
             <div class="vc-act-dropdown">
               <div onclick="window.openPatient('${v.patientId}');window._nav('patient-profile')">Open Patient</div>
@@ -1802,11 +1855,14 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
           </div>
         </div>
         ${v.status==='missed' ? _actionBar(v.patientId, v.patientName, v.purpose) : ''}
-      `).join('')}
+      `}).join('')}
     </div>`;
+  };
 
   // ── Voice Calls tab ──────────────────────────────────────────────────
-  const voiceCallsTab = () => `
+  const voiceCallsTab = () => {
+    const _findAnalysis = patientId => VC_DATA.analysisSessions.find(a => a.patientId === patientId && a.sessionType === 'voice');
+    return `
     <div class="vc-list-view">
       <div class="vc-visit-top-btns">
         <button class="vc-act-primary" onclick="window._vcScheduleNew('voice')">+ Schedule Voice Call</button>
@@ -1814,7 +1870,9 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
       <div class="vc-list-header">
         <span>Patient</span><span>Purpose</span><span>Scheduled</span><span>Duration</span><span>Status</span><span>Actions</span>
       </div>
-      ${VC_DATA.voiceCalls.map(v => `
+      ${VC_DATA.voiceCalls.map(v => {
+        const an = _findAnalysis(v.patientId);
+        return `
         <div class="vc-list-row">
           <div class="vc-list-pt">
             <div class="vc-avatar-sm">${_e(v.initials)}</div>
@@ -1826,10 +1884,14 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
           <div class="vc-list-reason">${_e(v.purpose)}</div>
           <div class="vc-list-time">${_fmtTime(v.scheduledAt)}</div>
           <div class="vc-list-dur">${v.duration} min</div>
-          <div>${_statusBadge(v.status)}</div>
+          <div>
+            ${_statusBadge(v.status)}
+            ${an ? '<div style="margin-top:4px"><span class="vc-analysis-badge" style="background:rgba(155,127,255,0.1);color:#b29cff;border:1px solid rgba(155,127,255,0.25);cursor:pointer" onclick="event.stopPropagation();window._vcTab(\'analysis\');window._vcSelectAnalysis(\'' + an.id + '\')">\uD83C\uDFA4 <span class="vc-pill vc-pill--' + an.voice.dominantSentiment + '" style="font-size:8px;padding:0 4px">' + _e(an.voice.dominantSentiment) + '</span></span></div>' : ''}
+          </div>
           <div class="vc-list-acts">
             ${v.status==='scheduled' ? `<button class="vc-act-primary" onclick="window._vcJoinVisit('${v.id}','voice')">\uD83D\uDCDE Call</button>` : ''}
             ${v.status==='completed' || v.status==='follow-up-needed' ? `<button class="vc-act-btn" onclick="window._vcCaptureNote('${v.patientId}','${_e(v.patientName)}')">Write Note</button>` : ''}
+            ${an ? `<button class="vc-act-btn" onclick="window._vcTab('analysis');window._vcSelectAnalysis('${an.id}')">\uD83C\uDFA4 Analysis</button>` : ''}
             <div class="vc-act-more" onclick="event.stopPropagation();this.nextElementSibling.classList.toggle('vc-drop-open')">\u22EF</div>
             <div class="vc-act-dropdown">
               <div onclick="window.openPatient('${v.patientId}');window._nav('patient-profile')">Open Patient</div>
@@ -1839,8 +1901,9 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
           </div>
         </div>
         ${v.status==='follow-up-needed' ? _actionBar(v.patientId, v.patientName, v.purpose) : ''}
-      `).join('')}
+      `}).join('')}
     </div>`;
+  };
 
   // ── Shared Media tab ─────────────────────────────────────────────────
   const sharedMediaTab = () => {
@@ -2023,6 +2086,125 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
       </div>`;
   };
 
+  // ── Analysis tab ──────────────────────────────────────────────────────
+  const analysisTab = () => {
+    const sessions = VC_DATA.analysisSessions;
+    const selId = _vc.selectedAnalysis;
+    const sel = selId ? sessions.find(s => s.id === selId) : null;
+
+    // Overview stats
+    const totalSessions = sessions.length;
+    const avgStressAll = totalSessions ? Math.round(sessions.reduce((s, x) => s + x.voice.avgStress, 0) / totalSessions) : 0;
+    const avgEngAll = totalSessions ? Math.round(sessions.filter(s => s.video.avgEngagement > 0).reduce((s, x) => s + x.video.avgEngagement, 0) / (sessions.filter(s => s.video.avgEngagement > 0).length || 1)) : 0;
+    const flaggedCount = sessions.filter(s => s.flags.some(f => f.level === 'red' || f.level === 'amber')).length;
+
+    const detailPanel = sel => {
+      if (!sel) return '<div class="vc-empty-state">Select an analysis session to view details</div>';
+      const isVideo = sel.sessionType === 'video';
+      const v = sel.voice;
+      const vid = sel.video;
+      const stressColor = _vcGaugeColor(v.avgStress, false);
+      const energyColor = _vcGaugeColor(v.avgEnergy, true);
+      const engColor = isVideo ? _vcGaugeColor(vid.avgEngagement, true) : '#555';
+      const eyeColor = isVideo ? _vcGaugeColor(vid.avgEyeContact, true) : '#555';
+      const postColor = isVideo ? _vcGaugeColor(vid.avgPosture, true) : '#555';
+      return `
+        <div style="padding:16px;overflow-y:auto;flex:1">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+            <div class="vc-avatar">${_e(sel.initials)}</div>
+            <div>
+              <div style="font-weight:700;font-size:15px">${_e(sel.patientName)}</div>
+              <div style="font-size:11px;color:var(--text-tertiary)">${_e(sel.condition)} \u00B7 ${_e(sel.modality)} \u00B7 ${sel.sessionType === 'video' ? '\uD83D\uDCF9 Video' : '\uD83D\uDCDE Voice'} \u00B7 ${sel.durationMin}min \u00B7 ${_fmtTime(sel.date)}</div>
+            </div>
+          </div>
+
+          <div class="vc-decision-card" style="margin-top:0;margin-bottom:14px">
+            <div class="vc-decision-title">\uD83C\uDFA4 Voice Analysis</div>
+            <div class="vc-decision-grid">
+              <div class="vc-decision-stat"><div class="vc-decision-stat-val" style="color:${stressColor}">${v.avgStress}</div><div class="vc-decision-stat-lbl">Avg Stress</div></div>
+              <div class="vc-decision-stat"><div class="vc-decision-stat-val" style="color:${energyColor}">${v.avgEnergy}</div><div class="vc-decision-stat-lbl">Avg Energy</div></div>
+              <div class="vc-decision-stat"><div class="vc-decision-stat-val"><span class="vc-pill vc-pill--${v.dominantSentiment}" style="font-size:11px">${_e(v.dominantSentiment)}</span></div><div class="vc-decision-stat-lbl">Sentiment</div></div>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+              <span style="font-size:10px;color:var(--text-tertiary)">Pace: ${v.speechPaceAvg} wpm</span>
+              <span style="font-size:10px;color:var(--text-tertiary)">\u00B7 ${v.segments} segments</span>
+            </div>
+            <div style="margin-bottom:6px">${v.moodTags.map(t => '<span class="vc-pill vc-pill--tag">' + _e(t) + '</span>').join(' ')}</div>
+            <div class="vc-insight-box" style="margin-top:8px">${_e(v.aiInsight)}</div>
+          </div>
+
+          ${isVideo ? `
+          <div class="vc-decision-card" style="margin-top:0;margin-bottom:14px">
+            <div class="vc-decision-title">\uD83D\uDCF9 Video Analysis</div>
+            <div class="vc-decision-grid">
+              <div class="vc-decision-stat"><div class="vc-decision-stat-val" style="color:${engColor}">${vid.avgEngagement}</div><div class="vc-decision-stat-lbl">Engagement</div></div>
+              <div class="vc-decision-stat"><div class="vc-decision-stat-val"><span class="vc-pill vc-pill--${vid.dominantExpression}" style="font-size:11px">${(_EXPRESSION_EMOJI[vid.dominantExpression] || '')} ${_e(vid.dominantExpression)}</span></div><div class="vc-decision-stat-lbl">Expression</div></div>
+              <div class="vc-decision-stat"><div class="vc-decision-stat-val" style="color:${eyeColor}">${vid.avgEyeContact}%</div><div class="vc-decision-stat-lbl">Eye Contact</div></div>
+            </div>
+            <div class="vc-decision-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:8px">
+              <div class="vc-decision-stat"><div class="vc-decision-stat-val" style="color:${postColor}">${vid.avgPosture}</div><div class="vc-decision-stat-lbl">Posture Score</div></div>
+              <div class="vc-decision-stat"><div class="vc-decision-stat-val">${vid.segments}</div><div class="vc-decision-stat-lbl">Segments</div></div>
+            </div>
+            ${vid.attentionFlags.length ? '<div style="margin-bottom:8px">' + vid.attentionFlags.map(f => '<span class="vc-pill vc-pill--flag">\u26A0 ' + _e(f.replace(/_/g, ' ')) + '</span>').join(' ') + '</div>' : ''}
+            <div class="vc-insight-box" style="margin-top:8px">${_e(vid.aiInsight)}</div>
+          </div>` : `
+          <div class="vc-decision-card" style="margin-top:0;margin-bottom:14px;opacity:0.5">
+            <div class="vc-decision-title">\uD83D\uDCF9 Video Analysis</div>
+            <div style="font-size:12px;color:var(--text-tertiary);padding:12px 0">Voice-only call \u2014 no video analysis data available</div>
+          </div>`}
+
+          <div class="vc-decision-card" style="margin-top:0">
+            <div class="vc-decision-title">\uD83D\uDCCB Clinical Decision Support</div>
+            <div class="vc-decision-alerts" style="margin-bottom:10px">
+              ${sel.flags.map(f => '<span class="vc-decision-alert vc-decision-alert--' + f.level + '">' + (f.level === 'red' ? '\uD83D\uDD34' : f.level === 'amber' ? '\uD83D\uDFE1' : '\u2705') + ' ' + _e(f.text) + '</span>').join('')}
+            </div>
+            <div class="vc-decision-reco"><strong>AI Recommendation:</strong> ${_e(sel.recommendation)}</div>
+          </div>
+        </div>`;
+    };
+
+    return `
+      <div class="vc-analysis-tab">
+        <div class="vc-analysis-overview">
+          <div class="vc-decision-grid" style="margin-bottom:16px">
+            <div class="vc-decision-stat"><div class="vc-decision-stat-val">${totalSessions}</div><div class="vc-decision-stat-lbl">Total Sessions</div></div>
+            <div class="vc-decision-stat"><div class="vc-decision-stat-val" style="color:${_vcGaugeColor(avgStressAll, false)}">${avgStressAll}</div><div class="vc-decision-stat-lbl">Avg Stress</div></div>
+            <div class="vc-decision-stat"><div class="vc-decision-stat-val" style="color:${_vcGaugeColor(avgEngAll, true)}">${avgEngAll}</div><div class="vc-decision-stat-lbl">Avg Engagement</div></div>
+          </div>
+          ${flaggedCount > 0 ? '<div style="margin-bottom:12px;padding:8px 12px;border-radius:8px;background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.2);font-size:11.5px;color:#ffb547">\u26A0 ' + flaggedCount + ' session(s) with clinical flags requiring attention</div>' : ''}
+        </div>
+
+        <div class="vc-analysis-split">
+          <div class="vc-analysis-list">
+            <div style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;padding:0 4px">\uD83D\uDCCA Analysis History</div>
+            ${sessions.map(s => `
+              <div class="vc-analysis-row${selId === s.id ? ' vc-analysis-row-active' : ''}${s.flags.some(f => f.level === 'red') ? ' vc-analysis-row-alert' : ''}" onclick="window._vcSelectAnalysis('${s.id}')">
+                <div class="vc-avatar-sm">${_e(s.initials)}</div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:6px">
+                    ${_e(s.patientName)}
+                    <span style="font-size:10px;opacity:0.6">${s.sessionType === 'video' ? '\uD83D\uDCF9' : '\uD83D\uDCDE'}</span>
+                  </div>
+                  <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">${_e(s.condition)} \u00B7 ${s.durationMin}min \u00B7 ${_ago(s.date)}</div>
+                  <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">
+                    <span class="vc-pill vc-pill--${s.voice.dominantSentiment}" style="font-size:9px;padding:1px 6px">${_e(s.voice.dominantSentiment)}</span>
+                    ${s.sessionType === 'video' ? '<span class="vc-pill vc-pill--' + s.video.dominantExpression + '" style="font-size:9px;padding:1px 6px">' + _e(s.video.dominantExpression) + '</span>' : ''}
+                    ${s.flags.filter(f => f.level !== 'green').map(f => '<span class="vc-decision-alert vc-decision-alert--' + f.level + '" style="font-size:8px;padding:1px 5px">' + _e(f.text) + '</span>').join('')}
+                  </div>
+                </div>
+                <div style="text-align:right;flex-shrink:0">
+                  <div style="font-size:11px;font-family:var(--font-mono,monospace);color:${_vcGaugeColor(s.voice.avgStress, false)}">${s.voice.avgStress}</div>
+                  <div style="font-size:8px;color:var(--text-tertiary)">stress</div>
+                </div>
+              </div>`).join('')}
+          </div>
+          <div class="vc-analysis-detail">
+            ${detailPanel(sel)}
+          </div>
+        </div>
+      </div>`;
+  };
+
   // ── Main render ───────────────────────────────────────────────────────
   const renderPage = () => {
     let tabContent = '';
@@ -2033,6 +2215,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
       case 'voice-calls':   tabContent = voiceCallsTab();   break;
       case 'shared-media':  tabContent = sharedMediaTab();  break;
       case 'ai-notes':      tabContent = aiNotesTab();      break;
+      case 'analysis':      tabContent = analysisTab();     break;
     }
 
     el.innerHTML = `
@@ -2063,7 +2246,8 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
   };
 
   // ── Window handlers ───────────────────────────────────────────────────
-  window._vcTab = t => { _vc.tab = t; _vc.selectedItem = null; renderPage(); };
+  window._vcTab = t => { _vc.tab = t; _vc.selectedItem = null; _vc.selectedAnalysis = null; renderPage(); };
+  window._vcSelectAnalysis = id => { _vc.selectedAnalysis = id; renderPage(); };
   window._vcSelectThread = async pid => {
     _vc.selectedPid = pid;
     renderPage();

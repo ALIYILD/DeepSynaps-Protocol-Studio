@@ -24560,6 +24560,21 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 .vc-decision-alert--green{background:rgba(74,222,128,0.12);color:#4ade80;border:1px solid rgba(74,222,128,0.3)}
 .vc-decision-reco{font-size:11.5px;color:var(--text-secondary,rgba(255,255,255,0.55));padding:8px 12px;border-left:3px solid rgba(155,127,255,0.4);background:rgba(155,127,255,0.04);border-radius:0 6px 6px 0;line-height:1.5}
 
+/* Analysis tab layout */
+.vc-analysis-tab{display:flex;flex-direction:column;gap:0;height:100%;min-height:500px}
+.vc-analysis-overview{padding:16px 16px 0;border-bottom:1px solid var(--border,rgba(255,255,255,0.06))}
+.vc-analysis-split{display:flex;flex:1;overflow:hidden}
+.vc-analysis-list{width:340px;min-width:280px;border-right:1px solid var(--border,rgba(255,255,255,0.06));overflow-y:auto;padding:12px}
+.vc-analysis-detail{flex:1;overflow-y:auto;display:flex;flex-direction:column}
+.vc-analysis-row{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;transition:background .15s;margin-bottom:4px;border:1px solid transparent}
+.vc-analysis-row:hover{background:rgba(255,255,255,0.03)}
+.vc-analysis-row-active{background:rgba(155,127,255,0.06);border-color:rgba(155,127,255,0.2)}
+.vc-analysis-row-alert{border-left:3px solid rgba(255,107,107,0.5)}
+.vc-analysis-mini-gauge{display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--text-tertiary,rgba(255,255,255,0.35))}
+.vc-analysis-mini-bar{width:40px;height:3px;border-radius:2px;background:rgba(255,255,255,0.07);overflow:hidden;display:inline-block}
+.vc-analysis-mini-fill{height:100%;border-radius:2px}
+.vc-analysis-badge{display:inline-flex;align-items:center;gap:4px;font-size:9px;padding:2px 6px;border-radius:6px;font-weight:600}
+
 /* CTA section */
 .mp-section--cta {}
 .mp-cta-card { display:flex; align-items:center; gap:20px; background:linear-gradient(135deg,rgba(93,217,196,.08) 0%,rgba(99,102,241,.08) 100%); border:1px solid rgba(93,217,196,.3); border-radius:12px; padding:24px 28px; flex-wrap:wrap; }
