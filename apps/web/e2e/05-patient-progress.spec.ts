@@ -44,14 +44,17 @@ test.describe('Patient Progress Page', () => {
       if (win._previewPatientPortal) win._previewPatientPortal();
       else if (win._bootPatient) win._bootPatient();
     });
-    await page.waitForTimeout(800);
+    // Wait for dashboard to fully render before navigating away
+    await page.waitForSelector('.pth-greeting, #patient-content h1', { state: 'visible', timeout: 10000 });
+    await page.waitForTimeout(600);
 
     // Navigate to progress page
     await page.evaluate(() => (window as any)._navPatient?.('pt-outcomes'));
-    await page.waitForTimeout(1500);
+    // Wait for progress page to render
+    await page.waitForSelector('#pgp-sa-grid', { state: 'attached', timeout: 10000 });
+    await page.waitForTimeout(400);
 
     const content = page.locator('#patient-content');
-    // patient-content may be opacity:0 during transitions; check it exists and has content
     await expect(content).toBeAttached({ timeout: 10000 });
 
     const text = await content.textContent() || '';
@@ -68,10 +71,20 @@ test.describe('Patient Progress Page', () => {
     expect(text).toContain('Monthly Reflection');
     expect(text).toContain('Daily Symptom Tracker');
 
-    // Survey card grid should exist
-    const saGrid = page.locator('#pgp-sa-grid');
-    await expect(saGrid).toBeAttached();
-    const saCards = saGrid.locator('.pgp-sa-card');
+    // Survey card grid should exist with 4 cards
+    const gridCount = await page.locator('#pgp-sa-grid').count();
+    console.log('GRID COUNT:', gridCount);
+    const cardInfo = await page.evaluate(() => {
+      const cards = document.querySelectorAll('#pgp-sa-grid > .pgp-sa-card');
+      return Array.from(cards).map((c, i) => ({
+        index: i,
+        classes: c.className,
+        dataSa: c.getAttribute('data-sa'),
+        html: c.outerHTML.substring(0, 200),
+      }));
+    });
+    console.log('CARD INFO:', JSON.stringify(cardInfo, null, 2));
+    const saCards = page.locator('#pgp-sa-grid > .pgp-sa-card');
     await expect(saCards).toHaveCount(4);
 
     // Quick log form inputs should still exist
