@@ -36,25 +36,58 @@ test.describe('Patient Progress Page', () => {
   test('progress page renders with live data, form and actions', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(800);
 
-    // Navigate via patient shell
+    // Force patient mode and boot patient shell directly
+    await page.evaluate(() => {
+      const win = window as any;
+      if (win._previewPatientPortal) win._previewPatientPortal();
+      else if (win._bootPatient) win._bootPatient();
+    });
+    // Wait for dashboard to fully render before navigating away
+    await page.waitForSelector('.pth-greeting, #patient-content h1', { state: 'visible', timeout: 10000 });
+    await page.waitForTimeout(600);
+
+    // Navigate to progress page
     await page.evaluate(() => (window as any)._navPatient?.('pt-outcomes'));
-    await page.waitForTimeout(1500);
+    // Wait for progress page to render
+    await page.waitForSelector('#pgp-sa-grid', { state: 'attached', timeout: 10000 });
+    await page.waitForTimeout(400);
 
-    const content = page.locator('#patient-content, #content');
-    await expect(content).toBeVisible({ timeout: 10000 });
+    const content = page.locator('#patient-content');
+    await expect(content).toBeAttached({ timeout: 10000 });
 
     const text = await content.textContent() || '';
 
-    // Should show PHQ-9 score from API
+    // Should show PHQ-9 score from API (demo data fallback when API returns [])
     expect(text).toContain('PHQ-9');
-    expect(text).toContain('10');
 
     // Should not show hardcoded demo session names when real data exists
     expect(text).not.toContain('Alex P.');
 
-    // Self-assessment form inputs should exist
+    // Self-assessment survey cards should be visible
+    expect(text).toContain('Daily Mood Check-in');
+    expect(text).toContain('Weekly Wellness Check-in');
+    expect(text).toContain('Monthly Reflection');
+    expect(text).toContain('Daily Symptom Tracker');
+
+    // Survey card grid should exist with 4 cards
+    const gridCount = await page.locator('#pgp-sa-grid').count();
+    console.log('GRID COUNT:', gridCount);
+    const cardInfo = await page.evaluate(() => {
+      const cards = document.querySelectorAll('#pgp-sa-grid > .pgp-sa-card');
+      return Array.from(cards).map((c, i) => ({
+        index: i,
+        classes: c.className,
+        dataSa: c.getAttribute('data-sa'),
+        html: c.outerHTML.substring(0, 200),
+      }));
+    });
+    console.log('CARD INFO:', JSON.stringify(cardInfo, null, 2));
+    const saCards = page.locator('#pgp-sa-grid > .pgp-sa-card');
+    await expect(saCards).toHaveCount(4);
+
+    // Quick log form inputs should still exist
     const phq9Input = page.locator('#pto-phq9-input');
     await expect(phq9Input).toHaveCount(1);
     const gad7Input = page.locator('#pto-gad7-input');

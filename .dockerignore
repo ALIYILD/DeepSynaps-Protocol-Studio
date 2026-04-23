@@ -12,19 +12,18 @@ apps/web/dist
 .env
 .env.*
 
-# Large/generated artifacts
-data/*.db
-data/*.db-journal
+# Large data directories (Docker only needs clinical-database CSVs)
+data/imports/neuromodulation-research/
+data/research/
+data/conditions/evidence-logs/
 data/evidence-matrix/*.xlsx
 data/snapshots/**/*.json
-data/
-!data/imports/
-!data/imports/clinical-database/
-!data/imports/clinical-database/*.csv
+data/*.db
+data/*.db-journal
 
-services/
-!services/evidence-pipeline/
-!services/evidence-pipeline/**/*.py
+# Evidence pipeline DB lives on persistent volume, not in image
+services/evidence-pipeline/evidence.db
+services/evidence-pipeline/__pycache__/
 
 # Dev & docs
 e2e/
