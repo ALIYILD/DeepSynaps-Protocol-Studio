@@ -47,12 +47,13 @@ _REFRESH_LOG = Path(tempfile.gettempdir()) / "deepsynaps_evidence_refresh.log"
 from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.logging_setup import get_logger
-from app.persistence.models import LiteraturePaper
+from app.persistence.models import AssessmentRecord, ClinicalSession, LiteraturePaper, OutcomeSeries, Patient, TreatmentCourse
 from app.services.neuromodulation_research import (
     build_research_summary,
     dataset_keys,
@@ -62,15 +63,39 @@ from app.services.neuromodulation_research import (
     list_datasets as list_research_datasets,
     list_evidence_graph as list_research_evidence_graph,
     list_exact_protocols as list_research_exact_protocols,
+    list_protocol_coverage as list_research_protocol_coverage,
     list_protocol_templates as list_research_protocol_templates,
     list_safety_signals as list_research_safety_signals,
     research_health as neuromodulation_research_health,
-    search_ai_ingestion as search_research_ai_ingestion,
+    search_ranked_papers as search_research_ranked_papers,
 )
 
 
 router = APIRouter(prefix="/api/v1/evidence", tags=["Evidence"])
 _logger = get_logger("evidence_router")
+_RESEARCH_EXPORT_SCHEDULES = [
+    {
+        "id": "sched-nightly-session-archive",
+        "name": "Nightly session archive",
+        "cron": "0 2 * * *",
+        "target": "research-archive/session-archive.csv",
+        "status": "active",
+    },
+    {
+        "id": "sched-weekly-cohort-snapshot",
+        "name": "Weekly cohort snapshot",
+        "cron": "0 3 * * 1",
+        "target": "research-archive/cohort-snapshot.json",
+        "status": "active",
+    },
+    {
+        "id": "sched-monthly-regulator-pack",
+        "name": "Monthly regulator pack",
+        "cron": "0 1 1 * *",
+        "target": "research-archive/regulator-pack.xlsx",
+        "status": "paused",
+    },
+]
 
 
 def _actor_id(actor: AuthenticatedActor) -> str:
@@ -82,6 +107,71 @@ def _audit(event: str, actor: AuthenticatedActor, **extra) -> None:
     Includes actor, query params, and result_count. No PHI in here."""
     payload = {"actor_id": _actor_id(actor), "event": event, **extra}
     _logger.info(f"evidence.{event}", extra=payload)
+
+
+def _scoped_patient_query(db: Session, actor: AuthenticatedActor):
+    q = db.query(Patient)
+    if actor.role != "admin":
+        q = q.filter(Patient.clinician_id == actor.actor_id)
+    return q
+
+
+def _research_export_summary(db: Session, actor: AuthenticatedActor, consent: str, fmt: str) -> dict:
+    patient_q = _scoped_patient_query(db, actor)
+    norm_consent = (consent or "research").strip().lower()
+    if norm_consent in {"research", "analytics", "marketing"}:
+        patient_q = patient_q.filter(Patient.consent_signed.is_(True))
+    patients = patient_q.all()
+    patient_ids = [p.id for p in patients]
+    if not patient_ids:
+        return {
+            "consent": consent,
+            "format": fmt,
+            "patients_eligible": 0,
+            "sessions": 0,
+            "assessments": 0,
+            "outcomes": 0,
+            "modality_condition_pairs": 0,
+        }
+
+    session_q = db.query(ClinicalSession).filter(ClinicalSession.patient_id.in_(patient_ids))
+    assessment_q = db.query(AssessmentRecord).filter(AssessmentRecord.patient_id.in_(patient_ids))
+    outcome_q = db.query(OutcomeSeries).filter(OutcomeSeries.patient_id.in_(patient_ids))
+    course_q = db.query(TreatmentCourse).filter(TreatmentCourse.patient_id.in_(patient_ids))
+    if actor.role != "admin":
+        session_q = session_q.filter(ClinicalSession.clinician_id == actor.actor_id)
+        assessment_q = assessment_q.filter(AssessmentRecord.clinician_id == actor.actor_id)
+        outcome_q = outcome_q.filter(OutcomeSeries.clinician_id == actor.actor_id)
+        course_q = course_q.filter(TreatmentCourse.clinician_id == actor.actor_id)
+
+    pairs = (
+        course_q.with_entities(
+            TreatmentCourse.condition_slug,
+            TreatmentCourse.modality_slug,
+        )
+        .distinct()
+        .count()
+    )
+    return {
+        "consent": consent,
+        "format": fmt,
+        "patients_eligible": len(patient_ids),
+        "sessions": session_q.count(),
+        "assessments": assessment_q.count(),
+        "outcomes": outcome_q.count(),
+        "modality_condition_pairs": pairs,
+    }
+
+
+def _find_patient_for_export(db: Session, actor: AuthenticatedActor, patient_query: str) -> Optional[Patient]:
+    term = (patient_query or "").strip()
+    if not term:
+        return None
+    q = _scoped_patient_query(db, actor)
+    patient = q.filter(Patient.id == term).first()
+    if patient is not None:
+        return patient
+    return q.filter(func.lower(Patient.email) == term.lower()).first()
 
 
 # ── DB handle ─────────────────────────────────────────────────────────────────
@@ -217,6 +307,19 @@ class ResearchPaperOut(BaseModel):
     open_access_flag: bool = False
     record_url: Optional[str] = None
     source_exports: list[str] = Field(default_factory=list)
+    research_summary: Optional[str] = None
+    abstract_status: Optional[str] = None
+    paper_confidence_score: int = 0
+    priority_score: int = 0
+    trial_match_count: int = 0
+    fda_match_count: int = 0
+    trial_signal_score: int = 0
+    fda_signal_score: int = 0
+    real_world_evidence_flag: bool = False
+    outcome_snippet_count: int = 0
+    trial_protocol_parameter_summary: Optional[str] = None
+    regulatory_clinical_signal: Optional[str] = None
+    ranking_mode: Optional[str] = None
 
 
 class ResearchTemplateOut(BaseModel):
@@ -286,12 +389,70 @@ class ResearchSummaryOut(BaseModel):
     recent_safety_signals: list[ResearchSafetySignalOut] = Field(default_factory=list)
 
 
+class ResearchProtocolCoverageRowOut(BaseModel):
+    id: str
+    condition: str
+    modality: str
+    coverage: int = 0
+    gap: str = ""
+    reviewed: str = ""
+    paper_count: int = 0
+    evidence_weight_sum: int = 0
+    citation_sum: int = 0
+    top_targets: str = ""
+    top_parameter_tags: str = ""
+    top_study_types: str = ""
+
+
+class ResearchProtocolCoverageOut(BaseModel):
+    rows: list[ResearchProtocolCoverageRowOut] = Field(default_factory=list)
+    generated_from: str = ""
+    total: int = 0
+
+
 class ResearchConditionOut(BaseModel):
     condition_slug: str
     condition_label: str
     research_paper_count: int = 0
     priority_modalities: list[str] = Field(default_factory=list)
     top_safety_signals: list[dict] = Field(default_factory=list)
+
+
+class ResearchExportSummaryOut(BaseModel):
+    consent: str
+    format: str
+    patients_eligible: int = 0
+    sessions: int = 0
+    assessments: int = 0
+    outcomes: int = 0
+    modality_condition_pairs: int = 0
+
+
+class ResearchExportScheduleOut(BaseModel):
+    id: str
+    name: str
+    cron: str
+    target: str
+    status: str
+
+
+class ResearchDatasetExportRequest(BaseModel):
+    consent: str = "research"
+    format: str = "CSV"
+    kind: str = "dataset"
+
+
+class ResearchIndividualExportRequest(BaseModel):
+    patient_query: str
+    format: str = "FHIR Bundle"
+
+
+class ResearchExportRequestOut(BaseModel):
+    export_id: str
+    kind: str
+    status: str
+    requested_at: str
+    summary: dict = Field(default_factory=dict)
 
 
 # ── Evidence score (mirrors services/evidence-pipeline/query.py) ──────────────
@@ -724,24 +885,38 @@ def search_neuromodulation_research_papers(
     q: Optional[str] = Query(None, description="Free-text search over title and AI-ingestion text."),
     modality: Optional[str] = Query(None),
     indication: Optional[str] = Query(None),
+    target: Optional[str] = Query(None),
     study_type: Optional[str] = Query(None),
     evidence_tier: Optional[str] = Query(None),
     year_min: Optional[int] = Query(None),
     year_max: Optional[int] = Query(None),
     open_access_only: bool = Query(False),
+    min_confidence: Optional[int] = Query(None, ge=0, le=100),
+    min_priority: Optional[int] = Query(None, ge=0, le=1000),
+    real_world_only: bool = Query(False),
+    with_trial_signal: bool = Query(False),
+    with_fda_signal: bool = Query(False),
+    ranking_mode: str = Query("best", pattern="^(best|clinical|regulatory|safety|recent)$"),
     limit: int = Query(20, ge=1, le=100),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> list[ResearchPaperOut]:
     require_minimum_role(actor, "clinician")
-    rows = search_research_ai_ingestion(
+    rows = search_research_ranked_papers(
         q=q,
         modality=modality,
         indication=indication,
+        target=target,
         study_type=study_type,
         evidence_tier=evidence_tier,
         year_min=year_min,
         year_max=year_max,
         open_access_only=open_access_only,
+        min_confidence=min_confidence,
+        min_priority=min_priority,
+        real_world_only=real_world_only,
+        with_trial_signal=with_trial_signal,
+        with_fda_signal=with_fda_signal,
+        ranking_mode=ranking_mode,
         limit=limit,
     )
     _audit(
@@ -750,14 +925,30 @@ def search_neuromodulation_research_papers(
         q=q,
         modality=modality,
         indication=indication,
+        target=target,
         study_type=study_type,
         evidence_tier=evidence_tier,
         year_min=year_min,
         year_max=year_max,
         open_access_only=open_access_only,
+        min_confidence=min_confidence,
+        min_priority=min_priority,
+        real_world_only=real_world_only,
+        with_trial_signal=with_trial_signal,
+        with_fda_signal=with_fda_signal,
+        ranking_mode=ranking_mode,
         result_count=len(rows),
     )
     return [ResearchPaperOut(**row) for row in rows]
+
+
+@router.get("/research/protocol-coverage", response_model=ResearchProtocolCoverageOut)
+def get_neuromodulation_protocol_coverage(
+    limit: int = Query(50, ge=1, le=200),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ResearchProtocolCoverageOut:
+    require_minimum_role(actor, "clinician")
+    return ResearchProtocolCoverageOut(**list_research_protocol_coverage(limit=limit))
 
 
 @router.get("/research/exact-protocols")
@@ -833,6 +1024,103 @@ def get_neuromodulation_research_summary(
 ) -> ResearchSummaryOut:
     require_minimum_role(actor, "clinician")
     return ResearchSummaryOut(**build_research_summary(indication=indication, modality=modality, limit=limit))
+
+
+@router.get("/research/exports/summary", response_model=ResearchExportSummaryOut)
+def get_research_export_summary(
+    consent: str = Query("research"),
+    format: str = Query("CSV"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ResearchExportSummaryOut:
+    require_minimum_role(actor, "clinician")
+    summary = _research_export_summary(db, actor, consent, format)
+    _audit("research.export.summary", actor, consent=consent, format=format, patients=summary["patients_eligible"])
+    return ResearchExportSummaryOut(**summary)
+
+
+@router.get("/research/exports/schedules", response_model=list[ResearchExportScheduleOut])
+def list_research_export_schedules(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[ResearchExportScheduleOut]:
+    require_minimum_role(actor, "clinician")
+    return [ResearchExportScheduleOut(**row) for row in _RESEARCH_EXPORT_SCHEDULES]
+
+
+@router.post("/research/exports/dataset", response_model=ResearchExportRequestOut, status_code=status.HTTP_202_ACCEPTED)
+def create_research_dataset_export(
+    body: ResearchDatasetExportRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ResearchExportRequestOut:
+    require_minimum_role(actor, "clinician")
+    summary = _research_export_summary(db, actor, body.consent, body.format)
+    export_id = str(uuid.uuid4())
+    requested_at = datetime.now(timezone.utc).isoformat()
+    _audit(
+        "research.export.dataset",
+        actor,
+        export_id=export_id,
+        consent=body.consent,
+        format=body.format,
+        kind=body.kind,
+        patients=summary["patients_eligible"],
+    )
+    return ResearchExportRequestOut(
+        export_id=export_id,
+        kind=body.kind,
+        status="queued",
+        requested_at=requested_at,
+        summary=summary,
+    )
+
+
+@router.post("/research/exports/bundle", response_model=ResearchExportRequestOut, status_code=status.HTTP_202_ACCEPTED)
+def create_research_bundle_export(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ResearchExportRequestOut:
+    require_minimum_role(actor, "clinician")
+    export_id = str(uuid.uuid4())
+    requested_at = datetime.now(timezone.utc).isoformat()
+    summary = {
+        "datasets": len(list_research_datasets()),
+        "bundle_root": str(dataset_path("master")),
+    }
+    _audit("research.export.bundle", actor, export_id=export_id, datasets=summary["datasets"])
+    return ResearchExportRequestOut(
+        export_id=export_id,
+        kind="research-bundle",
+        status="queued",
+        requested_at=requested_at,
+        summary=summary,
+    )
+
+
+@router.post("/research/exports/individual", response_model=ResearchExportRequestOut, status_code=status.HTTP_202_ACCEPTED)
+def create_research_individual_export(
+    body: ResearchIndividualExportRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ResearchExportRequestOut:
+    require_minimum_role(actor, "clinician")
+    patient = _find_patient_for_export(db, actor, body.patient_query)
+    if patient is None:
+        raise HTTPException(status_code=404, detail="Patient not found for export. Use patient ID or email.")
+    export_id = str(uuid.uuid4())
+    requested_at = datetime.now(timezone.utc).isoformat()
+    summary = {
+        "patient_id": patient.id,
+        "patient_name": f"{patient.first_name} {patient.last_name}".strip(),
+        "format": body.format,
+    }
+    _audit("research.export.individual", actor, export_id=export_id, patient_id=patient.id, format=body.format)
+    return ResearchExportRequestOut(
+        export_id=export_id,
+        kind="individual",
+        status="queued",
+        requested_at=requested_at,
+        summary=summary,
+    )
 
 
 @router.get("/indications", response_model=list[IndicationOut])

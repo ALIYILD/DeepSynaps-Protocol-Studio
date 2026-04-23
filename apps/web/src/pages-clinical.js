@@ -1815,6 +1815,7 @@ export async function pgPatients(setTopbar, navigate) {
   //    sets a demo_seed flag on PatientOut). A visible banner informs
   //    clinicians they're looking at sample data, not real records.
   const _demoPatientCount = items.filter(p => p.demo_seed || (p.notes || '').startsWith('[DEMO]')).length;
+  const _isDemoPatient = (p) => !!(p?.demo_seed || (p?.notes || '').startsWith('[DEMO]'));
 
   // ── Enrich patients with course data + attention signals ─────────────────
   const _coursesByPat = {};
@@ -2141,6 +2142,7 @@ export async function pgPatients(setTopbar, navigate) {
     const statusColor = { active: 'var(--green)', pending: 'var(--amber)', inactive: 'var(--text-tertiary)', completed: 'var(--blue)' }[p.status] || 'var(--text-tertiary)';
     const condTag  = p.primary_condition ? '<span class="tag" style="font-size:10.5px">' + p.primary_condition + '</span>' : '';
     const modTag   = p.primary_modality  ? '<span class="tag" style="font-size:10.5px">' + p.primary_modality  + '</span>' : '';
+    const demoTag  = _isDemoPatient(p) ? '<span class="tag" style="font-size:10.5px;color:var(--amber);border-color:rgba(245,158,11,0.35)">Demo patient</span>' : '';
     const ageSpan  = age ? ' <span class="pat-card-age">' + age + '</span>' : '';
     const statusLabel = { active: 'Active', pending: 'Pending', inactive: 'Inactive', completed: 'Completed', discharged: 'Discharged' }[p.status] || (p.status || '');
     const statusPill = statusLabel ? '<span class="pat-status-pill" style="color:' + statusColor + ';background:' + statusColor + '18;border:1px solid ' + statusColor + '44">' + statusLabel + '</span>' : '';
@@ -2156,7 +2158,7 @@ export async function pgPatients(setTopbar, navigate) {
       + '</div>'
       + '<div class="pat-card-main">'
       +   '<div class="pat-card-name">' + name + ageSpan + ' ' + statusPill + '</div>'
-      +   '<div class="pat-card-meta">' + condTag + modTag + ' ' + courseInfo + '</div>'
+      +   '<div class="pat-card-meta">' + demoTag + condTag + modTag + ' ' + courseInfo + '</div>'
       +   progressBar
       +   (att ? '<div style="margin-top:4px"><span class="pat-att-badge" style="color:' + att.color + ';border-color:' + att.color + '33;background:' + att.color + '0d">' + att.label + '</span></div>' : '')
       + '</div>'
@@ -2215,16 +2217,20 @@ export async function pgPatients(setTopbar, navigate) {
     const pendingAssess = p.pending_assessments != null ? p.pending_assessments : '—';
     const pendingDocs   = p.pending_documents   != null ? p.pending_documents   : '—';
     const recentNote    = p.recent_note || p.last_note || p.clinician_notes || '';
+    const demoBanner = _isDemoPatient(p)
+      ? '<div class="pat-rp-row" style="display:block;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:10px 12px;color:var(--amber);font-weight:600">Demo patient — sample record only. Exclude from live clinical decisions and exports.</div>'
+      : '';
     const pid = String(p.id).replace(/'/g, "\\'" );
     detailEl.style.display = '';
     detailEl.innerHTML = `
       <div class="pat-rp-header">
         <div class="pat-rp-avatar">${initials(name)}</div>
         <div>
-          <div class="pat-rp-name">${name}</div>
+          <div class="pat-rp-name">${name}${_isDemoPatient(p) ? ' <span style="font-size:10px;padding:3px 8px;border-radius:999px;background:rgba(245,158,11,0.12);color:var(--amber);border:1px solid rgba(245,158,11,0.3);vertical-align:middle">Demo patient</span>' : ''}</div>
           <div class="pat-rp-sub">${p.primary_condition || ''}${p.primary_modality ? ' \xB7 ' + p.primary_modality : ''}</div>
         </div>
       </div>
+      ${demoBanner}
       <div class="pat-rp-row"><span class="pat-rp-label">Status</span><span class="pat-rp-val">${p.status || '\u2014'}</span></div>
       <div class="pat-rp-row"><span class="pat-rp-label">Active Course</span><span class="pat-rp-val">${activeCourse?.name || (cs.activeCourses.length ? cs.activeCourses.length + ' course(s)' : '\u2014')}</span></div>
       <div class="pat-rp-row"><span class="pat-rp-label">Next Session</span><span class="pat-rp-val">${nextSess}</span></div>
@@ -2898,6 +2904,7 @@ export async function pgProfile(setTopbar, navigate) {
   } catch {}
 
   if (!pt) { el.innerHTML = `<div class="notice notice-warn">Could not load patient.</div>`; return; }
+  const isDemoPatient = !!(pt.demo_seed || (pt.notes || '').startsWith('[DEMO]'));
 
   const name = `${pt.first_name} ${pt.last_name}`;
   const done = sessions.filter(s => s.status === 'completed').length;
@@ -2914,10 +2921,11 @@ export async function pgProfile(setTopbar, navigate) {
     <div class="card-body" style="display:flex;align-items:flex-start;gap:16px;padding:20px">
       <div class="avatar" style="width:56px;height:56px;font-size:20px;flex-shrink:0;border-radius:var(--radius-lg)">${initials(name)}</div>
       <div style="flex:1">
-        <div style="font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--text-primary)">${name}</div>
+        <div style="font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--text-primary)">${name}${isDemoPatient ? ' <span style="font-family:inherit;font-size:10px;font-weight:700;padding:4px 8px;border-radius:999px;background:rgba(245,158,11,0.12);color:var(--amber);border:1px solid rgba(245,158,11,0.3);vertical-align:middle">Demo patient</span>' : ''}</div>
         <div style="font-size:12.5px;color:var(--text-secondary);margin-top:4px">
           ${pt.dob ? `DOB: ${pt.dob} · ` : ''}${pt.gender ? `${pt.gender} · ` : ''}${pt.primary_condition || 'No condition set'}
         </div>
+        ${isDemoPatient ? '<div style="font-size:11px;color:var(--amber);margin-top:8px">Sample record only. Do not use this patient for live treatment decisions, exports, or reporting.</div>' : ''}
         <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center">
           ${pt.primary_modality ? tag(pt.primary_modality) : ''}
           ${pt.primary_condition ? tag(pt.primary_condition) : ''}

@@ -21,10 +21,21 @@ function _sectionCard(title, sub, body, actions = '') {
   </div>`;
 }
 
+function _previewBanner(message) {
+  return `<div style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;margin-bottom:14px;background:linear-gradient(135deg,rgba(245,158,11,0.14),rgba(217,119,6,0.08));border:1px solid rgba(245,158,11,0.35);border-radius:12px">
+    <span style="font-size:15px;color:var(--amber)">⚠</span>
+    <div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--amber)">Preview Data</div>
+      <div style="font-size:11.5px;color:var(--text-secondary);margin-top:3px;line-height:1.45">${_esc(message)}</div>
+    </div>
+  </div>`;
+}
+
 // ── Tab: Quality Assurance ────────────────────────────────────────────────────
 async function _renderQA() {
   let coverage = null;
   try { coverage = await api.protocolCoverage?.(); } catch (_) { coverage = null; }
+  const usingPreview = !(Array.isArray(coverage?.rows) && coverage.rows.length > 0);
 
   const _rows = (Array.isArray(coverage?.rows) && coverage.rows.length > 0)
     ? coverage.rows
@@ -86,7 +97,7 @@ async function _renderQA() {
     `<div style="display:flex;flex-direction:column;gap:8px">${_gapList}</div>`
   );
 
-  return _coverageTable + _gapCard;
+  return (usingPreview ? _previewBanner('This QA section is using sample protocol-coverage rows because no live protocol coverage endpoint is connected on this screen yet.') : '') + _coverageTable + _gapCard;
 }
 
 // ── Tab: Longitudinal report ──────────────────────────────────────────────────
@@ -96,6 +107,7 @@ async function _renderLongitudinal() {
   const _from = window._researchFrom || '2026-01-01';
   const _to = window._researchTo || '2026-04-18';
   try { report = await api.longitudinalReport?.({ cohort: _cohort, from: _from, to: _to }); } catch (_) { report = null; }
+  const usingPreview = !(report && typeof report === 'object');
 
   const _series = report?.series || {
     'PHQ-9':  [18, 16, 15, 13, 11, 10, 9, 8, 7, 6],
@@ -172,18 +184,28 @@ async function _renderLongitudinal() {
     <div style="display:flex;flex-wrap:wrap;gap:14px;padding-left:${_mpad}px">${_legend}</div>`
   );
 
-  return _outcomes + _responderCard;
+  return (usingPreview ? _previewBanner('This longitudinal report is using fixed preview series because the live cohort-aggregation endpoint is not connected on this page yet.') : '') + _outcomes + _responderCard;
 }
 
 // ── Tab: Data export ──────────────────────────────────────────────────────────
 async function _renderDataExport() {
+  const _format = window._researchExportFormat || 'CSV';
+  const _consent = window._researchExportConsent || 'research';
+  let summary = null;
+  let schedules = null;
+  try { summary = await api.getResearchExportSummary?.({ consent: _consent, format: _format }); } catch (_) { summary = null; }
+  try { schedules = await api.listResearchExportSchedules?.(); } catch (_) { schedules = null; }
+  const usingPreview = !(summary && typeof summary === 'object' && Array.isArray(schedules));
+  const preview = usingPreview
+    ? _previewBanner('The export counts and schedules below are showing fallback rows because the live research export endpoints are unavailable.')
+    : '';
   const _individual = _sectionCard(
     'GDPR Article 20 · individual export',
     'Portable patient record · signed + encrypted',
     `<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end">
       <div>
-        <label style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;font-weight:600;display:block;margin-bottom:4px">Patient MRN</label>
-        <input id="_researchPtMrn" placeholder="MRN or email" style="width:100%;background:var(--bg-surface);border:1px solid var(--border);color:var(--text-primary);font-size:12px;padding:7px 10px;border-radius:6px"/>
+        <label style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;font-weight:600;display:block;margin-bottom:4px">Patient ID or email</label>
+        <input id="_researchPtMrn" placeholder="patient id or email" style="width:100%;background:var(--bg-surface);border:1px solid var(--border);color:var(--text-primary);font-size:12px;padding:7px 10px;border-radius:6px"/>
       </div>
       <div>
         <label style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;font-weight:600;display:block;margin-bottom:4px">Format</label>
@@ -194,9 +216,6 @@ async function _renderDataExport() {
       <button class="btn btn-primary btn-sm" onclick="window._researchExportIndividual?.()" style="font-size:11px;padding:7px 14px">Export & sign</button>
     </div>`
   );
-
-  const _format = window._researchExportFormat || 'CSV';
-  const _consent = window._researchExportConsent || 'research';
 
   const _dataset = _sectionCard(
     'Research dataset builder',
@@ -221,7 +240,12 @@ async function _renderDataExport() {
       <button class="btn btn-primary btn-sm" onclick="window._researchBuildDataset?.()" style="font-size:11px;padding:7px 14px">Build export</button>
     </div>
     <div style="display:flex;gap:18px;padding:14px 12px;margin-top:12px;background:var(--bg-surface);border:1px solid var(--border);border-radius:10px">
-      ${[['142','patients eligible'],['3,208','sessions'],['5,411','assessments'],['38','modalities × conditions']].map(([n,l]) => `<div>
+      ${[
+        [String(summary?.patients_eligible ?? 142), 'patients eligible'],
+        [String(summary?.sessions ?? '3,208'), 'sessions'],
+        [String(summary?.assessments ?? '5,411'), 'assessments'],
+        [String(summary?.modality_condition_pairs ?? 38), 'modalities × conditions'],
+      ].map(([n,l]) => `<div>
         <div style="font-size:18px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">${_esc(n)}</div>
         <div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;margin-top:2px">${_esc(l)}</div>
       </div>`).join('')}
@@ -232,22 +256,22 @@ async function _renderDataExport() {
     'Scheduled exports',
     'Cron-driven · delivered to regulator archive',
     `<div style="display:flex;flex-direction:column;gap:8px">
-      ${[
-        ['Nightly session archive', '0 2 * * *', 'CSV → s3://ds-reg-archive/', 'active'],
-        ['Weekly cohort snapshot',  '0 3 * * 1', 'BIDS → sftp.research.oxford', 'active'],
-        ['Monthly regulator pack',  '0 1 1 * *', 'FHIR + PDF → TÜV Sud',        'paused'],
-      ].map(([n,c,t,s]) => `<div style="display:grid;grid-template-columns:1.3fr 110px 1fr auto auto;gap:12px;align-items:center;padding:10px 12px;background:var(--bg-surface);border:1px solid var(--border);border-radius:10px">
-        <div style="font-size:12px;color:var(--text-primary);font-weight:600">${_esc(n)}</div>
-        <code style="font-size:10.5px;font-family:var(--dv2-font-mono,ui-monospace,monospace);color:var(--text-tertiary);background:rgba(255,255,255,0.04);padding:2px 6px;border-radius:4px">${_esc(c)}</code>
-        <div style="font-size:10.5px;color:var(--text-secondary)">${_esc(t)}</div>
-        <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:${s==='active'?'rgba(0,212,188,0.16)':'rgba(255,181,71,0.16)'};color:${s==='active'?'var(--teal)':'var(--amber)'};text-transform:uppercase;letter-spacing:.03em">${_esc(s)}</span>
+      ${(Array.isArray(schedules) && schedules.length ? schedules : [
+        { name: 'Nightly session archive', cron: '0 2 * * *', target: 'research-archive/session-archive.csv', status: 'active' },
+        { name: 'Weekly cohort snapshot', cron: '0 3 * * 1', target: 'research-archive/cohort-snapshot.json', status: 'active' },
+        { name: 'Monthly regulator pack', cron: '0 1 1 * *', target: 'research-archive/regulator-pack.xlsx', status: 'paused' },
+      ]).map(({ name, cron, target, status }) => `<div style="display:grid;grid-template-columns:1.3fr 110px 1fr auto auto;gap:12px;align-items:center;padding:10px 12px;background:var(--bg-surface);border:1px solid var(--border);border-radius:10px">
+        <div style="font-size:12px;color:var(--text-primary);font-weight:600">${_esc(name)}</div>
+        <code style="font-size:10.5px;font-family:var(--dv2-font-mono,ui-monospace,monospace);color:var(--text-tertiary);background:rgba(255,255,255,0.04);padding:2px 6px;border-radius:4px">${_esc(cron)}</code>
+        <div style="font-size:10.5px;color:var(--text-secondary)">${_esc(target)}</div>
+        <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:${status==='active'?'rgba(0,212,188,0.16)':'rgba(255,181,71,0.16)'};color:${status==='active'?'var(--teal)':'var(--amber)'};text-transform:uppercase;letter-spacing:.03em">${_esc(status)}</span>
         <button class="btn btn-ghost btn-sm" style="font-size:10px">Edit</button>
       </div>`).join('')}
     </div>
     <button class="btn btn-ghost btn-sm" style="margin-top:10px;font-size:10.5px">+ New scheduled export</button>`
   );
 
-  return _individual + _dataset + _schedule;
+  return preview + _individual + _dataset + _schedule;
 }
 
 // ── Tab: IRB manager ──────────────────────────────────────────────────────────
@@ -256,6 +280,8 @@ async function _renderIRB() {
   let irbAes = null;
   try { protocols = await api.listIrbProtocols?.(); } catch (_) { protocols = null; }
   try { irbAes = await api.irbAdverseEvents?.(); } catch (_) { irbAes = null; }
+  const usingProtocolPreview = !(Array.isArray(protocols?.items) && protocols.items.length > 0);
+  const usingAePreview = !(Array.isArray(irbAes?.items) && irbAes.items.length > 0);
 
   const _protocols = (Array.isArray(protocols?.items) && protocols.items.length > 0)
     ? protocols.items
@@ -391,7 +417,15 @@ async function _renderIRB() {
     </div>`
   );
 
-  return _form + _protosCard + _consentCard + _escalationCard + _cohortBuilder;
+  return [
+    usingProtocolPreview ? _previewBanner('IRB protocols are showing preview rows because the live IRB protocol list is empty or unavailable.') : '',
+    usingAePreview ? _previewBanner('IRB adverse-event escalation is showing preview rows because the live adverse-event feed is empty or unavailable.') : '',
+    _form,
+    _protosCard,
+    _consentCard,
+    _escalationCard,
+    _cohortBuilder,
+  ].join('');
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
@@ -452,17 +486,22 @@ export async function pgResearch(setTopbar, _navigate) {
   };
 
   window._researchMarkReviewed = async (id) => {
-    await _runApi(`Protocol ${id} reviewed`, api.markProtocolReviewed && (() => api.markProtocolReviewed(id)));
+    _toast(`Protocol ${id}`, 'No live mark-reviewed endpoint is wired for this build.', 'warn');
   };
   window._researchExportIndividual = async () => {
-    const mrn = document.getElementById('_researchPtMrn')?.value?.trim();
-    if (!mrn) { _toast('Patient MRN required', 'Enter a patient MRN before exporting.', 'warn'); return; }
-    await _runApi(`GDPR export · ${mrn}`, api.dataPrivacyExport && (() => api.dataPrivacyExport(mrn)));
+    const patientQuery = document.getElementById('_researchPtMrn')?.value?.trim();
+    const format = document.getElementById('_researchPtFormat')?.value || 'FHIR Bundle';
+    if (!patientQuery) { _toast('Patient ID required', 'Enter a patient ID or email before exporting.', 'warn'); return; }
+    await _runApi(`GDPR export · ${patientQuery}`, api.exportResearchIndividual && (() => api.exportResearchIndividual({
+      patient_query: patientQuery,
+      format,
+    })));
   };
   window._researchBuildDataset = async () => {
     await _runApi('Dataset export', api.exportData && (() => api.exportData({
       consent: window._researchExportConsent || 'research',
       format:  window._researchExportFormat  || 'CSV',
+      kind: 'dataset',
     })));
   };
   window._researchCreateIrb = async () => {
@@ -478,7 +517,7 @@ export async function pgResearch(setTopbar, _navigate) {
     })));
   };
   window._researchExportAll = async () => {
-    await _runApi('Research bundle export', api.exportData && (() => api.exportData({ kind: 'research-bundle' })));
+    await _runApi('Research bundle export', api.exportResearchBundle && (() => api.exportResearchBundle()));
   };
 
   await render();

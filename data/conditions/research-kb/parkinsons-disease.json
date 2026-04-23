@@ -1,0 +1,3216 @@
+{
+  "schema_version": "1.0.0",
+  "condition_slug": "parkinsons-disease",
+  "condition_name": "Parkinson's Disease (PD)",
+  "condition_package_slug": "parkinsons-disease",
+  "priority_rank": 4,
+  "indication_tags": [
+    "parkinsons_disease"
+  ],
+  "source_bundle_date": "2026-04-22",
+  "generated_at": "2026-04-22",
+  "source_assets": [
+    {
+      "file_name": "neuromodulation_ai_ingestion_dataset.csv",
+      "relative_path": "neuromodulation_ai_ingestion_dataset.csv",
+      "record_count": null,
+      "notes": "Primary paper-level AI ingestion corpus used for counts, modalities, targets, and representative papers."
+    },
+    {
+      "file_name": "neuromodulation_evidence_graph.csv",
+      "relative_path": "neuromodulation_evidence_graph.csv",
+      "record_count": null,
+      "notes": "Aggregated indication -> modality -> target evidence graph used for modality and target snapshots."
+    },
+    {
+      "file_name": "neuromodulation_protocol_template_candidates.csv",
+      "relative_path": "neuromodulation_protocol_template_candidates.csv",
+      "record_count": null,
+      "notes": "Protocol-cluster candidates ranked by support score."
+    },
+    {
+      "file_name": "neuromodulation_safety_contraindication_signals.csv",
+      "relative_path": "neuromodulation_safety_contraindication_signals.csv",
+      "record_count": null,
+      "notes": "Safety and contraindication heuristic extraction over the same corpus."
+    }
+  ],
+  "research_stats": {
+    "indication_tag": "parkinsons_disease",
+    "total_papers": 8541,
+    "open_access_papers": 2684,
+    "year_min": 1969,
+    "year_max": 2026,
+    "evidence_tiers": [
+      {
+        "label": "unspecified",
+        "count": 7182,
+        "share": 0.8409
+      },
+      {
+        "label": "high",
+        "count": 389,
+        "share": 0.0455
+      },
+      {
+        "label": "moderate_high",
+        "count": 244,
+        "share": 0.0286
+      },
+      {
+        "label": "preclinical",
+        "count": 208,
+        "share": 0.0244
+      },
+      {
+        "label": "contextual",
+        "count": 194,
+        "share": 0.0227
+      },
+      {
+        "label": "moderate",
+        "count": 178,
+        "share": 0.0208
+      },
+      {
+        "label": "low",
+        "count": 132,
+        "share": 0.0155
+      },
+      {
+        "label": "low_for_effectiveness",
+        "count": 14,
+        "share": 0.0016
+      }
+    ],
+    "study_types": [
+      {
+        "label": "other",
+        "count": 7182,
+        "share": 0.8409
+      },
+      {
+        "label": "randomized_controlled_trial",
+        "count": 244,
+        "share": 0.0286
+      },
+      {
+        "label": "meta_analysis",
+        "count": 217,
+        "share": 0.0254
+      },
+      {
+        "label": "animal_preclinical",
+        "count": 208,
+        "share": 0.0244
+      },
+      {
+        "label": "review",
+        "count": 194,
+        "share": 0.0227
+      },
+      {
+        "label": "cohort_study",
+        "count": 162,
+        "share": 0.019
+      },
+      {
+        "label": "systematic_review",
+        "count": 143,
+        "share": 0.0167
+      },
+      {
+        "label": "case_report",
+        "count": 132,
+        "share": 0.0155
+      },
+      {
+        "label": "guideline_consensus",
+        "count": 29,
+        "share": 0.0034
+      },
+      {
+        "label": "clinical_trial",
+        "count": 16,
+        "share": 0.0019
+      }
+    ],
+    "modalities": [
+      {
+        "label": "deep_brain_stimulation",
+        "count": 6541,
+        "share": 0.7658
+      },
+      {
+        "label": "general_neuromodulation",
+        "count": 1855,
+        "share": 0.2172
+      },
+      {
+        "label": "transcranial_magnetic_stimulation",
+        "count": 797,
+        "share": 0.0933
+      },
+      {
+        "label": "transcranial_direct_current_stimulation",
+        "count": 261,
+        "share": 0.0306
+      },
+      {
+        "label": "spinal_cord_stimulation",
+        "count": 125,
+        "share": 0.0146
+      },
+      {
+        "label": "motor_cortex_stimulation",
+        "count": 89,
+        "share": 0.0104
+      },
+      {
+        "label": "vagus_nerve_stimulation",
+        "count": 65,
+        "share": 0.0076
+      },
+      {
+        "label": "peripheral_nerve_stimulation",
+        "count": 57,
+        "share": 0.0067
+      },
+      {
+        "label": "transcranial_alternating_current_stimulation",
+        "count": 41,
+        "share": 0.0048
+      },
+      {
+        "label": "responsive_neurostimulation",
+        "count": 32,
+        "share": 0.0037
+      }
+    ],
+    "invasiveness": [
+      {
+        "label": "invasive_or_implanted",
+        "count": 6808,
+        "share": 0.7971
+      },
+      {
+        "label": "noninvasive",
+        "count": 880,
+        "share": 0.103
+      },
+      {
+        "label": "unknown",
+        "count": 774,
+        "share": 0.0906
+      },
+      {
+        "label": "mixed_or_device_dependent",
+        "count": 62,
+        "share": 0.0073
+      },
+      {
+        "label": "mixed",
+        "count": 17,
+        "share": 0.002
+      }
+    ],
+    "targets": [
+      {
+        "label": "subthalamic_nucleus",
+        "count": 1600,
+        "share": 0.1873
+      },
+      {
+        "label": "globus_pallidus",
+        "count": 190,
+        "share": 0.0222
+      },
+      {
+        "label": "m1_motor_cortex",
+        "count": 186,
+        "share": 0.0218
+      },
+      {
+        "label": "spinal_cord",
+        "count": 129,
+        "share": 0.0151
+      },
+      {
+        "label": "thalamus",
+        "count": 121,
+        "share": 0.0142
+      },
+      {
+        "label": "vagus_nerve",
+        "count": 66,
+        "share": 0.0077
+      },
+      {
+        "label": "sacral_nerve",
+        "count": 30,
+        "share": 0.0035
+      },
+      {
+        "label": "prefrontal_cortex",
+        "count": 27,
+        "share": 0.0032
+      },
+      {
+        "label": "tibial_nerve",
+        "count": 21,
+        "share": 0.0025
+      },
+      {
+        "label": "dlpfc",
+        "count": 18,
+        "share": 0.0021
+      }
+    ],
+    "parameter_signals": [
+      {
+        "label": "closed_loop_signal",
+        "count": 205,
+        "share": 0.024
+      },
+      {
+        "label": "frequency_signal",
+        "count": 194,
+        "share": 0.0227
+      },
+      {
+        "label": "targeting_signal",
+        "count": 87,
+        "share": 0.0102
+      },
+      {
+        "label": "amplitude_signal",
+        "count": 38,
+        "share": 0.0044
+      },
+      {
+        "label": "duration_signal",
+        "count": 19,
+        "share": 0.0022
+      },
+      {
+        "label": "dose_signal",
+        "count": 19,
+        "share": 0.0022
+      },
+      {
+        "label": "pulse_width_signal",
+        "count": 7,
+        "share": 0.0008
+      }
+    ],
+    "populations": [
+      {
+        "label": "animal",
+        "count": 216,
+        "share": 0.0253
+      },
+      {
+        "label": "older_adult",
+        "count": 25,
+        "share": 0.0029
+      },
+      {
+        "label": "adult",
+        "count": 9,
+        "share": 0.0011
+      },
+      {
+        "label": "pediatric",
+        "count": 8,
+        "share": 0.0009
+      },
+      {
+        "label": "pregnancy",
+        "count": 2,
+        "share": 0.0002
+      }
+    ]
+  },
+  "modality_evidence": [
+    {
+      "modality": "deep_brain_stimulation",
+      "paper_count": 6658,
+      "citation_sum": 189352,
+      "evidence_weight_sum": 8531.0,
+      "mean_citations_per_paper": 28.44,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 5737,
+          "share": 0.8617
+        },
+        {
+          "label": "cohort_study",
+          "count": 142,
+          "share": 0.0213
+        },
+        {
+          "label": "review",
+          "count": 136,
+          "share": 0.0204
+        },
+        {
+          "label": "meta_analysis",
+          "count": 135,
+          "share": 0.0203
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 90,
+          "share": 0.0135
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "closed_loop_signal",
+          "count": 166,
+          "share": 0.0249
+        },
+        {
+          "label": "closed_loop",
+          "count": 164,
+          "share": 0.0246
+        },
+        {
+          "label": "frequency_signal",
+          "count": 132,
+          "share": 0.0198
+        },
+        {
+          "label": "high_frequency",
+          "count": 72,
+          "share": 0.0108
+        },
+        {
+          "label": "targeting_signal",
+          "count": 52,
+          "share": 0.0078
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 261,
+          "share": 0.0392
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 95,
+          "share": 0.0143
+        },
+        {
+          "label": "device_complication",
+          "count": 88,
+          "share": 0.0132
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 71,
+          "share": 0.0107
+        },
+        {
+          "label": "pain_or_discomfort",
+          "count": 55,
+          "share": 0.0083
+        }
+      ],
+      "open_access_count": 1831,
+      "year_min": 1993,
+      "year_max": 2026
+    },
+    {
+      "modality": "general_neuromodulation",
+      "paper_count": 1881,
+      "citation_sum": 39851,
+      "evidence_weight_sum": 2653.0,
+      "mean_citations_per_paper": 21.19,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 1496,
+          "share": 0.7953
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 84,
+          "share": 0.0447
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 74,
+          "share": 0.0393
+        },
+        {
+          "label": "review",
+          "count": 61,
+          "share": 0.0324
+        },
+        {
+          "label": "meta_analysis",
+          "count": 46,
+          "share": 0.0245
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "closed_loop",
+          "count": 50,
+          "share": 0.0266
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 49,
+          "share": 0.026
+        },
+        {
+          "label": "frequency_signal",
+          "count": 37,
+          "share": 0.0197
+        },
+        {
+          "label": "double_blind",
+          "count": 23,
+          "share": 0.0122
+        },
+        {
+          "label": "burst_pattern",
+          "count": 18,
+          "share": 0.0096
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 111,
+          "share": 0.059
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 37,
+          "share": 0.0197
+        },
+        {
+          "label": "pain_or_discomfort",
+          "count": 31,
+          "share": 0.0165
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 16,
+          "share": 0.0085
+        },
+        {
+          "label": "older_adult_caution",
+          "count": 9,
+          "share": 0.0048
+        }
+      ],
+      "open_access_count": 1089,
+      "year_min": 1984,
+      "year_max": 2026
+    },
+    {
+      "modality": "transcranial_magnetic_stimulation",
+      "paper_count": 818,
+      "citation_sum": 23929,
+      "evidence_weight_sum": 1337.0,
+      "mean_citations_per_paper": 29.25,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 623,
+          "share": 0.7616
+        },
+        {
+          "label": "meta_analysis",
+          "count": 59,
+          "share": 0.0721
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 58,
+          "share": 0.0709
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 24,
+          "share": 0.0293
+        },
+        {
+          "label": "review",
+          "count": 23,
+          "share": 0.0281
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "frequency_signal",
+          "count": 62,
+          "share": 0.0758
+        },
+        {
+          "label": "burst_pattern",
+          "count": 45,
+          "share": 0.055
+        },
+        {
+          "label": "high_frequency",
+          "count": 36,
+          "share": 0.044
+        },
+        {
+          "label": "low_frequency",
+          "count": 26,
+          "share": 0.0318
+        },
+        {
+          "label": "double_blind",
+          "count": 20,
+          "share": 0.0244
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 48,
+          "share": 0.0587
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 15,
+          "share": 0.0183
+        },
+        {
+          "label": "pain_or_discomfort",
+          "count": 7,
+          "share": 0.0086
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 4,
+          "share": 0.0049
+        },
+        {
+          "label": "older_adult_caution",
+          "count": 4,
+          "share": 0.0049
+        }
+      ],
+      "open_access_count": 204,
+      "year_min": 1993,
+      "year_max": 2026
+    },
+    {
+      "modality": "transcranial_direct_current_stimulation",
+      "paper_count": 264,
+      "citation_sum": 5836,
+      "evidence_weight_sum": 586.0,
+      "mean_citations_per_paper": 22.11,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 155,
+          "share": 0.5871
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 45,
+          "share": 0.1705
+        },
+        {
+          "label": "meta_analysis",
+          "count": 31,
+          "share": 0.1174
+        },
+        {
+          "label": "systematic_review",
+          "count": 13,
+          "share": 0.0492
+        },
+        {
+          "label": "review",
+          "count": 9,
+          "share": 0.0341
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "double_blind",
+          "count": 9,
+          "share": 0.0341
+        },
+        {
+          "label": "sham_controlled",
+          "count": 8,
+          "share": 0.0303
+        },
+        {
+          "label": "frequency_signal",
+          "count": 4,
+          "share": 0.0152
+        },
+        {
+          "label": "low_frequency",
+          "count": 3,
+          "share": 0.0114
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 2,
+          "share": 0.0076
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 35,
+          "share": 0.1326
+        },
+        {
+          "label": "pain_or_discomfort",
+          "count": 6,
+          "share": 0.0227
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 3,
+          "share": 0.0114
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 2,
+          "share": 0.0076
+        },
+        {
+          "label": "older_adult_caution",
+          "count": 2,
+          "share": 0.0076
+        }
+      ],
+      "open_access_count": 111,
+      "year_min": 2006,
+      "year_max": 2026
+    },
+    {
+      "modality": "spinal_cord_stimulation",
+      "paper_count": 131,
+      "citation_sum": 2954,
+      "evidence_weight_sum": 185.0,
+      "mean_citations_per_paper": 22.55,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 94,
+          "share": 0.7176
+        },
+        {
+          "label": "case_report",
+          "count": 10,
+          "share": 0.0763
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 8,
+          "share": 0.0611
+        },
+        {
+          "label": "systematic_review",
+          "count": 6,
+          "share": 0.0458
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 5,
+          "share": 0.0382
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "burst_pattern",
+          "count": 6,
+          "share": 0.0458
+        },
+        {
+          "label": "double_blind",
+          "count": 4,
+          "share": 0.0305
+        },
+        {
+          "label": "closed_loop",
+          "count": 1,
+          "share": 0.0076
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 1,
+          "share": 0.0076
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "pain_or_discomfort",
+          "count": 10,
+          "share": 0.0763
+        },
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 1,
+          "share": 0.0076
+        },
+        {
+          "label": "skin_burn_irritation",
+          "count": 1,
+          "share": 0.0076
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.0076
+        }
+      ],
+      "open_access_count": 43,
+      "year_min": 2006,
+      "year_max": 2026
+    },
+    {
+      "modality": "motor_cortex_stimulation",
+      "paper_count": 97,
+      "citation_sum": 3767,
+      "evidence_weight_sum": 106.0,
+      "mean_citations_per_paper": 38.84,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 82,
+          "share": 0.8454
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 9,
+          "share": 0.0928
+        },
+        {
+          "label": "review",
+          "count": 2,
+          "share": 0.0206
+        },
+        {
+          "label": "case_report",
+          "count": 2,
+          "share": 0.0206
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.0103
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "amplitude_signal",
+          "count": 1,
+          "share": 0.0103
+        },
+        {
+          "label": "closed_loop",
+          "count": 1,
+          "share": 0.0103
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 1,
+          "share": 0.0103
+        },
+        {
+          "label": "frequency_signal",
+          "count": 1,
+          "share": 0.0103
+        },
+        {
+          "label": "high_frequency",
+          "count": 1,
+          "share": 0.0103
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "device_complication",
+          "count": 1,
+          "share": 0.0103
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.0103
+        },
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 1,
+          "share": 0.0103
+        },
+        {
+          "label": "pain_or_discomfort",
+          "count": 1,
+          "share": 0.0103
+        },
+        {
+          "label": "older_adult_caution",
+          "count": 1,
+          "share": 0.0103
+        }
+      ],
+      "open_access_count": 23,
+      "year_min": 1984,
+      "year_max": 2025
+    },
+    {
+      "modality": "vagus_nerve_stimulation",
+      "paper_count": 67,
+      "citation_sum": 1134,
+      "evidence_weight_sum": 110.0,
+      "mean_citations_per_paper": 16.93,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 46,
+          "share": 0.6866
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 5,
+          "share": 0.0746
+        },
+        {
+          "label": "meta_analysis",
+          "count": 4,
+          "share": 0.0597
+        },
+        {
+          "label": "review",
+          "count": 4,
+          "share": 0.0597
+        },
+        {
+          "label": "case_report",
+          "count": 3,
+          "share": 0.0448
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "targeting_signal",
+          "count": 3,
+          "share": 0.0448
+        },
+        {
+          "label": "double_blind",
+          "count": 2,
+          "share": 0.0299
+        },
+        {
+          "label": "dose_signal",
+          "count": 1,
+          "share": 0.0149
+        },
+        {
+          "label": "sham_controlled",
+          "count": 1,
+          "share": 0.0149
+        },
+        {
+          "label": "frequency_signal",
+          "count": 1,
+          "share": 0.0149
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "pediatric_caution",
+          "count": 1,
+          "share": 0.0149
+        },
+        {
+          "label": "seizure_risk",
+          "count": 1,
+          "share": 0.0149
+        }
+      ],
+      "open_access_count": 37,
+      "year_min": 1975,
+      "year_max": 2026
+    },
+    {
+      "modality": "peripheral_nerve_stimulation",
+      "paper_count": 59,
+      "citation_sum": 2327,
+      "evidence_weight_sum": 73.0,
+      "mean_citations_per_paper": 39.44,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 47,
+          "share": 0.7966
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 5,
+          "share": 0.0847
+        },
+        {
+          "label": "case_report",
+          "count": 2,
+          "share": 0.0339
+        },
+        {
+          "label": "review",
+          "count": 1,
+          "share": 0.0169
+        },
+        {
+          "label": "cohort_study",
+          "count": 1,
+          "share": 0.0169
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "targeting_signal",
+          "count": 1,
+          "share": 0.0169
+        },
+        {
+          "label": "closed_loop",
+          "count": 1,
+          "share": 0.0169
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 1,
+          "share": 0.0169
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cardiac_risk",
+          "count": 1,
+          "share": 0.0169
+        },
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 1,
+          "share": 0.0169
+        },
+        {
+          "label": "older_adult_caution",
+          "count": 1,
+          "share": 0.0169
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.0169
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 1,
+          "share": 0.0169
+        }
+      ],
+      "open_access_count": 26,
+      "year_min": 1969,
+      "year_max": 2026
+    }
+  ],
+  "target_evidence": [
+    {
+      "modality": "deep_brain_stimulation",
+      "target": "subthalamic_nucleus",
+      "paper_count": 1588,
+      "citation_sum": 46350,
+      "template_support_score": 1942.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 1407,
+          "share": 0.886
+        },
+        {
+          "label": "meta_analysis",
+          "count": 38,
+          "share": 0.0239
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 35,
+          "share": 0.022
+        },
+        {
+          "label": "cohort_study",
+          "count": 32,
+          "share": 0.0202
+        },
+        {
+          "label": "case_report",
+          "count": 26,
+          "share": 0.0164
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "frequency_signal",
+          "count": 52,
+          "share": 0.0327
+        },
+        {
+          "label": "high_frequency",
+          "count": 33,
+          "share": 0.0208
+        },
+        {
+          "label": "low_frequency",
+          "count": 21,
+          "share": 0.0132
+        },
+        {
+          "label": "closed_loop",
+          "count": 14,
+          "share": 0.0088
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 14,
+          "share": 0.0088
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 83,
+          "share": 0.0523
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 26,
+          "share": 0.0164
+        },
+        {
+          "label": "device_complication",
+          "count": 19,
+          "share": 0.012
+        },
+        {
+          "label": "pain_or_discomfort",
+          "count": 13,
+          "share": 0.0082
+        },
+        {
+          "label": "mania_hypomania",
+          "count": 10,
+          "share": 0.0063
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "deep_brain_stimulation",
+      "target": "globus_pallidus",
+      "paper_count": 184,
+      "citation_sum": 6023,
+      "template_support_score": 293.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 141,
+          "share": 0.7663
+        },
+        {
+          "label": "meta_analysis",
+          "count": 15,
+          "share": 0.0815
+        },
+        {
+          "label": "case_report",
+          "count": 8,
+          "share": 0.0435
+        },
+        {
+          "label": "systematic_review",
+          "count": 6,
+          "share": 0.0326
+        },
+        {
+          "label": "cohort_study",
+          "count": 5,
+          "share": 0.0272
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "frequency_signal",
+          "count": 8,
+          "share": 0.0435
+        },
+        {
+          "label": "targeting_signal",
+          "count": 5,
+          "share": 0.0272
+        },
+        {
+          "label": "low_frequency",
+          "count": 4,
+          "share": 0.0217
+        },
+        {
+          "label": "closed_loop",
+          "count": 3,
+          "share": 0.0163
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 3,
+          "share": 0.0163
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 6,
+          "share": 0.0326
+        },
+        {
+          "label": "device_complication",
+          "count": 4,
+          "share": 0.0217
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 2,
+          "share": 0.0109
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 1,
+          "share": 0.0054
+        },
+        {
+          "label": "pain_or_discomfort",
+          "count": 1,
+          "share": 0.0054
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "general_neuromodulation",
+      "target": "subthalamic_nucleus",
+      "paper_count": 163,
+      "citation_sum": 3080,
+      "template_support_score": 219.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 134,
+          "share": 0.8221
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 6,
+          "share": 0.0368
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 5,
+          "share": 0.0307
+        },
+        {
+          "label": "review",
+          "count": 4,
+          "share": 0.0245
+        },
+        {
+          "label": "systematic_review",
+          "count": 4,
+          "share": 0.0245
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "closed_loop",
+          "count": 7,
+          "share": 0.0429
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 7,
+          "share": 0.0429
+        },
+        {
+          "label": "frequency_signal",
+          "count": 3,
+          "share": 0.0184
+        },
+        {
+          "label": "low_frequency",
+          "count": 2,
+          "share": 0.0123
+        },
+        {
+          "label": "amplitude_signal",
+          "count": 2,
+          "share": 0.0123
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 4,
+          "share": 0.0245
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 4,
+          "share": 0.0245
+        },
+        {
+          "label": "pain_or_discomfort",
+          "count": 3,
+          "share": 0.0184
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.0061
+        },
+        {
+          "label": "suicidality",
+          "count": 1,
+          "share": 0.0061
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "spinal_cord_stimulation",
+      "target": "spinal_cord",
+      "paper_count": 125,
+      "citation_sum": 2679,
+      "template_support_score": 179.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 90,
+          "share": 0.72
+        },
+        {
+          "label": "case_report",
+          "count": 9,
+          "share": 0.072
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 7,
+          "share": 0.056
+        },
+        {
+          "label": "systematic_review",
+          "count": 6,
+          "share": 0.048
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 5,
+          "share": 0.04
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "burst_pattern",
+          "count": 6,
+          "share": 0.048
+        },
+        {
+          "label": "double_blind",
+          "count": 4,
+          "share": 0.032
+        },
+        {
+          "label": "closed_loop",
+          "count": 1,
+          "share": 0.008
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 1,
+          "share": 0.008
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "pain_or_discomfort",
+          "count": 10,
+          "share": 0.08
+        },
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 1,
+          "share": 0.008
+        },
+        {
+          "label": "skin_burn_irritation",
+          "count": 1,
+          "share": 0.008
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.008
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "deep_brain_stimulation",
+      "target": "thalamus",
+      "paper_count": 99,
+      "citation_sum": 2707,
+      "template_support_score": 102.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 89,
+          "share": 0.899
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 6,
+          "share": 0.0606
+        },
+        {
+          "label": "case_report",
+          "count": 3,
+          "share": 0.0303
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.0101
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "frequency_signal",
+          "count": 3,
+          "share": 0.0303
+        },
+        {
+          "label": "closed_loop",
+          "count": 2,
+          "share": 0.0202
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 2,
+          "share": 0.0202
+        },
+        {
+          "label": "high_frequency",
+          "count": 2,
+          "share": 0.0202
+        },
+        {
+          "label": "double_blind",
+          "count": 1,
+          "share": 0.0101
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 2,
+          "share": 0.0202
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "motor_cortex_stimulation",
+      "target": "m1_motor_cortex",
+      "paper_count": 89,
+      "citation_sum": 3634,
+      "template_support_score": 98.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 74,
+          "share": 0.8315
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 9,
+          "share": 0.1011
+        },
+        {
+          "label": "review",
+          "count": 2,
+          "share": 0.0225
+        },
+        {
+          "label": "case_report",
+          "count": 2,
+          "share": 0.0225
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.0112
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "amplitude_signal",
+          "count": 1,
+          "share": 0.0112
+        },
+        {
+          "label": "closed_loop",
+          "count": 1,
+          "share": 0.0112
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 1,
+          "share": 0.0112
+        },
+        {
+          "label": "frequency_signal",
+          "count": 1,
+          "share": 0.0112
+        },
+        {
+          "label": "high_frequency",
+          "count": 1,
+          "share": 0.0112
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "device_complication",
+          "count": 1,
+          "share": 0.0112
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.0112
+        },
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 1,
+          "share": 0.0112
+        },
+        {
+          "label": "pain_or_discomfort",
+          "count": 1,
+          "share": 0.0112
+        },
+        {
+          "label": "older_adult_caution",
+          "count": 1,
+          "share": 0.0112
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "transcranial_magnetic_stimulation",
+      "target": "m1_motor_cortex",
+      "paper_count": 85,
+      "citation_sum": 4039,
+      "template_support_score": 103.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 76,
+          "share": 0.8941
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 4,
+          "share": 0.0471
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 2,
+          "share": 0.0235
+        },
+        {
+          "label": "review",
+          "count": 2,
+          "share": 0.0235
+        },
+        {
+          "label": "meta_analysis",
+          "count": 1,
+          "share": 0.0118
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "frequency_signal",
+          "count": 6,
+          "share": 0.0706
+        },
+        {
+          "label": "high_frequency",
+          "count": 3,
+          "share": 0.0353
+        },
+        {
+          "label": "burst_pattern",
+          "count": 3,
+          "share": 0.0353
+        },
+        {
+          "label": "low_frequency",
+          "count": 2,
+          "share": 0.0235
+        },
+        {
+          "label": "double_blind",
+          "count": 1,
+          "share": 0.0118
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "pain_or_discomfort",
+          "count": 3,
+          "share": 0.0353
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "vagus_nerve_stimulation",
+      "target": "vagus_nerve",
+      "paper_count": 65,
+      "citation_sum": 978,
+      "template_support_score": 108.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 44,
+          "share": 0.6769
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 5,
+          "share": 0.0769
+        },
+        {
+          "label": "meta_analysis",
+          "count": 4,
+          "share": 0.0615
+        },
+        {
+          "label": "review",
+          "count": 4,
+          "share": 0.0615
+        },
+        {
+          "label": "case_report",
+          "count": 3,
+          "share": 0.0462
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "targeting_signal",
+          "count": 3,
+          "share": 0.0462
+        },
+        {
+          "label": "double_blind",
+          "count": 2,
+          "share": 0.0308
+        },
+        {
+          "label": "dose_signal",
+          "count": 1,
+          "share": 0.0154
+        },
+        {
+          "label": "sham_controlled",
+          "count": 1,
+          "share": 0.0154
+        },
+        {
+          "label": "frequency_signal",
+          "count": 1,
+          "share": 0.0154
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "pediatric_caution",
+          "count": 1,
+          "share": 0.0154
+        },
+        {
+          "label": "seizure_risk",
+          "count": 1,
+          "share": 0.0154
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "deep_brain_stimulation",
+      "target": "m1_motor_cortex",
+      "paper_count": 62,
+      "citation_sum": 2828,
+      "template_support_score": 67.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 55,
+          "share": 0.8871
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 3,
+          "share": 0.0484
+        },
+        {
+          "label": "review",
+          "count": 2,
+          "share": 0.0323
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.0161
+        },
+        {
+          "label": "case_report",
+          "count": 1,
+          "share": 0.0161
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "amplitude_signal",
+          "count": 4,
+          "share": 0.0645
+        },
+        {
+          "label": "frequency_signal",
+          "count": 2,
+          "share": 0.0323
+        },
+        {
+          "label": "high_frequency",
+          "count": 2,
+          "share": 0.0323
+        },
+        {
+          "label": "closed_loop",
+          "count": 2,
+          "share": 0.0323
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 2,
+          "share": 0.0323
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "older_adult_caution",
+          "count": 1,
+          "share": 0.0161
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "general_neuromodulation",
+      "target": "globus_pallidus",
+      "paper_count": 37,
+      "citation_sum": 1141,
+      "template_support_score": 57.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 27,
+          "share": 0.7297
+        },
+        {
+          "label": "review",
+          "count": 3,
+          "share": 0.0811
+        },
+        {
+          "label": "systematic_review",
+          "count": 2,
+          "share": 0.0541
+        },
+        {
+          "label": "cohort_study",
+          "count": 1,
+          "share": 0.027
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 1,
+          "share": 0.027
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "frequency_signal",
+          "count": 3,
+          "share": 0.0811
+        },
+        {
+          "label": "low_frequency",
+          "count": 2,
+          "share": 0.0541
+        },
+        {
+          "label": "amplitude_signal",
+          "count": 1,
+          "share": 0.027
+        },
+        {
+          "label": "pulse_width_reported",
+          "count": 1,
+          "share": 0.027
+        },
+        {
+          "label": "pulse_width_signal",
+          "count": 1,
+          "share": 0.027
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 2,
+          "share": 0.0541
+        },
+        {
+          "label": "device_complication",
+          "count": 2,
+          "share": 0.0541
+        },
+        {
+          "label": "suicidality",
+          "count": 1,
+          "share": 0.027
+        }
+      ],
+      "example_titles": []
+    }
+  ],
+  "protocol_candidates": [
+    {
+      "modality": "deep_brain_stimulation",
+      "target": "unspecified_target",
+      "invasiveness": "invasive_or_implanted",
+      "paper_count": 4330,
+      "citation_sum": 122831,
+      "template_support_score": 20884.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 3704,
+          "share": 0.8554
+        },
+        {
+          "label": "review",
+          "count": 123,
+          "share": 0.0284
+        },
+        {
+          "label": "cohort_study",
+          "count": 95,
+          "share": 0.0219
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 84,
+          "share": 0.0194
+        },
+        {
+          "label": "systematic_review",
+          "count": 79,
+          "share": 0.0182
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "closed_loop",
+          "count": 134,
+          "share": 0.0309
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 134,
+          "share": 0.0309
+        },
+        {
+          "label": "frequency_signal",
+          "count": 62,
+          "share": 0.0143
+        },
+        {
+          "label": "targeting_signal",
+          "count": 41,
+          "share": 0.0095
+        },
+        {
+          "label": "high_frequency",
+          "count": 33,
+          "share": 0.0076
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 4244,
+          "share": 0.9801
+        },
+        {
+          "label": "animal",
+          "count": 69,
+          "share": 0.0159
+        },
+        {
+          "label": "older_adult",
+          "count": 10,
+          "share": 0.0023
+        },
+        {
+          "label": "adult",
+          "count": 4,
+          "share": 0.0009
+        },
+        {
+          "label": "pregnancy",
+          "count": 2,
+          "share": 0.0005
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 161,
+          "share": 0.0372
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 70,
+          "share": 0.0162
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 66,
+          "share": 0.0152
+        },
+        {
+          "label": "device_complication",
+          "count": 62,
+          "share": 0.0143
+        },
+        {
+          "label": "psychosis_caution",
+          "count": 12,
+          "share": 0.0028
+        }
+      ],
+      "example_titles": [
+        "When the Scale Drops: Pathways to Weight Loss in Parkinson's Disease and Future Directions.",
+        "When caution becomes neglect: Deep brain stimulation and cognitive impairment in Parkinson's disease.",
+        "What is the future direction for the treatment of Parkinson's disease: Deep brain stimulation or stem cell transplantation therapy?"
+      ]
+    },
+    {
+      "modality": "deep_brain_stimulation",
+      "target": "subthalamic_nucleus",
+      "invasiveness": "invasive_or_implanted",
+      "paper_count": 1404,
+      "citation_sum": 39233,
+      "template_support_score": 6505.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 1261,
+          "share": 0.8981
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 30,
+          "share": 0.0214
+        },
+        {
+          "label": "cohort_study",
+          "count": 28,
+          "share": 0.0199
+        },
+        {
+          "label": "meta_analysis",
+          "count": 23,
+          "share": 0.0164
+        },
+        {
+          "label": "case_report",
+          "count": 22,
+          "share": 0.0157
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "frequency_signal",
+          "count": 49,
+          "share": 0.0349
+        },
+        {
+          "label": "high_frequency",
+          "count": 31,
+          "share": 0.0221
+        },
+        {
+          "label": "low_frequency",
+          "count": 20,
+          "share": 0.0142
+        },
+        {
+          "label": "closed_loop",
+          "count": 12,
+          "share": 0.0085
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 12,
+          "share": 0.0085
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 1372,
+          "share": 0.9772
+        },
+        {
+          "label": "animal",
+          "count": 30,
+          "share": 0.0214
+        },
+        {
+          "label": "older_adult",
+          "count": 2,
+          "share": 0.0014
+        },
+        {
+          "label": "adult",
+          "count": 1,
+          "share": 0.0007
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 77,
+          "share": 0.0548
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 25,
+          "share": 0.0178
+        },
+        {
+          "label": "device_complication",
+          "count": 16,
+          "share": 0.0114
+        },
+        {
+          "label": "mania_hypomania",
+          "count": 10,
+          "share": 0.0071
+        },
+        {
+          "label": "suicidality",
+          "count": 5,
+          "share": 0.0036
+        }
+      ],
+      "example_titles": [
+        "The role of electrode placement in subthalamic nucleus deep brain stimulation for improving gait in Parkinson's Disease.",
+        "Subthalamic nucleus in patients with Parkinson's disease encodes changes and magnitude of applied force.",
+        "Stimulation and Medication Effects on Subthalamic Nucleus Beta-Band Power in Parkinson's Disease: Implications for Adaptive Deep Brain Stimulation."
+      ]
+    },
+    {
+      "modality": "transcranial_magnetic_stimulation",
+      "target": "unspecified_target",
+      "invasiveness": "noninvasive",
+      "paper_count": 543,
+      "citation_sum": 15055,
+      "template_support_score": 3135.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 396,
+          "share": 0.7293
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 46,
+          "share": 0.0847
+        },
+        {
+          "label": "meta_analysis",
+          "count": 43,
+          "share": 0.0792
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 19,
+          "share": 0.035
+        },
+        {
+          "label": "review",
+          "count": 15,
+          "share": 0.0276
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "frequency_signal",
+          "count": 40,
+          "share": 0.0737
+        },
+        {
+          "label": "burst_pattern",
+          "count": 32,
+          "share": 0.0589
+        },
+        {
+          "label": "high_frequency",
+          "count": 23,
+          "share": 0.0424
+        },
+        {
+          "label": "low_frequency",
+          "count": 18,
+          "share": 0.0331
+        },
+        {
+          "label": "double_blind",
+          "count": 15,
+          "share": 0.0276
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 520,
+          "share": 0.9576
+        },
+        {
+          "label": "animal",
+          "count": 19,
+          "share": 0.035
+        },
+        {
+          "label": "older_adult",
+          "count": 4,
+          "share": 0.0074
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 36,
+          "share": 0.0663
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 12,
+          "share": 0.0221
+        },
+        {
+          "label": "older_adult_caution",
+          "count": 4,
+          "share": 0.0074
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 3,
+          "share": 0.0055
+        },
+        {
+          "label": "psychosis_caution",
+          "count": 1,
+          "share": 0.0018
+        }
+      ],
+      "example_titles": [
+        "Transcranial Magnetic Stimulation in Parkinson\u2019s Disease and Parkinsonian Syndromes: A Narrative Expert Review",
+        "The Use of Non-Invasive Brain Stimulation Techniques in Subjects with Parkinson's Disease and Mild Cognitive Impairment: A Systematic Review.",
+        "The efficacy and safety of precision repetitive transcranial magnetic stimulation in alleviating motor symptoms in Parkinson's disease (PRESS-PD): a randomized, double-blind, multicenter, placebo-controlled trial."
+      ]
+    },
+    {
+      "modality": "general_neuromodulation",
+      "target": "unspecified_target",
+      "invasiveness": "invasive_or_implanted",
+      "paper_count": 579,
+      "citation_sum": 14677,
+      "template_support_score": 2900.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 488,
+          "share": 0.8428
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 22,
+          "share": 0.038
+        },
+        {
+          "label": "review",
+          "count": 18,
+          "share": 0.0311
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 12,
+          "share": 0.0207
+        },
+        {
+          "label": "cohort_study",
+          "count": 9,
+          "share": 0.0155
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "closed_loop",
+          "count": 35,
+          "share": 0.0604
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 35,
+          "share": 0.0604
+        },
+        {
+          "label": "frequency_signal",
+          "count": 14,
+          "share": 0.0242
+        },
+        {
+          "label": "burst_pattern",
+          "count": 9,
+          "share": 0.0155
+        },
+        {
+          "label": "double_blind",
+          "count": 8,
+          "share": 0.0138
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 562,
+          "share": 0.9706
+        },
+        {
+          "label": "animal",
+          "count": 13,
+          "share": 0.0225
+        },
+        {
+          "label": "older_adult",
+          "count": 4,
+          "share": 0.0069
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 13,
+          "share": 0.0225
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 9,
+          "share": 0.0155
+        },
+        {
+          "label": "device_complication",
+          "count": 8,
+          "share": 0.0138
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 7,
+          "share": 0.0121
+        },
+        {
+          "label": "older_adult_caution",
+          "count": 4,
+          "share": 0.0069
+        }
+      ],
+      "example_titles": [
+        "Transcranial temporal interference stimulation targeting the subthalamic region for motor symptoms in Parkinson's disease: a pilot, randomised, double-blind, sham-controlled crossover study.",
+        "Transcranial Magnetic Stimulation in Parkinson's Disease and Parkinsonian Syndromes: A Narrative Expert Review.",
+        "The deep brain stimulation response network in Parkinson's disease operates in the high beta band."
+      ]
+    },
+    {
+      "modality": "general_neuromodulation",
+      "target": "unspecified_target",
+      "invasiveness": "unknown",
+      "paper_count": 638,
+      "citation_sum": 13116,
+      "template_support_score": 2487.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 527,
+          "share": 0.826
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 32,
+          "share": 0.0502
+        },
+        {
+          "label": "review",
+          "count": 16,
+          "share": 0.0251
+        },
+        {
+          "label": "meta_analysis",
+          "count": 15,
+          "share": 0.0235
+        },
+        {
+          "label": "systematic_review",
+          "count": 15,
+          "share": 0.0235
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "targeting_signal",
+          "count": 6,
+          "share": 0.0094
+        },
+        {
+          "label": "frequency_signal",
+          "count": 5,
+          "share": 0.0078
+        },
+        {
+          "label": "closed_loop",
+          "count": 4,
+          "share": 0.0063
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 4,
+          "share": 0.0063
+        },
+        {
+          "label": "dose_signal",
+          "count": 4,
+          "share": 0.0063
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 595,
+          "share": 0.9326
+        },
+        {
+          "label": "animal",
+          "count": 36,
+          "share": 0.0564
+        },
+        {
+          "label": "older_adult",
+          "count": 5,
+          "share": 0.0078
+        },
+        {
+          "label": "pediatric",
+          "count": 1,
+          "share": 0.0016
+        },
+        {
+          "label": "adult",
+          "count": 1,
+          "share": 0.0016
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 61,
+          "share": 0.0956
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 18,
+          "share": 0.0282
+        },
+        {
+          "label": "psychosis_caution",
+          "count": 6,
+          "share": 0.0094
+        },
+        {
+          "label": "older_adult_caution",
+          "count": 5,
+          "share": 0.0078
+        },
+        {
+          "label": "infection",
+          "count": 2,
+          "share": 0.0031
+        }
+      ],
+      "example_titles": [
+        "Voice and Speech in Atypical Parkinsonian Disorders.",
+        "Use of AR/VR for Treatment of Freezing of Gait (FoG) in Parkinson\u2019s Disease (PD)",
+        "Untangling the heart-brain connection in Parkinson's disease: emerging mechanisms and models."
+      ]
+    },
+    {
+      "modality": "transcranial_direct_current_stimulation",
+      "target": "unspecified_target",
+      "invasiveness": "noninvasive",
+      "paper_count": 187,
+      "citation_sum": 3595,
+      "template_support_score": 1289.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 98,
+          "share": 0.5241
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 33,
+          "share": 0.1765
+        },
+        {
+          "label": "meta_analysis",
+          "count": 28,
+          "share": 0.1497
+        },
+        {
+          "label": "systematic_review",
+          "count": 11,
+          "share": 0.0588
+        },
+        {
+          "label": "review",
+          "count": 7,
+          "share": 0.0374
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "double_blind",
+          "count": 8,
+          "share": 0.0428
+        },
+        {
+          "label": "sham_controlled",
+          "count": 5,
+          "share": 0.0267
+        },
+        {
+          "label": "frequency_signal",
+          "count": 2,
+          "share": 0.0107
+        },
+        {
+          "label": "low_frequency",
+          "count": 2,
+          "share": 0.0107
+        },
+        {
+          "label": "closed_loop",
+          "count": 1,
+          "share": 0.0053
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 180,
+          "share": 0.9626
+        },
+        {
+          "label": "animal",
+          "count": 5,
+          "share": 0.0267
+        },
+        {
+          "label": "older_adult",
+          "count": 2,
+          "share": 0.0107
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 31,
+          "share": 0.1658
+        },
+        {
+          "label": "older_adult_caution",
+          "count": 2,
+          "share": 0.0107
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.0053
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 1,
+          "share": 0.0053
+        }
+      ],
+      "example_titles": [
+        "Transcranial direct current stimulation exerts neuroprotective effects in Parkinson's disease by restoring Mlst8-mediated autophagic homeostasis.",
+        "The Use of Non-Invasive Brain Stimulation Techniques in Subjects with Parkinson's Disease and Mild Cognitive Impairment: A Systematic Review.",
+        "Reconsidering Placebo Effects in Neuromodulation for Parkinson's Disease: Lessons for Clinical Trials and Therapeutic Translation."
+      ]
+    },
+    {
+      "modality": "general_neuromodulation",
+      "target": "unspecified_target",
+      "invasiveness": "noninvasive",
+      "paper_count": 128,
+      "citation_sum": 1798,
+      "template_support_score": 838.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 65,
+          "share": 0.5078
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 21,
+          "share": 0.1641
+        },
+        {
+          "label": "meta_analysis",
+          "count": 16,
+          "share": 0.125
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 10,
+          "share": 0.0781
+        },
+        {
+          "label": "review",
+          "count": 8,
+          "share": 0.0625
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "double_blind",
+          "count": 7,
+          "share": 0.0547
+        },
+        {
+          "label": "burst_pattern",
+          "count": 7,
+          "share": 0.0547
+        },
+        {
+          "label": "frequency_signal",
+          "count": 6,
+          "share": 0.0469
+        },
+        {
+          "label": "sham_controlled",
+          "count": 5,
+          "share": 0.0391
+        },
+        {
+          "label": "high_frequency",
+          "count": 5,
+          "share": 0.0391
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 118,
+          "share": 0.9219
+        },
+        {
+          "label": "animal",
+          "count": 10,
+          "share": 0.0781
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 12,
+          "share": 0.0938
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 2,
+          "share": 0.0156
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.0078
+        }
+      ],
+      "example_titles": [
+        "Transcranial Magnetic Stimulation in Parkinson\u2019s Disease and Parkinsonian Syndromes: A Narrative Expert Review",
+        "Transcranial direct current stimulation exerts neuroprotective effects in Parkinson's disease by restoring Mlst8-mediated autophagic homeostasis.",
+        "The Use of Non-Invasive Brain Stimulation Techniques in Subjects with Parkinson's Disease and Mild Cognitive Impairment: A Systematic Review."
+      ]
+    },
+    {
+      "modality": "deep_brain_stimulation",
+      "target": "globus_pallidus",
+      "invasiveness": "invasive_or_implanted",
+      "paper_count": 154,
+      "citation_sum": 5254,
+      "template_support_score": 833.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 118,
+          "share": 0.7662
+        },
+        {
+          "label": "meta_analysis",
+          "count": 11,
+          "share": 0.0714
+        },
+        {
+          "label": "systematic_review",
+          "count": 6,
+          "share": 0.039
+        },
+        {
+          "label": "case_report",
+          "count": 6,
+          "share": 0.039
+        },
+        {
+          "label": "cohort_study",
+          "count": 4,
+          "share": 0.026
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "frequency_signal",
+          "count": 7,
+          "share": 0.0455
+        },
+        {
+          "label": "targeting_signal",
+          "count": 4,
+          "share": 0.026
+        },
+        {
+          "label": "closed_loop",
+          "count": 3,
+          "share": 0.0195
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 3,
+          "share": 0.0195
+        },
+        {
+          "label": "high_frequency",
+          "count": 3,
+          "share": 0.0195
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 151,
+          "share": 0.9805
+        },
+        {
+          "label": "animal",
+          "count": 2,
+          "share": 0.013
+        },
+        {
+          "label": "adult",
+          "count": 1,
+          "share": 0.0065
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 6,
+          "share": 0.039
+        },
+        {
+          "label": "device_complication",
+          "count": 4,
+          "share": 0.026
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 1,
+          "share": 0.0065
+        },
+        {
+          "label": "suicidality",
+          "count": 1,
+          "share": 0.0065
+        }
+      ],
+      "example_titles": [
+        "Long-Term Outcomes of Subthalamic Nucleus and Globus Pallidus Interna Deep Brain Stimulation for Young-Onset Parkinson Disease.",
+        "Finely Tuned Gamma Oscillations in the Globus Pallidus Internus in Parkinson's Disease.",
+        "Comparative Analysis of Impulse Control Symptoms Among Individuals Receiving GPi-DBS or STN-DBS for Parkinson's Disease."
+      ]
+    },
+    {
+      "modality": "general_neuromodulation",
+      "target": "subthalamic_nucleus",
+      "invasiveness": "invasive_or_implanted",
+      "paper_count": 124,
+      "citation_sum": 1944,
+      "template_support_score": 620.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 104,
+          "share": 0.8387
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 5,
+          "share": 0.0403
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 4,
+          "share": 0.0323
+        },
+        {
+          "label": "systematic_review",
+          "count": 3,
+          "share": 0.0242
+        },
+        {
+          "label": "review",
+          "count": 2,
+          "share": 0.0161
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "closed_loop",
+          "count": 6,
+          "share": 0.0484
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 6,
+          "share": 0.0484
+        },
+        {
+          "label": "frequency_signal",
+          "count": 3,
+          "share": 0.0242
+        },
+        {
+          "label": "low_frequency",
+          "count": 2,
+          "share": 0.0161
+        },
+        {
+          "label": "amplitude_signal",
+          "count": 2,
+          "share": 0.0161
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 120,
+          "share": 0.9677
+        },
+        {
+          "label": "animal",
+          "count": 4,
+          "share": 0.0323
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 3,
+          "share": 0.0242
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 3,
+          "share": 0.0242
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.0081
+        },
+        {
+          "label": "mania_hypomania",
+          "count": 1,
+          "share": 0.0081
+        }
+      ],
+      "example_titles": [
+        "Subthalamic nucleus in patients with Parkinson's disease encodes changes and magnitude of applied force.",
+        "Low-frequency activity in the subthalamic nucleus informs about the acute neuropsychiatric state in Parkinson's disease.",
+        "Continuous subcutaneous levodopa infusion in advanced Parkinson's disease patients with subthalamic nucleus deep brain stimulation."
+      ]
+    },
+    {
+      "modality": "spinal_cord_stimulation",
+      "target": "spinal_cord",
+      "invasiveness": "invasive_or_implanted",
+      "paper_count": 112,
+      "citation_sum": 2402,
+      "template_support_score": 525.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 85,
+          "share": 0.7589
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 7,
+          "share": 0.0625
+        },
+        {
+          "label": "case_report",
+          "count": 6,
+          "share": 0.0536
+        },
+        {
+          "label": "systematic_review",
+          "count": 5,
+          "share": 0.0446
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 4,
+          "share": 0.0357
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "double_blind",
+          "count": 3,
+          "share": 0.0268
+        },
+        {
+          "label": "burst_pattern",
+          "count": 2,
+          "share": 0.0179
+        },
+        {
+          "label": "closed_loop",
+          "count": 1,
+          "share": 0.0089
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 1,
+          "share": 0.0089
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 104,
+          "share": 0.9286
+        },
+        {
+          "label": "animal",
+          "count": 8,
+          "share": 0.0714
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "skin_burn_irritation",
+          "count": 1,
+          "share": 0.0089
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.0089
+        }
+      ],
+      "example_titles": [
+        "Spinal cord stimulation therapy for gait impairment in Parkinson's disease: a double-blinded, randomised feasibility trial with an open extension.",
+        "On the nature and feasibility of unsupported Au\u22efPd metallophilic interactions: a correlated computational study.",
+        "Mid-long term efficacy of dihydroergotoxine mesylate in treatment of sialorrhea in Parkinson's disease."
+      ]
+    }
+  ],
+  "safety_signals": [
+    {
+      "signal": "cognitive_adverse_effect",
+      "count": 400,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "sleep_disturbance",
+      "count": 135,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "pain_or_discomfort",
+      "count": 87,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "device_complication",
+      "count": 87,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "metal_implant_caution",
+      "count": 82,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "older_adult_caution",
+      "count": 25,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "psychosis_caution",
+      "count": 24,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "suicidality",
+      "count": 18,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "mania_hypomania",
+      "count": 17,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "cardiac_risk",
+      "count": 13,
+      "signal_type": "safety"
+    }
+  ],
+  "contraindication_signals": [
+    {
+      "signal": "adverse_event",
+      "count": 93,
+      "signal_type": "contraindication"
+    },
+    {
+      "signal": "safety",
+      "count": 73,
+      "signal_type": "contraindication"
+    },
+    {
+      "signal": "feasibility",
+      "count": 45,
+      "signal_type": "contraindication"
+    },
+    {
+      "signal": "contraindication",
+      "count": 4,
+      "signal_type": "contraindication"
+    }
+  ],
+  "representative_papers": [
+    {
+      "paper_key": "doi|10.1038/nrdp.2017.13",
+      "title": "Parkinson disease.",
+      "year": 2017,
+      "journal": null,
+      "doi": "10.1038/nrdp.2017.13",
+      "pmid": "28332488",
+      "citation_count": 3340,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/28332488"
+    },
+    {
+      "paper_key": "doi|10.1056/nejmoa060281",
+      "title": "A randomized trial of deep-brain stimulation for Parkinson's disease.",
+      "year": 2006,
+      "journal": null,
+      "doi": "10.1056/nejmoa060281",
+      "pmid": "16943402",
+      "citation_count": 1876,
+      "evidence_tier": "moderate_high",
+      "study_type": "randomized_controlled_trial",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/16943402"
+    },
+    {
+      "paper_key": "doi|10.1001/jama.2019.22360",
+      "title": "Diagnosis and Treatment of Parkinson Disease: A Review.",
+      "year": 2020,
+      "journal": null,
+      "doi": "10.1001/jama.2019.22360",
+      "pmid": "32044947",
+      "citation_count": 1845,
+      "evidence_tier": "contextual",
+      "study_type": "review",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/32044947"
+    },
+    {
+      "paper_key": "doi|10.1126/science.1167093",
+      "title": "Optical deconstruction of parkinsonian neural circuitry.",
+      "year": 2009,
+      "journal": null,
+      "doi": "10.1126/science.1167093",
+      "pmid": "19299587",
+      "citation_count": 1124,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/19299587"
+    },
+    {
+      "paper_key": "doi|10.1016/s1474-4422(09)70068-7",
+      "title": "Non-motor symptoms of Parkinson's disease: dopaminergic pathophysiology and treatment.",
+      "year": 2009,
+      "journal": null,
+      "doi": "10.1016/s1474-4422(09)70068-7",
+      "pmid": "19375664",
+      "citation_count": 1097,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/19375664"
+    },
+    {
+      "paper_key": "doi|10.1016/j.tins.2007.05.004",
+      "title": "Pathological synchronization in Parkinson's disease: networks, models and treatments.",
+      "year": 2007,
+      "journal": null,
+      "doi": "10.1016/j.tins.2007.05.004",
+      "pmid": "17532060",
+      "citation_count": 1067,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/17532060"
+    },
+    {
+      "paper_key": "doi|10.1001/jama.2008.929",
+      "title": "Bilateral deep brain stimulation vs best medical therapy for patients with advanced Parkinson disease: a randomized controlled trial.",
+      "year": 2009,
+      "journal": null,
+      "doi": "10.1001/jama.2008.929",
+      "pmid": "19126811",
+      "citation_count": 1021,
+      "evidence_tier": "moderate_high",
+      "study_type": "randomized_controlled_trial",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation",
+        "general_neuromodulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/19126811"
+    },
+    {
+      "paper_key": "doi|10.1056/nejmoa000827",
+      "title": "Deep-brain stimulation of the subthalamic nucleus or the pars interna of the globus pallidus in Parkinson's disease.",
+      "year": 2001,
+      "journal": null,
+      "doi": "10.1056/nejmoa000827",
+      "pmid": "11575287",
+      "citation_count": 954,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation"
+      ],
+      "target_tags": [
+        "globus_pallidus",
+        "subthalamic_nucleus"
+      ],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/11575287"
+    },
+    {
+      "paper_key": "doi|10.1002/ana.23951",
+      "title": "Adaptive deep brain stimulation in advanced Parkinson disease.",
+      "year": 2013,
+      "journal": null,
+      "doi": "10.1002/ana.23951",
+      "pmid": "23852650",
+      "citation_count": 922,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation",
+        "general_neuromodulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [
+        "closed_loop_signal"
+      ],
+      "record_url": "https://europepmc.org/article/MED/23852650"
+    },
+    {
+      "paper_key": "doi|10.1056/nejmoa0907083",
+      "title": "Pallidal versus subthalamic deep-brain stimulation for Parkinson's disease.",
+      "year": 2010,
+      "journal": null,
+      "doi": "10.1056/nejmoa0907083",
+      "pmid": "20519680",
+      "citation_count": 857,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/20519680"
+    },
+    {
+      "paper_key": "doi|10.1016/s1474-4422(08)70291-6",
+      "title": "Deep brain stimulation of the subthalamic nucleus for the treatment of Parkinson's disease.",
+      "year": 2009,
+      "journal": null,
+      "doi": "10.1016/s1474-4422(08)70291-6",
+      "pmid": "19081516",
+      "citation_count": 835,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation"
+      ],
+      "target_tags": [
+        "subthalamic_nucleus"
+      ],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/19081516"
+    },
+    {
+      "paper_key": "doi|10.1126/science.1146157",
+      "title": "Hold your horses: impulsivity, deep brain stimulation, and medication in parkinsonism.",
+      "year": 2007,
+      "journal": null,
+      "doi": "10.1126/science.1146157",
+      "pmid": "17962524",
+      "citation_count": 775,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/17962524"
+    }
+  ],
+  "protocol_personalization_notes": [
+    "Use this file as a retrieval and ranking prior for protocol personalization, not as a stand-alone prescribing source.",
+    "Always resolve candidate protocols back to the authoritative condition package and device-specific governance before export.",
+    "Top literature-weighted modalities for this condition are deep_brain_stimulation, general_neuromodulation, transcranial_magnetic_stimulation.",
+    "Highest-support protocol cluster in the imported bundle is deep_brain_stimulation targeting unspecified_target.",
+    "Most frequent safety-monitoring signals in matched papers are cognitive_adverse_effect, sleep_disturbance, pain_or_discomfort."
+  ]
+}

@@ -1,0 +1,2260 @@
+{
+  "schema_version": "1.0.0",
+  "condition_slug": "ptsd",
+  "condition_name": "Post-Traumatic Stress Disorder (PTSD)",
+  "condition_package_slug": "ptsd",
+  "priority_rank": 2,
+  "indication_tags": [
+    "ptsd"
+  ],
+  "source_bundle_date": "2026-04-22",
+  "generated_at": "2026-04-22",
+  "source_assets": [
+    {
+      "file_name": "neuromodulation_ai_ingestion_dataset.csv",
+      "relative_path": "neuromodulation_ai_ingestion_dataset.csv",
+      "record_count": null,
+      "notes": "Primary paper-level AI ingestion corpus used for counts, modalities, targets, and representative papers."
+    },
+    {
+      "file_name": "neuromodulation_evidence_graph.csv",
+      "relative_path": "neuromodulation_evidence_graph.csv",
+      "record_count": null,
+      "notes": "Aggregated indication -> modality -> target evidence graph used for modality and target snapshots."
+    },
+    {
+      "file_name": "neuromodulation_protocol_template_candidates.csv",
+      "relative_path": "neuromodulation_protocol_template_candidates.csv",
+      "record_count": null,
+      "notes": "Protocol-cluster candidates ranked by support score."
+    },
+    {
+      "file_name": "neuromodulation_safety_contraindication_signals.csv",
+      "relative_path": "neuromodulation_safety_contraindication_signals.csv",
+      "record_count": null,
+      "notes": "Safety and contraindication heuristic extraction over the same corpus."
+    }
+  ],
+  "research_stats": {
+    "indication_tag": "ptsd",
+    "total_papers": 304,
+    "open_access_papers": 136,
+    "year_min": 1997,
+    "year_max": 2026,
+    "evidence_tiers": [
+      {
+        "label": "unspecified",
+        "count": 212,
+        "share": 0.6974
+      },
+      {
+        "label": "moderate_high",
+        "count": 21,
+        "share": 0.0691
+      },
+      {
+        "label": "high",
+        "count": 18,
+        "share": 0.0592
+      },
+      {
+        "label": "contextual",
+        "count": 18,
+        "share": 0.0592
+      },
+      {
+        "label": "preclinical",
+        "count": 15,
+        "share": 0.0493
+      },
+      {
+        "label": "moderate",
+        "count": 12,
+        "share": 0.0395
+      },
+      {
+        "label": "low",
+        "count": 8,
+        "share": 0.0263
+      }
+    ],
+    "study_types": [
+      {
+        "label": "other",
+        "count": 212,
+        "share": 0.6974
+      },
+      {
+        "label": "randomized_controlled_trial",
+        "count": 21,
+        "share": 0.0691
+      },
+      {
+        "label": "review",
+        "count": 18,
+        "share": 0.0592
+      },
+      {
+        "label": "animal_preclinical",
+        "count": 15,
+        "share": 0.0493
+      },
+      {
+        "label": "meta_analysis",
+        "count": 11,
+        "share": 0.0362
+      },
+      {
+        "label": "cohort_study",
+        "count": 9,
+        "share": 0.0296
+      },
+      {
+        "label": "case_report",
+        "count": 8,
+        "share": 0.0263
+      },
+      {
+        "label": "systematic_review",
+        "count": 7,
+        "share": 0.023
+      },
+      {
+        "label": "clinical_trial",
+        "count": 3,
+        "share": 0.0099
+      }
+    ],
+    "modalities": [
+      {
+        "label": "general_neuromodulation",
+        "count": 194,
+        "share": 0.6382
+      },
+      {
+        "label": "transcranial_magnetic_stimulation",
+        "count": 109,
+        "share": 0.3586
+      },
+      {
+        "label": "deep_brain_stimulation",
+        "count": 32,
+        "share": 0.1053
+      },
+      {
+        "label": "transcranial_direct_current_stimulation",
+        "count": 27,
+        "share": 0.0888
+      },
+      {
+        "label": "sacral_neuromodulation",
+        "count": 23,
+        "share": 0.0757
+      },
+      {
+        "label": "vagus_nerve_stimulation",
+        "count": 18,
+        "share": 0.0592
+      },
+      {
+        "label": "peripheral_nerve_stimulation",
+        "count": 6,
+        "share": 0.0197
+      },
+      {
+        "label": "transcranial_random_noise_stimulation",
+        "count": 6,
+        "share": 0.0197
+      },
+      {
+        "label": "spinal_cord_stimulation",
+        "count": 6,
+        "share": 0.0197
+      },
+      {
+        "label": "trigeminal_nerve_stimulation",
+        "count": 4,
+        "share": 0.0132
+      }
+    ],
+    "invasiveness": [
+      {
+        "label": "noninvasive",
+        "count": 115,
+        "share": 0.3783
+      },
+      {
+        "label": "unknown",
+        "count": 109,
+        "share": 0.3586
+      },
+      {
+        "label": "invasive_or_implanted",
+        "count": 66,
+        "share": 0.2171
+      },
+      {
+        "label": "mixed_or_device_dependent",
+        "count": 10,
+        "share": 0.0329
+      },
+      {
+        "label": "mixed",
+        "count": 4,
+        "share": 0.0132
+      }
+    ],
+    "targets": [
+      {
+        "label": "sacral_nerve",
+        "count": 23,
+        "share": 0.0757
+      },
+      {
+        "label": "vagus_nerve",
+        "count": 18,
+        "share": 0.0592
+      },
+      {
+        "label": "spinal_cord",
+        "count": 6,
+        "share": 0.0197
+      },
+      {
+        "label": "prefrontal_cortex",
+        "count": 6,
+        "share": 0.0197
+      },
+      {
+        "label": "trigeminal_nerve",
+        "count": 4,
+        "share": 0.0132
+      },
+      {
+        "label": "dlpfc",
+        "count": 3,
+        "share": 0.0099
+      },
+      {
+        "label": "hypoglossal_nerve",
+        "count": 1,
+        "share": 0.0033
+      },
+      {
+        "label": "m1_motor_cortex",
+        "count": 1,
+        "share": 0.0033
+      }
+    ],
+    "parameter_signals": [
+      {
+        "label": "frequency_signal",
+        "count": 6,
+        "share": 0.0197
+      },
+      {
+        "label": "targeting_signal",
+        "count": 5,
+        "share": 0.0164
+      },
+      {
+        "label": "closed_loop_signal",
+        "count": 2,
+        "share": 0.0066
+      },
+      {
+        "label": "amplitude_signal",
+        "count": 1,
+        "share": 0.0033
+      }
+    ],
+    "populations": [
+      {
+        "label": "animal",
+        "count": 15,
+        "share": 0.0493
+      },
+      {
+        "label": "pediatric",
+        "count": 8,
+        "share": 0.0263
+      },
+      {
+        "label": "older_adult",
+        "count": 2,
+        "share": 0.0066
+      },
+      {
+        "label": "pregnancy",
+        "count": 1,
+        "share": 0.0033
+      }
+    ]
+  },
+  "modality_evidence": [
+    {
+      "modality": "general_neuromodulation",
+      "paper_count": 197,
+      "citation_sum": 6110,
+      "evidence_weight_sum": 305.0,
+      "mean_citations_per_paper": 31.02,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 144,
+          "share": 0.731
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 11,
+          "share": 0.0558
+        },
+        {
+          "label": "review",
+          "count": 9,
+          "share": 0.0457
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 7,
+          "share": 0.0355
+        },
+        {
+          "label": "case_report",
+          "count": 5,
+          "share": 0.0254
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "targeting_signal",
+          "count": 4,
+          "share": 0.0203
+        },
+        {
+          "label": "double_blind",
+          "count": 4,
+          "share": 0.0203
+        },
+        {
+          "label": "closed_loop",
+          "count": 2,
+          "share": 0.0102
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 2,
+          "share": 0.0102
+        },
+        {
+          "label": "burst_pattern",
+          "count": 2,
+          "share": 0.0102
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 14,
+          "share": 0.0711
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 8,
+          "share": 0.0406
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 6,
+          "share": 0.0305
+        },
+        {
+          "label": "cardiac_risk",
+          "count": 3,
+          "share": 0.0152
+        },
+        {
+          "label": "pregnancy_caution",
+          "count": 1,
+          "share": 0.0051
+        }
+      ],
+      "open_access_count": 105,
+      "year_min": 1997,
+      "year_max": 2026
+    },
+    {
+      "modality": "transcranial_magnetic_stimulation",
+      "paper_count": 115,
+      "citation_sum": 1863,
+      "evidence_weight_sum": 231.0,
+      "mean_citations_per_paper": 16.2,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 62,
+          "share": 0.5391
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 14,
+          "share": 0.1217
+        },
+        {
+          "label": "review",
+          "count": 12,
+          "share": 0.1043
+        },
+        {
+          "label": "meta_analysis",
+          "count": 9,
+          "share": 0.0783
+        },
+        {
+          "label": "systematic_review",
+          "count": 4,
+          "share": 0.0348
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "burst_pattern",
+          "count": 8,
+          "share": 0.0696
+        },
+        {
+          "label": "frequency_signal",
+          "count": 6,
+          "share": 0.0522
+        },
+        {
+          "label": "high_frequency",
+          "count": 6,
+          "share": 0.0522
+        },
+        {
+          "label": "targeting_signal",
+          "count": 4,
+          "share": 0.0348
+        },
+        {
+          "label": "sham_controlled",
+          "count": 3,
+          "share": 0.0261
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 4,
+          "share": 0.0348
+        },
+        {
+          "label": "older_adult_caution",
+          "count": 2,
+          "share": 0.0174
+        },
+        {
+          "label": "suicidality",
+          "count": 2,
+          "share": 0.0174
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 1,
+          "share": 0.0087
+        },
+        {
+          "label": "pain_or_discomfort",
+          "count": 1,
+          "share": 0.0087
+        }
+      ],
+      "open_access_count": 38,
+      "year_min": 2005,
+      "year_max": 2026
+    },
+    {
+      "modality": "deep_brain_stimulation",
+      "paper_count": 34,
+      "citation_sum": 565,
+      "evidence_weight_sum": 44.0,
+      "mean_citations_per_paper": 16.62,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 23,
+          "share": 0.6765
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 6,
+          "share": 0.1765
+        },
+        {
+          "label": "review",
+          "count": 3,
+          "share": 0.0882
+        },
+        {
+          "label": "meta_analysis",
+          "count": 1,
+          "share": 0.0294
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.0294
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "frequency_signal",
+          "count": 1,
+          "share": 0.0294
+        },
+        {
+          "label": "high_frequency",
+          "count": 1,
+          "share": 0.0294
+        },
+        {
+          "label": "closed_loop",
+          "count": 1,
+          "share": 0.0294
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 1,
+          "share": 0.0294
+        },
+        {
+          "label": "double_blind",
+          "count": 1,
+          "share": 0.0294
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 1,
+          "share": 0.0294
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.0294
+        }
+      ],
+      "open_access_count": 11,
+      "year_min": 2010,
+      "year_max": 2026
+    },
+    {
+      "modality": "transcranial_direct_current_stimulation",
+      "paper_count": 30,
+      "citation_sum": 459,
+      "evidence_weight_sum": 67.0,
+      "mean_citations_per_paper": 15.3,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 17,
+          "share": 0.5667
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 3,
+          "share": 0.1
+        },
+        {
+          "label": "systematic_review",
+          "count": 3,
+          "share": 0.1
+        },
+        {
+          "label": "meta_analysis",
+          "count": 3,
+          "share": 0.1
+        },
+        {
+          "label": "clinical_trial",
+          "count": 2,
+          "share": 0.0667
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "double_blind",
+          "count": 2,
+          "share": 0.0667
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 2,
+          "share": 0.0667
+        },
+        {
+          "label": "pain_or_discomfort",
+          "count": 2,
+          "share": 0.0667
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 1,
+          "share": 0.0333
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.0333
+        }
+      ],
+      "open_access_count": 10,
+      "year_min": 2014,
+      "year_max": 2026
+    },
+    {
+      "modality": "sacral_neuromodulation",
+      "paper_count": 24,
+      "citation_sum": 1345,
+      "evidence_weight_sum": 31.0,
+      "mean_citations_per_paper": 56.04,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 21,
+          "share": 0.875
+        },
+        {
+          "label": "cohort_study",
+          "count": 1,
+          "share": 0.0417
+        },
+        {
+          "label": "review",
+          "count": 1,
+          "share": 0.0417
+        },
+        {
+          "label": "meta_analysis",
+          "count": 1,
+          "share": 0.0417
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "cardiac_risk",
+          "count": 3,
+          "share": 0.125
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 3,
+          "share": 0.125
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 2,
+          "share": 0.0833
+        },
+        {
+          "label": "skin_burn_irritation",
+          "count": 1,
+          "share": 0.0417
+        },
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 1,
+          "share": 0.0417
+        }
+      ],
+      "open_access_count": 4,
+      "year_min": 2006,
+      "year_max": 2025
+    },
+    {
+      "modality": "vagus_nerve_stimulation",
+      "paper_count": 22,
+      "citation_sum": 982,
+      "evidence_weight_sum": 34.0,
+      "mean_citations_per_paper": 44.64,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 15,
+          "share": 0.6818
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 3,
+          "share": 0.1364
+        },
+        {
+          "label": "meta_analysis",
+          "count": 2,
+          "share": 0.0909
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.0455
+        },
+        {
+          "label": "review",
+          "count": 1,
+          "share": 0.0455
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "double_blind",
+          "count": 1,
+          "share": 0.0455
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 2,
+          "share": 0.0909
+        },
+        {
+          "label": "seizure_risk",
+          "count": 2,
+          "share": 0.0909
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 1,
+          "share": 0.0455
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.0455
+        }
+      ],
+      "open_access_count": 7,
+      "year_min": 2012,
+      "year_max": 2026
+    },
+    {
+      "modality": "peripheral_nerve_stimulation",
+      "paper_count": 7,
+      "citation_sum": 634,
+      "evidence_weight_sum": 7.0,
+      "mean_citations_per_paper": 90.57,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 7,
+          "share": 1.0
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "seizure_risk",
+          "count": 2,
+          "share": 0.2857
+        },
+        {
+          "label": "cardiac_risk",
+          "count": 1,
+          "share": 0.1429
+        }
+      ],
+      "open_access_count": 1,
+      "year_min": 2012,
+      "year_max": 2026
+    },
+    {
+      "modality": "trigeminal_nerve_stimulation",
+      "paper_count": 7,
+      "citation_sum": 170,
+      "evidence_weight_sum": 15.0,
+      "mean_citations_per_paper": 24.29,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 5,
+          "share": 0.7143
+        },
+        {
+          "label": "meta_analysis",
+          "count": 2,
+          "share": 0.2857
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_safety_tags": [],
+      "open_access_count": 0,
+      "year_min": 2015,
+      "year_max": 2024
+    }
+  ],
+  "target_evidence": [
+    {
+      "modality": "general_neuromodulation",
+      "target": "sacral_nerve",
+      "paper_count": 23,
+      "citation_sum": 1076,
+      "template_support_score": 30.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 20,
+          "share": 0.8696
+        },
+        {
+          "label": "cohort_study",
+          "count": 1,
+          "share": 0.0435
+        },
+        {
+          "label": "review",
+          "count": 1,
+          "share": 0.0435
+        },
+        {
+          "label": "meta_analysis",
+          "count": 1,
+          "share": 0.0435
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "cardiac_risk",
+          "count": 3,
+          "share": 0.1304
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 3,
+          "share": 0.1304
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 2,
+          "share": 0.087
+        },
+        {
+          "label": "skin_burn_irritation",
+          "count": 1,
+          "share": 0.0435
+        },
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 1,
+          "share": 0.0435
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "sacral_neuromodulation",
+      "target": "sacral_nerve",
+      "paper_count": 23,
+      "citation_sum": 1076,
+      "template_support_score": 30.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 20,
+          "share": 0.8696
+        },
+        {
+          "label": "cohort_study",
+          "count": 1,
+          "share": 0.0435
+        },
+        {
+          "label": "review",
+          "count": 1,
+          "share": 0.0435
+        },
+        {
+          "label": "meta_analysis",
+          "count": 1,
+          "share": 0.0435
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "cardiac_risk",
+          "count": 3,
+          "share": 0.1304
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 3,
+          "share": 0.1304
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 2,
+          "share": 0.087
+        },
+        {
+          "label": "skin_burn_irritation",
+          "count": 1,
+          "share": 0.0435
+        },
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 1,
+          "share": 0.0435
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "vagus_nerve_stimulation",
+      "target": "vagus_nerve",
+      "paper_count": 18,
+      "citation_sum": 633,
+      "template_support_score": 26.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 12,
+          "share": 0.6667
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 3,
+          "share": 0.1667
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.0556
+        },
+        {
+          "label": "meta_analysis",
+          "count": 1,
+          "share": 0.0556
+        },
+        {
+          "label": "review",
+          "count": 1,
+          "share": 0.0556
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "double_blind",
+          "count": 1,
+          "share": 0.0556
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 2,
+          "share": 0.1111
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 1,
+          "share": 0.0556
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.0556
+        },
+        {
+          "label": "seizure_risk",
+          "count": 1,
+          "share": 0.0556
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "general_neuromodulation",
+      "target": "vagus_nerve",
+      "paper_count": 8,
+      "citation_sum": 424,
+      "template_support_score": 15.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 6,
+          "share": 0.75
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.125
+        },
+        {
+          "label": "meta_analysis",
+          "count": 1,
+          "share": 0.125
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "double_blind",
+          "count": 1,
+          "share": 0.125
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 1,
+          "share": 0.125
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.125
+        },
+        {
+          "label": "seizure_risk",
+          "count": 1,
+          "share": 0.125
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "spinal_cord_stimulation",
+      "target": "spinal_cord",
+      "paper_count": 6,
+      "citation_sum": 57,
+      "template_support_score": 8.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 5,
+          "share": 0.8333
+        },
+        {
+          "label": "cohort_study",
+          "count": 1,
+          "share": 0.1667
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "pediatric_caution",
+          "count": 1,
+          "share": 0.1667
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "transcranial_magnetic_stimulation",
+      "target": "vagus_nerve",
+      "paper_count": 5,
+      "citation_sum": 149,
+      "template_support_score": 10.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 3,
+          "share": 0.6
+        },
+        {
+          "label": "meta_analysis",
+          "count": 1,
+          "share": 0.2
+        },
+        {
+          "label": "review",
+          "count": 1,
+          "share": 0.2
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.2
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "transcranial_direct_current_stimulation",
+      "target": "vagus_nerve",
+      "paper_count": 4,
+      "citation_sum": 149,
+      "template_support_score": 8.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 3,
+          "share": 0.75
+        },
+        {
+          "label": "meta_analysis",
+          "count": 1,
+          "share": 0.25
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.25
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "deep_brain_stimulation",
+      "target": "vagus_nerve",
+      "paper_count": 4,
+      "citation_sum": 146,
+      "template_support_score": 5.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 3,
+          "share": 0.75
+        },
+        {
+          "label": "review",
+          "count": 1,
+          "share": 0.25
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.25
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "transcranial_magnetic_stimulation",
+      "target": "prefrontal_cortex",
+      "paper_count": 4,
+      "citation_sum": 94,
+      "template_support_score": 10.0,
+      "top_study_types": [
+        {
+          "label": "randomized_controlled_trial",
+          "count": 2,
+          "share": 0.5
+        },
+        {
+          "label": "case_report",
+          "count": 1,
+          "share": 0.25
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 1,
+          "share": 0.25
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "burst_pattern",
+          "count": 1,
+          "share": 0.25
+        },
+        {
+          "label": "frequency_signal",
+          "count": 1,
+          "share": 0.25
+        },
+        {
+          "label": "high_frequency",
+          "count": 1,
+          "share": 0.25
+        },
+        {
+          "label": "low_frequency",
+          "count": 1,
+          "share": 0.25
+        },
+        {
+          "label": "sham_controlled",
+          "count": 1,
+          "share": 0.25
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [],
+      "example_titles": []
+    },
+    {
+      "modality": "trigeminal_nerve_stimulation",
+      "target": "trigeminal_nerve",
+      "paper_count": 4,
+      "citation_sum": 90,
+      "template_support_score": 8.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 3,
+          "share": 0.75
+        },
+        {
+          "label": "meta_analysis",
+          "count": 1,
+          "share": 0.25
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_population_tags": [],
+      "top_safety_tags": [],
+      "example_titles": []
+    }
+  ],
+  "protocol_candidates": [
+    {
+      "modality": "transcranial_magnetic_stimulation",
+      "target": "unspecified_target",
+      "invasiveness": "noninvasive",
+      "paper_count": 69,
+      "citation_sum": 1269,
+      "template_support_score": 444.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 40,
+          "share": 0.5797
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 9,
+          "share": 0.1304
+        },
+        {
+          "label": "meta_analysis",
+          "count": 6,
+          "share": 0.087
+        },
+        {
+          "label": "review",
+          "count": 5,
+          "share": 0.0725
+        },
+        {
+          "label": "clinical_trial",
+          "count": 3,
+          "share": 0.0435
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "burst_pattern",
+          "count": 5,
+          "share": 0.0725
+        },
+        {
+          "label": "targeting_signal",
+          "count": 4,
+          "share": 0.058
+        },
+        {
+          "label": "frequency_signal",
+          "count": 2,
+          "share": 0.029
+        },
+        {
+          "label": "high_frequency",
+          "count": 2,
+          "share": 0.029
+        },
+        {
+          "label": "sham_controlled",
+          "count": 1,
+          "share": 0.0145
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 67,
+          "share": 0.971
+        },
+        {
+          "label": "older_adult",
+          "count": 2,
+          "share": 0.029
+        },
+        {
+          "label": "pediatric",
+          "count": 1,
+          "share": 0.0145
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 3,
+          "share": 0.0435
+        },
+        {
+          "label": "older_adult_caution",
+          "count": 2,
+          "share": 0.029
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 1,
+          "share": 0.0145
+        },
+        {
+          "label": "mania_hypomania",
+          "count": 1,
+          "share": 0.0145
+        }
+      ],
+      "example_titles": [
+        "The Association of Childhood Adversity and Post-Traumatic Stress Symptoms with Cognition in Older Adults: A Cross-Sectional Study.",
+        "Residential Therapy With Navigated Transcranial Magnetic Stimulation for Combat-Related PTSD: A Randomized Clinical Trial.",
+        "Personalized fMRI-Guided TMS Targeting the Threat Neurocircuitry in PTSD: A Randomized Clinical Trial."
+      ]
+    },
+    {
+      "modality": "general_neuromodulation",
+      "target": "unspecified_target",
+      "invasiveness": "unknown",
+      "paper_count": 92,
+      "citation_sum": 3012,
+      "template_support_score": 357.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 75,
+          "share": 0.8152
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 3,
+          "share": 0.0326
+        },
+        {
+          "label": "review",
+          "count": 3,
+          "share": 0.0326
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 3,
+          "share": 0.0326
+        },
+        {
+          "label": "case_report",
+          "count": 2,
+          "share": 0.0217
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "double_blind",
+          "count": 2,
+          "share": 0.0217
+        },
+        {
+          "label": "targeting_signal",
+          "count": 1,
+          "share": 0.0109
+        },
+        {
+          "label": "closed_loop",
+          "count": 1,
+          "share": 0.0109
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 1,
+          "share": 0.0109
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 85,
+          "share": 0.9239
+        },
+        {
+          "label": "pediatric",
+          "count": 4,
+          "share": 0.0435
+        },
+        {
+          "label": "animal",
+          "count": 3,
+          "share": 0.0326
+        },
+        {
+          "label": "pregnancy",
+          "count": 1,
+          "share": 0.0109
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 8,
+          "share": 0.087
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 4,
+          "share": 0.0435
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 4,
+          "share": 0.0435
+        },
+        {
+          "label": "pregnancy_caution",
+          "count": 1,
+          "share": 0.0109
+        },
+        {
+          "label": "psychosis_caution",
+          "count": 1,
+          "share": 0.0109
+        }
+      ],
+      "example_titles": [
+        "Unraveling Complex Interactions Mechanisms Linking PTSD and Chronic Diseases.",
+        "Real-Time EEG-Derived Amygdala Neurofeedback for Post-Traumatic Stress Disorder: A Clinical Case Series.",
+        "Post-traumatic stress disorder: pathogenesis, epidemiological characteristics, animal models, and potential therapeutic strategies."
+      ]
+    },
+    {
+      "modality": "general_neuromodulation",
+      "target": "unspecified_target",
+      "invasiveness": "noninvasive",
+      "paper_count": 30,
+      "citation_sum": 463,
+      "template_support_score": 207.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 15,
+          "share": 0.5
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 5,
+          "share": 0.1667
+        },
+        {
+          "label": "clinical_trial",
+          "count": 3,
+          "share": 0.1
+        },
+        {
+          "label": "meta_analysis",
+          "count": 2,
+          "share": 0.0667
+        },
+        {
+          "label": "systematic_review",
+          "count": 2,
+          "share": 0.0667
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "targeting_signal",
+          "count": 3,
+          "share": 0.1
+        },
+        {
+          "label": "burst_pattern",
+          "count": 2,
+          "share": 0.0667
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 29,
+          "share": 0.9667
+        },
+        {
+          "label": "older_adult",
+          "count": 1,
+          "share": 0.0333
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 3,
+          "share": 0.1
+        },
+        {
+          "label": "older_adult_caution",
+          "count": 1,
+          "share": 0.0333
+        }
+      ],
+      "example_titles": [
+        "Residential Therapy With Navigated Transcranial Magnetic Stimulation for Combat-Related PTSD: A Randomized Clinical Trial.",
+        "Personalized fMRI-Guided TMS Targeting the Threat Neurocircuitry in PTSD: A Randomized Clinical Trial.",
+        "Efficacy of transcranial magnetic stimulation in the treatment of combat-related PTSD: a systematic review and meta-analysis."
+      ]
+    },
+    {
+      "modality": "deep_brain_stimulation",
+      "target": "unspecified_target",
+      "invasiveness": "invasive_or_implanted",
+      "paper_count": 24,
+      "citation_sum": 272,
+      "template_support_score": 109.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 17,
+          "share": 0.7083
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 5,
+          "share": 0.2083
+        },
+        {
+          "label": "review",
+          "count": 1,
+          "share": 0.0417
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.0417
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "frequency_signal",
+          "count": 1,
+          "share": 0.0417
+        },
+        {
+          "label": "high_frequency",
+          "count": 1,
+          "share": 0.0417
+        },
+        {
+          "label": "double_blind",
+          "count": 1,
+          "share": 0.0417
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 19,
+          "share": 0.7917
+        },
+        {
+          "label": "animal",
+          "count": 5,
+          "share": 0.2083
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 1,
+          "share": 0.0417
+        }
+      ],
+      "example_titles": [
+        "Long-term outcome of subgenual cingulum and uncinate fasciculus deep brain stimulation for the treatment of post-traumatic stress disorder.",
+        "Beyond symptom scales: Patient-centered insights into deep brain stimulation outcomes in treatment-refractory post-traumatic stress disorder.",
+        "Neuromodulation as a therapeutic approach for post-traumatic stress disorder: the evidence to date."
+      ]
+    },
+    {
+      "modality": "general_neuromodulation",
+      "target": "sacral_nerve",
+      "invasiveness": "invasive_or_implanted",
+      "paper_count": 22,
+      "citation_sum": 807,
+      "template_support_score": 107.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 19,
+          "share": 0.8636
+        },
+        {
+          "label": "cohort_study",
+          "count": 1,
+          "share": 0.0455
+        },
+        {
+          "label": "review",
+          "count": 1,
+          "share": 0.0455
+        },
+        {
+          "label": "meta_analysis",
+          "count": 1,
+          "share": 0.0455
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 20,
+          "share": 0.9091
+        },
+        {
+          "label": "pediatric",
+          "count": 2,
+          "share": 0.0909
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cardiac_risk",
+          "count": 3,
+          "share": 0.1364
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 3,
+          "share": 0.1364
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 2,
+          "share": 0.0909
+        },
+        {
+          "label": "skin_burn_irritation",
+          "count": 1,
+          "share": 0.0455
+        },
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 1,
+          "share": 0.0455
+        }
+      ],
+      "example_titles": [
+        "Heart rate and heart rate variability responses of horses to different ground activities with veterans with post-traumatic stress disorder",
+        "Prospective Measurement of Skin Conductance Response during Trauma Interview Predicts Future PTSD Severity in Trauma Exposed Children.",
+        "Impedance cardiogram based exploration of cardiac mechanisms in post-traumatic stress disorder during trauma recall."
+      ]
+    },
+    {
+      "modality": "sacral_neuromodulation",
+      "target": "sacral_nerve",
+      "invasiveness": "invasive_or_implanted",
+      "paper_count": 22,
+      "citation_sum": 807,
+      "template_support_score": 107.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 19,
+          "share": 0.8636
+        },
+        {
+          "label": "cohort_study",
+          "count": 1,
+          "share": 0.0455
+        },
+        {
+          "label": "review",
+          "count": 1,
+          "share": 0.0455
+        },
+        {
+          "label": "meta_analysis",
+          "count": 1,
+          "share": 0.0455
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 20,
+          "share": 0.9091
+        },
+        {
+          "label": "pediatric",
+          "count": 2,
+          "share": 0.0909
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cardiac_risk",
+          "count": 3,
+          "share": 0.1364
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 3,
+          "share": 0.1364
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 2,
+          "share": 0.0909
+        },
+        {
+          "label": "skin_burn_irritation",
+          "count": 1,
+          "share": 0.0455
+        },
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 1,
+          "share": 0.0455
+        }
+      ],
+      "example_titles": [
+        "Heart rate and heart rate variability responses of horses to different ground activities with veterans with post-traumatic stress disorder",
+        "Prospective Measurement of Skin Conductance Response during Trauma Interview Predicts Future PTSD Severity in Trauma Exposed Children.",
+        "Impedance cardiogram based exploration of cardiac mechanisms in post-traumatic stress disorder during trauma recall."
+      ]
+    },
+    {
+      "modality": "transcranial_direct_current_stimulation",
+      "target": "unspecified_target",
+      "invasiveness": "noninvasive",
+      "paper_count": 12,
+      "citation_sum": 116,
+      "template_support_score": 88.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 6,
+          "share": 0.5
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 2,
+          "share": 0.1667
+        },
+        {
+          "label": "systematic_review",
+          "count": 2,
+          "share": 0.1667
+        },
+        {
+          "label": "clinical_trial",
+          "count": 2,
+          "share": 0.1667
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "double_blind",
+          "count": 2,
+          "share": 0.1667
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 12,
+          "share": 1.0
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 2,
+          "share": 0.1667
+        }
+      ],
+      "example_titles": [
+        "Effectiveness of transcranial direct current stimulation (tDCS) on attention and memory biases in individuals with post-traumatic stress disorder (PTSD): a randomized, single-blind, parallel-group study.",
+        "Pathway to response: Associations between individual electrical fields and psychophysiological habituation to predict clinical outcomes to transcranial direct current stimulation combined with virtual reality for PTSD.",
+        "Interventional Psychiatry and Emerging Treatments for Posttraumatic Stress Disorder (PTSD): A Systematic Review."
+      ]
+    },
+    {
+      "modality": "general_neuromodulation",
+      "target": "unspecified_target",
+      "invasiveness": "invasive_or_implanted",
+      "paper_count": 13,
+      "citation_sum": 139,
+      "template_support_score": 59.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 10,
+          "share": 0.7692
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 2,
+          "share": 0.1538
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.0769
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "double_blind",
+          "count": 1,
+          "share": 0.0769
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 11,
+          "share": 0.8462
+        },
+        {
+          "label": "animal",
+          "count": 2,
+          "share": 0.1538
+        }
+      ],
+      "top_safety_tags": [],
+      "example_titles": [
+        "Long-term outcome of subgenual cingulum and uncinate fasciculus deep brain stimulation for the treatment of post-traumatic stress disorder.",
+        "Beyond symptom scales: Patient-centered insights into deep brain stimulation outcomes in treatment-refractory post-traumatic stress disorder.",
+        "Neuromodulation as a therapeutic approach for post-traumatic stress disorder: the evidence to date."
+      ]
+    },
+    {
+      "modality": "vagus_nerve_stimulation",
+      "target": "vagus_nerve",
+      "invasiveness": "mixed_or_device_dependent",
+      "paper_count": 9,
+      "citation_sum": 210,
+      "template_support_score": 45.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 6,
+          "share": 0.6667
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 2,
+          "share": 0.2222
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.1111
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "double_blind",
+          "count": 1,
+          "share": 0.1111
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 7,
+          "share": 0.7778
+        },
+        {
+          "label": "animal",
+          "count": 2,
+          "share": 0.2222
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "sleep_disturbance",
+          "count": 1,
+          "share": 0.1111
+        },
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 1,
+          "share": 0.1111
+        }
+      ],
+      "example_titles": [
+        "Vagus nerve stimulation therapy for treatment-resistant PTSD.",
+        "Transauricular vagus nerve stimulation in preventing post-traumatic stress disorder in emergency trauma surgery patients in China: a study protocol for a multicenter, double-blind, randomised, controlled trial.",
+        "Preliminary evidence of transcutaneous vagus nerve stimulation effects on sleep in veterans with post-traumatic stress disorder."
+      ]
+    },
+    {
+      "modality": "transcranial_random_noise_stimulation",
+      "target": "unspecified_target",
+      "invasiveness": "noninvasive",
+      "paper_count": 6,
+      "citation_sum": 10,
+      "template_support_score": 28.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 5,
+          "share": 0.8333
+        },
+        {
+          "label": "cohort_study",
+          "count": 1,
+          "share": 0.1667
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 6,
+          "share": 1.0
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "sleep_disturbance",
+          "count": 2,
+          "share": 0.3333
+        }
+      ],
+      "example_titles": [
+        "Physiological markers of Trauma-related nightmares among military personnel suffering from PTSD: A multicenter home-recording study.",
+        "Management of trauma-related nightmares in PTSD: Can doxazosin serve as a pragmatic alternative to prazosin?",
+        "PTSD Symptom Severity Associated With Sleep Disturbances in Military Personnel: Evidence From a Prospective Controlled Study With Ecological Recordings."
+      ]
+    }
+  ],
+  "safety_signals": [
+    {
+      "signal": "cognitive_adverse_effect",
+      "count": 19,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "sleep_disturbance",
+      "count": 13,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "pediatric_caution",
+      "count": 8,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "pain_or_discomfort",
+      "count": 4,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "cardiac_risk",
+      "count": 3,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "older_adult_caution",
+      "count": 2,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "suicidality",
+      "count": 2,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "skin_burn_irritation",
+      "count": 1,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "pregnancy_caution",
+      "count": 1,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "metal_implant_caution",
+      "count": 1,
+      "signal_type": "safety"
+    }
+  ],
+  "contraindication_signals": [
+    {
+      "signal": "safety",
+      "count": 1,
+      "signal_type": "contraindication"
+    },
+    {
+      "signal": "feasibility",
+      "count": 1,
+      "signal_type": "contraindication"
+    }
+  ],
+  "representative_papers": [
+    {
+      "paper_key": "doi|10.1038/nrn3339",
+      "title": "Biological studies of post-traumatic stress disorder.",
+      "year": 2012,
+      "journal": null,
+      "doi": "10.1038/nrn3339",
+      "pmid": "23047775",
+      "citation_count": 1040,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "general_neuromodulation",
+      "canonical_modalities": [
+        "general_neuromodulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/23047775"
+    },
+    {
+      "paper_key": "doi|10.1038/s41467-019-12576-w",
+      "title": "International meta-analysis of PTSD genome-wide association studies identifies sex- and ancestry-specific genetic risk loci.",
+      "year": 2019,
+      "journal": null,
+      "doi": "10.1038/s41467-019-12576-w",
+      "pmid": "31594949",
+      "citation_count": 500,
+      "evidence_tier": "high",
+      "study_type": "meta_analysis",
+      "primary_modality": "general_neuromodulation",
+      "canonical_modalities": [
+        "general_neuromodulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/31594949"
+    },
+    {
+      "paper_key": "doi|10.1016/j.nlm.2013.11.014",
+      "title": "From Pavlov to PTSD: the extinction of conditioned fear in rodents, humans, and anxiety disorders.",
+      "year": 2014,
+      "journal": null,
+      "doi": "10.1016/j.nlm.2013.11.014",
+      "pmid": "24321650",
+      "citation_count": 338,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "general_neuromodulation",
+      "canonical_modalities": [
+        "general_neuromodulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/24321650"
+    },
+    {
+      "paper_key": "doi|10.1016/j.mehy.2012.01.021",
+      "title": "Effects of yoga on the autonomic nervous system, gamma-aminobutyric-acid, and allostasis in epilepsy, depression, and post-traumatic stress disorder.",
+      "year": 2012,
+      "journal": null,
+      "doi": "10.1016/j.mehy.2012.01.021",
+      "pmid": "22365651",
+      "citation_count": 269,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "general_neuromodulation",
+      "canonical_modalities": [
+        "general_neuromodulation",
+        "peripheral_nerve_stimulation",
+        "sacral_neuromodulation",
+        "vagus_nerve_stimulation"
+      ],
+      "target_tags": [
+        "sacral_nerve",
+        "vagus_nerve"
+      ],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/22365651"
+    },
+    {
+      "paper_key": "doi|10.1038/s41386-021-01155-7",
+      "title": "Prefrontal cortex, amygdala, and threat processing: implications for PTSD.",
+      "year": 2022,
+      "journal": null,
+      "doi": "10.1038/s41386-021-01155-7",
+      "pmid": "34545196",
+      "citation_count": 219,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "general_neuromodulation",
+      "canonical_modalities": [
+        "general_neuromodulation"
+      ],
+      "target_tags": [
+        "prefrontal_cortex"
+      ],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/34545196"
+    },
+    {
+      "paper_key": "doi|10.1016/j.brs.2012.07.008",
+      "title": "Effectiveness of deep transcranial magnetic stimulation combined with a brief exposure procedure in post-traumatic stress disorder--a pilot study.",
+      "year": 2013,
+      "journal": null,
+      "doi": "10.1016/j.brs.2012.07.008",
+      "pmid": "22921765",
+      "citation_count": 180,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "transcranial_magnetic_stimulation",
+      "canonical_modalities": [
+        "transcranial_magnetic_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/22921765"
+    },
+    {
+      "paper_key": "doi|10.1038/s41588-024-01707-9",
+      "title": "Genome-wide association analyses identify 95 risk loci and provide insights into the neurobiology of post-traumatic stress disorder.",
+      "year": 2024,
+      "journal": null,
+      "doi": "10.1038/s41588-024-01707-9",
+      "pmid": "38637617",
+      "citation_count": 135,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "general_neuromodulation",
+      "canonical_modalities": [
+        "general_neuromodulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/38637617"
+    },
+    {
+      "paper_key": "doi|10.1176/appi.ajp.2017.16091072",
+      "title": "PTSD Psychotherapy Outcome Predicted by Brain Activation During Emotional Reactivity and Regulation.",
+      "year": 2017,
+      "journal": null,
+      "doi": "10.1176/appi.ajp.2017.16091072",
+      "pmid": "28715908",
+      "citation_count": 118,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "general_neuromodulation",
+      "canonical_modalities": [
+        "general_neuromodulation",
+        "transcranial_magnetic_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/28715908"
+    },
+    {
+      "paper_key": "doi|10.1016/j.janxdis.2008.03.015",
+      "title": "Repetitive TMS combined with exposure therapy for PTSD: a preliminary study.",
+      "year": 2009,
+      "journal": null,
+      "doi": "10.1016/j.janxdis.2008.03.015",
+      "pmid": "18455908",
+      "citation_count": 106,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "transcranial_magnetic_stimulation",
+      "canonical_modalities": [
+        "transcranial_magnetic_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/18455908"
+    },
+    {
+      "paper_key": "doi|10.3233/dma-2011-0768",
+      "title": "Transcriptional control of monocyte gene expression in post-traumatic stress disorder.",
+      "year": 2011,
+      "journal": null,
+      "doi": "10.3233/dma-2011-0768",
+      "pmid": "21508516",
+      "citation_count": 104,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "general_neuromodulation",
+      "canonical_modalities": [
+        "general_neuromodulation",
+        "sacral_neuromodulation"
+      ],
+      "target_tags": [
+        "sacral_nerve"
+      ],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/21508516"
+    },
+    {
+      "paper_key": "doi|10.1016/j.jad.2017.12.046",
+      "title": "Repetitive TMS to augment cognitive processing therapy in combat veterans of recent conflicts with PTSD: A randomized clinical trial.",
+      "year": 2018,
+      "journal": null,
+      "doi": "10.1016/j.jad.2017.12.046",
+      "pmid": "29351885",
+      "citation_count": 103,
+      "evidence_tier": "moderate_high",
+      "study_type": "randomized_controlled_trial",
+      "primary_modality": "transcranial_magnetic_stimulation",
+      "canonical_modalities": [
+        "transcranial_magnetic_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/29351885"
+    },
+    {
+      "paper_key": "doi|10.1016/j.cpr.2016.09.001",
+      "title": "Cortisol, heart rate, and blood pressure as early markers of PTSD risk: A systematic review and meta-analysis.",
+      "year": 2016,
+      "journal": null,
+      "doi": "10.1016/j.cpr.2016.09.001",
+      "pmid": "27623149",
+      "citation_count": 102,
+      "evidence_tier": "high",
+      "study_type": "meta_analysis",
+      "primary_modality": "general_neuromodulation",
+      "canonical_modalities": [
+        "general_neuromodulation",
+        "sacral_neuromodulation"
+      ],
+      "target_tags": [
+        "sacral_nerve"
+      ],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/27623149"
+    }
+  ],
+  "protocol_personalization_notes": [
+    "Use this file as a retrieval and ranking prior for protocol personalization, not as a stand-alone prescribing source.",
+    "Always resolve candidate protocols back to the authoritative condition package and device-specific governance before export.",
+    "Top literature-weighted modalities for this condition are general_neuromodulation, transcranial_magnetic_stimulation, deep_brain_stimulation.",
+    "Highest-support protocol cluster in the imported bundle is transcranial_magnetic_stimulation targeting unspecified_target.",
+    "Most frequent safety-monitoring signals in matched papers are cognitive_adverse_effect, sleep_disturbance, pediatric_caution."
+  ]
+}

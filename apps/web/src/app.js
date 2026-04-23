@@ -984,10 +984,11 @@ async function renderPatientPage() {
     case 'patient-homework':    await m.pgPatientHomework();              break;
     case 'patient-assessments': await m.pgPatientAssessments();           break;
     case 'patient-reports':     await m.pgPatientReports();               break;
-    // Removed routes: patient-messages, patient-wearables, pt-wellness
-    // (Tasks), and pt-home-device. These pages are no longer surfaced in
-    // the patient portal UI; old URLs fall through to the home dashboard
-    // via the default case below.
+    case 'patient-messages':   await m.pgPatientMessages();               break;
+    case 'patient-wearables':  await m.pgPatientWearables();               break;
+    case 'pt-wellness':        await m.pgPatientWellness();                break;
+    case 'pt-sessions':        await m.pgPatientSessions();                break;
+    case 'pt-assessments':     await m.pgPatientAssessments();             break;
     case 'patient-virtualcare': await m.pgPatientVirtualCare();           break;
     case 'virtualcare':         await m.pgPatientVirtualCare();           break;
     case 'patient-careteam':    await m.pgPatientCareTeam();              break;
@@ -1014,7 +1015,7 @@ async function renderPatientPage() {
 }
 
 function navigatePatient(id) {
-  const normalizedId = id === 'patient-wearables' ? 'patient-home-devices' : id;
+  const normalizedId = id === 'patient-wearables' ? 'patient-wearables' : id;
   currentPatientPage = normalizedId;
   window._currentPatientPage = normalizedId; // expose for swipe gesture handlers
   renderPatientPage();

@@ -94,8 +94,8 @@ def _audit(event: str, actor: AuthenticatedActor, **extra) -> None:
 
 def _evidence_db_path() -> Optional[str]:
     override = os.environ.get("EVIDENCE_DB_PATH")
-    if override and os.path.exists(override):
-        return override
+    if override:
+        return override if os.path.exists(override) else None
     here = Path(__file__).resolve()
     guess = here.parents[4] / "services" / "evidence-pipeline" / "evidence.db"
     if guess.exists():

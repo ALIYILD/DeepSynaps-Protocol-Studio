@@ -44,3 +44,9 @@ design-v2-prototype.html
 
 # Local Netlify folder
 .netlify
+
+# Generated research/export artifacts
+apps/api/data/exports/
+data/imports/neuromodulation-research/
+data/research/neuromodulation/raw/
+data/research/neuromodulation/derived/*.csv

@@ -1,0 +1,111 @@
+{
+  "bundle_name": "neuromodulation_research_bundle_2026-04-22",
+  "generated_at": "2026-04-22T13:58:34Z",
+  "source_bundle": "/Users/aliyildirim/Desktop/neuromodulation_research_bundle_2026-04-22",
+  "assets": [
+    {
+      "asset_key": "neuromodulation_papers_europepmc",
+      "relative_path": "raw/neuromodulation_papers_europepmc.csv",
+      "sha256": "03c7f1a2d2b1c4a96687472b0a8540634e3226051227b30c4bd9e3946661c343",
+      "bytes": 18738119,
+      "row_count": 56331,
+      "kind": "raw"
+    },
+    {
+      "asset_key": "neuromodulation_papers_modalities_europepmc",
+      "relative_path": "raw/neuromodulation_papers_modalities_europepmc.csv",
+      "sha256": "faac41dca54561efa8af414253af91956d52685ba0bb03258f36872926df9512",
+      "bytes": 62157499,
+      "row_count": 157979,
+      "kind": "raw"
+    },
+    {
+      "asset_key": "neuromodulation_all_papers_master",
+      "relative_path": "raw/neuromodulation_all_papers_master.csv",
+      "sha256": "9d7244b252be5acaccd9063488bf73fcbc1f07ddc80642a49c7c6dcb87b9371f",
+      "bytes": 80983840,
+      "row_count": 184670,
+      "kind": "raw"
+    },
+    {
+      "asset_key": "neuromodulation_ai_ingestion_dataset",
+      "relative_path": "derived/neuromodulation_ai_ingestion_dataset.csv",
+      "sha256": "e498c63118e0475725ee8e506ede974afde0aeabd8d243ad42948d02941278c5",
+      "bytes": 157991349,
+      "row_count": 184670,
+      "kind": "derived"
+    },
+    {
+      "asset_key": "neuromodulation_evidence_graph",
+      "relative_path": "derived/neuromodulation_evidence_graph.csv",
+      "sha256": "7acf7a57bb8263221cb11fcb9f2d140a4d570c2ba69164c27ae39c9d8ca741fa",
+      "bytes": 235857,
+      "row_count": 1265,
+      "kind": "derived"
+    },
+    {
+      "asset_key": "neuromodulation_protocol_template_candidates",
+      "relative_path": "derived/neuromodulation_protocol_template_candidates.csv",
+      "sha256": "505ba65a8af2f7472f785bc26c03d07cf85be5ba31e71915491bb880bce886c8",
+      "bytes": 770014,
+      "row_count": 1532,
+      "kind": "derived"
+    },
+    {
+      "asset_key": "neuromodulation_safety_contraindication_signals",
+      "relative_path": "derived/neuromodulation_safety_contraindication_signals.csv",
+      "sha256": "3d21c05d96c1c250f2dd4e248e532cd1961d601c9734683829d950ca02fbc652",
+      "bytes": 11679582,
+      "row_count": 36363,
+      "kind": "derived"
+    },
+    {
+      "asset_key": "neuromodulation_indication_modality_summary",
+      "relative_path": "derived/neuromodulation_indication_modality_summary.csv",
+      "sha256": "6d18202a692dc27b5be847016c820353dfce1eb6627f9ba4c4032a491875d16c",
+      "bytes": 67948,
+      "row_count": 314,
+      "kind": "derived"
+    },
+    {
+      "asset_key": "neuromodulation_modalities_summary",
+      "relative_path": "derived/neuromodulation_modalities_summary.csv",
+      "sha256": "1007692dd89b61b2e399aa41bb0506be0d5b3023c549a6593f6130eb500a2437",
+      "bytes": 757,
+      "row_count": 20,
+      "kind": "derived"
+    },
+    {
+      "asset_key": "build_neuromodulation_master_and_ai_dataset",
+      "relative_path": "scripts/build_neuromodulation_master_and_ai_dataset.py",
+      "sha256": "207d37d7d7d5e5510cf3475a33c9fad5fde43bd77c2ef7d023b4a08ecdb6ec83",
+      "bytes": 19928,
+      "row_count": null,
+      "kind": "script"
+    },
+    {
+      "asset_key": "derive_neuromodulation_clinic_outputs",
+      "relative_path": "scripts/derive_neuromodulation_clinic_outputs.py",
+      "sha256": "66b9f84f2c4500cbb7de583eda7b8b2018f341a4d551b1c14936882ffa81b2b6",
+      "bytes": 16246,
+      "row_count": null,
+      "kind": "script"
+    },
+    {
+      "asset_key": "export_neuromodulation_europepmc",
+      "relative_path": "scripts/export_neuromodulation_europepmc.py",
+      "sha256": "10d444cbdd38214e61445d79208293c5ee11df0b40f1635e2e003b8352fe2506",
+      "bytes": 4572,
+      "row_count": null,
+      "kind": "script"
+    },
+    {
+      "asset_key": "export_neuromodulation_modalities_europepmc",
+      "relative_path": "scripts/export_neuromodulation_modalities_europepmc.py",
+      "sha256": "6b5fa9b885f1e8e7b2c95dc6fc5c7655982a50bdc78762503a69cfa0183b2b1b",
+      "bytes": 8604,
+      "row_count": null,
+      "kind": "script"
+    }
+  ]
+}

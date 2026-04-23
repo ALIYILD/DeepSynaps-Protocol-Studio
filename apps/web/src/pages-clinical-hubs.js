@@ -15,6 +15,121 @@ import { DOCUMENT_TEMPLATES, renderTemplate } from './documents-templates.js';
 import { SCALE_REGISTRY } from './registries/scale-assessment-registry.js';
 import { ASSESS_REGISTRY } from './registries/assess-instruments-registry.js';
 
+function shortMrn(p) {
+  if (p?.mrn) return String(p.mrn);
+  const raw = String(p?.id || '');
+  return raw ? raw.slice(0, 8).toUpperCase() : '—';
+}
+
+function ageOf(p, now = new Date()) {
+  if (p?.age != null) return p.age;
+  if (!p?.dob) return null;
+  const dob = new Date(p.dob);
+  if (Number.isNaN(dob.getTime())) return null;
+  let age = now.getUTCFullYear() - dob.getUTCFullYear();
+  const monthDelta = now.getUTCMonth() - dob.getUTCMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && now.getUTCDate() < dob.getUTCDate())) age--;
+  return age;
+}
+
+function ageSexCell(p) {
+  const age = ageOf(p);
+  const sex = String(p?.gender || '').charAt(0).toUpperCase();
+  if (age == null && !sex) return '—';
+  return (age != null ? `${age}y` : '—') + (sex ? ` ${sex}` : '');
+}
+
+function statusLabel(p) {
+  const raw = String(p?.status || '').toLowerCase();
+  const map = {
+    active: 'Active',
+    intake: 'Intake',
+    new: 'Intake',
+    paused: 'Paused',
+    'on-hold': 'Paused',
+    discharging: 'Discharging',
+    completed: 'Completed',
+    discharged: 'Discharged',
+    archived: 'Archived',
+    inactive: 'Inactive',
+    pending: 'Pending',
+  };
+  return map[raw] || (p?.status ? p.status[0].toUpperCase() + p.status.slice(1) : '—');
+}
+
+function fmtShortDate(iso) {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function clinicianNameFor(p, cliniciansById = {}) {
+  const clinicianId = p?.assigned_clinician_id || p?.clinician_id || p?.primary_clinician_id;
+  if (clinicianId && cliniciansById[clinicianId]) return String(cliniciansById[clinicianId]);
+  return String(p?.assigned_clinician_name || p?.clinician_name || p?.primary_clinician_name || '');
+}
+
+function courseLabel(p) {
+  const modality = String(p?.primary_modality || '').replace(/_/g, ' ').trim();
+  const condition = String(p?.condition_slug || p?.primary_condition || '').replace(/-/g, ' ').trim();
+  return [modality, condition].filter(Boolean).join(' · ');
+}
+
+function adherenceCell(p) {
+  if (p?.home_adherence == null) return '—';
+  return `${Math.round(Number(p.home_adherence) * 100)}%`;
+}
+
+function outcomeScoreCell(p) {
+  if (p?.current_score == null) return '—';
+  const scale = String(p?.primary_scale || '').trim();
+  return scale ? `${scale} ${p.current_score}` : String(p.current_score);
+}
+
+function isDemoSeed(p) {
+  return !!(p?.demo_seed || String(p?.notes || '').startsWith('[DEMO]'));
+}
+
+function sortValue(p, key, course = '', clinicianName = '') {
+  switch (key) {
+    case 'name':
+      return `${String(p?.last_name || '')} ${String(p?.first_name || '')}`.trim().toLowerCase();
+    case 'mrn':
+      return shortMrn(p).toLowerCase();
+    case 'age':
+      return ageOf(p) ?? -1;
+    case 'condition':
+      return String(p?.primary_condition || p?.condition_slug || '').toLowerCase();
+    case 'course':
+      return String(course || courseLabel(p)).toLowerCase();
+    case 'status':
+      return statusLabel(p).toLowerCase();
+    case 'last':
+      return String(p?.last_session_date || '');
+    case 'next':
+      return String(p?.next_session_date || p?.next_session_at || '');
+    case 'adherence':
+      return p?.home_adherence == null ? -1 : Number(p.home_adherence);
+    case 'outcome':
+      return p?.current_score == null ? Number.POSITIVE_INFINITY : Number(p.current_score);
+    case 'clinician':
+      return String(clinicianName || clinicianNameFor(p)).toLowerCase();
+    default:
+      return '';
+  }
+}
+
+function sortPatients(items, key, direction = 'asc', getCourseLabel = courseLabel, getClinicianName = clinicianNameFor) {
+  const dir = direction === 'desc' ? -1 : 1;
+  return [...(items || [])].sort((a, b) => {
+    const av = sortValue(a, key, getCourseLabel(a), getClinicianName(a));
+    const bv = sortValue(b, key, getCourseLabel(b), getClinicianName(b));
+    if (av === bv) return 0;
+    return av < bv ? -1 * dir : 1 * dir;
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // pgPatientHub — Merged: Patients + Treatment Courses + Prescriptions
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -278,13 +393,14 @@ export async function pgPatientHub(setTopbar, navigate) {
           const age   = p.age || (p.dob ? (new Date().getFullYear() - new Date(p.dob).getFullYear()) : null);
           const sex   = (p.gender||'').charAt(0).toUpperCase();
           const sub   = (age ? age + (sex||'') + ' · ' : '') + cond + (p.mrn ? ' · MRN ' + esc(p.mrn) : '');
+          const demoChip = isDemoSeed(p) ? ' <span class="chip amber">Demo patient</span>' : '';
           const delivered = p.sessions_delivered ?? 0;
           const planned   = p.planned_sessions_total ?? 0;
           const prog = planned > 0 ? Math.min(100, Math.round(delivered / planned * 100)) : 0;
           return '<div class="queue-row pt-row" style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 90px" ' +
             'onclick="window._selectedPatientId=\'' + esc(p.id) + '\';window._profilePatientId=\'' + esc(p.id) + '\';try{sessionStorage.setItem(\'ds_pat_selected_id\',\'' + esc(p.id) + '\')}catch(e){}window._nav(\'patient-profile\')">' +
               '<div class="queue-pt"><div class="pt-av ' + av + '">' + esc(ini) + '</div>' +
-                '<div><div class="queue-pt-name">' + esc(name) + (p.is_responder ? ' <span class="pl-responder-chip">Responder</span>' : '') + '</div>' +
+                '<div><div class="queue-pt-name">' + esc(name) + demoChip + (p.is_responder ? ' <span class="pl-responder-chip">Responder</span>' : '') + '</div>' +
                   '<div class="queue-pt-cond">' + esc(sub) + '</div></div></div>' +
               '<div>' + protocolChip(p) + '</div>' +
               '<div class="queue-progress"><div class="queue-progress-bar"><div style="width:' + prog + '%"></div></div>' +
@@ -4145,12 +4261,12 @@ export async function pgSchedulingHub(setTopbar, navigate) {
         .map(p => ({ id: p.id, name: p.name || p.full_name || ('Patient ' + p.id) }))
         .filter(p => !q || p.name.toLowerCase().includes(q))
         .slice(0,20);
-      const seedHits = !patientsList.length ? (['Sarah Johnson','Robert Kim','Emma Clarke','David Nguyen','Lucy Fernandez'].filter(n => !q || n.toLowerCase().includes(q)).map(n => ({ id:'seed-'+n, name:n }))) : [];
+      const seedHits = !patientsList.length ? (['Sarah Johnson','Robert Kim','Emma Clarke','David Nguyen','Lucy Fernandez'].filter(n => !q || n.toLowerCase().includes(q)).map(n => ({ id:'seed-'+n, name:n, demo:true }))) : [];
       const list = matches.length ? matches : seedHits;
       body += '<div class="dv2s-field"><label>Search patient</label><input type="text" value="'+esc(w.patientQuery||'')+'" placeholder="Type name..." oninput="window._schedWizSearch(this.value)"></div>';
       body += '<div class="dv2s-plist">' + (list.length ? list.map(p =>
         '<div class="dv2s-pitem'+(w.patient_id===p.id?' is-active':'')+'" onclick="window._schedWizPickPatient(\''+esc(p.id)+'\',\''+esc(p.name)+'\')">'
-          + '<span>'+esc(p.name)+'</span><span style="color:var(--text-tertiary);font-size:10px">'+esc(String(p.id).slice(0,8))+'</span>'
+          + '<span>'+esc(p.name)+(p.demo ? ' <span style="font-size:10px;color:#ffd28a;font-weight:600">· demo patient</span>' : '')+'</span><span style="color:var(--text-tertiary);font-size:10px">'+esc(String(p.id).slice(0,8))+'</span>'
         + '</div>'
       ).join('') : '<div style="padding:10px;color:var(--text-tertiary);font-size:11px">No matches.</div>') + '</div>';
       body += '<div style="margin-top:10px;font-size:11px;color:var(--text-tertiary)">Or <a href="javascript:void(0)" onclick="window._schedWizSet(\'patient\',prompt(\'New patient name:\')||\'\')" style="color:var(--teal)">create new patient</a>'+(w.patient?' — selected: <strong style="color:var(--text-primary)">'+esc(w.patient)+'</strong>':'')+'</div>';

@@ -73,6 +73,34 @@ function metricCard(label, value, color, sub) {
   </div>`;
 }
 
+function _courseChecklistStats(rawChecklist) {
+  if (!rawChecklist || typeof rawChecklist !== 'object' || Array.isArray(rawChecklist)) {
+    return null;
+  }
+  const values = Object.values(rawChecklist);
+  if (values.length === 0) return null;
+  const completed = values.filter(v => v === true || v === 'true' || v === 1 || v === '1').length;
+  return { completed, total: values.length };
+}
+
+function _courseSessionAeCount(adverseEvents, session) {
+  if (!Array.isArray(adverseEvents) || !session) return 0;
+  const sessionId = String(session.session_id || session.id || '');
+  return adverseEvents.filter((ae) => {
+    const linked = String(ae.session_id || ae.clinical_session_id || '');
+    return linked && linked === sessionId;
+  }).length;
+}
+
+function _courseFinalizationSummary(sessions, adverseEvents, aeSummary) {
+  const safeSessions = Array.isArray(sessions) ? sessions : [];
+  const interrupted = safeSessions.filter(s => !!s?.interruptions).length;
+  const notes = safeSessions.filter(s => !!String(s?.post_session_notes || '').trim()).length;
+  const checklisted = safeSessions.filter(s => _courseChecklistStats(s?.checklist)).length;
+  const totalAe = Array.isArray(adverseEvents) ? adverseEvents.length : (aeSummary?.total || 0);
+  return { interrupted, notes, checklisted, totalAe };
+}
+
 // ── Clinical Intelligence — Risk Scoring ──────────────────────────────────────
 
 function computeRiskScore(course) {
@@ -992,6 +1020,7 @@ export async function pgCourseDetail(setTopbar, navigate) {
     ? Math.min(100, Math.round((course.sessions_delivered / course.planned_sessions_total) * 100))
     : 0;
   const statusCol = STATUS_COLOR[course.status] || 'var(--text-tertiary)';
+  const finalization = _courseFinalizationSummary(sessions, adverseEvents, aeSummary);
 
   setTopbar(
     `${course.condition_slug ? course.condition_slug.replace(/-/g,' ') : 'Course'} · ${course.modality_slug || ''}`,
@@ -1026,6 +1055,9 @@ export async function pgCourseDetail(setTopbar, navigate) {
               ${course.on_label === false ? labelBadge(false) : labelBadge(true)}
               ${safetyBadge(course.governance_warnings)}
               ${course.review_required ? `<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,107,107,0.1);color:var(--red);font-weight:600">Review Required</span>` : ''}
+              ${finalization.interrupted ? `<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(245,158,11,0.12);color:var(--amber);font-weight:600">${finalization.interrupted} Interrupted</span>` : ''}
+              ${finalization.totalAe ? `<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,107,107,0.1);color:var(--red);font-weight:600">${finalization.totalAe} AE Logged</span>` : ''}
+              ${finalization.checklisted ? `<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(74,158,255,0.1);color:var(--blue);font-weight:600">${finalization.checklisted} Checklisted</span>` : ''}
             </div>
           </div>
           <div style="text-align:right;flex-shrink:0">
@@ -1079,6 +1111,19 @@ export async function pgCourseDetail(setTopbar, navigate) {
         <button class="btn btn-sm" style="margin-left:6px" onclick="window._cdSwitchTab('adverse-events')">Open Adverse Events</button>
       </div>`;
     })()}
+    ${(() => {
+      if (!finalization.interrupted && !finalization.notes && !finalization.checklisted && !(aeSummary?.unresolved > 0)) return '';
+      return `<div role="status" style="margin-bottom:16px;padding:12px 16px;border-radius:8px;background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.22);color:var(--text-secondary);font-size:12.5px">
+        <strong style="color:var(--text-primary)">Session Finalization Summary:</strong>
+        ${[
+          finalization.interrupted ? `<strong>${finalization.interrupted}</strong> interrupted session${finalization.interrupted === 1 ? '' : 's'}` : null,
+          finalization.checklisted ? `<strong>${finalization.checklisted}</strong> session${finalization.checklisted === 1 ? '' : 's'} with checklist data` : null,
+          finalization.notes ? `<strong>${finalization.notes}</strong> session${finalization.notes === 1 ? '' : 's'} with post-session notes` : null,
+          aeSummary?.unresolved > 0 ? `<strong>${aeSummary.unresolved}</strong> unresolved adverse event${aeSummary.unresolved === 1 ? '' : 's'}` : null,
+        ].filter(Boolean).join(' &middot; ')}.
+        <button class="btn btn-sm" style="margin-left:10px" onclick="window._cdSwitchTab('sessions')">Open Sessions</button>
+      </div>`;
+    })()}
 
     <div class="tab-bar" role="tablist" aria-label="Course detail sections" style="margin-bottom:20px">
       ${['overview','sessions','outcomes','protocol','adverse-events','governance','assessments','home-programs','reports','notes'].map((t, idx, arr) =>
@@ -1095,7 +1140,7 @@ export async function pgCourseDetail(setTopbar, navigate) {
       ).join('')}
     </div>
 
-    <div id="cd-tab-body" role="tabpanel" aria-labelledby="cd-tab-${tab}">${renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, outcomes, outcomeSummary, assessmentSummary, auditTrail)}</div>`;
+    <div id="cd-tab-body" role="tabpanel" aria-labelledby="cd-tab-${tab}">${renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, outcomes, outcomeSummary, assessmentSummary, auditTrail, aeSummary)}</div>`;
 
   window._cdSwitchTab = function(t) {
     window._cdTab = t;
@@ -1107,7 +1152,7 @@ export async function pgCourseDetail(setTopbar, navigate) {
     });
     const body = document.getElementById('cd-tab-body');
     if (body) {
-      body.innerHTML = renderCourseTab(course, sessions, adverseEvents, protocolDetail, t, outcomes, outcomeSummary);
+      body.innerHTML = renderCourseTab(course, sessions, adverseEvents, protocolDetail, t, outcomes, outcomeSummary, assessmentSummary, auditTrail, aeSummary);
       body.setAttribute('aria-labelledby', 'cd-tab-' + t);
     }
   };
@@ -1605,7 +1650,7 @@ function outcomeTrajectoryChart(outcomes, goalScore = 7, width = 560, height = 1
   </div>`;
 }
 
-function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, outcomes = [], outcomeSummary = null, assessmentSummary = null, auditTrail = null) {
+function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, outcomes = [], outcomeSummary = null, assessmentSummary = null, auditTrail = null, aeSummary = null) {
   if (tab === 'overview') {
     const params = [
       ['Condition',        course.condition_slug?.replace(/-/g,' ') || '—'],
@@ -1717,10 +1762,12 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
       </div>
       ${sessions.length === 0
         ? `<div style="padding:32px">${emptyState('◧', 'No sessions logged yet. Go to Session Execution to log sessions.')}</div>`
-        : `<div style="display:flex;flex-direction:column;gap:0">
+          : `<div style="display:flex;flex-direction:column;gap:0">
             ${sessions.map((s, i) => {
               const tc = s.tolerance_rating ? tolColor(s.tolerance_rating) : null;
               const sNum = sessions.length - i;
+              const checklist = _courseChecklistStats(s.checklist);
+              const linkedAeCount = _courseSessionAeCount(adverseEvents, s);
               return `
               <div style="border-bottom:1px solid var(--border)">
                 <div style="display:flex;align-items:center;gap:10px;padding:10px 18px;cursor:pointer;flex-wrap:wrap"
@@ -1735,6 +1782,8 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
                   </div>
                   ${tc ? `<span style="font-size:10.5px;padding:2px 7px;border-radius:4px;background:${tc.bg};color:${tc.col};flex-shrink:0">${s.tolerance_rating}</span>` : ''}
                   ${s.interruptions ? `<span style="color:var(--amber);font-size:11px;flex-shrink:0">⚠ Interrupted</span>` : ''}
+                  ${checklist ? `<span style="font-size:10.5px;padding:2px 7px;border-radius:4px;background:rgba(74,158,255,0.1);color:var(--blue);flex-shrink:0">Checklist ${checklist.completed}/${checklist.total}</span>` : ''}
+                  ${linkedAeCount ? `<span style="font-size:10.5px;padding:2px 7px;border-radius:4px;background:rgba(255,107,107,0.1);color:var(--red);flex-shrink:0">${linkedAeCount} AE</span>` : ''}
                   ${s.protocol_deviation ? `<span style="color:var(--red);font-size:11px;flex-shrink:0">⚡ Deviation</span>` : ''}
                   <span style="color:var(--text-tertiary);font-size:12px;flex-shrink:0" id="sess-chev-${s.id || i}">›</span>
                 </div>
@@ -1750,8 +1799,12 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
                       ['Duration',       s.duration_minutes ? s.duration_minutes + ' min' : '—'],
                       ['Outcome',        s.session_outcome?.replace(/_/g,' ') || '—'],
                       ['Tolerance',      s.tolerance_rating || '—'],
+                      ['Interruption',   s.interruptions ? 'Yes' : 'No'],
+                      ['Checklist',      checklist ? `${checklist.completed}/${checklist.total} complete` : '—'],
+                      ['Linked AE',      linkedAeCount || '—'],
                     ].map(([k,v]) => `<div><span style="color:var(--text-tertiary);font-size:11px">${k}:</span> <span style="color:var(--text-primary)">${v}</span></div>`).join('')}
                   </div>
+                  ${s.interruption_reason ? `<div style="font-size:12px;color:var(--amber);line-height:1.6;padding:8px 10px;background:rgba(245,158,11,0.08);border-radius:var(--radius-sm);border-left:2px solid var(--amber);margin-bottom:10px"><strong>Interruption reason:</strong> ${_cdEscHtml(s.interruption_reason)}</div>` : ''}
                   ${s.post_session_notes ? `<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;padding:8px 10px;background:rgba(0,0,0,0.2);border-radius:var(--radius-sm);border-left:2px solid var(--border-teal)">${s.post_session_notes}</div>` : ''}
                   <div style="display:flex;gap:8px;margin-top:10px">
                     <button class="btn btn-sm" onclick="window._cdTab='adverse-events';window._selectedCourseId='${course.id}';window._nav('course-detail')">Report AE</button>
@@ -1903,6 +1956,11 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
         <span style="font-weight:600">Adverse Events</span>
         <button class="btn btn-sm" onclick="window._showAEForm()">+ Report Event</button>
       </div>
+      ${aeSummary ? `<div style="display:flex;gap:10px;flex-wrap:wrap;padding:14px 20px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.08)">
+        <span style="font-size:11px;padding:4px 8px;border-radius:999px;background:rgba(255,255,255,0.05);color:var(--text-secondary)">Total: <strong style="color:var(--text-primary)">${aeSummary.total || 0}</strong></span>
+        <span style="font-size:11px;padding:4px 8px;border-radius:999px;background:${(aeSummary.unresolved || 0) > 0 ? 'rgba(255,107,107,0.1)' : 'rgba(74,222,128,0.1)'};color:${(aeSummary.unresolved || 0) > 0 ? 'var(--red)' : 'var(--green)'}">Unresolved: <strong>${aeSummary.unresolved || 0}</strong></span>
+        <span style="font-size:11px;padding:4px 8px;border-radius:999px;background:rgba(245,158,11,0.1);color:var(--amber)">Highest Severity: <strong>${_cdEscHtml(aeSummary.highest_severity || 'unknown')}</strong></span>
+      </div>` : ''}
       <div id="ae-form" style="display:none;padding:16px;border-bottom:1px solid var(--border)">
         ${renderAEForm(course.id, course.patient_id)}
       </div>
@@ -7521,20 +7579,11 @@ export async function pgCalendar(setTopbar) {
 // ── Session Monitor ──────────────────────────────────────────────────────────
 
 // Module-level session state (cleared on nav away)
-let _monitorSession = null; // { id, patientName, modality, protocol, targetDuration, startTime, paused, pausedAt, totalPaused, params, notes, cues, aborted }
+let _monitorSession = null; // { id, patientId, patientName, courseId, modality, protocol, targetDuration, startTime, paused, pausedAt, totalPaused, params, notes, cues, aborted }
 let _monitorTimer = null;
 let _monitorParamHistory = {}; // { amplitude: [], frequency: [], impedance: [] } — last 60 ticks
-
-const _MONITOR_MOCK_PATIENTS = [
-  { id: 'mp1', name: 'Alice Johnson' },
-  { id: 'mp2', name: 'Bob Martinez' },
-  { id: 'mp3', name: 'Carol Chen' },
-  { id: 'mp4', name: 'David Kim' },
-  { id: 'mp5', name: 'Emma Patel' },
-  { id: 'mp6', name: 'Frank Nguyen' },
-  { id: 'mp7', name: 'Grace Okafor' },
-  { id: 'mp8', name: 'Henry Svensson' },
-];
+let _monitorPatients = [];
+let _monitorCourseCatalog = [];
 
 const _MONITOR_DEFAULT_PROTOCOLS = {
   Neurofeedback: 'Alpha/Theta Training',
@@ -7542,6 +7591,67 @@ const _MONITOR_DEFAULT_PROTOCOLS = {
   tDCS:          'Anodal tDCS F3 Montage',
   taVNS:         'taVNS 25 Hz Auricular',
   CES:           'CES 0.5 Hz Alpha Induction',
+};
+
+function _monitorCourseLabel(course) {
+  if (!course) return 'Unnamed course';
+  const modality = course.modality_slug || course.modality || 'course';
+  const condition = course.condition_slug || course.condition || '';
+  const protocol = course.protocol_id || course.protocol_name || '';
+  return [condition, modality, protocol].filter(Boolean).join(' · ');
+}
+
+function _monitorPatientOptionsHtml() {
+  return _monitorPatients.map((p) => `<option value="${_cdEscHtml(p.id)}">${_cdEscHtml(p.name)}</option>`).join('');
+}
+
+function _monitorCourseOptionsHtml(patientId, selectedId = '') {
+  return _monitorCourseCatalog
+    .filter((course) => course.patient_id === patientId)
+    .map((course) => `<option value="${_cdEscHtml(course.id)}" ${course.id === selectedId ? 'selected' : ''}>${_cdEscHtml(_monitorCourseLabel(course))}</option>`)
+    .join('');
+}
+
+function _monitorApplyCourseDefaults(courseId) {
+  const course = _monitorCourseCatalog.find((item) => item.id === courseId);
+  if (!course) return;
+  const protocolInput = document.getElementById('monitor-form-protocol');
+  const modalitySelect = document.getElementById('monitor-form-modality');
+  const durationSelect = document.getElementById('monitor-form-duration');
+  const freqSlider = document.getElementById('monitor-form-freq');
+  const freqLabel = document.getElementById('monitor-form-freq-val');
+  if (protocolInput) protocolInput.value = course.protocol_id || _monitorCourseLabel(course);
+  if (modalitySelect) modalitySelect.value = course.modality_slug || modalitySelect.value;
+  if (durationSelect && course.planned_session_duration_minutes) {
+    durationSelect.value = String(course.planned_session_duration_minutes);
+  }
+  if (freqSlider && course.planned_frequency_hz) {
+    const parsedFreq = parseFloat(course.planned_frequency_hz);
+    if (Number.isFinite(parsedFreq)) {
+      freqSlider.value = String(parsedFreq);
+      if (freqLabel) freqLabel.textContent = `${parsedFreq} Hz`;
+    }
+  }
+}
+
+window._monitorSyncCourseOptions = function() {
+  const patientSelect = document.getElementById('monitor-form-patient');
+  const courseSelect = document.getElementById('monitor-form-course');
+  if (!patientSelect || !courseSelect) return;
+  const patientId = patientSelect.value;
+  const matches = _monitorCourseCatalog.filter((course) => course.patient_id === patientId);
+  courseSelect.innerHTML = `<option value="">— Select active course —</option>${_monitorCourseOptionsHtml(patientId)}`;
+  courseSelect.disabled = matches.length === 0;
+  if (matches.length) {
+    courseSelect.value = matches[0].id;
+    _monitorApplyCourseDefaults(matches[0].id);
+  }
+};
+
+window._monitorApplyCourseSelection = function() {
+  const courseSelect = document.getElementById('monitor-form-course');
+  if (!courseSelect?.value) return;
+  _monitorApplyCourseDefaults(courseSelect.value);
 };
 
 function _monitorFmtTime(secs) {
@@ -7732,6 +7842,7 @@ function _monitorShowCompletion() {
 
 window._monitorStart = async function() {
   const patientSelect = document.getElementById('monitor-form-patient');
+  const courseSelect = document.getElementById('monitor-form-course');
   const modalitySelect = document.getElementById('monitor-form-modality');
   const protocolInput = document.getElementById('monitor-form-protocol');
   const durationSelect = document.getElementById('monitor-form-duration');
@@ -7740,20 +7851,30 @@ window._monitorStart = async function() {
   const notesInput = document.getElementById('monitor-form-notes');
 
   if (!patientSelect.value) { alert('Please select a patient.'); return; }
+  if (!courseSelect?.value) { alert('Please select an active course.'); return; }
 
+  const patientId = patientSelect.value;
   const patientName = patientSelect.options[patientSelect.selectedIndex].text;
+  const courseId = courseSelect.value;
+  const activeCourse = _monitorCourseCatalog.find((course) => course.id === courseId);
+  if (!activeCourse) { alert('Selected course is no longer available.'); return; }
   const modality = modalitySelect.value;
-  const protocol = protocolInput.value.trim() || _MONITOR_DEFAULT_PROTOCOLS[modality];
-  const targetDuration = parseInt(durationSelect.value, 10);
+  const protocol = protocolInput.value.trim() || activeCourse.protocol_id || _MONITOR_DEFAULT_PROTOCOLS[modality];
+  const targetDuration = parseInt(durationSelect.value, 10) || activeCourse.planned_session_duration_minutes || 30;
   const amplitude = parseFloat(ampSlider.value);
   const frequency = parseFloat(freqSlider.value);
   const notes = notesInput.value.trim();
 
   _monitorSession = {
     id: `ses_${Date.now()}`,
+    patientId,
     patientName,
+    courseId,
     modality,
     protocol,
+    courseLabel: _monitorCourseLabel(activeCourse),
+    deviceSlug: activeCourse.device_slug || '',
+    coilPlacement: activeCourse.coil_placement || '',
     targetDuration,
     startTime: Date.now(),
     paused: false,
@@ -7822,19 +7943,13 @@ window._monitorConfirmAbort = function(reason) {
   if (_aiTickerInterval) { clearInterval(_aiTickerInterval); _aiTickerInterval = null; }
   _monitorLogEvent(`Session aborted — ${reason}`);
 
-  // Save to localStorage
-  try {
-    const sessions = JSON.parse(localStorage.getItem('ds_completed_sessions') || '[]');
-    sessions.unshift({ ..._monitorSession, completedAt: new Date().toISOString(), aborted: true });
-    localStorage.setItem('ds_completed_sessions', JSON.stringify(sessions.slice(0, 100)));
-  } catch (_) {}
-
   const root = document.getElementById('session-monitor-root');
   if (root) {
     root.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-muted)">
       <div style="font-size:2.5rem;margin-bottom:8px">⛔</div>
       <h2 style="margin:0 0 8px">Session Aborted</h2>
-      <p style="font-size:.9rem;margin-bottom:24px">Reason: <strong>${reason}</strong></p>
+      <p style="font-size:.9rem;margin-bottom:10px">Reason: <strong>${reason}</strong></p>
+      <p style="font-size:.82rem;margin-bottom:24px">No delivered session record was written to the backend.</p>
       <button class="btn-primary" onclick="window._nav('session-monitor')">Start New Session</button>
     </div>`;
   }
@@ -7872,47 +7987,47 @@ window._monitorSaveNote = function() {
 
 window._monitorSaveSession = async function() {
   if (!_monitorSession) return;
-  const payload = {
-    id: _monitorSession.id,
-    patientName: _monitorSession.patientName,
-    modality: _monitorSession.modality,
-    protocol: _monitorSession.protocol,
-    duration: _monitorSession.targetDuration,
-    params: _monitorSession.params,
-    paramHistory: _monitorParamHistory,
-    cues: _monitorSession.cues,
-    notes: _monitorSession.notes,
-    completedAt: new Date().toISOString(),
-    aborted: _monitorSession.aborted || false,
-  };
-
-  // NOTE: session-monitor is a local simulation (mock patients, no course link),
-  // so we cannot call `api.logSession(courseId, data)` — the backend requires a
-  // real course_id plus an active course status. Persist locally and surface a
-  // clear "local-only" indicator. Real session logging lives on the Session
-  // Execution page (pgSessionExecution → _logSession), which IS wired to the
-  // POST /treatment-courses/{id}/sessions endpoint.
-  let saved = false;
-  try {
-    const sessions = JSON.parse(localStorage.getItem('ds_completed_sessions') || '[]');
-    sessions.unshift(payload);
-    localStorage.setItem('ds_completed_sessions', JSON.stringify(sessions.slice(0, 100)));
-    saved = true;
-  } catch (_) {}
-
   const overlay = document.getElementById('monitor-completion-overlay');
-  if (overlay) {
-    overlay.innerHTML = `<div style="background:var(--card-bg);border-radius:14px;padding:40px;text-align:center">
-      <div style="font-size:2.5rem;margin-bottom:8px">💾</div>
-      <h2 style="margin:0 0 8px">Session Saved</h2>
-      <p style="color:var(--text-muted);margin-bottom:20px">Session log saved ${saved ? '' : '(locally)'}.</p>
-      <button class="btn-primary" onclick="document.getElementById('monitor-completion-overlay').remove();_monitorSession=null;window._nav('session-monitor')">Done</button>
-    </div>`;
+  const noteParts = [
+    _monitorSession.notes || '',
+    `Monitor protocol: ${_monitorSession.protocol}`,
+    `Amplitude range: ${_monitorParamHistory.amplitude?.length ? `${Math.min(..._monitorParamHistory.amplitude).toFixed(0)}-${Math.max(..._monitorParamHistory.amplitude).toFixed(0)} mA` : `${_monitorSession.params.amplitude} mA`}`,
+    `Frequency range: ${_monitorParamHistory.frequency?.length ? `${Math.min(..._monitorParamHistory.frequency).toFixed(1)}-${Math.max(..._monitorParamHistory.frequency).toFixed(1)} Hz` : `${_monitorSession.params.frequency} Hz`}`,
+    _monitorSession.cues?.length ? `Cue log: ${_monitorSession.cues.map((cue) => `[${cue.ts}] ${cue.msg}`).join(' | ')}` : '',
+  ].filter(Boolean);
+
+  try {
+    await api.logSession(_monitorSession.courseId, {
+      device_slug: _monitorSession.deviceSlug || null,
+      coil_position: _monitorSession.coilPlacement || null,
+      frequency_hz: String(_monitorSession.params.frequency),
+      duration_minutes: _monitorSession.targetDuration,
+      post_session_notes: noteParts.join('\n'),
+      checklist: {},
+    });
+    if (overlay) {
+      overlay.innerHTML = `<div style="background:var(--card-bg);border-radius:14px;padding:40px;text-align:center">
+        <div style="font-size:2.5rem;margin-bottom:8px">💾</div>
+        <h2 style="margin:0 0 8px">Session Saved</h2>
+        <p style="color:var(--text-muted);margin-bottom:20px">Delivered session was written to the linked clinical course record.</p>
+        <button class="btn-primary" onclick="document.getElementById('monitor-completion-overlay').remove();_monitorSession=null;window._nav('session-monitor')">Done</button>
+      </div>`;
+    }
+  } catch (err) {
+    if (overlay) {
+      overlay.innerHTML = `<div style="background:var(--card-bg);border-radius:14px;padding:40px;text-align:center">
+        <div style="font-size:2.5rem;margin-bottom:8px">⚠</div>
+        <h2 style="margin:0 0 8px">Session Not Saved</h2>
+        <p style="color:var(--text-muted);margin-bottom:20px">The clinical session log could not be written to the backend. No local clinical record fallback was used.</p>
+        <div style="font-size:12px;color:var(--red);margin-bottom:20px">${_cdEscHtml(err?.message || 'Unknown error')}</div>
+        <button class="btn-primary" onclick="window._monitorSaveSession()">Retry Save</button>
+      </div>`;
+    }
   }
 };
 
-function _monitorStartFormHTML(patients) {
-  const patientOptions = patients.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+function _monitorStartFormHTML() {
+  const patientOptions = _monitorPatientOptionsHtml();
   const modalityOptions = ['Neurofeedback', 'TMS', 'tDCS', 'taVNS', 'CES'].map(m => `<option value="${m}">${m}</option>`).join('');
   const durationOptions = [15, 20, 30, 45, 60].map(d => `<option value="${d}" ${d === 30 ? 'selected' : ''}>${d} min</option>`).join('');
 
@@ -7924,9 +8039,16 @@ function _monitorStartFormHTML(patients) {
 
           <label style="display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:600">
             Patient
-            <select id="monitor-form-patient" class="form-select" style="font-weight:400">
+            <select id="monitor-form-patient" class="form-select" style="font-weight:400" onchange="window._monitorSyncCourseOptions()">
               <option value="">— Select patient —</option>
               ${patientOptions}
+            </select>
+          </label>
+
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:600">
+            Active Course
+            <select id="monitor-form-course" class="form-select" style="font-weight:400" onchange="window._monitorApplyCourseSelection()" disabled>
+              <option value="">— Select active course —</option>
             </select>
           </label>
 
@@ -8228,18 +8350,46 @@ export async function pgSessionMonitor(setTopbar) {
 
   // No active session — show start form
   _monitorSession = null;
-
-  // Fetch patients (with mock fallback)
-  let patients = _MONITOR_MOCK_PATIENTS;
+  let patientsRes = null;
+  let coursesRes = null;
   try {
-    const res = await api.listPatients();
-    const list = res?.items || res?.patients || res;
-    if (Array.isArray(list) && list.length) {
-      patients = list.map(p => ({ id: p.id || p._id, name: p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim() }));
-    }
-  } catch (_) { /* fall back to mock list */ }
+    [patientsRes, coursesRes] = await Promise.all([
+      api.listPatients(),
+      api.listCourses({ status: 'active' }),
+    ]);
+  } catch (_) {
+    root.innerHTML = `<div class="card" style="padding:32px">${emptyState('◫', 'Session Monitor is unavailable because live patients or active courses could not be loaded.')}</div>`;
+    return;
+  }
 
-  root.innerHTML = _monitorStartFormHTML(patients);
+  const patients = Array.isArray(patientsRes) ? patientsRes : (patientsRes?.items || patientsRes?.patients || []);
+  const courses = Array.isArray(coursesRes) ? coursesRes : (coursesRes?.items || []);
+  const patientMap = new Map(
+    (patients || []).map((p) => [
+      String(p.id || p._id),
+      p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || String(p.id || p._id),
+    ]),
+  );
+  _monitorCourseCatalog = (courses || []).filter((course) => course?.status === 'active' && course?.patient_id);
+  _monitorPatients = Array.from(
+    new Map(
+      _monitorCourseCatalog.map((course) => [
+        String(course.patient_id),
+        {
+          id: String(course.patient_id),
+          name: patientMap.get(String(course.patient_id)) || String(course.patient_id),
+        },
+      ]),
+    ).values(),
+  ).sort((a, b) => a.name.localeCompare(b.name));
+
+  if (_monitorPatients.length === 0 || _monitorCourseCatalog.length === 0) {
+    root.innerHTML = `<div class="card" style="padding:32px">${emptyState('◫', 'No active treatment courses are available for live session monitoring.')}</div>`;
+    return;
+  }
+
+  root.innerHTML = _monitorStartFormHTML();
+  window._monitorSyncCourseOptions?.();
 }
 
 // ── Outcome Prediction & ML Scoring ──────────────────────────────────────────
@@ -8922,12 +9072,12 @@ const _SEED_RULES = [
 ];
 
 const _SEED_LOG = [
-  { id: 'log-1', ruleId: 'rule-seed-1', ruleName: 'Missed Session Alert', patientName: 'Alice Thornton', details: '{"days-since-session":18}', ts: '2026-04-05T10:22:00Z', dismissed: false },
-  { id: 'log-2', ruleId: 'rule-seed-2', ruleName: 'Score Drop Warning', patientName: 'Bob Osei', details: '{"score-drop":19}', ts: '2026-04-07T14:10:00Z', dismissed: false },
-  { id: 'log-3', ruleId: 'rule-seed-3', ruleName: 'Adverse Event Escalation', patientName: 'Carol Martinez', details: '{"ae-severity":"severe"}', ts: '2026-04-06T09:05:00Z', dismissed: true },
-  { id: 'log-4', ruleId: 'rule-seed-1', ruleName: 'Missed Session Alert', patientName: 'David Chen', details: '{"days-since-session":21}', ts: '2026-04-04T11:30:00Z', dismissed: true },
-  { id: 'log-5', ruleId: 'rule-seed-4', ruleName: 'Weekly Summary', patientName: 'All Patients', details: '{"trigger":"schedule"}', ts: '2026-04-07T08:00:00Z', dismissed: false },
-  { id: 'log-6', ruleId: 'rule-seed-2', ruleName: 'Score Drop Warning', patientName: 'Emma Walsh', details: '{"score-drop":22}', ts: '2026-04-08T15:45:00Z', dismissed: false },
+  { id: 'log-1', ruleId: 'rule-seed-1', ruleName: 'Missed Session Alert', patientName: 'Alice Thornton', details: '{"days-since-session":18}', ts: '2026-04-05T10:22:00Z', dismissed: false, demo: true },
+  { id: 'log-2', ruleId: 'rule-seed-2', ruleName: 'Score Drop Warning', patientName: 'Bob Osei', details: '{"score-drop":19}', ts: '2026-04-07T14:10:00Z', dismissed: false, demo: true },
+  { id: 'log-3', ruleId: 'rule-seed-3', ruleName: 'Adverse Event Escalation', patientName: 'Carol Martinez', details: '{"ae-severity":"severe"}', ts: '2026-04-06T09:05:00Z', dismissed: true, demo: true },
+  { id: 'log-4', ruleId: 'rule-seed-1', ruleName: 'Missed Session Alert', patientName: 'David Chen', details: '{"days-since-session":21}', ts: '2026-04-04T11:30:00Z', dismissed: true, demo: true },
+  { id: 'log-5', ruleId: 'rule-seed-4', ruleName: 'Weekly Summary', patientName: 'All Patients', details: '{"trigger":"schedule"}', ts: '2026-04-07T08:00:00Z', dismissed: false, demo: true },
+  { id: 'log-6', ruleId: 'rule-seed-2', ruleName: 'Score Drop Warning', patientName: 'Emma Walsh', details: '{"score-drop":22}', ts: '2026-04-08T15:45:00Z', dismissed: false, demo: true },
 ];
 
 function getRules() {
@@ -9233,11 +9383,12 @@ function _reLogTableHTML(filter) {
     const statusBadge = e.dismissed
       ? `<span style="background:#e5e7eb;color:#6b7280;padding:2px 8px;border-radius:12px;font-size:.72rem;font-weight:700">Dismissed</span>`
       : `<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:12px;font-size:.72rem;font-weight:700">Active</span>`;
+    const demoBadge = e.demo ? `<span style="background:rgba(245,158,11,0.12);color:var(--amber);padding:2px 8px;border-radius:12px;font-size:.72rem;font-weight:700;margin-left:6px">Demo data</span>` : '';
     const dismissBtn = e.dismissed ? '' : `<button class="btn-sm" onclick="window._rulesDismissAlert('${e.id}')">Dismiss</button>`;
     return `
     <tr class="${e.dismissed ? '' : 'alert-log-row-active'}">
-      <td style="padding:8px 10px;font-size:.85rem;font-weight:600">${e.ruleName}</td>
-      <td style="padding:8px 10px;font-size:.85rem">${e.patientName}</td>
+      <td style="padding:8px 10px;font-size:.85rem;font-weight:600">${e.ruleName}${demoBadge}</td>
+      <td style="padding:8px 10px;font-size:.85rem">${e.patientName}${e.demo ? ' <span style="font-size:.72rem;color:var(--amber);font-weight:700">· demo patient</span>' : ''}</td>
       <td style="padding:8px 10px;font-size:.82rem;color:var(--text-muted)">${ts}</td>
       <td style="padding:8px 10px;font-size:.78rem;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${e.details}">${e.details}</td>
       <td style="padding:8px 10px">${statusBadge}</td>
@@ -10554,17 +10705,24 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
                   <th>Duration</th>
                   <th>Tolerance</th>
                   <th>Interruption</th>
+                  <th>Reason</th>
+                  <th>Checklist</th>
                   <th>Deviation</th>
                 </tr>
               </thead>
               <tbody>
-                ${sortedSessions.map(s => `<tr>
+                ${sortedSessions.map(s => {
+                  const checklist = _courseChecklistStats(s.checklist);
+                  return `<tr>
                   <td>${_ccrFmtDate(s.created_at || s.scheduled_at || s.date)}</td>
                   <td>${s.duration_minutes != null ? s.duration_minutes + ' min' : '—'}</td>
                   <td>${s.tolerance_rating || '—'}</td>
                   <td>${s.interruptions ? '<span class="ccr-ae-yes">Yes</span>' : '<span class="ccr-ae-no">No</span>'}</td>
+                  <td>${s.interruption_reason || '—'}</td>
+                  <td>${checklist ? `${checklist.completed}/${checklist.total}` : '—'}</td>
                   <td>${s.protocol_deviation ? '<span class="ccr-ae-yes">Yes</span>' : '<span class="ccr-ae-no">No</span>'}</td>
-                </tr>`).join('')}
+                </tr>`;
+                }).join('')}
               </tbody>
             </table>
           </div>`

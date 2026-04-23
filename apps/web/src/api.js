@@ -4,13 +4,33 @@ const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const TOKEN_KEY = 'ds_access_token';
 const REFRESH_KEY = 'ds_refresh_token';
 
-function getToken() { return localStorage.getItem(TOKEN_KEY); }
-function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
-function clearToken() { localStorage.removeItem(TOKEN_KEY); clearRefreshToken(); }
+function safeStorageGet(key) {
+  try {
+    return globalThis.localStorage?.getItem?.(key) ?? null;
+  } catch {
+    return null;
+  }
+}
 
-function getRefreshToken() { return localStorage.getItem(REFRESH_KEY); }
-function setRefreshToken(t) { localStorage.setItem(REFRESH_KEY, t); }
-function clearRefreshToken() { localStorage.removeItem(REFRESH_KEY); }
+function safeStorageSet(key, value) {
+  try {
+    globalThis.localStorage?.setItem?.(key, value);
+  } catch {}
+}
+
+function safeStorageRemove(key) {
+  try {
+    globalThis.localStorage?.removeItem?.(key);
+  } catch {}
+}
+
+function getToken() { return safeStorageGet(TOKEN_KEY); }
+function setToken(t) { safeStorageSet(TOKEN_KEY, t); }
+function clearToken() { safeStorageRemove(TOKEN_KEY); clearRefreshToken(); }
+
+function getRefreshToken() { return safeStorageGet(REFRESH_KEY); }
+function setRefreshToken(t) { safeStorageSet(REFRESH_KEY, t); }
+function clearRefreshToken() { safeStorageRemove(REFRESH_KEY); }
 
 // ── 401 interceptor ───────────────────────────────────────────────────────────
 let _401InFlight = false;
@@ -32,18 +52,19 @@ function _extractTransport(res, extractor) {
 
 async function apiFetch(path, opts = {}) {
   let res;
-  const fetchFn = opts._fetch || globalThis.fetch;
+  const { _fetch: fetchOverride, _transportExtractor: transportExtractor, ...requestOpts } = opts;
+  const fetchFn = fetchOverride || globalThis.fetch;
   // Detect multipart uploads: when body is FormData, omit the JSON content-type
   // so the browser can set the correct multipart/form-data boundary automatically.
-  const _isFormData = (typeof FormData !== 'undefined') && (opts.body instanceof FormData);
+  const _isFormData = (typeof FormData !== 'undefined') && (requestOpts.body instanceof FormData);
   try {
     const token = getToken();
-    const headers = { ...(opts.headers || {}) };
+    const headers = { ...(requestOpts.headers || {}) };
     if (!_isFormData && !('Content-Type' in headers) && !('content-type' in headers)) {
       headers['Content-Type'] = 'application/json';
     }
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    res = await fetchFn(`${API_BASE}${path}`, { ...opts, headers });
+    res = await fetchFn(`${API_BASE}${path}`, { ...requestOpts, headers });
   } catch (networkErr) {
     const err = new Error('Network error');
     err.status = 0;
@@ -86,21 +107,21 @@ async function apiFetch(path, opts = {}) {
         setToken(refreshResult.access_token);
         if (refreshResult.refresh_token) setRefreshToken(refreshResult.refresh_token);
         // Retry original request once with new token
-        const retryHeaders = { ...(opts.headers || {}) };
+        const retryHeaders = { ...(requestOpts.headers || {}) };
         if (!_isFormData && !('Content-Type' in retryHeaders) && !('content-type' in retryHeaders)) {
           retryHeaders['Content-Type'] = 'application/json';
         }
         retryHeaders['Authorization'] = `Bearer ${refreshResult.access_token}`;
         let retryRes;
         try {
-          retryRes = await fetchFn(`${API_BASE}${path}`, { ...opts, headers: retryHeaders });
+          retryRes = await fetchFn(`${API_BASE}${path}`, { ...requestOpts, headers: retryHeaders });
         } catch (networkErr) {
           const err = new Error('Network error');
           err.status = 0;
           throw err;
         }
         if (retryRes.status === 204) {
-          if (opts._transportExtractor) return { data: null, transport: _extractTransport(retryRes, opts._transportExtractor) };
+          if (transportExtractor) return { data: null, transport: _extractTransport(retryRes, transportExtractor) };
           return null;
         }
         if (!retryRes.ok) {
@@ -111,8 +132,8 @@ async function apiFetch(path, opts = {}) {
           throw retryErr;
         }
         const retryData = await retryRes.json();
-        if (opts._transportExtractor) {
-          return { data: retryData, transport: _extractTransport(retryRes, opts._transportExtractor) };
+        if (transportExtractor) {
+          return { data: retryData, transport: _extractTransport(retryRes, transportExtractor) };
         }
         return retryData;
       }
@@ -138,7 +159,7 @@ async function apiFetch(path, opts = {}) {
     return Promise.reject(expiredErr);
   }
   if (res.status === 204) {
-    if (opts._transportExtractor) return { data: null, transport: _extractTransport(res, opts._transportExtractor) };
+    if (transportExtractor) return { data: null, transport: _extractTransport(res, transportExtractor) };
     return null;
   }
   if (!res.ok) {
@@ -155,8 +176,8 @@ async function apiFetch(path, opts = {}) {
     throw err;
   }
   const data = await res.json();
-  if (opts._transportExtractor) {
-    return { data, transport: _extractTransport(res, opts._transportExtractor) };
+  if (transportExtractor) {
+    return { data, transport: _extractTransport(res, transportExtractor) };
   }
   return data;
 }
@@ -259,6 +280,7 @@ export const api = {
     }
     return apiFetchWithRetry(`/api/v1/patients${qs}`);
   },
+  patients: (arg) => api.listPatients(arg),
   getPatientsCohortSummary: () => apiFetchWithRetry('/api/v1/patients/cohort-summary'),
   getPatient: (id) => apiFetch(`/api/v1/patients/${id}`),
   createPatient: (data) => apiFetch('/api/v1/patients', { method: 'POST', body: JSON.stringify(data) }),
@@ -284,6 +306,14 @@ export const api = {
   },
   markPatientMessageRead: (patientId, messageId) =>
     apiFetch(`/api/v1/patients/${patientId}/messages/${encodeURIComponent(messageId)}/read`, { method: 'PATCH' }),
+  listCallRequests: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/patients/call-requests${q ? '?' + q : ''}`);
+  },
+  resolveCallRequest: (messageId) =>
+    apiFetch(`/api/v1/patients/call-requests/${encodeURIComponent(messageId)}/resolve`, { method: 'PATCH' }),
   submitAssessment: (patientId, assessmentData) =>
     apiFetch('/api/v1/assessments', { method: 'POST', body: JSON.stringify({ ...assessmentData, patient_id: patientId }) }),
 
@@ -303,6 +333,33 @@ export const api = {
     }
     return apiFetchWithRetry(`/api/v1/sessions${qs}`);
   },
+  getCurrentSession: () => apiFetch('/api/v1/sessions/current'),
+  listSessionEvents: (sessionId) => apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/events`),
+  logSessionEvent: (sessionId, data) =>
+    apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/events`, {
+      method: 'POST',
+      body: JSON.stringify({
+        type: data?.type || 'INFO',
+        note: data?.note || data?.message || '',
+        payload: data?.payload || {},
+      }),
+    }),
+  sessionPhaseTransition: (sessionId, phase) =>
+    apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/phase`, {
+      method: 'POST',
+      body: JSON.stringify({ phase }),
+    }),
+  startVideoConsult: (sessionId) =>
+    apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/video/start`, { method: 'POST' }),
+  endVideoConsult: (sessionId) =>
+    apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/video/end`, { method: 'POST' }),
+  remoteMonitorSnapshot: (sessionId) =>
+    apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/remote-monitor-snapshot`),
+  setSessionImpedance: (sessionId, impedance_kohm) =>
+    apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/impedance`, {
+      method: 'POST',
+      body: JSON.stringify({ impedance_kohm }),
+    }),
   createSession: (data) => apiFetch('/api/v1/sessions', { method: 'POST', body: JSON.stringify(data) }),
   updateSession: (id, data) => apiFetch(`/api/v1/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteSession: (id) => apiFetch(`/api/v1/sessions/${id}`, { method: 'DELETE' }),
@@ -467,6 +524,69 @@ export const api = {
       body: JSON.stringify({ paper_ids, focus }),
     }),
 
+  // ── Neuromodulation research bundle (Desktop-backed enriched corpus) ────
+  researchHealth: () => apiFetch('/api/v1/evidence/research/health'),
+  listResearchDatasets: () => apiFetch('/api/v1/evidence/research/datasets'),
+  downloadResearchDatasetUrl: (datasetKey) =>
+    `${API_BASE}/api/v1/evidence/research/datasets/${encodeURIComponent(datasetKey)}/download`,
+  listResearchConditions: () => apiFetch('/api/v1/evidence/research/conditions'),
+  getResearchCondition: (conditionSlug) =>
+    apiFetch(`/api/v1/evidence/research/conditions/${encodeURIComponent(conditionSlug)}`),
+  searchResearchPapers: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/evidence/research/papers${q ? '?' + q : ''}`);
+  },
+  listResearchExactProtocols: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/evidence/research/exact-protocols${q ? '?' + q : ''}`);
+  },
+  listResearchProtocolTemplates: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/evidence/research/protocol-templates${q ? '?' + q : ''}`);
+  },
+  listResearchEvidenceGraph: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/evidence/research/evidence-graph${q ? '?' + q : ''}`);
+  },
+  listResearchSafetySignals: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/evidence/research/safety-signals${q ? '?' + q : ''}`);
+  },
+  getResearchSummary: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/evidence/research/summary${q ? '?' + q : ''}`);
+  },
+  longitudinalReport: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/outcomes/longitudinal${q ? '?' + q : ''}`);
+  },
+  protocolCoverage: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/evidence/research/protocol-coverage${q ? '?' + q : ''}`);
+  },
+  listTargets: async () => {
+    const res = await api.listBrainRegions();
+    return Array.isArray(res?.items) ? res.items : [];
+  },
+  listMontages: (params = {}) => api.listResearchExactProtocols(params),
+  listProtocolEvidence: (params = {}) => api.searchResearchPapers(params),
+
   // Literature list alias for the Library page (same endpoint as getLiterature).
   listLiterature: (params = {}) => {
     const q = new URLSearchParams(params).toString();
@@ -623,7 +743,9 @@ export const api = {
 
   // ── Registry endpoints (public — no auth needed but token attached if present) ──
   conditions: () => apiFetchWithRetry('/api/v1/registry/conditions'),
+  listConditions: () => api.conditions(),
   modalities: () => apiFetchWithRetry('/api/v1/registry/modalities'),
+  listModalities: () => api.modalities(),
   devices_registry: () => apiFetch('/api/v1/registry/devices'),
   protocols: (params = {}) => {
     const q = new URLSearchParams(params).toString();
@@ -779,11 +901,19 @@ export const api = {
 
   // ── Media queue ───────────────────────────────────────────────────────────
   listMediaQueue: () => apiFetchWithRetry('/api/v1/media/review-queue'),
+  reviewMediaUpload: (uploadId, action, reason = null) =>
+    apiFetch(`/api/v1/media/review/${encodeURIComponent(uploadId)}/action`, {
+      method: 'POST',
+      body: JSON.stringify({ action, reason }),
+    }),
 
   // ── Clinician notes ───────────────────────────────────────────────────────
   createClinicianNote: (data) =>
     apiFetch('/api/v1/media/clinician/note/text', { method: 'POST', body: JSON.stringify(data) }),
   listClinicianNotes: (patientId) => apiFetch(`/api/v1/media/clinician/notes/${patientId}`),
+  getClinicianNote: (noteId) => apiFetch(`/api/v1/media/clinician/note/${encodeURIComponent(noteId)}`),
+  approveClinicianDraft: (draftId, data = {}) =>
+    apiFetch(`/api/v1/media/clinician/draft/${encodeURIComponent(draftId)}/approve`, { method: 'POST', body: JSON.stringify(data) }),
 
   // ── Phenotype assignments ─────────────────────────────────────────────────
   assignPhenotype: (data) =>
@@ -962,6 +1092,7 @@ export const api = {
     const q = new URLSearchParams(params).toString();
     return apiFetchWithRetry(`/api/v1/consent/records${q ? '?' + q : ''}`);
   },
+  listConsentRecords: (params = {}) => api.getConsentRecords(params),
   createConsentRecord: (data) =>
     apiFetch('/api/v1/consent/records', { method: 'POST', body: JSON.stringify(data) }),
   updateConsentRecord: (id, data) =>
@@ -991,6 +1122,7 @@ export const api = {
   },
   sendReminderMessage: (data) =>
     apiFetch('/api/v1/reminders/send', { method: 'POST', body: JSON.stringify(data) }),
+  sendReminderNow: (data) => api.sendReminderMessage(data),
   getPatientAdherenceScore: (patientId) =>
     apiFetch(`/api/v1/reminders/adherence/${patientId}`),
   getAdherenceScores: () => apiFetchWithRetry('/api/v1/reminders/adherence'),
@@ -1015,6 +1147,30 @@ export const api = {
     apiFetch('/api/v1/irb/adverse-events', { method: 'POST', body: JSON.stringify(data) }),
   updateIRBAdverseEvent: (id, data) =>
     apiFetch(`/api/v1/irb/adverse-events/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  listIrbProtocols: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/irb/studies${q ? '?' + q : ''}`);
+  },
+  createIrbProtocol: (data) =>
+    apiFetch('/api/v1/irb/studies', { method: 'POST', body: JSON.stringify(data) }),
+  irbAdverseEvents: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/irb/adverse-events${q ? '?' + q : ''}`);
+  },
+  exportData: (data = {}) =>
+    apiFetch('/api/v1/evidence/research/exports/dataset', { method: 'POST', body: JSON.stringify(data) }),
+  getResearchExportSummary: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/evidence/research/exports/summary${q ? '?' + q : ''}`);
+  },
+  listResearchExportSchedules: () => apiFetch('/api/v1/evidence/research/exports/schedules'),
+  exportResearchBundle: () =>
+    apiFetch('/api/v1/evidence/research/exports/bundle', { method: 'POST' }),
+  exportResearchIndividual: (data = {}) =>
+    apiFetch('/api/v1/evidence/research/exports/individual', { method: 'POST', body: JSON.stringify(data) }),
+  dataPrivacyExport: () => api.requestDataExport(),
 
   // ── Literature Library ────────────────────────────────────────────────────
   getLiterature: (params = {}) => {
@@ -1055,6 +1211,8 @@ export const api = {
   getPresence: (page_id) =>
     apiFetch(`/api/v1/notifications/presence/${encodeURIComponent(page_id)}`),
   getNotificationsUnreadCount: () =>
+    apiFetchWithRetry('/api/v1/notifications/unread-count'),
+  notificationsUnreadCount: () =>
     apiFetchWithRetry('/api/v1/notifications/unread-count'),
 
   // ── Reports (clinician report hub) ──────────────────────────────────────
@@ -1200,6 +1358,7 @@ export const api = {
 
   // ── Team ───────────────────────────────────────────────────────────────────
   listTeam: () => apiFetch('/api/v1/team'),
+  listTeamMembers: () => api.listTeam(),
   inviteTeamMember: (email, role) =>
     apiFetch('/api/v1/team/invite', { method: 'POST', body: JSON.stringify({ email, role }) }),
   revokeTeamInvite: (id) => apiFetch(`/api/v1/team/invite/${encodeURIComponent(id)}`, { method: 'DELETE' }),

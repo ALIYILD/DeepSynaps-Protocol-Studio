@@ -1,0 +1,2437 @@
+{
+  "schema_version": "1.0.0",
+  "condition_slug": "obsessive-compulsive-disorder",
+  "condition_name": "Obsessive-Compulsive Disorder (OCD)",
+  "condition_package_slug": "obsessive-compulsive-disorder",
+  "priority_rank": 5,
+  "indication_tags": [
+    "ocd"
+  ],
+  "source_bundle_date": "2026-04-22",
+  "generated_at": "2026-04-22",
+  "source_assets": [
+    {
+      "file_name": "neuromodulation_ai_ingestion_dataset.csv",
+      "relative_path": "neuromodulation_ai_ingestion_dataset.csv",
+      "record_count": null,
+      "notes": "Primary paper-level AI ingestion corpus used for counts, modalities, targets, and representative papers."
+    },
+    {
+      "file_name": "neuromodulation_evidence_graph.csv",
+      "relative_path": "neuromodulation_evidence_graph.csv",
+      "record_count": null,
+      "notes": "Aggregated indication -> modality -> target evidence graph used for modality and target snapshots."
+    },
+    {
+      "file_name": "neuromodulation_protocol_template_candidates.csv",
+      "relative_path": "neuromodulation_protocol_template_candidates.csv",
+      "record_count": null,
+      "notes": "Protocol-cluster candidates ranked by support score."
+    },
+    {
+      "file_name": "neuromodulation_safety_contraindication_signals.csv",
+      "relative_path": "neuromodulation_safety_contraindication_signals.csv",
+      "record_count": null,
+      "notes": "Safety and contraindication heuristic extraction over the same corpus."
+    }
+  ],
+  "research_stats": {
+    "indication_tag": "ocd",
+    "total_papers": 1082,
+    "open_access_papers": 355,
+    "year_min": 1990,
+    "year_max": 2026,
+    "evidence_tiers": [
+      {
+        "label": "unspecified",
+        "count": 745,
+        "share": 0.6885
+      },
+      {
+        "label": "high",
+        "count": 112,
+        "share": 0.1035
+      },
+      {
+        "label": "moderate_high",
+        "count": 81,
+        "share": 0.0749
+      },
+      {
+        "label": "low",
+        "count": 74,
+        "share": 0.0684
+      },
+      {
+        "label": "contextual",
+        "count": 33,
+        "share": 0.0305
+      },
+      {
+        "label": "moderate",
+        "count": 16,
+        "share": 0.0148
+      },
+      {
+        "label": "preclinical",
+        "count": 15,
+        "share": 0.0139
+      },
+      {
+        "label": "low_for_effectiveness",
+        "count": 6,
+        "share": 0.0055
+      }
+    ],
+    "study_types": [
+      {
+        "label": "other",
+        "count": 745,
+        "share": 0.6885
+      },
+      {
+        "label": "randomized_controlled_trial",
+        "count": 81,
+        "share": 0.0749
+      },
+      {
+        "label": "case_report",
+        "count": 74,
+        "share": 0.0684
+      },
+      {
+        "label": "systematic_review",
+        "count": 53,
+        "share": 0.049
+      },
+      {
+        "label": "meta_analysis",
+        "count": 53,
+        "share": 0.049
+      },
+      {
+        "label": "review",
+        "count": 33,
+        "share": 0.0305
+      },
+      {
+        "label": "animal_preclinical",
+        "count": 15,
+        "share": 0.0139
+      },
+      {
+        "label": "cohort_study",
+        "count": 14,
+        "share": 0.0129
+      },
+      {
+        "label": "protocol_paper",
+        "count": 6,
+        "share": 0.0055
+      },
+      {
+        "label": "guideline_consensus",
+        "count": 6,
+        "share": 0.0055
+      }
+    ],
+    "modalities": [
+      {
+        "label": "deep_brain_stimulation",
+        "count": 563,
+        "share": 0.5203
+      },
+      {
+        "label": "general_neuromodulation",
+        "count": 421,
+        "share": 0.3891
+      },
+      {
+        "label": "transcranial_magnetic_stimulation",
+        "count": 313,
+        "share": 0.2893
+      },
+      {
+        "label": "transcranial_direct_current_stimulation",
+        "count": 111,
+        "share": 0.1026
+      },
+      {
+        "label": "vagus_nerve_stimulation",
+        "count": 8,
+        "share": 0.0074
+      },
+      {
+        "label": "transcranial_alternating_current_stimulation",
+        "count": 6,
+        "share": 0.0055
+      },
+      {
+        "label": "spinal_cord_stimulation",
+        "count": 4,
+        "share": 0.0037
+      },
+      {
+        "label": "occipital_nerve_stimulation",
+        "count": 3,
+        "share": 0.0028
+      },
+      {
+        "label": "sacral_neuromodulation",
+        "count": 3,
+        "share": 0.0028
+      },
+      {
+        "label": "motor_cortex_stimulation",
+        "count": 2,
+        "share": 0.0018
+      }
+    ],
+    "invasiveness": [
+      {
+        "label": "invasive_or_implanted",
+        "count": 575,
+        "share": 0.5314
+      },
+      {
+        "label": "noninvasive",
+        "count": 335,
+        "share": 0.3096
+      },
+      {
+        "label": "unknown",
+        "count": 172,
+        "share": 0.159
+      }
+    ],
+    "targets": [
+      {
+        "label": "nucleus_accumbens",
+        "count": 27,
+        "share": 0.025
+      },
+      {
+        "label": "subthalamic_nucleus",
+        "count": 19,
+        "share": 0.0176
+      },
+      {
+        "label": "prefrontal_cortex",
+        "count": 14,
+        "share": 0.0129
+      },
+      {
+        "label": "dlpfc",
+        "count": 11,
+        "share": 0.0102
+      },
+      {
+        "label": "thalamus",
+        "count": 9,
+        "share": 0.0083
+      },
+      {
+        "label": "m1_motor_cortex",
+        "count": 9,
+        "share": 0.0083
+      },
+      {
+        "label": "vagus_nerve",
+        "count": 8,
+        "share": 0.0074
+      },
+      {
+        "label": "globus_pallidus",
+        "count": 5,
+        "share": 0.0046
+      },
+      {
+        "label": "spinal_cord",
+        "count": 4,
+        "share": 0.0037
+      },
+      {
+        "label": "occipital_nerve",
+        "count": 3,
+        "share": 0.0028
+      }
+    ],
+    "parameter_signals": [
+      {
+        "label": "targeting_signal",
+        "count": 26,
+        "share": 0.024
+      },
+      {
+        "label": "frequency_signal",
+        "count": 23,
+        "share": 0.0213
+      },
+      {
+        "label": "closed_loop_signal",
+        "count": 5,
+        "share": 0.0046
+      },
+      {
+        "label": "dose_signal",
+        "count": 2,
+        "share": 0.0018
+      },
+      {
+        "label": "current_signal",
+        "count": 1,
+        "share": 0.0009
+      },
+      {
+        "label": "pulse_width_signal",
+        "count": 1,
+        "share": 0.0009
+      },
+      {
+        "label": "duration_signal",
+        "count": 1,
+        "share": 0.0009
+      }
+    ],
+    "populations": [
+      {
+        "label": "pediatric",
+        "count": 21,
+        "share": 0.0194
+      },
+      {
+        "label": "animal",
+        "count": 15,
+        "share": 0.0139
+      },
+      {
+        "label": "adult",
+        "count": 6,
+        "share": 0.0055
+      },
+      {
+        "label": "pregnancy",
+        "count": 3,
+        "share": 0.0028
+      }
+    ]
+  },
+  "modality_evidence": [
+    {
+      "modality": "deep_brain_stimulation",
+      "paper_count": 567,
+      "citation_sum": 15400,
+      "evidence_weight_sum": 859.0,
+      "mean_citations_per_paper": 27.16,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 428,
+          "share": 0.7549
+        },
+        {
+          "label": "systematic_review",
+          "count": 31,
+          "share": 0.0547
+        },
+        {
+          "label": "case_report",
+          "count": 31,
+          "share": 0.0547
+        },
+        {
+          "label": "meta_analysis",
+          "count": 21,
+          "share": 0.037
+        },
+        {
+          "label": "review",
+          "count": 19,
+          "share": 0.0335
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "targeting_signal",
+          "count": 21,
+          "share": 0.037
+        },
+        {
+          "label": "sham_controlled",
+          "count": 6,
+          "share": 0.0106
+        },
+        {
+          "label": "double_blind",
+          "count": 6,
+          "share": 0.0106
+        },
+        {
+          "label": "closed_loop",
+          "count": 4,
+          "share": 0.0071
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 4,
+          "share": 0.0071
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 8,
+          "share": 0.0141
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 7,
+          "share": 0.0123
+        },
+        {
+          "label": "psychosis_caution",
+          "count": 5,
+          "share": 0.0088
+        },
+        {
+          "label": "seizure_risk",
+          "count": 5,
+          "share": 0.0088
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 5,
+          "share": 0.0088
+        }
+      ],
+      "open_access_count": 135,
+      "year_min": 2003,
+      "year_max": 2026
+    },
+    {
+      "modality": "general_neuromodulation",
+      "paper_count": 424,
+      "citation_sum": 8278,
+      "evidence_weight_sum": 682.0,
+      "mean_citations_per_paper": 19.52,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 300,
+          "share": 0.7075
+        },
+        {
+          "label": "case_report",
+          "count": 30,
+          "share": 0.0708
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 23,
+          "share": 0.0542
+        },
+        {
+          "label": "systematic_review",
+          "count": 20,
+          "share": 0.0472
+        },
+        {
+          "label": "meta_analysis",
+          "count": 18,
+          "share": 0.0425
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "sham_controlled",
+          "count": 10,
+          "share": 0.0236
+        },
+        {
+          "label": "frequency_signal",
+          "count": 8,
+          "share": 0.0189
+        },
+        {
+          "label": "double_blind",
+          "count": 7,
+          "share": 0.0165
+        },
+        {
+          "label": "targeting_signal",
+          "count": 7,
+          "share": 0.0165
+        },
+        {
+          "label": "burst_pattern",
+          "count": 5,
+          "share": 0.0118
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 13,
+          "share": 0.0307
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 9,
+          "share": 0.0212
+        },
+        {
+          "label": "psychosis_caution",
+          "count": 9,
+          "share": 0.0212
+        },
+        {
+          "label": "pregnancy_caution",
+          "count": 3,
+          "share": 0.0071
+        },
+        {
+          "label": "seizure_risk",
+          "count": 3,
+          "share": 0.0071
+        }
+      ],
+      "open_access_count": 224,
+      "year_min": 1990,
+      "year_max": 2026
+    },
+    {
+      "modality": "transcranial_magnetic_stimulation",
+      "paper_count": 320,
+      "citation_sum": 6470,
+      "evidence_weight_sum": 664.0,
+      "mean_citations_per_paper": 20.22,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 180,
+          "share": 0.5625
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 49,
+          "share": 0.1531
+        },
+        {
+          "label": "meta_analysis",
+          "count": 27,
+          "share": 0.0844
+        },
+        {
+          "label": "case_report",
+          "count": 27,
+          "share": 0.0844
+        },
+        {
+          "label": "systematic_review",
+          "count": 14,
+          "share": 0.0437
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "burst_pattern",
+          "count": 25,
+          "share": 0.0781
+        },
+        {
+          "label": "frequency_signal",
+          "count": 25,
+          "share": 0.0781
+        },
+        {
+          "label": "sham_controlled",
+          "count": 21,
+          "share": 0.0656
+        },
+        {
+          "label": "low_frequency",
+          "count": 19,
+          "share": 0.0594
+        },
+        {
+          "label": "double_blind",
+          "count": 18,
+          "share": 0.0563
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 10,
+          "share": 0.0312
+        },
+        {
+          "label": "psychosis_caution",
+          "count": 10,
+          "share": 0.0312
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 6,
+          "share": 0.0187
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 2,
+          "share": 0.0063
+        },
+        {
+          "label": "seizure_risk",
+          "count": 2,
+          "share": 0.0063
+        }
+      ],
+      "open_access_count": 91,
+      "year_min": 1997,
+      "year_max": 2026
+    },
+    {
+      "modality": "transcranial_direct_current_stimulation",
+      "paper_count": 115,
+      "citation_sum": 1344,
+      "evidence_weight_sum": 266.0,
+      "mean_citations_per_paper": 11.69,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 56,
+          "share": 0.487
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 23,
+          "share": 0.2
+        },
+        {
+          "label": "case_report",
+          "count": 13,
+          "share": 0.113
+        },
+        {
+          "label": "meta_analysis",
+          "count": 11,
+          "share": 0.0957
+        },
+        {
+          "label": "systematic_review",
+          "count": 8,
+          "share": 0.0696
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "sham_controlled",
+          "count": 9,
+          "share": 0.0783
+        },
+        {
+          "label": "double_blind",
+          "count": 7,
+          "share": 0.0609
+        },
+        {
+          "label": "current_dose_reported",
+          "count": 1,
+          "share": 0.0087
+        },
+        {
+          "label": "current_signal",
+          "count": 1,
+          "share": 0.0087
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "psychosis_caution",
+          "count": 3,
+          "share": 0.0261
+        },
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 2,
+          "share": 0.0174
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 2,
+          "share": 0.0174
+        },
+        {
+          "label": "seizure_risk",
+          "count": 1,
+          "share": 0.0087
+        }
+      ],
+      "open_access_count": 45,
+      "year_min": 2013,
+      "year_max": 2026
+    },
+    {
+      "modality": "vagus_nerve_stimulation",
+      "paper_count": 10,
+      "citation_sum": 352,
+      "evidence_weight_sum": 19.0,
+      "mean_citations_per_paper": 35.2,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 6,
+          "share": 0.6
+        },
+        {
+          "label": "review",
+          "count": 2,
+          "share": 0.2
+        },
+        {
+          "label": "systematic_review",
+          "count": 1,
+          "share": 0.1
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.1
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_safety_tags": [],
+      "open_access_count": 2,
+      "year_min": 2004,
+      "year_max": 2022
+    },
+    {
+      "modality": "transcranial_alternating_current_stimulation",
+      "paper_count": 6,
+      "citation_sum": 38,
+      "evidence_weight_sum": 13.0,
+      "mean_citations_per_paper": 6.33,
+      "top_study_types": [
+        {
+          "label": "case_report",
+          "count": 3,
+          "share": 0.5
+        },
+        {
+          "label": "systematic_review",
+          "count": 1,
+          "share": 0.1667
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.1667
+        },
+        {
+          "label": "other",
+          "count": 1,
+          "share": 0.1667
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "sham_controlled",
+          "count": 1,
+          "share": 0.1667
+        }
+      ],
+      "top_safety_tags": [],
+      "open_access_count": 3,
+      "year_min": 2016,
+      "year_max": 2026
+    },
+    {
+      "modality": "spinal_cord_stimulation",
+      "paper_count": 4,
+      "citation_sum": 78,
+      "evidence_weight_sum": 4.0,
+      "mean_citations_per_paper": 19.5,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 4,
+          "share": 1.0
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 4,
+          "share": 1.0
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 2,
+          "share": 0.5
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 1,
+          "share": 0.25
+        }
+      ],
+      "open_access_count": 0,
+      "year_min": 2005,
+      "year_max": 2026
+    },
+    {
+      "modality": "occipital_nerve_stimulation",
+      "paper_count": 3,
+      "citation_sum": 35,
+      "evidence_weight_sum": 14.0,
+      "mean_citations_per_paper": 11.67,
+      "top_study_types": [
+        {
+          "label": "systematic_review",
+          "count": 2,
+          "share": 0.6667
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.3333
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 1,
+          "share": 0.3333
+        }
+      ],
+      "open_access_count": 1,
+      "year_min": 2020,
+      "year_max": 2025
+    }
+  ],
+  "target_evidence": [
+    {
+      "modality": "deep_brain_stimulation",
+      "target": "nucleus_accumbens",
+      "paper_count": 27,
+      "citation_sum": 1361,
+      "template_support_score": 34.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 21,
+          "share": 0.7778
+        },
+        {
+          "label": "case_report",
+          "count": 3,
+          "share": 0.1111
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 2,
+          "share": 0.0741
+        },
+        {
+          "label": "review",
+          "count": 1,
+          "share": 0.037
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "targeting_signal",
+          "count": 3,
+          "share": 0.1111
+        },
+        {
+          "label": "double_blind",
+          "count": 2,
+          "share": 0.0741
+        },
+        {
+          "label": "sham_controlled",
+          "count": 1,
+          "share": 0.037
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [],
+      "example_titles": []
+    },
+    {
+      "modality": "deep_brain_stimulation",
+      "target": "subthalamic_nucleus",
+      "paper_count": 19,
+      "citation_sum": 590,
+      "template_support_score": 22.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 13,
+          "share": 0.6842
+        },
+        {
+          "label": "case_report",
+          "count": 2,
+          "share": 0.1053
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 2,
+          "share": 0.1053
+        },
+        {
+          "label": "protocol_paper",
+          "count": 1,
+          "share": 0.0526
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.0526
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "targeting_signal",
+          "count": 1,
+          "share": 0.0526
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 1,
+          "share": 0.0526
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "deep_brain_stimulation",
+      "target": "vagus_nerve",
+      "paper_count": 8,
+      "citation_sum": 294,
+      "template_support_score": 17.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 4,
+          "share": 0.5
+        },
+        {
+          "label": "review",
+          "count": 2,
+          "share": 0.25
+        },
+        {
+          "label": "systematic_review",
+          "count": 1,
+          "share": 0.125
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.125
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_population_tags": [],
+      "top_safety_tags": [],
+      "example_titles": []
+    },
+    {
+      "modality": "transcranial_magnetic_stimulation",
+      "target": "vagus_nerve",
+      "paper_count": 8,
+      "citation_sum": 294,
+      "template_support_score": 17.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 4,
+          "share": 0.5
+        },
+        {
+          "label": "review",
+          "count": 2,
+          "share": 0.25
+        },
+        {
+          "label": "systematic_review",
+          "count": 1,
+          "share": 0.125
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.125
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_population_tags": [],
+      "top_safety_tags": [],
+      "example_titles": []
+    },
+    {
+      "modality": "vagus_nerve_stimulation",
+      "target": "vagus_nerve",
+      "paper_count": 8,
+      "citation_sum": 294,
+      "template_support_score": 17.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 4,
+          "share": 0.5
+        },
+        {
+          "label": "review",
+          "count": 2,
+          "share": 0.25
+        },
+        {
+          "label": "systematic_review",
+          "count": 1,
+          "share": 0.125
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.125
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_population_tags": [],
+      "top_safety_tags": [],
+      "example_titles": []
+    },
+    {
+      "modality": "transcranial_magnetic_stimulation",
+      "target": "m1_motor_cortex",
+      "paper_count": 8,
+      "citation_sum": 136,
+      "template_support_score": 8.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 7,
+          "share": 0.875
+        },
+        {
+          "label": "case_report",
+          "count": 1,
+          "share": 0.125
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "frequency_signal",
+          "count": 3,
+          "share": 0.375
+        },
+        {
+          "label": "low_frequency",
+          "count": 2,
+          "share": 0.25
+        },
+        {
+          "label": "burst_pattern",
+          "count": 1,
+          "share": 0.125
+        },
+        {
+          "label": "high_frequency",
+          "count": 1,
+          "share": 0.125
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [],
+      "example_titles": []
+    },
+    {
+      "modality": "transcranial_magnetic_stimulation",
+      "target": "prefrontal_cortex",
+      "paper_count": 8,
+      "citation_sum": 125,
+      "template_support_score": 17.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 4,
+          "share": 0.5
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 3,
+          "share": 0.375
+        },
+        {
+          "label": "case_report",
+          "count": 1,
+          "share": 0.125
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "frequency_signal",
+          "count": 5,
+          "share": 0.625
+        },
+        {
+          "label": "low_frequency",
+          "count": 4,
+          "share": 0.5
+        },
+        {
+          "label": "double_blind",
+          "count": 2,
+          "share": 0.25
+        },
+        {
+          "label": "burst_pattern",
+          "count": 1,
+          "share": 0.125
+        },
+        {
+          "label": "high_frequency",
+          "count": 1,
+          "share": 0.125
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "psychosis_caution",
+          "count": 1,
+          "share": 0.125
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "transcranial_magnetic_stimulation",
+      "target": "dlpfc",
+      "paper_count": 8,
+      "citation_sum": 85,
+      "template_support_score": 23.0,
+      "top_study_types": [
+        {
+          "label": "randomized_controlled_trial",
+          "count": 5,
+          "share": 0.625
+        },
+        {
+          "label": "case_report",
+          "count": 2,
+          "share": 0.25
+        },
+        {
+          "label": "other",
+          "count": 1,
+          "share": 0.125
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "frequency_signal",
+          "count": 7,
+          "share": 0.875
+        },
+        {
+          "label": "low_frequency",
+          "count": 6,
+          "share": 0.75
+        },
+        {
+          "label": "burst_pattern",
+          "count": 2,
+          "share": 0.25
+        },
+        {
+          "label": "double_blind",
+          "count": 2,
+          "share": 0.25
+        },
+        {
+          "label": "high_frequency",
+          "count": 1,
+          "share": 0.125
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [
+        {
+          "label": "psychosis_caution",
+          "count": 1,
+          "share": 0.125
+        }
+      ],
+      "example_titles": []
+    },
+    {
+      "modality": "deep_brain_stimulation",
+      "target": "thalamus",
+      "paper_count": 7,
+      "citation_sum": 269,
+      "template_support_score": 11.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 4,
+          "share": 0.5714
+        },
+        {
+          "label": "clinical_trial",
+          "count": 1,
+          "share": 0.1429
+        },
+        {
+          "label": "cohort_study",
+          "count": 1,
+          "share": 0.1429
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 1,
+          "share": 0.1429
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_population_tags": [],
+      "top_safety_tags": [],
+      "example_titles": []
+    },
+    {
+      "modality": "general_neuromodulation",
+      "target": "prefrontal_cortex",
+      "paper_count": 6,
+      "citation_sum": 115,
+      "template_support_score": 6.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 5,
+          "share": 0.8333
+        },
+        {
+          "label": "case_report",
+          "count": 1,
+          "share": 0.1667
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "frequency_signal",
+          "count": 1,
+          "share": 0.1667
+        },
+        {
+          "label": "low_frequency",
+          "count": 1,
+          "share": 0.1667
+        }
+      ],
+      "top_population_tags": [],
+      "top_safety_tags": [],
+      "example_titles": []
+    }
+  ],
+  "protocol_candidates": [
+    {
+      "modality": "deep_brain_stimulation",
+      "target": "unspecified_target",
+      "invasiveness": "invasive_or_implanted",
+      "paper_count": 449,
+      "citation_sum": 11810,
+      "template_support_score": 2332.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 342,
+          "share": 0.7617
+        },
+        {
+          "label": "systematic_review",
+          "count": 28,
+          "share": 0.0624
+        },
+        {
+          "label": "case_report",
+          "count": 21,
+          "share": 0.0468
+        },
+        {
+          "label": "meta_analysis",
+          "count": 20,
+          "share": 0.0445
+        },
+        {
+          "label": "review",
+          "count": 13,
+          "share": 0.029
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "targeting_signal",
+          "count": 16,
+          "share": 0.0356
+        },
+        {
+          "label": "sham_controlled",
+          "count": 5,
+          "share": 0.0111
+        },
+        {
+          "label": "double_blind",
+          "count": 4,
+          "share": 0.0089
+        },
+        {
+          "label": "closed_loop",
+          "count": 3,
+          "share": 0.0067
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 3,
+          "share": 0.0067
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 436,
+          "share": 0.971
+        },
+        {
+          "label": "animal",
+          "count": 8,
+          "share": 0.0178
+        },
+        {
+          "label": "pediatric",
+          "count": 5,
+          "share": 0.0111
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 7,
+          "share": 0.0156
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 5,
+          "share": 0.0111
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 5,
+          "share": 0.0111
+        },
+        {
+          "label": "mania_hypomania",
+          "count": 4,
+          "share": 0.0089
+        },
+        {
+          "label": "psychosis_caution",
+          "count": 3,
+          "share": 0.0067
+        }
+      ],
+      "example_titles": [
+        "Stereo-encephalography-guided multi-lead deep brain stimulation for treatment-refractory obsessive compulsive disorder - Study design and individualized surgical targeting approach.",
+        "Sleep-aware adaptive deep brain stimulation to mitigate insomnia in OCD.",
+        "Patient-specific structural connectomic differences of deep brain stimulation targets in treatment-resistant obsessive-compulsive disorder patients"
+      ]
+    },
+    {
+      "modality": "transcranial_magnetic_stimulation",
+      "target": "unspecified_target",
+      "invasiveness": "noninvasive",
+      "paper_count": 217,
+      "citation_sum": 4679,
+      "template_support_score": 1438.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 116,
+          "share": 0.5346
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 40,
+          "share": 0.1843
+        },
+        {
+          "label": "meta_analysis",
+          "count": 21,
+          "share": 0.0968
+        },
+        {
+          "label": "case_report",
+          "count": 20,
+          "share": 0.0922
+        },
+        {
+          "label": "systematic_review",
+          "count": 8,
+          "share": 0.0369
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "sham_controlled",
+          "count": 20,
+          "share": 0.0922
+        },
+        {
+          "label": "burst_pattern",
+          "count": 19,
+          "share": 0.0876
+        },
+        {
+          "label": "double_blind",
+          "count": 14,
+          "share": 0.0645
+        },
+        {
+          "label": "frequency_signal",
+          "count": 7,
+          "share": 0.0323
+        },
+        {
+          "label": "low_frequency",
+          "count": 6,
+          "share": 0.0276
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 210,
+          "share": 0.9677
+        },
+        {
+          "label": "pediatric",
+          "count": 6,
+          "share": 0.0276
+        },
+        {
+          "label": "pregnancy",
+          "count": 1,
+          "share": 0.0046
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 9,
+          "share": 0.0415
+        },
+        {
+          "label": "psychosis_caution",
+          "count": 5,
+          "share": 0.023
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 5,
+          "share": 0.023
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 2,
+          "share": 0.0092
+        },
+        {
+          "label": "pregnancy_caution",
+          "count": 1,
+          "share": 0.0046
+        }
+      ],
+      "example_titles": [
+        "RTMS Versus Fluvoxamine in the Treatment of OCD: A Randomized Open-label Pilot Study.",
+        "Reconciling inconclusive evidence on theta burst stimulation in obsessive-compulsive disorder.",
+        "Quantitative electroencephalogram differentiation between treatment-resistant and responsive groups following deep transcranial magnetic stimulation in obsessive-compulsive disorder."
+      ]
+    },
+    {
+      "modality": "general_neuromodulation",
+      "target": "unspecified_target",
+      "invasiveness": "invasive_or_implanted",
+      "paper_count": 118,
+      "citation_sum": 3067,
+      "template_support_score": 619.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 89,
+          "share": 0.7542
+        },
+        {
+          "label": "systematic_review",
+          "count": 11,
+          "share": 0.0932
+        },
+        {
+          "label": "case_report",
+          "count": 5,
+          "share": 0.0424
+        },
+        {
+          "label": "meta_analysis",
+          "count": 4,
+          "share": 0.0339
+        },
+        {
+          "label": "review",
+          "count": 3,
+          "share": 0.0254
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "targeting_signal",
+          "count": 5,
+          "share": 0.0424
+        },
+        {
+          "label": "closed_loop",
+          "count": 1,
+          "share": 0.0085
+        },
+        {
+          "label": "closed_loop_signal",
+          "count": 1,
+          "share": 0.0085
+        },
+        {
+          "label": "double_blind",
+          "count": 1,
+          "share": 0.0085
+        },
+        {
+          "label": "sham_controlled",
+          "count": 1,
+          "share": 0.0085
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 114,
+          "share": 0.9661
+        },
+        {
+          "label": "pediatric",
+          "count": 2,
+          "share": 0.0169
+        },
+        {
+          "label": "animal",
+          "count": 2,
+          "share": 0.0169
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "pediatric_caution",
+          "count": 2,
+          "share": 0.0169
+        },
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 2,
+          "share": 0.0169
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.0085
+        },
+        {
+          "label": "device_complication",
+          "count": 1,
+          "share": 0.0085
+        }
+      ],
+      "example_titles": [
+        "Stereo-encephalography-guided multi-lead deep brain stimulation for treatment-refractory obsessive compulsive disorder - Study design and individualized surgical targeting approach.",
+        "Pallidal alpha activity is an electrophysiological biomarker of symptom severity in obsessive-compulsive disorder",
+        "Incidental resolution of pedophilia in a patient undergoing deep brain stimulation (DBS) for obsessive-compulsive disorder (OCD): a case report and long-term follow-up."
+      ]
+    },
+    {
+      "modality": "general_neuromodulation",
+      "target": "unspecified_target",
+      "invasiveness": "unknown",
+      "paper_count": 157,
+      "citation_sum": 3210,
+      "template_support_score": 587.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 127,
+          "share": 0.8089
+        },
+        {
+          "label": "review",
+          "count": 8,
+          "share": 0.051
+        },
+        {
+          "label": "case_report",
+          "count": 5,
+          "share": 0.0318
+        },
+        {
+          "label": "systematic_review",
+          "count": 5,
+          "share": 0.0318
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 4,
+          "share": 0.0255
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "double_blind",
+          "count": 1,
+          "share": 0.0064
+        },
+        {
+          "label": "frequency_signal",
+          "count": 1,
+          "share": 0.0064
+        },
+        {
+          "label": "high_frequency",
+          "count": 1,
+          "share": 0.0064
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 145,
+          "share": 0.9236
+        },
+        {
+          "label": "pediatric",
+          "count": 4,
+          "share": 0.0255
+        },
+        {
+          "label": "animal",
+          "count": 4,
+          "share": 0.0255
+        },
+        {
+          "label": "adult",
+          "count": 4,
+          "share": 0.0255
+        },
+        {
+          "label": "pregnancy",
+          "count": 2,
+          "share": 0.0127
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 10,
+          "share": 0.0637
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 4,
+          "share": 0.0255
+        },
+        {
+          "label": "psychosis_caution",
+          "count": 4,
+          "share": 0.0255
+        },
+        {
+          "label": "suicidality",
+          "count": 2,
+          "share": 0.0127
+        },
+        {
+          "label": "pregnancy_caution",
+          "count": 2,
+          "share": 0.0127
+        }
+      ],
+      "example_titles": [
+        "Stereotactic ablation surgery for treatment-resistant obsessive-compulsive disorder: Technical evolution, clinical application, and future prospects.",
+        "Rehabilitation of Capitellar Osteochondritis Dissecans (OCD) Lesions in Gymnasts: A Review of Current Concepts and Treatment.",
+        "Neuroimaging in lesioning therapy for obsessive-compulsive disorder: region-based and network analysis of preoperative outcome predictors and postoperative effects."
+      ]
+    },
+    {
+      "modality": "transcranial_direct_current_stimulation",
+      "target": "unspecified_target",
+      "invasiveness": "noninvasive",
+      "paper_count": 84,
+      "citation_sum": 846,
+      "template_support_score": 577.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 37,
+          "share": 0.4405
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 22,
+          "share": 0.2619
+        },
+        {
+          "label": "case_report",
+          "count": 11,
+          "share": 0.131
+        },
+        {
+          "label": "meta_analysis",
+          "count": 7,
+          "share": 0.0833
+        },
+        {
+          "label": "systematic_review",
+          "count": 5,
+          "share": 0.0595
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "sham_controlled",
+          "count": 9,
+          "share": 0.1071
+        },
+        {
+          "label": "double_blind",
+          "count": 7,
+          "share": 0.0833
+        },
+        {
+          "label": "current_dose_reported",
+          "count": 1,
+          "share": 0.0119
+        },
+        {
+          "label": "current_signal",
+          "count": 1,
+          "share": 0.0119
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 82,
+          "share": 0.9762
+        },
+        {
+          "label": "pediatric",
+          "count": 2,
+          "share": 0.0238
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "psychosis_caution",
+          "count": 3,
+          "share": 0.0357
+        },
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 2,
+          "share": 0.0238
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 2,
+          "share": 0.0238
+        }
+      ],
+      "example_titles": [
+        "Transcranial direct current stimulation and cognitive modifiability in obsessive compulsive disorder: a reaction to recent findings by Pellegrini et al.",
+        "Reply: Comorbid Obsessive Compulsive Disorder in Tourette's Syndrome: Questioning its Impact.",
+        "Prolonging remission in obsessive-compulsive disorder using add-on maintenance tDCS: A case report."
+      ]
+    },
+    {
+      "modality": "general_neuromodulation",
+      "target": "unspecified_target",
+      "invasiveness": "noninvasive",
+      "paper_count": 83,
+      "citation_sum": 1159,
+      "template_support_score": 568.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 34,
+          "share": 0.4096
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 18,
+          "share": 0.2169
+        },
+        {
+          "label": "case_report",
+          "count": 13,
+          "share": 0.1566
+        },
+        {
+          "label": "meta_analysis",
+          "count": 10,
+          "share": 0.1205
+        },
+        {
+          "label": "review",
+          "count": 3,
+          "share": 0.0361
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "sham_controlled",
+          "count": 9,
+          "share": 0.1084
+        },
+        {
+          "label": "double_blind",
+          "count": 5,
+          "share": 0.0602
+        },
+        {
+          "label": "frequency_signal",
+          "count": 3,
+          "share": 0.0361
+        },
+        {
+          "label": "burst_pattern",
+          "count": 3,
+          "share": 0.0361
+        },
+        {
+          "label": "low_frequency",
+          "count": 2,
+          "share": 0.0241
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 79,
+          "share": 0.9518
+        },
+        {
+          "label": "pediatric",
+          "count": 3,
+          "share": 0.0361
+        },
+        {
+          "label": "pregnancy",
+          "count": 1,
+          "share": 0.012
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "psychosis_caution",
+          "count": 4,
+          "share": 0.0482
+        },
+        {
+          "label": "pediatric_caution",
+          "count": 2,
+          "share": 0.0241
+        },
+        {
+          "label": "pregnancy_caution",
+          "count": 1,
+          "share": 0.012
+        },
+        {
+          "label": "sleep_disturbance",
+          "count": 1,
+          "share": 0.012
+        }
+      ],
+      "example_titles": [
+        "Treatment of therapy-resistant OCD with application of transcranial alternating current stimulation (tACS): a case series.",
+        "RTMS Versus Fluvoxamine in the Treatment of OCD: A Randomized Open-label Pilot Study.",
+        "EEG microstate beta-band abnormalities in obsessive-compulsive disorder: Associations with disease symptoms and sensitivity to repetitive transcranial magnetic stimulation."
+      ]
+    },
+    {
+      "modality": "transcranial_magnetic_stimulation",
+      "target": "unspecified_target",
+      "invasiveness": "invasive_or_implanted",
+      "paper_count": 44,
+      "citation_sum": 893,
+      "template_support_score": 238.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 31,
+          "share": 0.7045
+        },
+        {
+          "label": "meta_analysis",
+          "count": 3,
+          "share": 0.0682
+        },
+        {
+          "label": "systematic_review",
+          "count": 3,
+          "share": 0.0682
+        },
+        {
+          "label": "guideline_consensus",
+          "count": 2,
+          "share": 0.0455
+        },
+        {
+          "label": "review",
+          "count": 2,
+          "share": 0.0455
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "targeting_signal",
+          "count": 1,
+          "share": 0.0227
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 43,
+          "share": 0.9773
+        },
+        {
+          "label": "animal",
+          "count": 1,
+          "share": 0.0227
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "device_complication",
+          "count": 1,
+          "share": 0.0227
+        },
+        {
+          "label": "metal_implant_caution",
+          "count": 1,
+          "share": 0.0227
+        }
+      ],
+      "example_titles": [
+        "Circuit-based neuromodulation for obsessive-compulsive disorder: a systematic review, meta-analysis, and translational case study.",
+        "[Diagnosis and treatment of obsessive compulsive disorder].",
+        "Recent Advances in the Treatment of OCD"
+      ]
+    },
+    {
+      "modality": "deep_brain_stimulation",
+      "target": "nucleus_accumbens",
+      "invasiveness": "invasive_or_implanted",
+      "paper_count": 24,
+      "citation_sum": 1008,
+      "template_support_score": 115.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 18,
+          "share": 0.75
+        },
+        {
+          "label": "case_report",
+          "count": 3,
+          "share": 0.125
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 2,
+          "share": 0.0833
+        },
+        {
+          "label": "review",
+          "count": 1,
+          "share": 0.0417
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "double_blind",
+          "count": 2,
+          "share": 0.0833
+        },
+        {
+          "label": "sham_controlled",
+          "count": 1,
+          "share": 0.0417
+        },
+        {
+          "label": "targeting_signal",
+          "count": 1,
+          "share": 0.0417
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 23,
+          "share": 0.9583
+        },
+        {
+          "label": "adult",
+          "count": 1,
+          "share": 0.0417
+        }
+      ],
+      "top_safety_tags": [],
+      "example_titles": [
+        "402. THE EFFICACY OF DEEP BRAIN STIMULATION OF COMBINED ANTERIOR LIMB OF INTERNAL CAPSULE AND NUCLEUS ACCUMBENS FOR TREATMENT-REFRACTORY OBSESSIVE-COMPULSIVE DISORDER: A RANDOMISED, DOUBLE-BLINDED, AND SHAM-CONTROLLED STUDY",
+        "Use of differential stimulation of the nucleus accumbens and anterior limb of the internal capsule to improve outcomes of obsessive-compulsive disorder.",
+        "Longitudinal Changes of Local Field Potential Oscillations in Nucleus Accumbens and Anterior Limb of the Internal Capsule in Obsessive-Compulsive Disorder."
+      ]
+    },
+    {
+      "modality": "transcranial_direct_current_stimulation",
+      "target": "unspecified_target",
+      "invasiveness": "invasive_or_implanted",
+      "paper_count": 13,
+      "citation_sum": 129,
+      "template_support_score": 88.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 7,
+          "share": 0.5385
+        },
+        {
+          "label": "meta_analysis",
+          "count": 2,
+          "share": 0.1538
+        },
+        {
+          "label": "systematic_review",
+          "count": 2,
+          "share": 0.1538
+        },
+        {
+          "label": "guideline_consensus",
+          "count": 1,
+          "share": 0.0769
+        },
+        {
+          "label": "review",
+          "count": 1,
+          "share": 0.0769
+        }
+      ],
+      "top_parameter_tags": [],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 13,
+          "share": 1.0
+        }
+      ],
+      "top_safety_tags": [],
+      "example_titles": [
+        "Circuit-based neuromodulation for obsessive-compulsive disorder: a systematic review, meta-analysis, and translational case study.",
+        "Comparative efficacy of neuromodulation modalities for treatment-refractory obsessive-compulsive disorder: A systematic review, meta-analysis, and network-based analysis",
+        "Brain-Circuit Dysfunctions and Neuromodulatory Interventions in Obsessive-Compulsive Disorder: Systematic Review of Recent Clinical and Experimental Studies"
+      ]
+    },
+    {
+      "modality": "deep_brain_stimulation",
+      "target": "subthalamic_nucleus",
+      "invasiveness": "invasive_or_implanted",
+      "paper_count": 19,
+      "citation_sum": 590,
+      "template_support_score": 86.0,
+      "top_study_types": [
+        {
+          "label": "other",
+          "count": 13,
+          "share": 0.6842
+        },
+        {
+          "label": "case_report",
+          "count": 2,
+          "share": 0.1053
+        },
+        {
+          "label": "animal_preclinical",
+          "count": 2,
+          "share": 0.1053
+        },
+        {
+          "label": "protocol_paper",
+          "count": 1,
+          "share": 0.0526
+        },
+        {
+          "label": "randomized_controlled_trial",
+          "count": 1,
+          "share": 0.0526
+        }
+      ],
+      "top_parameter_tags": [
+        {
+          "label": "targeting_signal",
+          "count": 1,
+          "share": 0.0526
+        }
+      ],
+      "top_population_tags": [
+        {
+          "label": "unspecified_population",
+          "count": 17,
+          "share": 0.8947
+        },
+        {
+          "label": "animal",
+          "count": 2,
+          "share": 0.1053
+        }
+      ],
+      "top_safety_tags": [
+        {
+          "label": "cognitive_adverse_effect",
+          "count": 1,
+          "share": 0.0526
+        }
+      ],
+      "example_titles": [
+        "Deep brain stimulation of the subthalamic nucleus to improve symptoms and cognitive functions in patients with refractory obsessive-compulsive disorder: a longitudinal study.",
+        "Resolving dyskinesias at sustained anti-OCD efficacy by steering of DBS away from the anteromedial STN to the mesencephalic ventral tegmentum - case report.",
+        "Identification of biomarkers that predict response to subthalamic nucleus deep brain stimulation in resistant obsessive-compulsive disorder: protocol for an open-label follow-up study."
+      ]
+    }
+  ],
+  "safety_signals": [
+    {
+      "signal": "cognitive_adverse_effect",
+      "count": 36,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "pediatric_caution",
+      "count": 20,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "psychosis_caution",
+      "count": 19,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "seizure_risk",
+      "count": 7,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "metal_implant_caution",
+      "count": 5,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "sleep_disturbance",
+      "count": 4,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "mania_hypomania",
+      "count": 4,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "pregnancy_caution",
+      "count": 3,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "pain_or_discomfort",
+      "count": 2,
+      "signal_type": "safety"
+    },
+    {
+      "signal": "suicidality",
+      "count": 2,
+      "signal_type": "safety"
+    }
+  ],
+  "contraindication_signals": [
+    {
+      "signal": "safety",
+      "count": 29,
+      "signal_type": "contraindication"
+    },
+    {
+      "signal": "feasibility",
+      "count": 4,
+      "signal_type": "contraindication"
+    },
+    {
+      "signal": "adverse_event",
+      "count": 2,
+      "signal_type": "contraindication"
+    }
+  ],
+  "representative_papers": [
+    {
+      "paper_key": "doi|10.1016/j.tics.2011.11.003",
+      "title": "Obsessive-compulsive disorder: beyond segregated cortico-striatal pathways.",
+      "year": 2012,
+      "journal": null,
+      "doi": "10.1016/j.tics.2011.11.003",
+      "pmid": "22138231",
+      "citation_count": 589,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "general_neuromodulation",
+      "canonical_modalities": [
+        "general_neuromodulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/22138231"
+    },
+    {
+      "paper_key": "doi|10.1038/s41572-019-0102-3",
+      "title": "Obsessive-compulsive disorder.",
+      "year": 2019,
+      "journal": null,
+      "doi": "10.1038/s41572-019-0102-3",
+      "pmid": "31371720",
+      "citation_count": 495,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "general_neuromodulation",
+      "canonical_modalities": [
+        "general_neuromodulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/31371720"
+    },
+    {
+      "paper_key": "doi|10.1038/mp.2008.55",
+      "title": "Deep brain stimulation of the ventral internal capsule/ventral striatum for obsessive-compulsive disorder: worldwide experience.",
+      "year": 2010,
+      "journal": null,
+      "doi": "10.1038/mp.2008.55",
+      "pmid": "18490925",
+      "citation_count": 477,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/18490925"
+    },
+    {
+      "paper_key": "doi|10.1001/archgenpsychiatry.2010.122",
+      "title": "Deep brain stimulation of the nucleus accumbens for treatment-refractory obsessive-compulsive disorder.",
+      "year": 2010,
+      "journal": null,
+      "doi": "10.1001/archgenpsychiatry.2010.122",
+      "pmid": "20921122",
+      "citation_count": 460,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation"
+      ],
+      "target_tags": [
+        "nucleus_accumbens"
+      ],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/20921122"
+    },
+    {
+      "paper_key": "doi|10.1038/sj.npp.1301165",
+      "title": "Three-year outcomes in deep brain stimulation for highly resistant obsessive-compulsive disorder.",
+      "year": 2006,
+      "journal": null,
+      "doi": "10.1038/sj.npp.1301165",
+      "pmid": "16855529",
+      "citation_count": 443,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/16855529"
+    },
+    {
+      "paper_key": "doi|10.1016/j.jchemneu.2003.09.003",
+      "title": "The nucleus accumbens: a target for deep brain stimulation in obsessive-compulsive- and anxiety-disorders.",
+      "year": 2003,
+      "journal": null,
+      "doi": "10.1016/j.jchemneu.2003.09.003",
+      "pmid": "14729131",
+      "citation_count": 352,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation"
+      ],
+      "target_tags": [
+        "nucleus_accumbens"
+      ],
+      "parameter_signal_tags": [
+        "targeting_signal"
+      ],
+      "record_url": "https://europepmc.org/article/MED/14729131"
+    },
+    {
+      "paper_key": "doi|10.1016/j.neuron.2019.01.046",
+      "title": "Obsessive-Compulsive Disorder: Puzzles and Prospects.",
+      "year": 2019,
+      "journal": null,
+      "doi": "10.1016/j.neuron.2019.01.046",
+      "pmid": "30946823",
+      "citation_count": 347,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/30946823"
+    },
+    {
+      "paper_key": "doi|10.1038/nn.3344",
+      "title": "Deep brain stimulation restores frontostriatal network activity in obsessive-compulsive disorder.",
+      "year": 2013,
+      "journal": null,
+      "doi": "10.1038/nn.3344",
+      "pmid": "23434914",
+      "citation_count": 314,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/23434914"
+    },
+    {
+      "paper_key": "doi|10.1016/j.biopsych.2004.11.042",
+      "title": "Deep brain stimulation for refractory obsessive-compulsive disorder.",
+      "year": 2005,
+      "journal": null,
+      "doi": "10.1016/j.biopsych.2004.11.042",
+      "pmid": "15737666",
+      "citation_count": 314,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/15737666"
+    },
+    {
+      "paper_key": "doi|10.1001/jama.2017.2200",
+      "title": "Obsessive-Compulsive Disorder: Advances in Diagnosis and Treatment.",
+      "year": 2017,
+      "journal": null,
+      "doi": "10.1001/jama.2017.2200",
+      "pmid": "28384832",
+      "citation_count": 284,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/28384832"
+    },
+    {
+      "paper_key": "doi|10.1176/appi.ajp.2019.18101180",
+      "title": "Efficacy and Safety of Deep Transcranial Magnetic Stimulation for Obsessive-Compulsive Disorder: A Prospective Multicenter Randomized Double-Blind Placebo-Controlled Trial.",
+      "year": 2019,
+      "journal": null,
+      "doi": "10.1176/appi.ajp.2019.18101180",
+      "pmid": "31109199",
+      "citation_count": 276,
+      "evidence_tier": "moderate_high",
+      "study_type": "randomized_controlled_trial",
+      "primary_modality": "transcranial_magnetic_stimulation",
+      "canonical_modalities": [
+        "transcranial_magnetic_stimulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [],
+      "record_url": "https://europepmc.org/article/MED/31109199"
+    },
+    {
+      "paper_key": "doi|10.1038/s41467-020-16734-3",
+      "title": "A unified connectomic target for deep brain stimulation in obsessive-compulsive disorder.",
+      "year": 2020,
+      "journal": null,
+      "doi": "10.1038/s41467-020-16734-3",
+      "pmid": "32620886",
+      "citation_count": 233,
+      "evidence_tier": "unspecified",
+      "study_type": "other",
+      "primary_modality": "deep_brain_stimulation",
+      "canonical_modalities": [
+        "deep_brain_stimulation",
+        "general_neuromodulation"
+      ],
+      "target_tags": [],
+      "parameter_signal_tags": [
+        "targeting_signal"
+      ],
+      "record_url": "https://europepmc.org/article/MED/32620886"
+    }
+  ],
+  "protocol_personalization_notes": [
+    "Use this file as a retrieval and ranking prior for protocol personalization, not as a stand-alone prescribing source.",
+    "Always resolve candidate protocols back to the authoritative condition package and device-specific governance before export.",
+    "Top literature-weighted modalities for this condition are deep_brain_stimulation, general_neuromodulation, transcranial_magnetic_stimulation.",
+    "Highest-support protocol cluster in the imported bundle is deep_brain_stimulation targeting unspecified_target.",
+    "Most frequent safety-monitoring signals in matched papers are cognitive_adverse_effect, pediatric_caution, psychosis_caution."
+  ]
+}

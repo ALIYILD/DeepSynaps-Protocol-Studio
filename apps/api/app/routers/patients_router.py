@@ -975,6 +975,25 @@ class PatientMessagesResponse(BaseModel):
     total: int
 
 
+class CallRequestOut(BaseModel):
+    id: str
+    patient_id: str
+    patient_name: str
+    subject: Optional[str] = None
+    body: str
+    category: Optional[str] = None
+    priority: Optional[str] = None
+    urgency: str = "routine"
+    requested_call_type: str = "video"
+    preferred_time: Optional[str] = None
+    condition: Optional[str] = None
+    modality: Optional[str] = None
+    thread_id: Optional[str] = None
+    created_at: str
+    read_at: Optional[str] = None
+    is_read: bool = False
+
+
 class SendMessageRequest(BaseModel):
     body: str
     subject: Optional[str] = None
@@ -1040,6 +1059,50 @@ def _assessment_to_dict(a) -> dict:
         "created_at": a.created_at.isoformat(),
         "updated_at": a.updated_at.isoformat(),
     }
+
+
+def _infer_call_request_type(subject: Optional[str], body: Optional[str]) -> str:
+    haystack = f"{subject or ''}\n{body or ''}".lower()
+    if "voice" in haystack or "phone" in haystack:
+        return "voice"
+    return "video"
+
+
+def _infer_call_request_preferred_time(body: Optional[str]) -> Optional[str]:
+    text = (body or "").lower()
+    if "morning" in text:
+        return "Morning"
+    if "afternoon" in text:
+        return "Afternoon"
+    if "evening" in text:
+        return "Evening"
+    if "flexible" in text or "any time" in text or "anytime" in text:
+        return "Flexible"
+    return None
+
+
+def _call_request_to_out(msg, patient) -> CallRequestOut:
+    patient_name = " ".join(part for part in [patient.first_name, patient.last_name] if part).strip() or patient.id
+    priority = (msg.priority or "").lower() or None
+    urgency = "urgent" if priority in {"urgent", "high"} else "routine"
+    return CallRequestOut(
+        id=msg.id,
+        patient_id=patient.id,
+        patient_name=patient_name,
+        subject=msg.subject,
+        body=msg.body,
+        category=msg.category,
+        priority=msg.priority,
+        urgency=urgency,
+        requested_call_type=_infer_call_request_type(msg.subject, msg.body),
+        preferred_time=_infer_call_request_preferred_time(msg.body),
+        condition=patient.primary_condition,
+        modality=patient.primary_modality,
+        thread_id=msg.thread_id,
+        created_at=msg.created_at.isoformat(),
+        read_at=msg.read_at.isoformat() if msg.read_at else None,
+        is_read=msg.read_at is not None,
+    )
 
 
 @router.get("/{patient_id}/sessions", response_model=PatientSessionsResponse)
@@ -1554,6 +1617,66 @@ def send_patient_message(
         read_at=None,
         is_read=False,
     )
+
+
+@router.get("/call-requests", response_model=list[CallRequestOut])
+def list_call_requests(
+    include_resolved: bool = Query(default=False),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> list[CallRequestOut]:
+    """List patient-initiated call requests for the clinician inbox."""
+    from app.persistence.models import Message, Patient as _Patient
+
+    require_minimum_role(actor, "clinician")
+
+    query = (
+        session.query(Message, _Patient)
+        .join(_Patient, _Patient.id == Message.patient_id)
+        .filter(Message.category == "call_request")
+    )
+
+    if actor.role not in ("admin", "supervisor"):
+        query = query.filter(_Patient.clinician_id == actor.actor_id, Message.recipient_id == actor.actor_id)
+
+    if not include_resolved:
+        query = query.filter(Message.read_at.is_(None))
+
+    rows = query.order_by(Message.created_at.desc()).all()
+    return [_call_request_to_out(msg, patient) for msg, patient in rows]
+
+
+@router.patch("/call-requests/{message_id}/resolve", response_model=CallRequestOut)
+def resolve_call_request(
+    message_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> CallRequestOut:
+    """Mark a call-request message as resolved/read for the clinician inbox."""
+    from app.persistence.models import Message, Patient as _Patient
+
+    require_minimum_role(actor, "clinician")
+
+    row = (
+        session.query(Message, _Patient)
+        .join(_Patient, _Patient.id == Message.patient_id)
+        .filter(Message.id == message_id, Message.category == "call_request")
+        .first()
+    )
+    if row is None:
+        raise ApiServiceError(code="not_found", message="Call request not found.", status_code=404)
+
+    msg, patient = row
+    if actor.role not in ("admin", "supervisor"):
+        if patient.clinician_id != actor.actor_id or msg.recipient_id != actor.actor_id:
+            raise ApiServiceError(code="forbidden", message="Not allowed to resolve this call request.", status_code=403)
+
+    if msg.read_at is None:
+        msg.read_at = datetime.now(timezone.utc)
+        session.commit()
+        session.refresh(msg)
+
+    return _call_request_to_out(msg, patient)
 
 
 @router.patch("/{patient_id}/messages/{message_id}/read", response_model=MessageOut)

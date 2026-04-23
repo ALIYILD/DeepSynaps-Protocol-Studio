@@ -173,6 +173,19 @@ class ClinicalSession(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+class ClinicalSessionEvent(Base):
+    __tablename__ = "clinical_session_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("clinical_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    payload_json: Mapped[str] = mapped_column(Text(), default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), index=True)
+
+
 class AssessmentRecord(Base):
     __tablename__ = "assessment_records"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

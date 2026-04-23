@@ -178,7 +178,7 @@ class UnreadCountResponse(BaseModel):
     open_adverse_events: int
 
 
-@router.get("/unread-count", response_model=UnreadCountResponse)
+@router.get("/api/v1/notifications/unread-count", response_model=UnreadCountResponse)
 def unread_count_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),

@@ -208,10 +208,19 @@ class SessionLogOut(BaseModel):
     interruptions: bool
     interruption_reason: Optional[str]
     post_session_notes: Optional[str]
+    checklist: dict = {}
     created_at: str
 
     @classmethod
     def from_record(cls, r: DeliveredSessionParameters) -> "SessionLogOut":
+        checklist: dict = {}
+        if r.checklist_json:
+            try:
+                parsed = json.loads(r.checklist_json)
+                if isinstance(parsed, dict):
+                    checklist = parsed
+            except Exception:
+                checklist = {}
         return cls(
             id=r.id,
             course_id=r.course_id,
@@ -226,6 +235,7 @@ class SessionLogOut(BaseModel):
             interruptions=r.interruptions,
             interruption_reason=r.interruption_reason,
             post_session_notes=r.post_session_notes,
+            checklist=checklist,
             created_at=r.created_at.isoformat(),
         )
 
@@ -1061,7 +1071,7 @@ def course_adverse_events_summary(
     for r in rows:
         sev = (getattr(r, "severity", None) or "unknown").lower()
         by_severity[sev] = by_severity.get(sev, 0) + 1
-        if not getattr(r, "resolved", False):
+        if getattr(r, "resolved_at", None) is None:
             unresolved += 1
     # Aggregate "highest" severity using the same token set as assessment_summary.
     order = {"unknown": -1, "mild": 1, "moderate": 2, "severe": 3, "critical": 4}

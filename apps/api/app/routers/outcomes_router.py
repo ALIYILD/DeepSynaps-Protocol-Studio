@@ -26,6 +26,8 @@ router = APIRouter(prefix="/api/v1/outcomes", tags=["Outcomes"])
 _LOWER_IS_BETTER = {"PHQ-9", "GAD-7", "PCL-5", "ISI", "DASS-21", "NRS-Pain", "UPDRS-III", "ADHD-RS-5"}
 # Templates where a HIGHER score = improvement (e.g. quality-of-life, functioning scales)
 _HIGHER_IS_BETTER: set[str] = set()  # extend when higher-is-better scales are added
+_LONGITUDINAL_TEMPLATES = ("PHQ-9", "GAD-7", "Y-BOCS")
+_LONGITUDINAL_COLORS = ["#00d4bc", "#4a9eff", "#9b7fff", "#ffb547", "#ff6b6b"]
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -160,6 +162,38 @@ def _compute_summary(course_id: str, records: list[OutcomeSeries]) -> CourseSumm
         summaries=summaries,
         responder=any_responder if summaries else None,
     )
+
+
+def _parse_iso_date_or_none(raw: Optional[str]) -> Optional[datetime]:
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _normalize_condition_slug(raw: Optional[str]) -> str:
+    return (raw or "").strip().lower().replace(" ", "-").replace("_", "-")
+
+
+def _course_matches_cohort(course: TreatmentCourse, cohort: str) -> bool:
+    norm = _normalize_condition_slug(cohort)
+    if not norm or norm == "all":
+        return True
+    course_norm = _normalize_condition_slug(course.condition_slug)
+    aliases = {
+        "depression": {"depression", "mdd", "major-depressive-disorder", "treatment-resistant-depression"},
+        "gad": {"gad", "generalized-anxiety", "generalized-anxiety-disorder", "anxiety"},
+        "ocd": {"ocd", "obsessive-compulsive-disorder"},
+        "ptsd": {"ptsd", "post-traumatic-stress-disorder"},
+        "fibromyalgia": {"fibromyalgia"},
+    }
+    allowed = aliases.get(norm, {norm})
+    return course_norm in allowed
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
@@ -311,4 +345,129 @@ def aggregate_outcomes(
         "responder_rate_pct": responder_rate_pct,
         "assessment_completion_pct": assessment_completion_pct,
         "assessments_overdue_count": assessments_overdue_count,
+    }
+
+
+@router.get("/longitudinal", response_model=dict)
+def longitudinal_outcomes(
+    cohort: str = Query(default="all"),
+    date_from: Optional[str] = Query(default=None, alias="from"),
+    date_to: Optional[str] = Query(default=None, alias="to"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """Return lightweight cohort-level longitudinal outcome series for the research UI."""
+    require_minimum_role(actor, "clinician")
+
+    start = _parse_iso_date_or_none(date_from) or (datetime.now(timezone.utc) - timedelta(days=70))
+    end = _parse_iso_date_or_none(date_to) or datetime.now(timezone.utc)
+    if end < start:
+        raise ApiServiceError(
+            code="invalid_range",
+            message="'to' must be on or after 'from'.",
+            status_code=422,
+        )
+
+    course_q = db.query(TreatmentCourse)
+    if actor.role != "admin":
+        course_q = course_q.filter(TreatmentCourse.clinician_id == actor.actor_id)
+    courses = [course for course in course_q.all() if _course_matches_cohort(course, cohort)]
+    course_map = {course.id: course for course in courses}
+    if not course_map:
+        return {
+            "cohort": cohort,
+            "from": start.date().isoformat(),
+            "to": end.date().isoformat(),
+            "series": {},
+            "responderByModality": [],
+        }
+
+    bucket_count = 10
+    total_seconds = max((end - start).total_seconds(), 1.0)
+    bucket_seconds = total_seconds / bucket_count
+
+    def _bucket_index(ts: datetime) -> int:
+        if ts <= start:
+            return 0
+        if ts >= end:
+            return bucket_count - 1
+        idx = int((ts - start).total_seconds() / bucket_seconds)
+        return max(0, min(bucket_count - 1, idx))
+
+    outcomes_q = db.query(OutcomeSeries).filter(OutcomeSeries.course_id.in_(list(course_map.keys())))
+    if actor.role != "admin":
+        outcomes_q = outcomes_q.filter(OutcomeSeries.clinician_id == actor.actor_id)
+    outcomes_q = outcomes_q.filter(OutcomeSeries.administered_at >= start, OutcomeSeries.administered_at <= end)
+    outcome_rows = outcomes_q.order_by(OutcomeSeries.administered_at).all()
+
+    series: dict[str, list[float]] = {}
+    for template_id in _LONGITUDINAL_TEMPLATES:
+        bucket_values: list[list[float]] = [[] for _ in range(bucket_count)]
+        for row in outcome_rows:
+            if row.template_id != template_id or row.score_numeric is None:
+                continue
+            bucket_values[_bucket_index(row.administered_at)].append(float(row.score_numeric))
+        flat = [v for bucket in bucket_values for v in bucket]
+        if not flat:
+            continue
+        carry = round(sum(flat) / len(flat), 1)
+        points: list[float] = []
+        for bucket in bucket_values:
+            if bucket:
+                carry = round(sum(bucket) / len(bucket), 1)
+            points.append(carry)
+        series[template_id] = points
+
+    responder_by_modality: list[dict] = []
+    modality_groups: dict[str, list[TreatmentCourse]] = {}
+    for course in courses:
+        modality_groups.setdefault(course.modality_slug or "unknown", []).append(course)
+
+    for idx, (modality, modality_courses) in enumerate(sorted(modality_groups.items(), key=lambda item: item[0])):
+        baseline_by_course: dict[str, float] = {}
+        progress_buckets: list[list[bool]] = [[] for _ in range(bucket_count)]
+        modality_course_ids = {course.id for course in modality_courses}
+        modality_rows = [row for row in outcome_rows if row.course_id in modality_course_ids and row.score_numeric is not None and row.template_id in _LONGITUDINAL_TEMPLATES]
+        if not modality_rows:
+            continue
+        for course in modality_courses:
+            course_records = [row for row in modality_rows if row.course_id == course.id]
+            baseline_rec = next((row for row in course_records if row.measurement_point == "baseline"), None)
+            if baseline_rec is None and course_records:
+                baseline_rec = sorted(course_records, key=lambda row: row.administered_at)[0]
+            if baseline_rec and baseline_rec.score_numeric not in (None, 0):
+                baseline_by_course[course.id] = float(baseline_rec.score_numeric)
+        if not baseline_by_course:
+            continue
+        for bucket_idx in range(bucket_count):
+            bucket_end = start + timedelta(seconds=bucket_seconds * (bucket_idx + 1))
+            for course in modality_courses:
+                baseline = baseline_by_course.get(course.id)
+                if baseline in (None, 0):
+                    continue
+                course_records = [
+                    row for row in modality_rows
+                    if row.course_id == course.id and row.administered_at <= bucket_end and row.template_id in _LOWER_IS_BETTER
+                ]
+                if not course_records:
+                    continue
+                latest = sorted(course_records, key=lambda row: row.administered_at)[-1]
+                reduction = ((baseline - float(latest.score_numeric)) / baseline) * 100 if latest.score_numeric is not None else 0
+                progress_buckets[bucket_idx].append(reduction >= 50.0)
+        rate = [
+            round((sum(1 for hit in bucket if hit) / len(bucket)) * 100, 1) if bucket else 0.0
+            for bucket in progress_buckets
+        ]
+        responder_by_modality.append({
+            "modality": modality,
+            "rate": rate,
+            "color": _LONGITUDINAL_COLORS[idx % len(_LONGITUDINAL_COLORS)],
+        })
+
+    return {
+        "cohort": cohort,
+        "from": start.date().isoformat(),
+        "to": end.date().isoformat(),
+        "series": series,
+        "responderByModality": responder_by_modality,
     }

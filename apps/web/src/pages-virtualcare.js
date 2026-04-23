@@ -173,7 +173,213 @@ let _vc = {
   interimText: '',
   callSummary: '',
   apiMessages: {},
+  live: {
+    patientUpdates: false,
+    callRequests: false,
+  },
 };
+
+function _vcInitials(name = '') {
+  return String(name || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase() || '?';
+}
+
+function _vcStatusToBadge(status) {
+  const raw = String(status || '').toLowerCase();
+  if (raw === 'finalized') return 'signed';
+  if (raw === 'approved') return 'signed';
+  if (raw === 'generated') return 'awaiting-signoff';
+  if (raw === 'recorded' || raw === 'draft_generated') return 'awaiting-review';
+  return raw || 'awaiting-review';
+}
+
+function _vcApplyClinicianNoteDetail(note, detail) {
+  if (!note || !detail) return;
+  const draft = detail.latest_draft || null;
+  note.subject = `${detail.note_type || 'Clinical note'} · ${detail.media_type || 'text'}`;
+  note.transcription =
+    detail.transcript?.transcript_text
+    || detail.text_content
+    || 'Transcript/detail unavailable for this note.';
+  note.aiSummary =
+    draft?.patient_summary
+    || draft?.patient_friendly_summary
+    || draft?.soap_note
+    || draft?.session_note
+    || 'No AI draft metadata returned.';
+  note.status = _vcStatusToBadge(detail.status || draft?.status);
+  note.draftId = draft?.id || note.draftId || null;
+  note._detailLoaded = true;
+}
+
+function _vcNormalizeCallRequest(row, patientMeta) {
+  const patientName = row.patient_name || patientMeta?.name || row.patient_id || 'Unknown patient';
+  return {
+    id: row.id,
+    messageId: row.id,
+    patientId: row.patient_id,
+    patientName,
+    initials: patientMeta?.initials || _vcInitials(patientName),
+    condition: row.condition || patientMeta?.condition || '',
+    modality: row.modality || patientMeta?.modality || '',
+    requestedAt: row.created_at,
+    preferredTime: row.preferred_time || 'Not specified',
+    type: row.requested_call_type === 'voice' ? 'voice' : 'video',
+    reason: row.body || row.subject || 'Patient requested a call.',
+    urgency: row.urgency === 'urgent' ? 'urgent' : 'routine',
+    courseRef: row.category ? row.category.replace(/_/g, ' ') : 'Patient portal',
+    sessionRef: row.subject || 'Call request',
+  };
+}
+
+function _vcNormalizeVisit(session, patientMeta) {
+  const patientName = patientMeta?.name || session.patient_id || 'Unknown patient';
+  const appointmentType = String(session.appointment_type || '').toLowerCase();
+  const status = String(session.status || '').toLowerCase();
+  return {
+    id: session.id,
+    patientId: session.patient_id,
+    patientName,
+    initials: _vcInitials(patientName),
+    condition: patientMeta?.condition || '',
+    modality: session.modality || patientMeta?.modality || '',
+    scheduledAt: session.scheduled_at,
+    duration: session.duration_minutes || 20,
+    purpose: session.protocol_ref || appointmentType.replace(/_/g, ' ') || 'Virtual visit',
+    status: status === 'cancelled' ? 'missed' : status,
+    notesStatus: session.session_notes ? 'draft' : 'pending',
+    sessionId: session.id,
+  };
+}
+
+async function _vcHydrateLiveData(apiPatients) {
+  const patientList = Array.isArray(apiPatients) ? apiPatients : [];
+  const patientMetaById = new Map(
+    patientList.map((p) => {
+      const name = p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.id;
+      return [String(p.id), {
+        id: p.id,
+        name,
+        condition: p.primary_condition || '',
+        modality: p.primary_modality || '',
+        initials: _vcInitials(name),
+      }];
+    }),
+  );
+
+  try {
+    const rows = await api.listCallRequests?.();
+    if (Array.isArray(rows)) {
+      VC_DATA.callRequests = rows.map((row) => {
+        const patientMeta = patientMetaById.get(String(row.patient_id));
+        return _vcNormalizeCallRequest(row, patientMeta);
+      });
+      _vc.live.callRequests = true;
+    }
+  } catch {
+    _vc.live.callRequests = false;
+  }
+
+  try {
+    const res = await api.listSessions?.();
+    const items = res?.items || (Array.isArray(res) ? res : []);
+    if (Array.isArray(items) && items.length) {
+      const videoVisits = [];
+      const voiceCalls = [];
+      for (const session of items) {
+        const type = String(session.appointment_type || '').toLowerCase();
+        const patientMeta = patientMetaById.get(String(session.patient_id));
+        if (type === 'phone') {
+          voiceCalls.push(_vcNormalizeVisit(session, patientMeta));
+        } else if (type === 'follow_up' || type === 'consultation' || type === 'new_patient') {
+          videoVisits.push(_vcNormalizeVisit(session, patientMeta));
+        }
+      }
+      if (videoVisits.length) VC_DATA.videoVisits = videoVisits;
+      if (voiceCalls.length) VC_DATA.voiceCalls = voiceCalls;
+    }
+  } catch {}
+
+  try {
+    const noteLists = await Promise.all(
+      patientList.slice(0, 50).map(async (patient) => {
+        try {
+          const rows = await api.listClinicianNotes?.(patient.id);
+          const patientMeta = patientMetaById.get(String(patient.id));
+          return (Array.isArray(rows) ? rows : []).map((row) => ({
+            id: row.id,
+            patientId: row.patient_id,
+            patientName: patientMeta?.name || row.patient_id,
+            initials: patientMeta?.initials || _vcInitials(patientMeta?.name || row.patient_id),
+            condition: patientMeta?.condition || '',
+            modality: patientMeta?.modality || '',
+            type: row.note_type || row.media_type || 'text',
+            recordedAt: row.created_at,
+            subject: `${row.note_type || 'Clinical note'} · ${row.media_type || 'text'}`,
+            transcription: row.status === 'finalized'
+              ? 'Finalized clinician note. Full transcript/detail is not exposed by the current backend list endpoint.'
+              : 'Draft generated. Full transcript/detail is not exposed by the current backend list endpoint.',
+            aiSummary: row.draft_status
+              ? `Draft status: ${row.draft_status.replace(/_/g, ' ')}`
+              : 'No AI draft metadata returned.',
+            status: _vcStatusToBadge(row.status || row.draft_status),
+            actionsTaken: [],
+            draftId: row.draft_id || null,
+            _detailLoaded: false,
+          }));
+        } catch {
+          return [];
+        }
+      }),
+    );
+    const flattened = noteLists.flat().sort((a, b) => new Date(b.recordedAt || 0) - new Date(a.recordedAt || 0));
+    if (flattened.length) VC_DATA.clinicianNotes = flattened;
+  } catch {}
+
+  try {
+    const queue = await api.listMediaQueue?.();
+    const rows = Array.isArray(queue) ? queue : [];
+    if (rows.length) {
+      VC_DATA.patientUpdates = rows.map((row) => {
+        const patientMeta = patientMetaById.get(String(row.patient_id));
+        const patientName = row.patient_name || patientMeta?.name || row.patient_id || 'Unknown patient';
+        const initials = patientMeta?.initials || _vcInitials(patientName);
+        const reason = row.flagged_urgent ? 'Urgent media review' : 'Media review pending';
+        const transcript = row.text_content || row.patient_note || row.structured_summary || 'Transcript/detail not yet available in queue view.';
+        const aiSummary = row.analysis?.structured_summary || row.structured_summary || (row.red_flags?.length ? `Red flags: ${row.red_flags.map((f) => f.flag_type || f.extracted_text).join(', ')}` : 'Awaiting detailed analysis.');
+        return {
+          id: row.id,
+          patientId: row.patient_id,
+          patientName,
+          initials,
+          condition: row.primary_condition || patientMeta?.condition || '',
+          modality: '',
+          type: row.media_type === 'voice' ? 'voice-note' : row.media_type === 'video' ? 'video-update' : 'text-update',
+          submittedAt: row.created_at,
+          subject: row.patient_note || row.course_name || 'Patient media update',
+          reason,
+          severity: row.flagged_urgent ? 'High' : 'Routine',
+          trend: row.flagged_urgent ? 'Worse' : 'Same',
+          sessionRef: row.course_name || '',
+          duration: null,
+          urgency: row.flagged_urgent ? 'urgent' : 'routine',
+          reviewed: false,
+          transcription: transcript,
+          aiSummary,
+          uploadId: row.id,
+        };
+      });
+      _vc.live.patientUpdates = true;
+    }
+  } catch {
+    _vc.live.patientUpdates = false;
+  }
+}
 
 // =============================================================================
 // pgVirtualCare — entry point for the live-session route.
@@ -951,6 +1157,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
   const api = window._api || {};
   let apiPatients = [];
   try { const r = await api.listPatients?.(); apiPatients = r?.items || (Array.isArray(r) ? r : []); } catch {}
+  await _vcHydrateLiveData(apiPatients);
 
   // ── Stats ────────────────────────────────────────────────────────────────
   const urgentCalls   = VC_DATA.callRequests.filter(c => c.urgency === 'urgent').length;
@@ -1223,6 +1430,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
   // ── Call Requests tab ────────────────────────────────────────────────
   const callRequestsTab = () => `
     <div class="vc-list-view">
+      ${_vc.live.callRequests ? '' : `<div style="margin-bottom:12px;padding:10px 12px;border-radius:10px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);font-size:11.5px;color:var(--text-secondary)">Call Requests are still using preview rows because no backend call-request workflow is wired yet.</div>`}
       <div class="vc-list-header">
         <span>Patient</span><span>Condition / Course</span><span>Reason</span><span>Preferred Time</span><span>Urgency</span><span>Actions</span>
       </div>
@@ -1334,6 +1542,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
     const sel = _vc.selectedItem ? updates.find(u => u.id === _vc.selectedItem) : null;
     return `
       <div class="vc-updates-layout">
+        ${_vc.live.patientUpdates ? '' : `<div style="grid-column:1 / -1;margin-bottom:12px;padding:10px 12px;border-radius:10px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);font-size:11.5px;color:var(--text-secondary)">Shared Media is showing preview rows because the live media review queue is unavailable.</div>`}
         <div class="vc-update-list">
           ${updates.map(u => `
             <div class="vc-update-item${_vc.selectedItem===u.id?' vc-update-active':''}${!u.reviewed?' vc-update-unread':''}" onclick="window._vcSelectUpdate('${u.id}')">
@@ -1388,6 +1597,9 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
               </div>
 
               ${_actionBar(sel.patientId, sel.patientName, sel.transcription)}
+              ${sel.uploadId ? `<div class="vc-note-sign-bar">
+                <button class="vc-sign-btn" onclick="window._vcMarkUpdateReviewed('${sel.id}')">\u2713 Mark Reviewed</button>
+              </div>` : ''}
             </div>
           ` : `<div class="vc-empty-state">Select a shared item to review</div>`}
         </div>
@@ -1560,8 +1772,30 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
     } catch {}
   };
   window._vcSelectUpdate = id => { _vc.selectedItem = id; renderPage(); };
-  window._vcSelectNote   = id => { _vc.selectedItem = id; renderPage(); };
+  window._vcSelectNote = async id => {
+    _vc.selectedItem = id;
+    renderPage();
+    const note = VC_DATA.clinicianNotes.find((item) => item.id === id);
+    if (!note || note._detailLoaded) return;
+    try {
+      const detail = await api.getClinicianNote?.(id);
+      _vcApplyClinicianNoteDetail(note, detail);
+      renderPage();
+    } catch {}
+  };
   window._vcCompose      = () => { _vc.compose = true; renderPage(); };
+  window._vcMarkUpdateReviewed = async id => {
+    const item = VC_DATA.patientUpdates.find((u) => u.id === id);
+    if (!item?.uploadId) return;
+    try {
+      await api.reviewMediaUpload?.(item.uploadId, 'mark_reviewed');
+      item.reviewed = true;
+      renderPage();
+      window._showNotifToast?.({ title:'Marked reviewed', body:'Patient update moved through the live media review workflow.', severity:'success' });
+    } catch (e) {
+      window._showNotifToast?.({ title:'Review failed', body:(e?.body?.message || e?.message || 'Unable to mark update reviewed.'), severity:'warning' });
+    }
+  };
 
   window._vcSendMsg = async pid => {
     const inp = document.getElementById('vc-msg-input');
@@ -1597,9 +1831,12 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
     setTimeout(() => { if(_vc.activeCall) { _vc.activeCall.phase = 'active'; renderPage(); _startLiveTranscription(); } }, 2000);
   };
 
-  window._vcAcceptCall = (id, type) => {
+  window._vcAcceptCall = async (id, type) => {
     const cr = VC_DATA.callRequests.find(c => c.id === id);
     if (!cr) return;
+    try { await api.resolveCallRequest?.(cr.messageId || cr.id); } catch {}
+    const idx = VC_DATA.callRequests.findIndex(c => c.id === id);
+    if (idx >= 0) VC_DATA.callRequests.splice(idx, 1);
     _vc.activeCall = { type, item:cr, phase:'connecting' };
     _vc.activeCall.roomName = 'ds-' + (window._clinicId || 'clinic') + '-' + (cr.patientId || id).replace(/[^a-z0-9]/gi,'') + '-' + Date.now();
     renderPage();
@@ -1646,10 +1883,18 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
     }, 2500);
   };
 
-  window._vcDismissCallReq = id => {
+  window._vcDismissCallReq = async id => {
     const idx = VC_DATA.callRequests.findIndex(c => c.id === id);
-    if (idx >= 0) VC_DATA.callRequests.splice(idx, 1);
-    renderPage();
+    if (idx < 0) return;
+    const item = VC_DATA.callRequests[idx];
+    try {
+      await api.resolveCallRequest?.(item.messageId || item.id);
+      VC_DATA.callRequests.splice(idx, 1);
+      renderPage();
+      window._showNotifToast?.({ title:'Dismissed', body:'Call request resolved in the live inbox.', severity:'success' });
+    } catch (e) {
+      window._showNotifToast?.({ title:'Dismiss failed', body:(e?.body?.message || e?.message || 'Unable to resolve call request.'), severity:'warning' });
+    }
   };
 
   window._vcScheduleCall = id => {
@@ -1755,8 +2000,9 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
     if (!_vc.recording) return;
     const textEl = document.getElementById('vc-cap-text');
     const text = textEl ? textEl.value : _vc.recording.transcription;
+    let created = null;
     try {
-      await api.createClinicianNote?.({
+      created = await api.createClinicianNote?.({
         patient_id: _vc.recording.patientId,
         note_type: _vc.recording.type || 'clinical_update',
         text_content: text || _vc.recording.transcription || '',
@@ -1767,7 +2013,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
       window._showNotifToast?.({ title: 'Saved locally', body: 'Note saved locally — API unavailable.', severity: 'warning' });
     }
     VC_DATA.clinicianNotes.unshift({
-      id: 'cn-' + Date.now(),
+      id: created?.note_id || ('cn-' + Date.now()),
       patientId: _vc.recording.patientId,
       patientName: _vc.recording.patientName,
       initials: _vc.recording.initials,
@@ -1776,9 +2022,10 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
       recordedAt: new Date().toISOString(),
       subject: 'New clinical note',
       transcription: text || _vc.recording.transcription || '',
-      aiSummary: _vc.recording.aiSummary || '',
+      aiSummary: created?.draft?.session_note || created?.draft?.soap_note || _vc.recording.aiSummary || '',
       status: 'awaiting-signoff',
       actionsTaken: [],
+      draftId: created?.draft_id || null,
     });
     window._showNotifToast?.({ title:'Note Saved', body:'Note saved and queued for sign-off.', severity:'success' });
     _vc.recording = null;
@@ -1786,9 +2033,19 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate) {
     renderPage();
   };
 
-  window._vcSignNote = id => {
+  window._vcSignNote = async id => {
     const note = VC_DATA.clinicianNotes.find(n => n.id === id);
-    if (note) { note.status = 'signed'; note.actionsTaken = [...(note.actionsTaken||[]), 'signed']; }
+    if (!note) return;
+    if (note.draftId) {
+      try {
+        await api.approveClinicianDraft?.(note.draftId, {});
+      } catch (e) {
+        window._showNotifToast?.({ title:'Sign failed', body:(e?.body?.message || e?.message || 'Draft approval failed.'), severity:'warning' });
+        return;
+      }
+    }
+    note.status = 'signed';
+    note.actionsTaken = [...(note.actionsTaken||[]), 'signed'];
     renderPage();
     window._showNotifToast?.({ title:'Note Signed', body:'Clinical note signed and finalised.', severity:'success' });
   };
@@ -2466,7 +2723,7 @@ function _lsTeardown() {
   _lsState = null;
 }
 
-function _lsLogEvent(type, note) {
+function _lsLogEvent(type, note, payload = {}) {
   const s = _lsState; if (!s) return;
   const ev = { ts: new Date().toISOString(), type, note };
   s.events.unshift(ev);
@@ -2481,7 +2738,7 @@ function _lsLogEvent(type, note) {
   }
   const cnt = document.getElementById('ls-log-count');
   if (cnt) cnt.textContent = `${s.events.length} entries`;
-  try { api.logSessionEvent?.(s.session.id, { type, note }); } catch {}
+  try { api.logSessionEvent?.(s.session.id, { type, note, payload }); } catch {}
 }
 
 function _lsCheckToggle(id) {
@@ -2493,7 +2750,7 @@ function _lsCheckToggle(id) {
   if (row) row.classList.toggle('done', c.done);
   const cnt = document.getElementById('ls-check-count');
   if (cnt) cnt.textContent = `${doneCount}/${s.checklist.length}`;
-  _lsLogEvent('OPER', `${c.done ? 'Completed' : 'Reopened'}: ${c.label}`);
+  _lsLogEvent('CHECKLIST', `${c.done ? 'Completed' : 'Reopened'}: ${c.label}`, { checklist_id: c.id, label: c.label, done: c.done });
 }
 
 function _lsReportAE(kind) {
@@ -2501,15 +2758,15 @@ function _lsReportAE(kind) {
   if (kind === 'other') {
     const v = window.prompt('Describe adverse event or observation:');
     if (!v) return;
-    _lsLogEvent('AE', 'Other: ' + v);
+    _lsLogEvent('AE', 'Other: ' + v, { event_type: 'other', severity: 'moderate', level: null, description: v });
     return;
   }
   const cur = s.sideEffects[kind] || 0;
   s.sideEffects[kind] = Math.min(10, cur + 1);
   const el = document.getElementById('ls-ae-' + kind);
   if (el) el.innerHTML = `${s.sideEffects[kind]}<span style="font-size:10px;color:var(--text-tertiary);margin-left:3px">/10</span>`;
-  _lsLogEvent('AE', `${kind} reported \u00B7 level ${s.sideEffects[kind]}/10`);
-  try { api.logSessionEvent?.(s.session.id, { type: 'AE', note: `${kind} ${s.sideEffects[kind]}/10` }); } catch {}
+  const sev = s.sideEffects[kind] >= 7 ? 'severe' : s.sideEffects[kind] >= 4 ? 'moderate' : 'mild';
+  _lsLogEvent('AE', `${kind} reported \u00B7 level ${s.sideEffects[kind]}/10`, { event_type: kind, severity: sev, level: s.sideEffects[kind] });
 }
 
 function _lsPauseResume() {
@@ -2517,13 +2774,17 @@ function _lsPauseResume() {
   s.paused = !s.paused;
   const btn = document.getElementById('ls-pause-btn');
   if (btn) btn.textContent = s.paused ? 'Resume' : 'Pause';
-  _lsLogEvent('OPER', s.paused ? 'Session paused by operator' : 'Session resumed');
+  _lsLogEvent(
+    'OPER',
+    s.paused ? 'Session paused by operator' : 'Session resumed',
+    { action: s.paused ? 'pause' : 'resume', paused: s.paused },
+  );
 }
 
 function _lsEndSession() {
   const s = _lsState; if (!s) return;
   if (!window.confirm('End this session? This will stop stimulation and finalise the record.')) return;
-  _lsLogEvent('OPER', 'Session ended by operator');
+  _lsLogEvent('OPER', 'Session ended by operator', { action: 'end' });
   try { api.sessionPhaseTransition?.(s.session.id, 'ended'); } catch {}
   _lsTeardown();
   try { window._nav?.('courses') || window._nav?.('dashboard'); } catch {}
@@ -2532,7 +2793,7 @@ function _lsEndSession() {
 function _lsPhase(id) {
   const s = _lsState; if (!s) return;
   s.phase = id;
-  _lsLogEvent('STIM', `Phase transition \u2192 ${id}`);
+  _lsLogEvent('STIM', `Phase transition \u2192 ${id}`, { phase: id });
   try { api.sessionPhaseTransition?.(s.session.id, id); } catch {}
   _lsRender();
   _lsStartTimers();
@@ -3255,4 +3516,3 @@ function _lsOpenModal(html) {
 function _lsCloseModal() {
   try { document.querySelectorAll('.dv2l-ht-modal-bg').forEach(n => n.remove()); } catch {}
 }
-

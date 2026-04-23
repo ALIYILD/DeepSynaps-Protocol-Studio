@@ -1384,6 +1384,55 @@ def list_clinician_notes(
     return results
 
 
+@router.get("/clinician/note/{note_id}")
+def get_clinician_note_detail(
+    note_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """Return the full note detail, transcript, and latest draft for one note."""
+    _require_clinician_or_reviewer(actor)
+
+    note = db.query(ClinicianMediaNote).filter_by(id=note_id).first()
+    if note is None:
+        raise ApiServiceError(code="not_found", message="Clinician note not found.", status_code=404)
+
+    _check_patient_access(note.patient_id, actor, db)
+
+    transcript = db.query(ClinicianMediaTranscript).filter_by(note_id=note.id).first()
+    draft = (
+        db.query(ClinicianNoteDraft)
+        .filter_by(note_id=note.id)
+        .order_by(ClinicianNoteDraft.created_at.desc())
+        .first()
+    )
+
+    return {
+        "id": note.id,
+        "patient_id": note.patient_id,
+        "course_id": note.course_id,
+        "session_id": note.session_id,
+        "clinician_id": note.clinician_id,
+        "note_type": note.note_type,
+        "media_type": note.media_type,
+        "file_ref": note.file_ref,
+        "duration_seconds": note.duration_seconds,
+        "text_content": note.text_content,
+        "status": note.status,
+        "created_at": note.created_at.isoformat() if note.created_at else None,
+        "updated_at": note.updated_at.isoformat() if note.updated_at else None,
+        "transcript": {
+            "id": transcript.id,
+            "transcript_text": transcript.transcript_text,
+            "provider": transcript.provider,
+            "language": transcript.language,
+            "word_count": transcript.word_count,
+            "created_at": transcript.created_at.isoformat() if transcript.created_at else None,
+        } if transcript else None,
+        "latest_draft": _draft_to_dict(draft, patient_id=note.patient_id) if draft else None,
+    }
+
+
 @router.post("/clinician/draft/{draft_id}/approve")
 def approve_clinician_draft(
     draft_id: str,

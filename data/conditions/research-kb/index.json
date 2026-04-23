@@ -1,0 +1,114 @@
+[
+  {
+    "condition_slug": "major-depressive-disorder",
+    "condition_name": "Major Depressive Disorder (MDD)",
+    "condition_package_slug": "major-depressive-disorder",
+    "priority_rank": 1,
+    "indication_tags": [
+      "depression"
+    ],
+    "relative_path": "major-depressive-disorder.json",
+    "total_papers": 5352,
+    "top_modalities": [
+      "transcranial_magnetic_stimulation",
+      "general_neuromodulation",
+      "deep_brain_stimulation"
+    ]
+  },
+  {
+    "condition_slug": "ptsd",
+    "condition_name": "Post-Traumatic Stress Disorder (PTSD)",
+    "condition_package_slug": "ptsd",
+    "priority_rank": 2,
+    "indication_tags": [
+      "ptsd"
+    ],
+    "relative_path": "ptsd.json",
+    "total_papers": 304,
+    "top_modalities": [
+      "general_neuromodulation",
+      "transcranial_magnetic_stimulation",
+      "deep_brain_stimulation"
+    ]
+  },
+  {
+    "condition_slug": "chronic-pain-fibromyalgia",
+    "condition_name": "Chronic Pain / Fibromyalgia",
+    "condition_package_slug": "chronic-pain-fibromyalgia",
+    "priority_rank": 3,
+    "indication_tags": [
+      "chronic_pain"
+    ],
+    "relative_path": "chronic-pain-fibromyalgia.json",
+    "total_papers": 9486,
+    "top_modalities": [
+      "general_neuromodulation",
+      "spinal_cord_stimulation",
+      "transcranial_magnetic_stimulation"
+    ]
+  },
+  {
+    "condition_slug": "parkinsons-disease",
+    "condition_name": "Parkinson's Disease (PD)",
+    "condition_package_slug": "parkinsons-disease",
+    "priority_rank": 4,
+    "indication_tags": [
+      "parkinsons_disease"
+    ],
+    "relative_path": "parkinsons-disease.json",
+    "total_papers": 8541,
+    "top_modalities": [
+      "deep_brain_stimulation",
+      "general_neuromodulation",
+      "transcranial_magnetic_stimulation"
+    ]
+  },
+  {
+    "condition_slug": "obsessive-compulsive-disorder",
+    "condition_name": "Obsessive-Compulsive Disorder (OCD)",
+    "condition_package_slug": "obsessive-compulsive-disorder",
+    "priority_rank": 5,
+    "indication_tags": [
+      "ocd"
+    ],
+    "relative_path": "obsessive-compulsive-disorder.json",
+    "total_papers": 1082,
+    "top_modalities": [
+      "deep_brain_stimulation",
+      "general_neuromodulation",
+      "transcranial_magnetic_stimulation"
+    ]
+  },
+  {
+    "condition_slug": "drug-resistant-epilepsy",
+    "condition_name": "Drug-Resistant Epilepsy (DRE)",
+    "condition_package_slug": "drug-resistant-epilepsy",
+    "priority_rank": 6,
+    "indication_tags": [
+      "epilepsy_seizures"
+    ],
+    "relative_path": "drug-resistant-epilepsy.json",
+    "total_papers": 5035,
+    "top_modalities": [
+      "general_neuromodulation",
+      "vagus_nerve_stimulation",
+      "deep_brain_stimulation"
+    ]
+  },
+  {
+    "condition_slug": "stroke-rehabilitation",
+    "condition_name": "Stroke Rehabilitation (Post-Stroke Neurological Sequelae)",
+    "condition_package_slug": "stroke-rehabilitation",
+    "priority_rank": 7,
+    "indication_tags": [
+      "stroke_rehabilitation"
+    ],
+    "relative_path": "stroke-rehabilitation.json",
+    "total_papers": 4907,
+    "top_modalities": [
+      "transcranial_magnetic_stimulation",
+      "general_neuromodulation",
+      "transcranial_direct_current_stimulation"
+    ]
+  }
+]

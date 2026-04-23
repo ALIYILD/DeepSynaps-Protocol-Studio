@@ -34,6 +34,91 @@ function esc(s) {
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
+function _list(v) {
+  return String(v || '')
+    .split(/[,;|]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function _brainMapTargetQuery(code) {
+  const raw = String(code || '').toLowerCase();
+  if (!raw) return '';
+  if (raw.includes('dlpfc')) return 'dlpfc';
+  if (raw.includes('m1')) return 'm1';
+  if (raw.includes('sma')) return 'sma';
+  if (raw.includes('ifg')) return 'ifg';
+  if (raw.includes('mpfc')) return 'mpfc';
+  if (raw.includes('tpj') || raw.includes('p7') || raw.includes('p8')) return 'tpj';
+  return raw.replace(/[^a-z0-9]+/g, '_');
+}
+
+function _anchorFromText(value) {
+  const text = String(value || '');
+  const match = text.match(/\b(AFp?z|Fp1|Fp2|Fpz|AF3|AF4|F3|F4|F7|F8|Fz|FCz|C3|C4|Cz|CP3|CP4|P3|P4|P7|P8|Pz|T7|T8|O1|O2|Oz)\b/i);
+  return match ? match[1] : '';
+}
+
+function _normalizeAtlas(targets) {
+  if (!Array.isArray(targets) || !targets.length) return [];
+  const grouped = new Map();
+  for (const row of targets) {
+    const lobe = row?.lobe || 'Other';
+    const items = grouped.get(lobe) || [];
+    const abbr = String(row?.abbreviation || row?.name || '').trim();
+    const primary = _anchorFromText(row?.eeg_position_10_20) || abbr || 'F3';
+    const anchors = _list(row?.eeg_position_10_20);
+    const usable = anchors.length ? anchors : [primary];
+    for (const rawAnchor of usable.slice(0, 2)) {
+      const anchor = _anchorFromText(rawAnchor);
+      if (!anchor) continue;
+      items.push({
+        code: rawAnchor === usable[0] ? abbr || anchor : `${abbr || anchor}-${anchor}`,
+        anchor,
+        name: rawAnchor === usable[0] ? `${row?.name || abbr}` : `${row?.name || abbr} · ${anchor}`,
+        fn: row?.primary_functions || row?.brain_network || '',
+        cond: _list(row?.key_conditions),
+      });
+    }
+    grouped.set(lobe, items);
+  }
+  return Array.from(grouped.entries()).map(([lobe, sites]) => ({ lobe, sites })).filter((group) => group.sites.length);
+}
+
+function _normalizeMontages(rows) {
+  if (!Array.isArray(rows) || !rows.length) return [];
+  return rows
+    .filter((row) => String(row?.modality_id || '').toUpperCase() === 'MOD-003' || /tdcs/i.test(String(row?.modality_name || '')))
+    .map((row) => {
+      const placement = String(row?.coil_or_electrode_placement || '');
+      const anode = _anchorFromText(placement.match(/anode[^;,.]*/i)?.[0]) || _anchorFromText(placement) || 'F3';
+      const cathode = _anchorFromText(placement.match(/cathode[^;,.]*/i)?.[0]) || _anchorFromText(placement.split(';').slice(1).join(';')) || 'Fp2';
+      return {
+        id: row?.protocol_id || `${row?.condition_slug || 'protocol'}-tdcs`,
+        title: row?.protocol_name || row?.condition_label || 'tDCS protocol',
+        indication: row?.condition_label || row?.condition_slug || '',
+        anode,
+        cathode,
+        targetRegion: _anchorFromText(row?.target_region) || anode,
+        grade: String(row?.evidence_grade || '').replace(/^EV-/, '') || 'B',
+      };
+    })
+    .filter((row) => row.anode && row.cathode);
+}
+
+function _normalizeEvidence(rows) {
+  if (!Array.isArray(rows) || !rows.length) return [];
+  return rows.map((row) => ({
+    title: row?.title || 'Untitled paper',
+    year: row?.year || null,
+    authors: row?.authors || '',
+    grade: row?.evidence_tier ? String(row.evidence_tier).charAt(0).toUpperCase() : 'B',
+    doi: row?.doi || '',
+    delta: row?.research_summary || row?.trial_protocol_parameter_summary || '',
+    n: row?.citation_count || null,
+  }));
+}
+
 // Default state factory
 function defaultState() {
   return {
@@ -113,7 +198,7 @@ const CONTRAINDICATIONS = [
 export async function pgBrainMapPlanner(setTopbar, navigate) {
   if (typeof setTopbar === 'function') {
     setTopbar('Brain Map Planner',
-      `<span style="font-size:0.8rem;color:${T.t2};align-self:center">tDCS · 10-20 montage · evidence-graded</span>`);
+      `<span id="dv2bm-topbar-meta" style="font-size:0.8rem;color:${T.t2};align-self:center">tDCS · 10-20 montage · evidence-graded</span>`);
   }
   const root = document.getElementById('content');
   if (!root) return;
@@ -132,29 +217,39 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
   } catch (_) { data.montages = null; }
   try {
     if (typeof api.listProtocolEvidence === 'function') {
-      data.evidence = await api.listProtocolEvidence({ target: S.targetRegion, modality: 'tDCS' });
+      data.evidence = await api.listProtocolEvidence({ target: _brainMapTargetQuery(S.targetRegion), modality: 'tDCS', limit: 8 });
     }
   } catch (_) { data.evidence = null; }
 
-  const atlas    = Array.isArray(data.targets)  && data.targets.length  ? data.targets  : TARGET_ATLAS_FALLBACK;
-  const montages = Array.isArray(data.montages) && data.montages.length ? data.montages : MONTAGE_LIBRARY_FALLBACK;
-  const evidence = Array.isArray(data.evidence) && data.evidence.length ? data.evidence : EVIDENCE_FALLBACK;
+  const liveAtlas = _normalizeAtlas(data.targets);
+  const liveMontages = _normalizeMontages(data.montages);
+  const liveEvidence = _normalizeEvidence(data.evidence);
+  const atlas = liveAtlas.length ? liveAtlas : TARGET_ATLAS_FALLBACK;
+  const montages = liveMontages.length ? liveMontages : MONTAGE_LIBRARY_FALLBACK;
+  const evidence = liveEvidence.length ? liveEvidence : EVIDENCE_FALLBACK;
+  const usingFallback = !(liveAtlas.length && liveMontages.length && liveEvidence.length);
+  const topbarMeta = document.getElementById('dv2bm-topbar-meta');
+  if (topbarMeta) {
+    topbarMeta.textContent = usingFallback
+      ? 'tDCS · 10-20 montage · preview fallback data'
+      : 'tDCS · 10-20 montage · evidence-graded';
+  }
 
   // Handlers
-  window._bmSwitchTab = (tab) => { S.tab = tab; render(root, { atlas, montages, evidence, navigate }); };
+  window._bmSwitchTab = (tab) => { S.tab = tab; render(root, { atlas, montages, evidence, navigate, usingFallback }); };
   window._bmSelectSite = (code, anchor) => {
     S.selectedRegion = code;
     S.targetRegion   = code;
     S.targetAnchor   = anchor;
-    render(root, { atlas, montages, evidence, navigate });
+    render(root, { atlas, montages, evidence, navigate, usingFallback });
   };
   window._bmApplyRole = (role, anchor) => {
     if (role === 'anode')   S.anode = anchor;
     if (role === 'cathode') S.cathode = anchor;
     if (role === 'target') { S.targetAnchor = anchor; }
-    render(root, { atlas, montages, evidence, navigate });
+    render(root, { atlas, montages, evidence, navigate, usingFallback });
   };
-  window._bmSetViewMode = (mode) => { S.viewMode = mode; render(root, { atlas, montages, evidence, navigate }); };
+  window._bmSetViewMode = (mode) => { S.viewMode = mode; render(root, { atlas, montages, evidence, navigate, usingFallback }); };
   window._bmSetCurrent = (v) => {
     S.currentMA = clamp(parseFloat(v) || 0.5, 0.5, 2.5);
     const valEl = document.getElementById('dv2bm-current-val');
@@ -179,7 +274,7 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
     S.targetRegion = m.targetRegion || S.targetRegion;
     S.targetAnchor = (atlas.flatMap(g => g.sites).find(s => s.code === S.targetRegion)?.anchor) || m.anode;
     S.tab = 'clinical';
-    render(root, { atlas, montages, evidence, navigate });
+    render(root, { atlas, montages, evidence, navigate, usingFallback });
   };
   window._bmSave = async () => {
     const snapshot = {
@@ -218,7 +313,7 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
     else console.info('[brainmap]', title, body);
   }
 
-  render(root, { atlas, montages, evidence, navigate });
+  render(root, { atlas, montages, evidence, navigate, usingFallback });
 }
 
 // ── Top-level render ─────────────────────────────────────────────────────────
@@ -227,6 +322,13 @@ function render(root, ctx) {
   root.innerHTML = `
     ${styleBlock()}
     <div class="dv2bm-wrap">
+      ${ctx.usingFallback ? `<div style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;margin-bottom:16px;background:linear-gradient(135deg,rgba(245,158,11,0.14),rgba(217,119,6,0.08));border:1px solid rgba(245,158,11,0.35);border-radius:12px">
+        <span style="font-size:15px;color:${T.warn}">⚠</span>
+        <div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${T.warn}">Preview Fallback Data</div>
+          <div style="font-size:11.5px;color:${T.t2};margin-top:3px;line-height:1.45">This Brain Map Planner view is using built-in sample atlas, montage, and evidence rows because live API data is unavailable. Verify everything before clinical use.</div>
+        </div>
+      </div>` : ''}
       ${tabBar(S.tab)}
       <div class="dv2bm-body">
         ${S.tab === 'clinical' ? renderClinical(ctx) : ''}
