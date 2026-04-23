@@ -40,6 +40,7 @@ from app.persistence.models import (
     OutcomeSeries,
     Patient,
     PatientHomeProgramTaskCompletion,
+    PatientMediaUpload,
     TreatmentCourse,
     WearableDailySummary,
     WearableAlertFlag,
@@ -164,6 +165,8 @@ class PortalAssessmentOut(BaseModel):
     score: Optional[str]
     status: str
     created_at: str
+    ai_generated: bool = False
+    file_url: Optional[str] = None
 
 
 class PortalOutcomeOut(BaseModel):
@@ -175,6 +178,7 @@ class PortalOutcomeOut(BaseModel):
     score_numeric: Optional[float]
     measurement_point: str
     administered_at: str
+    file_url: Optional[str] = None
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
@@ -385,6 +389,8 @@ def get_portal_assessments(
             score=r.score,
             status=r.status,
             created_at=_dt(r.created_at),
+            ai_generated=bool(r.ai_generated_at) if hasattr(r, 'ai_generated_at') else False,
+            file_url=None,
         )
         for r in records
     ]
@@ -497,6 +503,65 @@ def get_portal_outcomes(
         )
         for r in records
     ]
+
+
+# ── Patient-facing reports (from PatientMediaUpload) ───────────────────────────
+
+class PortalReportOut(BaseModel):
+    id: str
+    title: str
+    report_type: str
+    file_url: Optional[str] = None
+    text_content: Optional[str] = None
+    status: str
+    created_at: str
+
+
+@router.get("/reports", response_model=list[PortalReportOut])
+def get_portal_reports(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> list[PortalReportOut]:
+    """List report files and text records available to the authenticated patient."""
+    if actor.role != "patient":
+        raise ApiServiceError(code="forbidden", message="Patient portal access only.", status_code=403)
+
+    patient = _require_patient(actor, db)
+
+    records = (
+        db.query(PatientMediaUpload)
+        .filter(
+            PatientMediaUpload.patient_id == patient.id,
+            PatientMediaUpload.deleted_at.is_(None),
+            PatientMediaUpload.media_type == "text",
+        )
+        .order_by(PatientMediaUpload.created_at.desc())
+        .limit(200)
+        .all()
+    )
+
+    results: list[PortalReportOut] = []
+    for r in records:
+        # Parse metadata stored in patient_note (set by reports_router)
+        title = r.id
+        rtype = "clinical"
+        if r.patient_note:
+            try:
+                meta = json.loads(r.patient_note)
+                title = meta.get("title", title)
+                rtype = meta.get("report_type", rtype)
+            except (ValueError, TypeError):
+                pass
+        results.append(PortalReportOut(
+            id=r.id,
+            title=title,
+            report_type=rtype,
+            file_url=r.file_ref,
+            text_content=r.text_content,
+            status=r.status or "available",
+            created_at=_dt(r.created_at),
+        ))
+    return results
 
 
 # ── Messages portal schemas ───────────────────────────────────────────────────

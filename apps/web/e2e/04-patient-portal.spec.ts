@@ -29,6 +29,8 @@ test.describe('Patient Portal', () => {
         route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
       } else if (url.includes('/outcomes')) {
         route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+      } else if (url.includes('/reports')) {
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
       } else {
         route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) });
       }
