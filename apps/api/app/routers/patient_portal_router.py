@@ -390,6 +390,84 @@ def get_portal_assessments(
     ]
 
 
+# ── Self-assessment (patient-initiated) schemas ──────────────────────────────
+
+class SelfAssessmentIn(BaseModel):
+    survey_type: str
+    frequency: str
+    responses: dict
+    score: Optional[float] = None
+    notes: Optional[str] = None
+    ai_context: Optional[dict] = None
+
+
+class SelfAssessmentOut(BaseModel):
+    id: str
+    survey_type: str
+    template_id: str
+    template_title: str
+    score: Optional[str]
+    status: str
+    created_at: str
+
+
+# ── Self-assessment (patient-initiated) endpoint ─────────────────────────────
+
+@router.post("/self-assessments", response_model=SelfAssessmentOut, status_code=201)
+def submit_self_assessment(
+    body: SelfAssessmentIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> SelfAssessmentOut:
+    """Patient files a self-initiated assessment (mood, wellness, reflection)."""
+    if actor.role != "patient":
+        raise ApiServiceError(code="forbidden", message="Patient portal access only.", status_code=403)
+
+    patient = _require_patient(actor, db)
+
+    # Resolve clinician — fall back to 'self' so the row is always valid.
+    clinician_id = getattr(patient, "clinician_id", None) or "self"
+
+    _SURVEY_TITLES = {
+        "daily_mood": "Daily Mood Check-in",
+        "weekly_wellness": "Weekly Wellness Check-in",
+        "monthly_reflection": "Monthly Reflection",
+    }
+
+    template_id = f"self_{body.survey_type}"
+    template_title = _SURVEY_TITLES.get(body.survey_type, body.survey_type.replace("_", " ").title())
+
+    now = datetime.now(timezone.utc)
+    record = AssessmentRecord(
+        id=str(uuid.uuid4()),
+        patient_id=patient.id,
+        clinician_id=clinician_id,
+        template_id=template_id,
+        template_title=template_title,
+        data_json=json.dumps({"frequency": body.frequency, "ai_context": body.ai_context, "notes": body.notes}, ensure_ascii=False, separators=(",", ":")),
+        status="completed",
+        score=str(body.score) if body.score is not None else None,
+        score_numeric=body.score,
+        source="patient_self_report",
+        respondent_type="patient",
+        items_json=json.dumps(body.responses, ensure_ascii=False, separators=(",", ":")),
+        completed_at=now,
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
+    return SelfAssessmentOut(
+        id=record.id,
+        survey_type=body.survey_type,
+        template_id=record.template_id,
+        template_title=record.template_title,
+        score=record.score,
+        status=record.status,
+        created_at=_dt(record.created_at),
+    )
+
+
 @router.get("/outcomes", response_model=list[PortalOutcomeOut])
 def get_portal_outcomes(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

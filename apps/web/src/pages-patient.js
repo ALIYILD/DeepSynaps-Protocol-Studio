@@ -319,6 +319,14 @@ import {
   demoAssessmentSeed,
   pickCallTier,
   demoMessagesSeed,
+  SELF_ASSESSMENT_SURVEYS,
+  SELF_ASSESSMENT_KEYS,
+  getSelfAssessmentLastFiled,
+  setSelfAssessmentLastFiled,
+  getSelfAssessmentDraft,
+  setSelfAssessmentDraft,
+  clearSelfAssessmentDraft,
+  demoSelfAssessmentSeed,
 } from './patient-dashboard-helpers.js';
 export {
   computeCountdown, phaseLabel, outcomeGoalMarker, groupOutcomesByTemplate,
@@ -4760,6 +4768,18 @@ async function _pgPatientAssessmentsImpl() {
           <button class="btn btn-ghost btn-sm" onclick="window._asExport && window._asExport()"><svg width="13" height="13"><use href="#i-download"/></svg>Export history</button>
         </div>
       </div>
+
+      <!-- SELF-ASSESSMENTS -->
+      <div class="as-selfassess-hd">
+        <div>
+          <h3>Self-Assessments</h3>
+          <p>Quick check-ins that help your care team and AI personalize your treatment.</p>
+        </div>
+      </div>
+      <div class="as-selfassess-grid" id="as-selfassess-grid">
+        ${SELF_ASSESSMENT_KEYS.map(k => _selfAssessCardHtml(k)).join('')}
+      </div>
+      <div id="as-selfassess-form-wrap"></div>
 
       <div class="as-tabs" id="as-tabs">
         <button class="active" data-tab="due" onclick="window._asTab && window._asTab('due')">Due now${dueItems.length ? '<span class="count hot">' + dueItems.length + '</span>' : ''}</button>
@@ -14344,6 +14364,17 @@ function _outcomeGetData() {
   } catch (_e) {
     /* seed below */
   }
+  // If real v2 outcome data already exists, do NOT seed legacy demo data
+  // so the two datasets never mix on the progress page.
+  try {
+    const v2 = localStorage.getItem('ds_patient_outcomes_v2');
+    if (v2) {
+      const parsed = JSON.parse(v2);
+      if (parsed.measures && parsed.measures.length) {
+        return { patient: {}, symptoms: {}, sessionScores: [], goals: [], sessions: [] };
+      }
+    }
+  } catch (_e2) { /* fall through to seed */ }
   localStorage.setItem('ds_patient_outcomes', JSON.stringify(_OUTCOME_SEED));
   return _OUTCOME_SEED;
 }
@@ -14770,16 +14801,44 @@ function _calendarDots30() {
 }
 
 // ── Progress report HTML builder ──────────────────────────────────────────────
-function _buildReportHTML(data) {
-  const p = data.patient;
+function _buildReportHTML(data, ptoData) {
+  ptoData = ptoData || {};
   const _rptLoc  = getLocale() === 'tr' ? 'tr-TR' : 'en-US';
   const today = new Date().toLocaleDateString(_rptLoc, { year: 'numeric', month: 'long', day: 'numeric' });
-  const startFmt = new Date(p.startDate).toLocaleDateString(_rptLoc, { year: 'numeric', month: 'long', day: 'numeric' });
-  const avgScore = (data.sessionScores.reduce(function (a, b) { return a + b; }, 0) / data.sessionScores.length).toFixed(1);
-  const anxArr = data.symptoms.anxiety, slpArr = data.symptoms.sleep;
-  const anxImp = anxArr[0] - anxArr[anxArr.length - 1];
-  const slpImp = slpArr[slpArr.length - 1] - slpArr[0];
-  const goalRows = data.goals.map(function (g) {
+  const hasReal = ptoData.measures && ptoData.measures.length;
+  const patient = hasReal ? (ptoData.patient || {}) : (data.patient || {});
+  const startFmt = patient.startDate
+    ? new Date(patient.startDate).toLocaleDateString(_rptLoc, { year: 'numeric', month: 'long', day: 'numeric' })
+    : '\u2014';
+  const totalSessions = patient.totalSessions || 0;
+
+  var measureRows = '';
+  var measureStats = '';
+  if (hasReal) {
+    const mStats = [];
+    ptoData.measures.forEach(function(m) {
+      if (!m.points || !m.points.length) return;
+      const base = m.points[0].score;
+      const cur  = m.points[m.points.length - 1].score;
+      const delta = base - cur;
+      const pct = base > 0 ? Math.round((delta / base) * 100) : 0;
+      mStats.push('<div class="stat-card"><div class="stat-val">' + cur + '</div><div class="stat-label">' + (m.label || m.id) + ' (latest)</div></div>');
+      measureRows += '<tr><td style="padding:10px 14px;border-bottom:1px solid #2d3748;color:#e2e8f0">' + (m.label || m.id) + '</td>' +
+        '<td style="padding:10px 14px;border-bottom:1px solid #2d3748;color:#e2e8f0;text-align:center">' + base + '</td>' +
+        '<td style="padding:10px 14px;border-bottom:1px solid #2d3748;color:#e2e8f0;text-align:center">' + cur + '</td>' +
+        '<td style="padding:10px 14px;border-bottom:1px solid #2d3748;text-align:center"><span style="background:#2dd4bf22;color:#2dd4bf;border:1px solid #2dd4bf44;border-radius:12px;padding:3px 10px;font-size:12px;font-weight:600">' + (delta > 0 ? 'Down ' + pct + '%' : delta < 0 ? 'Up ' + Math.abs(pct) + '%' : 'Stable') + '</span></td></tr>';
+    });
+    measureStats = mStats.join('');
+  }
+
+  const avgScore = (data.sessionScores && data.sessionScores.length)
+    ? (data.sessionScores.reduce(function (a, b) { return a + b; }, 0) / data.sessionScores.length).toFixed(1)
+    : '\u2014';
+  const anxArr = (data.symptoms && data.symptoms.anxiety) || [];
+  const slpArr = (data.symptoms && data.symptoms.sleep) || [];
+  const anxImp = anxArr.length ? anxArr[0] - anxArr[anxArr.length - 1] : 0;
+  const slpImp = slpArr.length ? slpArr[slpArr.length - 1] - slpArr[0] : 0;
+  const goalRows = (data.goals || []).map(function (g) {
     const lbl = g.status === 'achieved' ? 'Achieved' : g.status === 'on-track' ? 'On Track' : 'Needs Attention';
     const sc = g.status === 'achieved' ? '#2dd4bf' : g.status === 'on-track' ? '#60a5fa' : '#f43f5e';
     return '<tr><td style="padding:10px 14px;border-bottom:1px solid #2d3748;color:#e2e8f0">' + g.name + '</td>' +
@@ -14787,6 +14846,22 @@ function _buildReportHTML(data) {
       '<td style="padding:10px 14px;border-bottom:1px solid #2d3748;color:#e2e8f0;text-align:center">' + g.current + '</td>' +
       '<td style="padding:10px 14px;border-bottom:1px solid #2d3748;text-align:center"><span style="background:' + sc + '22;color:' + sc + ';border:1px solid ' + sc + '44;border-radius:12px;padding:3px 10px;font-size:12px;font-weight:600">' + lbl + '</span></td></tr>';
   }).join('');
+
+  const statsRow = hasReal
+    ? measureStats
+    : '<div class="stat-card"><div class="stat-val">' + totalSessions + '</div><div class="stat-label">Sessions Completed</div></div>' +
+      '<div class="stat-card"><div class="stat-val">' + avgScore + '</div><div class="stat-label">Avg Session Score</div></div>' +
+      '<div class="stat-card"><div class="stat-val">&#8722;' + anxImp + '</div><div class="stat-label">Anxiety Reduction</div></div>' +
+      '<div class="stat-card"><div class="stat-val">+' + slpImp + '</div><div class="stat-label">Sleep Improvement</div></div>';
+
+  const tableSection = hasReal
+    ? '<h2>Assessment History</h2>\n<table><thead><tr><th>Measure</th><th>Baseline</th><th>Latest</th><th>Change</th></tr></thead><tbody>' + measureRows + '</tbody></table>\n'
+    : '<h2>Treatment Goals</h2>\n<table><thead><tr><th>Goal</th><th>Target</th><th>Current</th><th>Status</th></tr></thead><tbody>' + goalRows + '</tbody></table>\n';
+
+  const insightText = hasReal
+    ? 'Treatment progress report generated on ' + today + '. ' + (ptoData.measures.length) + ' outcome measures tracked over ' + (ptoData.measures[0].points ? ptoData.measures[0].points.length : 0) + ' assessment points. Scores are compared from baseline to most recent follow-up. Please discuss these results with your care team at your next appointment.'
+    : 'Over the course of ' + totalSessions + ' sessions beginning ' + startFmt + ', ' + (patient.name || 'the patient') + ' has demonstrated consistent and meaningful clinical progress. Anxiety severity decreased by ' + anxImp + ' points, sleep quality improved by ' + slpImp + ' points. Continued maintenance sessions are recommended to consolidate these gains.';
+
   return '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n<title>Progress Report</title>\n<style>\n' +
     '*{box-sizing:border-box;margin:0;padding:0}\n' +
     'body{background:#0f172a;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:40px 32px;max-width:800px;margin:0 auto}\n' +
@@ -14803,19 +14878,13 @@ function _buildReportHTML(data) {
     '.footer{margin-top:40px;padding-top:20px;border-top:1px solid #1e293b;font-size:12px;color:#475569;text-align:center}\n' +
     '</style>\n</head>\n<body>\n' +
     '<h1>Progress Report</h1>\n' +
-    '<div class="meta">Patient: <strong style="color:#e2e8f0">' + p.name + '</strong> &nbsp;&bull;&nbsp; Treatment start: ' + startFmt + ' &nbsp;&bull;&nbsp; Generated: ' + today + '</div>\n' +
-    '<h2>Outcome Summary</h2>\n<div class="stat-row">' +
-    '<div class="stat-card"><div class="stat-val">' + p.totalSessions + '</div><div class="stat-label">Sessions Completed</div></div>' +
-    '<div class="stat-card"><div class="stat-val">' + avgScore + '</div><div class="stat-label">Avg Session Score</div></div>' +
-    '<div class="stat-card"><div class="stat-val">&#8722;' + anxImp + '</div><div class="stat-label">Anxiety Reduction</div></div>' +
-    '<div class="stat-card"><div class="stat-val">+' + slpImp + '</div><div class="stat-label">Sleep Improvement</div></div>' +
-    '</div>\n<h2>Treatment Goals</h2>\n' +
-    '<table><thead><tr><th>Goal</th><th>Target</th><th>Current</th><th>Status</th></tr></thead><tbody>' + goalRows + '</tbody></table>\n' +
+    '<div class="meta">Patient: <strong style="color:#e2e8f0">' + (patient.name || '—') + '</strong> &nbsp;&bull;&nbsp; Treatment start: ' + startFmt + ' &nbsp;&bull;&nbsp; Generated: ' + today + '</div>\n' +
+    '<h2>Outcome Summary</h2>\n<div class="stat-row">' + statsRow +
+    '</div>\n' + tableSection +
     '<h2>Key Insights</h2>\n' +
-    '<p class="insight">Over the course of ' + p.totalSessions + ' sessions beginning ' + startFmt + ', ' + p.name + ' has demonstrated consistent and meaningful clinical progress. Anxiety severity decreased by ' + anxImp + ' points (from ' + anxArr[0] + ' to ' + anxArr[anxArr.length - 1] + ' on a 10-point scale), sleep quality improved by ' + slpImp + ' points, and focus scores reached the target threshold. All ' + p.goals + ' treatment goals are at or above target, reflecting strong adherence and positive response to the current protocol. Average session quality score of ' + avgScore + '/100 is within the excellent range. Continued maintenance sessions are recommended to consolidate these gains.</p>\n' +
+    '<p class="insight">' + insightText + '</p>\n' +
     '<div class="footer">Generated by DeepSynaps Protocol Studio &nbsp;&bull;&nbsp; ' + today + ' &nbsp;&bull;&nbsp; Confidential &#8212; for personal use only</div>\n</body>\n</html>';
 }
-
 // ── Patient outcome seed data with PHQ-9 / GAD-7 measures ────────────────────
 const _PTO_SEED_KEY = 'ds_patient_outcomes_v2';
 function _ptoSeed() {
@@ -15245,27 +15314,9 @@ function _pgpTrendSeries(progress) {
       },
     ];
   }
-  var fallback = progress.data.symptoms || {};
-  return [
-    {
-      key: 'Anxiety',
-      color: '#2dd4bf',
-      good: 'down',
-      points: (fallback.anxiety || []).map(function(value, idx) { return { label: 'W' + (idx + 1), value: value }; }),
-    },
-    {
-      key: 'Sleep',
-      color: '#60a5fa',
-      good: 'up',
-      points: (fallback.sleep || []).map(function(value, idx) { return { label: 'W' + (idx + 1), value: value }; }),
-    },
-    {
-      key: 'Focus',
-      color: '#f472b6',
-      good: 'up',
-      points: (fallback.focus || []).map(function(value, idx) { return { label: 'W' + (idx + 1), value: value }; }),
-    },
-  ].filter(function(series) { return series.points.length >= 2; });
+  // Do NOT fall back to legacy demo symptom arrays — show empty state until
+  // the patient has logged real check-ins.
+  return [];
 }
 
 function _pgpSymptomTrendChart(progress) {
@@ -15391,11 +15442,16 @@ function _pgpBrainCards(progress) {
 function _pgpDomainCards(progress) {
   var wearable = null;
   try { wearable = JSON.parse(localStorage.getItem('ds_wearable_summary') || 'null'); } catch (_e) {}
+  // Compute attention proxy from real PHQ-9 / GAD-7 improvement when available
+  var attentionPct = 50;
+  if (progress.improvementPct !== null) {
+    attentionPct = Math.max(12, Math.min(96, 50 + Math.round(progress.improvementPct / 2)));
+  }
   var domainRows = [
     {
       title: 'Cognitive domains',
       items: [
-        { label: 'Attention', pct: Math.max(12, Math.min(96, Math.round(((progress.data.symptoms.focus || [6]).slice(-1)[0] / 10) * 100))) },
+        { label: 'Attention', pct: attentionPct },
         { label: 'Mood stability', pct: Math.max(8, Math.min(96, Math.round(((progress.last7AvgMood || 5) / 10) * 100))) },
         { label: 'Sleep recovery', pct: Math.max(8, Math.min(96, Math.round(((progress.last7AvgSleep || 5) / 10) * 100))) },
       ],
@@ -15496,6 +15552,33 @@ function _pgpMilestones(progress) {
 }
 
 // ── Patient Progress page render ───────────────────────────────────────────────
+function _pgpSelfAssessmentForm() {
+  return (
+    '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Self-report</div><h3>Log your scores</h3></div></div>' +
+      '<div id="pto-assess-form" class="pto-inline-form">' +
+        '<div class="pto-inline-form-row"><label>PHQ-9 score</label><input type="number" min="0" max="27" id="pto-phq9-input" class="pto-form-inp" placeholder="0-27"/></div>' +
+        '<div class="pto-inline-form-row"><label>GAD-7 score</label><input type="number" min="0" max="21" id="pto-gad7-input" class="pto-form-inp" placeholder="0-21"/></div>' +
+        '<div class="pto-inline-form-row"><label>PCL-5 score</label><input type="number" min="0" max="80" id="pto-pcl5-input" class="pto-form-inp" placeholder="0-80 (opt.)"/></div>' +
+        '<button class="pto-share-btn pto-share-btn--copy" onclick="window._ptoSubmitAssessment()">Save Scores</button>' +
+      '</div>' +
+    '</section>'
+  );
+}
+
+function _pgpActionsSection() {
+  return (
+    '<section class="pgp-panel">' +
+      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Actions</div><h3>Share and export</h3></div></div>' +
+      '<div class="pto-share-row">' +
+        '<button class="pto-share-btn pto-share-btn--copy" onclick="window._ptoCopyProgress()">&#128203; Copy Progress Summary</button>' +
+        '<button class="pto-share-btn pto-share-btn--dl" onclick="window._ptoDownloadChart()">&#8595; Download Chart</button>' +
+        '<button class="pto-share-btn pto-share-btn--dl" onclick="window._outcomeDownloadReport()">&#8595; Download Report</button>' +
+      '</div>' +
+    '</section>'
+  );
+}
+
 function _renderProgressPage() {
   var progress = _pgpNormalizeData();
   if (!progress || !progress.el) return;
@@ -15511,6 +15594,8 @@ function _renderProgressPage() {
           _pgpBrainCards(progress) +
           _pgpDomainCards(progress) +
           _pgpMilestones(progress) +
+          _pgpSelfAssessmentForm() +
+          _pgpActionsSection() +
         '</div>'
       );
 }
@@ -15868,7 +15953,9 @@ window._outcomeRateSession = function (sid, rating) {
 };
 
 window._outcomeDownloadReport = function () {
-  const blob = new Blob([_buildReportHTML(_outcomeGetData())], { type: 'text/html' });
+  const pto = _ptoLoad();
+  const html = _buildReportHTML(_outcomeGetData(), pto);
+  const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -15914,7 +16001,7 @@ window._ptoCopyProgress = function () {
   const latest = pts.length ? pts[pts.length - 1].score : '?';
   const pct = (baseline > 0 && latest !== '?') ? Math.round(((baseline - latest) / baseline) * 100) : 0;
   const startFmt = new Date(pat.startDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  const text = 'My TMS treatment progress: Started ' + startFmt + ', PHQ-9 improved from ' + baseline + ' to ' + latest + ' (' + pct + '% reduction). ' + pat.totalSessions + ' sessions completed.';
+  const text = 'My treatment progress: Started ' + startFmt + ', PHQ-9 improved from ' + baseline + ' to ' + latest + ' (' + pct + '% reduction). ' + pat.totalSessions + ' sessions completed.';
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(function () {
       window._showNotifToast && window._showNotifToast({ title: 'Copied!', body: 'Progress summary copied to clipboard.', severity: 'success' });
@@ -15923,7 +16010,7 @@ window._ptoCopyProgress = function () {
 };
 
 window._ptoDownloadChart = function () {
-  const svg = document.getElementById('pto-trend-svg');
+  const svg = document.getElementById('pgp-trend-svg') || document.getElementById('pto-trend-svg');
   if (!svg) { alert('Chart not found.'); return; }
   const svgData = new XMLSerializer().serializeToString(svg);
   const canvas = document.createElement('canvas');
