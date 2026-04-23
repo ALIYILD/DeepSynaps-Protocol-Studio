@@ -10,22 +10,15 @@ apps/web/dist
 .gitignore
 .env
 .env.*
-# Large data dirs not needed by the API container
-# data/ and services/evidence-pipeline/ are small (~5MB) and required by Dockerfile
-# Keep exclusions for truly large/generated artifacts:
+# Large/generated artifacts only
 data/*.db
 data/*.db-journal
 data/evidence-matrix/*.xlsx
 data/snapshots/**/*.json
-# Allow clinical-database CSVs required for app startup
-!data/imports/clinical-database/# Removed global **/*.csv exclusion — clinical-database/*.csv files are tiny
-# (<50KB each) and required for app startup. Re-add only if specific large
-# CSVs appear in the repo.
 services/evidence-pipeline/__pycache__/
 Desktop/ds-worktrees/
 e2e/
 docs/
 *.md
 **/*.ipynb
-**/*.csv
 **/*.json.gz
