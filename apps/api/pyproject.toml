@@ -34,6 +34,10 @@ dependencies = [
     "pyotp>=2.9",
     "cryptography>=42",
     "pillow>=10",
+    # qEEG analysis pipeline — EDF parsing + spectral analysis
+    "mne>=1.7.0,<2.0.0",
+    "scipy>=1.13.0,<2.0.0",
+    "numpy>=1.26.0,<3.0.0",
 ]
 
 [tool.setuptools]

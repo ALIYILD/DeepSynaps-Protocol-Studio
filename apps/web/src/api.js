@@ -1462,6 +1462,18 @@ export const api = {
   // ── Home program task notifications (stub — endpoint not yet implemented) ──
   remindHomeProgramTask: (_taskId, _payload) => Promise.reject(new Error('not_implemented')),
   listHomeProgramTaskTemplates: () => Promise.reject(new Error('not_implemented')),
+
+  // ── Risk Stratification (traffic lights) ──────────────────────────────────
+  getPatientRiskProfile: (patientId) =>
+    apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}`),
+  getClinicRiskSummary: () =>
+    apiFetch('/api/v1/risk/clinic/summary'),
+  overrideRiskCategory: (patientId, category, data) =>
+    apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/${encodeURIComponent(category)}/override`, { method: 'POST', body: JSON.stringify(data) }),
+  recomputeRisk: (patientId) =>
+    apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
+  getRiskAudit: (patientId) =>
+    apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/audit`),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).

@@ -684,11 +684,12 @@ export async function pgDash(setTopbar, navigate) {
   let allPatients = [], allCourses = [], pendingQueue = [], aes = [], outcomeSummary = null, allProtocols = [], allConsents = [];
   let allMediaItems = [];
   let wearableAlertSummary = null;
+  let riskSummaryData = [];
   const _withTimeout = (promise, ms = 8000) =>
     Promise.race([promise, new Promise(resolve => setTimeout(() => resolve(null), ms))]);
   let _apiFailCount = 0;
   try {
-    const [ptsRes, coursesRes, queueRes, aeRes, outRes, consentsRes, mediaQueueRes, wearableAlertsRes] = await Promise.all([
+    const [ptsRes, coursesRes, queueRes, aeRes, outRes, consentsRes, mediaQueueRes, wearableAlertsRes, riskRes] = await Promise.all([
       _withTimeout(api.listPatients().catch(() => null)),
       _withTimeout(api.listCourses().catch(() => null)),
       _withTimeout(api.listReviewQueue({ status: 'pending' }).catch(() => null)),
@@ -697,6 +698,7 @@ export async function pgDash(setTopbar, navigate) {
       _withTimeout(api.listConsents().catch(() => null)),
       _withTimeout(api.listMediaQueue().catch(() => null)),
       _withTimeout(api.getClinicAlertSummary().catch(() => null)),
+      _withTimeout(api.getClinicRiskSummary().catch(() => null)),
     ]);
     if (ptsRes)       allPatients    = ptsRes.items || []; else _apiFailCount++;
     if (coursesRes)   allCourses     = coursesRes.items || []; else _apiFailCount++;
@@ -706,6 +708,7 @@ export async function pgDash(setTopbar, navigate) {
     if (consentsRes)  allConsents    = consentsRes.items || []; else _apiFailCount++;
     if (mediaQueueRes) allMediaItems = Array.isArray(mediaQueueRes) ? mediaQueueRes : (mediaQueueRes.items || []); else _apiFailCount++;
     if (wearableAlertsRes) wearableAlertSummary = wearableAlertsRes; else _apiFailCount++;
+    if (riskRes) riskSummaryData = riskRes.patients || []; // no _apiFailCount++ — risk is optional
   } catch (e) { console.error('[Dashboard] Data load failed:', e); _apiFailCount = 8; }
 
   // ── Demo-mode fallback ────────────────────────────────────────────────────
@@ -732,6 +735,32 @@ export async function pgDash(setTopbar, navigate) {
       { id: 'C-DEMO-6', patient_id: 'P-DEMO-5', condition_slug: 'adhd-adult',          modality_slug: 'Intake',        status: 'pending_approval', sessions_delivered: 0,  planned_sessions_total: 0,  planned_sessions_per_week: 0, on_label: true,  evidence_grade: 'B', updated_at: _nowIso },
     ];
     if (!outcomeSummary) outcomeSummary = { responder_rate_pct: 64, assessment_completion_pct: 87, mean_phq9_delta: -6.2 };
+    if (riskSummaryData.length === 0) riskSummaryData = [
+      { patient_id: 'P-DEMO-1', patient_name: 'Samantha Li', categories: [
+        { category: 'suicide_risk', level: 'green', confidence: 'assessed' }, { category: 'self_harm', level: 'green', confidence: 'assessed' },
+        { category: 'mental_crisis', level: 'amber', confidence: 'assessed' }, { category: 'harm_to_others', level: 'green', confidence: 'no_data' },
+        { category: 'allergy', level: 'green', confidence: 'assessed' }, { category: 'seizure_risk', level: 'green', confidence: 'assessed' },
+        { category: 'implant_risk', level: 'green', confidence: 'assessed' }, { category: 'medication_interaction', level: 'amber', confidence: 'assessed' },
+      ]},
+      { patient_id: 'P-DEMO-2', patient_name: 'Marcus Reilly', categories: [
+        { category: 'suicide_risk', level: 'amber', confidence: 'assessed' }, { category: 'self_harm', level: 'green', confidence: 'assessed' },
+        { category: 'mental_crisis', level: 'green', confidence: 'assessed' }, { category: 'harm_to_others', level: 'green', confidence: 'no_data' },
+        { category: 'allergy', level: 'red', confidence: 'assessed' }, { category: 'seizure_risk', level: 'green', confidence: 'assessed' },
+        { category: 'implant_risk', level: 'green', confidence: 'assessed' }, { category: 'medication_interaction', level: 'green', confidence: 'assessed' },
+      ]},
+      { patient_id: 'P-DEMO-3', patient_name: 'Priya Nambiar', categories: [
+        { category: 'suicide_risk', level: 'green', confidence: 'assessed' }, { category: 'self_harm', level: 'green', confidence: 'assessed' },
+        { category: 'mental_crisis', level: 'green', confidence: 'assessed' }, { category: 'harm_to_others', level: 'green', confidence: 'no_data' },
+        { category: 'allergy', level: 'green', confidence: 'assessed' }, { category: 'seizure_risk', level: 'amber', confidence: 'assessed' },
+        { category: 'implant_risk', level: 'red', confidence: 'assessed' }, { category: 'medication_interaction', level: 'green', confidence: 'assessed' },
+      ]},
+      { patient_id: 'P-DEMO-4', patient_name: 'Jamal Thompson', categories: [
+        { category: 'suicide_risk', level: 'green', confidence: 'no_data' }, { category: 'self_harm', level: 'green', confidence: 'no_data' },
+        { category: 'mental_crisis', level: 'green', confidence: 'no_data' }, { category: 'harm_to_others', level: 'green', confidence: 'no_data' },
+        { category: 'allergy', level: 'green', confidence: 'assessed' }, { category: 'seizure_risk', level: 'red', confidence: 'assessed' },
+        { category: 'implant_risk', level: 'green', confidence: 'assessed' }, { category: 'medication_interaction', level: 'amber', confidence: 'assessed' },
+      ]},
+    ];
     _apiFailCount = 0; // suppress fail banner — demo is intentional
   } else if (_apiFailCount >= 8) {
     if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
@@ -1569,6 +1598,63 @@ export async function pgDash(setTopbar, navigate) {
   </div>`;
 
 
+  // ── Risk Stratification Traffic Lights ──────────────────────────────────────
+  const _riskCatLabels = {
+    suicide_risk: 'Suicide', self_harm: 'Self-Harm', mental_crisis: 'Crisis',
+    harm_to_others: 'Harm', allergy: 'Allergy', seizure_risk: 'Seizure',
+    implant_risk: 'Implant', medication_interaction: 'Meds',
+  };
+  const _riskCatOrder = ['suicide_risk','self_harm','mental_crisis','harm_to_others','allergy','seizure_risk','implant_risk','medication_interaction'];
+  const _riskLevelColor = l => ({ red: 'var(--red)', amber: 'var(--amber)', green: 'var(--teal)', grey: 'var(--text-tertiary)' }[l] || 'var(--text-tertiary)');
+  const _riskLevelBg    = l => ({ red: 'rgba(239,68,68,0.12)', amber: 'rgba(245,158,11,0.12)', green: 'rgba(0,212,188,0.10)', grey: 'rgba(128,128,128,0.08)' }[l] || 'rgba(128,128,128,0.08)');
+
+  // Sort patients: those with any red first, then amber, then green-only
+  const _riskPatSorted = [...riskSummaryData].sort((a, b) => {
+    const _rl = cats => { if (cats.some(c => c.level === 'red')) return 0; if (cats.some(c => c.level === 'amber')) return 1; return 2; };
+    return _rl(a.categories || []) - _rl(b.categories || []);
+  });
+
+  const _totalRed   = riskSummaryData.reduce((n, p) => n + (p.categories || []).filter(c => c.level === 'red').length, 0);
+  const _totalAmber = riskSummaryData.reduce((n, p) => n + (p.categories || []).filter(c => c.level === 'amber').length, 0);
+
+  const _riskTrafficCard = `<div class="dh2-card risk-traffic-card">
+    <div class="dh2-card-hd">
+      <div>
+        <div class="dh2-card-title">Risk Stratification</div>
+        <div class="dh2-card-sub">Traffic light safety flags per patient</div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        ${_totalRed > 0 ? `<span class="dh2-chip red">${_totalRed} red</span>` : ''}
+        ${_totalAmber > 0 ? `<span class="dh2-chip amber">${_totalAmber} amber</span>` : ''}
+        ${_totalRed === 0 && _totalAmber === 0 ? '<span class="dh2-chip teal">All clear</span>' : ''}
+      </div>
+    </div>
+    ${riskSummaryData.length === 0
+      ? `<div style="text-align:center;padding:20px;color:var(--text-secondary);font-size:0.85rem">No risk data available yet. Assessments and patient records will populate this view.</div>`
+      : `<div class="risk-traffic-grid">
+        <div class="risk-traffic-header">
+          <div class="risk-traffic-hdr-name">Patient</div>
+          ${_riskCatOrder.map(c => `<div class="risk-traffic-hdr-cat" title="${_riskCatLabels[c]}">${_riskCatLabels[c]}</div>`).join('')}
+        </div>
+        ${_riskPatSorted.slice(0, 8).map(p => {
+          const catMap = {};
+          (p.categories || []).forEach(c => { catMap[c.category] = c; });
+          const ptName = p.patient_name || patientMap[p.patient_id] ? ((patientMap[p.patient_id]?.first_name || '') + ' ' + (patientMap[p.patient_id]?.last_name || '')).trim() : p.patient_id;
+          return `<div class="risk-traffic-row" onclick="window.openPatient('${_esc(p.patient_id)}')">
+            <div class="risk-traffic-name">${_esc(p.patient_name || ptName)}</div>
+            ${_riskCatOrder.map(cat => {
+              const entry = catMap[cat] || { level: 'grey', confidence: 'no_data' };
+              const lev = entry.override_level || entry.level;
+              return `<div class="risk-traffic-light" title="${_riskCatLabels[cat]}: ${lev}${entry.confidence === 'no_data' ? ' (no data)' : ''}" style="background:${_riskLevelBg(lev)}">
+                <span class="risk-dot" style="background:${_riskLevelColor(lev)}"></span>
+              </div>`;
+            }).join('')}
+          </div>`;
+        }).join('')}
+      </div>`}
+  </div>`;
+
+
   // ── Clinic activity feed (Design #03) ────────────────────────────────────
   // Derives events from data already in scope: AEs, pending queue, flagged/
   // completed courses. No mock data. Honest empty state when nothing to show.
@@ -1697,6 +1783,7 @@ export async function pgDash(setTopbar, navigate) {
       + _caseCard
       + `<div style="display:flex;flex-direction:column;gap:16px">` + _evidenceCard + _qaCard + _attnCard + `</div>`
     + `</div>`
+    + _riskTrafficCard
     + `<div class="cl-row-1-1">` + _activityCard + _outcomesCard + `</div>`
     + (_isFullAccess ? dashAgentStrip : '')
   + `</div>`;

@@ -1669,3 +1669,117 @@ class VideoAnalysis(Base):
     eye_contact_pct: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
     posture_score: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     attention_flags_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+
+
+# ── Risk Stratification Models ────────────────────────────────────────────────
+
+# ── qEEG Analysis Pipeline Models ──────────────────────────────────────────────
+
+
+class QEEGAnalysis(Base):
+    """Parsed EDF/EEG analysis record with extracted spectral band powers."""
+    __tablename__ = "qeeg_analyses"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    qeeg_record_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    file_ref: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    original_filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    file_size_bytes: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    recording_duration_sec: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    sample_rate_hz: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    channels_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # JSON list of channel names
+    channel_count: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    recording_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    eyes_condition: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    equipment: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    course_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    analysis_status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
+    analysis_error: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    band_powers_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    normative_deviations_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    artifact_rejection_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    analysis_params_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    analyzed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class QEEGAIReport(Base):
+    """AI-generated interpretation report for a qEEG analysis."""
+    __tablename__ = "qeeg_ai_reports"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    analysis_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    report_type: Mapped[str] = mapped_column(String(40), nullable=False, default="standard")
+    ai_narrative_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    clinical_impressions: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    condition_matches_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    protocol_suggestions_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    literature_refs_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    model_used: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    prompt_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    confidence_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    clinician_reviewed: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    clinician_amendments: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class QEEGComparison(Base):
+    """Pre/post or longitudinal comparison between two qEEG analyses."""
+    __tablename__ = "qeeg_comparisons"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    baseline_analysis_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    followup_analysis_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    comparison_type: Mapped[str] = mapped_column(String(40), nullable=False, default="pre_post")
+    delta_powers_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    improvement_summary_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    ai_comparison_narrative: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    course_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class RiskStratificationResult(Base):
+    """Per-patient, per-category traffic-light risk level (upserted on compute)."""
+    __tablename__ = "risk_stratification_results"
+    __table_args__ = (
+        UniqueConstraint("patient_id", "category", name="uq_risk_patient_category"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
+    clinician_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    category: Mapped[str] = mapped_column(String(40), nullable=False)  # allergy, suicide_risk, mental_crisis, self_harm, harm_to_others, seizure_risk, implant_risk, medication_interaction
+    level: Mapped[str] = mapped_column(String(10), nullable=False, default="green")  # green, amber, red
+    confidence: Mapped[str] = mapped_column(String(20), nullable=False, default="no_data")  # high, medium, low, no_data
+    rationale: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    data_sources_json: Mapped[str] = mapped_column(Text(), nullable=False, default="[]")
+    evidence_refs_json: Mapped[str] = mapped_column(Text(), nullable=False, default="[]")
+    override_level: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    override_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    override_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    override_reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class RiskStratificationAudit(Base):
+    """Immutable log of every risk-level change for governance traceability."""
+    __tablename__ = "risk_stratification_audit"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(40), nullable=False)
+    previous_level: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    new_level: Mapped[str] = mapped_column(String(10), nullable=False)
+    trigger: Mapped[str] = mapped_column(String(60), nullable=False)  # assessment_completed, medication_added, manual_override, etc.
+    actor_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))

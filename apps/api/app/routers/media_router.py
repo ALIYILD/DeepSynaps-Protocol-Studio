@@ -39,6 +39,15 @@ router = APIRouter(prefix="/api/v1/media", tags=["media"])
 _logger = logging.getLogger(__name__)
 
 
+def _trigger_media_risk_recompute(patient_id: str, trigger: str, db_session) -> None:
+    """Fire-and-forget risk recompute after media red-flag creation."""
+    try:
+        from app.services.risk_stratification import compute_risk_profile
+        compute_risk_profile(patient_id, trigger, db_session)
+    except Exception:
+        pass
+
+
 # ── Request / Response models ─────────────────────────────────────────────────
 
 
@@ -886,6 +895,7 @@ def review_action(
             ai_generated=False,
         )
         db.add(flag)
+        _trigger_media_risk_recompute(upload.patient_id, "media_red_flag_created", db)
     elif body.action == "mark_reviewed":
         upload.status = "clinician_reviewed"
 
@@ -1060,6 +1070,9 @@ async def analyze_upload(
         note=f"upload={upload.id} model={result.model_used}",
     )
     db.commit()
+
+    # Recompute risk after AI analysis (red flags may have been created)
+    _trigger_media_risk_recompute(upload.patient_id, "media_analysis_completed", db)
 
     _logger.info("media_analysis_complete upload=%s model=%s", upload.id, result.model_used)
 

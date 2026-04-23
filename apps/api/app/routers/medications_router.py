@@ -23,6 +23,17 @@ from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import MedicationInteractionLog, PatientMedication
 
+import logging as _logging
+_med_log = _logging.getLogger(__name__)
+
+def _trigger_med_risk_recompute(patient_id: str, trigger: str, actor_id: str | None, db_sess):
+    """Fire risk recompute for medication-related categories."""
+    try:
+        from app.services.risk_stratification import recompute_categories
+        recompute_categories(patient_id, ["medication_interaction", "seizure_risk", "allergy"], trigger, actor_id, db_sess)
+    except Exception:
+        _med_log.debug("Risk recompute skipped after %s", trigger, exc_info=True)
+
 router = APIRouter(prefix="/api/v1/medications", tags=["Medication Safety"])
 
 
@@ -333,6 +344,7 @@ def add_medication(
     db.add(med)
     db.commit()
     db.refresh(med)
+    _trigger_med_risk_recompute(patient_id, "medication_added", actor.actor_id, db)
     return MedicationOut.from_record(med)
 
 
@@ -351,3 +363,4 @@ def remove_medication(
         raise ApiServiceError(code="not_found", message="Medication not found.", status_code=404)
     db.delete(med)
     db.commit()
+    _trigger_med_risk_recompute(patient_id, "medication_removed", actor.actor_id, db)

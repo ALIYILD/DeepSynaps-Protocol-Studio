@@ -38,6 +38,17 @@ from app.persistence.models import (
     VideoAnalysis,
 )
 
+import logging as _logging
+_vc_log = _logging.getLogger(__name__)
+
+def _trigger_vc_risk_recompute(patient_id: str, trigger: str, db_sess):
+    """Fire risk recompute for crisis/self-harm categories after voice/video analysis."""
+    try:
+        from app.services.risk_stratification import recompute_categories
+        recompute_categories(patient_id, ["mental_crisis", "self_harm"], trigger, None, db_sess)
+    except Exception:
+        _vc_log.debug("Risk recompute skipped after %s", trigger, exc_info=True)
+
 router = APIRouter(prefix="/api/v1/virtual-care", tags=["Virtual Care"])
 
 _DEMO_PATIENT_ACTOR_ID = "actor-patient-demo"
@@ -407,6 +418,7 @@ def submit_voice_analysis(
     db.add(va)
     db.commit()
     db.refresh(va)
+    _trigger_vc_risk_recompute(patient.id, "voice_analysis_submitted", db)
     return {"voice_analysis": _voice_to_dict(va)}
 
 
@@ -465,6 +477,7 @@ def submit_video_analysis(
     db.add(va)
     db.commit()
     db.refresh(va)
+    _trigger_vc_risk_recompute(patient.id, "video_analysis_submitted", db)
     return {"video_analysis": _video_to_dict(va)}
 
 

@@ -36,6 +36,23 @@ from app.services.assessment_summary import (
 
 _log = logging.getLogger(__name__)
 
+# Lazy import to avoid circular dependencies at module level.
+_risk_recompute = None
+
+def _trigger_risk_recompute(patient_id: str, categories: list[str], trigger: str, actor_id: str | None, db_session):
+    """Fire-and-forget risk recompute after assessment mutations."""
+    global _risk_recompute
+    if _risk_recompute is None:
+        try:
+            from app.services.risk_stratification import recompute_categories
+            _risk_recompute = recompute_categories
+        except Exception:
+            return
+    try:
+        _risk_recompute(patient_id, categories, trigger, actor_id, db_session)
+    except Exception:
+        _log.debug("Risk recompute skipped after %s", trigger, exc_info=True)
+
 router = APIRouter(prefix="/api/v1/assessments", tags=["assessments"])
 
 
@@ -1061,6 +1078,15 @@ def update_assessment_endpoint(
     record = update_assessment(session, assessment_id, actor.actor_id, **updates)
     if record is None:
         raise ApiServiceError(code="not_found", message="Assessment not found.", status_code=404)
+    # Trigger risk recompute for suicide/self-harm/crisis categories
+    if record.patient_id:
+        _trigger_risk_recompute(
+            record.patient_id,
+            ["suicide_risk", "self_harm", "mental_crisis"],
+            "assessment_updated",
+            actor.actor_id,
+            session,
+        )
     return AssessmentOut.from_record(record)
 
 

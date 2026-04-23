@@ -33,6 +33,17 @@ from app.repositories.patients import (
     update_patient,
 )
 
+import logging as _logging
+_pat_log = _logging.getLogger(__name__)
+
+def _trigger_patient_risk_recompute(patient_id: str, trigger: str, actor_id: str | None, db_sess):
+    """Fire risk recompute for all categories after patient data change."""
+    try:
+        from app.services.risk_stratification import compute_risk_profile
+        compute_risk_profile(patient_id, db_sess, clinician_id=actor_id)
+    except Exception:
+        _pat_log.debug("Risk recompute skipped after %s", trigger, exc_info=True)
+
 router = APIRouter(prefix="/api/v1/patients", tags=["patients"])
 
 
@@ -1516,6 +1527,9 @@ def update_medical_history(
         )
     except Exception:
         pass
+
+    # Trigger risk recompute after medical history change
+    _trigger_patient_risk_recompute(patient_id, "medical_history_updated", actor.actor_id, session)
 
     return MedicalHistoryResponse(patient_id=patient_id, medical_history=next_data)
 
