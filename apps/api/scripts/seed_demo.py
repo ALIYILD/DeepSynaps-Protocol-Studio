@@ -720,6 +720,8 @@ def _seed_marketplace(session) -> int:
             clinical=d["clinical"],
             featured=d["featured"],
             active=True,
+            icon=d.get("icon"),
+            tone=d.get("tone"),
             created_at=now,
             updated_at=now,
         )

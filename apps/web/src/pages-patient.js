@@ -1409,11 +1409,11 @@ export async function pgPatientDashboard(user) {
       if (done) {
         right = `<div class="hm-tl-done">\u2713 ${esc(t._doneAt || 'done')}</div>`;
       } else if (t.task_type === 'walk' || /walk/.test(String(t.title||'').toLowerCase())) {
-        right = `<button class="hm-tl-action primary" onclick="window._hmStartTask(${JSON.stringify(t.id)}, 'walk')">Start</button>`;
+        right = `<button class="hm-tl-action primary" onclick="window._hmStartTask('${esc(t.id)}', 'walk')">Start</button>`;
       } else if (t.task_type === 'tdcs' || /tdcs/.test(String(t.title||'').toLowerCase())) {
-        right = `<button class="hm-tl-action" onclick="window._hmStartTask(${JSON.stringify(t.id)}, 'tdcs')">Prep</button>`;
+        right = `<button class="hm-tl-action" onclick="window._hmStartTask('${esc(t.id)}', 'tdcs')">Prep</button>`;
       } else {
-        right = `<button class="hm-tl-action" onclick="window._hmStartTask(${JSON.stringify(t.id)}, 'reminder')">Remind me</button>`;
+        right = `<button class="hm-tl-action" onclick="window._hmStartTask('${esc(t.id)}', 'reminder')">Remind me</button>`;
       }
       const pill = done
         ? '<span class="hm-tl-pill done">Done</span>'
@@ -3858,10 +3858,10 @@ async function _pgPatientHomeworkImpl() {
     else if (t.due_by)   meta.push(`<span class="hw-due"><svg width="11" height="11"><use href="#i-alert"/></svg>Due by ${esc(t.due_by)}</span>`);
     else if (t.time_bucket) meta.push(`<span>${esc(t.time_bucket)}</span>`);
     const foot = done
-      ? `<button class="hw-check is-on" onclick="window._hwToggle && window._hwToggle(${JSON.stringify(t.id)})" title="Mark incomplete"><svg width="14" height="14"><use href="#i-check"/></svg></button>
+      ? `<button class="hw-check is-on" onclick="window._hwToggle && window._hwToggle('${esc(t.id)}')" title="Mark incomplete"><svg width="14" height="14"><use href="#i-check"/></svg></button>
          <span style="font-size:11.5px;color:var(--text-secondary)">${t.mood_before != null && t.mood_after != null ? 'Mood <strong style="color:var(--text-primary)">' + t.mood_before + ' \u2192 ' + t.mood_after + '</strong> \u00b7 ' : ''}${esc(t.note ? '\u201C' + t.note + '\u201D' : 'Completed')}</span>
-         <button class="btn btn-ghost btn-sm hw-go" onclick="window._hwOpen && window._hwOpen(${JSON.stringify(t.id)})">View<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>`
-      : `<button class="hw-check" onclick="window._hwToggle && window._hwToggle(${JSON.stringify(t.id)})" title="Mark complete"><svg width="14" height="14"><use href="#i-check"/></svg></button>
+         <button class="btn btn-ghost btn-sm hw-go" onclick="window._hwOpen && window._hwOpen('${esc(t.id)}')">View<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>`
+      : `<button class="hw-check" onclick="window._hwToggle && window._hwToggle('${esc(t.id)}')" title="Mark complete"><svg width="14" height="14"><use href="#i-check"/></svg></button>
          <span style="font-size:11.5px;color:var(--text-tertiary)">${esc(t.clinician_note ? 'Clinician note \u2014 tap to read' : 'Tap check when done')}</span>
          ${t.task_type === 'tdcs'
            ? '<button class="btn btn-primary btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'tdcs\')">Start session<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>'
@@ -3869,7 +3869,7 @@ async function _pgPatientHomeworkImpl() {
              ? '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'breathing\')"><svg width="11" height="11"><use href="#i-play"/></svg>Guided</button>'
              : t.task_type === 'walk' || t.task_type === 'activation'
                ? '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'walk\')"><svg width="11" height="11"><use href="#i-play"/></svg>Start</button>'
-               : '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwOpen && window._hwOpen(' + JSON.stringify(t.id) + ')">Open<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>'}`;
+               : '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwOpen && window._hwOpen(\'' + esc(t.id) + '\')">Open<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>'}`;
     return `
       <div class="hw-task${done ? ' done' : ''}" data-cat="${esc(t.category || '')}" data-task-id="${esc(t.id || '')}">
         <div class="hw-task-hd">
@@ -3897,7 +3897,7 @@ async function _pgPatientHomeworkImpl() {
     return `
       <div class="hw-row${done ? ' done' : ''}" data-cat="${esc(t.category || '')}" data-task-id="${esc(t.id || '')}">
         <div class="hw-row-ico"><svg width="18" height="18"><use href="${ico}"/></svg></div>
-        <div class="hw-row-body" onclick="window._hwOpen && window._hwOpen(${JSON.stringify(t.id)})">
+        <div class="hw-row-body" onclick="window._hwOpen && window._hwOpen('${esc(t.id)}')">
           <div class="hw-row-title">${esc(t.title || 'Task')}</div>
           <div class="hw-row-sub">${esc(t.description || t.instructions || (_catLabel(t.category) + (t.duration_min ? ' \u00b7 ~' + t.duration_min + ' min' : '')))}</div>
         </div>
@@ -3905,7 +3905,7 @@ async function _pgPatientHomeworkImpl() {
           <span class="hw-row-cat">${esc(_catLabel(t.category || t.task_type))}</span>
           <span${t._priority === 'due' ? ' style="color:var(--amber,#ffb547);font-weight:600"' : ''}>${esc(dueLbl)}</span>
         </div>
-        <button class="hw-row-check${done ? ' is-on' : ''}" onclick="window._hwToggle && window._hwToggle(${JSON.stringify(t.id)})"><svg width="13" height="13"><use href="#i-check"/></svg></button>
+        <button class="hw-row-check${done ? ' is-on' : ''}" onclick="window._hwToggle && window._hwToggle('${esc(t.id)}')"><svg width="13" height="13"><use href="#i-check"/></svg></button>
       </div>`;
   }
 
@@ -4053,7 +4053,7 @@ async function _pgPatientHomeworkImpl() {
                 <div class="hw-lib-desc">${esc(l.desc)}</div>
                 <div class="hw-lib-foot">
                   <span>${l.active ? 'Active in your plan' : 'General library'}</span>
-                  <button class="hw-lib-read" onclick="window._hwAddLibrary && window._hwAddLibrary(${JSON.stringify(l.id)})">${l.active ? 'Open' : 'Use'} <svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>
+                  <button class="hw-lib-read" onclick="window._hwAddLibrary && window._hwAddLibrary('${esc(l.id)}')">${l.active ? 'Open' : 'Use'} <svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>
                 </div>
               </div>`).join('')}
           </div>
@@ -4256,7 +4256,7 @@ async function _pgPatientHomeworkImpl() {
         ${noteHtml}
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
           <button class="btn btn-ghost btn-sm" onclick="document.getElementById('hw-task-modal').remove()">Close</button>
-          <button class="btn btn-primary btn-sm" onclick="window._hwToggle && window._hwToggle(${JSON.stringify(task.id)});document.getElementById('hw-task-modal').remove()">${task.completed || task.done ? 'Reopen' : 'Mark done'}</button>
+          <button class="btn btn-primary btn-sm" onclick="window._hwToggle && window._hwToggle('${esc(task.id)}');document.getElementById('hw-task-modal').remove()">${task.completed || task.done ? 'Reopen' : 'Mark done'}</button>
         </div>
       </div>`;
     document.body.appendChild(modal);
@@ -4357,7 +4357,7 @@ async function _pgPatientHomeworkImpl() {
       card.classList.add('done');
       const foot = card.querySelector('.hw-task-foot');
       if (foot) {
-        foot.innerHTML = '<button class="hw-check is-on" onclick="window._hwToggle && window._hwToggle(' + JSON.stringify(taskId) + ')" title="Mark incomplete"><svg width="14" height="14"><use href="#i-check"/></svg></button><span style="font-size:11.5px;color:var(--text-secondary)">' + (task.mood_before != null ? 'Mood <strong style="color:var(--text-primary)">' + task.mood_before + '</strong> \u00b7 ' : '') + 'Completed</span><button class="btn btn-ghost btn-sm hw-go" onclick="window._hwOpen && window._hwOpen(' + JSON.stringify(taskId) + ')">View<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>';
+        foot.innerHTML = '<button class="hw-check is-on" onclick="window._hwToggle && window._hwToggle(\'' + esc(taskId) + '\')" title="Mark incomplete"><svg width="14" height="14"><use href="#i-check"/></svg></button><span style="font-size:11.5px;color:var(--text-secondary)">' + (task.mood_before != null ? 'Mood <strong style="color:var(--text-primary)">' + task.mood_before + '</strong> \u00b7 ' : '') + 'Completed</span><button class="btn btn-ghost btn-sm hw-go" onclick="window._hwOpen && window._hwOpen(\'' + esc(taskId) + '\')">View<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>';
       }
     }
     document.getElementById('hw-walk-modal')?.remove();
@@ -6886,7 +6886,7 @@ async function _pgPatientVirtualCareImpl() {
       : last.kind === 'biometrics' ? '<span class="you">You:</span> Shared biometric data'
       : (last.sender === 'me' ? '<span class="you">You:</span> ' : '') + esc(last.body || '');
     return `
-      <div class="vc-thread${t.id === activeId ? ' active' : ''}" data-tid="${esc(t.id)}" onclick="window._vcPickThread && window._vcPickThread(${JSON.stringify(t.id)})">
+      <div class="vc-thread${t.id === activeId ? ' active' : ''}" data-tid="${esc(t.id)}" onclick="window._vcPickThread && window._vcPickThread('${esc(t.id)}')">
         <div class="vc-thread-av ${t.avClass || ''}" data-online="${t.online || 'false'}">${t.avatar || (t.avClass === 'av-ai' ? '<svg width="18" height="18"><use href="#i-sparkle"/></svg>' : t.avClass === 'av-team' ? '<svg width="18" height="18"><use href="#i-users"/></svg>' : t.name.slice(0,2).toUpperCase())}</div>
         <div class="vc-thread-body">
           <div class="vc-thread-name">${esc(t.name)} <span class="vc-role">\u00b7 ${esc(t.role || '')}</span></div>
@@ -9202,103 +9202,54 @@ export async function pgPatientMarketplace(_user) {
       .replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
   };
 
-  const CATALOG = [
-    // ── Services ──────────────────────────────────────────────────────
-    { id: 'svc-second-opinion', kind: 'service', icon: '🧠', tone: 'teal',
-      name: 'Second opinion consult', provider: 'Board-certified neuropsychiatrist',
-      desc: '45-min video review of your qEEG, assessment history, and protocol with an outside specialist.',
-      price: '£180', priceUnit: 'one-time', clinical: true, featured: true,
-      tags: ['Consult', '45 min', 'Video'] },
-    { id: 'svc-coach-cbt', kind: 'service', icon: '💬', tone: 'blue',
-      name: 'Weekly CBT coaching', provider: 'Accredited CBT therapist',
-      desc: 'Six structured sessions pairing cognitive-behavioural tools with your neuromodulation course.',
-      price: '£65', priceUnit: '/ session', clinical: false,
-      tags: ['6 weeks', 'Video', 'Between-session support'] },
-    { id: 'svc-nutrition', kind: 'service', icon: '🥗', tone: 'green',
-      name: 'Neuro-nutrition plan', provider: 'Registered dietitian',
-      desc: 'Personalised eating plan optimised for cognitive recovery and sleep. Includes shopping list + recipes.',
-      price: '£120', priceUnit: '/ month', clinical: false,
-      tags: ['Monthly', 'Personalised', 'Chat support'] },
-    { id: 'svc-sleep-coach', kind: 'service', icon: '🌙', tone: 'violet',
-      name: 'Sleep coaching programme', provider: 'Behavioural sleep medicine specialist',
-      desc: '8-week CBT-I programme for insomnia, delivered asynchronously with weekly check-ins.',
-      price: '£240', priceUnit: 'programme', clinical: false,
-      tags: ['8 weeks', 'Async', 'CBT-I'] },
-    { id: 'svc-peer-group', kind: 'service', icon: '🤝', tone: 'rose',
-      name: 'Peer support group', provider: 'Facilitated by a licensed counsellor',
-      desc: 'Weekly 60-minute small-group calls with other patients on neuromodulation protocols.',
-      price: '£45', priceUnit: '/ month', clinical: false,
-      tags: ['Weekly', 'Small group'] },
-    { id: 'svc-referral-psych', kind: 'service', icon: '👩‍⚕️', tone: 'amber',
-      name: 'Psychiatry medication review', provider: 'Consultant psychiatrist',
-      desc: 'Review of current medications, interactions with your protocol, and adjustment options.',
-      price: '£220', priceUnit: 'one-time', clinical: true,
-      tags: ['Clinical', 'Video', 'Report included'] },
-
-    // ── Devices ───────────────────────────────────────────────────────
-    { id: 'dev-oura-ring', kind: 'device', icon: '💍', tone: 'blue',
-      name: 'Oura Ring Gen 3', provider: 'Oura Health',
-      desc: 'Sleep, HRV, body-temperature and readiness tracking — auto-syncs into your Biometrics reports.',
-      price: '£299', priceUnit: 'one-time', clinical: false, featured: true,
-      tags: ['Wearable', 'Ships in 3–5 days', 'HRV + sleep'] },
-    { id: 'dev-apple-watch', kind: 'device', icon: '⌚', tone: 'teal',
-      name: 'Apple Watch SE', provider: 'Apple',
-      desc: 'Cardio, activity, ECG and sleep tracking with deep Apple Health integration.',
-      price: '£259', priceUnit: 'one-time', clinical: false,
-      tags: ['Wearable', 'ECG', 'Apple Health'] },
-    { id: 'dev-focus-tdcs', kind: 'device', icon: '🧩', tone: 'violet',
-      name: 'At-home tDCS headset', provider: 'DeepSynaps partner hardware',
-      desc: 'Prescription-only home tDCS unit. Clinician must approve and configure electrode montage.',
-      price: 'By prescription', priceUnit: '', clinical: true,
-      tags: ['Prescription', 'Clinician-configured', 'Home use'] },
-    { id: 'dev-lightbox', kind: 'device', icon: '☀️', tone: 'amber',
-      name: '10 000-lux light therapy lamp', provider: 'Northern Light',
-      desc: 'Circadian light therapy lamp recommended for seasonal mood and sleep-phase support.',
-      price: '£149', priceUnit: 'one-time', clinical: false,
-      tags: ['10 000 lux', 'UV-free', '30-day trial'] },
-    { id: 'dev-hrv-strap', kind: 'device', icon: '🫀', tone: 'rose',
-      name: 'Polar H10 HRV strap', provider: 'Polar',
-      desc: 'Medical-grade ECG chest strap for precise HRV during breathing and meditation practice.',
-      price: '£89', priceUnit: 'one-time', clinical: false,
-      tags: ['Chest strap', 'HRV-biofeedback ready'] },
-    { id: 'dev-muse', kind: 'device', icon: '🧘', tone: 'teal',
-      name: 'Muse S headband', provider: 'Interaxon',
-      desc: 'Consumer EEG headband for guided meditation + sleep tracking. Not for diagnostic qEEG.',
-      price: '£299', priceUnit: 'one-time', clinical: false,
-      tags: ['Consumer EEG', 'Meditation'] },
-
-    // ── Software ──────────────────────────────────────────────────────
-    { id: 'sw-headspace', kind: 'software', icon: '🟠', tone: 'amber',
-      name: 'Headspace', provider: 'Headspace Inc.',
-      desc: 'Evidence-informed meditation app. DeepSynaps patients get 50% off the annual plan.',
-      price: '£34.99', priceUnit: '/ year', clinical: false, featured: true,
-      tags: ['50% off', 'Annual', 'iOS · Android'] },
-    { id: 'sw-wysa', kind: 'software', icon: '💙', tone: 'blue',
-      name: 'Wysa AI Coach', provider: 'Wysa',
-      desc: 'Evidence-based chatbot coach for mood, anxiety, and between-session support.',
-      price: '£9.99', priceUnit: '/ month', clinical: false,
-      tags: ['CBT-grounded', 'Chatbot', '24/7'] },
-    { id: 'sw-sleepio', kind: 'software', icon: '😴', tone: 'violet',
-      name: 'Sleepio CBT-I', provider: 'Big Health (NICE-approved)',
-      desc: 'Digital CBT for insomnia — the NICE-approved 6-week programme. Delivered via app.',
-      price: '£200', priceUnit: 'programme', clinical: true,
-      tags: ['NICE-approved', 'CBT-I', '6 weeks'] },
-    { id: 'sw-endeavor', kind: 'software', icon: '🎯', tone: 'teal',
-      name: 'EndeavorOTC', provider: 'Akili Interactive',
-      desc: 'FDA-cleared gamified attention training (15 min / day). Adjunct to ADHD treatment.',
-      price: '$24.99', priceUnit: '/ month', clinical: true,
-      tags: ['FDA-cleared', 'ADHD', '15 min/day'] },
-    { id: 'sw-somryst', kind: 'software', icon: '🌜', tone: 'rose',
-      name: 'Daylight', provider: 'Big Health',
-      desc: 'Digital therapeutic for generalised anxiety. Short daily practice built from CBT.',
-      price: '£150', priceUnit: 'programme', clinical: true,
-      tags: ['Digital therapeutic', 'Anxiety'] },
-    { id: 'sw-woebot', kind: 'software', icon: '🤖', tone: 'green',
-      name: 'Woebot', provider: 'Woebot Health',
-      desc: 'Relational AI mood companion that checks in daily and routes urgent messages to your clinician.',
-      price: 'Free', priceUnit: '', clinical: false,
-      tags: ['Free', 'Daily check-ins'] },
+  // ── Hardcoded fallback catalog (used if API fails) ──
+  const FALLBACK_CATALOG = [
+    { id: 'svc-second-opinion', kind: 'service', icon: '🧠', tone: 'teal', name: 'Second opinion consult', provider: 'Board-certified neuropsychiatrist', desc: '45-min video review of your qEEG, assessment history, and protocol with an outside specialist.', price: '£180', priceUnit: 'one-time', clinical: true, featured: true, tags: ['Consult', '45 min', 'Video'], external_url: null },
+    { id: 'svc-coach-cbt', kind: 'service', icon: '💬', tone: 'blue', name: 'Weekly CBT coaching', provider: 'Accredited CBT therapist', desc: 'Six structured sessions pairing cognitive-behavioural tools with your neuromodulation course.', price: '£65', priceUnit: '/ session', clinical: false, featured: false, tags: ['6 weeks', 'Video', 'Between-session support'], external_url: null },
+    { id: 'svc-nutrition', kind: 'service', icon: '🥗', tone: 'green', name: 'Neuro-nutrition plan', provider: 'Registered dietitian', desc: 'Personalised eating plan optimised for cognitive recovery and sleep. Includes shopping list + recipes.', price: '£120', priceUnit: '/ month', clinical: false, featured: false, tags: ['Monthly', 'Personalised', 'Chat support'], external_url: null },
+    { id: 'svc-sleep-coach', kind: 'service', icon: '🌙', tone: 'violet', name: 'Sleep coaching programme', provider: 'Behavioural sleep medicine specialist', desc: '8-week CBT-I programme for insomnia, delivered asynchronously with weekly check-ins.', price: '£240', priceUnit: 'programme', clinical: false, featured: false, tags: ['8 weeks', 'Async', 'CBT-I'], external_url: null },
+    { id: 'svc-peer-group', kind: 'service', icon: '🤝', tone: 'rose', name: 'Peer support group', provider: 'Facilitated by a licensed counsellor', desc: 'Weekly 60-minute small-group calls with other patients on neuromodulation protocols.', price: '£45', priceUnit: '/ month', clinical: false, featured: false, tags: ['Weekly', 'Small group'], external_url: null },
+    { id: 'svc-referral-psych', kind: 'service', icon: '👩‍⚕️', tone: 'amber', name: 'Psychiatry medication review', provider: 'Consultant psychiatrist', desc: 'Review of current medications, interactions with your protocol, and adjustment options.', price: '£220', priceUnit: 'one-time', clinical: true, featured: false, tags: ['Clinical', 'Video', 'Report included'], external_url: null },
+    { id: 'dev-oura-ring', kind: 'device', icon: '💍', tone: 'blue', name: 'Oura Ring Gen 3', provider: 'Oura Health', desc: 'Sleep, HRV, body-temperature and readiness tracking — auto-syncs into your Biometrics reports.', price: '£299', priceUnit: 'one-time', clinical: false, featured: true, tags: ['Wearable', 'Ships in 3–5 days', 'HRV + sleep'], external_url: 'https://ouraring.com' },
+    { id: 'dev-apple-watch', kind: 'device', icon: '⌚', tone: 'teal', name: 'Apple Watch SE', provider: 'Apple', desc: 'Cardio, activity, ECG and sleep tracking with deep Apple Health integration.', price: '£259', priceUnit: 'one-time', clinical: false, featured: false, tags: ['Wearable', 'ECG', 'Apple Health'], external_url: 'https://www.apple.com/apple-watch-se/' },
+    { id: 'dev-focus-tdcs', kind: 'device', icon: '🧩', tone: 'violet', name: 'At-home tDCS headset', provider: 'DeepSynaps partner hardware', desc: 'Prescription-only home tDCS unit. Clinician must approve and configure electrode montage.', price: 'By prescription', priceUnit: '', clinical: true, featured: false, tags: ['Prescription', 'Clinician-configured', 'Home use'], external_url: null },
+    { id: 'dev-lightbox', kind: 'device', icon: '☀️', tone: 'amber', name: '10 000-lux light therapy lamp', provider: 'Northern Light', desc: 'Circadian light therapy lamp recommended for seasonal mood and sleep-phase support.', price: '£149', priceUnit: 'one-time', clinical: false, featured: false, tags: ['10 000 lux', 'UV-free', '30-day trial'], external_url: 'https://www.northernlighttechnologies.com' },
+    { id: 'dev-hrv-strap', kind: 'device', icon: '🫀', tone: 'rose', name: 'Polar H10 HRV strap', provider: 'Polar', desc: 'Medical-grade ECG chest strap for precise HRV during breathing and meditation practice.', price: '£89', priceUnit: 'one-time', clinical: false, featured: false, tags: ['Chest strap', 'HRV-biofeedback ready'], external_url: 'https://www.polar.com/en/products/accessories/h10-heart-rate-sensor' },
+    { id: 'dev-muse', kind: 'device', icon: '🧘', tone: 'teal', name: 'Muse S headband', provider: 'Interaxon', desc: 'Consumer EEG headband for guided meditation + sleep tracking. Not for diagnostic qEEG.', price: '£299', priceUnit: 'one-time', clinical: false, featured: false, tags: ['Consumer EEG', 'Meditation'], external_url: 'https://choosemuse.com/muse-s/' },
+    { id: 'sw-headspace', kind: 'software', icon: '🟠', tone: 'amber', name: 'Headspace', provider: 'Headspace Inc.', desc: 'Evidence-informed meditation app. DeepSynaps patients get 50% off the annual plan.', price: '£34.99', priceUnit: '/ year', clinical: false, featured: true, tags: ['50% off', 'Annual', 'iOS · Android'], external_url: 'https://www.headspace.com' },
+    { id: 'sw-wysa', kind: 'software', icon: '💙', tone: 'blue', name: 'Wysa AI Coach', provider: 'Wysa', desc: 'Evidence-based chatbot coach for mood, anxiety, and between-session support.', price: '£9.99', priceUnit: '/ month', clinical: false, featured: false, tags: ['CBT-grounded', 'Chatbot', '24/7'], external_url: 'https://www.wysa.io' },
+    { id: 'sw-sleepio', kind: 'software', icon: '😴', tone: 'violet', name: 'Sleepio CBT-I', provider: 'Big Health (NICE-approved)', desc: 'Digital CBT for insomnia — the NICE-approved 6-week programme. Delivered via app.', price: '£200', priceUnit: 'programme', clinical: true, featured: false, tags: ['NICE-approved', 'CBT-I', '6 weeks'], external_url: 'https://www.bighealth.com/sleepio' },
+    { id: 'sw-endeavor', kind: 'software', icon: '🎯', tone: 'teal', name: 'EndeavorOTC', provider: 'Akili Interactive', desc: 'FDA-cleared gamified attention training (15 min / day). Adjunct to ADHD treatment.', price: '$24.99', priceUnit: '/ month', clinical: true, featured: false, tags: ['FDA-cleared', 'ADHD', '15 min/day'], external_url: 'https://www.akiliinteractive.com/endeavorotc' },
+    { id: 'sw-somryst', kind: 'software', icon: '🌜', tone: 'rose', name: 'Daylight', provider: 'Big Health', desc: 'Digital therapeutic for generalised anxiety. Short daily practice built from CBT.', price: '£150', priceUnit: 'programme', clinical: true, featured: false, tags: ['Digital therapeutic', 'Anxiety'], external_url: 'https://www.bighealth.com/daylight' },
+    { id: 'sw-woebot', kind: 'software', icon: '🤖', tone: 'green', name: 'Woebot', provider: 'Woebot Health', desc: 'Relational AI mood companion that checks in daily and routes urgent messages to your clinician.', price: 'Free', priceUnit: '', clinical: false, featured: false, tags: ['Free', 'Daily check-ins'], external_url: 'https://woebothealth.com' },
   ];
+
+  // ── Try fetch live data ──
+  let CATALOG = FALLBACK_CATALOG;
+  let apiOk = false;
+  try {
+    const data = await api.marketplaceItems();
+    if (data && Array.isArray(data.items)) {
+      CATALOG = data.items.map(it => ({
+        id: it.id,
+        kind: it.kind,
+        icon: it.icon || '📦',
+        tone: it.tone || 'slate',
+        name: it.name,
+        provider: it.provider,
+        desc: it.description || '',
+        price: it.price != null ? `${it.price_unit && it.price_unit.startsWith('USD') ? '$' : '£'}${it.price}` : (it.price_unit || '—'),
+        priceUnit: '',
+        clinical: it.clinical,
+        featured: it.featured,
+        tags: it.tags || [],
+        external_url: it.external_url || null,
+      }));
+      apiOk = true;
+    }
+  } catch (e) {
+    // Fallback to hardcoded catalog
+  }
 
   const kindMeta = {
     service:  { label: 'Services',  sub: 'Human experts you can book',            icon: '👥', tone: 'teal'  },
@@ -9316,12 +9267,13 @@ export async function pgPatientMarketplace(_user) {
     const clinicalBadge = i.clinical
       ? `<span class="mp-clinical-badge" title="Needs clinician review">🩺 Clinician review</span>`
       : '';
+    const hasExternal = i.external_url && !i.clinical;
     const cta = i.clinical
       ? `<button class="mp-cta mp-cta--clinical" data-mp-request="${esc(i.id)}">Request via care team</button>`
-      : `<button class="mp-cta mp-cta--buy" data-mp-buy="${esc(i.id)}">Buy · ${esc(i.price)}${esc(i.priceUnit || '')}</button>`;
-    const price = i.clinical
-      ? `<div class="mp-price">${esc(i.price)}${i.priceUnit ? ' <span class="mp-price-unit">' + esc(i.priceUnit) + '</span>' : ''}</div>`
-      : `<div class="mp-price">${esc(i.price)}${i.priceUnit ? ' <span class="mp-price-unit">' + esc(i.priceUnit) + '</span>' : ''}</div>`;
+      : (hasExternal
+        ? `<button class="mp-cta mp-cta--buy" data-mp-buy="${esc(i.id)}">Buy · ${esc(i.price)}${esc(i.priceUnit || '')}</button>`
+        : `<button class="mp-cta mp-cta--buy" data-mp-buy="${esc(i.id)}">Get · ${esc(i.price)}${esc(i.priceUnit || '')}</button>`);
+    const price = `<div class="mp-price">${esc(i.price)}${i.priceUnit ? ' <span class="mp-price-unit">' + esc(i.priceUnit) + '</span>' : ''}</div>`;
     return `
       <article class="mp-card" data-kind="${esc(i.kind)}" data-id="${esc(i.id)}">
         <div class="mp-card-top">
@@ -9374,6 +9326,11 @@ export async function pgPatientMarketplace(_user) {
         </div>
       </header>
 
+      ${!apiOk ? `<div class="mp-disclaimer" style="background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.25)">
+        <span aria-hidden="true">⚡</span>
+        <div><strong>Offline mode.</strong> Showing cached catalog. Connect to the server for the latest items and to place orders.</div>
+      </div>` : ''}
+
       <div class="mp-disclaimer">
         <span aria-hidden="true">ℹ️</span>
         <div>
@@ -9408,10 +9365,10 @@ export async function pgPatientMarketplace(_user) {
     </div>
   `;
 
-  _wireMarketplace();
+  _wireMarketplace(CATALOG);
 }
 
-function _wireMarketplace() {
+function _wireMarketplace(CATALOG) {
   const root = document.querySelector('.mp-wrap');
   if (!root) return;
 
@@ -9426,7 +9383,51 @@ function _wireMarketplace() {
     toastTimer = setTimeout(() => toast.classList.remove('show'), 2400);
   }
 
-  // Filter tabs
+  // ── Details modal ──
+  function showDetails(id) {
+    const item = CATALOG.find(c => c.id === id);
+    if (!item) return;
+    const existing = document.getElementById('mp-details-panel');
+    if (existing) existing.remove();
+
+    const tags = (item.tags || []).map(t => `<span class="mp-tag">${esc(t)}</span>`).join('');
+    const externalSection = item.external_url && !item.clinical
+      ? `<div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08)">
+          <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:8px">External purchase link</div>
+          <a href="${esc(item.external_url)}" target="_blank" rel="noopener noreferrer" class="mp-cta mp-cta--buy" style="display:inline-block;text-decoration:none">Open ${esc(item.provider)} ↗</a>
+         </div>`
+      : '';
+
+    const panel = document.createElement('div');
+    panel.id = 'mp-details-panel';
+    panel.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px';
+    panel.innerHTML = `
+      <div style="background:var(--navy-850,#0f172a);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:16px;max-width:520px;width:100%;max-height:80vh;overflow:auto;box-shadow:0 16px 48px rgba(0,0,0,.5)">
+        <div style="padding:20px 20px 12px;display:flex;align-items:flex-start;gap:12px">
+          <span class="pt-page-tile pt-nav-tile--${esc(item.tone || 'teal')}" style="width:44px;height:44px;font-size:22px;flex-shrink:0">${item.icon}</span>
+          <div style="flex:1;min-width:0">
+            <h3 style="margin:0 0 4px;font-size:17px;font-weight:600;color:var(--text-primary)">${esc(item.name)}</h3>
+            <div style="font-size:13px;color:var(--text-secondary)">${esc(item.provider)}</div>
+          </div>
+          <button id="mp-details-close" style="background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:20px;line-height:1;padding:4px">×</button>
+        </div>
+        <div style="padding:0 20px 20px">
+          <p style="margin:0 0 12px;font-size:13.5px;line-height:1.6;color:var(--text-secondary)">${esc(item.desc)}</p>
+          <div class="mp-tags">${tags}</div>
+          ${item.clinical ? '<div style="margin-top:12px;font-size:12px;color:#fbbf24">🩺 This item requires clinician review before it can be requested.</div>' : ''}
+          ${externalSection}
+        </div>
+      </div>
+    `;
+    document.body.appendChild(panel);
+    panel.addEventListener('click', (e) => {
+      if (e.target === panel || e.target.id === 'mp-details-close') {
+        panel.remove();
+      }
+    });
+  }
+
+  // ── Filter tabs ──
   root.querySelectorAll('[data-mp-filter]').forEach(btn => {
     btn.addEventListener('click', () => {
       const f = btn.dataset.mpFilter;
@@ -9435,7 +9436,6 @@ function _wireMarketplace() {
         b.classList.toggle('active', on);
         b.setAttribute('aria-selected', String(on));
       });
-      // Hide/show kind sections; featured always visible.
       root.querySelectorAll('.mp-section').forEach(sec => {
         if (sec.id === 'mp-section-featured') { sec.style.display = ''; return; }
         const kind = sec.id.replace('mp-section-', '');
@@ -9444,25 +9444,45 @@ function _wireMarketplace() {
     });
   });
 
-  // Buy
+  // ── Buy / External link ──
   root.querySelectorAll('[data-mp-buy]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const name = btn.closest('.mp-card')?.querySelector('.mp-card-name')?.textContent || 'Item';
-      mpToast(`${name} added to cart · checkout coming soon`);
+      const id = btn.dataset.mpBuy;
+      const item = CATALOG.find(c => c.id === id);
+      if (!item) return;
+      if (item.external_url && !item.clinical) {
+        window.open(item.external_url, '_blank', 'noopener,noreferrer');
+        mpToast(`Opening ${item.provider}…`);
+      } else {
+        mpToast(`${item.name} · checkout coming soon`);
+      }
     });
   });
-  // Clinical request
+
+  // ── Clinical request via care team ──
   root.querySelectorAll('[data-mp-request]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const name = btn.closest('.mp-card')?.querySelector('.mp-card-name')?.textContent || 'Item';
-      mpToast(`Requested · your care team will review ${name}`);
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.mpRequest;
+      const item = CATALOG.find(c => c.id === id);
+      if (!item) return;
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+      try {
+        await api.marketplaceCreateOrder({ item_id: item.id, patient_notes: '' });
+        mpToast(`Requested · your care team will review ${item.name}`);
+      } catch (e) {
+        mpToast(`Request failed · ${e.message || 'try again later'}`);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Request via care team';
+      }
     });
   });
-  // Details (lightweight alert-toast)
+
+  // ── Details ──
   root.querySelectorAll('[data-mp-details]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const name = btn.closest('.mp-card')?.querySelector('.mp-card-name')?.textContent || 'Item';
-      mpToast(`Opening details for ${name}…`);
+      showDetails(btn.dataset.mpDetails);
     });
   });
 }
