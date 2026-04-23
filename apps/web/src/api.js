@@ -963,6 +963,7 @@ export const api = {
   patientPortalSessions: () => apiFetch('/api/v1/patient-portal/sessions'),
   patientPortalAssessments: () => apiFetch('/api/v1/patient-portal/assessments'),
   patientPortalOutcomes: () => apiFetch('/api/v1/patient-portal/outcomes'),
+  patientPortalReports: () => apiFetch('/api/v1/patient-portal/reports'),
   patientPortalMessages: () => apiFetch('/api/v1/patient-portal/messages'),
   patientPortalSendMessage: (data) =>
     apiFetch('/api/v1/patient-portal/messages', { method: 'POST', body: JSON.stringify(data) }),
