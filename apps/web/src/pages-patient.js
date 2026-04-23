@@ -7952,15 +7952,78 @@ async function _pgPatientEducationImpl() {
     if (cnt) cnt.textContent = savedIds.length + ' saved';
     _edToast(savedIds.includes(id) ? 'Saved to My library' : 'Removed from My library');
   };
+  // Build a useful search URL for items without a direct link
+  function _edSearchUrl(it) {
+    const q = encodeURIComponent(it.title + (it.author ? ' ' + it.author : ''));
+    if (it.src === 'youtube' || it.src === 'huberman') {
+      return 'https://www.youtube.com/results?search_query=' + q;
+    }
+    if (it.src === 'mayo') {
+      return 'https://www.mayoclinic.org/search/search-results?q=' + encodeURIComponent(it.title);
+    }
+    if (it.src === 'cleveland') {
+      return 'https://my.clevelandclinic.org/search?searchApiQuery=' + encodeURIComponent(it.title);
+    }
+    if (it.src === 'podcast') {
+      return 'https://www.youtube.com/results?search_query=' + q + '+podcast';
+    }
+    if (it.src === 'journals') {
+      return 'https://scholar.google.com/scholar?q=' + q;
+    }
+    if (it.src === 'flow') {
+      if (/Vielight/i.test(it.author || '')) return 'https://vielight.com';
+      if (/Flow Neuroscience/i.test(it.author || '')) return 'https://flowneuroscience.com';
+      return 'https://www.youtube.com/results?search_query=' + q;
+    }
+    if (it.src === 'synaps') {
+      return null; // internal / coming soon
+    }
+    return 'https://www.google.com/search?q=' + q;
+  }
+
   window._edOpen = function(id) {
     const it = itemById.get(id);
     if (!it) { _edToast('Item not found'); return; }
-    if (it.url) {
-      window.open(it.url, '_blank', 'noopener,noreferrer');
-      _edToast('Opened: ' + it.title);
-    } else {
-      _edToast(it.title + ' — available in your clinic portal');
-    }
+    const existing = document.getElementById('ed-detail-modal');
+    if (existing) existing.remove();
+
+    const searchUrl = _edSearchUrl(it);
+    const hasDirect = !!it.url;
+    const hasSearch = !!searchUrl;
+    const actionBtn = hasDirect
+      ? `<button class="btn btn-primary btn-sm" onclick="window.open(${JSON.stringify(it.url)},'_blank','noopener,noreferrer');document.getElementById('ed-detail-modal').remove()">Open<svg width="11" height="11" style="margin-left:4px"><use href="#i-arrow-right"/></svg></button>`
+      : hasSearch
+        ? `<button class="btn btn-primary btn-sm" onclick="window.open(${JSON.stringify(searchUrl)},'_blank','noopener,noreferrer');document.getElementById('ed-detail-modal').remove()">Search for this<svg width="11" height="11" style="margin-left:4px"><use href="#i-arrow-right"/></svg></button>`
+        : `<button class="btn btn-ghost btn-sm" disabled>Available in your clinic</button>`;
+
+    const tagsHtml = (it.tags || []).map(t => `<span style="font-size:11px;padding:2px 8px;border-radius:99px;background:var(--bg-elevated);color:var(--text-secondary)">${esc(t)}</span>`).join('');
+
+    const modal = document.createElement('div');
+    modal.id = 'ed-detail-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    modal.innerHTML = `
+      <div style="background:var(--bg-primary);border-radius:12px;max-width:520px;width:100%;max-height:80vh;overflow:auto;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.35)">
+        <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px">
+          <div style="width:36px;height:36px;border-radius:8px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <svg width="20" height="20"><use href="#i-${it.ico || 'play'}"/></svg>
+          </div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:15px;line-height:1.35">${esc(it.title || 'Item')}</div>
+            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${esc(it.author || it.srcLbl || '')} &middot; ${esc(it.dur || '')}</div>
+          </div>
+          <span style="font-size:11px;padding:3px 10px;border-radius:99px;background:var(--bg-elevated);color:var(--text-secondary);flex-shrink:0;text-transform:capitalize">${esc(it.kind || 'item')}</span>
+        </div>
+        ${it.meta ? `<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:12px">${esc(it.meta)}</div>` : ''}
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">${tagsHtml}</div>
+        ${!hasDirect && hasSearch ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.5">This item doesn't have a direct link yet. You can search for it online using the button below.</div>` : ''}
+        ${!hasDirect && !hasSearch ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.5">This is a clinic-only resource. Ask your clinician for access.</div>` : ''}
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('ed-detail-modal').remove()">Close</button>
+          ${actionBtn}
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
   };
 
   function _edToast(msg) {
