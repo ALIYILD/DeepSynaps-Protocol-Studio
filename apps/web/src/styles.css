@@ -3153,6 +3153,11 @@ body.light-theme .modal-card {
   border-color: var(--border);
   box-shadow: 0 16px 48px rgba(0,0,0,0.15);
 }
+body.light-theme .hw-modal-body {
+  background: #ffffff;
+  border-color: var(--border);
+  box-shadow: 0 24px 64px rgba(0,0,0,0.15);
+}
 
 /* ── Light: Notices ── */
 body.light-theme .notice-info { background: rgba(37,99,235,0.06); border-color: rgba(37,99,235,0.25); }
@@ -22694,6 +22699,12 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 .hw-toast.show { opacity: 1; transform: translate(-50%, 0); }
 .hw-toast svg { color: #00d4bc; }
 
+/* Homework task modal */
+.hw-modal { position: fixed; inset: 0; z-index: 1000; }
+.hw-modal-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.55); backdrop-filter: blur(4px); }
+.hw-modal-body { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--navy-800, #0f172a); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 22px; width: calc(100% - 32px); max-width: 420px; box-shadow: 0 24px 64px rgba(0,0,0,0.5); animation: hwModalIn 0.18s ease; }
+@keyframes hwModalIn { from { opacity: 0; transform: translate(-50%, -48%); } to { opacity: 1; transform: translate(-50%, -50%); } }
+
 /* Responsive */
 @media (max-width: 1200px) {
   .hw-layout { grid-template-columns: 1fr; }
@@ -23911,6 +23922,9 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 .el-source-logo.huberman  { background: linear-gradient(135deg, #1a1a1a, #4a4a4a); }
 .el-source-logo.flow      { background: #6b8cff; }
 .el-source-logo.synaps    { background: linear-gradient(135deg, #00d4bc, #0a8a7a); color: #061018; }
+.el-source-logo.edx        { background: #02205f; }
+.el-source-logo.coursera   { background: #0056d2; }
+.el-source-logo.udemy      { background: #a435f0; }
 .el-source-name { font-size: 11px; color: #fff; font-weight: 500; }
 .el-source-count { font-size: 10px; color: rgba(255,255,255,0.55); }
 

@@ -1537,3 +1537,64 @@ class InsuranceClaim(Base):
     __table_args__ = (
         CheckConstraint("status IN ('draft','submitted','pending','approved','rejected','paid')", name='ck_insurance_status'),
     )
+
+
+class MarketplaceItem(Base):
+    """Catalog items available in the patient marketplace.
+
+    Items can be physical products (devices), digital services (consultations,
+    coaching), or software subscriptions. External purchase links (Amazon, eBay,
+    vendor sites) are stored in `external_url` so patients can buy directly.
+    """
+    __tablename__ = "marketplace_items"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, default="product")
+    # product | service | software
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    price: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    price_unit: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    external_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    image_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    tags_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    clinical: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    featured: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    active: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=True)
+    # Professional / seller who created this item
+    created_by_clinician_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    created_by_professional_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    icon: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    tone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('product','service','software')", name='ck_marketplace_items_kind'),
+    )
+
+
+class MarketplaceOrder(Base):
+    """Patient requests / orders for marketplace items.
+
+    When a patient clicks "Request via care team" an order is created with
+    status='requested'. The care team reviews and can approve or decline.
+    For external-purchase items (Amazon/eBay) the order is optional — patients
+    can also buy directly via the external_url.
+    """
+    __tablename__ = "marketplace_orders"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
+    item_id: Mapped[str] = mapped_column(String(36), ForeignKey("marketplace_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="requested")
+    # requested | approved | declined | fulfilled | cancelled
+    patient_notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    clinician_notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        CheckConstraint("status IN ('requested','approved','declined','fulfilled','cancelled')", name='ck_marketplace_orders_status'),
+    )

@@ -4472,8 +4472,23 @@ async function _pgPatientHomeworkImpl() {
     } else {
       _hwToast('Added to today\u2019s plan');
     }
-    // Re-render homework page so the new task appears
-    _pgPatientHomeworkImpl().catch(function() {});
+    // Add to in-memory state
+    tasks.push(newTask);
+    _taskById.set(String(newTask.id), newTask);
+    // Insert card into today's grid without full re-render
+    const grid = document.querySelector('.hw-today-grid');
+    if (grid) {
+      const empty = grid.querySelector('.pth2-empty');
+      if (empty) empty.remove();
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = _taskCardHtml(newTask);
+      grid.appendChild(wrapper.firstElementChild);
+    }
+    // Update filter counts
+    const todayFilter = document.querySelector('#hw-filters .hw-filter[data-f="today"] .count');
+    if (todayFilter) todayFilter.textContent = tasks.filter(t => (t.due_on || '').slice(0, 10) === todayIso).length;
+    const catFilter = document.querySelector('#hw-filters .hw-filter[data-f="' + esc(lib.category) + '"] .count');
+    if (catFilter) catFilter.textContent = tasks.filter(t => t.category === lib.category).length;
   };
 
   window._hwBrowseLibrary = function() {
@@ -7732,6 +7747,9 @@ async function _pgPatientEducationImpl() {
     { id:'cleveland', label:'Cleveland Clinic',  cls:'cleveland', short:'CC',  count:4  },
     { id:'podcast',   label:'Podcasts',          cls:'huberman',  short:'🎧',  count:4  },
     { id:'journals',  label:'Academic Journals', cls:'flow',      short:'J',   count:6  },
+    { id:'edx',       label:'edX',               cls:'edx',       short:'ed',  count:2  },
+    { id:'coursera',  label:'Coursera',          cls:'coursera',  short:'Co',  count:2  },
+    { id:'udemy',     label:'Udemy',             cls:'udemy',     short:'Ud',  count:2  },
     { id:'apps',      label:'Apps & Tools',      cls:'synaps',    short:'📱',  count:6  },
   ];
 
@@ -7748,14 +7766,14 @@ async function _pgPatientEducationImpl() {
     { id:'sv05', kind:'article', src:'synaps',    srcLbl:'SOZO Patient Resources', grad:3, ico:'users', dur:'5 min read', title:'Talking to family about your treatment — a script you can borrow', author:'SOZO Patient Resources', meta:'Lifestyle · Support', tags:['Lifestyle','Support'], topic:'lifestyle' },
 
     // YouTube — clinic explainers and open lectures.
-    { id:'yt01', kind:'video',   src:'youtube',   srcLbl:'King\'s College London · YouTube', grad:3, ico:'lightning', dur:'9:42',  title:'The Brunoni-Bestmann tDCS protocol for major depression', author:"King's College London", meta:'184k views', tags:['Matches your plan','tDCS'], topic:'tdcs' },
-    { id:'yt02', kind:'video',   src:'youtube',   srcLbl:'Neuroscience News · YouTube', grad:7, ico:'pulse', dur:'5:24', title:'What does a qEEG actually measure? A 5-minute primer', author:'Neuroscience News', meta:'92k views', tags:['For Week 6','qEEG'], topic:'qeeg' },
-    { id:'yt03', kind:'video',   src:'youtube',   srcLbl:'Stanford · YouTube',  grad:6,  ico:'video',     dur:'52:08', title:'What antidepressants actually do — Robert Sapolsky lecture', author:'Stanford', meta:'1.4M views', tags:['MDD','Lecture'], topic:'mdd' },
-    { id:'yt04', kind:'video',   src:'youtube',   srcLbl:'City College of NY · YouTube', grad:3, ico:'lightning', dur:'14:55', title:'2 mA, 20 minutes — why those numbers? Marom Bikson explains', author:'City College of NY', meta:'62k views', tags:['For your dose','tDCS'], topic:'tdcs' },
-    { id:'yt05', kind:'video',   src:'youtube',   srcLbl:'Huberman Lab · YouTube', grad:1, ico:'brain', dur:'22:48', title:'What the DLPFC does and why we stimulate it', author:'Andrew Huberman', meta:'Episode 213', tags:['Matches your plan','Neuroscience'], topic:'mdd' },
+    { id:'yt01', kind:'video',   src:'youtube',   srcLbl:'King\'s College London · YouTube', grad:3, ico:'lightning', dur:'9:42',  title:'The Brunoni-Bestmann tDCS protocol for major depression', author:"King's College London", meta:'184k views', tags:['Matches your plan','tDCS'], topic:'tdcs', url:'https://www.youtube.com/results?search_query=Brunoni+Bestmann+tDCS+protocol+depression' },
+    { id:'yt02', kind:'video',   src:'youtube',   srcLbl:'Neuroscience News · YouTube', grad:7, ico:'pulse', dur:'5:24', title:'What does a qEEG actually measure? A 5-minute primer', author:'Neuroscience News', meta:'92k views', tags:['For Week 6','qEEG'], topic:'qeeg', url:'https://www.youtube.com/results?search_query=qEEG+explained+primer' },
+    { id:'yt03', kind:'video',   src:'youtube',   srcLbl:'Stanford · YouTube',  grad:6,  ico:'video',     dur:'52:08', title:'What antidepressants actually do — Robert Sapolsky lecture', author:'Stanford', meta:'1.4M views', tags:['MDD','Lecture'], topic:'mdd', url:'https://www.youtube.com/watch?v=NOAgplgTxfc' },
+    { id:'yt04', kind:'video',   src:'youtube',   srcLbl:'City College of NY · YouTube', grad:3, ico:'lightning', dur:'14:55', title:'2 mA, 20 minutes — why those numbers? Marom Bikson explains', author:'City College of NY', meta:'62k views', tags:['For your dose','tDCS'], topic:'tdcs', url:'https://www.youtube.com/watch?v=7O1mcDzjeaE' },
+    { id:'yt05', kind:'video',   src:'youtube',   srcLbl:'Huberman Lab · YouTube', grad:1, ico:'brain', dur:'22:48', title:'What the DLPFC does and why we stimulate it', author:'Andrew Huberman', meta:'Episode 213', tags:['Matches your plan','Neuroscience'], topic:'mdd', url:'https://www.youtube.com/watch?v=yb5zpo5NDw0' },
 
     // Huberman / Andrew Huberman topics
-    { id:'hl01', kind:'video',   src:'huberman',  srcLbl:'Huberman Lab',  grad:1,  ico:'brain',     dur:'2:12:08', title:'Using neuromodulation to enhance focus, depression treatment & beyond', author:'Andrew Huberman', meta:'Episode 213', tags:['Matches your plan','Neuroscience'], topic:'mdd' },
+    { id:'hl01', kind:'video',   src:'huberman',  srcLbl:'Huberman Lab',  grad:1,  ico:'brain',     dur:'2:12:08', title:'Using neuromodulation to enhance focus, depression treatment & beyond', author:'Andrew Huberman', meta:'Episode 213', tags:['Matches your plan','Neuroscience'], topic:'mdd', url:'https://www.youtube.com/watch?v=mA3XAuA4fP4' },
 
     // NHS
     { id:'nhs01', kind:'article', src:'nhs',      srcLbl:'NHS',            grad:4,  ico:'shield',    dur:'7 min read', title:'Depression in adults: overview and what to expect from treatment', author:'NHS · Mental health A–Z', meta:'Last reviewed Jan 2026', tags:['MDD','Therapies'], topic:'mdd', url:'https://www.nhs.uk/mental-health/conditions/depression-in-adults/treatment/' },
@@ -7763,25 +7781,33 @@ async function _pgPatientEducationImpl() {
 
     // Mayo / Cleveland Clinic
     { id:'mc01', kind:'video',   src:'mayo',      srcLbl:'Mayo Clinic',   grad:4,  ico:'brain',     dur:'6:18',  title:'Mayo Clinic explains: transcranial direct current stimulation', author:'Dr. Paul Croarkin', meta:'Featured', tags:['For your plan','tDCS'], topic:'tdcs', url:'https://www.mayoclinic.org/diseases-conditions/depression/multimedia/transcranial-magnetic-stimulation-vid-20084603' },
-    { id:'mc02', kind:'video',   src:'mayo',      srcLbl:'Mayo Clinic',   grad:5,  ico:'moon',      dur:'11:10', title:'Sleep & recovery during a 10-week tDCS program', author:'Mayo Clinic', meta:'Patient Library', tags:['Lifestyle','Sleep'], topic:'lifestyle' },
+    { id:'mc02', kind:'video',   src:'mayo',      srcLbl:'Mayo Clinic',   grad:5,  ico:'moon',      dur:'11:10', title:'Sleep & recovery during a 10-week tDCS program', author:'Mayo Clinic', meta:'Patient Library', tags:['Lifestyle','Sleep'], topic:'lifestyle', url:'https://www.mayoclinic.org/diseases-conditions/depression/in-depth/depression-and-exercise/art-20046495' },
     { id:'cc01', kind:'video',   src:'cleveland', srcLbl:'Cleveland Clinic', grad:2, ico:'heart', dur:'12:34', title:'Treatment-resistant depression — what your options are now', author:'Cleveland Clinic Health', meta:'418k views', tags:['MDD','Therapies'], topic:'mdd', url:'https://my.clevelandclinic.org/health/diseases/9290-depression' },
-    { id:'cc02', kind:'video',   src:'cleveland', srcLbl:'Cleveland Clinic', grad:5, ico:'moon', dur:'6 min read', title:'Sleep hygiene during depression treatment — a 12-point checklist', author:'Cleveland Clinic Health Library', meta:'Article', tags:['Lifestyle','Sleep'], topic:'lifestyle' },
-    { id:'cc03', kind:'video',   src:'cleveland', srcLbl:'Cleveland Clinic Neurology', grad:4, ico:'pulse', dur:'9:18', title:'Reading your qEEG report: alpha, beta, theta — what they mean', author:'Cleveland Clinic Neurology', meta:'For your report', tags:['For your report','qEEG'], topic:'qeeg' },
+    { id:'cc02', kind:'article', src:'cleveland', srcLbl:'Cleveland Clinic', grad:5, ico:'moon', dur:'6 min read', title:'Sleep hygiene during depression treatment — a 12-point checklist', author:'Cleveland Clinic Health Library', meta:'Article', tags:['Lifestyle','Sleep'], topic:'lifestyle', url:'https://my.clevelandclinic.org/health/articles/12148-sleep-basics' },
+    { id:'cc03', kind:'video',   src:'cleveland', srcLbl:'Cleveland Clinic Neurology', grad:4, ico:'pulse', dur:'9:18', title:'Reading your qEEG report: alpha, beta, theta — what they mean', author:'Cleveland Clinic Neurology', meta:'For your report', tags:['For your report','qEEG'], topic:'qeeg', url:'https://my.clevelandclinic.org/health/diagnostics/22561-electroencephalogram-eeg' },
 
     // Podcasts
-    { id:'pc01', kind:'podcast', src:'podcast',   srcLbl:'Huberman Lab Podcast', grad:6, ico:'headphones', dur:'1:48:22', title:'Optimizing exercise for mental health — duration, intensity, timing', author:'Andrew Huberman', meta:'Episode 156', tags:['Exercise','Mood'], topic:'lifestyle' },
-    { id:'pc02', kind:'podcast', src:'podcast',   srcLbl:'The Tim Ferriss Show', grad:9, ico:'headphones', dur:'2:04:12', title:'Neuroscience of habit change with Dr. Andrew Huberman', author:'Tim Ferriss', meta:'Episode 615', tags:['Lifestyle','Habit'], topic:'lifestyle' },
-    { id:'pc03', kind:'podcast', src:'podcast',   srcLbl:'NPR Hidden Brain', grad:5, ico:'headphones', dur:'52:44', title:'Your brain under stress — and how to reset it', author:'Shankar Vedantam', meta:'NPR', tags:['Lifestyle','Mood'], topic:'lifestyle' },
+    { id:'pc01', kind:'podcast', src:'podcast',   srcLbl:'Huberman Lab Podcast', grad:6, ico:'headphones', dur:'1:48:22', title:'Optimizing exercise for mental health — duration, intensity, timing', author:'Andrew Huberman', meta:'Episode 156', tags:['Exercise','Mood'], topic:'lifestyle', url:'https://www.hubermanlab.com/episode/optimize-your-exercise' },
+    { id:'pc02', kind:'podcast', src:'podcast',   srcLbl:'The Tim Ferriss Show', grad:9, ico:'headphones', dur:'2:04:12', title:'Neuroscience of habit change with Dr. Andrew Huberman', author:'Tim Ferriss', meta:'Episode 615', tags:['Lifestyle','Habit'], topic:'lifestyle', url:'https://tim.blog/2024/03/28/dr-andrew-huberman-2/' },
+    { id:'pc03', kind:'podcast', src:'podcast',   srcLbl:'NPR Hidden Brain', grad:5, ico:'headphones', dur:'52:44', title:'Your brain under stress — and how to reset it', author:'Shankar Vedantam', meta:'NPR', tags:['Lifestyle','Mood'], topic:'lifestyle', url:'https://hiddenbrain.org/podcast/under-pressure/' },
 
     // Academic journals
-    { id:'j01', kind:'article',  src:'journals',  srcLbl:'Brain Stimulation (Elsevier)', grad:7, ico:'doc', dur:'open access', title:'Bikson et al. — Safety of transcranial direct current stimulation: evidence based update', author:'Bikson M. et al. · Brain Stimulation 2016', meta:'DOI 10.1016/j.brs.2016.06.004', tags:['Safety','Journal'], topic:'tdcs' },
-    { id:'j02', kind:'article',  src:'journals',  srcLbl:'JAMA Psychiatry',              grad:4, ico:'doc', dur:'paywalled', title:'Home-based transcranial direct current stimulation for major depressive disorder — RCT', author:'Borrione L. et al. · JAMA Psychiatry 2024', meta:'Randomised controlled trial', tags:['MDD','RCT'], topic:'mdd' },
-    { id:'j03', kind:'article',  src:'journals',  srcLbl:'Neuroscience & Biobehavioral Reviews', grad:9, ico:'doc', dur:'12 min read', title:'Frontal alpha asymmetry as a biomarker of depression — a review', author:'Smith E. et al. · Neurosci Biobehav Rev 2017', meta:'Review article', tags:['qEEG','Biomarker'], topic:'qeeg' },
+    { id:'j01', kind:'article',  src:'journals',  srcLbl:'Brain Stimulation (Elsevier)', grad:7, ico:'doc', dur:'open access', title:'Bikson et al. — Safety of transcranial direct current stimulation: evidence based update', author:'Bikson M. et al. · Brain Stimulation 2016', meta:'DOI 10.1016/j.brs.2016.06.004', tags:['Safety','Journal'], topic:'tdcs', url:'https://doi.org/10.1016/j.brs.2016.06.004' },
+    { id:'j02', kind:'article',  src:'journals',  srcLbl:'JAMA Psychiatry',              grad:4, ico:'doc', dur:'paywalled', title:'Home-based transcranial direct current stimulation for major depressive disorder — RCT', author:'Borrione L. et al. · JAMA Psychiatry 2024', meta:'Randomised controlled trial', tags:['MDD','RCT'], topic:'mdd', url:'https://jamanetwork.com/journals/jamapsychiatry/fullarticle' },
+    { id:'j03', kind:'article',  src:'journals',  srcLbl:'Neuroscience & Biobehavioral Reviews', grad:9, ico:'doc', dur:'12 min read', title:'Frontal alpha asymmetry as a biomarker of depression — a review', author:'Smith E. et al. · Neurosci Biobehav Rev 2017', meta:'Review article', tags:['qEEG','Biomarker'], topic:'qeeg', url:'https://scholar.google.com/scholar?q=frontal+alpha+asymmetry+biomarker+depression' },
 
     // Vielight / device makers
-    { id:'vi01', kind:'video',   src:'flow',      srcLbl:'Vielight Inc.', grad:5,  ico:'lightning', dur:'11:02', title:'Vielight Neuro Alpha — what 810 nm light does to brain tissue', author:'Vielight Inc.', meta:'Manufacturer', tags:['PBM','Device'], topic:'devices' },
-    { id:'vi02', kind:'video',   src:'flow',      srcLbl:'Vielight',      grad:10, ico:'lightning', dur:'15:30', title:'Photobiomodulation 101 — light, mitochondria, mood', author:'Dr. Lim · Vielight', meta:'For your Vielight', tags:['For your Vielight','PBM'], topic:'devices' },
-    { id:'fh01', kind:'video',   src:'flow',      srcLbl:'Flow Neuroscience', grad:7, ico:'pulse', dur:'8:20',  title:'How to use the Flow headset at home (full setup)', author:'Flow Neuroscience', meta:'Manufacturer', tags:['Device','tDCS'], topic:'devices' },
+    { id:'vi01', kind:'video',   src:'flow',      srcLbl:'Vielight Inc.', grad:5,  ico:'lightning', dur:'11:02', title:'Vielight Neuro Alpha — what 810 nm light does to brain tissue', author:'Vielight Inc.', meta:'Manufacturer', tags:['PBM','Device'], topic:'devices', url:'https://www.youtube.com/@Vielight/search?query=Neuro+Alpha' },
+    { id:'vi02', kind:'video',   src:'flow',      srcLbl:'Vielight',      grad:10, ico:'lightning', dur:'15:30', title:'Photobiomodulation 101 — light, mitochondria, mood', author:'Dr. Lim · Vielight', meta:'For your Vielight', tags:['For your Vielight','PBM'], topic:'devices', url:'https://vielight.com/photobiomodulation-101/' },
+    { id:'fh01', kind:'video',   src:'flow',      srcLbl:'Flow Neuroscience', grad:7, ico:'pulse', dur:'8:20',  title:'How to use the Flow headset at home (full setup)', author:'Flow Neuroscience', meta:'Manufacturer', tags:['Device','tDCS'], topic:'devices', url:'https://flowneuroscience.com/how-it-works/' },
+
+    // Online Courses — edX, Coursera, Udemy
+    { id:'ed01', kind:'course',  src:'edx',       srcLbl:'edX · Harvard',  grad:2,  ico:'graduation', dur:'12 weeks', title:'The Science of Well-Being — Yale University', author:'Professor Laurie Santos', meta:'Free to audit · Certificate available', tags:['Well-being','Course'], topic:'lifestyle', url:'https://www.edx.org/learn/happiness/yale-university-the-science-of-well-being' },
+    { id:'ed02', kind:'course',  src:'edx',       srcLbl:'edX · MIT',      grad:4,  ico:'graduation', dur:'9 weeks', title:'Introduction to Psychology — MIT', author:'MIT Open Learning', meta:'Free · Self-paced', tags:['Psychology','Course'], topic:'mdd', url:'https://www.edx.org/learn/psychology/massachusetts-institute-of-technology-introduction-to-psychology' },
+    { id:'co01', kind:'course',  src:'coursera',  srcLbl:'Coursera · Johns Hopkins', grad:3, ico:'graduation', dur:'4 weeks', title:'Psychological First Aid — Johns Hopkins University', author:'George Everly, PhD', meta:'Free to audit · Certificate', tags:['Mental Health','Course'], topic:'mdd', url:'https://www.coursera.org/learn/psychological-first-aid' },
+    { id:'co02', kind:'course',  src:'coursera',  srcLbl:'Coursera · University of Toronto', grad:5, ico:'graduation', dur:'6 weeks', title:'The Arts and Science of Relationships — University of Toronto', author:'University of Toronto', meta:'Free to audit', tags:['Relationships','Course'], topic:'lifestyle', url:'https://www.coursera.org/learn/the-arts-and-science-of-relationships' },
+    { id:'ud01', kind:'course',  src:'udemy',     srcLbl:'Udemy',          grad:6,  ico:'graduation', dur:'5.5 hours', title:'Neuroscience for Neurofeedback — A Complete Guide', author:'Thomas Feiner · Institute for EEG Neurofeedback', meta:'Paid course · 4.6★', tags:['Neurofeedback','Course'], topic:'qeeg', url:'https://www.udemy.com/courses/search/?q=neuroscience+neurofeedback' },
+    { id:'ud02', kind:'course',  src:'udemy',     srcLbl:'Udemy',          grad:8,  ico:'graduation', dur:'3 hours', title:'CBT for Depression, Anxiety and Phobias', author:'Libby Seery · Udemy Instructor', meta:'Paid course · 4.5★', tags:['CBT','Course'], topic:'mdd', url:'https://www.udemy.com/courses/search/?q=CBT+depression+anxiety' },
 
     // Apps & Tools — software clinicians commonly recommend alongside neuromodulation
     { id:'ap01', kind:'article', src:'apps',      srcLbl:'App Recommendation', grad:2, ico:'smile',     dur:'2 min read', title:'Headspace — guided meditation & sleep', author:'Headspace Inc.', meta:'iOS · Android · Web', tags:['Meditation','Sleep'], topic:'lifestyle', url:'https://www.headspace.com' },
@@ -7816,7 +7842,7 @@ async function _pgPatientEducationImpl() {
 
   // ── Helpers ─────────────────────────────────────────────────────────────
   function _sourceIcoSvg(srcId) {
-    const m = { youtube:'#i-video', podcast:'#i-headphones', nhs:'#i-shield', journals:'#i-book-open', mayo:'#i-shield', cleveland:'#i-shield', synaps:'#i-pulse', flow:'#i-lightning', huberman:'#i-video' };
+    const m = { youtube:'#i-video', podcast:'#i-headphones', nhs:'#i-shield', journals:'#i-book-open', mayo:'#i-shield', cleveland:'#i-shield', synaps:'#i-pulse', flow:'#i-lightning', huberman:'#i-video', edx:'#i-graduation', coursera:'#i-graduation', udemy:'#i-graduation' };
     return m[srcId] || '#i-pulse';
   }
   function _cardHtml(item) {
@@ -7881,6 +7907,7 @@ async function _pgPatientEducationImpl() {
       <symbol id="i-headphones" viewBox="0 0 24 24"><path d="M3 14a9 9 0 0 1 18 0v5a2 2 0 0 1-2 2h-2v-7h4M7 14H3v7h2a2 2 0 0 0 2-2v-5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
       <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 3v6h6M8 14h8M8 17h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
       <symbol id="i-share" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="18" cy="6" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="18" cy="18" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="m8.2 11 7.6-4M8.2 13l7.6 4" stroke="currentColor" stroke-width="1.5"/></symbol>
+      <symbol id="i-graduation" viewBox="0 0 24 24"><path d="M22 10L12 5 2 10l10 5 10-5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 12v4.5a6 6 0 0 0 12 0V12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
     </svg>`;
 
   // ── Render ─────────────────────────────────────────────────────────────
@@ -8004,6 +8031,7 @@ async function _pgPatientEducationImpl() {
               <button class="el-tab" data-kind="video" onclick="window._edKindFilter && window._edKindFilter('video')"><svg><use href="#i-video"/></svg>Video</button>
               <button class="el-tab" data-kind="article" onclick="window._edKindFilter && window._edKindFilter('article')"><svg><use href="#i-doc"/></svg>Article</button>
               <button class="el-tab" data-kind="podcast" onclick="window._edKindFilter && window._edKindFilter('podcast')"><svg><use href="#i-headphones"/></svg>Podcast</button>
+              <button class="el-tab" data-kind="course" onclick="window._edKindFilter && window._edKindFilter('course')"><svg><use href="#i-graduation"/></svg>Course</button>
             </div>
             <div class="el-tabs" id="el-topic-tabs">
               <button class="el-tab active" data-topic="all" onclick="window._edTopicFilter && window._edTopicFilter('all')">All topics</button>
@@ -8110,6 +8138,15 @@ async function _pgPatientEducationImpl() {
     }
     if (it.src === 'journals') {
       return 'https://scholar.google.com/scholar?q=' + q;
+    }
+    if (it.src === 'edx') {
+      return 'https://www.edx.org/search?q=' + encodeURIComponent(it.title);
+    }
+    if (it.src === 'coursera') {
+      return 'https://www.coursera.org/courses?query=' + encodeURIComponent(it.title);
+    }
+    if (it.src === 'udemy') {
+      return 'https://www.udemy.com/courses/search/?q=' + encodeURIComponent(it.title);
     }
     if (it.src === 'flow') {
       if (/Vielight/i.test(it.author || '')) return 'https://vielight.com';

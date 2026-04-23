@@ -29,6 +29,7 @@ from app.persistence.models import (
     Patient,
     PatientAdherenceEvent,
     PatientMedication,
+    MarketplaceItem,
     TreatmentCourse,
     User,
 )
@@ -674,6 +675,59 @@ def _seed_cohort_patient(session, clinician_id: str, entry: dict, now: datetime)
     return pid
 
 
+# ── Marketplace catalog ─────────────────────────────────────────────────────────
+
+_MARKETPLACE_ITEMS = [
+    {"id":"svc-second-opinion","kind":"service","name":"Second opinion consult","provider":"Board-certified neuropsychiatrist","description":"45-min video review of your qEEG, assessment history, and protocol with an outside specialist.","price":180.0,"price_unit":"GBP","clinical":True,"featured":True,"tags_json":json.dumps(["Consult","45 min","Video"]),"external_url":None,"icon":"🧠","tone":"teal"},
+    {"id":"svc-coach-cbt","kind":"service","name":"Weekly CBT coaching","provider":"Accredited CBT therapist","description":"Six structured sessions pairing cognitive-behavioural tools with your neuromodulation course.","price":65.0,"price_unit":"GBP / session","clinical":False,"featured":False,"tags_json":json.dumps(["6 weeks","Video","Between-session support"]),"external_url":None,"icon":"💬","tone":"blue"},
+    {"id":"svc-nutrition","kind":"service","name":"Neuro-nutrition plan","provider":"Registered dietitian","description":"Personalised eating plan optimised for cognitive recovery and sleep. Includes shopping list + recipes.","price":120.0,"price_unit":"GBP / month","clinical":False,"featured":False,"tags_json":json.dumps(["Monthly","Personalised","Chat support"]),"external_url":None,"icon":"🥗","tone":"green"},
+    {"id":"svc-sleep-coach","kind":"service","name":"Sleep coaching programme","provider":"Behavioural sleep medicine specialist","description":"8-week CBT-I programme for insomnia, delivered asynchronously with weekly check-ins.","price":240.0,"price_unit":"GBP programme","clinical":False,"featured":False,"tags_json":json.dumps(["8 weeks","Async","CBT-I"]),"external_url":None,"icon":"🌙","tone":"violet"},
+    {"id":"svc-peer-group","kind":"service","name":"Peer support group","provider":"Facilitated by a licensed counsellor","description":"Weekly 60-minute small-group calls with other patients on neuromodulation protocols.","price":45.0,"price_unit":"GBP / month","clinical":False,"featured":False,"tags_json":json.dumps(["Weekly","Small group"]),"external_url":None,"icon":"🤝","tone":"rose"},
+    {"id":"svc-referral-psych","kind":"service","name":"Psychiatry medication review","provider":"Consultant psychiatrist","description":"Review of current medications, interactions with your protocol, and adjustment options.","price":220.0,"price_unit":"GBP one-time","clinical":True,"featured":False,"tags_json":json.dumps(["Clinical","Video","Report included"]),"external_url":None,"icon":"👩‍⚕️","tone":"amber"},
+    {"id":"dev-oura-ring","kind":"device","name":"Oura Ring Gen 3","provider":"Oura Health","description":"Sleep, HRV, body-temperature and readiness tracking — auto-syncs into your Biometrics reports.","price":299.0,"price_unit":"GBP one-time","clinical":False,"featured":True,"tags_json":json.dumps(["Wearable","Ships in 3–5 days","HRV + sleep"]),"external_url":"https://ouraring.com","icon":"💍","tone":"blue"},
+    {"id":"dev-apple-watch","kind":"device","name":"Apple Watch SE","provider":"Apple","description":"Cardio, activity, ECG and sleep tracking with deep Apple Health integration.","price":259.0,"price_unit":"GBP one-time","clinical":False,"featured":False,"tags_json":json.dumps(["Wearable","ECG","Apple Health"]),"external_url":"https://www.apple.com/apple-watch-se/","icon":"⌚","tone":"teal"},
+    {"id":"dev-focus-tdcs","kind":"device","name":"At-home tDCS headset","provider":"DeepSynaps partner hardware","description":"Prescription-only home tDCS unit. Clinician must approve and configure electrode montage.","price":None,"price_unit":"By prescription","clinical":True,"featured":False,"tags_json":json.dumps(["Prescription","Clinician-configured","Home use"]),"external_url":None,"icon":"🧩","tone":"violet"},
+    {"id":"dev-lightbox","kind":"device","name":"10 000-lux light therapy lamp","provider":"Northern Light","description":"Circadian light therapy lamp recommended for seasonal mood and sleep-phase support.","price":149.0,"price_unit":"GBP one-time","clinical":False,"featured":False,"tags_json":json.dumps(["10 000 lux","UV-free","30-day trial"]),"external_url":"https://www.northernlighttechnologies.com","icon":"☀️","tone":"amber"},
+    {"id":"dev-hrv-strap","kind":"device","name":"Polar H10 HRV strap","provider":"Polar","description":"Medical-grade ECG chest strap for precise HRV during breathing and meditation practice.","price":89.0,"price_unit":"GBP one-time","clinical":False,"featured":False,"tags_json":json.dumps(["Chest strap","HRV-biofeedback ready"]),"external_url":"https://www.polar.com/en/products/accessories/h10-heart-rate-sensor","icon":"🫀","tone":"rose"},
+    {"id":"dev-muse","kind":"device","name":"Muse S headband","provider":"Interaxon","description":"Consumer EEG headband for guided meditation + sleep tracking. Not for diagnostic qEEG.","price":299.0,"price_unit":"GBP one-time","clinical":False,"featured":False,"tags_json":json.dumps(["Consumer EEG","Meditation"]),"external_url":"https://choosemuse.com/muse-s/","icon":"🧘","tone":"teal"},
+    {"id":"sw-headspace","kind":"software","name":"Headspace","provider":"Headspace Inc.","description":"Evidence-informed meditation app. DeepSynaps patients get 50% off the annual plan.","price":34.99,"price_unit":"GBP / year","clinical":False,"featured":True,"tags_json":json.dumps(["50% off","Annual","iOS · Android"]),"external_url":"https://www.headspace.com","icon":"🟠","tone":"amber"},
+    {"id":"sw-wysa","kind":"software","name":"Wysa AI Coach","provider":"Wysa","description":"Evidence-based chatbot coach for mood, anxiety, and between-session support.","price":9.99,"price_unit":"GBP / month","clinical":False,"featured":False,"tags_json":json.dumps(["CBT-grounded","Chatbot","24/7"]),"external_url":"https://www.wysa.io","icon":"💙","tone":"blue"},
+    {"id":"sw-sleepio","kind":"software","name":"Sleepio CBT-I","provider":"Big Health (NICE-approved)","description":"Digital CBT for insomnia — the NICE-approved 6-week programme. Delivered via app.","price":200.0,"price_unit":"GBP programme","clinical":True,"featured":False,"tags_json":json.dumps(["NICE-approved","CBT-I","6 weeks"]),"external_url":"https://www.bighealth.com/sleepio","icon":"😴","tone":"violet"},
+    {"id":"sw-endeavor","kind":"software","name":"EndeavorOTC","provider":"Akili Interactive","description":"FDA-cleared gamified attention training (15 min / day). Adjunct to ADHD treatment.","price":24.99,"price_unit":"USD / month","clinical":True,"featured":False,"tags_json":json.dumps(["FDA-cleared","ADHD","15 min/day"]),"external_url":"https://www.akiliinteractive.com/endeavorotc","icon":"🎯","tone":"teal"},
+    {"id":"sw-somryst","kind":"software","name":"Daylight","provider":"Big Health","description":"Digital therapeutic for generalised anxiety. Short daily practice built from CBT.","price":150.0,"price_unit":"GBP programme","clinical":True,"featured":False,"tags_json":json.dumps(["Digital therapeutic","Anxiety"]),"external_url":"https://www.bighealth.com/daylight","icon":"🌜","tone":"rose"},
+    {"id":"sw-woebot","kind":"software","name":"Woebot","provider":"Woebot Health","description":"Relational AI mood companion that checks in daily and routes urgent messages to your clinician.","price":None,"price_unit":"Free","clinical":False,"featured":False,"tags_json":json.dumps(["Free","Daily check-ins"]),"external_url":"https://woebothealth.com","icon":"🤖","tone":"green"},
+]
+
+
+def _seed_marketplace(session) -> int:
+    """Seed marketplace catalog if empty."""
+    existing = session.query(MarketplaceItem).first()
+    if existing is not None:
+        return 0
+    now = datetime.now(timezone.utc)
+    count = 0
+    for d in _MARKETPLACE_ITEMS:
+        item = MarketplaceItem(
+            id=d["id"],
+            kind=d["kind"],
+            name=d["name"],
+            provider=d["provider"],
+            description=d["description"],
+            price=d["price"],
+            price_unit=d["price_unit"],
+            external_url=d.get("external_url"),
+            tags_json=d.get("tags_json"),
+            clinical=d["clinical"],
+            featured=d["featured"],
+            active=True,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(item)
+        count += 1
+    return count
+
+
 def seed(session) -> None:
     # ── 1. Clinician user ─────────────────────────────────────────────────────
     clinician = session.query(User).filter(User.email == _CLINICIAN_EMAIL).first()
@@ -719,6 +773,11 @@ def seed(session) -> None:
     for entry in _DEMO_COHORT:
         pid = _seed_cohort_patient(session, clinician_id, entry, now)
         print(f"  + {entry['first_name']} {entry['last_name']:<12} {entry['condition']:<38} [{pid[:8]}]")
+
+    # ── 5. Marketplace catalog ────────────────────────────────────────────────
+    mp_count = _seed_marketplace(session)
+    if mp_count:
+        print(f"  + {mp_count} marketplace items seeded")
 
     session.commit()
     total = 1 + len(_DEMO_COHORT)
