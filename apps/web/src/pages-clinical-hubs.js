@@ -4868,9 +4868,9 @@ export async function pgLibraryHub(setTopbar, navigate) {
                   '<article class="lib-card lib-card--device" aria-label="' + esc(d.name || d.id) + '">' +
                     '<div class="lib-card-top">' +
                       '<span class="lib-card-name">' + esc(d.name || d.id) + '</span>' +
-                      (regStatus ? '<span class="lib-badge lib-badge--blue" title="' + esc(regTitle) + '">' + esc(regStatus) + '</span>' : '') +
+                      (regStatus ? '<div class="lib-card-badges"><span class="lib-badge lib-badge--blue" title="' + esc(regTitle) + '">' + esc(regStatus) + '</span></div>' : '') +
                     '</div>' +
-                    (d.manufacturer ? '<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px">' + esc(d.manufacturer) + '</div>' : '') +
+                    (d.manufacturer ? '<div class="lib-card-manufacturer">' + esc(d.manufacturer) + '</div>' : '') +
                     '<div class="lib-card-meta">' +
                       (d.modality ? '<span class="lib-tag">' + esc(d.modality) + '</span>' : '') +
                       (d.device_type ? '<span class="lib-tag">' + esc(d.device_type) + '</span>' : '') +
