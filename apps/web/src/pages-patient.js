@@ -9723,11 +9723,14 @@ export async function pgPatientMarketplace(_user) {
     const sellerBadge = i.seller
       ? `<span class="mp-seller-badge" title="Listed by ${esc(i.seller.display_name)}">👤 ${esc(i.seller.display_name)}</span>`
       : '';
-    const amazonBadge = i.external_url && i.external_url.includes('amazon')
+    const isAmazon = i.external_url && i.external_url.includes('amazon');
+    const amazonBadge = isAmazon
       ? `<span class="mp-amazon-badge">🛒 Amazon</span>`
       : '';
     const cta = i.external_url
-      ? `<button class="mp-cta mp-cta--amazon" data-mp-buy="${esc(i.id)}">View on Amazon · ${esc(i.price)}</button>`
+      ? (isAmazon
+        ? `<button class="mp-cta mp-cta--amazon" data-mp-buy="${esc(i.id)}">View on Amazon · ${esc(i.price)}</button>`
+        : `<button class="mp-cta mp-cta--buy" data-mp-buy="${esc(i.id)}">View Product · ${esc(i.price)}</button>`)
       : `<button class="mp-cta mp-cta--buy" data-mp-buy="${esc(i.id)}">${esc(i.price)}</button>`;
     const price = `<div class="mp-price">${esc(i.price)}</div>`;
     return `
@@ -9777,11 +9780,12 @@ export async function pgPatientMarketplace(_user) {
         <div class="mp-hero-body">
           <div class="mp-hero-eyebrow">Marketplace</div>
           <h2 class="mp-hero-title">Real products for your brain health journey</h2>
-          <p class="mp-hero-desc">Every item links directly to Amazon — buy with confidence. Sellers can also list their own products.</p>
+          <p class="mp-hero-desc">Trusted products from Amazon, clinics, and independent sellers. Buy with confidence or list your own.</p>
         </div>
         <div class="mp-hero-stats">
           <div class="mp-stat"><div class="mp-stat-num">${CATALOG.length}</div><div class="mp-stat-lbl">Products</div></div>
           <div class="mp-stat"><div class="mp-stat-num">${CATALOG.filter(i => i.external_url && i.external_url.includes('amazon')).length}</div><div class="mp-stat-lbl">Amazon</div></div>
+          <div class="mp-stat"><div class="mp-stat-num">${CATALOG.filter(i => i.seller).length}</div><div class="mp-stat-lbl">Sellers</div></div>
         </div>
       </header>
 
@@ -9878,8 +9882,8 @@ function _wireMarketplace(CATALOG) {
               <input type="number" name="price" placeholder="Price (USD)" step="0.01" min="0" style="flex:1;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900);color:var(--text-primary);font-size:13px">
               <input type="text" name="tags" placeholder="Tags (comma separated)" style="flex:2;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900);color:var(--text-primary);font-size:13px">
             </div>
-            <input type="url" name="external_url" placeholder="Amazon product URL" required maxlength="512" style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900);color:var(--text-primary);font-size:13px">
-            <div style="font-size:11px;color:var(--text-tertiary)">🔗 Only Amazon product links are accepted. Make sure the URL starts with https://www.amazon.com/</div>
+            <input type="url" name="external_url" placeholder="Product URL (e.g. Amazon, your website)" required maxlength="512" style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900);color:var(--text-primary);font-size:13px">
+            <div style="font-size:11px;color:var(--text-tertiary)">Paste the URL where customers can buy or learn more about your product.</div>
             <button type="submit" class="mp-cta mp-cta--buy" style="margin-top:4px">List Product</button>
           </form>
         </div>
@@ -9902,10 +9906,6 @@ function _wireMarketplace(CATALOG) {
         external_url: fd.get('external_url').trim(),
         kind: 'product',
       };
-      if (!data.external_url.includes('amazon')) {
-        mpToast('Please provide a valid Amazon URL');
-        return;
-      }
       try {
         await api.marketplaceSellerCreateItem(data);
         mpToast('Product listed successfully!');
@@ -10003,10 +10003,11 @@ function _wireMarketplace(CATALOG) {
     if (existing) existing.remove();
 
     const tags = (item.tags || []).map(t => `<span class="mp-tag">${esc(t)}</span>`).join('');
-    const amazonSection = item.external_url && item.external_url.includes('amazon')
+    const isAmazonDetail = item.external_url && item.external_url.includes('amazon');
+    const amazonSection = item.external_url
       ? `<div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08)">
-          <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:8px">Buy on Amazon</div>
-          <a href="${esc(item.external_url)}" target="_blank" rel="noopener noreferrer" class="mp-cta mp-cta--amazon" style="display:inline-block;text-decoration:none">🛒 View on Amazon · ${esc(item.price)}</a>
+          <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:8px">${isAmazonDetail ? 'Buy on Amazon' : 'View Product'}</div>
+          <a href="${esc(item.external_url)}" target="_blank" rel="noopener noreferrer" class="mp-cta ${isAmazonDetail ? 'mp-cta--amazon' : 'mp-cta--buy'}" style="display:inline-block;text-decoration:none">${isAmazonDetail ? '🛒 View on Amazon' : 'View Product'} · ${esc(item.price)}</a>
          </div>`
       : '';
     const sellerSection = item.seller
@@ -10059,7 +10060,7 @@ function _wireMarketplace(CATALOG) {
     });
   });
 
-  // ── Buy / Amazon link ──
+  // ── Buy / external link ──
   root.querySelectorAll('[data-mp-buy]').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.mpBuy;
@@ -10067,7 +10068,8 @@ function _wireMarketplace(CATALOG) {
       if (!item) return;
       if (item.external_url) {
         window.open(item.external_url, '_blank', 'noopener,noreferrer');
-        mpToast(`Opening Amazon…`);
+        const isAmz = item.external_url.includes('amazon');
+        mpToast(isAmz ? `Opening Amazon…` : `Opening ${item.name}…`);
       } else {
         mpToast(`${item.name} · link coming soon`);
       }

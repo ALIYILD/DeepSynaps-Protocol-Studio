@@ -8730,7 +8730,7 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
     const heroSection = '<div class="mp-hero"><div class="mp-hero-text"><h1 class="mp-hero-title">Clinic Marketplace</h1><p class="mp-hero-sub">Discover consultations, products, software, courses and events from leading neuromodulation clinics.</p><div class="mp-search-wrap"><svg class="mp-search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg><input class="mp-search" id="mp-search-input" placeholder="Search listings, clinics, topics..." value="' + esc(q) + '" oninput="window._mpSearch(this.value)"/></div></div><div class="mp-hero-stats"><div class="mp-stat"><span class="mp-stat-num">' + DEMO_LISTINGS.length + '</span><span class="mp-stat-label">Listings</span></div><div class="mp-stat"><span class="mp-stat-num">12</span><span class="mp-stat-label">Clinics</span></div><div class="mp-stat"><span class="mp-stat-num">4.7&#9733;</span><span class="mp-stat-label">Avg Rating</span></div></div></div>';
     const featuredSection = cat === 'all' && !q ? '<div class="mp-section"><div class="mp-section-header"><h2 class="mp-section-title">Featured</h2><a class="mp-section-link" onclick="window._mpCat(\'all\')">View all</a></div><div class="mp-grid mp-grid--featured">' + featuredList.map(renderCard).join('') + '</div></div>' : '';
     const listSection = '<div class="mp-section"><div class="mp-section-header"><h2 class="mp-section-title">' + (cat === 'all' && !q ? 'All Listings' : (CATEGORIES.find(c => c.id === cat) || {}).label || 'Results') + '</h2><span class="mp-count">' + list.length + ' listing' + (list.length !== 1 ? 's' : '') + '</span></div>' + renderGrid(list) + '</div>';
-    const ctaSection = '<div class="mp-section mp-section--cta"><div class="mp-cta-card"><div class="mp-cta-icon">&#127978;</div><div class="mp-cta-body"><h3>List your clinic\'s services</h3><p>Reach thousands of clinicians and patients. Add consultations, courses, workshops, products and software in minutes.</p></div><button class="btn btn-primary mp-cta-btn" onclick="window._mpListNew()">+ List a Service</button></div></div>';
+    const ctaSection = '<div class="mp-section mp-section--cta"><div class="mp-cta-card"><div class="mp-cta-icon">&#127978;</div><div class="mp-cta-body"><h3>Sell your products &amp; services</h3><p>List consultations, devices, software and products directly on the marketplace. Reach thousands of clinicians and patients in minutes.</p></div><div class="mp-cta-btns"><button class="btn btn-primary mp-cta-btn" onclick="window._mpListNew()">+ List a Product or Service</button><button class="btn mp-cta-btn mp-cta-btn--secondary" onclick="window._mpMyListings()">My Listings</button></div></div></div>';
     return '<div class="mp-shell">' + heroSection + '<div class="mp-cat-bar">' + catTabs + '</div><div class="mp-body">' + featuredSection + listSection + ctaSection + '</div></div>';
   }
 
@@ -8758,50 +8758,177 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
     const verb = l.unit === 'month' ? 'Subscribe to' : l.unit === 'course' ? 'Enroll in' : l.unit === 'free' ? 'Get' : 'Book';
     alert(verb + ': "' + l.title + '"\n\nProvider: ' + l.clinic + '\nPrice: ' + (l.unit === 'free' ? 'Free' : '\u00A3' + l.price + '/' + l.unit) + '\n\nPlease contact the provider directly to proceed.');
   };
-  window._mpListNew = () => {
+  window._mpListNew = (editItem) => {
     const existing = document.getElementById('mp-list-modal');
     if (existing) { existing.remove(); return; }
+    const isEdit = !!editItem;
     const modal = document.createElement('div');
     modal.id = 'mp-list-modal';
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px';
+    const kindOptions = ['product', 'service', 'device', 'software'].map(k => {
+      const labels = { product: 'Product', service: 'Service / Consultation', device: 'Device', software: 'Software' };
+      const sel = (isEdit && editItem.kind === k) ? ' selected' : (!isEdit && k === 'service' ? ' selected' : '');
+      return '<option value="' + k + '"' + sel + '>' + labels[k] + '</option>';
+    }).join('');
+    const currencyOptions = ['GBP', 'USD', 'EUR'].map(c => {
+      const sel = (isEdit && editItem.price_unit === c) ? ' selected' : (!isEdit && c === 'GBP' ? ' selected' : '');
+      return '<option value="' + c + '"' + sel + '>' + c + '</option>';
+    }).join('');
+    const inputStyle = 'padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900,#0b1120);color:var(--text-primary);font-size:13px';
     modal.innerHTML = `
-      <div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:520px;width:100%;box-shadow:0 16px 48px rgba(0,0,0,.5);overflow:hidden">
+      <div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:540px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 16px 48px rgba(0,0,0,.5)">
         <div style="padding:20px 24px 12px;display:flex;align-items:center;justify-content:space-between">
-          <h3 style="margin:0;font-size:17px;font-weight:600;color:var(--text-primary)">List Your Clinic's Service</h3>
+          <h3 style="margin:0;font-size:17px;font-weight:600;color:var(--text-primary)">${isEdit ? 'Edit Listing' : 'List Your Product or Service'}</h3>
           <button onclick="document.getElementById('mp-list-modal').remove()" style="background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:20px;line-height:1">x</button>
         </div>
         <form id="mp-list-form" style="padding:8px 24px 24px;display:flex;flex-direction:column;gap:12px">
-          <input type="text" name="title" placeholder="Service / Product Title" required maxlength="200" style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900,#0b1120);color:var(--text-primary);font-size:13px">
-          <input type="text" name="clinic" placeholder="Clinic Name" required maxlength="200" style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900,#0b1120);color:var(--text-primary);font-size:13px">
-          <select name="category" style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900,#0b1120);color:var(--text-primary);font-size:13px">
-            <option value="consultations">Consultation</option>
-            <option value="products">Product</option>
-            <option value="software">Software</option>
-            <option value="seminars">Seminar</option>
-            <option value="workshops">Workshop</option>
-            <option value="courses">Short Course</option>
-          </select>
-          <textarea name="desc" placeholder="Description" rows="3" maxlength="1000" style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900,#0b1120);color:var(--text-primary);font-size:13px;resize:vertical"></textarea>
+          <select name="kind" style="${inputStyle}">${kindOptions}</select>
+          <input type="text" name="name" placeholder="Title (e.g. TMS Assessment, EEG Headband)" required maxlength="255" value="${isEdit ? esc(editItem.name) : ''}" style="${inputStyle}">
+          <input type="text" name="provider" placeholder="Clinic / Brand Name" required maxlength="255" value="${isEdit ? esc(editItem.provider) : ''}" style="${inputStyle}">
+          <textarea name="description" placeholder="Description — what does the customer get?" rows="3" maxlength="5000" style="${inputStyle};resize:vertical">${isEdit ? esc(editItem.description || '') : ''}</textarea>
           <div style="display:flex;gap:8px">
-            <input type="number" name="price" placeholder="Price (GBP)" step="0.01" min="0" style="flex:1;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900,#0b1120);color:var(--text-primary);font-size:13px">
-            <input type="url" name="url" placeholder="Product / Booking URL (optional)" style="flex:2;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900,#0b1120);color:var(--text-primary);font-size:13px">
+            <input type="number" name="price" placeholder="Price" step="0.01" min="0" value="${isEdit && editItem.price != null ? editItem.price : ''}" style="flex:1;${inputStyle}">
+            <select name="price_unit" style="width:90px;${inputStyle}">${currencyOptions}</select>
           </div>
-          <input type="email" name="email" placeholder="Contact Email" required style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900,#0b1120);color:var(--text-primary);font-size:13px">
-          <button type="submit" style="padding:10px 16px;background:#5dd9c4;color:#0a1a22;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px">Submit Listing</button>
-          <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">Listings are reviewed within 24 hours. You will be contacted at the email provided.</div>
+          <input type="url" name="external_url" placeholder="URL (your website, booking page, Amazon, etc.)" required maxlength="512" value="${isEdit ? esc(editItem.external_url || '') : ''}" style="${inputStyle}">
+          <div style="font-size:11px;color:var(--text-tertiary)">Paste the link where customers can book, buy, or learn more.</div>
+          <input type="text" name="tags" placeholder="Tags (comma separated, e.g. TMS, Depression, EEG)" maxlength="300" value="${isEdit && editItem.tags ? esc(editItem.tags.join(', ')) : ''}" style="${inputStyle}">
+          <div style="display:flex;gap:8px">
+            <input type="text" name="icon" placeholder="Icon emoji (e.g. &#129504;)" maxlength="10" value="${isEdit ? esc(editItem.icon || '') : ''}" style="width:120px;${inputStyle}">
+            <select name="tone" style="flex:1;${inputStyle}">
+              <option value="teal"${isEdit && editItem.tone === 'teal' ? ' selected' : ''}>Teal</option>
+              <option value="blue"${isEdit && editItem.tone === 'blue' ? ' selected' : ''}>Blue</option>
+              <option value="violet"${isEdit && editItem.tone === 'violet' ? ' selected' : ''}>Violet</option>
+              <option value="rose"${isEdit && editItem.tone === 'rose' ? ' selected' : ''}>Rose</option>
+              <option value="amber"${isEdit && editItem.tone === 'amber' ? ' selected' : ''}>Amber</option>
+              <option value="green"${isEdit && editItem.tone === 'green' ? ' selected' : ''}>Green</option>
+            </select>
+          </div>
+          <button type="submit" style="padding:10px 16px;background:#5dd9c4;color:#0a1a22;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px">${isEdit ? 'Update Listing' : 'Publish Listing'}</button>
+          <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">Your listing will be live immediately and visible to clinicians and patients.</div>
         </form>
       </div>`;
     document.body.appendChild(modal);
     modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
     modal.querySelector('#mp-list-form').addEventListener('submit', async (e) => {
       e.preventDefault();
+      const btn = e.target.querySelector('button[type="submit"]');
+      btn.disabled = true; btn.textContent = isEdit ? 'Updating...' : 'Publishing...';
       const fd = new FormData(e.target);
-      const data = { title: fd.get('title'), clinic: fd.get('clinic'), category: fd.get('category'), description: fd.get('desc'), price: fd.get('price'), url: fd.get('url'), email: fd.get('email') };
+      const payload = {
+        name: fd.get('name').trim(),
+        provider: fd.get('provider').trim(),
+        description: fd.get('description').trim(),
+        price: fd.get('price') ? parseFloat(fd.get('price')) : null,
+        price_unit: fd.get('price_unit'),
+        external_url: fd.get('external_url').trim(),
+        tags: fd.get('tags').split(',').map(t => t.trim()).filter(Boolean),
+        kind: fd.get('kind'),
+        icon: fd.get('icon').trim() || null,
+        tone: fd.get('tone'),
+      };
       try {
-        await api.salesInquiry(data.clinic, data.email, 'Marketplace listing request: ' + data.title + ' (' + data.category + ') - ' + (data.description || ''), 'marketplace');
-      } catch {}
-      modal.innerHTML = '<div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:420px;width:100%;padding:40px 32px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)"><div style="font-size:2.5rem;margin-bottom:12px">&#10003;</div><h3 style="color:var(--text-primary);margin:0 0 8px">Listing Submitted</h3><p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;line-height:1.5">Thank you! Our team will review your listing and reach out to <strong>' + esc(data.email) + '</strong> within 24 hours.</p><button onclick="document.getElementById(\'mp-list-modal\').remove()" style="padding:8px 24px;background:#5dd9c4;color:#0a1a22;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Close</button></div>';
+        if (isEdit) {
+          await api.marketplaceSellerUpdateItem(editItem.id, payload);
+        } else {
+          await api.marketplaceSellerCreateItem(payload);
+        }
+        modal.innerHTML = '<div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:420px;width:100%;padding:40px 32px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)"><div style="font-size:2.5rem;margin-bottom:12px">&#10003;</div><h3 style="color:var(--text-primary);margin:0 0 8px">' + (isEdit ? 'Listing Updated' : 'Listing Published!') + '</h3><p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;line-height:1.5">Your ' + esc(payload.kind) + ' <strong>' + esc(payload.name) + '</strong> is now live on the marketplace.</p><div style="display:flex;gap:8px;justify-content:center"><button onclick="window._mpMyListings();document.getElementById(\'mp-list-modal\').remove()" style="padding:8px 20px;background:rgba(155,127,255,.15);color:#9b7fff;border:1px solid rgba(155,127,255,.25);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">View My Listings</button><button onclick="document.getElementById(\'mp-list-modal\').remove()" style="padding:8px 20px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer">Close</button></div></div>';
+      } catch (err) {
+        btn.disabled = false; btn.textContent = isEdit ? 'Update Listing' : 'Publish Listing';
+        alert('Failed to ' + (isEdit ? 'update' : 'publish') + ' listing: ' + (err.message || 'Please try again.'));
+      }
     });
+  };
+
+  // ── My Listings dashboard ──
+  window._mpMyListings = async () => {
+    const existing = document.getElementById('mp-list-modal');
+    if (existing) { existing.remove(); }
+    const modal = document.createElement('div');
+    modal.id = 'mp-list-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px';
+    modal.innerHTML = `
+      <div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:620px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 16px 48px rgba(0,0,0,.5)">
+        <div style="padding:20px 24px 12px;display:flex;align-items:center;justify-content:space-between">
+          <h3 style="margin:0;font-size:17px;font-weight:600;color:var(--text-primary)">My Listings</h3>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button onclick="window._mpListNew();document.getElementById('mp-list-modal').remove()" style="padding:6px 14px;background:#5dd9c4;color:#0a1a22;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">+ New Listing</button>
+            <button onclick="document.getElementById('mp-list-modal').remove()" style="background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:20px;line-height:1">x</button>
+          </div>
+        </div>
+        <div id="mp-mylistings-content" style="padding:0 0 12px"><div style="padding:40px;text-align:center;color:var(--text-tertiary)">Loading...</div></div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+
+    const kindBadge = (k) => {
+      const colors = { product: '#f59e0b', service: '#5dd9c4', device: '#6366f1', software: '#818cf8' };
+      return '<span style="display:inline-block;background:' + (colors[k] || '#888') + '22;color:' + (colors[k] || '#888') + ';padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;text-transform:uppercase">' + esc(k) + '</span>';
+    };
+
+    try {
+      const data = await api.marketplaceSellerMyItems();
+      const items = (data && data.items) || [];
+      const contentEl = document.getElementById('mp-mylistings-content');
+      if (!contentEl) return;
+      if (items.length === 0) {
+        contentEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary)"><div style="font-size:2rem;margin-bottom:8px">&#128230;</div><p style="margin:0 0 16px">You have no listings yet.</p><button onclick="window._mpListNew();document.getElementById(\'mp-list-modal\').remove()" style="padding:8px 20px;background:#5dd9c4;color:#0a1a22;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Create Your First Listing</button></div>';
+        return;
+      }
+      contentEl.innerHTML = items.map(it => {
+        const priceStr = it.price != null ? (it.price_unit === 'GBP' ? '\u00A3' : it.price_unit === 'EUR' ? '\u20AC' : '$') + it.price : 'Free';
+        return '<div style="padding:12px 24px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between;gap:12px">' +
+          '<div style="min-width:0;flex:1">' +
+            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">' +
+              '<span style="font-weight:500;color:var(--text-primary);font-size:13px">' + esc(it.name) + '</span>' +
+              kindBadge(it.kind) +
+            '</div>' +
+            '<div style="font-size:12px;color:var(--text-secondary)">' + esc(it.provider) + ' &middot; ' + priceStr + ' &middot; ' + (it.active ? '<span style="color:#34d399">Active</span>' : '<span style="color:#fb7185">Paused</span>') + '</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:6px;flex-shrink:0">' +
+            '<button class="mp-ml-edit" data-idx="' + esc(it.id) + '" style="padding:4px 10px;font-size:12px;background:rgba(155,127,255,.12);color:#9b7fff;border:1px solid rgba(155,127,255,.2);border-radius:6px;cursor:pointer">Edit</button>' +
+            '<button class="mp-ml-toggle" data-idx="' + esc(it.id) + '" data-active="' + (it.active ? '1' : '0') + '" style="padding:4px 10px;font-size:12px;background:rgba(255,255,255,.06);color:var(--text-secondary);border:1px solid var(--border);border-radius:6px;cursor:pointer">' + (it.active ? 'Pause' : 'Resume') + '</button>' +
+            '<button class="mp-ml-delete" data-idx="' + esc(it.id) + '" style="padding:4px 10px;font-size:12px;background:rgba(251,113,133,.1);color:#fb7185;border:1px solid rgba(251,113,133,.2);border-radius:6px;cursor:pointer">Delete</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+
+      // Edit buttons
+      contentEl.querySelectorAll('.mp-ml-edit').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const it = items.find(x => x.id === btn.dataset.idx);
+          if (!it) return;
+          modal.remove();
+          window._mpListNew(it);
+        });
+      });
+      // Pause/Resume buttons
+      contentEl.querySelectorAll('.mp-ml-toggle').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const newActive = btn.dataset.active === '1' ? false : true;
+          try {
+            await api.marketplaceSellerUpdateItem(btn.dataset.idx, { active: newActive });
+            modal.remove();
+            window._mpMyListings();
+          } catch (err) { alert('Update failed: ' + (err.message || 'try again')); }
+        });
+      });
+      // Delete buttons
+      contentEl.querySelectorAll('.mp-ml-delete').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Delete this listing? This cannot be undone.')) return;
+          try {
+            await api.marketplaceSellerDeleteItem(btn.dataset.idx);
+            modal.remove();
+            window._mpMyListings();
+          } catch (err) { alert('Delete failed: ' + (err.message || 'try again')); }
+        });
+      });
+    } catch (err) {
+      const contentEl = document.getElementById('mp-mylistings-content');
+      if (contentEl) contentEl.innerHTML = '<div style="padding:40px;text-align:center;color:#fb7185">Failed to load listings. Please make sure you are logged in.</div>';
+    }
   };
 
   el.innerHTML = buildPage(_activeCat, _searchQ);
