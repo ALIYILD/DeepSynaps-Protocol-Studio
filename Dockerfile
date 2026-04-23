@@ -44,6 +44,9 @@ RUN pip install --no-cache-dir \
 
 RUN mkdir -p ./data/snapshots/clinical-database ./data/backups
 
+# Force fresh copy of frontend build — prevents Docker cache from serving
+# stale dist files when frontend-builder stage produces new bundle hashes.
+RUN rm -rf ./apps/web/dist 2>/dev/null || true
 COPY --from=frontend-builder /app/apps/web/dist ./apps/web/dist
 
 EXPOSE 8080
