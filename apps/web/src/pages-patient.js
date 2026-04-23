@@ -4195,10 +4195,36 @@ async function _pgPatientHomeworkImpl() {
   window._hwOpen = function(taskId) {
     const task = _taskById.get(String(taskId));
     if (!task) return;
-    _hwToast('Opening task\u2026');
-    // For now, scroll to the task. Future: open a detail drawer.
-    const card = document.querySelector(`[data-task-id="${String(taskId).replace(/"/g, '\\"')}"]`);
-    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const existing = document.getElementById('hw-task-modal');
+    if (existing) existing.remove();
+    const modal = document.createElement('div');
+    modal.id = 'hw-task-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    const ico = _icoRef(task.task_type);
+    const cat = _catLabel(task.category || task.task_type);
+    const noteHtml = task.clinician_note
+      ? `<div style="margin-top:12px;padding:12px;background:var(--bg-elevated);border-radius:8px;border-left:3px solid var(--primary)">
+          <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">Clinician note \u00b7 ${esc(task.clinician_note.date || '')} \u00b7 ${esc(task.clinician_note.by || '')}</div>
+          <div style="font-size:13px;color:var(--text-primary)">${esc(task.clinician_note.body || '')}</div>
+        </div>`
+      : '';
+    modal.innerHTML = `
+      <div style="background:var(--bg-primary);border-radius:12px;max-width:520px;width:100%;max-height:80vh;overflow:auto;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.35)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <svg width="20" height="20"><use href="${ico}"/></svg>
+          <span style="font-weight:600;font-size:15px">${esc(task.title || 'Task')}</span>
+          <span style="margin-left:auto;font-size:11px;padding:3px 8px;border-radius:99px;background:var(--bg-elevated);color:var(--text-secondary)">${cat}</span>
+        </div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;line-height:1.5">${esc(task.description || task.instructions || 'No description.')}</div>
+        ${task.duration_min ? `<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:8px">\u23F1 ~${task.duration_min} min \u00b7 ${esc(task.repeat || 'One-time')}</div>` : ''}
+        ${noteHtml}
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('hw-task-modal').remove()">Close</button>
+          <button class="btn btn-primary btn-sm" onclick="window._hwToggle && window._hwToggle(${JSON.stringify(task.id)});document.getElementById('hw-task-modal').remove()">${task.completed || task.done ? 'Reopen' : 'Mark done'}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
   };
 
   window._hwStart = function(taskId, kind) {
@@ -4207,7 +4233,8 @@ async function _pgPatientHomeworkImpl() {
       _hwToast('Starting home tDCS prep\u2026');
       setTimeout(() => window._navPatient && window._navPatient('patient-home-device'), 500);
     } else if (kind === 'breathing') {
-      _hwToast('Starting guided breathing (10 min)');
+      _hwToast('Opening breathing guide\u2026');
+      setTimeout(() => window._navPatient && window._navPatient('patient-education'), 500);
     } else {
       _hwToast('Started');
     }
@@ -4312,7 +4339,7 @@ async function _pgPatientHomeworkImpl() {
   };
 
   window._hwBrowseLibrary = function() {
-    _hwToast('Library coming soon \u2014 ask your care team');
+    window._navPatient && window._navPatient('patient-education');
   };
 }
 // ── PHQ-9 Assessment ──────────────────────────────────────────────────────────
@@ -7314,12 +7341,13 @@ async function _pgPatientEducationImpl() {
     { id:'cleveland', label:'Cleveland Clinic',  cls:'cleveland', short:'CC',  count:4  },
     { id:'podcast',   label:'Podcasts',          cls:'huberman',  short:'🎧',  count:4  },
     { id:'journals',  label:'Academic Journals', cls:'flow',      short:'J',   count:6  },
+    { id:'apps',      label:'Apps & Tools',      cls:'synaps',    short:'📱',  count:6  },
   ];
 
   // Library items — covers every source category. Each entry is a real,
-  // copy-able reference (title + publisher) so this reads like a curated shelf
-  // rather than lorem-ipsum. Links are placeholders until the clinic wires
-  // their own CDN or handbook IDs.
+  // copy-able reference (title + publisher + URL where available) so patients
+  // can open videos, articles, and tools directly. Clinic-specific items
+  // (sv-*) link to the patient portal; public items link to original sources.
   const LIB = [
     // Clinic / SOZO originals
     { id:'sv01', kind:'video',   src:'synaps',    srcLbl:'SOZO Clinic',   grad:1,  ico:'brain',     dur:'18:42', title:"A clinician's walkthrough of your Week 6 qEEG report", author:'Dr. Julia Kolmar', meta:'Recorded Apr 19 · Personalized', tags:['For you','qEEG'], topic:'qeeg', week:6, personal:true },
@@ -7339,13 +7367,13 @@ async function _pgPatientEducationImpl() {
     { id:'hl01', kind:'video',   src:'huberman',  srcLbl:'Huberman Lab',  grad:1,  ico:'brain',     dur:'2:12:08', title:'Using neuromodulation to enhance focus, depression treatment & beyond', author:'Andrew Huberman', meta:'Episode 213', tags:['Matches your plan','Neuroscience'], topic:'mdd' },
 
     // NHS
-    { id:'nhs01', kind:'article', src:'nhs',      srcLbl:'NHS',            grad:4,  ico:'shield',    dur:'7 min read', title:'Depression in adults: overview and what to expect from treatment', author:'NHS · Mental health A–Z', meta:'Last reviewed Jan 2026', tags:['MDD','Therapies'], topic:'mdd' },
-    { id:'nhs02', kind:'article', src:'nhs',      srcLbl:'NHS',            grad:2,  ico:'moon',      dur:'6 min read', title:'Sleep hygiene — advice from the NHS', author:'NHS Every Mind Matters', meta:'Evidence reviewed 2025', tags:['Lifestyle','Sleep'], topic:'lifestyle' },
+    { id:'nhs01', kind:'article', src:'nhs',      srcLbl:'NHS',            grad:4,  ico:'shield',    dur:'7 min read', title:'Depression in adults: overview and what to expect from treatment', author:'NHS · Mental health A–Z', meta:'Last reviewed Jan 2026', tags:['MDD','Therapies'], topic:'mdd', url:'https://www.nhs.uk/mental-health/conditions/depression-in-adults/treatment/' },
+    { id:'nhs02', kind:'article', src:'nhs',      srcLbl:'NHS',            grad:2,  ico:'moon',      dur:'6 min read', title:'Sleep hygiene — advice from the NHS', author:'NHS Every Mind Matters', meta:'Evidence reviewed 2025', tags:['Lifestyle','Sleep'], topic:'lifestyle', url:'https://www.nhs.uk/every-mind-matters/mental-health-issues/sleep/' },
 
     // Mayo / Cleveland Clinic
-    { id:'mc01', kind:'video',   src:'mayo',      srcLbl:'Mayo Clinic',   grad:4,  ico:'brain',     dur:'6:18',  title:'Mayo Clinic explains: transcranial direct current stimulation', author:'Dr. Paul Croarkin', meta:'Featured', tags:['For your plan','tDCS'], topic:'tdcs' },
+    { id:'mc01', kind:'video',   src:'mayo',      srcLbl:'Mayo Clinic',   grad:4,  ico:'brain',     dur:'6:18',  title:'Mayo Clinic explains: transcranial direct current stimulation', author:'Dr. Paul Croarkin', meta:'Featured', tags:['For your plan','tDCS'], topic:'tdcs', url:'https://www.mayoclinic.org/diseases-conditions/depression/multimedia/transcranial-magnetic-stimulation-vid-20084603' },
     { id:'mc02', kind:'video',   src:'mayo',      srcLbl:'Mayo Clinic',   grad:5,  ico:'moon',      dur:'11:10', title:'Sleep & recovery during a 10-week tDCS program', author:'Mayo Clinic', meta:'Patient Library', tags:['Lifestyle','Sleep'], topic:'lifestyle' },
-    { id:'cc01', kind:'video',   src:'cleveland', srcLbl:'Cleveland Clinic', grad:2, ico:'heart', dur:'12:34', title:'Treatment-resistant depression — what your options are now', author:'Cleveland Clinic Health', meta:'418k views', tags:['MDD','Therapies'], topic:'mdd' },
+    { id:'cc01', kind:'video',   src:'cleveland', srcLbl:'Cleveland Clinic', grad:2, ico:'heart', dur:'12:34', title:'Treatment-resistant depression — what your options are now', author:'Cleveland Clinic Health', meta:'418k views', tags:['MDD','Therapies'], topic:'mdd', url:'https://my.clevelandclinic.org/health/diseases/9290-depression' },
     { id:'cc02', kind:'video',   src:'cleveland', srcLbl:'Cleveland Clinic', grad:5, ico:'moon', dur:'6 min read', title:'Sleep hygiene during depression treatment — a 12-point checklist', author:'Cleveland Clinic Health Library', meta:'Article', tags:['Lifestyle','Sleep'], topic:'lifestyle' },
     { id:'cc03', kind:'video',   src:'cleveland', srcLbl:'Cleveland Clinic Neurology', grad:4, ico:'pulse', dur:'9:18', title:'Reading your qEEG report: alpha, beta, theta — what they mean', author:'Cleveland Clinic Neurology', meta:'For your report', tags:['For your report','qEEG'], topic:'qeeg' },
 
@@ -7363,6 +7391,14 @@ async function _pgPatientEducationImpl() {
     { id:'vi01', kind:'video',   src:'flow',      srcLbl:'Vielight Inc.', grad:5,  ico:'lightning', dur:'11:02', title:'Vielight Neuro Alpha — what 810 nm light does to brain tissue', author:'Vielight Inc.', meta:'Manufacturer', tags:['PBM','Device'], topic:'devices' },
     { id:'vi02', kind:'video',   src:'flow',      srcLbl:'Vielight',      grad:10, ico:'lightning', dur:'15:30', title:'Photobiomodulation 101 — light, mitochondria, mood', author:'Dr. Lim · Vielight', meta:'For your Vielight', tags:['For your Vielight','PBM'], topic:'devices' },
     { id:'fh01', kind:'video',   src:'flow',      srcLbl:'Flow Neuroscience', grad:7, ico:'pulse', dur:'8:20',  title:'How to use the Flow headset at home (full setup)', author:'Flow Neuroscience', meta:'Manufacturer', tags:['Device','tDCS'], topic:'devices' },
+
+    // Apps & Tools — software clinicians commonly recommend alongside neuromodulation
+    { id:'ap01', kind:'article', src:'apps',      srcLbl:'App Recommendation', grad:2, ico:'smile',     dur:'2 min read', title:'Headspace — guided meditation & sleep', author:'Headspace Inc.', meta:'iOS · Android · Web', tags:['Meditation','Sleep'], topic:'lifestyle', url:'https://www.headspace.com' },
+    { id:'ap02', kind:'article', src:'apps',      srcLbl:'App Recommendation', grad:3, ico:'moon',      dur:'2 min read', title:'Calm — sleep stories, breathing & relaxation', author:'Calm.com Inc.', meta:'iOS · Android', tags:['Sleep','Breathing'], topic:'lifestyle', url:'https://www.calm.com' },
+    { id:'ap03', kind:'article', src:'apps',      srcLbl:'App Recommendation', grad:4, ico:'smile',     dur:'1 min read', title:'Daylio — mood & activity tracking journal', author:'Daylio', meta:'iOS · Android', tags:['Mood','Tracking'], topic:'mood', url:'https://daylio.net' },
+    { id:'ap04', kind:'article', src:'apps',      srcLbl:'App Recommendation', grad:5, ico:'shield',    dur:'2 min read', title:'MindShift — free CBT-based anxiety toolkit', author:'Anxiety Canada', meta:'iOS · Android · Free', tags:['CBT','Anxiety'], topic:'lifestyle', url:'https://www.anxietycanada.com/resources/mindshift-cbt/' },
+    { id:'ap05', kind:'article', src:'apps',      srcLbl:'App Recommendation', grad:6, ico:'pulse',     dur:'2 min read', title:'EliteHRV — heart-rate variability & recovery', author:'EliteHRV', meta:'iOS · Android', tags:['HRV','Recovery'], topic:'lifestyle', url:'https://elitehrv.com' },
+    { id:'ap06', kind:'article', src:'apps',      srcLbl:'App Recommendation', grad:7, ico:'moon',      dur:'1 min read', title:'Insight Timer — free meditation library (100k+ tracks)', author:'Insight Network Inc.', meta:'iOS · Android · Free', tags:['Meditation','Free'], topic:'lifestyle', url:'https://insighttimer.com' },
   ];
 
   // Continue-watching state: pulled from localStorage + fallback.
@@ -7510,7 +7546,7 @@ async function _pgPatientEducationImpl() {
       <div class="el-section">
         <div class="el-section-head">
           <div class="el-section-title"><svg width="16" height="16"><use href="#i-play"/></svg>Continue watching <span class="el-section-count">${contDemo.length} in progress</span></div>
-          <div class="el-section-actions"><button class="btn btn-ghost btn-sm" onclick="window._edToast && window._edToast('History — coming soon')">View history</button></div>
+          <div class="el-section-actions" style="display:none"><button class="btn btn-ghost btn-sm" onclick="window._edToast && window._edToast('History')">View history</button></div>
         </div>
         <div class="el-continue-grid">
           ${contDemo.map(c => `
@@ -7546,7 +7582,7 @@ async function _pgPatientEducationImpl() {
         </div>
         <div class="el-paths-grid">
           ${PATHS.map(p => `
-            <div class="el-path" onclick="window._edToast && window._edToast('Opening ${esc(p.name)}…')">
+            <div class="el-path" onclick="window._edKindFilter && window._edKindFilter('all'); window._edTopicFilter && window._edTopicFilter('${p.icoCls === 'brain' ? 'tdcs' : p.icoCls === 'heart' ? 'lifestyle' : 'all'}'); window.scrollTo({top:document.getElementById('el-grid').offsetTop-20,behavior:'smooth'});">
               <div class="el-path-head">
                 <div class="el-path-icon ${esc(p.icoCls)}"><svg width="22" height="22"><use href="#i-${p.icoCls === 'brain' ? 'brain' : p.icoCls === 'heart' ? 'heart' : 'shield'}"/></svg></div>
                 <div class="el-path-info">
@@ -7668,8 +7704,13 @@ async function _pgPatientEducationImpl() {
   };
   window._edOpen = function(id) {
     const it = itemById.get(id);
-    _edToast('Opening: ' + (it ? it.title : id));
-    // Real click-through would launch a player or open the source URL.
+    if (!it) { _edToast('Item not found'); return; }
+    if (it.url) {
+      window.open(it.url, '_blank', 'noopener,noreferrer');
+      _edToast('Opened: ' + it.title);
+    } else {
+      _edToast(it.title + ' — available in your clinic portal');
+    }
   };
 
   function _edToast(msg) {
