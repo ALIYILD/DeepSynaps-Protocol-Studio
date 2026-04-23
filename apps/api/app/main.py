@@ -225,7 +225,7 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' https://fonts.googleapis.com; "
+        "script-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data: https:; "
@@ -289,7 +289,13 @@ async def spa_fallback_middleware(request: Request, call_next):
             # Only rewrite if the file doesn't actually exist in dist
             file_path = _frontend_dist / path.lstrip("/")
             if not file_path.exists() or not file_path.is_file():
-                return FileResponse(_frontend_dist / "index.html")
+                new_response = FileResponse(_frontend_dist / "index.html")
+                # Preserve security headers added by inner middleware
+                for header, value in response.headers.items():
+                    h = header.lower()
+                    if h not in ("content-length", "content-type", "etag", "last-modified", "accept-ranges"):
+                        new_response.headers[header] = value
+                return new_response
     return response
 
 
