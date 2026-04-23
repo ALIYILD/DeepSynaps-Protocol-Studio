@@ -4702,15 +4702,16 @@ async function _pgPatientAssessmentsImpl() {
       </div>`;
   }
 
-  function _optRowHtml(o) {
+  function _optCardHtml(o) {
     return `
-      <div class="as-opt-row" data-assessment="${esc(o.slug)}">
-        <div class="as-opt-ico ${esc(o.tone || 'teal')}"><svg width="16" height="16"><use href="${esc(o.ico || '#i-sparkle')}"/></svg></div>
-        <div class="as-opt-body">
-          <div class="as-opt-title">${esc(o.title)}</div>
-          <div class="as-opt-sub">${esc(o.sub || '')}</div>
+      <div class="as-opt-card ${esc(o.tone || 'teal')}" data-assessment="${esc(o.slug)}">
+        <div class="as-opt-card-hd">
+          <div class="as-opt-card-ico"><svg width="18" height="18"><use href="${esc(o.ico || '#i-sparkle')}"/></svg></div>
+          <div class="as-opt-card-tag">Optional</div>
         </div>
-        <button class="btn btn-ghost btn-sm as-start" onclick="window._asStart && window._asStart('${esc(o.slug)}')">Start<svg width="12" height="12"><use href="#i-arrow-right"/></svg></button>
+        <div class="as-opt-card-title">${esc(o.title)}</div>
+        <div class="as-opt-card-sub">${esc(o.sub || '')}</div>
+        <button class="btn btn-primary btn-sm as-opt-start" onclick="window._asStart && window._asStart('${esc(o.slug)}')">Start questionnaire<svg width="12" height="12"><use href="#i-arrow-right"/></svg></button>
       </div>`;
   }
 
@@ -4920,8 +4921,13 @@ async function _pgPatientAssessmentsImpl() {
         <div class="pth2-empty" style="padding:24px"><div class="pth2-empty-title">All caught up</div><div class="pth2-empty-sub">Your next prescribed questionnaire will appear here when scheduled.</div></div>`}
 
         ${optItems.length ? `
-        <div class="as-due-lbl"><span>Optional · complete if you'd like</span></div>
-        <div class="as-optional">${optItems.map(_optRowHtml).join('')}</div>` : ''}
+        <div class="as-optional-hd">
+          <div>
+            <h4>Optional questionnaires</h4>
+            <p>Complete any time — these help your care team build a fuller picture of your wellbeing.</p>
+          </div>
+        </div>
+        <div class="as-optional-grid">${optItems.map(_optCardHtml).join('')}</div>` : ''}
       </div>
 
       <!-- HISTORY -->
@@ -15781,17 +15787,167 @@ function _pgpMilestones(progress) {
   );
 }
 
-// ── Patient Progress page render ───────────────────────────────────────────────
-function _pgpSelfAssessmentForm() {
+// ── Patient Progress page — Self-Assessment Section ───────────────────────────
+// Replaces the raw number-input form with rich survey cards + inline forms
+// using SELF_ASSESSMENT_SURVEYS definitions (emoji scales, sliders, etc.)
+
+function _pgpSaLastLabel(key) {
+  const last = getSelfAssessmentLastFiled(key);
+  if (!last) return '<span class="pgp-sa-last">Not filed yet</span>';
+  const d = new Date(last);
+  const daysAgo = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (daysAgo === 0) return '<span class="pgp-sa-last">Last filed: Today</span>';
+  if (daysAgo === 1) return '<span class="pgp-sa-last">Last filed: Yesterday</span>';
+  return '<span class="pgp-sa-last">Last filed: ' + daysAgo + ' days ago</span>';
+}
+
+function _pgpSaCardHtml(key) {
+  function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
+  const survey = SELF_ASSESSMENT_SURVEYS[key];
+  const last = getSelfAssessmentLastFiled(key);
+  let dueSoon = false;
+  if (last) {
+    const daysAgo = Math.floor((Date.now() - new Date(last).getTime()) / 86400000);
+    dueSoon = survey.frequency === 'daily' ? daysAgo >= 1 : survey.frequency === 'weekly' ? daysAgo >= 5 : daysAgo >= 25;
+  } else { dueSoon = true; }
+  const freqLabel = survey.frequency.replace(/^./, function(c) { return c.toUpperCase(); });
+  const tone = survey.tone || 'teal';
+  const icons = { daily_mood:'&#127749;', weekly_wellness:'&#128200;', monthly_reflection:'&#127769;', daily_symptoms:'&#128293;' };
+  return (
+    '<div class="pgp-sa-card ' + esc(tone) + (dueSoon ? ' due-soon' : '') + '" data-sa="' + esc(key) + '">' +
+      '<div class="pgp-sa-card-hd">' +
+        '<div class="pgp-sa-ico">' + (icons[key] || '&#9997;') + '</div>' +
+        '<div class="pgp-sa-badge">' + esc(freqLabel) + ' &middot; ' + esc(survey.timeLabel) + '</div>' +
+      '</div>' +
+      '<div class="pgp-sa-card-title">' + esc(survey.title) + '</div>' +
+      '<div class="pgp-sa-card-sub">' + esc(survey.questions.length) + ' questions &middot; ' + esc(survey.timeLabel) + '</div>' +
+      _pgpSaLastLabel(key) +
+      '<button class="pgp-sa-start" onclick="window._pgpSaStart(\'' + esc(key) + '\')">Check in</button>' +
+    '</div>'
+  );
+}
+
+function _pgpSaFormHtml(key) {
+  function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
+  const survey = SELF_ASSESSMENT_SURVEYS[key];
+  const draft = getSelfAssessmentDraft(key) || {};
+  const answers = draft.answers || {};
+  function _qHtml(q) {
+    const val = answers[q.key] != null ? answers[q.key] : '';
+    if (q.type === 'emoji_scale') {
+      var emojis = [
+        {v:1,f:'&#128543;',l:'Very low'},{v:2,f:'&#128533;',l:'Low'},{v:3,f:'&#128528;',l:'OK'},
+        {v:4,f:'&#128578;',l:'Good'},{v:5,f:'&#128522;',l:'Great'}
+      ];
+      return (
+        '<div class="pgp-sa-q" data-q="' + esc(q.key) + '">' +
+          '<div class="pgp-sa-q-lbl">' + esc(q.label) + (q.optional ? '' : ' <span class="req">*</span>') + '</div>' +
+          '<div class="pgp-sa-emoji-scale">' +
+            emojis.map(function(e) {
+              return '<button type="button" class="pgp-sa-emoji-btn ' + (val == e.v ? 'on' : '') + '" data-v="' + e.v + '" onclick="window._pgpSaPick(\'' + esc(key) + '\',\'' + esc(q.key) + '\',' + e.v + ')"><span class="f">' + e.f + '</span><span class="l">' + esc(e.l) + '</span></button>';
+            }).join('') +
+          '</div>' +
+        '</div>'
+      );
+    }
+    if (q.type === 'slider') {
+      var defVal = val || Math.floor((q.min + q.max) / 2);
+      return (
+        '<div class="pgp-sa-q" data-q="' + esc(q.key) + '">' +
+          '<div class="pgp-sa-q-lbl">' + esc(q.label) + (q.optional ? '' : ' <span class="req">*</span>') + '</div>' +
+          '<div class="pgp-sa-slider-wrap">' +
+            '<input type="range" min="' + q.min + '" max="' + q.max + '" value="' + defVal + '" class="pgp-sa-slider" id="pgp-sa-slider-' + esc(key) + '-' + esc(q.key) + '" oninput="window._pgpSaSlider(\'' + esc(key) + '\',\'' + esc(q.key) + '\',this.value)">' +
+            '<div class="pgp-sa-slider-labels"><span>' + esc(q.labels[0]) + '</span><span id="pgp-sa-slider-val-' + esc(key) + '-' + esc(q.key) + '">' + defVal + '</span><span>' + esc(q.labels[1]) + '</span></div>' +
+          '</div>' +
+        '</div>'
+      );
+    }
+    if (q.type === 'checkboxes') {
+      var selected = Array.isArray(val) ? val : (val ? [val] : []);
+      return (
+        '<div class="pgp-sa-q" data-q="' + esc(q.key) + '">' +
+          '<div class="pgp-sa-q-lbl">' + esc(q.label) + (q.optional ? '' : ' <span class="req">*</span>') + '</div>' +
+          '<div class="pgp-sa-checks">' +
+            q.options.map(function(opt) {
+              return '<label class="pgp-sa-check"><input type="checkbox" value="' + esc(opt) + '" ' + (selected.indexOf(opt) >= 0 ? 'checked' : '') + ' onchange="window._pgpSaCheck(\'' + esc(key) + '\',\'' + esc(q.key) + '\',this.value,this.checked)"><span>' + esc(opt) + '</span></label>';
+            }).join('') +
+          '</div>' +
+        '</div>'
+      );
+    }
+    if (q.type === 'text') {
+      return (
+        '<div class="pgp-sa-q" data-q="' + esc(q.key) + '">' +
+          '<div class="pgp-sa-q-lbl">' + esc(q.label) + (q.optional ? '' : ' <span class="req">*</span>') + '</div>' +
+          '<textarea class="pgp-sa-textarea" rows="3" maxlength="' + (q.maxLength || 500) + '" placeholder="Type here..." oninput="window._pgpSaText(\'' + esc(key) + '\',\'' + esc(q.key) + '\',this.value)">' + esc(val) + '</textarea>' +
+        '</div>'
+      );
+    }
+    return '';
+  }
+  return (
+    '<div class="pgp-sa-form" id="pgp-sa-form-' + esc(key) + '">' +
+      '<div class="pgp-sa-form-hd">' +
+        '<div>' +
+          '<div class="pgp-sa-form-title">' + esc(survey.title) + '</div>' +
+          '<div class="pgp-sa-form-sub">' + esc(survey.questions.length) + ' questions &middot; ' + esc(survey.timeLabel) + ' &middot; ' + esc(survey.frequency) + '</div>' +
+        '</div>' +
+        '<button class="pgp-btn-ghost" onclick="window._pgpSaCancel(\'' + esc(key) + '\')">Cancel</button>' +
+      '</div>' +
+      '<div class="pgp-sa-form-body">' +
+        survey.questions.map(function(q) { return _qHtml(q); }).join('') +
+      '</div>' +
+      '<div class="pgp-sa-form-actions">' +
+        '<button class="pgp-sa-submit" onclick="window._pgpSaSubmit(\'' + esc(key) + '\')">Submit check-in</button>' +
+        '<span class="pgp-sa-saving" id="pgp-sa-saving-' + esc(key) + '"></span>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function _pgpSaQuickLogHtml() {
+  return (
+    '<div class="pgp-sa-quick">' +
+      '<div class="pgp-sa-quick-hd">' +
+        '<div class="pgp-sa-quick-title">Clinician Scales</div>' +
+        '<div class="pgp-sa-quick-sub">Quick log for PHQ-9, GAD-7, PCL-5</div>' +
+      '</div>' +
+      '<div class="pgp-sa-quick-row">' +
+        '<div class="pgp-sa-quick-field">' +
+          '<label>PHQ-9</label>' +
+          '<input type="number" min="0" max="27" id="pto-phq9-input" placeholder="0-27"/>' +
+          '<span class="pgp-sa-quick-hint">Depression</span>' +
+        '</div>' +
+        '<div class="pgp-sa-quick-field">' +
+          '<label>GAD-7</label>' +
+          '<input type="number" min="0" max="21" id="pto-gad7-input" placeholder="0-21"/>' +
+          '<span class="pgp-sa-quick-hint">Anxiety</span>' +
+        '</div>' +
+        '<div class="pgp-sa-quick-field">' +
+          '<label>PCL-5</label>' +
+          '<input type="number" min="0" max="80" id="pto-pcl5-input" placeholder="0-80"/>' +
+          '<span class="pgp-sa-quick-hint">Trauma (opt.)</span>' +
+        '</div>' +
+        '<button class="pgp-sa-quick-btn" onclick="window._ptoSubmitAssessment()">Save</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function _pgpSelfAssessmentSection() {
   return (
     '<section class="pgp-panel">' +
-      '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Self-report</div><h3>Log your scores</h3></div></div>' +
-      '<div id="pto-assess-form" class="pto-inline-form">' +
-        '<div class="pto-inline-form-row"><label>PHQ-9 score</label><input type="number" min="0" max="27" id="pto-phq9-input" class="pto-form-inp" placeholder="0-27"/></div>' +
-        '<div class="pto-inline-form-row"><label>GAD-7 score</label><input type="number" min="0" max="21" id="pto-gad7-input" class="pto-form-inp" placeholder="0-21"/></div>' +
-        '<div class="pto-inline-form-row"><label>PCL-5 score</label><input type="number" min="0" max="80" id="pto-pcl5-input" class="pto-form-inp" placeholder="0-80 (opt.)"/></div>' +
-        '<button class="pto-share-btn pto-share-btn--copy" onclick="window._ptoSubmitAssessment()">Save Scores</button>' +
+      '<div class="pgp-panel-head">' +
+        '<div>' +
+          '<div class="pgp-panel-eyebrow">Self-report</div>' +
+          '<h3>Check-ins</h3>' +
+        '</div>' +
       '</div>' +
+      '<div class="pgp-sa-grid" id="pgp-sa-grid">' +
+        SELF_ASSESSMENT_KEYS.map(function(k) { return _pgpSaCardHtml(k); }).join('') +
+      '</div>' +
+      '<div id="pgp-sa-form-wrap"></div>' +
+      _pgpSaQuickLogHtml() +
     '</section>'
   );
 }
@@ -15824,7 +15980,7 @@ function _renderProgressPage() {
           _pgpBrainCards(progress) +
           _pgpDomainCards(progress) +
           _pgpMilestones(progress) +
-          _pgpSelfAssessmentForm() +
+          _pgpSelfAssessmentSection() +
           _pgpActionsSection() +
         '</div>'
       );
@@ -16299,6 +16455,97 @@ window._ptoSubmitAssessment = function () {
   if (!isNaN(pcl5v)) api.recordOutcome({ template_name: 'PCL-5', score_numeric: pcl5v, measurement_point: 'Self-report', administered_at: _apiNow }).catch(() => {});
   window._showNotifToast && window._showNotifToast({ title: 'Saved', body: 'Assessment scores recorded.', severity: 'success' });
   _renderProgressPage();
+};
+
+// ── Self-Assessment handlers (Progress page) ──────────────────────────────────
+window._pgpSaStart = function(key) {
+  const wrap = document.getElementById('pgp-sa-form-wrap');
+  const grid = document.getElementById('pgp-sa-grid');
+  if (!wrap) return;
+  wrap.innerHTML = _pgpSaFormHtml(key);
+  if (grid) grid.style.display = 'none';
+};
+window._pgpSaCancel = function(key) {
+  const wrap = document.getElementById('pgp-sa-form-wrap');
+  const grid = document.getElementById('pgp-sa-grid');
+  if (wrap) wrap.innerHTML = '';
+  if (grid) grid.style.display = '';
+  clearSelfAssessmentDraft(key);
+};
+window._pgpSaPick = function(key, qKey, val) {
+  const draft = getSelfAssessmentDraft(key) || { answers: {} };
+  draft.answers = draft.answers || {};
+  draft.answers[qKey] = val;
+  setSelfAssessmentDraft(key, draft);
+  const form = document.getElementById('pgp-sa-form-' + key);
+  if (!form) return;
+  const qEl = form.querySelector('[data-q="' + qKey + '"]');
+  if (!qEl) return;
+  qEl.querySelectorAll('.pgp-sa-emoji-btn').forEach(function(btn) {
+    btn.classList.toggle('on', Number(btn.getAttribute('data-v')) === val);
+  });
+};
+window._pgpSaSlider = function(key, qKey, val) {
+  const draft = getSelfAssessmentDraft(key) || { answers: {} };
+  draft.answers = draft.answers || {};
+  draft.answers[qKey] = Number(val);
+  setSelfAssessmentDraft(key, draft);
+  const lbl = document.getElementById('pgp-sa-slider-val-' + key + '-' + qKey);
+  if (lbl) lbl.textContent = val;
+};
+window._pgpSaCheck = function(key, qKey, val, checked) {
+  const draft = getSelfAssessmentDraft(key) || { answers: {} };
+  draft.answers = draft.answers || {};
+  var arr = draft.answers[qKey];
+  if (!Array.isArray(arr)) arr = arr ? [arr] : [];
+  if (checked) { if (arr.indexOf(val) < 0) arr.push(val); }
+  else { arr = arr.filter(function(v) { return v !== val; }); }
+  draft.answers[qKey] = arr;
+  setSelfAssessmentDraft(key, draft);
+};
+window._pgpSaText = function(key, qKey, val) {
+  const draft = getSelfAssessmentDraft(key) || { answers: {} };
+  draft.answers = draft.answers || {};
+  draft.answers[qKey] = val;
+  setSelfAssessmentDraft(key, draft);
+};
+window._pgpSaSubmit = async function(key) {
+  const survey = SELF_ASSESSMENT_SURVEYS[key];
+  if (!survey) return;
+  const draft = getSelfAssessmentDraft(key) || { answers: {} };
+  const answers = draft.answers || {};
+  // Validate required fields
+  var missing = [];
+  survey.questions.forEach(function(q) {
+    if (q.optional) return;
+    var v = answers[q.key];
+    if (v == null || v === '' || (Array.isArray(v) && v.length === 0)) missing.push(q.label);
+  });
+  if (missing.length) {
+    window._showNotifToast && window._showNotifToast({ title: 'Please answer all questions', body: missing.join(', '), severity: 'warning' });
+    return;
+  }
+  const saving = document.getElementById('pgp-sa-saving-' + key);
+  if (saving) saving.textContent = 'Saving...';
+  try {
+    const score = survey.computeScore(answers);
+    const payload = {
+      survey_type: key,
+      frequency: survey.frequency,
+      responses: answers,
+      score: score,
+      notes: answers.note || answers.concerns || null,
+      ai_context: { score: score, answered_at: new Date().toISOString(), question_count: survey.questions.length }
+    };
+    await api.submitSelfAssessment(payload);
+    setSelfAssessmentLastFiled(key, new Date().toISOString());
+    clearSelfAssessmentDraft(key);
+    window._showNotifToast && window._showNotifToast({ title: 'Check-in saved', body: survey.title + ' submitted. Great work!', severity: 'success' });
+    _renderProgressPage();
+  } catch (e) {
+    if (saving) saving.textContent = '';
+    window._showNotifToast && window._showNotifToast({ title: 'Save failed', body: 'Please try again.', severity: 'error' });
+  }
 };
 
 window._pgpAskAssistant = function(promptText) {
