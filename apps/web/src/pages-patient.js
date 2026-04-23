@@ -8081,10 +8081,11 @@ async function _pgPatientEducationImpl() {
     { id:'cleveland', label:'Cleveland Clinic',  cls:'cleveland', short:'CC',  count:4  },
     { id:'podcast',   label:'Podcasts',          cls:'huberman',  short:'🎧',  count:4  },
     { id:'journals',  label:'Academic Journals', cls:'flow',      short:'J',   count:6  },
-    { id:'edx',       label:'edX',               cls:'edx',       short:'ed',  count:8  },
-    { id:'coursera',  label:'Coursera',          cls:'coursera',  short:'Co',  count:0  },
-    { id:'udemy',     label:'Udemy',             cls:'udemy',     short:'Ud',  count:0  },
+    { id:'edx',       label:'edX',               cls:'edx',       short:'ed',  count:10 },
+    { id:'coursera',  label:'Coursera',          cls:'coursera',  short:'Co',  count:2  },
+    { id:'udemy',     label:'Udemy',             cls:'udemy',     short:'Ud',  count:10 },
     { id:'apps',      label:'Apps & Tools',      cls:'synaps',    short:'📱',  count:6  },
+    { id:'wearables', label:'Wearables',           cls:'flow',      short:'⌚',  count:10 },
   ];
 
   // Library items — covers every source category. Each entry is a real,
@@ -8489,6 +8490,19 @@ async function _pgPatientEducationImpl() {
       if (/Vielight/i.test(it.author || '')) return 'https://vielight.com';
       if (/Flow Neuroscience/i.test(it.author || '')) return 'https://flowneuroscience.com';
       return 'https://www.youtube.com/results?search_query=' + q;
+    }
+    if (it.src === 'wearables') {
+      if (/Oura/i.test(it.author || '')) return 'https://ouraring.com';
+      if (/Apple/i.test(it.author || '')) return 'https://www.apple.com/apple-watch/';
+      if (/Garmin/i.test(it.author || '')) return 'https://www.garmin.com';
+      if (/Whoop/i.test(it.author || '')) return 'https://www.whoop.com';
+      if (/Fitbit/i.test(it.author || '')) return 'https://www.fitbit.com';
+      if (/Muse/i.test(it.author || '')) return 'https://choosemuse.com';
+      if (/Apollo/i.test(it.author || '')) return 'https://apolloneuro.com';
+      if (/Emotiv/i.test(it.author || '')) return 'https://www.emotiv.com';
+      if (/Withings/i.test(it.author || '')) return 'https://www.withings.com';
+      if (/Omron/i.test(it.author || '')) return 'https://omronhealthcare.com';
+      return 'https://www.google.com/search?q=' + q;
     }
     if (it.src === 'synaps') {
       return null; // internal / coming soon
