@@ -9536,26 +9536,27 @@ export async function pgPatientMarketplace(_user) {
       .replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
   };
 
-  // ── Hardcoded fallback catalog (used if API fails) ──
+  // ── Hardcoded fallback catalog with REAL Amazon products ──
   const FALLBACK_CATALOG = [
-    { id: 'svc-second-opinion', kind: 'service', icon: '🧠', tone: 'teal', name: 'Second opinion consult', provider: 'Board-certified neuropsychiatrist', desc: '45-min video review of your qEEG, assessment history, and protocol with an outside specialist.', price: '£180', priceUnit: 'one-time', clinical: true, featured: true, tags: ['Consult', '45 min', 'Video'], external_url: null },
-    { id: 'svc-coach-cbt', kind: 'service', icon: '💬', tone: 'blue', name: 'Weekly CBT coaching', provider: 'Accredited CBT therapist', desc: 'Six structured sessions pairing cognitive-behavioural tools with your neuromodulation course.', price: '£65', priceUnit: '/ session', clinical: false, featured: false, tags: ['6 weeks', 'Video', 'Between-session support'], external_url: null },
-    { id: 'svc-nutrition', kind: 'service', icon: '🥗', tone: 'green', name: 'Neuro-nutrition plan', provider: 'Registered dietitian', desc: 'Personalised eating plan optimised for cognitive recovery and sleep. Includes shopping list + recipes.', price: '£120', priceUnit: '/ month', clinical: false, featured: false, tags: ['Monthly', 'Personalised', 'Chat support'], external_url: null },
-    { id: 'svc-sleep-coach', kind: 'service', icon: '🌙', tone: 'violet', name: 'Sleep coaching programme', provider: 'Behavioural sleep medicine specialist', desc: '8-week CBT-I programme for insomnia, delivered asynchronously with weekly check-ins.', price: '£240', priceUnit: 'programme', clinical: false, featured: false, tags: ['8 weeks', 'Async', 'CBT-I'], external_url: null },
-    { id: 'svc-peer-group', kind: 'service', icon: '🤝', tone: 'rose', name: 'Peer support group', provider: 'Facilitated by a licensed counsellor', desc: 'Weekly 60-minute small-group calls with other patients on neuromodulation protocols.', price: '£45', priceUnit: '/ month', clinical: false, featured: false, tags: ['Weekly', 'Small group'], external_url: null },
-    { id: 'svc-referral-psych', kind: 'service', icon: '👩‍⚕️', tone: 'amber', name: 'Psychiatry medication review', provider: 'Consultant psychiatrist', desc: 'Review of current medications, interactions with your protocol, and adjustment options.', price: '£220', priceUnit: 'one-time', clinical: true, featured: false, tags: ['Clinical', 'Video', 'Report included'], external_url: null },
-    { id: 'dev-oura-ring', kind: 'device', icon: '💍', tone: 'blue', name: 'Oura Ring Gen 3', provider: 'Oura Health', desc: 'Sleep, HRV, body-temperature and readiness tracking — auto-syncs into your Biometrics reports.', price: '£299', priceUnit: 'one-time', clinical: false, featured: true, tags: ['Wearable', 'Ships in 3–5 days', 'HRV + sleep'], external_url: 'https://ouraring.com' },
-    { id: 'dev-apple-watch', kind: 'device', icon: '⌚', tone: 'teal', name: 'Apple Watch SE', provider: 'Apple', desc: 'Cardio, activity, ECG and sleep tracking with deep Apple Health integration.', price: '£259', priceUnit: 'one-time', clinical: false, featured: false, tags: ['Wearable', 'ECG', 'Apple Health'], external_url: 'https://www.apple.com/apple-watch-se/' },
-    { id: 'dev-focus-tdcs', kind: 'device', icon: '🧩', tone: 'violet', name: 'At-home tDCS headset', provider: 'DeepSynaps partner hardware', desc: 'Prescription-only home tDCS unit. Clinician must approve and configure electrode montage.', price: 'By prescription', priceUnit: '', clinical: true, featured: false, tags: ['Prescription', 'Clinician-configured', 'Home use'], external_url: null },
-    { id: 'dev-lightbox', kind: 'device', icon: '☀️', tone: 'amber', name: '10 000-lux light therapy lamp', provider: 'Northern Light', desc: 'Circadian light therapy lamp recommended for seasonal mood and sleep-phase support.', price: '£149', priceUnit: 'one-time', clinical: false, featured: false, tags: ['10 000 lux', 'UV-free', '30-day trial'], external_url: 'https://www.northernlighttechnologies.com' },
-    { id: 'dev-hrv-strap', kind: 'device', icon: '🫀', tone: 'rose', name: 'Polar H10 HRV strap', provider: 'Polar', desc: 'Medical-grade ECG chest strap for precise HRV during breathing and meditation practice.', price: '£89', priceUnit: 'one-time', clinical: false, featured: false, tags: ['Chest strap', 'HRV-biofeedback ready'], external_url: 'https://www.polar.com/en/products/accessories/h10-heart-rate-sensor' },
-    { id: 'dev-muse', kind: 'device', icon: '🧘', tone: 'teal', name: 'Muse S headband', provider: 'Interaxon', desc: 'Consumer EEG headband for guided meditation + sleep tracking. Not for diagnostic qEEG.', price: '£299', priceUnit: 'one-time', clinical: false, featured: false, tags: ['Consumer EEG', 'Meditation'], external_url: 'https://choosemuse.com/muse-s/' },
-    { id: 'sw-headspace', kind: 'software', icon: '🟠', tone: 'amber', name: 'Headspace', provider: 'Headspace Inc.', desc: 'Evidence-informed meditation app. DeepSynaps patients get 50% off the annual plan.', price: '£34.99', priceUnit: '/ year', clinical: false, featured: true, tags: ['50% off', 'Annual', 'iOS · Android'], external_url: 'https://www.headspace.com' },
-    { id: 'sw-wysa', kind: 'software', icon: '💙', tone: 'blue', name: 'Wysa AI Coach', provider: 'Wysa', desc: 'Evidence-based chatbot coach for mood, anxiety, and between-session support.', price: '£9.99', priceUnit: '/ month', clinical: false, featured: false, tags: ['CBT-grounded', 'Chatbot', '24/7'], external_url: 'https://www.wysa.io' },
-    { id: 'sw-sleepio', kind: 'software', icon: '😴', tone: 'violet', name: 'Sleepio CBT-I', provider: 'Big Health (NICE-approved)', desc: 'Digital CBT for insomnia — the NICE-approved 6-week programme. Delivered via app.', price: '£200', priceUnit: 'programme', clinical: true, featured: false, tags: ['NICE-approved', 'CBT-I', '6 weeks'], external_url: 'https://www.bighealth.com/sleepio' },
-    { id: 'sw-endeavor', kind: 'software', icon: '🎯', tone: 'teal', name: 'EndeavorOTC', provider: 'Akili Interactive', desc: 'FDA-cleared gamified attention training (15 min / day). Adjunct to ADHD treatment.', price: '$24.99', priceUnit: '/ month', clinical: true, featured: false, tags: ['FDA-cleared', 'ADHD', '15 min/day'], external_url: 'https://www.akiliinteractive.com/endeavorotc' },
-    { id: 'sw-somryst', kind: 'software', icon: '🌜', tone: 'rose', name: 'Daylight', provider: 'Big Health', desc: 'Digital therapeutic for generalised anxiety. Short daily practice built from CBT.', price: '£150', priceUnit: 'programme', clinical: true, featured: false, tags: ['Digital therapeutic', 'Anxiety'], external_url: 'https://www.bighealth.com/daylight' },
-    { id: 'sw-woebot', kind: 'software', icon: '🤖', tone: 'green', name: 'Woebot', provider: 'Woebot Health', desc: 'Relational AI mood companion that checks in daily and routes urgent messages to your clinician.', price: 'Free', priceUnit: '', clinical: false, featured: false, tags: ['Free', 'Daily check-ins'], external_url: 'https://woebothealth.com' },
+    { id: 'amz-oura-ring-4', kind: 'product', icon: '💍', tone: 'blue', name: 'Oura Ring Gen 4', provider: 'Oura Health', desc: 'Titanium smart ring with advanced sleep staging, HRV, blood oxygen, and activity tracking. 7-day battery life.', price: '$349', priceUnit: '', clinical: false, featured: true, tags: ['Wearable', 'Sleep tracking', 'HRV'], external_url: 'https://www.amazon.com/dp/B0DKLHHMZ5', seller: null },
+    { id: 'amz-polar-h10', kind: 'product', icon: '🫀', tone: 'rose', name: 'Polar H10 Heart Rate Sensor', provider: 'Polar', desc: 'Medical-grade ECG chest strap with dual Bluetooth + ANT+. Internal memory. Waterproof. 400h battery life.', price: '$89.95', priceUnit: '', clinical: false, featured: true, tags: ['HRV', 'ECG', 'Chest strap'], external_url: 'https://www.amazon.com/dp/B07PM54P4N', seller: null },
+    { id: 'amz-muse-2', kind: 'product', icon: '🧘', tone: 'violet', name: 'Muse 2 Brain Sensing Headband', provider: 'Interaxon', desc: 'EEG-powered meditation headband with real-time biofeedback. Tracks brain activity, heart rate, breathing, and movement.', price: '$199.99', priceUnit: '', clinical: false, featured: true, tags: ['EEG', 'Meditation', 'Biofeedback'], external_url: 'https://www.amazon.com/dp/B07HL2JQQJ', seller: null },
+    { id: 'amz-verilux-happylight', kind: 'product', icon: '☀️', tone: 'amber', name: 'Verilux HappyLight Touch Plus', provider: 'Verilux', desc: '10,000 lux UV-free LED light therapy lamp with adjustable brightness, color temperature, and countdown timer.', price: '$64.99', priceUnit: '', clinical: false, featured: true, tags: ['Light therapy', '10 000 lux', 'UV-free'], external_url: 'https://www.amazon.com/dp/B07WC7KT4G', seller: null },
+    { id: 'amz-apple-watch-se', kind: 'product', icon: '⌚', tone: 'teal', name: 'Apple Watch SE (2nd Gen)', provider: 'Apple', desc: 'GPS + Cellular smartwatch with heart rate, sleep, crash detection, and ECG. Deep Apple Health integration.', price: '$249', priceUnit: '', clinical: false, featured: false, tags: ['Smartwatch', 'ECG', 'Apple Health'], external_url: 'https://www.amazon.com/dp/B0CHX1W1XY', seller: null },
+    { id: 'amz-garmin-vivosmart', kind: 'product', icon: '📱', tone: 'green', name: 'Garmin vivosmart 5', provider: 'Garmin', desc: 'Fitness tracker with stress tracking, Body Battery energy monitoring, sleep score, and Garmin Connect.', price: '$149.99', priceUnit: '', clinical: false, featured: false, tags: ['Fitness tracker', 'Stress', 'Body Battery'], external_url: 'https://www.amazon.com/dp/B09W1TVFS7', seller: null },
+    { id: 'amz-garmin-hrm-dual', kind: 'product', icon: '💓', tone: 'blue', name: 'Garmin HRM-Dual', provider: 'Garmin', desc: 'Premium heart rate monitor chest strap with Bluetooth and ANT+ transmission. Soft, adjustable strap.', price: '$69.99', priceUnit: '', clinical: false, featured: false, tags: ['Heart rate', 'Bluetooth', 'ANT+'], external_url: 'https://www.amazon.com/dp/B07N1GX6W1', seller: null },
+    { id: 'amz-muse-s', kind: 'product', icon: '😴', tone: 'teal', name: 'Muse S Gen 2 Sleep Headband', provider: 'Interaxon', desc: 'Soft fabric EEG headband for sleep tracking and guided meditation. Includes sleep journeys and overnight tracking.', price: '$299.99', priceUnit: '', clinical: false, featured: false, tags: ['EEG', 'Sleep tracking', 'Meditation'], external_url: 'https://www.amazon.com/dp/B0815J7FYP', seller: null },
+    { id: 'amz-carex-daylight', kind: 'product', icon: '💡', tone: 'amber', name: 'Carex Day-Light Classic Plus', provider: 'Carex', desc: 'Clinical-grade 10,000 lux bright light therapy lamp at 12 inches. Adjustable height and angle. LED sun lamp.', price: '$167.27', priceUnit: '', clinical: false, featured: false, tags: ['Light therapy', 'Clinical-grade', 'LED'], external_url: 'https://www.amazon.com/dp/B0027M3SPG', seller: null },
+    { id: 'amz-lectrofan', kind: 'product', icon: '🔊', tone: 'slate', name: 'LectroFan Evo White Noise Machine', provider: 'Adaptive Sound Technologies', desc: 'High-fidelity white noise, fan, and ocean sounds with precise volume control. 22 non-looping sounds.', price: '$49.95', priceUnit: '', clinical: false, featured: false, tags: ['White noise', 'Sleep aid', 'Non-looping'], external_url: 'https://www.amazon.com/dp/B07XXR2NVB', seller: null },
+    { id: 'amz-manta-sleep-mask', kind: 'product', icon: '🎭', tone: 'violet', name: 'Manta Sleep Mask', provider: 'Manta Sleep', desc: 'Adjustable eye cups for 100% blackout. Zero eye pressure design. Machine washable. Includes cooling eye cups.', price: '$35', priceUnit: '', clinical: false, featured: false, tags: ['Sleep mask', 'Blackout', 'Cooling'], external_url: 'https://www.amazon.com/dp/B07L5LPSQT', seller: null },
+    { id: 'amz-weighted-blanket', kind: 'product', icon: '🛏️', tone: 'blue', name: 'YnM Weighted Blanket (15 lbs)', provider: 'YnM', desc: '100% natural cotton weighted blanket with glass beads. 7-layer design for even weight distribution.', price: '$69.90', priceUnit: '', clinical: false, featured: false, tags: ['Weighted blanket', 'Deep pressure', 'Cotton'], external_url: 'https://www.amazon.com/dp/B01LQMOCJI', seller: null },
+    { id: 'amz-triggerpoint-grid', kind: 'product', icon: '🌀', tone: 'green', name: 'TriggerPoint GRID Foam Roller', provider: 'TriggerPoint', desc: 'Patented multi-density foam roller with hollow core. For self-myofascial release, muscle recovery, and mobility.', price: '$37.99', priceUnit: '', clinical: false, featured: false, tags: ['Foam roller', 'Recovery', 'Mobility'], external_url: 'https://www.amazon.com/dp/B0040EGNIU', seller: null },
+    { id: 'amz-gaiam-yoga-mat', kind: 'product', icon: '🧘', tone: 'teal', name: 'Gaiam Essentials Thick Yoga Mat', provider: 'Gaiam', desc: '2/5-inch extra thick yoga mat with carrying strap. Non-slip surface for stability. Ideal for yoga and Pilates.', price: '$24.98', priceUnit: '', clinical: false, featured: false, tags: ['Yoga mat', 'Non-slip', 'Exercise'], external_url: 'https://www.amazon.com/dp/B08TWK8G8J', seller: null },
+    { id: 'amz-resistance-bands', kind: 'product', icon: '💪', tone: 'rose', name: 'Fit Simplify Resistance Loop Bands', provider: 'Fit Simplify', desc: 'Set of 5 resistance bands with instruction guide and carry bag. Varying resistance levels for strength training.', price: '$12.95', priceUnit: '', clinical: false, featured: false, tags: ['Resistance bands', 'Strength', 'Portable'], external_url: 'https://www.amazon.com/dp/B01AVDVHTI', seller: null },
+    { id: 'amz-omron-bp-monitor', kind: 'product', icon: '🩺', tone: 'red', name: 'Omron Bronze Blood Pressure Monitor', provider: 'Omron', desc: 'Upper arm BP monitor with wide-range D-ring cuff. Stores 14 readings. Irregular heartbeat detection.', price: '$39.99', priceUnit: '', clinical: false, featured: false, tags: ['Blood pressure', 'Heart health', 'Omron'], external_url: 'https://www.amazon.com/dp/B07N1T7N1P', seller: null },
+    { id: 'amz-pulse-oximeter', kind: 'product', icon: '🫁', tone: 'blue', name: 'Zacurate Pro Series Pulse Oximeter', provider: 'Zacurate', desc: 'Fingertip pulse oximeter with OLED display. Measures SpO2 and pulse rate. Includes cover, batteries, lanyard.', price: '$22.95', priceUnit: '', clinical: false, featured: false, tags: ['Pulse oximeter', 'SpO2', 'Portable'], external_url: 'https://www.amazon.com/dp/B07PQ8WBD4', seller: null },
+    { id: 'amz-book-neuroplasticity', kind: 'product', icon: '📚', tone: 'amber', name: 'The Brain That Changes Itself', provider: 'Norman Doidge', desc: 'Stories of personal triumph from the frontiers of brain science. Explores neuroplasticity and brain healing.', price: '$14.29', priceUnit: '', clinical: false, featured: false, tags: ['Book', 'Neuroplasticity', 'Bestseller'], external_url: 'https://www.amazon.com/dp/0143113100', seller: null },
+    { id: 'amz-book-cbt', kind: 'product', icon: '📖', tone: 'blue', name: 'Feeling Good: The New Mood Therapy', provider: 'David D. Burns', desc: 'The classic guide to cognitive behavioral therapy. Clinically proven techniques to lift depression and anxiety.', price: '$10.39', priceUnit: '', clinical: false, featured: false, tags: ['Book', 'CBT', 'Depression', 'Anxiety'], external_url: 'https://www.amazon.com/dp/0380810336', seller: null },
   ];
 
   // ── Try fetch live data ──
@@ -9572,12 +9573,14 @@ export async function pgPatientMarketplace(_user) {
         name: it.name,
         provider: it.provider,
         desc: it.description || '',
-        price: it.price != null ? `${it.price_unit && it.price_unit.startsWith('USD') ? '$' : '£'}${it.price}` : (it.price_unit || '—'),
+        price: it.price != null ? `$${it.price}` : (it.price_unit || '—'),
         priceUnit: '',
         clinical: it.clinical,
         featured: it.featured,
         tags: it.tags || [],
         external_url: it.external_url || null,
+        seller: it.seller || null,
+        source: it.source || 'deepsynaps_curated',
       }));
       apiOk = true;
     }
@@ -9585,29 +9588,46 @@ export async function pgPatientMarketplace(_user) {
     // Fallback to hardcoded catalog
   }
 
-  const kindMeta = {
-    service:  { label: 'Services',  sub: 'Human experts you can book',            icon: '👥', tone: 'teal'  },
-    device:   { label: 'Devices',   sub: 'Wearables and clinical-grade hardware', icon: '🔌', tone: 'blue'  },
-    software: { label: 'Software',  sub: 'Apps and digital therapeutics',         icon: '💻', tone: 'violet' },
+  const categories = {
+    wearable: { label: 'Wearables', icon: '⌚', tone: 'blue' },
+    wellness: { label: 'Wellness', icon: '🌿', tone: 'green' },
+    sleep:    { label: 'Sleep',     icon: '🌙', tone: 'violet' },
+    recovery: { label: 'Recovery',  icon: '💪', tone: 'teal' },
+    monitor:  { label: 'Health Monitors', icon: '🩺', tone: 'rose' },
+    book:     { label: 'Books',     icon: '📚', tone: 'amber' },
+    other:    { label: 'Other',     icon: '📦', tone: 'slate' },
   };
 
-  const services = CATALOG.filter(i => i.kind === 'service');
-  const devices  = CATALOG.filter(i => i.kind === 'device');
-  const software = CATALOG.filter(i => i.kind === 'software');
+  const tagToCategory = (tags) => {
+    const t = (tags || []).map(x => x.toLowerCase());
+    if (t.some(x => x.includes('wearable') || x.includes('smartwatch') || x.includes('fitness tracker'))) return 'wearable';
+    if (t.some(x => x.includes('sleep') || x.includes('light therapy') || x.includes('white noise'))) return 'sleep';
+    if (t.some(x => x.includes('book') || x.includes('cbt') || x.includes('neuroplasticity'))) return 'book';
+    if (t.some(x => x.includes('blood pressure') || x.includes('pulse oximeter') || x.includes('heart rate') || x.includes('hrv') || x.includes('ecg'))) return 'monitor';
+    if (t.some(x => x.includes('foam roller') || x.includes('yoga') || x.includes('resistance') || x.includes('recovery') || x.includes('mobility'))) return 'recovery';
+    if (t.some(x => x.includes('meditation') || x.includes('eeg') || x.includes('biofeedback'))) return 'wellness';
+    return 'other';
+  };
+
+  // Add category to each item
+  CATALOG.forEach(i => { i.category = tagToCategory(i.tags); });
+
   const featured = CATALOG.filter(i => i.featured);
+  const grouped = {};
+  Object.keys(categories).forEach(k => { grouped[k] = CATALOG.filter(i => i.category === k); });
 
   const cardHTML = (i) => {
     const tags = (i.tags || []).map(t => `<span class="mp-tag">${esc(t)}</span>`).join('');
-    const clinicalBadge = i.clinical
-      ? `<span class="mp-clinical-badge" title="Needs clinician review">🩺 Clinician review</span>`
+    const sellerBadge = i.seller
+      ? `<span class="mp-seller-badge" title="Listed by ${esc(i.seller.display_name)}">👤 ${esc(i.seller.display_name)}</span>`
       : '';
-    const hasExternal = i.external_url && !i.clinical;
-    const cta = i.clinical
-      ? `<button class="mp-cta mp-cta--clinical" data-mp-request="${esc(i.id)}">Request via care team</button>`
-      : (hasExternal
-        ? `<button class="mp-cta mp-cta--buy" data-mp-buy="${esc(i.id)}">Buy · ${esc(i.price)}${esc(i.priceUnit || '')}</button>`
-        : `<button class="mp-cta mp-cta--buy" data-mp-buy="${esc(i.id)}">Get · ${esc(i.price)}${esc(i.priceUnit || '')}</button>`);
-    const price = `<div class="mp-price">${esc(i.price)}${i.priceUnit ? ' <span class="mp-price-unit">' + esc(i.priceUnit) + '</span>' : ''}</div>`;
+    const amazonBadge = i.external_url && i.external_url.includes('amazon')
+      ? `<span class="mp-amazon-badge">🛒 Amazon</span>`
+      : '';
+    const cta = i.external_url
+      ? `<button class="mp-cta mp-cta--amazon" data-mp-buy="${esc(i.id)}">View on Amazon · ${esc(i.price)}</button>`
+      : `<button class="mp-cta mp-cta--buy" data-mp-buy="${esc(i.id)}">${esc(i.price)}</button>`;
+    const price = `<div class="mp-price">${esc(i.price)}</div>`;
     return `
       <article class="mp-card" data-kind="${esc(i.kind)}" data-id="${esc(i.id)}">
         <div class="mp-card-top">
@@ -9615,7 +9635,6 @@ export async function pgPatientMarketplace(_user) {
           <div class="mp-card-main">
             <div class="mp-card-head">
               <h4 class="mp-card-name">${esc(i.name)}</h4>
-              ${clinicalBadge}
             </div>
             <div class="mp-card-provider">${esc(i.provider)}</div>
           </div>
@@ -9623,6 +9642,7 @@ export async function pgPatientMarketplace(_user) {
         </div>
         <p class="mp-card-desc">${esc(i.desc)}</p>
         <div class="mp-tags">${tags}</div>
+        <div class="mp-card-badges">${amazonBadge}${sellerBadge}</div>
         <div class="mp-card-actions">
           ${cta}
           <button class="mp-cta mp-cta--ghost" data-mp-details="${esc(i.id)}">Details</button>
@@ -9630,53 +9650,59 @@ export async function pgPatientMarketplace(_user) {
       </article>`;
   };
 
-  const sectionHTML = (kind, items) => {
-    const meta = kindMeta[kind];
+  const sectionHTML = (catKey, items) => {
+    const meta = categories[catKey];
     return `
-      <section class="mp-section" id="mp-section-${esc(kind)}">
+      <section class="mp-section" id="mp-section-${esc(catKey)}">
         <div class="mp-section-head">
           <span class="pt-page-tile pt-nav-tile--${esc(meta.tone)} mp-section-ico" aria-hidden="true">${meta.icon}</span>
           <div>
             <h3 class="mp-section-title">${esc(meta.label)} <span class="mp-section-count">${items.length}</span></h3>
-            <p class="mp-section-sub">${esc(meta.sub)}</p>
           </div>
         </div>
         <div class="mp-grid">${items.map(cardHTML).join('')}</div>
       </section>`;
   };
 
+  const categoryChips = Object.entries(categories).map(([key, meta]) => {
+    const count = CATALOG.filter(i => i.category === key).length;
+    return `<button class="mp-filter-chip" data-mp-filter="${esc(key)}" role="tab" aria-selected="false">${meta.icon} ${esc(meta.label)} <span class="mp-filter-count">${count}</span></button>`;
+  }).join('');
+
   el.innerHTML = `
     <div class="mp-wrap">
       <header class="mp-hero">
         <div class="mp-hero-body">
           <div class="mp-hero-eyebrow">Marketplace</div>
-          <h2 class="mp-hero-title">Curated services, devices, and software for your care plan</h2>
-          <p class="mp-hero-desc">Every item has been reviewed by the DeepSynaps clinical team. Anything marked <span class="mp-clinical-badge mp-clinical-badge--inline">🩺 Clinician review</span> must be approved by your care team before it ships or activates.</p>
+          <h2 class="mp-hero-title">Real products for your brain health journey</h2>
+          <p class="mp-hero-desc">Every item links directly to Amazon — buy with confidence. Sellers can also list their own products.</p>
         </div>
         <div class="mp-hero-stats">
-          <div class="mp-stat"><div class="mp-stat-num">${services.length}</div><div class="mp-stat-lbl">Services</div></div>
-          <div class="mp-stat"><div class="mp-stat-num">${devices.length}</div><div class="mp-stat-lbl">Devices</div></div>
-          <div class="mp-stat"><div class="mp-stat-num">${software.length}</div><div class="mp-stat-lbl">Software</div></div>
+          <div class="mp-stat"><div class="mp-stat-num">${CATALOG.length}</div><div class="mp-stat-lbl">Products</div></div>
+          <div class="mp-stat"><div class="mp-stat-num">${CATALOG.filter(i => i.external_url && i.external_url.includes('amazon')).length}</div><div class="mp-stat-lbl">Amazon</div></div>
         </div>
       </header>
 
+      <div class="mp-seller-bar">
+        <button class="mp-cta mp-cta--sell" id="mp-become-seller">🚀 Sell your product</button>
+        <button class="mp-cta mp-cta--ghost" id="mp-my-listings">My listings</button>
+      </div>
+
       ${!apiOk ? `<div class="mp-disclaimer" style="background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.25)">
         <span aria-hidden="true">⚡</span>
-        <div><strong>Offline mode.</strong> Showing cached catalog. Connect to the server for the latest items and to place orders.</div>
+        <div><strong>Offline mode.</strong> Showing cached catalog. Connect to the server for the latest items.</div>
       </div>` : ''}
 
       <div class="mp-disclaimer">
         <span aria-hidden="true">ℹ️</span>
         <div>
-          <strong>Not medical advice.</strong> The items here complement your DeepSynaps care plan — they do not replace it. Talk to your care team before starting anything new, especially home-use devices or prescription software.
+          <strong>Amazon Affiliate Disclosure.</strong> As an Amazon Associate we earn from qualifying purchases. Product prices and availability are accurate as of the time of listing and are subject to change.
         </div>
       </div>
 
-      <nav class="mp-filter" role="tablist" aria-label="Filter marketplace by type">
-        <button class="mp-filter-chip active" data-mp-filter="all"       role="tab" aria-selected="true">All <span class="mp-filter-count">${CATALOG.length}</span></button>
-        <button class="mp-filter-chip"         data-mp-filter="service"  role="tab" aria-selected="false">Services <span class="mp-filter-count">${services.length}</span></button>
-        <button class="mp-filter-chip"         data-mp-filter="device"   role="tab" aria-selected="false">Devices <span class="mp-filter-count">${devices.length}</span></button>
-        <button class="mp-filter-chip"         data-mp-filter="software" role="tab" aria-selected="false">Software <span class="mp-filter-count">${software.length}</span></button>
+      <nav class="mp-filter" role="tablist" aria-label="Filter marketplace by category">
+        <button class="mp-filter-chip active" data-mp-filter="all" role="tab" aria-selected="true">All <span class="mp-filter-count">${CATALOG.length}</span></button>
+        ${categoryChips}
       </nav>
 
       ${featured.length > 0 ? `
@@ -9685,15 +9711,13 @@ export async function pgPatientMarketplace(_user) {
             <span class="pt-page-tile pt-nav-tile--amber mp-section-ico" aria-hidden="true">⭐</span>
             <div>
               <h3 class="mp-section-title">Featured</h3>
-              <p class="mp-section-sub">This month's picks from the DeepSynaps clinical team.</p>
+              <p class="mp-section-sub">Top-rated picks for brain health and wellness.</p>
             </div>
           </div>
           <div class="mp-grid">${featured.map(cardHTML).join('')}</div>
         </section>` : ''}
 
-      ${sectionHTML('service', services)}
-      ${sectionHTML('device', devices)}
-      ${sectionHTML('software', software)}
+      ${Object.entries(grouped).filter(([_, items]) => items.length > 0).map(([k, items]) => sectionHTML(k, items)).join('')}
 
       <div class="mp-toast" id="mp-toast"><span id="mp-toast-text">Added</span></div>
     </div>
@@ -9717,6 +9741,158 @@ function _wireMarketplace(CATALOG) {
     toastTimer = setTimeout(() => toast.classList.remove('show'), 2400);
   }
 
+  // ── Seller UI ──
+  const becomeSellerBtn = document.getElementById('mp-become-seller');
+  const myListingsBtn = document.getElementById('mp-my-listings');
+  if (becomeSellerBtn) {
+    becomeSellerBtn.addEventListener('click', () => {
+      _showSellerForm();
+    });
+  }
+  if (myListingsBtn) {
+    myListingsBtn.addEventListener('click', () => {
+      _showMyListings();
+    });
+  }
+
+  function _showSellerForm() {
+    const existing = document.getElementById('mp-seller-panel');
+    if (existing) { existing.remove(); return; }
+    const panel = document.createElement('div');
+    panel.id = 'mp-seller-panel';
+    panel.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px';
+    panel.innerHTML = `
+      <div style="background:var(--navy-850,#0f172a);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:16px;max-width:520px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 16px 48px rgba(0,0,0,.5)">
+        <div style="padding:20px 20px 12px;display:flex;align-items:center;justify-content:space-between">
+          <h3 style="margin:0;font-size:17px;font-weight:600;color:var(--text-primary)">🚀 List your product</h3>
+          <button id="mp-seller-close" style="background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:20px;line-height:1;padding:4px">×</button>
+        </div>
+        <div style="padding:0 20px 20px">
+          <form id="mp-seller-form" style="display:flex;flex-direction:column;gap:12px">
+            <input type="text" name="name" placeholder="Product name" required maxlength="255" style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900);color:var(--text-primary);font-size:13px">
+            <input type="text" name="provider" placeholder="Brand / Provider" required maxlength="255" style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900);color:var(--text-primary);font-size:13px">
+            <textarea name="description" placeholder="Description" rows="3" maxlength="2000" style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900);color:var(--text-primary);font-size:13px;resize:vertical"></textarea>
+            <div style="display:flex;gap:8px">
+              <input type="number" name="price" placeholder="Price (USD)" step="0.01" min="0" style="flex:1;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900);color:var(--text-primary);font-size:13px">
+              <input type="text" name="tags" placeholder="Tags (comma separated)" style="flex:2;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900);color:var(--text-primary);font-size:13px">
+            </div>
+            <input type="url" name="external_url" placeholder="Amazon product URL" required maxlength="512" style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900);color:var(--text-primary);font-size:13px">
+            <div style="font-size:11px;color:var(--text-tertiary)">🔗 Only Amazon product links are accepted. Make sure the URL starts with https://www.amazon.com/</div>
+            <button type="submit" class="mp-cta mp-cta--buy" style="margin-top:4px">List Product</button>
+          </form>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(panel);
+    panel.addEventListener('click', (e) => {
+      if (e.target === panel || e.target.id === 'mp-seller-close') panel.remove();
+    });
+    panel.querySelector('#mp-seller-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const data = {
+        name: fd.get('name').trim(),
+        provider: fd.get('provider').trim(),
+        description: fd.get('description').trim(),
+        price: fd.get('price') ? parseFloat(fd.get('price')) : null,
+        price_unit: 'USD',
+        tags: fd.get('tags').split(',').map(t => t.trim()).filter(Boolean),
+        external_url: fd.get('external_url').trim(),
+        kind: 'product',
+      };
+      if (!data.external_url.includes('amazon')) {
+        mpToast('Please provide a valid Amazon URL');
+        return;
+      }
+      try {
+        await api.marketplaceSellerCreateItem(data);
+        mpToast('Product listed successfully!');
+        panel.remove();
+      } catch (err) {
+        mpToast(`Failed: ${err.message || 'try again'}`);
+      }
+    });
+  }
+
+  async function _showMyListings() {
+    const existing = document.getElementById('mp-seller-panel');
+    if (existing) { existing.remove(); return; }
+    const panel = document.createElement('div');
+    panel.id = 'mp-seller-panel';
+    panel.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px';
+    let itemsHtml = '<div style="padding:40px;text-align:center;color:var(--text-tertiary)">Loading...</div>';
+    panel.innerHTML = `
+      <div style="background:var(--navy-850,#0f172a);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:16px;max-width:600px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 16px 48px rgba(0,0,0,.5)">
+        <div style="padding:20px 20px 12px;display:flex;align-items:center;justify-content:space-between">
+          <h3 style="margin:0;font-size:17px;font-weight:600;color:var(--text-primary)">📦 My Listings</h3>
+          <button id="mp-seller-close" style="background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:20px;line-height:1;padding:4px">×</button>
+        </div>
+        <div id="mp-my-listings-content">${itemsHtml}</div>
+      </div>
+    `;
+    document.body.appendChild(panel);
+    panel.addEventListener('click', (e) => {
+      if (e.target === panel || e.target.id === 'mp-seller-close') panel.remove();
+    });
+    try {
+      const data = await api.marketplaceSellerMyItems();
+      const items = (data && data.items) || [];
+      if (items.length === 0) {
+        itemsHtml = '<div style="padding:40px;text-align:center;color:var(--text-tertiary)">You have no listings yet.<br><button class="mp-cta mp-cta--buy" id="mp-listing-create-first" style="margin-top:16px">Create your first listing</button></div>';
+      } else {
+        itemsHtml = items.map(it => `
+          <div style="padding:12px 20px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between;gap:12px">
+            <div style="min-width:0">
+              <div style="font-weight:500;color:var(--text-primary);font-size:13px">${esc(it.name)}</div>
+              <div style="font-size:12px;color:var(--text-secondary)">${esc(it.provider)} · ${it.active ? '<span style="color:#34d399">Active</span>' : '<span style="color:#fb7185">Inactive</span>'}</div>
+            </div>
+            <div style="display:flex;gap:8px;flex-shrink:0">
+              <button class="mp-cta mp-cta--ghost mp-toggle-listing" data-id="${esc(it.id)}" style="padding:4px 10px;font-size:12px">${it.active ? 'Pause' : 'Resume'}</button>
+              <button class="mp-cta mp-cta--ghost mp-delete-listing" data-id="${esc(it.id)}" style="padding:4px 10px;font-size:12px;color:#fb7185">Delete</button>
+            </div>
+          </div>
+        `).join('');
+      }
+      document.getElementById('mp-my-listings-content').innerHTML = itemsHtml;
+      panel.querySelectorAll('.mp-toggle-listing').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.id;
+          try {
+            await api.marketplaceSellerUpdateItem(id, { active: btn.textContent === 'Pause' ? false : true });
+            mpToast('Listing updated');
+            _showMyListings();
+            panel.remove();
+          } catch (err) {
+            mpToast('Update failed');
+          }
+        });
+      });
+      panel.querySelectorAll('.mp-delete-listing').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.id;
+          if (!confirm('Delete this listing?')) return;
+          try {
+            await api.marketplaceSellerDeleteItem(id);
+            mpToast('Listing deleted');
+            _showMyListings();
+            panel.remove();
+          } catch (err) {
+            mpToast('Delete failed');
+          }
+        });
+      });
+      const createFirstBtn = document.getElementById('mp-listing-create-first');
+      if (createFirstBtn) {
+        createFirstBtn.addEventListener('click', () => {
+          panel.remove();
+          _showSellerForm();
+        });
+      }
+    } catch (err) {
+      document.getElementById('mp-my-listings-content').innerHTML = '<div style="padding:40px;text-align:center;color:#fb7185">Failed to load listings. Make sure you are logged in.</div>';
+    }
+  }
+
   // ── Details modal ──
   function showDetails(id) {
     const item = CATALOG.find(c => c.id === id);
@@ -9725,11 +9901,14 @@ function _wireMarketplace(CATALOG) {
     if (existing) existing.remove();
 
     const tags = (item.tags || []).map(t => `<span class="mp-tag">${esc(t)}</span>`).join('');
-    const externalSection = item.external_url && !item.clinical
+    const amazonSection = item.external_url && item.external_url.includes('amazon')
       ? `<div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08)">
-          <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:8px">External purchase link</div>
-          <a href="${esc(item.external_url)}" target="_blank" rel="noopener noreferrer" class="mp-cta mp-cta--buy" style="display:inline-block;text-decoration:none">Open ${esc(item.provider)} ↗</a>
+          <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:8px">Buy on Amazon</div>
+          <a href="${esc(item.external_url)}" target="_blank" rel="noopener noreferrer" class="mp-cta mp-cta--amazon" style="display:inline-block;text-decoration:none">🛒 View on Amazon · ${esc(item.price)}</a>
          </div>`
+      : '';
+    const sellerSection = item.seller
+      ? `<div style="margin-top:12px;font-size:12px;color:var(--text-secondary)">Listed by <strong style="color:var(--text-primary)">${esc(item.seller.display_name)}</strong></div>`
       : '';
 
     const panel = document.createElement('div');
@@ -9748,8 +9927,8 @@ function _wireMarketplace(CATALOG) {
         <div style="padding:0 20px 20px">
           <p style="margin:0 0 12px;font-size:13.5px;line-height:1.6;color:var(--text-secondary)">${esc(item.desc)}</p>
           <div class="mp-tags">${tags}</div>
-          ${item.clinical ? '<div style="margin-top:12px;font-size:12px;color:#fbbf24">🩺 This item requires clinician review before it can be requested.</div>' : ''}
-          ${externalSection}
+          ${sellerSection}
+          ${amazonSection}
         </div>
       </div>
     `;
@@ -9772,43 +9951,23 @@ function _wireMarketplace(CATALOG) {
       });
       root.querySelectorAll('.mp-section').forEach(sec => {
         if (sec.id === 'mp-section-featured') { sec.style.display = ''; return; }
-        const kind = sec.id.replace('mp-section-', '');
-        sec.style.display = (f === 'all' || f === kind) ? '' : 'none';
+        const cat = sec.id.replace('mp-section-', '');
+        sec.style.display = (f === 'all' || f === cat) ? '' : 'none';
       });
     });
   });
 
-  // ── Buy / External link ──
+  // ── Buy / Amazon link ──
   root.querySelectorAll('[data-mp-buy]').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.mpBuy;
       const item = CATALOG.find(c => c.id === id);
       if (!item) return;
-      if (item.external_url && !item.clinical) {
+      if (item.external_url) {
         window.open(item.external_url, '_blank', 'noopener,noreferrer');
-        mpToast(`Opening ${item.provider}…`);
+        mpToast(`Opening Amazon…`);
       } else {
-        mpToast(`${item.name} · checkout coming soon`);
-      }
-    });
-  });
-
-  // ── Clinical request via care team ──
-  root.querySelectorAll('[data-mp-request]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.dataset.mpRequest;
-      const item = CATALOG.find(c => c.id === id);
-      if (!item) return;
-      btn.disabled = true;
-      btn.textContent = 'Sending…';
-      try {
-        await api.marketplaceCreateOrder({ item_id: item.id, patient_notes: '' });
-        mpToast(`Requested · your care team will review ${item.name}`);
-      } catch (e) {
-        mpToast(`Request failed · ${e.message || 'try again later'}`);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Request via care team';
+        mpToast(`${item.name} · link coming soon`);
       }
     });
   });

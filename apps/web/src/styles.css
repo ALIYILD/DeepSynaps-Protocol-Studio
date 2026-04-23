@@ -24206,6 +24206,46 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   color: rgba(255,255,255,0.7);
 }
 .mp-cta--ghost:hover { color: #fff; background: rgba(255,255,255,0.06); }
+.mp-cta--amazon {
+  background: linear-gradient(135deg, #ff9900, #ff6600);
+  color: #fff; border-color: #ff9900;
+  font-weight: 600;
+}
+.mp-cta--amazon:hover { filter: brightness(1.1); }
+.mp-cta--sell {
+  background: linear-gradient(135deg, #6366f1, #a855f7);
+  color: #fff; border-color: #6366f1;
+  font-weight: 600;
+}
+.mp-cta--sell:hover { filter: brightness(1.1); }
+
+.mp-seller-bar {
+  display: flex; gap: 10px; align-items: center;
+  padding: 14px 18px; margin: 0 0 16px;
+  background: rgba(99,102,241,0.06);
+  border: 1px solid rgba(99,102,241,0.18);
+  border-radius: 12px;
+}
+.mp-seller-bar .mp-cta { flex: 0 0 auto; padding: 8px 16px; }
+
+.mp-card-badges {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin: 8px 0 0;
+}
+.mp-amazon-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 500;
+  padding: 3px 8px; border-radius: 6px;
+  background: rgba(255,153,0,0.12);
+  color: #ff9900; border: 1px solid rgba(255,153,0,0.25);
+}
+.mp-seller-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 500;
+  padding: 3px 8px; border-radius: 6px;
+  background: rgba(99,102,241,0.12);
+  color: #a5b4fc; border: 1px solid rgba(99,102,241,0.25);
+}
 
 .mp-toast {
   position: fixed; left: 50%; bottom: 24px;

@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import MarketplaceItem, MarketplaceOrder, Patient
+from app.persistence.models import MarketplaceItem, MarketplaceOrder, Patient, User
 
 router = APIRouter(prefix="/api/v1/patient-portal/marketplace", tags=["Patient Portal — Marketplace"])
 
@@ -62,7 +62,7 @@ def _require_patient(actor: AuthenticatedActor, db: Session) -> Patient:
     return patient
 
 
-def _item_to_dict(item: MarketplaceItem) -> dict:
+def _item_to_dict(item: MarketplaceItem, seller: Optional[User] = None) -> dict:
     tags = []
     try:
         tags = json.loads(item.tags_json or "[]")
@@ -82,7 +82,12 @@ def _item_to_dict(item: MarketplaceItem) -> dict:
         "clinical": item.clinical,
         "featured": item.featured,
         "active": item.active,
+        "source": item.source,
         "created_by_professional_name": item.created_by_professional_name,
+        "seller": {
+            "id": seller.id,
+            "display_name": seller.display_name,
+        } if seller else None,
         "icon": item.icon,
         "tone": item.tone,
         "created_at": item.created_at.isoformat() if item.created_at else None,
@@ -127,7 +132,9 @@ def list_marketplace_items(
     if clinical is not None:
         query = query.filter(MarketplaceItem.clinical == clinical)
     items = query.order_by(MarketplaceItem.featured.desc(), MarketplaceItem.name.asc()).all()
-    return {"items": [_item_to_dict(i) for i in items]}
+    seller_ids = {i.seller_id for i in items if i.seller_id}
+    sellers = {u.id: u for u in db.query(User).filter(User.id.in_(seller_ids)).all()}
+    return {"items": [_item_to_dict(i, sellers.get(i.seller_id)) for i in items]}
 
 
 @router.get("/items/{item_id}")
@@ -142,7 +149,8 @@ def get_marketplace_item(
     ).first()
     if item is None:
         raise ApiServiceError(code="not_found", message="Item not found.", status_code=404)
-    return {"item": _item_to_dict(item)}
+    seller = db.query(User).filter(User.id == item.seller_id).first() if item.seller_id else None
+    return {"item": _item_to_dict(item, seller)}
 
 
 @router.post("/orders", status_code=201)
