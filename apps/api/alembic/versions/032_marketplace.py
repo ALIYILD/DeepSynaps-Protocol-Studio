@@ -34,11 +34,13 @@ def upgrade() -> None:
         sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.text("1")),
         sa.Column("created_by_clinician_id", sa.String(64), nullable=True, index=True),
         sa.Column("created_by_professional_name", sa.String(255), nullable=True),
+        sa.Column("seller_id", sa.String(36), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True),
+        sa.Column("source", sa.String(30), nullable=False, server_default="deepsynaps_curated"),
         sa.Column("icon", sa.String(10), nullable=True),
         sa.Column("tone", sa.String(20), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
-        sa.CheckConstraint("kind IN ('service','device','software')", name="ck_marketplace_items_kind"),
+        sa.CheckConstraint("kind IN ('product','service','device','software')", name="ck_marketplace_items_kind"),
     )
     op.create_table(
         "marketplace_orders",

@@ -1565,13 +1565,16 @@ class MarketplaceItem(Base):
     # Professional / seller who created this item
     created_by_clinician_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     created_by_professional_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Seller (user) who listed this product
+    seller_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    source: Mapped[str] = mapped_column(String(30), nullable=False, default="deepsynaps_curated")  # deepsynaps_curated | seller_listed
     icon: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     tone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
-        CheckConstraint("kind IN ('service','device','software')", name='ck_marketplace_items_kind'),
+        CheckConstraint("kind IN ('product','service','device','software')", name='ck_marketplace_items_kind'),
     )
 
 

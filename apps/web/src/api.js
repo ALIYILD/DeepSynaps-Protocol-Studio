@@ -1070,6 +1070,16 @@ export const api = {
     apiFetch('/api/v1/patient-portal/marketplace/orders', { method: 'POST', body: JSON.stringify(data) }),
   marketplaceMyOrders: () => apiFetch('/api/v1/patient-portal/marketplace/my-orders'),
 
+  // ── Marketplace Seller ────────────────────────────────────────────────────
+  marketplaceSellerMe: () => apiFetch('/api/v1/marketplace/seller/me'),
+  marketplaceSellerCreateItem: (data) =>
+    apiFetch('/api/v1/marketplace/seller/items', { method: 'POST', body: JSON.stringify(data) }),
+  marketplaceSellerMyItems: () => apiFetch('/api/v1/marketplace/seller/my-items'),
+  marketplaceSellerUpdateItem: (id, data) =>
+    apiFetch(`/api/v1/marketplace/seller/items/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  marketplaceSellerDeleteItem: (id) =>
+    apiFetch(`/api/v1/marketplace/seller/items/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
   // ── Notifications ─────────────────────────────────────────────────────────
   patientPortalNotifications: () => apiFetch('/api/v1/patient-portal/notifications'),
   patientPortalMarkNotificationRead: (id) =>
