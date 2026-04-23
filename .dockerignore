@@ -17,7 +17,10 @@ data/*.db
 data/*.db-journal
 data/evidence-matrix/*.xlsx
 data/snapshots/**/*.json
-data/imports/**/*.csv
+# Allow clinical-database CSVs required for app startup
+!data/imports/clinical-database/# Removed global **/*.csv exclusion — clinical-database/*.csv files are tiny
+# (<50KB each) and required for app startup. Re-add only if specific large
+# CSVs appear in the repo.
 services/evidence-pipeline/__pycache__/
 Desktop/ds-worktrees/
 e2e/
