@@ -11,8 +11,14 @@ apps/web/dist
 .env
 .env.*
 # Large data dirs not needed by the API container
-data/
-services/evidence-pipeline/
+# data/ and services/evidence-pipeline/ are small (~5MB) and required by Dockerfile
+# Keep exclusions for truly large/generated artifacts:
+data/*.db
+data/*.db-journal
+data/evidence-matrix/*.xlsx
+data/snapshots/**/*.json
+data/imports/**/*.csv
+services/evidence-pipeline/__pycache__/
 Desktop/ds-worktrees/
 e2e/
 docs/
