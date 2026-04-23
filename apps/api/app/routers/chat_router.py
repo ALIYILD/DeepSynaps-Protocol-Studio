@@ -164,6 +164,55 @@ def clinician_chat(
             )
         except Exception:
             patient_context = None  # chat continues without snapshot
+        # Append latest qEEG analysis summary if available
+        try:
+            from app.persistence.models import QEEGAnalysis
+            latest_qeeg = (
+                db.query(QEEGAnalysis)
+                .filter(QEEGAnalysis.patient_id == body.patient_id, QEEGAnalysis.analysis_status == "completed")
+                .order_by(QEEGAnalysis.analyzed_at.desc())
+                .first()
+            )
+            if latest_qeeg and latest_qeeg.band_powers_json:
+                bp = latest_qeeg.band_powers_json
+                ratios = bp.get("derived_ratios", {})
+                qeeg_lines = ["\n=== Latest qEEG Analysis ==="]
+                qeeg_lines.append(f"Analyzed: {latest_qeeg.analyzed_at}")
+                qeeg_lines.append(f"Channels: {latest_qeeg.channels_used}, Sample rate: {latest_qeeg.sample_rate_hz} Hz")
+                if ratios.get("theta_beta_ratio") is not None:
+                    qeeg_lines.append(f"Theta/Beta ratio: {ratios['theta_beta_ratio']:.2f}")
+                if ratios.get("frontal_alpha_asymmetry") is not None:
+                    qeeg_lines.append(f"Frontal alpha asymmetry: {ratios['frontal_alpha_asymmetry']:.3f}")
+                if ratios.get("alpha_peak_frequency_hz") is not None:
+                    qeeg_lines.append(f"Alpha peak frequency: {ratios['alpha_peak_frequency_hz']:.1f} Hz")
+                if ratios.get("delta_alpha_ratio") is not None:
+                    qeeg_lines.append(f"Delta/Alpha ratio: {ratios['delta_alpha_ratio']:.2f}")
+                summary = bp.get("global_summary", {})
+                if summary:
+                    dom = summary.get("dominant_band", "N/A")
+                    qeeg_lines.append(f"Dominant band: {dom}")
+                patient_context = (patient_context or "") + "\n".join(qeeg_lines)
+        except Exception:
+            pass  # qEEG context is optional enrichment
+        # Append risk stratification profile if available
+        try:
+            from app.persistence.models import RiskStratificationResult
+            risk_rows = (
+                db.query(RiskStratificationResult)
+                .filter(RiskStratificationResult.patient_id == body.patient_id)
+                .all()
+            )
+            if risk_rows:
+                _level_labels = {"red": "HIGH RISK", "amber": "MODERATE", "green": "LOW", "grey": "NO DATA"}
+                risk_lines = ["\n=== Risk Stratification (Traffic Lights) ==="]
+                for r in risk_rows:
+                    effective = r.override_level or r.level
+                    risk_lines.append(f"  {r.category.replace('_', ' ').title()}: {_level_labels.get(effective, effective)} ({r.confidence})")
+                    if effective in ("red", "amber") and r.rationale:
+                        risk_lines.append(f"    Rationale: {r.rationale[:200]}")
+                patient_context = (patient_context or "") + "\n".join(risk_lines)
+        except Exception:
+            pass  # risk context is optional enrichment
     reply = chat_clinician(msgs, patient_context)
     return ChatResponse(reply=reply)
 

@@ -750,13 +750,14 @@ window._agentSend = async function(agent) {
   try {
     if (agent === 'clinician') {
       // Fetch all clinic data in parallel for full situational awareness
-      const [patientsRes, coursesRes, reviewRes, aeRes, outcomesRes, tasksLocal] = await Promise.all([
+      const [patientsRes, coursesRes, reviewRes, aeRes, outcomesRes, tasksLocal, riskRes] = await Promise.all([
         api.listPatients().catch(() => null),
         api.listCourses().catch(() => null),
         api.listReviewQueue().catch(() => null),
         api.listAdverseEvents().catch(() => null),
         api.aggregateOutcomes().catch(() => null),
         Promise.resolve(_loadTasks()),
+        api.getClinicRiskSummary().catch(() => null),
       ]);
 
       const patients = patientsRes?.items || [];
@@ -764,6 +765,7 @@ window._agentSend = async function(agent) {
       const reviewQueue = reviewRes?.items || [];
       const adverseEvents = aeRes?.items || [];
       const outcomes = outcomesRes || {};
+      const riskPatients = riskRes?.patients || [];
 
       // Build a comprehensive clinic snapshot
       const activeCourses = courses.filter(c => c.status === 'active');
@@ -778,6 +780,8 @@ window._agentSend = async function(agent) {
           pending_reviews: pendingReview.length,
           open_adverse_events: openAEs.length,
           pending_tasks: pendingTasks.length,
+          risk_red_flags: riskPatients.reduce((n, p) => n + (p.categories || []).filter(c => c.level === 'red').length, 0),
+          risk_amber_flags: riskPatients.reduce((n, p) => n + (p.categories || []).filter(c => c.level === 'amber').length, 0),
         },
         patients: patients.slice(0, 50).map(p => ({
           id: p.id, name: p.name || p.full_name, condition: p.condition || p.primary_condition,
@@ -792,8 +796,12 @@ window._agentSend = async function(agent) {
         })),
         outcomes_summary: outcomes,
         agent_tasks: pendingTasks.map(t => ({ title: t.title, patient: t.patient, due: t.due, status: t.status })),
+        risk_stratification: riskPatients.filter(p => (p.categories || []).some(c => c.level === 'red' || c.level === 'amber')).slice(0, 20).map(p => ({
+          patient: p.patient_name || p.patient_id,
+          flags: (p.categories || []).filter(c => c.level === 'red' || c.level === 'amber').map(c => ({ category: c.category, level: c.level })),
+        })),
         today: new Date().toISOString().split('T')[0],
-        instructions: 'You are a clinic AI receptionist. You have full access to the clinic data above. Answer questions, create tasks (prefix with TASK:), and help manage day-to-day clinic operations. Be specific — use patient names, real data, and actionable advice.',
+        instructions: 'You are a clinic AI receptionist. You have full access to the clinic data above, including risk stratification flags (red=high risk, amber=moderate, green=safe). Proactively flag patients with red risk levels. Answer questions, create tasks (prefix with TASK:), and help manage day-to-day clinic operations. Be specific — use patient names, real data, and actionable advice.',
       });
     } else {
       // Patient agent — scoped to their own data only

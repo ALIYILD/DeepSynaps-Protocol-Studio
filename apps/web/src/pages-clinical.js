@@ -943,6 +943,16 @@ export async function pgDash(setTopbar, navigate) {
     `Wearable alerts: ${wearableAlertCount} (${wearableUrgentCount} urgent); media items needing attention: ${mediaNeedsAttention.length}`,
     `Patients flagged for attention: ${patientsNeedingAttention.length}`,
     `Today's clinic queue (courses): ${clinicQueue.length}`,
+    // Risk stratification summary
+    `Risk stratification: ${_totalRed} red flags, ${_totalAmber} amber flags across ${riskSummaryData.length} patients`,
+    ...(riskSummaryData.filter(p => (p.categories || []).some(c => c.level === 'red')).map(p => {
+      const reds = (p.categories || []).filter(c => c.level === 'red').map(c => c.category.replace(/_/g, ' ')).join(', ');
+      return `  RED risk: ${p.patient_name || p.patient_id} — ${reds}`;
+    })),
+    ...(riskSummaryData.filter(p => (p.categories || []).some(c => c.level === 'amber') && !(p.categories || []).some(c => c.level === 'red')).slice(0, 5).map(p => {
+      const ambers = (p.categories || []).filter(c => c.level === 'amber').map(c => c.category.replace(/_/g, ' ')).join(', ');
+      return `  AMBER risk: ${p.patient_name || p.patient_id} — ${ambers}`;
+    })),
   ].join('\n');
 
   const _dashPrompts = [
@@ -2981,12 +2991,13 @@ export async function pgProfile(setTopbar, navigate) {
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
-  let pt = null, sessions = [], courses = [];
+  let pt = null, sessions = [], courses = [], riskProfile = null;
   try {
-    [pt, sessions, courses] = await Promise.all([
+    [pt, sessions, courses, riskProfile] = await Promise.all([
       api.getPatient(id),
       api.listSessions(id).then(r => r?.items || []).catch(() => []),
       api.listCourses({ patient_id: id }).then(r => r?.items || []).catch(() => []),
+      api.getPatientRiskProfile(id).catch(() => null),
     ]);
   } catch {}
 
@@ -3020,6 +3031,20 @@ export async function pgProfile(setTopbar, navigate) {
             ? '<span class="tag" style="color:var(--green);border-color:rgba(34,197,94,0.3)">✓ Consent on File</span>'
             : '<span class="tag" style="color:var(--amber);border-color:rgba(255,181,71,0.4);cursor:pointer" onclick="window.switchPT(\'consent\')" title="Click to manage consent">⚠ Consent Required</span>'}
         </div>
+        ${(() => {
+          const cats = riskProfile?.categories || [];
+          if (cats.length === 0) return '';
+          const _rlColor = l => ({ red: 'var(--red)', amber: 'var(--amber)', green: 'var(--teal)', grey: 'var(--text-tertiary)' }[l] || 'var(--text-tertiary)');
+          const _rlBg = l => ({ red: 'rgba(239,68,68,0.12)', amber: 'rgba(245,158,11,0.12)', green: 'rgba(0,212,188,0.10)', grey: 'rgba(128,128,128,0.08)' }[l] || 'rgba(128,128,128,0.08)');
+          const _catShort = { suicide_risk: 'Suicide', self_harm: 'Self-Harm', mental_crisis: 'Crisis', harm_to_others: 'Harm', allergy: 'Allergy', seizure_risk: 'Seizure', implant_risk: 'Implant', medication_interaction: 'Meds' };
+          return `<div style="display:flex;gap:5px;margin-top:10px;flex-wrap:wrap;align-items:center">
+            <span style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-right:4px">Risk</span>
+            ${cats.map(c => {
+              const lev = c.override_level || c.level || 'grey';
+              return `<span title="${_catShort[c.category] || c.category}: ${lev}${c.confidence === 'no_data' ? ' (no data)' : ''}" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;font-size:10px;font-weight:500;background:${_rlBg(lev)};color:${_rlColor(lev)}"><span style="width:7px;height:7px;border-radius:50%;background:${_rlColor(lev)};display:inline-block"></span>${_catShort[c.category] || c.category}</span>`;
+            }).join('')}
+          </div>`;
+        })()}
       </div>
       <div style="text-align:right">
         ${pillSt(pt.status || 'pending')}

@@ -2,11 +2,11 @@
 
 Endpoints
 ---------
-GET    /api/v1/risk-stratification/patient/{patient_id}                  — full 8-category profile
-GET    /api/v1/risk-stratification/clinic/summary                        — all patients risk overview
-POST   /api/v1/risk-stratification/patient/{patient_id}/{category}/override — clinician override
-POST   /api/v1/risk-stratification/patient/{patient_id}/recompute        — force recompute
-GET    /api/v1/risk-stratification/patient/{patient_id}/audit            — audit trail
+GET    /api/v1/risk/patient/{patient_id}                  — full 8-category profile
+GET    /api/v1/risk/clinic/summary                        — all patients risk overview
+POST   /api/v1/risk/patient/{patient_id}/{category}/override — clinician override
+POST   /api/v1/risk/patient/{patient_id}/recompute        — force recompute
+GET    /api/v1/risk/patient/{patient_id}/audit            — audit trail
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ from app.persistence.models import (
 from app.services.risk_evidence_map import RISK_CATEGORIES, RISK_CATEGORY_LABELS
 from app.services.risk_stratification import compute_risk_profile, recompute_categories
 
-router = APIRouter(prefix="/api/v1/risk-stratification", tags=["Risk Stratification"])
+router = APIRouter(prefix="/api/v1/risk", tags=["Risk Stratification"])
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
