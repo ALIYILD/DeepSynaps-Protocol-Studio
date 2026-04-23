@@ -22,3 +22,9 @@ docs/
 *.md
 **/*.ipynb
 **/*.json.gz
+
+# Explicitly include clinical database CSVs required for app startup
+!data/
+!data/imports/
+!data/imports/clinical-database/
+!data/imports/clinical-database/*.csv
