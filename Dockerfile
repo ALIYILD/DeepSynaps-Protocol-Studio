@@ -23,6 +23,7 @@ COPY packages ./packages
 COPY apps/api ./apps/api
 COPY pyproject.toml ./
 COPY data ./data
+# Cache-bust: include clinical-database CSVs
 
 # Evidence pipeline (pure-Python stdlib). The SQLite evidence.db itself is
 # gitignored and lives on the persistent /data volume (EVIDENCE_DB_PATH).
