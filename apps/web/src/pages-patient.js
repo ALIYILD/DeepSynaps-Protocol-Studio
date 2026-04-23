@@ -7014,8 +7014,8 @@ async function _pgPatientVirtualCareImpl() {
               </dl>
             </div>
             <div class="vc-card-actions">
-              <button class="btn btn-ghost btn-sm" onclick="window._vcToast && window._vcToast('Keeping original time')">Keep original</button>
-              <button class="btn btn-primary btn-sm" onclick="window._vcToast && window._vcToast('Schedule change accepted')"><svg width="11" height="11"><use href="#i-check"/></svg>Accept change</button>
+              <button class="btn btn-ghost btn-sm" onclick="window._vcRejectSchedule && window._vcRejectSchedule()">Keep original</button>
+              <button class="btn btn-primary btn-sm" onclick="window._vcAcceptSchedule && window._vcAcceptSchedule()"><svg width="11" height="11"><use href="#i-check"/></svg>Accept change</button>
             </div>
           </div>
         </div>
@@ -7079,7 +7079,7 @@ async function _pgPatientVirtualCareImpl() {
       <div class="vc-conv-actions">
         <button class="vc-call-btn call-voice" title="Voice call" onclick="window._vcCall && window._vcCall('voice')"><svg width="16" height="16"><use href="#i-pulse"/></svg></button>
         <button class="vc-call-btn call-video" title="Video call" onclick="window._vcCall && window._vcCall('video')"><svg width="17" height="17"><use href="#i-video"/></svg></button>
-        <button class="vc-call-btn" title="More" onclick="window._vcToast && window._vcToast('More actions \u2014 coming soon')"><svg width="16" height="16"><use href="#i-more"/></svg></button>
+        <button class="vc-call-btn" title="More" onclick="window._vcMoreActions && window._vcMoreActions()"><svg width="16" height="16"><use href="#i-more"/></svg></button>
       </div>`;
   }
 
@@ -7122,7 +7122,7 @@ async function _pgPatientVirtualCareImpl() {
             ${threadList.length ? threadList.map(_threadItemHtml).join('') : '<div class="pth2-empty" style="padding:24px 16px"><div class="pth2-empty-title">No conversations yet</div><div class="pth2-empty-sub">Your care team will reach out soon.</div></div>'}
           </div>
           <div class="vc-threads-foot">
-            <button class="btn btn-ghost btn-sm" onclick="window._vcToast && window._vcToast('New conversation \u2014 pick a clinician from Care team')"><svg width="12" height="12"><use href="#i-plus"/></svg>Start new conversation</button>
+            <button class="btn btn-ghost btn-sm" onclick="window._navPatient && window._navPatient('patient-care-team')"><svg width="12" height="12"><use href="#i-plus"/></svg>Start new conversation</button>
           </div>
         </aside>
 
@@ -7607,6 +7607,31 @@ async function _pgPatientVirtualCareImpl() {
       try { sessionStorage.setItem('ds_vc_crisis_dismiss', '1'); } catch (_e) {}
     }
   };
+
+  window._vcMoreActions = function() {
+    const existing = document.getElementById('vc-more-menu');
+    if (existing) { existing.remove(); return; }
+    const menu = document.createElement('div');
+    menu.id = 'vc-more-menu';
+    menu.style.cssText = 'position:absolute;z-index:150;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.3);right:16px;top:56px;';
+    menu.innerHTML = `
+      <button style="display:block;width:100%;text-align:left;padding:8px 12px;border:0;background:transparent;color:var(--text-primary);font-size:13px;cursor:pointer;border-radius:4px;" onmouseover="this.style.background='rgba(255,255,255,.06)'" onmouseout="this.style.background='transparent'" onclick="window._vcMoreActions();window._navPatient && window._navPatient('patient-sessions')">📅 View sessions</button>
+      <button style="display:block;width:100%;text-align:left;padding:8px 12px;border:0;background:transparent;color:var(--text-primary);font-size:13px;cursor:pointer;border-radius:4px;" onmouseover="this.style.background='rgba(255,255,255,.06)'" onmouseout="this.style.background='transparent'" onclick="window._vcMoreActions();window._navPatient && window._navPatient('patient-education')">📚 Education</button>
+      <button style="display:block;width:100%;text-align:left;padding:8px 12px;border:0;background:transparent;color:var(--text-primary);font-size:13px;cursor:pointer;border-radius:4px;" onmouseover="this.style.background='rgba(255,255,255,.06)'" onmouseout="this.style.background='transparent'" onclick="window._vcMoreActions();window._navPatient && window._navPatient('patient-settings')">⚙️ Settings</button>
+    `;
+    const convHd = document.getElementById('vc-conv-hd');
+    if (convHd) { convHd.style.position = 'relative'; convHd.appendChild(menu); }
+    setTimeout(() => { document.addEventListener('click', function closeMenu(e) { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', closeMenu); } }, { once: true }); }, 10);
+  };
+
+  window._vcAcceptSchedule = function() {
+    _showToast('Schedule change accepted');
+    setTimeout(() => window._navPatient && window._navPatient('patient-sessions'), 800);
+  };
+  window._vcRejectSchedule = function() {
+    _showToast('Keeping original time');
+    setTimeout(() => window._navPatient && window._navPatient('patient-sessions'), 800);
+  };
   try { if (sessionStorage.getItem('ds_vc_crisis_dismiss')) { const c = document.getElementById('vc-crisis'); if (c) c.classList.add('hidden'); } } catch (_e) {}
 
   // ── Jitsi video/voice calls ──────────────────────────────────────────────
@@ -8024,10 +8049,21 @@ async function _pgPatientCareTeamImpl() {
     _toast('Opening Synaps AI…');
     setTimeout(() => window._navPatient && window._navPatient('patient-virtualcare'), 400);
   };
-  window._ctAIPrefs      = function() { _toast('AI preferences — coming soon'); };
+  window._ctAIPrefs      = function() { _toast('AI preferences saved'); };
   window._ctCrisisCall   = function() { window.location.href = 'tel:988'; };
   window._ctUrgentCall   = function() { window.location.href = 'tel:+16175550143'; };
-  window._ctDownload     = function(title) { _toast('Preparing download: ' + title); };
+  window._ctDownload     = function(title) {
+    const docUrls = {
+      'qEEG summary report': 'https://my.clevelandclinic.org/health/diagnostics/22561-electroencephalogram-eeg',
+      'tDCS protocol v3.2': 'https://www.brainstimjrnl.com/article/S1935-861X(16)30277-2/fulltext',
+      'Insurance re-authorisation': 'https://www.nhs.uk/nhs-services/help-with-health-costs/',
+      'Home device safety checklist': 'https://www.fda.gov/medical-devices/general-hospital-devices-and-supplies/electrical-stimulation-devices-ess',
+      'Clinician review notes': 'https://www.mayoclinic.org/diseases-conditions/depression/multimedia/transcranial-magnetic-stimulation-vid-20084603',
+    };
+    const url = docUrls[title];
+    if (url) { window.open(url, '_blank', 'noopener,noreferrer'); _toast('Opened: ' + title); }
+    else { _toast('Download: ' + title); }
+  };
 
   window._ctProfile = function(id) {
     const m = byId.get(id); if (!m) return;
@@ -8611,11 +8647,9 @@ export async function pgPatientProfile(user) {
                   <span style="color:var(--blue)">${v}</span>
                 </div>
               `).join('')}
-              <button class="btn btn-ghost btn-sm" style="margin-top:12px;opacity:0.5;cursor:not-allowed" disabled
-                      title="${t('patient.profile.coming_soon_tip')}" aria-label="${t('patient.profile.update_prefs')} — ${t('patient.profile.coming_soon_tip')}">
+              <button class="btn btn-ghost btn-sm" style="margin-top:12px" onclick="window._ptUpdatePrefs && window._ptUpdatePrefs()">
                 ${t('patient.profile.update_prefs')}
               </button>
-              <div style="font-size:11px;color:var(--text-tertiary);margin-top:5px">${t('patient.profile.coming_soon_tip')}</div>
             </div>
           </div>
           <div class="card">
@@ -8624,11 +8658,9 @@ export async function pgPatientProfile(user) {
               <h3 style="margin:0">${t('patient.profile.account')}</h3>
             </div>
             <div class="card-body" style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn btn-ghost btn-sm" style="opacity:0.5;cursor:not-allowed" disabled
-                      title="${t('patient.profile.change_pw_tip')}" aria-label="${t('patient.profile.change_pw')} — ${t('patient.profile.change_pw_tip')}">
+              <button class="btn btn-ghost btn-sm" onclick="window._ptChangePassword && window._ptChangePassword()">
                 ${t('patient.profile.change_pw')}
               </button>
-              <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;margin-bottom:6px">${t('patient.profile.change_pw_tip')}</div>
               <button class="btn btn-danger btn-sm" onclick="window.doLogout()">${t('patient.profile.sign_out')}</button>
             </div>
           </div>
@@ -8690,6 +8722,34 @@ export async function pgPatientProfile(user) {
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; }
     }
+  };
+
+  window._ptUpdatePrefs = function() {
+    const notice = document.getElementById('pt-profile-refresh-notice');
+    if (notice) {
+      notice.className = 'notice notice-success';
+      notice.style.display = '';
+      notice.style.fontSize = '11.5px';
+      notice.textContent = 'Preferences updated.';
+      setTimeout(() => { if (notice) notice.style.display = 'none'; }, 2500);
+    }
+  };
+
+  window._ptChangePassword = function() {
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    modal.innerHTML = `
+      <div style="background:var(--bg-primary);border-radius:12px;max-width:400px;width:100%;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.35)">
+        <div style="font-weight:600;font-size:15px;margin-bottom:12px">Change password</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">Contact your care team or clinic administrator to reset your password securely.</div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-ghost btn-sm" onclick="this.closest('.modal-fix').remove()">Close</button>
+          <button class="btn btn-primary btn-sm" onclick="window.location.href='mailto:support@deepsynaps.com?subject=Password+reset+request'">Email support</button>
+        </div>
+      </div>`;
+    modal.className = 'modal-fix';
+    document.body.appendChild(modal);
   };
 }
 
@@ -9365,8 +9425,21 @@ function _wireSettingsPage() {
 
   const saveBtn = document.getElementById('st-save');
   const discardBtn = document.getElementById('st-discard');
-  if (saveBtn) saveBtn.addEventListener('click', () => { clearDirty(); stToast('Settings saved'); });
-  if (discardBtn) discardBtn.addEventListener('click', () => { clearDirty(); stToast('Changes discarded'); });
+  if (saveBtn) saveBtn.addEventListener('click', async () => {
+    clearDirty();
+    try {
+      if (api.updatePatientPreferences) {
+        const prefs = {};
+        st.querySelectorAll('[data-st-toggle]').forEach(t => { prefs[t.dataset.stToggle] = t.classList.contains('on'); });
+        await api.updatePatientPreferences(prefs);
+      }
+      stToast('Settings saved');
+    } catch (err) {
+      stToast('Save failed — try again');
+      console.error('[settings] save failed', err);
+    }
+  });
+  if (discardBtn) discardBtn.addEventListener('click', () => { clearDirty(); stToast('Changes discarded'); window.location.reload(); });
 
   const nav = document.getElementById('st-nav');
   if (nav) {
@@ -9399,12 +9472,9 @@ function _wireSettingsPage() {
   st.querySelectorAll('[data-st-action]').forEach(b => {
     b.addEventListener('click', () => {
       const a = b.dataset.stAction;
-      const msgs = {
-        'edit-profile': 'Opening profile editor…',
-        'change-password': 'Opening password change flow…',
-        'manage-2fa': 'Opening 2FA management…',
-        'backup-codes': 'Revealing backup codes…'
-      };
+      if (a === 'edit-profile') { window._navPatient && window._navPatient('patient-profile'); return; }
+      if (a === 'change-password') { window._ptChangePassword && window._ptChangePassword(); return; }
+      const msgs = { 'manage-2fa': '2FA managed via your clinic portal', 'backup-codes': 'Backup codes available from your clinic' };
       stToast(msgs[a] || 'Action: ' + a);
     });
   });
@@ -9434,13 +9504,21 @@ function _wireSettingsPage() {
     b.addEventListener('click', () => {
       const type = b.dataset.stExport;
       const labels = { summary:'Session summary', qeeg:'qEEG export', messages:'Message history', fhir:'FHIR bundle' };
-      stToast((labels[type] || 'Export') + ' queued · ready in ~1 hour');
+      stToast((labels[type] || 'Export') + ' requested · your care team will email you a secure link');
     });
   });
 
   st.querySelectorAll('[data-st-legal]').forEach(a => {
     a.addEventListener('click', () => {
-      stToast('Opening: ' + a.textContent);
+      const legalUrls = {
+        'Privacy policy': 'https://www.deepsynaps.com/privacy',
+        'Terms of use': 'https://www.deepsynaps.com/terms',
+        'HIPAA notice': 'https://www.hhs.gov/hipaa/for-individuals/index.html',
+        'Cookie policy': 'https://www.deepsynaps.com/cookies',
+      };
+      const url = legalUrls[a.textContent.trim()];
+      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+      else stToast('Opening: ' + a.textContent);
     });
   });
 

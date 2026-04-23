@@ -996,6 +996,7 @@ async function renderPatientPage() {
     case 'patient-education':   await m.pgPatientEducation();             break;
     case 'education':           await m.pgPatientEducation();             break;
     case 'patient-profile':     await m.pgPatientProfile(currentUser);    break;
+    case 'patient-home-devices': await m.pgPatientHomeDevices();          break;
     case 'patient-settings':    await m.pgPatientSettings(currentUser);   break;
     case 'patient-marketplace': await m.pgPatientMarketplace(currentUser); break;
     case 'pt-learn':            await m.pgPatientLearn();                 break;
