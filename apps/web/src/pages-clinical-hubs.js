@@ -4664,7 +4664,7 @@ export async function pgLibraryHub(setTopbar, navigate) {
       const res = await api.libraryExternalSearch({ q: qv, condition_id: cSel?.value || null, limit: 20 });
       if (!res?.items?.length) { out.innerHTML = '<div class="ch-empty">No matches in the curated ingest for that query.</div>'; return; }
       const rowsHtml = res.items.map(r => (
-        '<div class="lib-card" style="border-left:3px solid var(--amber)">' +
+        '<div class="lib-card lib-card--review">' +
           '<div class="lib-card-top">' +
             '<span class="lib-card-name">' + esc(r.title) + '</span>' +
             '<span class="lib-badge" style="background:rgba(245,158,11,0.14);color:var(--amber);border:1px solid rgba(245,158,11,0.3)" title="Not curated — review before clinical use">Unreviewed</span>' +
@@ -4862,7 +4862,7 @@ export async function pgLibraryHub(setTopbar, navigate) {
                 const regTitle   = [regStatus, regPathway].filter(Boolean).join(' · ');
                 const settingTag = d.home_vs_clinic ? '<span class="lib-tag">' + esc(d.home_vs_clinic) + '</span>' : '';
                 const indicationLine = d.official_indication
-                  ? '<div class="lib-feature" style="width:100%" title="Official indication">🎯 ' + esc(d.official_indication) + '</div>'
+                  ? '<div class="lib-feature lib-feature--indication" title="Official indication">🎯 ' + esc(d.official_indication) + '</div>'
                   : '';
                 return (
                   '<article class="lib-card lib-card--device" aria-label="' + esc(d.name || d.id) + '">' +
@@ -4879,7 +4879,7 @@ export async function pgLibraryHub(setTopbar, navigate) {
                       (regPathway ? '<span class="lib-tag" title="Regulatory pathway">' + esc(regPathway) + '</span>' : '') +
                       (d.last_reviewed_at ? '<span class="lib-tag" title="Last reviewed by clinical team">Reviewed ' + esc(d.last_reviewed_at) + '</span>' : '') +
                     '</div>' +
-                    '<div class="lib-features">' + indicationLine + '</div>' +
+                    (indicationLine ? '<div class="lib-features">' + indicationLine + '</div>' : '') +
                   '</article>'
                 );
               }).join('') + '</div>'
@@ -4971,7 +4971,7 @@ export async function pgLibraryHub(setTopbar, navigate) {
         '</div>' +
         (curatedCount
           ? '<div class="lib-grid">' + curatedLitItems.slice(0, 60).map(p => (
-              '<article class="lib-card" style="border-left:3px solid var(--teal)" aria-label="' + esc(p.title) + '">' +
+              '<article class="lib-card lib-card--evidence" aria-label="' + esc(p.title) + '">' +
                 '<div class="lib-card-top">' +
                   '<span class="lib-card-name">' + esc(p.title) + '</span>' +
                   (p.evidence_grade ? gradeBadge(p.evidence_grade) : '') +
@@ -5084,7 +5084,7 @@ export async function pgLibraryHub(setTopbar, navigate) {
                 const p = r.p;
                 const evG = String(p.evidenceGrade || '').toUpperCase();
                 return (
-                  '<article class="lib-card" style="border-left:3px solid var(--amber)" aria-label="' + esc(p.name || 'Protocol') + '">' +
+                  '<article class="lib-card lib-card--review" aria-label="' + esc(p.name || 'Protocol') + '">' +
                     '<div class="lib-card-top">' +
                       '<span class="lib-card-name">' + esc(p.name || 'Protocol') + '</span>' +
                       gradeBadge(p.evidenceGrade) +
@@ -5097,7 +5097,7 @@ export async function pgLibraryHub(setTopbar, navigate) {
                       (r.gov.length ? '<span class="lib-tag" style="color:var(--text-tertiary)" title="Governance flags">' + esc(r.gov.join(' · ')) + '</span>' : '') +
                     '</div>' +
                     '<div class="lib-features">' +
-                      '<div class="lib-feature" style="width:100%" title="Top citation">📄 ' + esc(String(r.topCite).slice(0, 140)) + (String(r.topCite).length > 140 ? '…' : '') + '</div>' +
+                      '<div class="lib-feature lib-feature--indication" title="Top citation">📄 ' + esc(String(r.topCite).slice(0, 140)) + (String(r.topCite).length > 140 ? '…' : '') + '</div>' +
                     '</div>' +
                     '<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">' +
                       '<button class="ch-btn-sm ch-btn-teal" onclick="window._protDetailId=\'' + esc(p.id || '') + '\';window._nav(\'protocol-detail\')" title="Open protocol detail to review, edit, or promote">Review →</button>' +
@@ -5131,7 +5131,7 @@ export async function pgLibraryHub(setTopbar, navigate) {
       const chips = Array.isArray(paper.protocol_ids) ? paper.protocol_ids.map(protoChip).join(' ') : '';
       const seen = paper.first_seen_at ? esc(String(paper.first_seen_at).slice(0, 10)) : '—';
       return (
-        '<article class="lib-card" style="border-left:3px solid var(--violet)" aria-label="' + esc(titleTrim) + '">' +
+        '<article class="lib-card lib-card--literature" aria-label="' + esc(titleTrim) + '">' +
           '<div class="lib-card-top">' +
             '<span class="lib-card-name" title="' + esc(title) + '">' + esc(titleTrim) + '</span>' +
             '<span class="lib-badge" style="background:rgba(139,92,246,0.14);color:var(--violet);border:1px solid rgba(139,92,246,0.35)" title="PubMed ID">PMID ' + esc(pmid) + '</span>' +
@@ -5139,7 +5139,7 @@ export async function pgLibraryHub(setTopbar, navigate) {
           '<div class="lib-card-meta" style="color:var(--text-tertiary)">' + metaBits.join(' · ') + '</div>' +
           (chips ? '<div class="lib-card-meta" style="margin-top:4px">Linked protocols: ' + chips + '</div>' : '') +
           '<div class="lib-features">' +
-            '<div class="lib-feature" style="width:100%;color:var(--text-tertiary)" title="When Literature Watch first saw this paper">⏱ First seen ' + seen + '</div>' +
+            '<div class="lib-feature lib-feature--indication" style="color:var(--text-tertiary)" title="When Literature Watch first saw this paper">⏱ First seen ' + seen + '</div>' +
           '</div>' +
           '<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">' +
             '<button class="ch-btn-sm ch-btn-teal" title="Flag this paper as worth a closer review" onclick="window._litPaperAction(\'mark-relevant\', \'' + esc(pmid) + '\')">Mark relevant</button>' +
