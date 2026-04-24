@@ -180,6 +180,36 @@ function statusDot(status) {
 }
 
 // ── Page-level state ─────────────────────────────────────────────────────────
+const HANDBOOK_FAVS_KEY = 'ds_handbook_favs';
+
+function _loadFavs() {
+  try {
+    const raw = localStorage.getItem(HANDBOOK_FAVS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function _saveFavs(ids) {
+  try {
+    localStorage.setItem(HANDBOOK_FAVS_KEY, JSON.stringify(Array.isArray(ids) ? ids : []));
+  } catch (_) {}
+}
+
+function _isFav(id) {
+  return _loadFavs().includes(id);
+}
+
+function _toggleFav(id) {
+  if (!id) return;
+  const favs = new Set(_loadFavs());
+  if (favs.has(id)) favs.delete(id);
+  else favs.add(id);
+  _saveFavs([...favs]);
+}
+
 let _id      = null;          // currently-open handbook id
 let _query   = '';            // left-rail filter
 let _section = null;          // active TOC section id
