@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { mountSalesChatWidget, mountAppAgentWidget } from './ui_chat_widget.js';
+import { mountAppAgentWidget } from './ui_chat_widget.js';
 
 export let currentUser = null;
 
@@ -29,8 +29,10 @@ export function showPublic() {
   document.getElementById('sidebar').classList.remove('visible');
   document.getElementById('app-shell').classList.remove('visible');
   document.getElementById('patient-shell')?.classList.remove('visible');
+  document.getElementById('ds-sales-chat')?.remove();
+  document.getElementById('ds-app-agent')?.remove();
   document.getElementById('public-shell')?.classList.add('visible');
-  try { mountSalesChatWidget(); } catch {}
+  // Only WhatsApp FAB via _initContactLauncher on landing page
 }
 
 export function showPatient() {
