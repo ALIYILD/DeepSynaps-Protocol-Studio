@@ -9,7 +9,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { api } from './api.js';
 import { renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap } from './brain-map-svg.js';
-import { emptyState } from './helpers.js';
+import { emptyState, showToast, spark } from './helpers.js';
+import { downloadBlob } from './api.js';
 
 // ── XSS escape ───────────────────────────────────────────────────────────────
 function esc(v) {
@@ -38,6 +39,107 @@ const BAND_COLORS = {
   delta: '#42a5f5', theta: '#7e57c2', alpha: '#66bb6a',
   beta: '#ffa726', high_beta: '#ef5350', gamma: '#ec407a',
 };
+
+// ── AI narrative formatter (Step 1.4) ────────────────────────────────────────
+function _formatNarrative(text) {
+  if (!text) return '';
+  var parts = esc(text).split(/\n{2,}/);
+  var html = '';
+  parts.forEach(function (p) {
+    var trimmed = p.trim();
+    if (!trimmed) return;
+    if (/^[A-Z][A-Z &/()-]+:/.test(trimmed)) {
+      var colonIdx = trimmed.indexOf(':');
+      html += '<h4 class="qeeg-finding-heading">' + trimmed.substring(0, colonIdx) + '</h4>';
+      var rest = trimmed.substring(colonIdx + 1).trim();
+      if (rest) html += '<p class="qeeg-finding-para">' + rest + '</p>';
+    } else {
+      html += '<p class="qeeg-finding-para">' + trimmed + '</p>';
+    }
+  });
+  return html;
+}
+
+// ── Clinical severity thresholds (Step 1.5) ──────────────────────────────────
+var CLINICAL_THRESHOLDS = {
+  tbr_screening: { path: 'theta_beta_ratio', extract: function (d) { return d && d.theta_beta_ratio; },
+    ranges: [{ max: 3.5, label: 'Normal', color: 'var(--green)' }, { max: 4.5, label: 'Borderline', color: 'var(--amber)' }, { max: Infinity, label: 'Elevated', color: 'var(--red)' }] },
+  entropy_analysis: { extract: function (d) { return d && d.mean_sample_entropy; },
+    ranges: [{ max: 1.0, label: 'Low complexity', color: 'var(--amber)' }, { max: 2.0, label: 'Normal', color: 'var(--green)' }, { max: Infinity, label: 'High', color: 'var(--blue)' }] },
+  small_world_index: { extract: function (d) { return d && d.small_world_index; },
+    ranges: [{ max: 1.5, label: 'Random-like', color: 'var(--red)' }, { max: 3.0, label: 'Small-world', color: 'var(--green)' }, { max: Infinity, label: 'Regular-like', color: 'var(--amber)' }] },
+  iapf_plasticity: { extract: function (d) { return d && d.posterior_iapf_hz; },
+    ranges: [{ max: 8.5, label: 'Slow', color: 'var(--red)' }, { max: 10.5, label: 'Normal', color: 'var(--green)' }, { max: Infinity, label: 'Fast', color: 'var(--blue)' }] },
+  fractal_lz: { extract: function (d) { return d && d.mean_higuchi_fd; },
+    ranges: [{ max: 1.4, label: 'Low FD', color: 'var(--amber)' }, { max: 1.8, label: 'Normal', color: 'var(--green)' }, { max: Infinity, label: 'High FD', color: 'var(--blue)' }] },
+  spectral_edge_frequency: { extract: function (d) { return d && d.mean_sef95_hz; },
+    ranges: [{ max: 20, label: 'Low SEF', color: 'var(--amber)' }, { max: 30, label: 'Normal', color: 'var(--green)' }, { max: Infinity, label: 'High SEF', color: 'var(--blue)' }] },
+};
+
+function _getSeverityBadge(slug, data) {
+  var thresh = CLINICAL_THRESHOLDS[slug];
+  if (!thresh || !data) return '';
+  var val = thresh.extract(data);
+  if (val == null) return '';
+  for (var i = 0; i < thresh.ranges.length; i++) {
+    if (val <= thresh.ranges[i].max) {
+      return badge(thresh.ranges[i].label, thresh.ranges[i].color);
+    }
+  }
+  return '';
+}
+
+// ── Category summary generators (Step 1.6) ───────────────────────────────────
+var _catSummaryExtractors = {
+  spectral: function (items) {
+    var parts = [];
+    items.forEach(function (i) { var d = i.result.data || {};
+      if (i.slug === 'spectral_edge_frequency' && d.mean_sef50_hz) parts.push('SEF50 ' + d.mean_sef50_hz + ' Hz');
+      if (i.slug === 'band_peak_frequencies' && d.mean_alpha_peak_hz) parts.push('Alpha peak ' + d.mean_alpha_peak_hz + ' Hz');
+      if (i.slug === 'u_shape') parts.push('U-Score ' + (d.mean_u_score || 0).toFixed(2));
+    }); return parts.join(' | ') || 'Spectral features computed';
+  },
+  asymmetry: function (items) {
+    var parts = [];
+    items.forEach(function (i) { var d = i.result.data || {};
+      if (i.slug === 'frontal_alpha_dominance' && d.overall_dominance) parts.push('FAA: ' + d.overall_dominance);
+      if (i.slug === 'regional_asymmetry_severity' && d.overall_severity) parts.push('Severity: ' + d.overall_severity);
+    }); return parts.join(' | ') || 'Asymmetry patterns analyzed';
+  },
+  connectivity: function (items) {
+    var parts = [];
+    items.forEach(function (i) { var d = i.result.data || {};
+      if (i.slug === 'pli_icoh' && d.mean_pli != null) parts.push('PLI ' + d.mean_pli.toFixed(2));
+      if (i.slug === 'disconnection_flags') parts.push(d.flagged_count + ' flags');
+    }); return parts.join(' | ') || 'Connectivity computed';
+  },
+  complexity: function (items) {
+    var parts = [];
+    items.forEach(function (i) { var d = i.result.data || {};
+      if (i.slug === 'entropy_analysis' && d.mean_sample_entropy) parts.push('Entropy ' + d.mean_sample_entropy.toFixed(2));
+      if (i.slug === 'fractal_lz' && d.mean_higuchi_fd) parts.push('HFD ' + d.mean_higuchi_fd.toFixed(2));
+    }); return parts.join(' | ') || 'Complexity metrics computed';
+  },
+  network: function (items) {
+    var parts = [];
+    items.forEach(function (i) { var d = i.result.data || {};
+      if (i.slug === 'small_world_index' && d.small_world_index) parts.push('SW ' + d.small_world_index.toFixed(1));
+      if (i.slug === 'graph_theoretic_indices' && d.global) parts.push('Eff ' + (d.global.global_efficiency || 0).toFixed(2));
+    }); return parts.join(' | ') || 'Network topology analyzed';
+  },
+  microstate: function () { return 'Microstate segmentation A-D'; },
+  clinical: function (items) {
+    var parts = [];
+    items.forEach(function (i) { var d = i.result.data || {};
+      if (i.slug === 'iapf_plasticity' && d.posterior_iapf_hz) parts.push('IAPF ' + d.posterior_iapf_hz + ' Hz');
+    }); return parts.join(' | ') || 'Clinical markers computed';
+  },
+};
+
+// ── Module-scoped state for exports ──────────────────────────────────────────
+var _currentAnalysis = null;
+var _currentReport = null;
+var _coherenceBand = 'alpha';
 
 const TAB_META = {
   patient:   { label: 'Patient & Upload',  color: 'var(--blue)' },
@@ -98,6 +200,19 @@ var DEMO_QEEG_ANALYSIS = {
     },
   },
   artifact_rejection: { epochs_total: 300, epochs_kept: 278, flat_channels: [] },
+  normative_deviations: (function () {
+    var nd = {}, zs = {
+      Fp1:[1.2,0.8,-0.3,0.5,0.9,0.6], Fp2:[1.1,0.6,-0.4,0.6,1.0,0.5], F7:[0.8,0.3,-0.2,0.7,1.3,1.1],
+      F3:[0.4,1.1,0.2,0.3,0.8,0.4], Fz:[-0.2,2.1,-0.5,-0.1,0.9,0.6], F4:[0.4,0.9,0.5,0.3,0.7,0.3],
+      F8:[0.7,0.2,-0.3,0.8,1.2,0.9], T3:[0.3,-0.1,0.1,0.5,1.1,0.7], C3:[-0.3,0.6,0.8,0.1,0.5,0.1],
+      Cz:[-0.5,1.8,0.3,-0.1,0.8,0.4], C4:[-0.3,0.4,1.0,0.1,0.4,0.0], T4:[0.3,-0.2,0.0,0.6,1.1,0.8],
+      T5:[-0.2,-0.5,1.5,0.2,0.8,0.7], P3:[-0.8,-0.2,2.2,0.0,0.2,-0.1], Pz:[-1.0,-0.1,2.5,-0.2,0.1,-0.3],
+      P4:[-0.7,-0.3,2.3,-0.1,0.1,-0.1], T6:[-0.2,-0.4,1.4,0.2,0.8,0.6], O1:[-1.2,-0.6,2.8,0.0,-0.2,-0.4],
+      O2:[-1.2,-0.5,2.7,-0.1,-0.2,-0.3],
+    }; var bands = ['delta','theta','alpha','beta','high_beta','gamma'];
+    Object.keys(zs).forEach(function (ch) { nd[ch] = {}; bands.forEach(function (b, i) { nd[ch][b] = zs[ch][i]; }); });
+    return nd;
+  })(),
   advanced_analyses: {
     meta: { total: 25, completed: 25, failed: 0, duration_sec: 42 },
     results: {
@@ -108,14 +223,14 @@ var DEMO_QEEG_ANALYSIS = {
         summary: 'Mean aperiodic exponent 1.42; 2-3 peaks per channel typical.',
         data: { mean_aperiodic_exponent: 1.42,
           channels: {
-            Fp1: { aperiodic_exponent: 1.51, n_peaks: 2, r_squared: 0.96 },
-            F3:  { aperiodic_exponent: 1.45, n_peaks: 3, r_squared: 0.97 },
-            Fz:  { aperiodic_exponent: 1.38, n_peaks: 2, r_squared: 0.95 },
-            C3:  { aperiodic_exponent: 1.35, n_peaks: 2, r_squared: 0.98 },
-            Cz:  { aperiodic_exponent: 1.40, n_peaks: 3, r_squared: 0.96 },
-            P3:  { aperiodic_exponent: 1.32, n_peaks: 2, r_squared: 0.97 },
-            O1:  { aperiodic_exponent: 1.28, n_peaks: 3, r_squared: 0.98 },
-            O2:  { aperiodic_exponent: 1.30, n_peaks: 3, r_squared: 0.97 },
+            Fp1: { aperiodic_exponent: 1.51, aperiodic_offset: 2.8, n_peaks: 2, r_squared: 0.96, peaks: [{cf:9.2,pw:0.6,bw:2.1},{cf:18.5,pw:0.3,bw:3.0}] },
+            F3:  { aperiodic_exponent: 1.45, aperiodic_offset: 2.6, n_peaks: 3, r_squared: 0.97, peaks: [{cf:6.2,pw:0.4,bw:1.8},{cf:9.5,pw:0.8,bw:2.2},{cf:20.1,pw:0.2,bw:2.5}] },
+            Fz:  { aperiodic_exponent: 1.38, aperiodic_offset: 2.5, n_peaks: 2, r_squared: 0.95, peaks: [{cf:6.5,pw:0.5,bw:2.0},{cf:9.3,pw:0.7,bw:2.3}] },
+            C3:  { aperiodic_exponent: 1.35, aperiodic_offset: 2.4, n_peaks: 2, r_squared: 0.98, peaks: [{cf:9.6,pw:1.0,bw:2.1},{cf:19.8,pw:0.3,bw:2.8}] },
+            Cz:  { aperiodic_exponent: 1.40, aperiodic_offset: 2.5, n_peaks: 3, r_squared: 0.96, peaks: [{cf:6.3,pw:0.5,bw:1.9},{cf:9.4,pw:0.9,bw:2.2},{cf:21.0,pw:0.2,bw:2.6}] },
+            P3:  { aperiodic_exponent: 1.32, aperiodic_offset: 2.3, n_peaks: 2, r_squared: 0.97, peaks: [{cf:9.8,pw:1.2,bw:1.9},{cf:18.2,pw:0.3,bw:2.5}] },
+            O1:  { aperiodic_exponent: 1.28, aperiodic_offset: 2.2, n_peaks: 3, r_squared: 0.98, peaks: [{cf:9.2,pw:1.5,bw:1.8},{cf:11.5,pw:0.4,bw:1.5},{cf:20.5,pw:0.2,bw:2.2}] },
+            O2:  { aperiodic_exponent: 1.30, aperiodic_offset: 2.2, n_peaks: 3, r_squared: 0.97, peaks: [{cf:9.3,pw:1.4,bw:1.9},{cf:11.4,pw:0.3,bw:1.6},{cf:20.2,pw:0.2,bw:2.3}] },
           } } },
       spectral_edge_frequency: { status: 'ok', label: 'Spectral Edge Frequency', category: 'spectral', duration_ms: 450,
         summary: 'SEF50 at 10.8 Hz and SEF95 at 24.3 Hz within normal limits.',
@@ -152,16 +267,48 @@ var DEMO_QEEG_ANALYSIS = {
         summary: 'Alpha coherence shows expected posterior-to-anterior gradient with intact interhemispheric connectivity.',
         data: {
           channels: ['F3','F4','C3','C4','P3','P4','O1','O2'],
-          bands: { alpha: [
-            [1.00,0.72,0.65,0.48,0.35,0.32,0.22,0.20],
-            [0.72,1.00,0.47,0.66,0.31,0.36,0.21,0.23],
-            [0.65,0.47,1.00,0.58,0.62,0.45,0.38,0.35],
-            [0.48,0.66,0.58,1.00,0.44,0.63,0.34,0.39],
-            [0.35,0.31,0.62,0.44,1.00,0.71,0.68,0.55],
-            [0.32,0.36,0.45,0.63,0.71,1.00,0.54,0.69],
-            [0.22,0.21,0.38,0.34,0.68,0.54,1.00,0.78],
-            [0.20,0.23,0.35,0.39,0.55,0.69,0.78,1.00],
-          ] } } },
+          bands: {
+            delta: [
+              [1.00,0.68,0.55,0.42,0.30,0.28,0.18,0.16],
+              [0.68,1.00,0.40,0.56,0.27,0.30,0.17,0.19],
+              [0.55,0.40,1.00,0.52,0.48,0.38,0.30,0.28],
+              [0.42,0.56,0.52,1.00,0.37,0.50,0.28,0.32],
+              [0.30,0.27,0.48,0.37,1.00,0.62,0.55,0.42],
+              [0.28,0.30,0.38,0.50,0.62,1.00,0.44,0.58],
+              [0.18,0.17,0.30,0.28,0.55,0.44,1.00,0.65],
+              [0.16,0.19,0.28,0.32,0.42,0.58,0.65,1.00],
+            ],
+            theta: [
+              [1.00,0.65,0.58,0.44,0.32,0.29,0.20,0.18],
+              [0.65,1.00,0.42,0.60,0.28,0.33,0.19,0.21],
+              [0.58,0.42,1.00,0.55,0.52,0.40,0.34,0.31],
+              [0.44,0.60,0.55,1.00,0.40,0.56,0.31,0.36],
+              [0.32,0.28,0.52,0.40,1.00,0.66,0.60,0.48],
+              [0.29,0.33,0.40,0.56,0.66,1.00,0.48,0.62],
+              [0.20,0.19,0.34,0.31,0.60,0.48,1.00,0.72],
+              [0.18,0.21,0.31,0.36,0.48,0.62,0.72,1.00],
+            ],
+            alpha: [
+              [1.00,0.72,0.65,0.48,0.35,0.32,0.22,0.20],
+              [0.72,1.00,0.47,0.66,0.31,0.36,0.21,0.23],
+              [0.65,0.47,1.00,0.58,0.62,0.45,0.38,0.35],
+              [0.48,0.66,0.58,1.00,0.44,0.63,0.34,0.39],
+              [0.35,0.31,0.62,0.44,1.00,0.71,0.68,0.55],
+              [0.32,0.36,0.45,0.63,0.71,1.00,0.54,0.69],
+              [0.22,0.21,0.38,0.34,0.68,0.54,1.00,0.78],
+              [0.20,0.23,0.35,0.39,0.55,0.69,0.78,1.00],
+            ],
+            beta: [
+              [1.00,0.58,0.50,0.38,0.25,0.22,0.15,0.13],
+              [0.58,1.00,0.36,0.52,0.22,0.26,0.14,0.16],
+              [0.50,0.36,1.00,0.45,0.42,0.33,0.25,0.22],
+              [0.38,0.52,0.45,1.00,0.32,0.44,0.22,0.26],
+              [0.25,0.22,0.42,0.32,1.00,0.55,0.48,0.38],
+              [0.22,0.26,0.33,0.44,0.55,1.00,0.36,0.50],
+              [0.15,0.14,0.25,0.22,0.48,0.36,1.00,0.62],
+              [0.13,0.16,0.22,0.26,0.38,0.50,0.62,1.00],
+            ],
+          } } },
       disconnection_flags: { status: 'ok', label: 'Disconnection Flags', category: 'connectivity', duration_ms: 890,
         summary: '3 pairs flagged for low coherence; primarily long-range connections.',
         data: { flagged_count: 3, total_pairs_checked: 171,
@@ -212,7 +359,19 @@ var DEMO_QEEG_ANALYSIS = {
           } } },
       iapf_plasticity: { status: 'ok', label: 'IAPF & Plasticity Index', category: 'clinical', duration_ms: 680,
         summary: 'Posterior IAPF 9.24 Hz (low-normal); global mean 9.08 Hz.',
-        data: { posterior_iapf_hz: 9.24, mean_iapf_hz: 9.08 } },
+        data: { posterior_iapf_hz: 9.24, mean_iapf_hz: 9.08,
+          channels: {
+            Fp1:{iapf_hz:8.6,bandwidth_hz:2.4,plasticity:'wide'}, Fp2:{iapf_hz:8.8,bandwidth_hz:2.2,plasticity:'wide'},
+            F3:{iapf_hz:9.1,bandwidth_hz:2.0,plasticity:'wide'}, Fz:{iapf_hz:8.9,bandwidth_hz:1.8,plasticity:'narrow'},
+            F4:{iapf_hz:9.2,bandwidth_hz:2.1,plasticity:'wide'}, F7:{iapf_hz:8.5,bandwidth_hz:2.3,plasticity:'wide'},
+            F8:{iapf_hz:8.7,bandwidth_hz:2.1,plasticity:'wide'}, T3:{iapf_hz:9.0,bandwidth_hz:1.9,plasticity:'narrow'},
+            C3:{iapf_hz:9.3,bandwidth_hz:1.7,plasticity:'narrow'}, Cz:{iapf_hz:9.1,bandwidth_hz:1.8,plasticity:'narrow'},
+            C4:{iapf_hz:9.4,bandwidth_hz:1.9,plasticity:'narrow'}, T4:{iapf_hz:9.0,bandwidth_hz:2.0,plasticity:'wide'},
+            T5:{iapf_hz:9.5,bandwidth_hz:1.6,plasticity:'narrow'}, P3:{iapf_hz:9.6,bandwidth_hz:1.5,plasticity:'narrow'},
+            Pz:{iapf_hz:9.4,bandwidth_hz:1.4,plasticity:'narrow'}, P4:{iapf_hz:9.5,bandwidth_hz:1.6,plasticity:'narrow'},
+            T6:{iapf_hz:9.3,bandwidth_hz:1.7,plasticity:'narrow'}, O1:{iapf_hz:9.2,bandwidth_hz:1.5,plasticity:'narrow'},
+            O2:{iapf_hz:9.3,bandwidth_hz:1.6,plasticity:'narrow'},
+          } } },
       tbr_screening: { status: 'ok', label: 'TBR Screening Map', category: 'clinical', duration_ms: 420,
         summary: 'Theta/Beta ratio 3.82 at Fz (borderline elevated). Frontal TBR distribution suggests mild attentional dysregulation. Clinical threshold for ADHD consideration is 4.5.' },
       alpha_asymmetry_index: { status: 'ok', label: 'Alpha Asymmetry Index', category: 'clinical', duration_ms: 350,
@@ -285,7 +444,16 @@ function _buildDemoDeltas() {
 
 var DEMO_QEEG_COMPARISON = {
   id: 'demo-comparison',
+  baseline_analyzed_at: new Date(Date.now() - 90 * 86400000).toISOString(),
+  followup_analyzed_at: new Date().toISOString(),
   improvement_summary: { improved: 8, unchanged: 7, worsened: 2 },
+  ratio_changes: {
+    theta_beta_ratio: { baseline: 3.82, followup: 3.34 },
+    delta_alpha_ratio: { baseline: 1.41, followup: 1.28 },
+    alpha_peak_frequency_hz: { baseline: 9.24, followup: 9.52 },
+    frontal_alpha_asymmetry: { baseline: 0.18, followup: 0.09 },
+  },
+  baseline_band_powers: _buildDemoBandPowers(),
   ai_comparison_narrative: 'Follow-up qEEG recorded after 20 sessions of combined rTMS and neurofeedback treatment shows notable improvements in key biomarkers. '
     + 'Frontal theta power decreased significantly at Fz (-12.5%) and Cz (-8.3%), bringing the theta/beta ratio from 3.82 to 3.34, well below the clinical concern threshold. '
     + 'Posterior alpha power increased at O1 (+8.2%) and O2 (+7.5%), with the most pronounced gains at Pz (+11.2%) and P3 (+10.1%), suggesting improved cortical efficiency and attentional regulation. '
@@ -301,6 +469,17 @@ var DEMO_ANALYSIS_ENTRY = {
   id: 'demo', analysis_status: 'completed', original_filename: 'demo_eyes_closed.edf',
   channels_used: 19, sample_rate_hz: 256, eyes_condition: 'closed',
   analyzed_at: new Date().toISOString(),
+};
+
+/* Demo assessment correlation data */
+var DEMO_ASSESSMENT_CORRELATION = {
+  success: true, qeeg_analyses_count: 2, assessments_count: 6,
+  correlations: [
+    { assessment: 'PHQ-9', baseline_score: 18, latest_score: 8, score_change: -10, score_pct_change: -55.5, trend: 'improving', scores: [18, 16, 14, 11, 9, 8] },
+    { assessment: 'GAD-7', baseline_score: 14, latest_score: 7, score_change: -7, score_pct_change: -50.0, trend: 'improving', scores: [14, 13, 11, 10, 8, 7] },
+    { assessment: 'PSQI', baseline_score: 12, latest_score: 8, score_change: -4, score_pct_change: -33.3, trend: 'improving', scores: [12, 12, 11, 10, 9, 8] },
+    { assessment: 'BRIEF-A', baseline_score: 68, latest_score: 62, score_change: -6, score_pct_change: -8.8, trend: 'stable', scores: [68, 67, 66, 65, 63, 62] },
+  ],
 };
 
 // ── Module-scoped caches ─────────────────────────────────────────────────────
@@ -540,6 +719,7 @@ async function handleUpload(file, patientId) {
     if (recDate) fd.append('recording_date', recDate);
 
     const result = await api.uploadQEEGAnalysis(fd);
+    showToast('File uploaded successfully', 'success');
     if (statusEl) statusEl.innerHTML = '<div style="color:var(--green);font-size:13px">Uploaded successfully! '
       + badge('pending', 'var(--amber)')
       + ' <a href="#" onclick="window._qeegSelectedId=\'' + result.id + '\';window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\');return false" style="color:var(--blue);margin-left:8px">Go to Analysis tab to run spectral analysis</a></div>';
@@ -726,6 +906,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       } else {
         data = await api.getQEEGAnalysis(analysisId);
       }
+      _currentAnalysis = data;
 
       // If pending — show manual trigger
       if (data.analysis_status === 'pending') {
@@ -744,6 +925,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             if (st) st.innerHTML = spinner('Running spectral analysis...');
             try {
               await api.analyzeQEEG(analysisId);
+              showToast('Spectral analysis complete', 'success');
               window._nav('qeeg-analysis'); // Reload to show results
             } catch (err) {
               if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(err.message || err) + '</div>';
@@ -823,7 +1005,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             powerMap[entry[0]] = entry[1].relative_pct || 0;
           });
           topoHtml += '<div style="text-align:center">'
-            + renderTopoHeatmap(powerMap, { band: bandName, unit: '%', size: 180, colorScale: 'warm' })
+            + renderTopoHeatmap(powerMap, { band: bandName, unit: '%', size: 240, colorScale: 'warm' })
             + '</div>';
         });
         topoHtml += '</div>';
@@ -832,10 +1014,20 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
 
       // Band power table
       if (bands && Object.keys(bands).length) {
-        let tableHtml = '<div style="overflow-x:auto"><table class="ds-table" style="width:100%;font-size:12px"><thead><tr><th>Channel</th>';
-        const bandNames = Object.keys(bands);
+        var bandNames = Object.keys(bands);
+        // Compute per-band mean for cell tinting
+        var bandMeans = {};
         bandNames.forEach(function (b) {
-          tableHtml += '<th style="color:' + (BAND_COLORS[b] || '#fff') + '">' + esc(b) + '</th>';
+          var vals = [], chs = bands[b]?.channels || {};
+          Object.keys(chs).forEach(function (ch) { if (chs[ch]?.relative_pct != null) vals.push(chs[ch].relative_pct); });
+          bandMeans[b] = vals.length ? vals.reduce(function (a, c) { return a + c; }, 0) / vals.length : 0;
+        });
+        // Normative deviations
+        var normDev = data.normative_deviations_json || data.normative_deviations || null;
+
+        let tableHtml = '<div style="overflow-x:auto"><table class="ds-table" style="width:100%;font-size:12px"><thead><tr><th>Channel</th>';
+        bandNames.forEach(function (b) {
+          tableHtml += '<th style="color:' + (BAND_COLORS[b] || '#fff') + ';background:' + (BAND_COLORS[b] || '#fff') + '15">' + esc(b) + '</th>';
         });
         tableHtml += '</tr></thead><tbody>';
         const chSet = new Set();
@@ -844,12 +1036,27 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           tableHtml += '<tr><td style="font-weight:600">' + esc(ch) + '</td>';
           bandNames.forEach(function (b) {
             const v = bands[b]?.channels?.[ch]?.relative_pct;
-            tableHtml += '<td>' + (v !== undefined ? v.toFixed(1) + '%' : '-') + '</td>';
+            var tintClass = '';
+            if (v !== undefined) {
+              var diff = v - bandMeans[b];
+              if (diff > 5) tintClass = ' class="qeeg-bp-high"';
+              else if (diff < -5) tintClass = ' class="qeeg-bp-low"';
+            }
+            var zHtml = '';
+            if (normDev && normDev[ch] && normDev[ch][b] != null) {
+              var z = normDev[ch][b];
+              var az = Math.abs(z);
+              if (az >= 2.0) zHtml = '<span class="qeeg-zscore qeeg-zscore--significant">' + z.toFixed(1) + '</span>';
+              else if (az >= 1.0) zHtml = '<span class="qeeg-zscore qeeg-zscore--mild">' + z.toFixed(1) + '</span>';
+            }
+            tableHtml += '<td' + tintClass + '>' + (v !== undefined ? v.toFixed(1) + '%' + zHtml : '-') + '</td>';
           });
           tableHtml += '</tr>';
         });
         tableHtml += '</tbody></table></div>';
-        html += card('Band Power Distribution', tableHtml);
+        html += card('Band Power Distribution', tableHtml,
+          '<div class="qeeg-export-bar"><button class="btn btn-sm btn-outline" onclick="window._qeegExportBandPowerCSV()">CSV</button>'
+          + '<button class="btn btn-sm btn-outline" onclick="window._qeegExportJSON()">JSON</button></div>');
       }
 
       // Artifact rejection
@@ -902,12 +1109,15 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         // Collapsible group toggles
         document.querySelectorAll('.qeeg-adv-group-toggle').forEach(function (toggle) {
           toggle.addEventListener('click', function () {
-            var body = toggle.nextElementSibling;
+            var cat = toggle.parentElement;
+            var body = cat ? cat.querySelector('.qeeg-adv-category__body') : null;
             var arrow = toggle.querySelector('.qeeg-adv-arrow');
+            var summary = cat ? cat.querySelector('.qeeg-adv-category__summary') : null;
             if (body) {
               var isCollapsed = body.classList.contains('qeeg-adv-category__body--collapsed');
               body.classList.toggle('qeeg-adv-category__body--collapsed');
               if (arrow) arrow.classList.toggle('qeeg-adv-arrow--collapsed');
+              if (summary) summary.style.display = isCollapsed ? 'none' : '';
             }
           });
         });
@@ -962,6 +1172,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             if (st) st.innerHTML = spinner('Generating AI interpretation...');
             try {
               await api.generateQEEGAIReport(analysisId, { report_type: 'standard' });
+              showToast('AI report generated', 'success');
               window._qeegTab = 'report';
               window._nav('qeeg-analysis');
             } catch (err) {
@@ -975,20 +1186,25 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
 
       // Display latest report
       const report = reports[0];
+      _currentReport = report;
       const narrative = report.ai_narrative || report.ai_narrative_json || {};
       const conditions = report.condition_matches || report.condition_matches_json || [];
       const suggestions = report.protocol_suggestions || report.protocol_suggestions_json || [];
 
       let html = '';
 
+      // Print button bar
+      html += '<div style="display:flex;justify-content:flex-end;margin-bottom:8px">'
+        + '<button class="btn btn-sm btn-outline" onclick="window._qeegPrintReport()">Print Report</button></div>';
+
       // Executive summary
       if (narrative.summary) {
         html += card('Executive Summary', '<div class="qeeg-narrative qeeg-narrative--summary">' + esc(narrative.summary) + '</div>');
       }
 
-      // Detailed findings
+      // Detailed findings (formatted with section headings)
       if (narrative.detailed_findings) {
-        html += card('Detailed Findings', '<div class="qeeg-narrative qeeg-narrative--findings">' + esc(narrative.detailed_findings) + '</div>');
+        html += card('Detailed Findings', '<div class="qeeg-narrative qeeg-narrative--findings">' + _formatNarrative(narrative.detailed_findings) + '</div>');
       }
 
       // Condition matches
@@ -1047,6 +1263,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           reviewBtn.disabled = true;
           try {
             await api.amendQEEGReport(report.id, { clinician_reviewed: true, clinician_amendments: amendments });
+            showToast('Review saved', 'success');
             if (st) st.innerHTML = '<div style="color:var(--green);font-size:13px">Review saved successfully.</div>';
           } catch (err) {
             if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(err.message || err) + '</div>';
@@ -1143,6 +1360,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         if (st) st.innerHTML = spinner('Computing comparison...');
         try {
           const result = await api.createQEEGComparison({ baseline_id: baseId, followup_id: followId });
+          showToast('Comparison ready', 'success');
           window._qeegComparisonId = result.id;
           window._nav('qeeg-analysis');
         } catch (err) {
@@ -1225,6 +1443,127 @@ function renderComparison(comp) {
 var _CH_MAP = { T3: 'T7', T4: 'T8', T5: 'P7', T6: 'P8' };
 function mapCh(ch) { return _CH_MAP[ch] || ch; }
 
+// ── Export Handlers (Phase 3) ────────────────────────────────────────────────
+function _downloadCSV(csv, filename) {
+  var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+window._qeegExportBandPowerCSV = function () {
+  if (!_currentAnalysis) return showToast('No analysis data loaded', 'warning');
+  var bp = _currentAnalysis.band_powers || {};
+  var bands = bp.bands || {};
+  var bandNames = Object.keys(bands);
+  if (!bandNames.length) return showToast('No band power data', 'warning');
+  var chSet = new Set();
+  bandNames.forEach(function (b) { Object.keys(bands[b]?.channels || {}).forEach(function (ch) { chSet.add(ch); }); });
+  var rows = ['Channel,' + bandNames.join(',')];
+  Array.from(chSet).sort().forEach(function (ch) {
+    var vals = bandNames.map(function (b) { var v = bands[b]?.channels?.[ch]?.relative_pct; return v != null ? v.toFixed(1) : ''; });
+    rows.push(ch + ',' + vals.join(','));
+  });
+  _downloadCSV(rows.join('\n'), 'qeeg_band_powers.csv');
+  showToast('Band power CSV exported', 'success');
+};
+
+window._qeegExportAdvancedCSV = function () {
+  if (!_currentAnalysis || !_currentAnalysis.advanced_analyses) return showToast('No advanced analyses data', 'warning');
+  var adv = _currentAnalysis.advanced_analyses;
+  var rows = ['Analysis,Category,Status,Duration_ms,Summary'];
+  Object.keys(adv.results || {}).forEach(function (slug) {
+    var r = adv.results[slug];
+    rows.push([esc(r.label), esc(r.category), r.status, r.duration_ms || 0, '"' + (r.summary || '').replace(/"/g, '""') + '"'].join(','));
+  });
+  _downloadCSV(rows.join('\n'), 'qeeg_advanced_analyses.csv');
+  showToast('Advanced analyses CSV exported', 'success');
+};
+
+window._qeegExportJSON = function () {
+  if (!_currentAnalysis) return showToast('No analysis data loaded', 'warning');
+  var json = JSON.stringify(_currentAnalysis, null, 2);
+  var blob = new Blob([json], { type: 'application/json' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  var d = new Date().toISOString().split('T')[0];
+  a.href = url; a.download = 'qeeg_analysis_' + (_currentAnalysis.id || 'data') + '_' + d + '.json'; a.click();
+  URL.revokeObjectURL(url);
+  showToast('Full analysis JSON exported', 'success');
+};
+
+window._qeegPrintReport = function () {
+  if (!_currentReport) return showToast('No report data loaded', 'warning');
+  var narrative = _currentReport.ai_narrative || {};
+  var conditions = _currentReport.condition_matches || [];
+  var suggestions = _currentReport.protocol_suggestions || [];
+  var w = window.open('', '_blank', 'width=900,height=700');
+  if (!w) return showToast('Popup blocked', 'error');
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>qEEG AI Report</title>'
+    + '<style>body{font-family:Georgia,serif;max-width:780px;margin:40px auto;color:#222;line-height:1.6}'
+    + 'h1{font-size:22px;border-bottom:2px solid #0a4d68;padding-bottom:8px}'
+    + 'h2{font-size:16px;color:#0a4d68;margin-top:24px;border-left:3px solid #0a4d68;padding-left:10px}'
+    + 'h4{font-size:13px;color:#0a4d68;text-transform:uppercase;letter-spacing:.5px;border-left:3px solid #0a4d68;padding-left:8px;margin:18px 0 6px}'
+    + 'p{font-size:13px;margin:0 0 10px}table{width:100%;border-collapse:collapse;margin:12px 0}'
+    + 'th,td{border:1px solid #ddd;padding:6px 10px;font-size:12px;text-align:left}'
+    + 'th{background:#f5f5f5;font-weight:700}li{margin-bottom:6px;font-size:13px}'
+    + '.print-btn{background:#0a4d68;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:14px;margin:20px 0}'
+    + '@media print{.print-btn{display:none}}</style></head><body>';
+  html += '<h1>qEEG Analysis — AI Report</h1>';
+  html += '<p style="color:#666;font-size:12px">Generated: ' + new Date().toLocaleString() + '</p>';
+  if (narrative.summary) {
+    html += '<h2>Executive Summary</h2><p><em>' + esc(narrative.summary) + '</em></p>';
+  }
+  if (narrative.detailed_findings) {
+    html += '<h2>Detailed Findings</h2>' + _formatNarrative(narrative.detailed_findings);
+  }
+  if (conditions.length) {
+    html += '<h2>Condition Pattern Matches</h2><table><tr><th>Condition</th><th>Confidence</th></tr>';
+    conditions.forEach(function (c) {
+      html += '<tr><td>' + esc(c.condition || c.name || '') + '</td><td>' + Math.round((c.confidence || 0) * 100) + '%</td></tr>';
+    });
+    html += '</table>';
+  }
+  if (suggestions.length) {
+    html += '<h2>Protocol Suggestions</h2><ol>';
+    suggestions.forEach(function (s) {
+      html += '<li><strong>' + esc(s.protocol || s.title || '') + '</strong>' + (s.rationale ? ': ' + esc(s.rationale) : '') + '</li>';
+    });
+    html += '</ol>';
+  }
+  if (_currentReport.clinician_amendments) {
+    html += '<h2>Clinician Amendments</h2><p>' + esc(_currentReport.clinician_amendments) + '</p>';
+  }
+  html += '<button class="print-btn" onclick="window.print()">Print / Save PDF</button>';
+  html += '</body></html>';
+  w.document.write(html);
+  w.document.close();
+};
+
+// ── Coherence band switcher ──────────────────────────────────────────────────
+window._qeegSwitchCoherenceBand = function (band) {
+  _coherenceBand = band;
+  var wrap = document.getElementById('qeeg-coherence-wrap');
+  if (!wrap || !_currentAnalysis) return;
+  var cohResult = _currentAnalysis.advanced_analyses?.results?.coherence_matrix;
+  if (!cohResult || cohResult.status !== 'ok') return;
+  var d = cohResult.data || {};
+  var mat = d.bands?.[band];
+  if (!mat) return;
+  // Re-render tabs + matrix
+  var tabsHtml = '<div class="qeeg-coh-tabs">';
+  Object.keys(d.bands).forEach(function (b) {
+    var active = b === band ? ' qeeg-coh-tab--active' : '';
+    var col = BAND_COLORS[b] || 'var(--teal)';
+    tabsHtml += '<button class="qeeg-coh-tab' + active + '" style="--coh-color:' + col + '" onclick="window._qeegSwitchCoherenceBand(\'' + b + '\')">' + esc(b) + '</button>';
+  });
+  tabsHtml += '</div>';
+  wrap.innerHTML = tabsHtml + '<div style="overflow-x:auto">'
+    + renderConnectivityMatrix(mat, d.channels, { band: band + ' coherence', size: 360 })
+    + '</div>';
+};
+
 // ── Advanced Analyses Renderer ───────────────────────────────────────────────
 
 function _renderAdvancedAnalyses(data, analysisId) {
@@ -1232,7 +1571,11 @@ function _renderAdvancedAnalyses(data, analysisId) {
   var html = '<div class="qeeg-section-divider"></div>';
   html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">'
     + '<span style="font-size:18px">&#x1F52C;</span>'
-    + '<h3 style="margin:0;font-size:16px;color:var(--text-primary)">Advanced Analyses (25)</h3></div>';
+    + '<h3 style="margin:0;font-size:16px;color:var(--text-primary)">Advanced Analyses (25)</h3>'
+    + '<div class="qeeg-export-bar" style="margin-left:auto">'
+    + '<button class="btn btn-sm btn-outline" onclick="window._qeegExportAdvancedCSV()">Export CSV</button>'
+    + '<button class="btn btn-sm btn-outline" onclick="window._qeegExportJSON()">Export JSON</button>'
+    + '</div></div>';
 
   if (!adv || !adv.results || Object.keys(adv.results).length === 0) {
     html += '<div style="text-align:center;padding:32px;background:rgba(255,255,255,0.03);border-radius:12px;border:1px dashed rgba(255,255,255,0.1)">'
@@ -1285,14 +1628,20 @@ function _renderAdvancedAnalyses(data, analysisId) {
 
     var okCount = items.filter(function (i) { return i.result.status === 'ok'; }).length;
     var color = catColors[cat] || 'var(--teal)';
+    // Category summary line (shown when collapsed)
+    var summaryText = '';
+    if (_catSummaryExtractors[cat]) {
+      try { summaryText = _catSummaryExtractors[cat](items); } catch (_e) { summaryText = ''; }
+    }
     html += '<div class="qeeg-adv-category" style="--cat-color:' + color + '">'
       + '<div class="qeeg-adv-category__header qeeg-adv-group-toggle">'
-      + '<span class="qeeg-adv-arrow">&#x25BC;</span>'
+      + '<span class="qeeg-adv-arrow qeeg-adv-arrow--collapsed">&#x25BC;</span>'
       + '<span class="qeeg-adv-category__icon">' + (catIcons[cat] || '&#x2699;') + '</span>'
       + '<span class="qeeg-adv-category__title">' + esc(catLabels[cat] || cat) + '</span>'
       + '<span class="qeeg-adv-category__count">' + okCount + '/' + items.length + '</span>'
       + '</div>'
-      + '<div class="qeeg-adv-category__body">';
+      + (summaryText ? '<div class="qeeg-adv-category__summary">' + esc(summaryText) + '</div>' : '')
+      + '<div class="qeeg-adv-category__body qeeg-adv-category__body--collapsed">';
 
     items.forEach(function (item) {
       html += _renderSingleAnalysis(item.slug, item.result);
@@ -1308,9 +1657,11 @@ function _renderAdvancedAnalyses(data, analysisId) {
 
 function _renderSingleAnalysis(slug, r) {
   var statusColor = r.status === 'ok' ? 'var(--green)' : 'var(--red)';
+  var sevBadge = r.status === 'ok' ? _getSeverityBadge(slug, r.data) : '';
   var html = '<div class="qeeg-adv-item">'
     + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
     + badge(r.status, statusColor)
+    + sevBadge
     + '<strong style="font-size:13px">' + esc(r.label) + '</strong>'
     + '<span style="font-size:11px;color:var(--text-tertiary);margin-left:auto">' + (r.duration_ms || 0) + 'ms</span>'
     + '</div>';
@@ -1336,7 +1687,31 @@ function _renderSingleAnalysis(slug, r) {
     html += _renderMetricGrid([
       { label: 'Mean 1/f Exponent', value: d.mean_aperiodic_exponent },
     ]);
-    if (d.channels) html += _renderChannelTable(d.channels, ['aperiodic_exponent', 'n_peaks', 'r_squared']);
+    if (d.channels) {
+      html += _renderChannelTable(d.channels, ['aperiodic_exponent', 'n_peaks', 'r_squared']);
+      // Expanded detail: per-channel peaks
+      var chNames = Object.keys(d.channels).sort();
+      var hasPeaks = chNames.some(function (ch) { return d.channels[ch].peaks && d.channels[ch].peaks.length; });
+      if (hasPeaks) {
+        html += '<details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--text-secondary)">Show spectral peaks per channel</summary>'
+          + '<div style="max-height:220px;overflow-y:auto;margin-top:6px"><table class="ds-table" style="width:100%;font-size:11px"><thead><tr><th>Ch</th><th>Offset</th><th>Peak CF (Hz)</th><th>Peak PW</th><th>Peak BW</th></tr></thead><tbody>';
+        chNames.forEach(function (ch) {
+          var c = d.channels[ch];
+          var off = c.aperiodic_offset != null ? c.aperiodic_offset.toFixed(2) : '-';
+          if (c.peaks && c.peaks.length) {
+            c.peaks.forEach(function (pk, idx) {
+              html += '<tr><td>' + (idx === 0 ? esc(ch) : '') + '</td><td>' + (idx === 0 ? off : '') + '</td>'
+                + '<td>' + (pk.cf != null ? pk.cf.toFixed(1) : '-') + '</td>'
+                + '<td>' + (pk.pw != null ? pk.pw.toFixed(2) : '-') + '</td>'
+                + '<td>' + (pk.bw != null ? pk.bw.toFixed(1) : '-') + '</td></tr>';
+            });
+          } else {
+            html += '<tr><td>' + esc(ch) + '</td><td>' + off + '</td><td colspan="3" style="color:var(--text-tertiary)">No peaks</td></tr>';
+          }
+        });
+        html += '</tbody></table></div></details>';
+      }
+    }
   } else if (slug === 'spectral_edge_frequency') {
     html += _renderMetricGrid([
       { label: 'Mean SEF50', value: d.mean_sef50_hz, unit: 'Hz' },
@@ -1372,12 +1747,19 @@ function _renderSingleAnalysis(slug, r) {
     }
   } else if (slug === 'coherence_matrix') {
     if (d.channels && d.bands) {
-      var alphaMat = d.bands.alpha;
-      if (alphaMat) {
-        html += '<div style="overflow-x:auto;margin-top:8px">'
-          + renderConnectivityMatrix(alphaMat, d.channels, { band: 'alpha coherence', size: 340 })
-          + '</div>';
-      }
+      var initBand = _coherenceBand || 'alpha';
+      if (!d.bands[initBand]) initBand = Object.keys(d.bands)[0] || 'alpha';
+      // Band selector tabs
+      html += '<div class="qeeg-coh-tabs">';
+      Object.keys(d.bands).forEach(function (b) {
+        var active = b === initBand ? ' qeeg-coh-tab--active' : '';
+        var col = BAND_COLORS[b] || 'var(--teal)';
+        html += '<button class="qeeg-coh-tab' + active + '" style="--coh-color:' + col + '" onclick="window._qeegSwitchCoherenceBand(\'' + b + '\')">' + esc(b) + '</button>';
+      });
+      html += '</div>';
+      html += '<div id="qeeg-coherence-wrap" style="overflow-x:auto;margin-top:8px">'
+        + renderConnectivityMatrix(d.bands[initBand], d.channels, { band: initBand + ' coherence', size: 360 })
+        + '</div>';
     }
   } else if (slug === 'disconnection_flags') {
     html += _renderMetricGrid([
@@ -1462,6 +1844,23 @@ function _renderSingleAnalysis(slug, r) {
       { label: 'Posterior IAPF', value: d.posterior_iapf_hz, unit: 'Hz' },
       { label: 'Global Mean IAPF', value: d.mean_iapf_hz, unit: 'Hz' },
     ]);
+    // Per-channel IAPF detail table
+    if (d.channels) {
+      var iapfChs = Object.keys(d.channels).sort();
+      if (iapfChs.length) {
+        html += '<details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--text-secondary)">Per-channel IAPF &amp; plasticity</summary>'
+          + '<div style="max-height:220px;overflow-y:auto;margin-top:6px"><table class="ds-table" style="width:100%;font-size:11px"><thead><tr><th>Channel</th><th>IAPF (Hz)</th><th>Bandwidth (Hz)</th><th>Plasticity</th></tr></thead><tbody>';
+        iapfChs.forEach(function (ch) {
+          var c = d.channels[ch];
+          var plastColor = c.plasticity === 'high' ? 'var(--green)' : c.plasticity === 'low' ? 'var(--red)' : 'var(--amber)';
+          html += '<tr><td>' + esc(ch) + '</td>'
+            + '<td>' + (c.iapf_hz != null ? c.iapf_hz.toFixed(1) : '-') + '</td>'
+            + '<td>' + (c.bandwidth_hz != null ? c.bandwidth_hz.toFixed(1) : '-') + '</td>'
+            + '<td style="color:' + plastColor + ';font-weight:600">' + esc(c.plasticity || '-') + '</td></tr>';
+        });
+        html += '</tbody></table></div></details>';
+      }
+    }
   } else if (slug === 'wavelet_decomposition') {
     if (d.band_summary) {
       var wMetrics = [];
