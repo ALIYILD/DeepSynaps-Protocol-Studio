@@ -1004,6 +1004,31 @@ export const api = {
   getQEEGAssessmentCorrelation: (analysisId, assessments) =>
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/assessment-correlation`, { method: 'POST', body: JSON.stringify({ assessments }) }),
 
+  // ── qEEG AI Upgrades (CONTRACT_V2 §4) ────────────────────────────────────
+  // All endpoints are optional — each returns the updated analysis payload
+  // on success. Consumers should re-fetch the analysis afterwards to pick up
+  // the new field (embedding, brain_age, etc.) the backend stored.
+  computeQEEGEmbedding: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/compute-embedding`, { method: 'POST' }),
+  predictQEEGBrainAge: (analysisId, opts = {}) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/predict-brain-age`, {
+      method: 'POST', body: JSON.stringify(opts || {}),
+    }),
+  scoreQEEGConditions: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/score-conditions`, { method: 'POST' }),
+  fitQEEGCentiles: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/fit-centiles`, { method: 'POST' }),
+  explainQEEGRiskScores: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/explain`, { method: 'POST' }),
+  fetchQEEGSimilarCases: (analysisId, k = 10) => {
+    const q = k != null ? `?k=${encodeURIComponent(k)}` : '';
+    return apiFetch(`/api/v1/qeeg-analysis/${analysisId}/similar-cases${q}`);
+  },
+  recommendQEEGProtocol: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/recommend-protocol`, { method: 'POST' }),
+  fetchQEEGPatientTrajectory: (patientId) =>
+    apiFetch(`/api/v1/qeeg-analysis/patients/${patientId}/trajectory`),
+
   // ── Patient Portal (self-service for patient-role users) ─────────────────
   patientPortalMe: () => apiFetch('/api/v1/patient-portal/me'),
   patientPortalCourses: () => apiFetch('/api/v1/patient-portal/courses'),

@@ -27,6 +27,10 @@ SOURCE_PATHS = [
     REPO_ROOT / "packages" / "safety-engine" / "src",
     REPO_ROOT / "packages" / "generation-engine" / "src",
     REPO_ROOT / "packages" / "render-engine" / "src",
+    # Sibling qEEG pipeline — editable install in Docker; for local pytest
+    # we surface it on sys.path so the AI-upgrade bridge + longitudinal /
+    # copilot modules are importable without `pip install -e`.
+    REPO_ROOT / "packages" / "qeeg-pipeline" / "src",
 ]
 
 for source_path in SOURCE_PATHS:

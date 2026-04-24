@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Form, UploadFile
+from fastapi import APIRouter, Depends, Form, Query, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -62,6 +62,34 @@ def _maybe_json_loads(raw: Optional[str]) -> Optional[object]:
         return None
 
 
+def _maybe_ai_embedding_loads(raw: Optional[str]) -> Optional[list[float]]:
+    """Decode ``embedding_json`` into a ``list[float]`` or return None."""
+    decoded = _maybe_json_loads(raw)
+    if decoded is None:
+        return None
+    # Accept either a raw list or ``{"embedding": [...]}`` wrapper from the
+    # LaBraM encoder façade.
+    candidate: object
+    if isinstance(decoded, dict):
+        candidate = decoded.get("embedding")
+    else:
+        candidate = decoded
+    if not isinstance(candidate, list):
+        return None
+    try:
+        return [float(v) for v in candidate]
+    except (TypeError, ValueError):
+        return None
+
+
+def _maybe_ai_list_loads(raw: Optional[str]) -> Optional[list[dict]]:
+    """Decode ``similar_cases_json`` into a ``list[dict]`` or return None."""
+    decoded = _maybe_json_loads(raw)
+    if isinstance(decoded, list):
+        return [d for d in decoded if isinstance(d, dict)]
+    return None
+
+
 class AnalysisOut(BaseModel):
     id: str
     qeeg_record_id: Optional[str] = None
@@ -93,6 +121,17 @@ class AnalysisOut(BaseModel):
     quality_metrics: Optional[dict] = None
     pipeline_version: Optional[str] = None
     norm_db_version: Optional[str] = None
+    # ── AI upgrades (CONTRACT_V2.md §3) ────────────────────────────────────
+    embedding: Optional[list[float]] = None
+    brain_age: Optional[dict] = None
+    risk_scores: Optional[dict] = None
+    centiles: Optional[dict] = None
+    explainability: Optional[dict] = None
+    similar_cases: Optional[list[dict]] = None
+    protocol_recommendation: Optional[dict] = None
+    longitudinal: Optional[dict] = None
+    session_number: Optional[int] = None
+    days_from_baseline: Optional[int] = None
     analyzed_at: Optional[str] = None
     created_at: str
 
@@ -138,6 +177,20 @@ class AnalysisOut(BaseModel):
             quality_metrics=_maybe_json_loads(getattr(r, "quality_metrics_json", None)),
             pipeline_version=getattr(r, "pipeline_version", None),
             norm_db_version=getattr(r, "norm_db_version", None),
+            # ── Migration 038 AI upgrades (CONTRACT_V2 §3) ──────────────
+            # All nullable; legacy rows will surface None for each field.
+            embedding=_maybe_ai_embedding_loads(getattr(r, "embedding_json", None)),
+            brain_age=_maybe_json_loads(getattr(r, "brain_age_json", None)),
+            risk_scores=_maybe_json_loads(getattr(r, "risk_scores_json", None)),
+            centiles=_maybe_json_loads(getattr(r, "centiles_json", None)),
+            explainability=_maybe_json_loads(getattr(r, "explainability_json", None)),
+            similar_cases=_maybe_ai_list_loads(getattr(r, "similar_cases_json", None)),
+            protocol_recommendation=_maybe_json_loads(
+                getattr(r, "protocol_recommendation_json", None)
+            ),
+            longitudinal=_maybe_json_loads(getattr(r, "longitudinal_json", None)),
+            session_number=getattr(r, "session_number", None),
+            days_from_baseline=getattr(r, "days_from_baseline", None),
             analyzed_at=r.analyzed_at.isoformat() if r.analyzed_at else None,
             created_at=r.created_at.isoformat() if r.created_at else "",
         )
@@ -2159,3 +2212,463 @@ def assessment_correlation(
         results=results,
         demo_mode=False,
     )
+
+
+# ── AI upgrades (CONTRACT_V2.md §4) ──────────────────────────────────────────
+#
+# Eight additive endpoints (seven POSTs + one GET) that populate the ten
+# columns added by migration 038. Every handler routes through the
+# :mod:`app.services.qeeg_ai_bridge` façade so a missing scaffold module
+# never crashes the worker — it simply surfaces a ``success=False`` envelope
+# with a HTTP 200 response.
+
+
+class AIUpgradeResult(BaseModel):
+    """Generic envelope returned by every AI-upgrade endpoint.
+
+    Mirrors the bridge envelope but adds ``analysis_id`` for clients that
+    want to correlate the response with a request.
+    """
+
+    analysis_id: str
+    success: bool
+    error: Optional[str] = None
+    is_stub: bool = False
+    data: Optional[dict] = None
+    # Included so clients do not need to re-fetch after a successful
+    # upgrade. All fields mirror :class:`AnalysisOut`.
+    analysis: Optional[AnalysisOut] = None
+
+
+def _load_features_for_ai(analysis: QEEGAnalysis) -> dict:
+    """Assemble a CONTRACT §1.1 feature dict from the current row.
+
+    Uses the MNE-pipeline columns when present, falling back to the
+    legacy band-powers shape. This keeps the AI upgrades usable even
+    before the full MNE pipeline has been run against a given upload.
+    """
+    aperiodic = _maybe_json_loads(analysis.aperiodic_json) or {}
+    paf = _maybe_json_loads(analysis.peak_alpha_freq_json) or {}
+    connectivity = _maybe_json_loads(analysis.connectivity_json) or {}
+    asymmetry = _maybe_json_loads(analysis.asymmetry_json) or {}
+    graph = _maybe_json_loads(analysis.graph_metrics_json) or {}
+    source = _maybe_json_loads(analysis.source_roi_json) or {}
+    legacy = _maybe_json_loads(analysis.band_powers_json) or {}
+
+    # Normalise legacy bands into §1.1 shape when the MNE columns are bare.
+    bands: dict = {}
+    legacy_bands = (legacy or {}).get("bands") or {}
+    for band, info in legacy_bands.items():
+        chans = (info or {}).get("channels") or {}
+        bands[band] = {
+            "absolute_uv2": {
+                ch: float(v.get("absolute_uv2", 0.0) or 0.0) for ch, v in chans.items()
+            },
+            "relative": {
+                ch: float(v.get("relative_pct", 0.0) or 0.0) / 100.0
+                for ch, v in chans.items()
+            },
+        }
+
+    return {
+        "spectral": {
+            "bands": bands,
+            "aperiodic": aperiodic,
+            "peak_alpha_freq": paf,
+        },
+        "connectivity": connectivity,
+        "asymmetry": asymmetry,
+        "graph": graph,
+        "source": source,
+    }
+
+
+def _build_upgrade_response(
+    analysis: QEEGAnalysis,
+    envelope: dict,
+) -> AIUpgradeResult:
+    """Coerce a bridge envelope into an :class:`AIUpgradeResult`."""
+    data = envelope.get("data") if isinstance(envelope.get("data"), dict) else None
+    return AIUpgradeResult(
+        analysis_id=analysis.id,
+        success=bool(envelope.get("success", False)),
+        error=envelope.get("error"),
+        is_stub=bool(envelope.get("is_stub", False)),
+        data=data,
+        analysis=AnalysisOut.from_record(analysis),
+    )
+
+
+@router.post("/{analysis_id}/compute-embedding", response_model=AIUpgradeResult)
+def compute_embedding_endpoint(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AIUpgradeResult:
+    """Compute a LaBraM-style foundation embedding for a completed analysis.
+
+    Persists the resulting 200-dim vector into ``embedding_json``. Returns a
+    structured envelope with ``success=False`` (not HTTP 500) when the
+    foundation-model dependency is missing.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    try:
+        from app.services import qeeg_ai_bridge
+
+        # The embedding path needs an ``mne.Epochs`` object. We don't want to
+        # re-run preprocessing here, so pass a lightweight placeholder whose
+        # ``info`` attribute gives the stub a deterministic seed. The stub
+        # path in foundation_embedding hashes this — no heavy deps touched.
+        class _EpochsStub:
+            analysis_id = analysis.id
+            info = {"analysis_id": analysis.id}
+
+        envelope = qeeg_ai_bridge.run_compute_embedding_safe(
+            _EpochsStub(),
+            deterministic_seed=hash(analysis.id) & 0xFFFFFFFF,
+        )
+        if envelope.get("success") and isinstance(envelope.get("data"), dict):
+            # Persist only the bare vector (easier for SQL consumers).
+            vec = envelope["data"].get("embedding")
+            if isinstance(vec, list):
+                analysis.embedding_json = json.dumps(vec)
+                db.commit()
+                db.refresh(analysis)
+    except Exception as exc:  # pragma: no cover — bridge is safe, but belt & braces
+        _log.exception("compute-embedding endpoint failed for %s", analysis_id)
+        envelope = {
+            "success": False,
+            "data": None,
+            "error": f"{type(exc).__name__}: {exc}",
+            "is_stub": True,
+        }
+
+    return _build_upgrade_response(analysis, envelope)
+
+
+@router.post("/{analysis_id}/predict-brain-age", response_model=AIUpgradeResult)
+def predict_brain_age_endpoint(
+    analysis_id: str,
+    chronological_age: Optional[int] = Query(default=None, ge=0, le=120),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AIUpgradeResult:
+    """Predict brain age and persist the full ``brain_age`` dict."""
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    try:
+        from app.services import qeeg_ai_bridge
+
+        features = _load_features_for_ai(analysis)
+        envelope = qeeg_ai_bridge.run_predict_brain_age_safe(
+            features,
+            chronological_age=chronological_age,
+            deterministic_seed=hash(analysis.id) & 0xFFFFFFFF,
+        )
+        if envelope.get("success") and isinstance(envelope.get("data"), dict):
+            analysis.brain_age_json = json.dumps(envelope["data"])
+            db.commit()
+            db.refresh(analysis)
+    except Exception as exc:  # pragma: no cover
+        _log.exception("predict-brain-age endpoint failed for %s", analysis_id)
+        envelope = {
+            "success": False,
+            "data": None,
+            "error": f"{type(exc).__name__}: {exc}",
+            "is_stub": True,
+        }
+
+    return _build_upgrade_response(analysis, envelope)
+
+
+@router.post("/{analysis_id}/score-conditions", response_model=AIUpgradeResult)
+def score_conditions_endpoint(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AIUpgradeResult:
+    """Compute neurophysiological similarity indices (CONTRACT_V2 §1 risk_scores)."""
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    try:
+        from app.services import qeeg_ai_bridge
+
+        features = _load_features_for_ai(analysis)
+        envelope = qeeg_ai_bridge.run_score_conditions_safe(features)
+        if envelope.get("success") and isinstance(envelope.get("data"), dict):
+            analysis.risk_scores_json = json.dumps(envelope["data"])
+            db.commit()
+            db.refresh(analysis)
+    except Exception as exc:  # pragma: no cover
+        _log.exception("score-conditions endpoint failed for %s", analysis_id)
+        envelope = {
+            "success": False,
+            "data": None,
+            "error": f"{type(exc).__name__}: {exc}",
+            "is_stub": True,
+        }
+
+    return _build_upgrade_response(analysis, envelope)
+
+
+@router.post("/{analysis_id}/fit-centiles", response_model=AIUpgradeResult)
+def fit_centiles_endpoint(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AIUpgradeResult:
+    """Compute GAMLSS centile curves and persist to ``centiles_json``."""
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    try:
+        from app.services import qeeg_ai_bridge
+
+        features = _load_features_for_ai(analysis)
+        envelope = qeeg_ai_bridge.run_fit_centiles_safe(features)
+        if envelope.get("success") and isinstance(envelope.get("data"), dict):
+            analysis.centiles_json = json.dumps(envelope["data"])
+            db.commit()
+            db.refresh(analysis)
+    except Exception as exc:  # pragma: no cover
+        _log.exception("fit-centiles endpoint failed for %s", analysis_id)
+        envelope = {
+            "success": False,
+            "data": None,
+            "error": f"{type(exc).__name__}: {exc}",
+            "is_stub": True,
+        }
+
+    return _build_upgrade_response(analysis, envelope)
+
+
+@router.post("/{analysis_id}/explain", response_model=AIUpgradeResult)
+def explain_endpoint(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AIUpgradeResult:
+    """Run attribution / OOD / Adebayo sanity and persist to ``explainability_json``."""
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    try:
+        from app.services import qeeg_ai_bridge
+
+        features = _load_features_for_ai(analysis)
+        risk_scores = _maybe_json_loads(analysis.risk_scores_json) or {}
+        envelope = qeeg_ai_bridge.run_explain_safe(features, risk_scores)
+        if envelope.get("success") and isinstance(envelope.get("data"), dict):
+            analysis.explainability_json = json.dumps(envelope["data"])
+            db.commit()
+            db.refresh(analysis)
+    except Exception as exc:  # pragma: no cover
+        _log.exception("explain endpoint failed for %s", analysis_id)
+        envelope = {
+            "success": False,
+            "data": None,
+            "error": f"{type(exc).__name__}: {exc}",
+            "is_stub": True,
+        }
+
+    return _build_upgrade_response(analysis, envelope)
+
+
+class SimilarCasesResponse(BaseModel):
+    """Response shape for :func:`get_similar_cases_endpoint`."""
+
+    analysis_id: str
+    success: bool
+    k: int
+    cases: list[dict] = Field(default_factory=list)
+    error: Optional[str] = None
+    is_stub: bool = False
+    cached: bool = False
+
+
+@router.get("/{analysis_id}/similar-cases", response_model=SimilarCasesResponse)
+def get_similar_cases_endpoint(
+    analysis_id: str,
+    k: int = Query(default=10, ge=1, le=100),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> SimilarCasesResponse:
+    """Return top-K similar cases for an analysis.
+
+    When the column is already populated we short-circuit and return the
+    cached list; otherwise we compute on-the-fly via the bridge.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    cached = _maybe_ai_list_loads(analysis.similar_cases_json)
+    if cached:
+        return SimilarCasesResponse(
+            analysis_id=analysis_id,
+            success=True,
+            k=min(k, len(cached)),
+            cases=cached[:k],
+            cached=True,
+        )
+
+    try:
+        from app.services import qeeg_ai_bridge
+
+        embedding = _maybe_ai_embedding_loads(analysis.embedding_json) or []
+        envelope = qeeg_ai_bridge.run_similar_cases_safe(
+            embedding,
+            k=k,
+            db_session=db,
+        )
+        if envelope.get("success"):
+            raw = envelope.get("data")
+            if isinstance(raw, dict):
+                raw = raw.get("cases") or raw.get("similar_cases") or []
+            if isinstance(raw, list):
+                cases = [c for c in raw if isinstance(c, dict)]
+                analysis.similar_cases_json = json.dumps(cases)
+                db.commit()
+                db.refresh(analysis)
+                return SimilarCasesResponse(
+                    analysis_id=analysis_id,
+                    success=True,
+                    k=min(k, len(cases)),
+                    cases=cases[:k],
+                    is_stub=bool(envelope.get("is_stub", False)),
+                )
+        return SimilarCasesResponse(
+            analysis_id=analysis_id,
+            success=False,
+            k=k,
+            cases=[],
+            error=envelope.get("error") or "similar-cases service unavailable",
+            is_stub=bool(envelope.get("is_stub", True)),
+        )
+    except Exception as exc:  # pragma: no cover
+        _log.exception("similar-cases endpoint failed for %s", analysis_id)
+        return SimilarCasesResponse(
+            analysis_id=analysis_id,
+            success=False,
+            k=k,
+            cases=[],
+            error=f"{type(exc).__name__}: {exc}",
+            is_stub=True,
+        )
+
+
+@router.post("/{analysis_id}/recommend-protocol", response_model=AIUpgradeResult)
+def recommend_protocol_endpoint(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AIUpgradeResult:
+    """Generate a :class:`ProtocolRecommendation` and persist it."""
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    try:
+        from app.services import qeeg_ai_bridge
+
+        features = _load_features_for_ai(analysis)
+        risk_scores = _maybe_json_loads(analysis.risk_scores_json) or {}
+
+        # Gather supporting papers for the recommender (best-effort).
+        papers_env = qeeg_ai_bridge.run_retrieve_papers_safe(
+            features,
+            {"patient_id": analysis.patient_id},
+            k=10,
+            db_session=db,
+        )
+        papers: list[dict] = []
+        if papers_env.get("success") and isinstance(papers_env.get("data"), list):
+            papers = [p for p in papers_env["data"] if isinstance(p, dict)]
+
+        envelope = qeeg_ai_bridge.run_recommend_protocol_safe(
+            features,
+            risk_scores,
+            papers=papers,
+            db_session=db,
+        )
+        if envelope.get("success") and isinstance(envelope.get("data"), dict):
+            analysis.protocol_recommendation_json = json.dumps(envelope["data"])
+            db.commit()
+            db.refresh(analysis)
+    except Exception as exc:  # pragma: no cover
+        _log.exception("recommend-protocol endpoint failed for %s", analysis_id)
+        envelope = {
+            "success": False,
+            "data": None,
+            "error": f"{type(exc).__name__}: {exc}",
+            "is_stub": True,
+        }
+
+    return _build_upgrade_response(analysis, envelope)
+
+
+class TrajectoryResponse(BaseModel):
+    patient_id: str
+    success: bool
+    error: Optional[str] = None
+    is_stub: bool = False
+    trajectory: Optional[dict] = None
+
+
+@router.get("/patients/{patient_id}/trajectory", response_model=TrajectoryResponse)
+def patient_trajectory_endpoint(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> TrajectoryResponse:
+    """Return the longitudinal trajectory payload for a patient.
+
+    Delegates to :func:`deepsynaps_qeeg.ai.longitudinal.generate_trajectory_report`.
+    Returns ``success=False`` with a non-500 response when the scaffold
+    longitudinal module is missing from the worker.
+    """
+    require_minimum_role(actor, "clinician")
+
+    try:
+        from app.services import qeeg_ai_bridge
+
+        envelope = qeeg_ai_bridge.run_trajectory_report_safe(patient_id, db)
+        return TrajectoryResponse(
+            patient_id=patient_id,
+            success=bool(envelope.get("success", False)),
+            error=envelope.get("error"),
+            is_stub=bool(envelope.get("is_stub", False)),
+            trajectory=envelope.get("data") if isinstance(envelope.get("data"), dict) else None,
+        )
+    except Exception as exc:  # pragma: no cover
+        _log.exception("trajectory endpoint failed for %s", patient_id)
+        return TrajectoryResponse(
+            patient_id=patient_id,
+            success=False,
+            error=f"{type(exc).__name__}: {exc}",
+            is_stub=True,
+            trajectory=None,
+        )

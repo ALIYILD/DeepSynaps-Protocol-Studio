@@ -11,6 +11,30 @@ import { api } from './api.js';
 import { renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap, renderICAComponents, renderWaveletHeatmap, renderChannelQualityMap, renderAsymmetryMap, renderPowerBarChart, renderTBRBarChart, renderSignalDeviationChart, renderBiomarkerGauges, renderBrodmannTable } from './brain-map-svg.js';
 import { emptyState, showToast, spark } from './helpers.js';
 import { DK_LOBES, groupROIsByLobe, formatDKLabel } from './qeeg-dk-atlas.js';
+import {
+  renderAiUpgradePanels,
+  renderBrainAgeCard,
+  renderRiskScoreBars,
+  renderCentileCurves,
+  renderExplainabilityOverlay,
+  renderSimilarCases,
+  renderProtocolRecommendationCard,
+  renderLongitudinalSparklines,
+  mountCopilotWidget,
+} from './qeeg-ai-panels.js';
+
+// Feature flag for the Contract V2 AI upgrade panels + buttons. Defaults to
+// on; ops can disable without a redeploy by setting
+// window.DEEPSYNAPS_ENABLE_AI_UPGRADES = false before the app boots.
+export function _aiUpgradesFeatureFlagEnabled() {
+  try {
+    var v = (typeof window !== 'undefined' && window)
+      ? window.DEEPSYNAPS_ENABLE_AI_UPGRADES
+      : (typeof globalThis !== 'undefined' ? globalThis.DEEPSYNAPS_ENABLE_AI_UPGRADES : undefined);
+    if (v === false || v === 'false' || v === 0 || v === '0') return false;
+    return true;
+  } catch (_) { return true; }
+}
 
 // ── XSS escape ───────────────────────────────────────────────────────────────
 function esc(v) {
@@ -1748,7 +1772,261 @@ var DEMO_QEEG_ANALYSIS = {
       { metric: 'spectral.bands.alpha.absolute_uv2', channel: 'P3', z: 2.20 },
       { metric: 'spectral.bands.alpha.absolute_uv2', channel: 'P4', z: 2.30 },
     ],
-  }
+  },
+
+  // ── Contract V2 §1 AI upgrade fields ─────────────────────────────────────
+  // Seeded, deterministic demo payload so the Contract V2 frontend panels
+  // render on the Netlify preview without a live Fly API. Values are
+  // clinically consistent with the rest of the demo (elevated frontal theta
+  // at Fz, posterior alpha hyper-amplitude, F3/F4 asymmetry).
+
+  // §1 — 200-dim LaBraM-style embedding. Seeded by a hardcoded constant so
+  // the vector is stable across reloads (not random per render).
+  embedding: (function () {
+    var SEED = 0x9E3779B9; // golden-ratio mixing constant
+    var v = SEED;
+    var out = [];
+    for (var i = 0; i < 200; i++) {
+      // Xorshift32-style step — deterministic, stable, no Math.random().
+      v ^= v << 13; v >>>= 0;
+      v ^= v >>> 17;
+      v ^= v << 5; v >>>= 0;
+      // Map to roughly [-1, 1].
+      out.push(+(((v & 0xFFFF) / 0xFFFF) * 2 - 1).toFixed(5));
+    }
+    return out;
+  })(),
+
+  // §1 — brain age. Predicted 38, chronological 35, gap +3.
+  brain_age: (function () {
+    var chs = ['Fp1','Fp2','F7','F3','Fz','F4','F8','T3','C3','Cz','C4','T4','T5','P3','Pz','P4','T6','O1','O2'];
+    // Importance weights roughly follow frontal-theta + posterior-alpha drivers.
+    var imp = [0.38,0.35,0.42,0.55,0.82,0.54,0.40,0.31,0.44,0.60,0.43,0.29,0.28,0.51,0.68,0.50,0.32,0.72,0.71];
+    var ei = {};
+    chs.forEach(function (c, i) { ei[c] = imp[i]; });
+    return {
+      predicted_years: 38,
+      chronological_years: 35,
+      gap_years: 3.0,
+      gap_percentile: 72,
+      confidence: 'moderate',
+      electrode_importance: ei,
+    };
+  })(),
+
+  // §1 — similarity indices (NOT probability of disease). CI bands ±0.08.
+  risk_scores: {
+    mdd_like:               { score: 0.71, ci95: [0.63, 0.79] },
+    adhd_like:              { score: 0.42, ci95: [0.34, 0.50] },
+    anxiety_like:           { score: 0.58, ci95: [0.50, 0.66] },
+    cognitive_decline_like: { score: 0.22, ci95: [0.14, 0.30] },
+    tbi_residual_like:      { score: 0.18, ci95: [0.10, 0.26] },
+    insomnia_like:          { score: 0.34, ci95: [0.26, 0.42] },
+    disclaimer: 'These are neurophysiological similarity indices; they do not establish any medical condition.',
+  },
+
+  // §1 — GAMLSS centiles (0–100 per channel per band).
+  centiles: (function () {
+    var chs = ['Fp1','Fp2','F7','F3','Fz','F4','F8','T3','C3','Cz','C4','T4','T5','P3','Pz','P4','T6','O1','O2'];
+    // Values chosen to mirror the z-score shape: Fz theta ~92pct (high),
+    // Pz/P3/P4/O1/O2 alpha ~95–99pct, frontal delta around 60–70pct.
+    var bandPcts = {
+      delta:    [78,75,65,58,48,58,64,56,42,40,42,56,48,30,28,33,48,18,18],
+      theta:    [70,65,58,72,92,68,55,48,65,88,58,45,40,48,50,47,46,42,43],
+      alpha:    [40,38,42,55,38,62,42,52,70,58,72,50,82,96,99,97,85,99,98],
+      beta:     [65,67,68,58,48,58,72,65,50,48,50,66,55,48,42,45,55,48,45],
+      gamma:    [68,65,78,60,65,58,73,68,52,60,50,70,68,48,42,48,62,40,42],
+    };
+    var out = { spectral: { bands: {} }, aperiodic: { slope: {} }, norm_db_version: 'gamlss-v1' };
+    Object.keys(bandPcts).forEach(function (b) {
+      out.spectral.bands[b] = { absolute_uv2: {}, relative: {} };
+      chs.forEach(function (c, i) {
+        out.spectral.bands[b].absolute_uv2[c] = bandPcts[b][i];
+        // Relative centile ~ dampened variant of the absolute percentile.
+        out.spectral.bands[b].relative[c] = Math.max(5, Math.min(95,
+          Math.round(50 + 0.6 * (bandPcts[b][i] - 50))));
+      });
+    });
+    // Aperiodic slope centiles (illustrative, per channel).
+    chs.forEach(function (c, i) {
+      out.aperiodic.slope[c] = Math.max(5, Math.min(95, 40 + (i % 7) * 5));
+    });
+    return out;
+  })(),
+
+  // §1 — explainability (integrated gradients + OOD + Adebayo sanity).
+  explainability: (function () {
+    var riskKeys = ['mdd_like','adhd_like','anxiety_like','cognitive_decline_like','tbi_residual_like','insomnia_like'];
+    // Top-3 channels × band chosen to reflect the qEEG drivers per risk.
+    var tops = {
+      mdd_like:               [{ch:'F3',band:'alpha',score:0.82},{ch:'F4',band:'alpha',score:0.74},{ch:'Fz',band:'theta',score:0.55}],
+      adhd_like:              [{ch:'Fz',band:'theta',score:0.78},{ch:'Cz',band:'theta',score:0.62},{ch:'F3',band:'beta',score:0.48}],
+      anxiety_like:           [{ch:'F8',band:'beta',score:0.66},{ch:'F4',band:'beta',score:0.59},{ch:'Fp2',band:'gamma',score:0.52}],
+      cognitive_decline_like: [{ch:'Pz',band:'alpha',score:0.55},{ch:'T5',band:'theta',score:0.44},{ch:'T6',band:'theta',score:0.41}],
+      tbi_residual_like:      [{ch:'T3',band:'delta',score:0.48},{ch:'T4',band:'delta',score:0.42},{ch:'F7',band:'theta',score:0.38}],
+      insomnia_like:          [{ch:'O1',band:'alpha',score:0.61},{ch:'O2',band:'alpha',score:0.58},{ch:'Pz',band:'alpha',score:0.54}],
+    };
+    var per = {};
+    var chs = ['Fp1','Fp2','F7','F3','Fz','F4','F8','T3','C3','Cz','C4','T4','T5','P3','Pz','P4','T6','O1','O2'];
+    var bands = ['delta','theta','alpha','beta','gamma'];
+    riskKeys.forEach(function (rk) {
+      var channelImp = {};
+      chs.forEach(function (c, ci) {
+        channelImp[c] = {};
+        bands.forEach(function (b, bi) {
+          // Baseline small importance; boost top channels.
+          var base = 0.05 + (((ci + bi) * 7) % 19) / 200;
+          channelImp[c][b] = +base.toFixed(3);
+        });
+      });
+      tops[rk].forEach(function (t) {
+        if (channelImp[t.ch] && channelImp[t.ch][t.band] != null) {
+          channelImp[t.ch][t.band] = +(t.score).toFixed(3);
+        }
+      });
+      per[rk] = { channel_importance: channelImp, top_channels: tops[rk] };
+    });
+    return {
+      per_risk_score: per,
+      ood_score: { percentile: 32, distance: 0.41, interpretation: 'within training distribution' },
+      adebayo_sanity_pass: true,
+      method: 'integrated_gradients',
+    };
+  })(),
+
+  // §1 — similar cases (top-K retrieval, de-identified).
+  similar_cases: [
+    { similarity: 0.94, age_bucket: '30–39', sex: 'F', flagged_conditions: ['MDD'], outcome: 'responder',
+      summary: 'F3/F4 alpha asymmetry + mild frontal theta; responded to 20-session HF-rTMS over L-DLPFC.' },
+    { similarity: 0.91, age_bucket: '30–39', sex: 'M', flagged_conditions: ['MDD','anxiety'], outcome: 'responder',
+      summary: 'Posterior alpha hyper + frontal theta; combined rTMS + SMR neurofeedback led to PHQ-9 improvement.' },
+    { similarity: 0.89, age_bucket: '40–49', sex: 'F', flagged_conditions: ['MDD'], outcome: 'responder',
+      summary: 'Elevated Fz theta + +0.18 FAA; 15 sessions intermittent theta-burst stimulation.' },
+    { similarity: 0.87, age_bucket: '20–29', sex: 'M', flagged_conditions: ['MDD','ADHD'], outcome: 'non-responder',
+      summary: 'High TBR + FAA; partial response to neurofeedback only; medication adjustment recommended.' },
+    { similarity: 0.85, age_bucket: '30–39', sex: 'F', flagged_conditions: ['anxiety'], outcome: 'responder',
+      summary: 'Elevated frontal beta + modest FAA; CBT + tDCS protocol reduced GAD-7 by 8 points.' },
+    { similarity: 0.83, age_bucket: '50–59', sex: 'M', flagged_conditions: ['MDD'], outcome: 'responder',
+      summary: 'Posterior alpha hyper + low PAF; HF-rTMS over L-DLPFC with Beam F3 targeting.' },
+    { similarity: 0.82, age_bucket: '40–49', sex: 'F', flagged_conditions: ['MDD','insomnia'], outcome: 'responder',
+      summary: 'Alpha asymmetry + occipital alpha hyper; combined sleep hygiene + rTMS protocol.' },
+    { similarity: 0.80, age_bucket: '30–39', sex: 'M', flagged_conditions: ['ADHD'], outcome: 'non-responder',
+      summary: 'Mid-frontal theta excess; SMR neurofeedback trial discontinued at session 8 (non-adherence).' },
+  ],
+
+  // §8 — protocol recommendation. Mirrors DEMO_QEEG_REPORT.literature_refs.
+  protocol_recommendation: {
+    primary_modality: 'rtms_10hz',
+    target_region: 'L_DLPFC',
+    rationale: 'Left-frontal hypoactivation pattern (F3/F4 alpha asymmetry +0.21) and elevated '
+      + 'frontal theta at Fz support excitatory 10 Hz rTMS over left DLPFC. Findings are '
+      + 'neurophysiological indicators; clinician review required before application.',
+    dose: { sessions: 20, intensity: '120% RMT', duration_min: 37, frequency: '5x / week' },
+    session_plan: {
+      induction:     { sessions: 8,  notes: 'Daily 10 Hz, 3000 pulses/session; build tolerance.' },
+      consolidation: { sessions: 12, notes: 'Continue 5x/week; re-assess at session 20.' },
+      maintenance:   { sessions: 1,  notes: 'Monthly booster × 6 months if responder.' },
+    },
+    contraindications: ['active seizure disorder', 'ferromagnetic cranial implants',
+      'cardiac pacemaker', 'pregnancy (first trimester)'],
+    expected_response_window_weeks: [3, 6],
+    citations: [
+      { n: 1, pmid: '21890290', doi: '10.1111/j.1467-9450.2011.00893.x',
+        title: 'Frontal EEG theta and inattention: a meta-analysis',
+        year: 2011, url: 'https://pubmed.ncbi.nlm.nih.gov/21890290/' },
+      { n: 2, pmid: '16022942', doi: '10.1016/j.ijpsycho.2005.05.008',
+        title: 'Posterior alpha power and cortical hypoarousal',
+        year: 2005, url: 'https://pubmed.ncbi.nlm.nih.gov/16022942/' },
+      { n: 3, pmid: '11215648', doi: '10.1016/S0301-0511(00)00091-9',
+        title: 'Frontal EEG asymmetry and the approach–withdrawal model',
+        year: 2001, url: 'https://pubmed.ncbi.nlm.nih.gov/11215648/' },
+      { n: 4, pmid: '33010823', doi: '10.1038/s41593-020-00744-x',
+        title: 'Parameterizing neural power spectra into periodic and aperiodic components',
+        year: 2020, url: 'https://pubmed.ncbi.nlm.nih.gov/33010823/' },
+    ],
+    confidence: 'moderate',
+    alternative_protocols: [
+      {
+        primary_modality: 'neurofeedback_smr_theta',
+        target_region: 'Fz/Cz',
+        rationale: 'SMR up-train (12–15 Hz) + theta inhibit (4–8 Hz) at Fz addresses the '
+          + 'attentional theta excess without rTMS contraindications.',
+        dose: { sessions: 30, intensity: 'n/a', duration_min: 40, frequency: '2x / week' },
+        session_plan: {
+          induction:     { sessions: 8,  notes: 'Threshold calibration + baseline.' },
+          consolidation: { sessions: 18, notes: 'Progressive reward thresholds.' },
+          maintenance:   { sessions: 4,  notes: 'Monthly follow-ups × 4.' },
+        },
+        contraindications: [],
+        expected_response_window_weeks: [6, 10],
+        citations: [
+          { n: 1, pmid: '21890290', title: 'Frontal EEG theta and inattention', year: 2011,
+            url: 'https://pubmed.ncbi.nlm.nih.gov/21890290/' },
+        ],
+        confidence: 'low',
+      },
+      {
+        primary_modality: 'tdcs_bifrontal',
+        target_region: 'F3(anode) / F4(cathode)',
+        rationale: 'Bifrontal tDCS at 2 mA may address both FAA and mid-frontal theta; '
+          + 'lower burden alternative when rTMS is declined.',
+        dose: { sessions: 10, intensity: '2 mA', duration_min: 20, frequency: '5x / week' },
+        session_plan: {
+          induction:     { sessions: 3,  notes: 'Tolerance build-up.' },
+          consolidation: { sessions: 7,  notes: 'Standard 2-week block.' },
+          maintenance:   { sessions: 0,  notes: 'None by default.' },
+        },
+        contraindications: ['active skin lesions at electrode sites'],
+        expected_response_window_weeks: [4, 8],
+        citations: [
+          { n: 3, pmid: '11215648', title: 'Frontal EEG asymmetry and the approach–withdrawal model',
+            year: 2001, url: 'https://pubmed.ncbi.nlm.nih.gov/11215648/' },
+        ],
+        confidence: 'low',
+      },
+    ],
+  },
+
+  // §9 — longitudinal trajectory across 3 sessions.
+  longitudinal: {
+    n_sessions: 3,
+    baseline_date: '2026-02-10',
+    days_since_baseline: 72,
+    feature_trajectories: {
+      fz_theta: {
+        label: 'Fz theta (z)', values: [2.10, 1.72, 1.38],
+        dates: ['2026-02-10', '2026-03-15', '2026-04-20'],
+        slope: -0.36, rci: 1.92, significant: true,
+      },
+      pz_alpha: {
+        label: 'Pz alpha (z)', values: [2.50, 2.31, 2.05],
+        dates: ['2026-02-10', '2026-03-15', '2026-04-20'],
+        slope: -0.22, rci: 1.44, significant: true,
+      },
+      faa_f3_f4: {
+        label: 'F3/F4 alpha asymmetry', values: [0.21, 0.17, 0.12],
+        dates: ['2026-02-10', '2026-03-15', '2026-04-20'],
+        slope: -0.04, rci: 1.63, significant: true,
+      },
+      brain_age_gap: {
+        label: 'Brain-age gap (y)', values: [5.2, 4.1, 3.0],
+        dates: ['2026-02-10', '2026-03-15', '2026-04-20'],
+        slope: -1.1, rci: 1.25, significant: false,
+      },
+    },
+    brain_age_trajectory: {
+      values: [40.2, 39.1, 38.0],
+      dates: ['2026-02-10', '2026-03-15', '2026-04-20'],
+    },
+    normative_distance_trajectory: {
+      values: [0.62, 0.51, 0.41],
+      dates: ['2026-02-10', '2026-03-15', '2026-04-20'],
+    },
+  },
+
+  // §9 — simple counters for the trajectory card header.
+  session_number: 3,
+  days_from_baseline: 72,
 };
 
 var DEMO_QEEG_REPORT = {
@@ -2563,6 +2841,12 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       // Each sub-renderer is null-guarded and emits nothing when its field
       // is absent, so legacy analyses render identically.
       html += renderMNEPipelineSections(data);
+      // ── Contract V2 AI upgrade panels (brain age, similarity indices,
+      //     centiles, explainability, similar cases, protocol, longitudinal)
+      //     — composite helper is null-guarded per field. Feature-flagged.
+      if (_aiUpgradesFeatureFlagEnabled()) {
+        html += renderAiUpgradePanels(data);
+      }
 
       // Action buttons
       var compareAction = (analysisId === 'demo' && _isDemoMode())
@@ -2573,12 +2857,27 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         mneButtonHtml = '<button class="btn btn-outline" id="qeeg-run-mne-btn" '
           + 'aria-label="Re-run analysis with the MNE-Python pipeline">Run MNE pipeline</button>';
       }
+      // Contract V2 AI action buttons (flag-gated). Each button hits the
+      // corresponding api client method and, on success, re-fetches the
+      // analysis by triggering window._nav('qeeg-analysis').
+      var aiButtonsHtml = '';
+      if (_aiUpgradesFeatureFlagEnabled()) {
+        aiButtonsHtml = ''
+          + '<button class="btn btn-outline btn-sm" data-qeeg-ai-action="embedding" aria-label="Compute LaBraM embedding">Compute embedding</button>'
+          + '<button class="btn btn-outline btn-sm" data-qeeg-ai-action="brain_age" aria-label="Predict brain age">Predict brain age</button>'
+          + '<button class="btn btn-outline btn-sm" data-qeeg-ai-action="risk_scores" aria-label="Score similarity indices">Score conditions</button>'
+          + '<button class="btn btn-outline btn-sm" data-qeeg-ai-action="explain" aria-label="Explain similarity indices">Explain</button>'
+          + '<button class="btn btn-outline btn-sm" data-qeeg-ai-action="similar" aria-label="Find similar cases">Find similar cases</button>'
+          + '<button class="btn btn-outline btn-sm" data-qeeg-ai-action="protocol" aria-label="Recommend protocol">Recommend protocol</button>';
+      }
       html += '<div style="display:flex;gap:12px;justify-content:center;margin-top:16px;flex-wrap:wrap">'
         + '<button class="btn btn-primary" onclick="window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Generate AI Report</button>'
         + mneButtonHtml
+        + aiButtonsHtml
         + '<button class="btn btn-outline" onclick="' + compareAction + '">Compare with Another</button>'
         + '</div>'
-        + '<div id="qeeg-mne-run-status" aria-live="polite" style="text-align:center;margin-top:8px"></div>';
+        + '<div id="qeeg-mne-run-status" aria-live="polite" style="text-align:center;margin-top:8px"></div>'
+        + '<div id="qeeg-ai-run-status" aria-live="polite" style="text-align:center;margin-top:4px"></div>';
 
       // ── Advanced Analyses Section ───────────────────────────────────────
       html += _renderAdvancedAnalyses(data, analysisId);
@@ -2631,6 +2930,48 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
               showToast('MNE pipeline failed: ' + (e.message || e), 'error');
               if (mneSt) mneSt.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Error: ' + esc(e.message || e) + '</div>';
             }
+          });
+        }
+        // ── Contract V2 AI upgrade action buttons ────────────────────
+        // Each button POSTs to the matching /api/v1/qeeg-analysis/{id}/...
+        // endpoint and re-renders the analysis tab on success. Demo-mode
+        // short-circuits with a toast so reviewers see feedback without
+        // hitting the live Fly API.
+        if (_aiUpgradesFeatureFlagEnabled()) {
+          var aiActionMap = {
+            embedding:  { label: 'Computing embedding...',         call: function () { return api.computeQEEGEmbedding(analysisId); } },
+            brain_age:  { label: 'Predicting brain age...',        call: function () { return api.predictQEEGBrainAge(analysisId, {}); } },
+            risk_scores:{ label: 'Scoring similarity indices...',  call: function () { return api.scoreQEEGConditions(analysisId); } },
+            explain:    { label: 'Generating explainability...',   call: function () { return api.explainQEEGRiskScores(analysisId); } },
+            similar:    { label: 'Finding similar cases...',       call: function () { return api.fetchQEEGSimilarCases(analysisId, 10); } },
+            protocol:   { label: 'Building protocol suggestion...',call: function () { return api.recommendQEEGProtocol(analysisId); } },
+          };
+          document.querySelectorAll('[data-qeeg-ai-action]').forEach(function (btn) {
+            btn.addEventListener('click', async function () {
+              var action = btn.getAttribute('data-qeeg-ai-action');
+              var spec = aiActionMap[action];
+              if (!spec) return;
+              if (analysisId === 'demo' && _isDemoMode()) {
+                showToast('Demo mode — ' + spec.label.replace('...', '') + ' shown offline.', 'info');
+                return;
+              }
+              btn.disabled = true;
+              var original = btn.textContent;
+              btn.textContent = '...';
+              var aiSt = document.getElementById('qeeg-ai-run-status');
+              if (aiSt) aiSt.innerHTML = spinner(spec.label);
+              try {
+                await spec.call();
+                showToast(original + ' complete', 'success');
+                window._nav('qeeg-analysis');
+              } catch (e) {
+                btn.disabled = false;
+                btn.textContent = original;
+                showToast(original + ' failed: ' + (e.message || e), 'error');
+                if (aiSt) aiSt.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">'
+                  + 'Error: ' + esc(e.message || e) + '</div>';
+              }
+            });
           });
         }
         // Collapsible group toggles
@@ -2748,11 +3089,25 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       if (analysisData) _currentAnalysis = analysisData;
 
       var html = _renderComprehensiveReport(report, analysisData);
+      // Contract V2 §10 — copilot widget mount point (floating / fixed
+      // position). Appended inside the tab so it survives tab re-renders
+      // but is removed when the tab is navigated away from.
+      if (_aiUpgradesFeatureFlagEnabled()) {
+        html += '<div id="qeeg-copilot-mount" aria-live="polite"></div>';
+      }
 
       if (analysisId === 'demo' && _isDemoMode()) {
         html = _demoBanner() + html;
       }
       tabEl.innerHTML = html;
+
+      // Mount the copilot once the DOM is ready. Re-mounts on every report
+      // render so the widget stays in sync with the selected analysis.
+      if (_aiUpgradesFeatureFlagEnabled()) {
+        setTimeout(function () {
+          try { mountCopilotWidget('qeeg-copilot-mount', analysisId); } catch (_) {}
+        }, 30);
+      }
 
       // Review handler
       const reviewBtn = document.getElementById('qeeg-save-review');

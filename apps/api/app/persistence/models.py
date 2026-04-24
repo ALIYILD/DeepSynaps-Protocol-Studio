@@ -1738,9 +1738,51 @@ class QEEGAnalysis(Base):
     quality_metrics_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     pipeline_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     norm_db_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    # ── AI upgrades (migration 038, CONTRACT_V2.md §2) ────────────────────
+    # All nullable / additive. Populated on-demand by the dedicated AI
+    # endpoints (compute-embedding, predict-brain-age, score-conditions,
+    # fit-centiles, explain, similar-cases, recommend-protocol). Legacy
+    # pipelines ignore these columns.
+    embedding_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    brain_age_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    risk_scores_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    centiles_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    explainability_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    similar_cases_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    protocol_recommendation_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    longitudinal_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    session_number: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    days_from_baseline: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     analyzed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class KgEntity(Base):
+    """Knowledge-graph entity node (CONTRACT_V2.md §3 hypergraph).
+
+    Stores symbolic entities (conditions, features, modalities, papers,
+    etc.) with an optional embedding. The column is a JSON TEXT blob so
+    SQLite test envs work out of the box; deployments can lift the
+    values into pgvector out-of-band if they need ANN similarity search.
+    """
+    __tablename__ = "kg_entities"
+
+    entity_id: Mapped[int] = mapped_column(Integer(), primary_key=True, autoincrement=True)
+    type: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    name: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    embedding_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+
+
+class KgHyperedge(Base):
+    """Hyperedge linking multiple KG entities (CONTRACT_V2.md §3)."""
+    __tablename__ = "kg_hyperedges"
+
+    edge_id: Mapped[int] = mapped_column(Integer(), primary_key=True, autoincrement=True)
+    relation: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    entity_ids_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    paper_ids_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    confidence: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
 
 
 class QEEGAIReport(Base):
