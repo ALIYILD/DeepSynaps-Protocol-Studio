@@ -453,6 +453,14 @@ def _finalize_session_runtime(
             delivered.checklist_json = json.dumps(summary["checklist"])
         delivered.interruptions = bool(summary["interruptions"])
         delivered.interruption_reason = summary["interruption_reason"] or delivered.interruption_reason
+        # Increment course counter when finalising a session with pre-existing
+        # delivered params (e.g. parameters recorded at session start).
+        if course is not None and (course.status or "").lower() == "active" and record.status != "completed":
+            course.sessions_delivered = (course.sessions_delivered or 0) + 1
+            if course.sessions_delivered >= course.planned_sessions_total:
+                course.status = "completed"
+                course.completed_at = datetime.now(timezone.utc)
+            course.updated_at = datetime.now(timezone.utc)
 
     record.session_notes = summary["session_notes"] or record.session_notes
     record.adverse_events = summary["adverse_events"] or record.adverse_events

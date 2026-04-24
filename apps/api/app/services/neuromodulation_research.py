@@ -917,7 +917,7 @@ def build_research_summary(
 
 
 def list_protocol_coverage(limit: int = 50) -> dict[str, Any]:
-    path = dataset_path("indication_modality_summary")
+    path = dataset_path("indication_summary")
     heap: list[tuple[tuple, str, dict[str, Any]]] = []
     handle, reader = _csv_reader(path)
     try:

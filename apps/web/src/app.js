@@ -2166,6 +2166,13 @@ async function init() {
       await bootApp();
     }
   } catch {
+    // Demo-token fallback: if demo mode is active and the token is a known
+    // demo token, boot with the offline demo user instead of clearing out.
+    const _demoOk = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1';
+    if (_demoOk && token.endsWith('-demo-token') && typeof window.demoLogin === 'function') {
+      await window.demoLogin(token);
+      return;
+    }
     api.clearToken();
     navigatePublic('home');
   }

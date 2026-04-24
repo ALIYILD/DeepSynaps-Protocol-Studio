@@ -151,6 +151,17 @@ async function apiFetch(path, opts = {}) {
       err.body = body401;
       return Promise.reject(err);
     }
+    // Demo-token guard — in dev/demo mode the token is a synthetic string
+    // (e.g. "clinician-demo-token") that the real backend will always reject.
+    // Don't clear it or fire session-expired; let the caller handle the error.
+    const _curToken = getToken();
+    const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+    if (_demoOk && _curToken && _curToken.endsWith('-demo-token')) {
+      const demoErr = new Error('Demo session — endpoint not available');
+      demoErr.status = 401;
+      demoErr.code = 'demo_session';
+      return Promise.reject(demoErr);
+    }
     // Refresh failed or unavailable — session truly expired
     clearToken();
     _on401();

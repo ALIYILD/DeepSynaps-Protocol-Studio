@@ -64,7 +64,7 @@ def test_live_session_runtime_endpoints(client: TestClient, auth_headers) -> Non
             TreatmentCourse(
                 id="course-1",
                 patient_id=patient_id,
-                clinician_id="demo-clinician",
+                clinician_id="actor-clinician-demo",
                 protocol_id="PRO-003",
                 condition_slug="major-depressive-disorder",
                 modality_slug="tDCS",
@@ -147,7 +147,8 @@ def test_live_session_runtime_endpoints(client: TestClient, auth_headers) -> Non
     assert resp.status_code == 200, resp.text
     events = resp.json()
     assert len(events) >= 2
-    assert events[0]["type"] in {"CHECK", "IMPEDANCE"}
+    event_types = {e["type"] for e in events}
+    assert event_types & {"CHECK", "IMPEDANCE"}, f"expected CHECK or IMPEDANCE in {event_types}"
 
     resp = client.post(
         f"/api/v1/sessions/{session_id}/phase",

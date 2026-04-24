@@ -934,6 +934,10 @@ export async function pgDash(setTopbar, navigate) {
   </div>
 </div>` : '';
 
+  // Compute risk counts early — used in agent context and later in risk card
+  const _totalRed   = riskSummaryData.reduce((n, p) => n + (p.categories || []).filter(c => c.level === 'red').length, 0);
+  const _totalAmber = riskSummaryData.reduce((n, p) => n + (p.categories || []).filter(c => c.level === 'amber').length, 0);
+
   window._dashAgentCtx = [
     '[Clinic dashboard snapshot — use for operational context; not a substitute for chart review.]',
     `Patients in system: ${patCount}`,
@@ -1626,9 +1630,6 @@ export async function pgDash(setTopbar, navigate) {
     const _rl = cats => { if (cats.some(c => c.level === 'red')) return 0; if (cats.some(c => c.level === 'amber')) return 1; return 2; };
     return _rl(a.categories || []) - _rl(b.categories || []);
   });
-
-  const _totalRed   = riskSummaryData.reduce((n, p) => n + (p.categories || []).filter(c => c.level === 'red').length, 0);
-  const _totalAmber = riskSummaryData.reduce((n, p) => n + (p.categories || []).filter(c => c.level === 'amber').length, 0);
 
   const _riskTrafficCard = `<div class="dh2-card risk-traffic-card">
     <div class="dh2-card-hd">
