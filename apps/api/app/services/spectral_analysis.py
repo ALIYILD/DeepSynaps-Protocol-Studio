@@ -266,6 +266,132 @@ def apply_artifact_rejection(
     return cleaned_raw, stats
 
 
+# ── MNE pipeline adapter ─────────────────────────────────────────────────────
+
+
+# Hz ranges the MNE pipeline uses (CLAUDE.md of the sibling repo). These match
+# the legacy DEFAULT_BANDS except that the MNE pipeline starts delta at 1.0 Hz.
+_MNE_PIPELINE_BANDS: dict[str, tuple[float, float]] = {
+    "delta": (1.0, 4.0),
+    "theta": (4.0, 8.0),
+    "alpha": (8.0, 13.0),
+    "beta": (13.0, 30.0),
+    "gamma": (30.0, 45.0),
+}
+
+
+def compute_band_powers_from_pipeline(pipeline_features: dict[str, Any]) -> dict[str, Any]:
+    """Project the MNE pipeline feature dict into the legacy ``band_powers`` shape.
+
+    The existing frontend (pre-Agent-C) and every legacy consumer of
+    ``QEEGAnalysis.band_powers_json`` expects the shape produced by
+    :func:`compute_band_powers` above:
+
+    ``{"bands": {<band>: {"hz_range": [fmin,fmax], "channels": {<ch>: {"absolute_uv2": float, "relative_pct": float}}}}, "derived_ratios": {...}, "global_summary": {...}}``
+
+    The MNE pipeline produces a richer nested dict under
+    ``features.spectral.bands[<band>].{absolute_uv2,relative}`` where
+    ``relative`` is a fraction in ``[0, 1]`` (see CONTRACT.md §1.1). This
+    helper converts the fraction to percent and re-keys the result so the
+    legacy code path keeps working without changes.
+
+    Parameters
+    ----------
+    pipeline_features
+        The ``features`` dict from :class:`deepsynaps_qeeg.pipeline.PipelineResult`.
+
+    Returns
+    -------
+    dict
+        The legacy ``band_powers`` shape. Never raises — missing keys yield
+        empty nested dicts so callers can ``json.dumps`` the result safely.
+    """
+    spectral = (pipeline_features or {}).get("spectral") or {}
+    bands_in = spectral.get("bands") or {}
+
+    result_bands: dict[str, Any] = {}
+    for band_name, band_data in bands_in.items():
+        if not isinstance(band_data, dict):
+            continue
+        abs_map = band_data.get("absolute_uv2") or {}
+        rel_map = band_data.get("relative") or {}
+
+        channels_data: dict[str, dict[str, float]] = {}
+        # Union of channels appearing in either map, in insertion order.
+        seen: dict[str, None] = {}
+        for ch in list(abs_map.keys()) + list(rel_map.keys()):
+            if ch in seen:
+                continue
+            seen[ch] = None
+            try:
+                abs_val = float(abs_map.get(ch, 0.0) or 0.0)
+            except (TypeError, ValueError):
+                abs_val = 0.0
+            try:
+                rel_fraction = float(rel_map.get(ch, 0.0) or 0.0)
+            except (TypeError, ValueError):
+                rel_fraction = 0.0
+            channels_data[ch] = {
+                "absolute_uv2": round(abs_val, 4),
+                # Pipeline emits a fraction in [0,1]; legacy consumers use %.
+                "relative_pct": round(rel_fraction * 100.0, 2),
+            }
+
+        hz_range = list(_MNE_PIPELINE_BANDS.get(band_name, (0.0, 0.0)))
+        result_bands[band_name] = {
+            "hz_range": hz_range,
+            "channels": channels_data,
+        }
+
+    # Derived ratios without the PSD arrays — fall back to what we can infer
+    # from the (already-reduced) band-power dict. Alpha peak frequency is
+    # passed through from the pipeline's SpecParam stage when available.
+    ch_names_seen: list[str] = []
+    for band_data in result_bands.values():
+        for ch in band_data.get("channels", {}):
+            if ch not in ch_names_seen:
+                ch_names_seen.append(ch)
+
+    derived = compute_derived_ratios(result_bands, ch_names_seen)
+
+    paf_map = (spectral.get("peak_alpha_freq") or {})
+    if paf_map:
+        apf_out: dict[str, float] = {}
+        for ch, val in paf_map.items():
+            if val is None:
+                continue
+            try:
+                apf_out[ch] = round(float(val), 2)
+            except (TypeError, ValueError):
+                continue
+        if apf_out:
+            derived["alpha_peak_frequency"] = {"channels": apf_out}
+
+    # Global summary — best-effort averages without the raw PSD.
+    total_abs = 0.0
+    total_count = 0
+    for band_data in result_bands.values():
+        for ch_vals in band_data.get("channels", {}).values():
+            total_abs += float(ch_vals.get("absolute_uv2", 0.0))
+            total_count += 1
+    mean_total_power = (total_abs / total_count) if total_count else 0.0
+
+    global_summary = {
+        "dominant_frequency_hz": 0.0,  # not recoverable without the PSD
+        "mean_total_power_uv2": round(mean_total_power, 4),
+        "channel_count": len(ch_names_seen),
+        "sample_rate_hz": 0.0,  # the pipeline resamples to 250 Hz; callers can
+                                 # overwrite from quality_metrics if needed.
+        "source": "mne_pipeline",
+    }
+
+    return {
+        "bands": result_bands,
+        "derived_ratios": derived,
+        "global_summary": global_summary,
+    }
+
+
 def _find_dominant_frequency(freqs: Any, psd_uv2: Any, ch_names: list[str]) -> float:
     """Find the dominant frequency across all channels (1-45 Hz range)."""
     import numpy as np

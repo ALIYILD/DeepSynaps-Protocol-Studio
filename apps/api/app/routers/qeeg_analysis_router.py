@@ -46,6 +46,22 @@ _EDF_MAGIC = b"0       "  # EDF files start with "0" followed by 7 spaces
 
 # ── Response Models ──────────────────────────────────────────────────────────
 
+def _maybe_json_loads(raw: Optional[str]) -> Optional[object]:
+    """Best-effort JSON decode. Returns None on missing / malformed input.
+
+    Used by :meth:`AnalysisOut.from_record` to tolerate rows written by older
+    pipeline versions (or manually-edited rows) without blowing up the whole
+    analysis fetch.
+    """
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        _log.warning("Failed to JSON-decode analysis column; returning None")
+        return None
+
+
 class AnalysisOut(BaseModel):
     id: str
     qeeg_record_id: Optional[str] = None
@@ -65,11 +81,33 @@ class AnalysisOut(BaseModel):
     band_powers: Optional[dict] = None
     artifact_rejection: Optional[dict] = None
     advanced_analyses: Optional[dict] = None
+    # ── MNE pipeline outputs (CONTRACT.md §3) ──────────────────────────────
+    aperiodic: Optional[dict] = None
+    peak_alpha_freq: Optional[dict] = None
+    connectivity: Optional[dict] = None
+    asymmetry: Optional[dict] = None
+    graph_metrics: Optional[dict] = None
+    source_roi: Optional[dict] = None
+    normative_zscores: Optional[dict] = None
+    flagged_conditions: Optional[list[str]] = None
+    quality_metrics: Optional[dict] = None
+    pipeline_version: Optional[str] = None
+    norm_db_version: Optional[str] = None
     analyzed_at: Optional[str] = None
     created_at: str
 
     @classmethod
     def from_record(cls, r: QEEGAnalysis) -> "AnalysisOut":
+        # The new MNE columns were added in migration 037. Rows persisted
+        # before the migration ran (or by the legacy analyze endpoint) will
+        # simply have NULL values — decode them defensively.
+        flagged_raw = _maybe_json_loads(getattr(r, "flagged_conditions", None))
+        flagged_list: Optional[list[str]]
+        if isinstance(flagged_raw, list):
+            flagged_list = [str(x) for x in flagged_raw]
+        else:
+            flagged_list = None
+
         return cls(
             id=r.id,
             qeeg_record_id=r.qeeg_record_id,
@@ -79,16 +117,27 @@ class AnalysisOut(BaseModel):
             file_size_bytes=r.file_size_bytes,
             recording_duration_sec=r.recording_duration_sec,
             sample_rate_hz=r.sample_rate_hz,
-            channels=json.loads(r.channels_json) if r.channels_json else None,
+            channels=_maybe_json_loads(r.channels_json),
             channel_count=r.channel_count,
             recording_date=r.recording_date,
             eyes_condition=r.eyes_condition,
             equipment=r.equipment,
             analysis_status=r.analysis_status,
             analysis_error=r.analysis_error,
-            band_powers=json.loads(r.band_powers_json) if r.band_powers_json else None,
-            artifact_rejection=json.loads(r.artifact_rejection_json) if r.artifact_rejection_json else None,
-            advanced_analyses=json.loads(r.advanced_analyses_json) if r.advanced_analyses_json else None,
+            band_powers=_maybe_json_loads(r.band_powers_json),
+            artifact_rejection=_maybe_json_loads(r.artifact_rejection_json),
+            advanced_analyses=_maybe_json_loads(r.advanced_analyses_json),
+            aperiodic=_maybe_json_loads(getattr(r, "aperiodic_json", None)),
+            peak_alpha_freq=_maybe_json_loads(getattr(r, "peak_alpha_freq_json", None)),
+            connectivity=_maybe_json_loads(getattr(r, "connectivity_json", None)),
+            asymmetry=_maybe_json_loads(getattr(r, "asymmetry_json", None)),
+            graph_metrics=_maybe_json_loads(getattr(r, "graph_metrics_json", None)),
+            source_roi=_maybe_json_loads(getattr(r, "source_roi_json", None)),
+            normative_zscores=_maybe_json_loads(getattr(r, "normative_zscores_json", None)),
+            flagged_conditions=flagged_list,
+            quality_metrics=_maybe_json_loads(getattr(r, "quality_metrics_json", None)),
+            pipeline_version=getattr(r, "pipeline_version", None),
+            norm_db_version=getattr(r, "norm_db_version", None),
             analyzed_at=r.analyzed_at.isoformat() if r.analyzed_at else None,
             created_at=r.created_at.isoformat() if r.created_at else "",
         )
@@ -458,6 +507,169 @@ async def run_advanced_analyses_endpoint(
         )
 
 
+# ── MNE Pipeline (sibling deepsynaps_qeeg package) ───────────────────────────
+
+
+@router.post("/{analysis_id}/analyze-mne", response_model=AnalysisOut)
+async def analyze_edf_mne(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AnalysisOut:
+    """Run the full MNE-Python pipeline from the sibling ``deepsynaps_qeeg``.
+
+    Additive counterpart to :func:`analyze_edf`. Persists the pipeline
+    output into the columns introduced by migration 037 (aperiodic /
+    PAF / connectivity / asymmetry / graph / source ROI / normative
+    z-scores / flagged conditions / quality metrics / pipeline +
+    norm-db versions) AND back-fills ``band_powers_json`` +
+    ``artifact_rejection_json`` so legacy frontend code keeps working.
+
+    When the sibling pipeline package is not installed (i.e. the
+    ``qeeg_mne`` optional extra is absent) the façade returns a
+    structured error and the analysis is marked ``failed`` with the
+    error surfaced in ``analysis_error`` — no crash.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    analysis.analysis_status = "processing:mne_pipeline"
+    analysis.analysis_error = None
+    db.commit()
+
+    try:
+        # 1. Materialise the uploaded EDF to a real path on disk — the MNE
+        #    readers require a filesystem path (they cannot consume bytes
+        #    directly for BDF / BrainVision / etc.).
+        settings = get_settings()
+        from app.services import media_storage
+
+        file_bytes = await media_storage.read_upload(analysis.file_ref, settings)
+
+        import os
+        import tempfile
+
+        ext = ""
+        if analysis.original_filename and "." in analysis.original_filename:
+            ext = "." + analysis.original_filename.rsplit(".", 1)[-1].lower()
+
+        tmp_path: Optional[str] = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=ext or ".edf", delete=False) as tmp:
+                tmp.write(file_bytes)
+                tmp_path = tmp.name
+
+            # 2. Delegate to the façade — never raises.
+            from app.services.qeeg_pipeline import run_pipeline_safe
+
+            result = run_pipeline_safe(tmp_path)
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
+        if not result.get("success"):
+            analysis.analysis_status = "failed"
+            analysis.analysis_error = str(result.get("error", "MNE pipeline failed"))[:500]
+            db.commit()
+            db.refresh(analysis)
+            _log.warning(
+                "MNE pipeline failed for %s: %s",
+                analysis_id,
+                analysis.analysis_error,
+            )
+            return AnalysisOut.from_record(analysis)
+
+        # 3. Persist every contract §2 column.
+        features: dict = result.get("features") or {}
+        zscores: dict = result.get("zscores") or {}
+        quality: dict = result.get("quality") or {}
+        flagged: list[str] = list(result.get("flagged_conditions") or [])
+
+        spectral = features.get("spectral") or {}
+        analysis.aperiodic_json = json.dumps(spectral.get("aperiodic") or {})
+        analysis.peak_alpha_freq_json = json.dumps(spectral.get("peak_alpha_freq") or {})
+        analysis.connectivity_json = json.dumps(features.get("connectivity") or {})
+        analysis.asymmetry_json = json.dumps(features.get("asymmetry") or {})
+        analysis.graph_metrics_json = json.dumps(features.get("graph") or {})
+        analysis.source_roi_json = json.dumps(features.get("source") or {})
+        analysis.normative_zscores_json = json.dumps(zscores)
+        analysis.flagged_conditions = json.dumps(flagged)
+        analysis.quality_metrics_json = json.dumps(quality)
+        analysis.pipeline_version = str(quality.get("pipeline_version") or "")[:16] or None
+        analysis.norm_db_version = str(zscores.get("norm_db_version") or "")[:16] or None
+
+        # 4. Back-compat: derive legacy `band_powers_json` +
+        #    `artifact_rejection_json` from the pipeline feature dict so the
+        #    existing `/ai-report` endpoint and the current frontend render
+        #    path keep working untouched.
+        from app.services.spectral_analysis import compute_band_powers_from_pipeline
+
+        legacy_bands = compute_band_powers_from_pipeline(features)
+        if quality.get("sfreq_output"):
+            try:
+                legacy_bands["global_summary"]["sample_rate_hz"] = float(quality["sfreq_output"])
+            except (TypeError, ValueError):
+                pass
+        analysis.band_powers_json = json.dumps(legacy_bands)
+
+        legacy_rejection = {
+            "source": "mne_pipeline",
+            "rejected_channels": list(quality.get("bad_channels") or []),
+            "total_channels": int(quality.get("n_channels_input") or 0),
+            "clean_channels": max(
+                0,
+                int(quality.get("n_channels_input") or 0)
+                - int(quality.get("n_channels_rejected") or 0),
+            ),
+            "epochs_total": int(quality.get("n_epochs_total") or 0),
+            "epochs_retained": int(quality.get("n_epochs_retained") or 0),
+            "ica_components_dropped": int(quality.get("ica_components_dropped") or 0),
+            "ica_labels_dropped": dict(quality.get("ica_labels_dropped") or {}),
+            "bandpass": list(quality.get("bandpass") or []),
+            "notch_hz": quality.get("notch_hz"),
+        }
+        analysis.artifact_rejection_json = json.dumps(legacy_rejection)
+
+        # Populate duration / sfreq metadata too — the legacy `analyze` path
+        # sets these from the raw EDF header; the MNE path gets them from
+        # the quality dict.
+        if quality.get("sfreq_output"):
+            try:
+                analysis.sample_rate_hz = float(quality["sfreq_output"])
+            except (TypeError, ValueError):
+                pass
+
+        analysis.analysis_status = "completed"
+        analysis.analyzed_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(analysis)
+
+        _log.info(
+            "MNE pipeline completed for %s: pipeline_version=%s norm_db=%s flagged=%s",
+            analysis_id,
+            analysis.pipeline_version,
+            analysis.norm_db_version,
+            flagged,
+        )
+        return AnalysisOut.from_record(analysis)
+
+    except ApiServiceError:
+        raise
+    except Exception as exc:
+        _log.exception("MNE pipeline endpoint failed for %s", analysis_id)
+        analysis.analysis_status = "failed"
+        analysis.analysis_error = str(exc)[:500]
+        db.commit()
+        db.refresh(analysis)
+        return AnalysisOut.from_record(analysis)
+
+
 # ── Get Analysis ─────────────────────────────────────────────────────────────
 
 @router.get("/{analysis_id}", response_model=AnalysisOut)
@@ -534,19 +746,99 @@ async def generate_ai_report_endpoint(
     # Deterministic condition matching
     from app.services.qeeg_ai_interpreter import match_condition_patterns, generate_ai_report
 
-    condition_matches = match_condition_patterns(band_powers)
+    # ── Load the new CONTRACT §1.1 feature dict if Agent B's pipeline wrote it.
+    # Every column is nullable; when all are None we fall back to the legacy
+    # band_powers path so existing analyses keep working.
+    def _maybe_load(col_value: Optional[str]) -> Optional[dict]:
+        if not col_value:
+            return None
+        try:
+            return json.loads(col_value)
+        except (ValueError, TypeError):
+            return None
 
-    # Generate AI report
+    aperiodic       = _maybe_load(getattr(analysis, "aperiodic_json", None))
+    peak_alpha_freq = _maybe_load(getattr(analysis, "peak_alpha_freq_json", None))
+    connectivity    = _maybe_load(getattr(analysis, "connectivity_json", None))
+    asymmetry       = _maybe_load(getattr(analysis, "asymmetry_json", None))
+    graph_metrics   = _maybe_load(getattr(analysis, "graph_metrics_json", None))
+    source_roi      = _maybe_load(getattr(analysis, "source_roi_json", None))
+
+    zscores   = _maybe_load(getattr(analysis, "normative_zscores_json", None))
+    quality   = _maybe_load(getattr(analysis, "quality_metrics_json", None))
+
+    flagged_raw = getattr(analysis, "flagged_conditions", None)
+    flagged_conditions: Optional[list[str]] = None
+    if flagged_raw:
+        parsed_flagged = _maybe_load(flagged_raw)
+        if isinstance(parsed_flagged, list):
+            flagged_conditions = [str(c).strip().lower() for c in parsed_flagged if c]
+
+    # Build the CONTRACT §1.1 features dict from the new columns when at least
+    # one of them is populated. Otherwise pass features=None and rely on the
+    # legacy band_powers path inside generate_ai_report.
+    features: Optional[dict] = None
+    has_new_features = any([
+        aperiodic, peak_alpha_freq, connectivity, asymmetry, graph_metrics, source_roi,
+    ])
+    if has_new_features:
+        # Synthesise spectral.bands from the legacy band_powers payload so the
+        # feature dict is self-contained (CONTRACT §1.1 shape).
+        spectral_bands: dict = {}
+        legacy_bands = (band_powers or {}).get("bands") or {}
+        for band, info in legacy_bands.items():
+            channels = (info or {}).get("channels") or {}
+            spectral_bands[band] = {
+                "absolute_uv2": {
+                    ch: float(v.get("absolute_uv2", 0.0) or 0.0) for ch, v in channels.items()
+                },
+                "relative": {
+                    ch: float(v.get("relative_pct", 0.0) or 0.0) / 100.0
+                    for ch, v in channels.items()
+                },
+            }
+        features = {
+            "spectral": {
+                "bands": spectral_bands,
+                "aperiodic": aperiodic or {},
+                "peak_alpha_freq": peak_alpha_freq or {},
+            },
+            "connectivity": connectivity or {},
+            "asymmetry": asymmetry or {},
+            "graph": graph_metrics or {},
+            "source": (
+                {
+                    "roi_band_power": source_roi or {},
+                    "method": (source_roi or {}).get("method", "eLORETA"),
+                }
+                if source_roi
+                else {}
+            ),
+        }
+
+    # Pattern matching takes either shape; prefer features when available.
+    condition_matches = match_condition_patterns(
+        features if features is not None else band_powers
+    )
+
+    # Generate AI report (RAG-grounded when pipeline features are present).
     report_result = await generate_ai_report(
         band_powers=band_powers,
+        features=features,
+        zscores=zscores,
+        flagged_conditions=flagged_conditions,
+        quality=quality,
         patient_context=body.patient_context,
         condition_matches=condition_matches,
         report_type=body.report_type,
+        db_session=db,
     )
 
     report_data = report_result.get("data", {})
+    literature_refs = report_result.get("literature_refs") or []
 
-    # Save report
+    # Save report — persist literature_refs so the frontend can render
+    # numbered citations alongside the narrative (CONTRACT §5.5).
     report = QEEGAIReport(
         analysis_id=analysis_id,
         patient_id=analysis.patient_id,
@@ -556,13 +848,19 @@ async def generate_ai_report_endpoint(
         clinical_impressions=report_data.get("executive_summary", ""),
         condition_matches_json=json.dumps(condition_matches),
         protocol_suggestions_json=json.dumps(report_data.get("protocol_recommendations", [])),
+        literature_refs_json=json.dumps(literature_refs) if literature_refs else None,
         model_used=report_result.get("model_used"),
         prompt_hash=report_result.get("prompt_hash"),
         confidence_note=report_data.get("confidence_level"),
     )
     db.add(report)
 
-    # Audit log
+    # Audit log — include qeeg_rag_literature in sources_used when RAG
+    # actually returned references (CONTRACT §5.6).
+    sources_used = ["edf_analysis", "qeeg_condition_map"]
+    if literature_refs:
+        sources_used.append("qeeg_rag_literature")
+
     audit = AiSummaryAudit(
         patient_id=analysis.patient_id,
         actor_id=actor.actor_id,
@@ -570,7 +868,7 @@ async def generate_ai_report_endpoint(
         summary_type="qeeg_analysis",
         prompt_hash=report_result.get("prompt_hash"),
         response_preview=str(report_data.get("executive_summary", ""))[:200],
-        sources_used=json.dumps(["edf_analysis", "qeeg_condition_map"]),
+        sources_used=json.dumps(sources_used),
         model_used=report_result.get("model_used"),
     )
     db.add(audit)

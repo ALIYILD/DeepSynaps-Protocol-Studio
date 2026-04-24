@@ -40,6 +40,13 @@ dependencies = [
     "numpy>=1.26.0,<3.0.0",
     # qEEG advanced analyses — aperiodic/periodic spectral decomposition
     "specparam>=2.0.0rc0,<3.0.0",
+    # qEEG MNE-Python pipeline (preprocess, ICA, SpecParam, connectivity,
+    # eLORETA, normative z-scores, RAG). Installed as a sibling editable
+    # package by the Dockerfile; developers: `pip install -e packages/qeeg-pipeline`.
+    # The façade in `app/services/qeeg_pipeline.py` tolerates this package
+    # being absent (sets HAS_MNE_PIPELINE=False) so local envs without the
+    # package still boot; in prod the Dockerfile guarantees it's installed.
+    "deepsynaps-qeeg",
 ]
 
 [tool.setuptools]

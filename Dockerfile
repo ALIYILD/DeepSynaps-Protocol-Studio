@@ -40,6 +40,7 @@ RUN pip install --no-cache-dir \
     -e ./packages/safety-engine \
     -e ./packages/generation-engine \
     -e ./packages/render-engine \
+    -e ./packages/qeeg-pipeline \
     -e ./apps/api
 
 RUN mkdir -p ./data/snapshots/clinical-database ./data/backups

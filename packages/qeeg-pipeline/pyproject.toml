@@ -1,0 +1,69 @@
+[project]
+name = "deepsynaps-qeeg"
+version = "0.1.0"
+description = "MNE-Python qEEG pipeline (preprocess, ICA, spectral, connectivity, eLORETA, normative z-scores, RAG) for DeepSynaps Studio"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Sehzade Yildirim", email = "sehzadeyildirim@hotmail.com" }]
+
+# Core deps only. Heavy reporting (weasyprint) and unrelated stack
+# (celery/redis/boto3/yasa) are NOT included so this package installs
+# cleanly inside the Studio Dockerfile on python:3.11-slim. Each pipeline
+# stage guards its own heavy imports — optional deps can be installed
+# separately when needed.
+dependencies = [
+    "mne>=1.7",
+    "mne-connectivity>=0.6",
+    "mne-icalabel>=0.6",
+    "pyprep>=0.4",
+    "autoreject>=0.4.3",
+    "fooof>=1.1",
+    "numpy>=1.24",
+    "scipy>=1.11",
+    "pandas>=2.0",
+    "scikit-learn>=1.3",
+    "networkx>=3.1",
+    "matplotlib>=3.7",
+    "jinja2>=3.1",
+    "pydantic>=2.5",
+]
+
+[project.optional-dependencies]
+# `pip install -e '.[reporting]'` to enable Jinja+WeasyPrint PDF rendering.
+# Needs system libs: libpango, libcairo, libgdk-pixbuf — NOT installed by the
+# Studio Dockerfile base image. If you want PDF reports in prod, add those
+# apt-get lines to the Dockerfile first.
+reporting = [
+    "weasyprint>=60",
+]
+# `pip install -e '.[rag]'` to enable Postgres-backed literature RAG via psycopg.
+# Studio's API image already carries psycopg2-binary so this extra is rarely
+# needed there; it's here for the standalone portal use case.
+rag = [
+    "psycopg[binary]>=3.1",
+    "sqlalchemy>=2.0",
+]
+# `pip install -e '.[edf]'` for extra EDF readers beyond MNE's built-ins.
+edf = [
+    "pyedflib>=0.1.36",
+    "edfio>=0.4",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+]
+
+[project.scripts]
+qeeg = "deepsynaps_qeeg.cli:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --strict-markers"

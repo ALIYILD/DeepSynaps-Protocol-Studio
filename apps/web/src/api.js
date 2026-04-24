@@ -973,6 +973,8 @@ export const api = {
     apiFetch('/api/v1/qeeg-analysis/upload', { method: 'POST', body: formData }),
   analyzeQEEG: (analysisId) =>
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/analyze`, { method: 'POST' }),
+  runQEEGMNEPipeline: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/analyze-mne`, { method: 'POST' }),
   getQEEGAnalysis: (id) =>
     apiFetch(`/api/v1/qeeg-analysis/${id}`),
   getQEEGAnalysisStatus: (id) =>

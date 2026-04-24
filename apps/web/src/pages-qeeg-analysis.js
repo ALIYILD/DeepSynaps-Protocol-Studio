@@ -10,6 +10,7 @@
 import { api } from './api.js';
 import { renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap, renderICAComponents, renderWaveletHeatmap, renderChannelQualityMap, renderAsymmetryMap, renderPowerBarChart, renderTBRBarChart, renderSignalDeviationChart, renderBiomarkerGauges, renderBrodmannTable } from './brain-map-svg.js';
 import { emptyState, showToast, spark } from './helpers.js';
+import { DK_LOBES, groupROIsByLobe, formatDKLabel } from './qeeg-dk-atlas.js';
 
 // ── XSS escape ───────────────────────────────────────────────────────────────
 function esc(v) {
@@ -38,6 +39,502 @@ const BAND_COLORS = {
   delta: '#42a5f5', theta: '#7e57c2', alpha: '#66bb6a',
   beta: '#ffa726', high_beta: '#ef5350', gamma: '#ec407a',
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MNE-Python pipeline renderers (§4 of CONTRACT.md)
+//
+// Each renderer is null-guarded — returns '' when its input is missing, so
+// analyses produced by the legacy pipeline (band_powers_json only) render
+// unchanged.
+//
+// These helpers are `export`-ed (alongside the module's existing named
+// export) so src/pages-qeeg-analysis-mne.test.js can exercise them without
+// having to boot a DOM.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// MNE feature flag — let ops disable the new pipeline button without a
+// redeploy. Defaults to true; read from window at call time so tests can
+// override via globalThis.
+export function _mneFeatureFlagEnabled() {
+  try {
+    var v = (typeof window !== 'undefined' && window)
+      ? window.DEEPSYNAPS_ENABLE_MNE
+      : (typeof globalThis !== 'undefined' ? globalThis.DEEPSYNAPS_ENABLE_MNE : undefined);
+    if (v === false || v === 'false' || v === 0 || v === '0') return false;
+    return true;
+  } catch (_) { return true; }
+}
+
+// Small pill used across the MNE sections for key/value counts.
+function _mnePill(label, value, color) {
+  return '<span class="qeeg-mne-pill" style="--pill-color:' + (color || 'var(--blue)') + '">'
+    + '<span class="qeeg-mne-pill__label">' + esc(label) + '</span>'
+    + '<span class="qeeg-mne-pill__value">' + esc(value) + '</span>'
+    + '</span>';
+}
+
+// ── §4.1 Pipeline quality strip ─────────────────────────────────────────────
+export function renderPipelineQualityStrip(analysis) {
+  if (!analysis || !analysis.quality_metrics) return '';
+  var q = analysis.quality_metrics;
+  var bad = Array.isArray(q.bad_channels) ? q.bad_channels : [];
+  var icaLabels = q.ica_labels_dropped || {};
+
+  var pillsHtml = '';
+  pillsHtml += _mnePill('Bad channels', String(bad.length), bad.length ? 'var(--red)' : 'var(--green)');
+  if (q.ica_components_dropped != null) {
+    pillsHtml += _mnePill('ICs dropped', String(q.ica_components_dropped), 'var(--violet)');
+  }
+  Object.keys(icaLabels).forEach(function (lbl) {
+    pillsHtml += _mnePill('ICA ' + lbl, String(icaLabels[lbl]), 'var(--amber)');
+  });
+  if (q.n_epochs_retained != null && q.n_epochs_total != null) {
+    var keepPct = q.n_epochs_total ? Math.round((q.n_epochs_retained / q.n_epochs_total) * 100) : 0;
+    pillsHtml += _mnePill(
+      'Epochs retained',
+      q.n_epochs_retained + '/' + q.n_epochs_total + ' (' + keepPct + '%)',
+      keepPct >= 70 ? 'var(--green)' : keepPct >= 40 ? 'var(--amber)' : 'var(--red)'
+    );
+  }
+  if (q.sfreq_input != null && q.sfreq_output != null) {
+    pillsHtml += _mnePill('Sample rate', q.sfreq_input + ' → ' + q.sfreq_output + ' Hz', 'var(--teal)');
+  }
+  if (Array.isArray(q.bandpass) && q.bandpass.length === 2) {
+    pillsHtml += _mnePill('Bandpass', q.bandpass[0] + '–' + q.bandpass[1] + ' Hz', 'var(--blue)');
+  }
+  if (q.notch_hz != null) {
+    pillsHtml += _mnePill('Notch', q.notch_hz + ' Hz', 'var(--blue)');
+  }
+
+  var badList = bad.length
+    ? '<div class="qeeg-mne-badlist"><strong>Rejected channels:</strong> '
+      + bad.map(esc).join(', ') + '</div>'
+    : '';
+
+  var footerBits = [];
+  if (analysis.pipeline_version) {
+    footerBits.push('pipeline <strong>' + esc(analysis.pipeline_version) + '</strong>');
+  }
+  if (analysis.norm_db_version) {
+    footerBits.push('norm DB <strong>' + esc(analysis.norm_db_version) + '</strong>');
+  }
+  var footer = footerBits.length
+    ? '<div class="qeeg-mne-version-badge" data-testid="qeeg-mne-version-badge">'
+      + footerBits.join(' &middot; ') + '</div>'
+    : '';
+
+  return card('Pipeline Quality (MNE)',
+    '<div class="qeeg-mne-pills">' + pillsHtml + '</div>' + badList + footer);
+}
+
+// ── §4.2 SpecParam panel ────────────────────────────────────────────────────
+export function renderSpecParamPanel(analysis) {
+  if (!analysis || !analysis.aperiodic) return '';
+  var ap = analysis.aperiodic;
+  var paf = analysis.peak_alpha_freq || {};
+  var slopes = ap.slope || {};
+  var offsets = ap.offset || {};
+  var r2 = ap.r_squared || {};
+  var channels = Object.keys(slopes);
+  if (!channels.length) return '';
+
+  // Sort by |slope| descending so extremes surface first.
+  channels.sort(function (a, b) {
+    return Math.abs(slopes[b] || 0) - Math.abs(slopes[a] || 0);
+  });
+
+  var rows = '';
+  channels.forEach(function (ch) {
+    var slope = slopes[ch];
+    var off = offsets[ch];
+    var rsq = r2[ch];
+    var pafVal = paf[ch];
+    var slopeExtreme = slope != null && (slope > 2.0 || slope < 0.5);
+    var pafExtreme = pafVal != null && (pafVal < 8 || pafVal > 12);
+    rows += '<tr>'
+      + '<td style="font-weight:600">' + esc(ch) + '</td>'
+      + '<td' + (slopeExtreme ? ' class="qeeg-mne-flag"' : '') + '>'
+      + (slope != null ? slope.toFixed(3) : '-') + '</td>'
+      + '<td>' + (off != null ? off.toFixed(3) : '-') + '</td>'
+      + '<td>' + (rsq != null ? rsq.toFixed(3) : '-') + '</td>'
+      + '<td' + (pafExtreme ? ' class="qeeg-mne-flag"' : '') + '>'
+      + (pafVal != null ? (typeof pafVal === 'number' ? pafVal.toFixed(2) : esc(pafVal)) : '-') + '</td>'
+      + '</tr>';
+  });
+
+  var table = '<div class="qeeg-table-wrap"><table class="ds-table" style="width:100%;font-size:12px">'
+    + '<thead><tr><th>Channel</th><th>Slope (1/f)</th><th>Offset</th><th>R²</th><th>PAF (Hz)</th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table></div>'
+    + '<div class="qeeg-mne-legend">Yellow = slope outside 0.5–2.0 or PAF outside 8–12 Hz. '
+    + 'Research/wellness use only.</div>';
+
+  return card('SpecParam (Aperiodic + PAF)', table);
+}
+
+// ── §4.3 eLORETA ROI panel ──────────────────────────────────────────────────
+export function renderELoretaROIPanel(analysis) {
+  if (!analysis || !analysis.source_roi) return '';
+  var src = analysis.source_roi;
+  // Tolerate either a flat {band: {roi: v}} shape or a nested {bands: {...}}.
+  var bandMap = src.bands || src;
+  var bandNames = Object.keys(bandMap).filter(function (k) {
+    return bandMap[k] && typeof bandMap[k] === 'object' && !Array.isArray(bandMap[k]);
+  });
+  if (!bandNames.length) return '';
+
+  var method = src.method ? ' · ' + esc(src.method) : '';
+  var innerHtml = '';
+
+  bandNames.forEach(function (band) {
+    var rois = bandMap[band];
+    if (!rois || typeof rois !== 'object') return;
+    var grouped = groupROIsByLobe(rois);
+    var maxVal = 0;
+    Object.keys(rois).forEach(function (r) {
+      var v = Math.abs(Number(rois[r]) || 0);
+      if (v > maxVal) maxVal = v;
+    });
+
+    var bandColor = BAND_COLORS[band] || 'var(--teal)';
+    innerHtml += '<details class="qeeg-mne-band-block" open>'
+      + '<summary class="qeeg-mne-band-summary" style="border-left-color:' + bandColor + '">'
+      + '<strong style="color:' + bandColor + '">' + esc(band) + '</strong>'
+      + '<span class="qeeg-mne-band-summary__n"> · ' + Object.keys(rois).length + ' ROIs</span>'
+      + '</summary>';
+
+    DK_LOBES.concat(['other']).forEach(function (lobe) {
+      var entries = grouped[lobe] || [];
+      if (!entries.length) return;
+      innerHtml += '<details class="qeeg-mne-lobe-block">'
+        + '<summary class="qeeg-mne-lobe-summary"><span class="qeeg-mne-lobe-name">'
+        + esc(lobe.charAt(0).toUpperCase() + lobe.slice(1)) + '</span>'
+        + '<span class="qeeg-mne-lobe-count">' + entries.length + '</span></summary>'
+        + '<div class="qeeg-mne-roi-list">';
+      entries.forEach(function (e) {
+        var v = Number(e.value) || 0;
+        var w = maxVal > 0 ? Math.min(100, Math.max(0, (Math.abs(v) / maxVal) * 100)) : 0;
+        var hemiTag = e.hemi ? '<span class="qeeg-mne-hemi">' + e.hemi.toUpperCase() + '</span>' : '';
+        innerHtml += '<div class="qeeg-mne-roi-row">'
+          + '<div class="qeeg-mne-roi-label">' + hemiTag + esc(e.label) + '</div>'
+          + '<div class="qeeg-mne-roi-bar"><div class="qeeg-mne-roi-bar__fill" '
+          + 'style="width:' + w.toFixed(1) + '%;background:' + bandColor + '"></div></div>'
+          + '<div class="qeeg-mne-roi-val">' + (typeof v === 'number' ? v.toFixed(3) : esc(v)) + '</div>'
+          + '</div>';
+      });
+      innerHtml += '</div></details>';
+    });
+    innerHtml += '</details>';
+  });
+
+  return card('eLORETA ROI Power' + method, innerHtml);
+}
+
+// ── §4.4 Normative z-score heatmap ──────────────────────────────────────────
+export function renderNormativeZScoreHeatmap(analysis) {
+  if (!analysis || !analysis.normative_zscores) return '';
+  var nz = analysis.normative_zscores;
+  // Accept either {spectral:{bands:{...}}} (pipeline shape) or a flat
+  // {channel:{band: z}} map.
+  var byChannel = {};
+  var bandsSeen = {};
+
+  if (nz.spectral && nz.spectral.bands) {
+    Object.keys(nz.spectral.bands).forEach(function (band) {
+      bandsSeen[band] = true;
+      var abs = (nz.spectral.bands[band] && nz.spectral.bands[band].absolute_uv2) || {};
+      Object.keys(abs).forEach(function (ch) {
+        byChannel[ch] = byChannel[ch] || {};
+        byChannel[ch][band] = abs[ch];
+      });
+    });
+  } else {
+    Object.keys(nz).forEach(function (ch) {
+      if (ch === 'flagged' || ch === 'norm_db_version' || ch === 'aperiodic') return;
+      var val = nz[ch];
+      if (val && typeof val === 'object' && !Array.isArray(val)) {
+        byChannel[ch] = val;
+        Object.keys(val).forEach(function (b) { bandsSeen[b] = true; });
+      }
+    });
+  }
+
+  var channels = Object.keys(byChannel).sort();
+  var bands = Object.keys(bandsSeen);
+  if (!channels.length || !bands.length) return '';
+
+  // Flagged findings list (from pipeline) — deduplicated by metric+channel.
+  var flaggedMap = {};
+  if (Array.isArray(nz.flagged)) {
+    nz.flagged.forEach(function (f) {
+      if (!f) return;
+      var key = (f.metric || '') + '|' + (f.channel || '');
+      if (!flaggedMap[key]) flaggedMap[key] = f;
+    });
+  }
+
+  // Build a per-cell metric-path lookup for tooltip.
+  function metricPathFor(ch, band) {
+    // Prefer an explicit match from flagged[*].metric if present.
+    var hits = Object.values(flaggedMap).filter(function (f) {
+      return f && f.channel === ch && typeof f.metric === 'string' && f.metric.indexOf(band) !== -1;
+    });
+    if (hits.length) return hits[0].metric;
+    return 'spectral.bands.' + band + '.absolute_uv2';
+  }
+
+  function cellClass(z) {
+    if (z == null) return '';
+    var az = Math.abs(z);
+    if (az >= 2.58) return 'qeeg-mne-zcell qeeg-mne-zcell--severe';
+    if (az >= 1.96) return 'qeeg-mne-zcell qeeg-mne-zcell--flag';
+    if (z > 0) return 'qeeg-mne-zcell qeeg-mne-zcell--pos';
+    return 'qeeg-mne-zcell qeeg-mne-zcell--neg';
+  }
+
+  function cellStyle(z) {
+    if (z == null) return '';
+    var az = Math.min(4, Math.abs(z));
+    var alpha = 0.10 + (az / 4) * 0.55;
+    if (z > 0) return 'background:rgba(239,83,80,' + alpha.toFixed(2) + ')';
+    return 'background:rgba(66,165,245,' + alpha.toFixed(2) + ')';
+  }
+
+  var head = '<tr><th>Ch</th>';
+  bands.forEach(function (b) {
+    head += '<th style="color:' + (BAND_COLORS[b] || 'var(--text-primary)') + '">' + esc(b) + '</th>';
+  });
+  head += '</tr>';
+
+  var body = '';
+  channels.forEach(function (ch) {
+    body += '<tr><td style="font-weight:600">' + esc(ch) + '</td>';
+    bands.forEach(function (b) {
+      var z = byChannel[ch] ? byChannel[ch][b] : null;
+      if (z == null || isNaN(z)) {
+        body += '<td class="qeeg-mne-zcell">-</td>';
+        return;
+      }
+      var az = Math.abs(z);
+      var flagIcon = az >= 2.58 ? ' <span class="qeeg-mne-flag-icon" aria-label="severe">&#x2691;</span>' : '';
+      var path = metricPathFor(ch, b);
+      body += '<td class="' + cellClass(z) + '" style="' + cellStyle(z) + '" '
+        + 'title="' + esc(path) + ' = ' + z.toFixed(2) + '">'
+        + z.toFixed(2) + flagIcon + '</td>';
+    });
+    body += '</tr>';
+  });
+
+  var heatmap = '<div class="qeeg-table-wrap"><table class="ds-table qeeg-mne-ztable">'
+    + '<thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>';
+
+  // Flagged findings list
+  var findingsHtml = '';
+  var flaggedList = Object.values(flaggedMap);
+  if (flaggedList.length) {
+    flaggedList.sort(function (a, b) { return Math.abs(b.z || 0) - Math.abs(a.z || 0); });
+    findingsHtml += '<div class="qeeg-mne-findings">'
+      + '<strong>Flagged findings</strong><ul>';
+    flaggedList.forEach(function (f) {
+      var az = Math.abs(f.z || 0);
+      var sev = az >= 2.58 ? 'severe' : az >= 1.96 ? 'flagged' : 'note';
+      findingsHtml += '<li><code>' + esc(f.metric || '') + '</code>'
+        + ' · channel <strong>' + esc(f.channel || '') + '</strong>'
+        + ' · z = ' + (typeof f.z === 'number' ? f.z.toFixed(2) : esc(f.z || ''))
+        + ' <span class="qeeg-mne-sev qeeg-mne-sev--' + sev + '">' + sev + '</span></li>';
+    });
+    findingsHtml += '</ul></div>';
+  }
+
+  var legend = '<div class="qeeg-mne-legend">'
+    + '<span class="qeeg-mne-zcell qeeg-mne-zcell--flag" style="padding:1px 6px">|z| ≥ 1.96</span> '
+    + '<span class="qeeg-mne-zcell qeeg-mne-zcell--severe" style="padding:1px 6px">|z| ≥ 2.58 &#x2691;</span> '
+    + 'Red = hyper, blue = hypo (research/wellness use).'
+    + '</div>';
+
+  return card('Normative z-scores', heatmap + legend + findingsHtml);
+}
+
+// ── §4.5 Asymmetry + graph strip ────────────────────────────────────────────
+export function renderAsymmetryGraphStrip(analysis) {
+  if (!analysis) return '';
+  var asym = analysis.asymmetry;
+  var graph = analysis.graph_metrics;
+  if (!asym && !graph) return '';
+
+  var inner = '';
+
+  if (asym) {
+    var f34 = asym.frontal_alpha_F3_F4;
+    var f78 = asym.frontal_alpha_F7_F8;
+    function hint(v) {
+      if (v == null) return '';
+      return v > 0 ? 'positive → left hypoactivation'
+                    : v < 0 ? 'negative → right hypoactivation'
+                    : 'symmetric';
+    }
+    inner += '<div class="qeeg-mne-asym">'
+      + '<div class="qeeg-mne-asym-card">'
+      + '<div class="qeeg-mne-asym__label">Frontal α F3/F4</div>'
+      + '<div class="qeeg-mne-asym__val">' + (f34 != null ? f34.toFixed(3) : '-') + '</div>'
+      + '<div class="qeeg-mne-asym__hint">' + esc(hint(f34)) + '</div></div>'
+      + '<div class="qeeg-mne-asym-card">'
+      + '<div class="qeeg-mne-asym__label">Frontal α F7/F8</div>'
+      + '<div class="qeeg-mne-asym__val">' + (f78 != null ? f78.toFixed(3) : '-') + '</div>'
+      + '<div class="qeeg-mne-asym__hint">' + esc(hint(f78)) + '</div></div>'
+      + '</div>';
+  }
+
+  if (graph) {
+    var bands = Object.keys(graph);
+    if (bands.length) {
+      var rows = '';
+      bands.forEach(function (b) {
+        var g = graph[b] || {};
+        var bandColor = BAND_COLORS[b] || 'var(--text-primary)';
+        rows += '<tr>'
+          + '<td style="font-weight:600;color:' + bandColor + '">' + esc(b) + '</td>'
+          + '<td>' + (g.clustering_coef != null ? Number(g.clustering_coef).toFixed(3) : '-') + '</td>'
+          + '<td>' + (g.char_path_length != null ? Number(g.char_path_length).toFixed(3) : '-') + '</td>'
+          + '<td>' + (g.small_worldness != null ? Number(g.small_worldness).toFixed(3) : '-') + '</td>'
+          + '</tr>';
+      });
+      inner += '<div class="qeeg-table-wrap" style="margin-top:10px"><table class="ds-table" style="width:100%;font-size:12px">'
+        + '<thead><tr><th>Band</th><th>Clustering</th><th>Char. path length</th><th>Small-worldness</th></tr></thead>'
+        + '<tbody>' + rows + '</tbody></table></div>';
+    }
+  }
+
+  return card('Asymmetry & Graph Metrics', inner);
+}
+
+// ── §4.6 AI narrative + citations ───────────────────────────────────────────
+// Build a {n: {url, ...ref}} map from the literature_refs array.
+function _buildRefIndex(refs) {
+  var idx = {};
+  if (!Array.isArray(refs)) return idx;
+  refs.forEach(function (r) {
+    if (!r) return;
+    var n = r.n != null ? r.n : (r.index != null ? r.index : null);
+    if (n == null) return;
+    var url = r.url;
+    if (!url) {
+      if (r.pmid) url = 'https://pubmed.ncbi.nlm.nih.gov/' + r.pmid + '/';
+      else if (r.doi) url = 'https://doi.org/' + r.doi;
+    }
+    idx[n] = Object.assign({}, r, { url: url });
+  });
+  return idx;
+}
+
+// Turn "[1]" / "[2,3]" / "[1][2]" inline markers in a plain string into
+// anchor tags. Input MUST already be HTML-escaped.
+export function linkifyCitations(escapedText, refIndex) {
+  if (!escapedText) return '';
+  if (!refIndex) return escapedText;
+  return escapedText.replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, function (match, nums) {
+    var parts = nums.split(',').map(function (n) { return n.trim(); });
+    var linked = parts.map(function (n) {
+      var ref = refIndex[n] || refIndex[Number(n)];
+      if (ref && ref.url) {
+        return '<a href="' + esc(ref.url) + '" target="_blank" rel="noopener noreferrer" '
+          + 'class="qeeg-mne-cite" data-cite-n="' + esc(n) + '">' + n + '</a>';
+      }
+      return n;
+    });
+    return '[' + linked.join(', ') + ']';
+  });
+}
+
+export function renderLiteratureRefs(refs) {
+  if (!Array.isArray(refs) || !refs.length) return '';
+  // Sort by n ascending
+  var sorted = refs.slice().sort(function (a, b) {
+    return (a.n || 0) - (b.n || 0);
+  });
+  var items = sorted.map(function (r) {
+    var url = r.url;
+    if (!url && r.pmid) url = 'https://pubmed.ncbi.nlm.nih.gov/' + r.pmid + '/';
+    if (!url && r.doi) url = 'https://doi.org/' + r.doi;
+    var n = r.n != null ? r.n : '?';
+    var title = r.title || (r.pmid ? 'PMID ' + r.pmid : (r.doi ? 'DOI ' + r.doi : 'reference ' + n));
+    var year = r.year ? ' (' + esc(r.year) + ')' : '';
+    var journal = r.journal ? ', <em>' + esc(r.journal) + '</em>' : '';
+    var anchor = url
+      ? '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(title) + '</a>'
+      : esc(title);
+    return '<li id="qeeg-mne-ref-' + esc(n) + '" value="' + esc(n) + '">'
+      + anchor + year + journal + '</li>';
+  }).join('');
+  return '<div class="qeeg-mne-refs"><strong>Literature</strong>'
+    + '<ol class="qeeg-mne-refs__list">' + items + '</ol></div>';
+}
+
+// Render an AI narrative block with clickable citation anchors.
+// Accepts a narrative object shaped like the §5 AIReport:
+//   { executive_summary: "...", findings: [{region, band, observation, citations:[1,2]}, ...] }
+// plus a `literature_refs` array.
+export function renderAINarrativeWithCitations(narrative, literatureRefs) {
+  if (!narrative && !(Array.isArray(literatureRefs) && literatureRefs.length)) return '';
+  var refIdx = _buildRefIndex(literatureRefs);
+  var html = '';
+
+  if (narrative && narrative.executive_summary) {
+    var safe = esc(narrative.executive_summary);
+    html += '<div class="qeeg-mne-exec-summary">'
+      + '<strong>Executive summary</strong>'
+      + '<p>' + linkifyCitations(safe, refIdx) + '</p>'
+      + '</div>';
+  }
+
+  if (narrative && Array.isArray(narrative.findings) && narrative.findings.length) {
+    html += '<div class="qeeg-mne-findings-list"><strong>Findings / observations</strong><ul>';
+    narrative.findings.forEach(function (f) {
+      var region = f.region ? '<strong>' + esc(f.region) + '</strong>' : '';
+      var band = f.band ? ' · ' + esc(f.band) : '';
+      var obs = esc(f.observation || '');
+      var inlineCites = '';
+      if (Array.isArray(f.citations) && f.citations.length) {
+        inlineCites = ' [' + f.citations.map(function (n) {
+          var ref = refIdx[n];
+          if (ref && ref.url) {
+            return '<a href="' + esc(ref.url) + '" target="_blank" rel="noopener noreferrer" '
+              + 'class="qeeg-mne-cite" data-cite-n="' + esc(String(n)) + '">' + esc(String(n)) + '</a>';
+          }
+          return esc(String(n));
+        }).join(', ') + ']';
+      }
+      html += '<li>' + region + band + (region || band ? ' — ' : '')
+        + linkifyCitations(obs, refIdx) + inlineCites + '</li>';
+    });
+    html += '</ul></div>';
+  }
+
+  if (narrative && narrative.confidence_level) {
+    html += '<div class="qeeg-mne-confidence">Confidence: <strong>'
+      + esc(narrative.confidence_level) + '</strong> (research/wellness use)</div>';
+  }
+
+  html += renderLiteratureRefs(literatureRefs);
+  return html ? card('AI Narrative (RAG-grounded)', html) : '';
+}
+
+// Composite renderer — returns all MNE sections, in the order the contract
+// dictates, concatenated. Null-guarded at every step so analyses without
+// these fields render zero extra HTML.
+export function renderMNEPipelineSections(analysis) {
+  if (!analysis) return '';
+  var parts = [
+    renderPipelineQualityStrip(analysis),
+    renderSpecParamPanel(analysis),
+    renderELoretaROIPanel(analysis),
+    renderNormativeZScoreHeatmap(analysis),
+    renderAsymmetryGraphStrip(analysis),
+  ];
+  var joined = parts.filter(Boolean).join('');
+  if (!joined) return '';
+  return '<div class="qeeg-section-divider"></div>'
+    + '<div class="qeeg-mne-group" data-testid="qeeg-mne-sections">' + joined + '</div>';
+}
 
 // ── AI narrative formatter (Step 1.4) ────────────────────────────────────────
 function _formatNarrative(text) {
@@ -157,6 +654,20 @@ function _renderComprehensiveReport(report, analysis) {
   html += '<div class="qeeg-export-bar" style="justify-content:flex-end;margin-bottom:8px">'
     + '<button class="btn btn-sm btn-outline" aria-label="Print AI report" onclick="window._qeegPrintReport()">Print Report</button>'
     + '<button class="btn btn-sm btn-outline" aria-label="Download report as PDF" onclick="window._qeegDownloadPDF()">Download PDF</button></div>';
+
+  // ── MNE narrative + RAG citations (§4.6 of CONTRACT.md) ─────────────────
+  // Rendered when the new-shape narrative is present (executive_summary or
+  // findings). Legacy narratives fall through to the existing blocks below.
+  var _mneLitRefs = report.literature_refs || report.literature_refs_json
+    || (report.data && report.data.literature_refs) || null;
+  var _mneNarrativeSrc = (report.data && (report.data.executive_summary || report.data.findings))
+    ? report.data
+    : (narrative && (narrative.executive_summary || (Array.isArray(narrative.findings) && narrative.findings.length))
+        ? narrative
+        : null);
+  if (_mneNarrativeSrc || (Array.isArray(_mneLitRefs) && _mneLitRefs.length)) {
+    html += renderAINarrativeWithCitations(_mneNarrativeSrc, _mneLitRefs);
+  }
 
   // ── Section 1: Patient Information ──────────────────────────────────────
   if (analysis) {
@@ -1873,14 +2384,26 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         );
       }
 
+      // ── MNE-Python pipeline sections (§4 of CONTRACT.md) ────────────────
+      // Each sub-renderer is null-guarded and emits nothing when its field
+      // is absent, so legacy analyses render identically.
+      html += renderMNEPipelineSections(data);
+
       // Action buttons
       var compareAction = (analysisId === 'demo' && _isDemoMode())
         ? "window._qeegComparisonId='demo';window._qeegTab='compare';window._nav('qeeg-analysis')"
         : "window._qeegTab='compare';window._nav('qeeg-analysis')";
-      html += '<div style="display:flex;gap:12px;justify-content:center;margin-top:16px">'
+      var mneButtonHtml = '';
+      if (_mneFeatureFlagEnabled()) {
+        mneButtonHtml = '<button class="btn btn-outline" id="qeeg-run-mne-btn" '
+          + 'aria-label="Re-run analysis with the MNE-Python pipeline">Run MNE pipeline</button>';
+      }
+      html += '<div style="display:flex;gap:12px;justify-content:center;margin-top:16px;flex-wrap:wrap">'
         + '<button class="btn btn-primary" onclick="window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Generate AI Report</button>'
+        + mneButtonHtml
         + '<button class="btn btn-outline" onclick="' + compareAction + '">Compare with Another</button>'
-        + '</div>';
+        + '</div>'
+        + '<div id="qeeg-mne-run-status" aria-live="polite" style="text-align:center;margin-top:8px"></div>';
 
       // ── Advanced Analyses Section ───────────────────────────────────────
       html += _renderAdvancedAnalyses(data, analysisId);
@@ -1907,6 +2430,31 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
               showToast('Advanced analyses failed: ' + (e.message || e), 'error');
               var errEl = document.getElementById('qeeg-advanced-error');
               if (errEl) errEl.innerHTML = '<div style="color:var(--red);padding:8px;font-size:13px">Error: ' + esc(e.message || e) + '</div>';
+            }
+          });
+        }
+        // ── MNE pipeline trigger (§4 of CONTRACT.md) ──────────────────
+        var mneBtn = document.getElementById('qeeg-run-mne-btn');
+        if (mneBtn) {
+          mneBtn.addEventListener('click', async function () {
+            if (analysisId === 'demo') {
+              showToast('Demo analyses cannot be re-run on the MNE pipeline.', 'info');
+              return;
+            }
+            mneBtn.disabled = true;
+            var originalLabel = mneBtn.textContent;
+            mneBtn.textContent = 'Running MNE pipeline...';
+            var mneSt = document.getElementById('qeeg-mne-run-status');
+            if (mneSt) mneSt.innerHTML = spinner('Running MNE-Python pipeline (preprocess + ICA + features)...');
+            try {
+              await api.runQEEGMNEPipeline(analysisId);
+              showToast('MNE pipeline started', 'success');
+              window._nav('qeeg-analysis');
+            } catch (e) {
+              mneBtn.disabled = false;
+              mneBtn.textContent = originalLabel;
+              showToast('MNE pipeline failed: ' + (e.message || e), 'error');
+              if (mneSt) mneSt.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Error: ' + esc(e.message || e) + '</div>';
             }
           });
         }

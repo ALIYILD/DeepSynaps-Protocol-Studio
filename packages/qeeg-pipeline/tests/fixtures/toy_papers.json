@@ -1,0 +1,46 @@
+[
+  {
+    "pmid": "30000001",
+    "doi": "10.1000/adhd.01",
+    "title": "Neurofeedback for ADHD: a meta-analysis",
+    "authors": "Smith J, Doe R",
+    "year": 2022,
+    "journal": "Journal of Neurotherapy",
+    "abstract": "We analyzed 20 RCTs of neurofeedback training in adults with ADHD.",
+    "conditions": ["adhd"],
+    "modalities": ["neurofeedback"]
+  },
+  {
+    "pmid": "30000002",
+    "doi": "10.1000/anx.02",
+    "title": "tDCS for generalized anxiety disorder",
+    "authors": "Perez L, Kim S",
+    "year": 2021,
+    "journal": "Brain Stimulation",
+    "abstract": "Prefrontal tDCS reduced anxiety symptoms in 12 subjects over 4 weeks.",
+    "conditions": ["anxiety"],
+    "modalities": ["tdcs"]
+  },
+  {
+    "pmid": "30000003",
+    "doi": "10.1000/dep.03",
+    "title": "SMR neurofeedback in treatment-resistant depression",
+    "authors": "Nguyen T, Carter A",
+    "year": 2023,
+    "journal": "Clinical EEG and Neuroscience",
+    "abstract": "SMR protocol showed promise in a pilot cohort of TRD patients.",
+    "conditions": ["depression"],
+    "modalities": ["neurofeedback"]
+  },
+  {
+    "pmid": "30000004",
+    "doi": "10.1000/ins.04",
+    "title": "qEEG markers of insomnia",
+    "authors": "Park H, O'Brien M",
+    "year": 2020,
+    "journal": "Sleep Medicine Reviews",
+    "abstract": "Elevated beta and reduced SMR were observed in insomnia patients.",
+    "conditions": ["insomnia"],
+    "modalities": ["qeeg"]
+  }
+]
