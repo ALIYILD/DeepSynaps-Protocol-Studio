@@ -448,6 +448,7 @@ const NAV = [
   { section: 'Protocol', sectionId: 'protocol', collapsed: false },
   { id: 'protocol-studio',    label: 'Protocol Studio',   icon: '🧪', ai: true },
   { id: 'brainmap-v2',        label: 'Brain Map Planner', icon: '🧠' },
+  { id: 'biomarkers-ref',     label: 'Biomarkers',        icon: '🧬', ai: true },
   { id: 'handbooks-v2',       label: 'Handbooks',         icon: '📚' },
   { id: 'library-v2',         label: 'Library',           icon: '📖' },
 
@@ -933,6 +934,11 @@ async function navigate(id, params = {}) {
 }
 
 window._nav = async function(id, params) {
+  // External static page: clinical biomarker reference. Served from apps/web/public/.
+  if (id === 'biomarkers-ref') {
+    window.location.href = 'biomarkers.html';
+    return;
+  }
   await navigate(id, params);
   // Show first-visit feature tooltip if applicable
   if (typeof _initFeatureTooltips === 'function') _initFeatureTooltips();
@@ -2412,6 +2418,7 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '🔬', title: 'Devices',             page: 'devices' },
     { type: 'nav', icon: '◈',  title: 'qEEG / Brain Data',   page: 'braindata' },
     { type: 'nav', icon: '◫',  title: 'qEEG Maps',           page: 'qeegmaps' },
+    { type: 'nav', icon: '🧬', title: 'Biomarkers Reference', page: 'biomarkers-ref' },
     { type: 'nav', icon: '◉',  title: 'Assessments',         page: 'assessments' },
     { type: 'nav', icon: '◧',  title: 'Handbooks',           page: 'handbooks' },
     { type: 'nav', icon: '🤖', title: 'AI Clinical Assistant', page: 'ai-assistant' },
