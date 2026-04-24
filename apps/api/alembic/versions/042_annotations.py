@@ -1,7 +1,7 @@
 """add analysis annotations table
 
 Revision ID: 042_annotations
-Revises: 040_pgvector_and_mri_kg_seed
+Revises: 042_patient_event_contract
 Create Date: 2026-04-24 19:30:00.000000
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision = "042_annotations"
-down_revision = "040_pgvector_and_mri_kg_seed"
+down_revision = "042_patient_event_contract"
 branch_labels = None
 depends_on = None
 
