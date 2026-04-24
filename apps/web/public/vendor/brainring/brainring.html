@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BrainRing</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07111f;
+      --panel: #0f1b2e;
+      --line: rgba(148, 163, 184, 0.18);
+      --text: #e5eef8;
+      --muted: #93a4ba;
+      --accent: #56b870;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at top, rgba(86, 184, 112, 0.16), transparent 34%),
+        linear-gradient(180deg, #081221 0%, #050b14 100%);
+      color: var(--text);
+      font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .shell {
+      min-height: 100%;
+      padding: 12px;
+    }
+    .panel {
+      height: 100%;
+      min-height: 336px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(15, 27, 46, 0.96), rgba(7, 17, 31, 0.98));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+      overflow: hidden;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px 8px;
+    }
+    .title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .meta {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .canvas-wrap {
+      padding: 0 8px 8px;
+    }
+    svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .empty {
+      display: grid;
+      place-items: center;
+      min-height: 300px;
+      color: var(--muted);
+      text-align: center;
+      padding: 24px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      border: 1px solid rgba(86, 184, 112, 0.28);
+      background: rgba(86, 184, 112, 0.1);
+      color: #bce7c6;
+      font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="panel">
+      <div class="header">
+        <div>
+          <div class="title">BrainRing Connectivity</div>
+          <div id="meta" class="meta">Waiting for connectivity payload</div>
+        </div>
+        <div class="badge">iframe renderer</div>
+      </div>
+      <div id="mount" class="canvas-wrap">
+        <div class="empty">No connectivity data received yet.</div>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var mount = document.getElementById('mount');
+      var meta = document.getElementById('meta');
+
+      function esc(text) {
+        return String(text == null ? '' : text)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function polar(cx, cy, r, angle) {
+        return {
+          x: cx + Math.cos(angle) * r,
+          y: cy + Math.sin(angle) * r
+        };
+      }
+
+      function arcPath(cx, cy, r, a0, a1) {
+        var p0 = polar(cx, cy, r, a0);
+        var p1 = polar(cx, cy, r, a1);
+        var large = Math.abs(a1 - a0) > Math.PI ? 1 : 0;
+        return 'M ' + p0.x.toFixed(2) + ' ' + p0.y.toFixed(2)
+          + ' A ' + r.toFixed(2) + ' ' + r.toFixed(2) + ' 0 ' + large + ' 1 '
+          + p1.x.toFixed(2) + ' ' + p1.y.toFixed(2);
+      }
+
+      function chordPath(cx, cy, innerR, sourceAngle, targetAngle) {
+        var p0 = polar(cx, cy, innerR, sourceAngle);
+        var p1 = polar(cx, cy, innerR, targetAngle);
+        return 'M ' + p0.x.toFixed(2) + ' ' + p0.y.toFixed(2)
+          + ' Q ' + cx.toFixed(2) + ' ' + cy.toFixed(2) + ' '
+          + p1.x.toFixed(2) + ' ' + p1.y.toFixed(2);
+      }
+
+      function render(payload) {
+        if (!payload || !Array.isArray(payload.nodes) || !Array.isArray(payload.edges) || !payload.nodes.length) {
+          mount.innerHTML = '<div class="empty">Connectivity payload was empty.</div>';
+          meta.textContent = 'No valid nodes were provided';
+          return;
+        }
+
+        var size = 360;
+        var cx = size / 2;
+        var cy = size / 2;
+        var outerR = 128;
+        var innerR = 108;
+        var labelR = 150;
+        var threshold = Number(payload.threshold || 0);
+        var nodes = payload.nodes.slice();
+        var edges = payload.edges
+          .map(function (edge) {
+            return {
+              source: Number(edge.source),
+              target: Number(edge.target),
+              weight: Number(edge.weight || 0),
+              sign: edge.sign == null ? 1 : Number(edge.sign)
+            };
+          })
+          .filter(function (edge) {
+            return edge.source >= 0 && edge.source < nodes.length
+              && edge.target >= 0 && edge.target < nodes.length
+              && edge.weight >= threshold;
+          })
+          .sort(function (a, b) { return b.weight - a.weight; });
+
+        if (!edges.length) {
+          mount.innerHTML = '<div class="empty">No edges met the render threshold.</div>';
+          meta.textContent = (payload.band || 'Connectivity') + ' | threshold ' + threshold.toFixed(2);
+          return;
+        }
+
+        var step = (Math.PI * 2) / nodes.length;
+        var nodeAngles = nodes.map(function (_, index) {
+          return (-Math.PI / 2) + index * step;
+        });
+
+        var nodeMarkup = nodes.map(function (node, index) {
+          var start = nodeAngles[index] - step * 0.34;
+          var end = nodeAngles[index] + step * 0.34;
+          var pos = polar(cx, cy, labelR, nodeAngles[index]);
+          var rotate = (nodeAngles[index] * 180 / Math.PI) + 90;
+          var flip = pos.x < cx ? 180 : 0;
+          var anchor = pos.x < cx ? 'end' : 'start';
+          var color = node.color || '#56b870';
+          return ''
+            + '<path d="' + arcPath(cx, cy, outerR, start, end) + '" stroke="' + esc(color) + '" stroke-width="10" fill="none" stroke-linecap="round" />'
+            + '<text x="' + pos.x.toFixed(2) + '" y="' + pos.y.toFixed(2) + '" fill="#d9e7f5" font-size="11" text-anchor="' + anchor + '"'
+            + ' transform="rotate(' + (rotate + flip).toFixed(2) + ' ' + pos.x.toFixed(2) + ' ' + pos.y.toFixed(2) + ')">'
+            + esc(node.label || ('N' + index))
+            + '</text>';
+        }).join('');
+
+        var edgeMarkup = edges.map(function (edge) {
+          var width = Math.max(1.5, edge.weight * 5.2);
+          var opacity = Math.min(0.92, 0.18 + edge.weight * 0.7);
+          var color = edge.sign < 0 ? '#f97316' : '#60a5fa';
+          return '<path d="' + chordPath(cx, cy, innerR, nodeAngles[edge.source], nodeAngles[edge.target]) + '"'
+            + ' stroke="' + color + '" stroke-width="' + width.toFixed(2) + '" stroke-opacity="' + opacity.toFixed(2) + '"'
+            + ' fill="none" stroke-linecap="round" />';
+        }).join('');
+
+        mount.innerHTML = ''
+          + '<svg viewBox="0 0 ' + size + ' ' + size + '" role="img" aria-label="Connectivity chord diagram">'
+          + '<defs><radialGradient id="glow" cx="50%" cy="50%" r="65%">'
+          + '<stop offset="0%" stop-color="rgba(86,184,112,0.22)" />'
+          + '<stop offset="100%" stop-color="rgba(86,184,112,0)" />'
+          + '</radialGradient></defs>'
+          + '<circle cx="' + cx + '" cy="' + cy + '" r="' + (innerR - 6) + '" fill="url(#glow)" />'
+          + '<circle cx="' + cx + '" cy="' + cy + '" r="' + outerR + '" fill="none" stroke="rgba(148,163,184,0.12)" stroke-width="1" />'
+          + edgeMarkup
+          + nodeMarkup
+          + '</svg>';
+        meta.textContent = (payload.band || 'Connectivity') + ' | ' + edges.length + ' edges | threshold ' + threshold.toFixed(2);
+        try {
+          window.parent.postMessage({ type: 'brainring/rendered', band: payload.band || null, edges: edges.length }, '*');
+        } catch (_) {}
+      }
+
+      window.addEventListener('message', function (event) {
+        var data = event && event.data ? event.data : null;
+        if (!data || data.type !== 'brainring/load') return;
+        render(data);
+      });
+
+      try {
+        window.parent.postMessage({ type: 'brainring/ready' }, '*');
+      } catch (_) {}
+    })();
+  </script>
+</body>
+</html>

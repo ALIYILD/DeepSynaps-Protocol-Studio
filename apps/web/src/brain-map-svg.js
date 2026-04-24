@@ -544,6 +544,73 @@ export function renderConnectivityBrainMap(connections, options) {
   return parts.join('');
 }
 
+export function renderConnectivityChordLite(nodes, edges, options) {
+  var opts = options || {};
+  var size = Number.isFinite(opts.size) ? opts.size : 360;
+  var threshold = opts.threshold != null ? opts.threshold : 0.3;
+  var title = opts.title || 'Connectivity chord';
+  var cx = 200;
+  var cy = 200;
+  var radius = 132;
+  var safeNodes = Array.isArray(nodes) ? nodes : [];
+  var safeEdges = Array.isArray(edges) ? edges : [];
+  if (!safeNodes.length) return '<div>No connectivity nodes</div>';
+
+  var nodePositions = {};
+  safeNodes.forEach(function (node, index) {
+    var theta = (-Math.PI / 2) + (index / safeNodes.length) * Math.PI * 2;
+    nodePositions[node.id] = {
+      x: cx + Math.cos(theta) * radius,
+      y: cy + Math.sin(theta) * radius,
+      theta: theta,
+    };
+  });
+
+  function edgeStroke(edge) {
+    if (edge.sign != null && edge.sign < 0) return 'rgba(96,165,250,0.55)';
+    return 'rgba(248,113,113,0.55)';
+  }
+
+  var parts = [];
+  parts.push('<svg class="ds-conn-chord" viewBox="0 0 400 430" width="' + size + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="' + title + '" tabindex="0">');
+  parts.push('<circle cx="' + cx + '" cy="' + cy + '" r="' + radius + '" fill="rgba(15,23,42,0.72)" stroke="rgba(255,255,255,0.18)" stroke-width="1.5"/>');
+
+  safeEdges.forEach(function (edge) {
+    if (!edge || Math.abs(Number(edge.weight) || 0) < threshold) return;
+    var source = nodePositions[edge.source];
+    var target = nodePositions[edge.target];
+    if (!source || !target) return;
+    var midX = (source.x + target.x) / 2;
+    var midY = (source.y + target.y) / 2;
+    var pull = 0.28;
+    var ctrlX = cx + (midX - cx) * pull;
+    var ctrlY = cy + (midY - cy) * pull;
+    var width = 0.8 + Math.min(4.2, Math.abs(Number(edge.weight) || 0) * 4.0);
+    parts.push('<path d="M' + source.x.toFixed(1) + ',' + source.y.toFixed(1)
+      + ' Q' + ctrlX.toFixed(1) + ',' + ctrlY.toFixed(1)
+      + ' ' + target.x.toFixed(1) + ',' + target.y.toFixed(1)
+      + '" fill="none" stroke="' + edgeStroke(edge) + '" stroke-width="' + width.toFixed(2) + '" opacity="0.9">'
+      + '<title>' + (edge.source + ' → ' + edge.target + ': ' + Number(edge.weight || 0).toFixed(2)) + '</title></path>');
+  });
+
+  safeNodes.forEach(function (node) {
+    var pos = nodePositions[node.id];
+    var labelRadius = radius + 20;
+    var lx = cx + Math.cos(pos.theta) * labelRadius;
+    var ly = cy + Math.sin(pos.theta) * labelRadius;
+    var anchor = lx < cx ? 'end' : 'start';
+    var color = node.color || 'rgba(226,232,240,0.95)';
+    parts.push('<circle cx="' + pos.x.toFixed(1) + '" cy="' + pos.y.toFixed(1) + '" r="5.5" fill="' + color + '" stroke="rgba(255,255,255,0.65)" stroke-width="1"/>');
+    parts.push('<text x="' + lx.toFixed(1) + '" y="' + (ly + 3).toFixed(1) + '" text-anchor="' + anchor + '" font-size="8.5" fill="rgba(226,232,240,0.88)" font-family="system-ui,sans-serif">'
+      + (node.label || node.id) + '</text>');
+  });
+
+  parts.push('<text x="200" y="404" text-anchor="middle" font-size="10" font-weight="600" fill="rgba(255,255,255,0.76)" font-family="system-ui,sans-serif">'
+    + title + ' · |w| ≥ ' + threshold.toFixed(2) + '</text>');
+  parts.push('</svg>');
+  return parts.join('');
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // renderICAComponents — Grid of ICA component topographic mini-maps

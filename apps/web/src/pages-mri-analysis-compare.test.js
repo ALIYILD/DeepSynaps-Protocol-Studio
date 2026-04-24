@@ -112,6 +112,12 @@ const SAMPLE_RESULT = {
       delta_absolute: 0.02, delta_pct: 4.88, flagged: true,
       metric: 'mean_FA' },
   ],
+  comparison_meta: {
+    key_findings: [
+      { domain: 'structural', region: 'acc_l', delta_pct: 3.85 },
+      { domain: 'functional', region: 'DMN', delta_pct: -7.3 },
+    ],
+  },
   jacobian_determinant_s3: null,
   change_overlay_png_s3: '/artefacts/longitudinal_change_overlay.png',
 };
@@ -135,6 +141,8 @@ test('renderLongitudinalReport emits summary + three delta tables + overlay', ()
   assert.match(html, /<img [^>]*longitudinal_change_overlay\.png/);
   // Days between.
   assert.match(html, /180/);
+  assert.match(html, /Largest changes/);
+  assert.match(html, /structural/);
 });
 
 test('renderLongitudinalReport handles missing modalities gracefully', () => {

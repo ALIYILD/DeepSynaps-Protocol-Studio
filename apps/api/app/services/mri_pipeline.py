@@ -66,6 +66,8 @@ _DEMO_REPORT_PATH = (
     / "demo"
     / "sample_mri_report.json"
 )
+_DEMO_DIR = _DEMO_REPORT_PATH.parent
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def load_demo_report() -> dict[str, Any]:
@@ -87,6 +89,93 @@ def load_demo_report() -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as exc:
         _log.warning("Failed to load MRI demo report: %s", exc)
         return {"error": f"failed to load demo report: {exc}"}
+
+
+def _resolve_existing_asset(candidate: str | Path | None) -> Optional[Path]:
+    """Resolve a possibly-relative artifact path to an existing local file."""
+    if not candidate:
+        return None
+    raw = Path(str(candidate))
+    search = [raw]
+    if not raw.is_absolute():
+        search.extend([
+            _DEMO_DIR / raw,
+            _REPO_ROOT / raw,
+            _REPO_ROOT / "packages" / "mri-pipeline" / raw,
+        ])
+    for path in search:
+        try:
+            resolved = path.resolve()
+        except OSError:
+            resolved = path
+        if resolved.exists() and resolved.is_file():
+            return resolved
+    return None
+
+
+def _build_overlay_summary_html(
+    analysis_id: str,
+    target_id: str,
+    report: dict[str, Any],
+) -> str:
+    """Fallback overlay page with target metadata when no real asset is staged."""
+    stim_targets = report.get("stim_targets") if isinstance(report, dict) else []
+    target = next(
+        (item for item in (stim_targets or []) if item.get("target_id") == target_id),
+        {},
+    )
+    coords = target.get("mni_xyz") or []
+    coords_text = ", ".join(str(v) for v in coords) if isinstance(coords, list) else "n/a"
+    region = target.get("region_name") or "Target metadata unavailable"
+    confidence = target.get("confidence") or "n/a"
+    method = target.get("method") or "n/a"
+    efield_png = None
+    dose = target.get("efield_dose") if isinstance(target, dict) else None
+    if isinstance(dose, dict):
+        efield_png = _resolve_existing_asset(dose.get("e_field_png_s3"))
+    image_html = ""
+    if efield_png is not None:
+        image_html = (
+            f'<div class="preview"><img src="file:///{efield_png.as_posix()}" '
+            f'alt="Field preview for {target_id}"></div>'
+        )
+    return f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Overlay viewer</title>
+<style>
+  :root{{color-scheme:dark;}}
+  body{{margin:0;font-family:system-ui,sans-serif;background:#07111f;color:#e2e8f0}}
+  .shell{{min-height:100vh;padding:24px;background:
+    radial-gradient(circle at top right, rgba(20,184,166,.15), transparent 28%),
+    linear-gradient(180deg,#07111f,#0f172a)}}
+  .card{{max-width:960px;margin:0 auto;background:rgba(15,23,42,.92);
+    border:1px solid rgba(148,163,184,.18);border-radius:18px;padding:22px}}
+  h1{{margin:0 0 8px;font-size:1.15rem}}
+  p{{margin:.35rem 0;color:#cbd5e1;line-height:1.5}}
+  .meta{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:18px 0}}
+  .meta div{{padding:12px;border-radius:12px;background:rgba(30,41,59,.75);
+    border:1px solid rgba(148,163,184,.12)}}
+  .label{{display:block;font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8}}
+  .value{{display:block;margin-top:6px;font-size:.95rem;color:#f8fafc}}
+  .note{{margin-top:16px;padding:12px 14px;border-radius:12px;background:rgba(15,118,110,.12);
+    border:1px solid rgba(45,212,191,.22)}}
+  .preview{{margin-top:18px;padding:12px;border-radius:14px;background:rgba(2,6,23,.55);
+    border:1px solid rgba(148,163,184,.12)}}
+  .preview img{{display:block;max-width:100%;height:auto;border-radius:10px}}
+</style></head>
+<body><div class="shell"><div class="card">
+  <h1>Interactive overlay unavailable in this build</h1>
+  <p>Using staged target metadata for review while the full MRI viewer assets are unavailable.</p>
+  <p>Analysis <code>{analysis_id}</code> · Target <code>{target_id}</code></p>
+  <div class="meta">
+    <div><span class="label">Region</span><span class="value">{region}</span></div>
+    <div><span class="label">MNI</span><span class="value">{coords_text}</span></div>
+    <div><span class="label">Confidence</span><span class="value">{confidence}</span></div>
+    <div><span class="label">Method</span><span class="value">{method}</span></div>
+  </div>
+  {image_html}
+  <div class="note">Decision-support tool. Not a medical device.</div>
+</div></div></body></html>
+"""
 
 
 # ── Serialisation helpers ───────────────────────────────────────────────────
@@ -289,8 +378,8 @@ def generate_overlay_html_safe(
     if isinstance(overlays, dict):
         candidate = overlays.get(target_id)
         if isinstance(candidate, str) and candidate:
-            candidate_path = Path(candidate)
-            if candidate_path.exists():
+            candidate_path = _resolve_existing_asset(candidate)
+            if candidate_path is not None:
                 try:
                     return candidate_path.read_text(encoding="utf-8")
                 except OSError as exc:  # pragma: no cover - defensive
@@ -298,9 +387,7 @@ def generate_overlay_html_safe(
 
     # Otherwise try to render live via the sibling package.
     if not HAS_MRI_PIPELINE:
-        return _OVERLAY_PLACEHOLDER.format(
-            analysis_id=analysis_id, target_id=target_id
-        )
+        return _build_overlay_summary_html(analysis_id, target_id, report)
 
     try:
         # Locate the target by id + import the renderer lazily (heavy deps).
@@ -335,9 +422,7 @@ def generate_overlay_html_safe(
             type(exc).__name__,
             exc,
         )
-        return _OVERLAY_PLACEHOLDER.format(
-            analysis_id=analysis_id, target_id=target_id
-        )
+        return _build_overlay_summary_html(analysis_id, target_id, report)
 
 
 def generate_report_pdf_safe(

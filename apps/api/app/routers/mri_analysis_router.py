@@ -21,6 +21,7 @@ Regulatory posture — the ``MRIReport`` embeds the standard disclaimer:
 """
 from __future__ import annotations
 
+import asyncio
 import io as _io
 import json
 import logging
@@ -29,18 +30,32 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import AiSummaryAudit, MriAnalysis, MriUpload
+from app.persistence.models import (
+    AiSummaryAudit,
+    ClinicalSession,
+    MriAnalysis,
+    MriUpload,
+    OutcomeSeries,
+    QEEGRecord,
+)
 from app.services import mri_pipeline as mri_pipeline_facade
 from app.settings import get_settings
 
 _log = logging.getLogger(__name__)
+
+try:
+    from deepsynaps_mri.niivue_payload import StimTarget as ViewerStimTarget
+    from deepsynaps_mri.niivue_payload import build_payload as build_viewer_payload
+except ImportError:  # pragma: no cover - optional package path during thin installs
+    ViewerStimTarget = None  # type: ignore[assignment]
+    build_viewer_payload = None  # type: ignore[assignment]
 
 
 router = APIRouter(prefix="/api/v1/mri", tags=["mri"])
@@ -92,6 +107,192 @@ def _dump(value: Any) -> Optional[str]:
 def _load(raw: Optional[str]) -> Any:
     if not raw:
         return None
+
+
+def _iso(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat()
+    return str(value)
+
+
+def _timeline_sort_key(item: dict[str, Any]) -> str:
+    return str(item.get("at") or "")
+
+
+def _timeline_dt(raw: Any) -> Optional[datetime]:
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        return raw if raw.tzinfo is not None else raw.replace(tzinfo=timezone.utc)
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
+def _build_patient_timeline_payload(
+    patient_id: str,
+    actor: AuthenticatedActor,
+    db: Session,
+) -> dict[str, Any]:
+    session_q = db.query(ClinicalSession).filter_by(patient_id=patient_id)
+    qeeg_q = db.query(QEEGRecord).filter_by(patient_id=patient_id)
+    outcome_q = db.query(OutcomeSeries).filter_by(patient_id=patient_id)
+    if actor.role != "admin":
+        session_q = session_q.filter(ClinicalSession.clinician_id == actor.actor_id)
+        qeeg_q = qeeg_q.filter(QEEGRecord.clinician_id == actor.actor_id)
+        outcome_q = outcome_q.filter(OutcomeSeries.clinician_id == actor.actor_id)
+
+    mri_rows = (
+        db.query(MriAnalysis)
+        .filter_by(patient_id=patient_id)
+        .order_by(MriAnalysis.created_at.asc())
+        .all()
+    )
+    session_rows = session_q.order_by(ClinicalSession.scheduled_at.asc()).all()
+    qeeg_rows = qeeg_q.order_by(QEEGRecord.created_at.asc()).all()
+    outcome_rows = outcome_q.order_by(OutcomeSeries.administered_at.asc()).all()
+
+    sessions = [
+        {
+            "id": row.id,
+            "lane": "sessions",
+            "at": row.completed_at or row.scheduled_at,
+            "title": f"Session {row.session_number}" if row.session_number else (row.appointment_type or "Session"),
+            "status": row.status,
+            "meta": {
+                "modality": row.modality,
+                "appointment_type": row.appointment_type,
+                "protocol_ref": row.protocol_ref,
+                "outcome": row.outcome,
+            },
+        }
+        for row in session_rows
+    ]
+    qeeg = [
+        {
+            "id": row.id,
+            "lane": "qeeg",
+            "at": row.recording_date or _iso(row.created_at),
+            "title": f"{(row.recording_type or 'qEEG').replace('_', ' ')} qEEG",
+            "status": "recorded",
+            "meta": {
+                "equipment": row.equipment,
+                "eyes_condition": row.eyes_condition,
+                "course_id": row.course_id,
+            },
+        }
+        for row in qeeg_rows
+    ]
+    mri = [
+        {
+            "id": row.analysis_id,
+            "lane": "mri",
+            "at": _iso(row.created_at),
+            "title": f"MRI {str(row.condition or 'analysis').upper()}",
+            "status": row.state,
+            "meta": {
+                "condition": row.condition,
+                "upload_ref": row.upload_ref,
+            },
+        }
+        for row in mri_rows
+    ]
+    outcomes = [
+        {
+            "id": row.id,
+            "lane": "outcomes",
+            "at": _iso(row.administered_at),
+            "title": row.template_title or row.template_id,
+            "status": row.measurement_point,
+            "meta": {
+                "template_id": row.template_id,
+                "score": row.score,
+                "score_numeric": row.score_numeric,
+                "course_id": row.course_id,
+            },
+        }
+        for row in outcome_rows
+    ]
+
+    links: list[dict[str, Any]] = []
+    outcomes_by_course: dict[str, list[dict[str, Any]]] = {}
+    for item in outcomes:
+        course_id = item["meta"].get("course_id")
+        if course_id:
+            outcomes_by_course.setdefault(course_id, []).append(item)
+    for qeeg_item in qeeg:
+        course_id = qeeg_item["meta"].get("course_id")
+        if not course_id:
+            continue
+        for outcome_item in outcomes_by_course.get(course_id, []):
+            links.append(
+                {
+                    "from_lane": "qeeg",
+                    "from_id": qeeg_item["id"],
+                    "to_lane": "outcomes",
+                    "to_id": outcome_item["id"],
+                    "kind": "course",
+                }
+            )
+
+    if sessions and qeeg:
+        for qeeg_item in qeeg:
+            qeeg_dt = _timeline_dt(qeeg_item.get("at"))
+            closest = min(
+                sessions,
+                key=lambda sess: abs(
+                    (_timeline_dt(sess.get("at")) - qeeg_dt).total_seconds()
+                ) if _timeline_dt(sess.get("at")) and qeeg_dt else 10**12,
+            )
+            links.append(
+                {
+                    "from_lane": "sessions",
+                    "from_id": closest["id"],
+                    "to_lane": "qeeg",
+                    "to_id": qeeg_item["id"],
+                    "kind": "temporal",
+                }
+            )
+
+    if sessions and mri:
+        for mri_item in mri:
+            mri_dt = _timeline_dt(mri_item.get("at"))
+            closest = min(
+                sessions,
+                key=lambda sess: abs(
+                    (_timeline_dt(sess.get("at")) - mri_dt).total_seconds()
+                ) if _timeline_dt(sess.get("at")) and mri_dt else 10**12,
+            )
+            links.append(
+                {
+                    "from_lane": "sessions",
+                    "from_id": closest["id"],
+                    "to_lane": "mri",
+                    "to_id": mri_item["id"],
+                    "kind": "temporal",
+                }
+            )
+
+    return {
+        "patient_id": patient_id,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "lanes": {
+            "sessions": sorted(sessions, key=_timeline_sort_key),
+            "qeeg": sorted(qeeg, key=_timeline_sort_key),
+            "mri": sorted(mri, key=_timeline_sort_key),
+            "outcomes": sorted(outcomes, key=_timeline_sort_key),
+        },
+        "links": links,
+    }
     try:
         return json.loads(raw)
     except (TypeError, ValueError):
@@ -122,6 +323,21 @@ def _report_from_row(row: MriAnalysis) -> dict[str, Any]:
     }
 
 
+def _status_payload_from_row(row: MriAnalysis, job_id: str) -> dict[str, Any]:
+    stage_map = {
+        "queued": "queued",
+        "STARTED": "ingest",
+        "PROGRESS": "targeting",
+        "SUCCESS": "done",
+        "FAILURE": "failed",
+    }
+    return {
+        "job_id": job_id,
+        "state": row.state,
+        "info": {"stage": stage_map.get(row.state, row.state)},
+    }
+
+
 def _populate_row_from_report(row: MriAnalysis, report: dict[str, Any]) -> None:
     """Copy ``MRIReport`` JSON payload into the DB row's ``*_json`` columns."""
     row.modalities_present_json = _dump(report.get("modalities_present"))
@@ -136,6 +352,80 @@ def _populate_row_from_report(row: MriAnalysis, report: dict[str, Any]) -> None:
         row.pipeline_version = str(report["pipeline_version"])[:16] or None
     if "norm_db_version" in report:
         row.norm_db_version = str(report["norm_db_version"])[:16] or None
+
+
+def _viewer_payload_from_report(analysis_id: str, report: dict[str, Any]) -> dict[str, Any]:
+    if build_viewer_payload is None or ViewerStimTarget is None:
+        raise ApiServiceError(
+            code="viewer_unavailable",
+            message="MRI viewer payload builder is not available in this build.",
+            status_code=503,
+        )
+
+    overlays: list[tuple[str, str, float]] = []
+    if report.get("overlays"):
+        overlays.append(("stat.nii.gz", "warm", 0.6))
+
+    diffusion = report.get("diffusion") or {}
+    if diffusion.get("fa_map_s3"):
+        overlays.append(("fa_map.nii.gz", "winter", 0.45))
+    if diffusion.get("md_map_s3"):
+        overlays.append(("md_map.nii.gz", "red", 0.45))
+
+    bundles: list[str] = []
+    for bundle in diffusion.get("bundles") or []:
+        name = bundle.get("bundle")
+        if name:
+            bundles.append(str(name))
+
+    targets = []
+    for item in report.get("stim_targets") or []:
+        coords = item.get("mni_xyz") or []
+        if len(coords) != 3:
+            continue
+        modality = str(item.get("modality") or "rtms").lower()
+        if str(item.get("method") or "").endswith("_personalised"):
+            modality = "personalised"
+        targets.append(
+            ViewerStimTarget(
+                name=str(item.get("target_id") or item.get("region_name") or "target"),
+                mni=(float(coords[0]), float(coords[1]), float(coords[2])),
+                modality=modality,  # type: ignore[arg-type]
+                radius_mm=4.0,
+            )
+        )
+
+    payload = build_viewer_payload(
+        case_id=analysis_id,
+        api_prefix="/api/v1/mri",
+        overlays=overlays,
+        bundles=bundles,
+        targets=targets,
+    )
+    return payload.to_dict()
+
+
+def _summarize_change_rows(rows: Any, label: str) -> Optional[dict[str, Any]]:
+    if not isinstance(rows, list) or not rows:
+        return None
+    ranked = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            delta = float(row.get("delta_pct") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        ranked.append({
+            "domain": label,
+            "region": row.get("region") or "region",
+            "delta_pct": round(delta, 2),
+            "flagged": bool(row.get("flagged")),
+        })
+    if not ranked:
+        return None
+    ranked.sort(key=lambda item: abs(item["delta_pct"]), reverse=True)
+    return ranked[0]
 
 
 # ── Audit helper ─────────────────────────────────────────────────────────────
@@ -384,18 +674,58 @@ def get_status(
             status_code=404,
         )
 
-    stage_map = {
-        "queued": "queued",
-        "STARTED": "ingest",
-        "PROGRESS": "targeting",
-        "SUCCESS": "done",
-        "FAILURE": "failed",
-    }
-    return {
-        "job_id": job_id,
-        "state": row.state,
-        "info": {"stage": stage_map.get(row.state, row.state)},
-    }
+    return _status_payload_from_row(row, job_id)
+
+
+@router.get("/status/{job_id}/events")
+async def stream_status_events(
+    job_id: str,
+    request: Request,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> StreamingResponse:
+    """SSE stream for MRI job status updates."""
+    require_minimum_role(actor, "clinician")
+
+    row = db.query(MriAnalysis).filter_by(job_id=job_id).first()
+    if row is None:
+        row = db.query(MriAnalysis).filter_by(analysis_id=job_id).first()
+    if row is None:
+        raise ApiServiceError(
+            code="job_not_found",
+            message=f"job_id {job_id!r} not found",
+            status_code=404,
+        )
+
+    async def event_generator():
+        last_payload: str | None = None
+        while True:
+            if await request.is_disconnected():
+                break
+            db.refresh(row)
+            payload = _status_payload_from_row(row, job_id)
+            payload["analysis_id"] = row.analysis_id
+            encoded = json.dumps(payload)
+            if encoded != last_payload:
+                event_name = "complete" if row.state in {"SUCCESS", "FAILURE"} else "progress"
+                yield f"event: {event_name}\ndata: {encoded}\n\n"
+                last_payload = encoded
+                if row.state in {"SUCCESS", "FAILURE"}:
+                    break
+            else:
+                heartbeat = json.dumps({"analysis_id": row.analysis_id, "type": "heartbeat"})
+                yield f"event: heartbeat\ndata: {heartbeat}\n\n"
+            await asyncio.sleep(2.0)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ── 4. Report JSON ───────────────────────────────────────────────────────────
@@ -418,6 +748,25 @@ def get_report(
             status_code=404,
         )
     return JSONResponse(_report_from_row(row))
+
+
+@router.get("/{analysis_id}/viewer.json")
+def get_viewer_payload(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> JSONResponse:
+    """Return a NiiVue-friendly payload for the MRI dashboard viewer."""
+    require_minimum_role(actor, "clinician")
+
+    row = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if row is None:
+        raise ApiServiceError(
+            code="analysis_not_found",
+            message=f"analysis_id {analysis_id!r} not found",
+            status_code=404,
+        )
+    return JSONResponse(_viewer_payload_from_report(analysis_id, _report_from_row(row)))
 
 
 # ── 5. Report PDF ────────────────────────────────────────────────────────────
@@ -511,6 +860,17 @@ def get_overlay(
         analysis_id, target_id, report
     )
     return HTMLResponse(html)
+
+
+@router.get("/patients/{patient_id}/timeline")
+def get_patient_timeline(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Aggregate sessions, qEEG, MRI, and outcomes into a 4-lane timeline."""
+    require_minimum_role(actor, "clinician")
+    return _build_patient_timeline_payload(patient_id, actor, db)
 
 
 # ── 8. MedRAG ────────────────────────────────────────────────────────────────
@@ -655,4 +1015,22 @@ def compare_mri(
 
     # Serialise via pydantic for stable, explicit shape on the wire.
     payload = report.model_dump(mode="json") if hasattr(report, "model_dump") else report.dict()
+    key_findings = [
+        item for item in [
+            _summarize_change_rows(payload.get("structural_changes"), "structural"),
+            _summarize_change_rows(payload.get("functional_changes"), "functional"),
+            _summarize_change_rows(payload.get("diffusion_changes"), "diffusion"),
+        ]
+        if item is not None
+    ]
+    payload["comparison_meta"] = {
+        "patient_id": base_row.patient_id,
+        "baseline_created_at": base_row.created_at.isoformat() if base_row.created_at else None,
+        "followup_created_at": fup_row.created_at.isoformat() if fup_row.created_at else None,
+        "baseline_condition": base_row.condition,
+        "followup_condition": fup_row.condition,
+        "baseline_state": base_row.state,
+        "followup_state": fup_row.state,
+        "key_findings": key_findings,
+    }
     return JSONResponse(payload)

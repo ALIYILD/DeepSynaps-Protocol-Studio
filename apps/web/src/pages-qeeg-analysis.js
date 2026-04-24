@@ -7,8 +7,8 @@
 //   3. AI Report        — AI interpretation + clinician review
 //   4. Compare          — pre/post comparison
 // ─────────────────────────────────────────────────────────────────────────────
-import { api } from './api.js';
-import { renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap, renderICAComponents, renderWaveletHeatmap, renderChannelQualityMap, renderAsymmetryMap, renderPowerBarChart, renderTBRBarChart, renderSignalDeviationChart, renderBiomarkerGauges, renderBrodmannTable } from './brain-map-svg.js';
+import { api, downloadBlob } from './api.js';
+import { renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap, renderConnectivityChordLite, renderICAComponents, renderWaveletHeatmap, renderChannelQualityMap, renderAsymmetryMap, renderPowerBarChart, renderTBRBarChart, renderSignalDeviationChart, renderBiomarkerGauges, renderBrodmannTable } from './brain-map-svg.js';
 import { emptyState, showToast, spark } from './helpers.js';
 import { DK_LOBES, groupROIsByLobe, formatDKLabel } from './qeeg-dk-atlas.js';
 import {
@@ -22,6 +22,9 @@ import {
   renderLongitudinalSparklines,
   mountCopilotWidget,
 } from './qeeg-ai-panels.js';
+
+const FUSION_API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
+const FUSION_TOKEN_KEY = 'ds_access_token';
 
 // Feature flag for the Contract V2 AI upgrade panels + buttons. Defaults to
 // on; ops can disable without a redeploy by setting
@@ -59,6 +62,17 @@ function badge(text, color) {
     + (color || 'var(--blue)') + '20;color:' + (color || 'var(--blue)') + '">' + esc(text) + '</span>';
 }
 
+<<<<<<< HEAD
+=======
+function _getFusionToken() {
+  try {
+    return globalThis.localStorage?.getItem?.(FUSION_TOKEN_KEY) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+>>>>>>> aa28508 (Add V3 fusion timeline annotations and export flows)
 function _demoFusionSummary(patientId) {
   return {
     patient_id: patientId || 'demo-patient',
@@ -75,7 +89,20 @@ async function _fetchFusionSummary(patientId) {
   if (!patientId) return null;
   if (_isDemoMode()) return _demoFusionSummary(patientId);
   try {
+<<<<<<< HEAD
     return await api.getFusionRecommendation(patientId);
+=======
+    var headers = {};
+    var token = _getFusionToken();
+    if (token) headers.Authorization = 'Bearer ' + token;
+    headers['Content-Type'] = 'application/json';
+    var res = await fetch(
+      FUSION_API_BASE + '/api/v1/fusion/recommend/' + encodeURIComponent(patientId),
+      { method: 'POST', headers: headers }
+    );
+    if (!res.ok) throw new Error('Fusion request failed (' + res.status + ')');
+    return await res.json();
+>>>>>>> aa28508 (Add V3 fusion timeline annotations and export flows)
   } catch (_) {
     return null;
   }
@@ -113,6 +140,128 @@ const BAND_COLORS = {
   delta: '#42a5f5', theta: '#7e57c2', alpha: '#66bb6a',
   beta: '#ffa726', high_beta: '#ef5350', gamma: '#ec407a',
 };
+
+var _qeegAnnotationDrawerLoadedFor = null;
+
+function _renderAnnotationList(items) {
+  if (!Array.isArray(items) || !items.length) {
+    return '<div class="analysis-anno-empty">No notes pinned to this study yet.</div>';
+  }
+  return items.map(function (item) {
+    var title = item.title ? '<div class="analysis-anno-item__title">' + esc(item.title) + '</div>' : '';
+    var anchor = item.anchor_label ? '<div class="analysis-anno-item__anchor">' + esc(item.anchor_label) + '</div>' : '';
+    var at = item.created_at ? new Date(item.created_at).toLocaleString() : '';
+    return '<div class="analysis-anno-item">'
+      + title
+      + anchor
+      + '<div class="analysis-anno-item__body">' + esc(item.body || '') + '</div>'
+      + '<div class="analysis-anno-item__meta">' + esc(at) + '</div>'
+      + '<button class="analysis-anno-item__delete" data-annotation-delete="' + esc(item.id) + '">Delete</button>'
+      + '</div>';
+  }).join('');
+}
+
+async function _openQEEGAnnotationDrawer(context) {
+  if (!context || !context.patient_id || !context.target_id) return;
+  var host = document.getElementById('qeeg-annotation-drawer-host');
+  if (!host) return;
+  host.innerHTML = '<div class="analysis-anno-backdrop" data-annotation-close="1"></div>'
+    + '<aside class="analysis-anno-drawer">'
+    + '<div class="analysis-anno-drawer__hd"><div><strong>Study notes</strong><div class="analysis-anno-drawer__sub">'
+    + esc(context.anchor_label || 'qEEG analysis') + '</div></div><button class="analysis-anno-drawer__close" data-annotation-close="1">Close</button></div>'
+    + '<div id="qeeg-annotation-list" class="analysis-anno-list">' + spinner('Loading notes...') + '</div>'
+    + '<div class="analysis-anno-form">'
+    + '<input id="qeeg-annotation-title" class="form-control" maxlength="160" placeholder="Short title (optional)"/>'
+    + '<textarea id="qeeg-annotation-body" class="form-control" rows="4" maxlength="5000" placeholder="Add a note for this study"></textarea>'
+    + '<input id="qeeg-annotation-anchor" class="form-control" maxlength="120" placeholder="Anchor label (optional)" value="' + esc(context.anchor_label || '') + '"/>'
+    + '<div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn btn-sm btn-primary" id="qeeg-annotation-save">Save note</button></div>'
+    + '</div></aside>';
+  host.classList.add('analysis-anno-host--open');
+  _qeegAnnotationDrawerLoadedFor = context;
+  var listEl = document.getElementById('qeeg-annotation-list');
+  try {
+    var rows = await api.listAnnotations({
+      patientId: context.patient_id,
+      targetType: 'qeeg',
+      targetId: context.target_id,
+    });
+    if (listEl) listEl.innerHTML = _renderAnnotationList(rows);
+  } catch (err) {
+    if (listEl) listEl.innerHTML = '<div class="analysis-anno-empty">Could not load notes: ' + esc(err.message || err) + '</div>';
+  }
+
+  host.querySelectorAll('[data-annotation-close="1"]').forEach(function (node) {
+    node.addEventListener('click', function () {
+      host.classList.remove('analysis-anno-host--open');
+      host.innerHTML = '';
+    });
+  });
+  host.querySelectorAll('[data-annotation-delete]').forEach(function (node) {
+    node.addEventListener('click', async function () {
+      var id = node.getAttribute('data-annotation-delete');
+      if (!id) return;
+      try {
+        await api.deleteAnnotation(id);
+        showToast('Note deleted', 'success');
+        _openQEEGAnnotationDrawer(context);
+      } catch (err) {
+        showToast('Could not delete note: ' + (err.message || err), 'error');
+      }
+    });
+  });
+  var saveBtn = document.getElementById('qeeg-annotation-save');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async function () {
+      var bodyEl = document.getElementById('qeeg-annotation-body');
+      var titleEl = document.getElementById('qeeg-annotation-title');
+      var anchorEl = document.getElementById('qeeg-annotation-anchor');
+      var body = bodyEl && bodyEl.value ? bodyEl.value.trim() : '';
+      if (!body) {
+        showToast('Add some note text first', 'warning');
+        return;
+      }
+      saveBtn.disabled = true;
+      try {
+        await api.createAnnotation({
+          patient_id: context.patient_id,
+          target_type: 'qeeg',
+          target_id: context.target_id,
+          title: titleEl && titleEl.value ? titleEl.value.trim() : null,
+          body: body,
+          anchor_label: anchorEl && anchorEl.value ? anchorEl.value.trim() : null,
+          anchor_data: { analysis_id: context.target_id },
+        });
+        showToast('Note saved', 'success');
+        _openQEEGAnnotationDrawer(context);
+      } catch (err) {
+        showToast('Could not save note: ' + (err.message || err), 'error');
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
+  }
+}
+
+function _qeegAnnotationButton(context) {
+  if (!context || !context.patient_id || !context.target_id) return '';
+  var payload = JSON.stringify(context).replace(/"/g, '&quot;');
+  return '<button class="btn btn-outline btn-sm analysis-anno-launch" data-qeeg-annotation="' + payload + '">Notes</button>';
+}
+
+function _bindQEEGAnnotationButtons() {
+  document.querySelectorAll('[data-qeeg-annotation]').forEach(function (btn) {
+    if (btn.dataset.annotationBound === '1') return;
+    btn.dataset.annotationBound = '1';
+    btn.addEventListener('click', function () {
+      try {
+        var ctx = JSON.parse(btn.getAttribute('data-qeeg-annotation') || '{}');
+        _openQEEGAnnotationDrawer(ctx);
+      } catch (_err) {
+        showToast('Could not open notes', 'error');
+      }
+    });
+  });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MNE-Python pipeline renderers (§4 of CONTRACT.md)
@@ -428,6 +577,144 @@ export function renderNormativeZScoreHeatmap(analysis) {
   return card('Normative z-scores', heatmap + legend + findingsHtml);
 }
 
+export function renderNormativeTopomapGrid(analysis) {
+  if (!analysis || !analysis.normative_zscores) return '';
+  var spectral = analysis.normative_zscores.spectral && analysis.normative_zscores.spectral.bands
+    ? analysis.normative_zscores.spectral.bands
+    : null;
+  if (!spectral) return '';
+  var bands = Object.keys(spectral);
+  if (!bands.length) return '';
+  var html = '<div class="qeeg-band-grid">';
+  bands.forEach(function (band) {
+    var values = spectral[band] && spectral[band].absolute_uv2 ? spectral[band].absolute_uv2 : {};
+    if (!Object.keys(values).length) return;
+    html += '<div style="text-align:center">'
+      + renderTopoHeatmap(values, { band: band + ' z-score', unit: 'z', size: 220, colorScale: 'diverging' })
+      + '</div>';
+  });
+  html += '</div>';
+  return html.indexOf('ds-topo-heatmap') !== -1 ? card('Normative Topomaps', html) : '';
+}
+
+function _buildBrainRingPayload(analysis) {
+  if (!analysis) return null;
+  var coh = analysis.advanced_analyses && analysis.advanced_analyses.results
+    ? analysis.advanced_analyses.results.coherence_matrix
+    : null;
+  if (!coh || coh.status !== 'ok' || !coh.data || !coh.data.channels || !coh.data.bands) return null;
+  var band = coh.data.bands.alpha ? 'alpha' : Object.keys(coh.data.bands)[0];
+  if (!band) return null;
+  var channels = coh.data.channels || [];
+  var matrix = coh.data.bands[band];
+  if (!channels.length || !matrix) return null;
+
+  var connections = [];
+  for (var row = 0; row < matrix.length; row++) {
+    for (var col = row + 1; col < matrix[row].length; col++) {
+      connections.push({ ch1: channels[row], ch2: channels[col], value: Number(matrix[row][col] || 0) });
+    }
+  }
+  connections.sort(function (a, b) { return b.value - a.value; });
+  var topConnections = connections.slice(0, 18);
+  var nodes = channels.map(function (label, index) {
+    return { id: index, label: label, color: BAND_COLORS[band] || '#56b870' };
+  });
+  var edges = [];
+  topConnections.forEach(function (conn) {
+    var source = channels.indexOf(conn.ch1);
+    var target = channels.indexOf(conn.ch2);
+    if (source === -1 || target === -1) return;
+    edges.push({ source: source, target: target, weight: conn.value, sign: 1 });
+  });
+
+  return {
+    band: band,
+    nodes: nodes,
+    edges: edges,
+    threshold: 0.45,
+    topConnections: topConnections
+  };
+}
+
+function _brainRingFrameMarkup(payload) {
+  if (!payload || !payload.nodes || !payload.nodes.length || !payload.edges || !payload.edges.length) return '';
+  var encoded = encodeURIComponent(JSON.stringify({
+    type: 'brainring/load',
+    atlas: '10-20',
+    band: payload.band,
+    threshold: payload.threshold,
+    nodes: payload.nodes,
+    edges: payload.edges
+  }));
+  return '<div class="qeeg-brainring-frame-wrap" style="display:grid;gap:8px">'
+    + '<iframe'
+    + ' title="BrainRing connectivity viewer"'
+    + ' data-brainring-frame="1"'
+    + ' data-brainring-payload="' + esc(encoded) + '"'
+    + ' src="/vendor/brainring/brainring.html"'
+    + ' loading="lazy"'
+    + ' style="width:100%;min-height:360px;border:1px solid rgba(148,163,184,.28);border-radius:16px;background:#07111f"'
+    + '></iframe>'
+    + '<div data-brainring-fallback="1">'
+    + renderConnectivityChordLite(payload.nodes, payload.edges, { title: payload.band + ' connectivity chord', size: 320, threshold: payload.threshold })
+    + '</div>'
+    + '</div>';
+}
+
+function _bindBrainRingFrames() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  if (!window.__dsBrainRingMessageBound) {
+    window.addEventListener('message', function (event) {
+      var data = event && event.data ? event.data : null;
+      if (!data || (data.type !== 'brainring/ready' && data.type !== 'brainring/rendered')) return;
+      var frames = document.querySelectorAll('iframe[data-brainring-frame="1"]');
+      frames.forEach(function (frame) {
+        if (frame.contentWindow !== event.source) return;
+        var fallback = frame.parentElement ? frame.parentElement.querySelector('[data-brainring-fallback="1"]') : null;
+        if (fallback) fallback.style.display = 'none';
+      });
+    });
+    window.__dsBrainRingMessageBound = true;
+  }
+
+  document.querySelectorAll('iframe[data-brainring-frame="1"]').forEach(function (frame) {
+    if (frame.dataset.brainringBound === '1') return;
+    frame.dataset.brainringBound = '1';
+    var payloadRaw = frame.getAttribute('data-brainring-payload') || '';
+    var payload = null;
+    try {
+      payload = JSON.parse(decodeURIComponent(payloadRaw));
+    } catch (_) {
+      payload = null;
+    }
+    if (!payload) return;
+    var send = function () {
+      try {
+        if (frame.contentWindow) frame.contentWindow.postMessage(payload, '*');
+      } catch (_) {}
+    };
+    frame.addEventListener('load', send);
+    send();
+    setTimeout(send, 250);
+    setTimeout(send, 1000);
+  });
+}
+
+export function renderConnectivityClinicViz(analysis) {
+  var payload = _buildBrainRingPayload(analysis);
+  if (!payload) return '';
+  var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">'
+    + '<div style="overflow:auto">'
+    + renderConnectivityBrainMap(payload.topConnections, { band: payload.band + ' coherence', size: 320, threshold: payload.threshold })
+    + '</div>'
+    + '<div style="overflow:auto">'
+    + _brainRingFrameMarkup(payload)
+    + '</div>'
+    + '</div>';
+  return card('Connectivity Visualizations', html);
+}
+
 // ── §4.5 Asymmetry + graph strip ────────────────────────────────────────────
 export function renderAsymmetryGraphStrip(analysis) {
   if (!analysis) return '';
@@ -601,7 +888,9 @@ export function renderMNEPipelineSections(analysis) {
     renderPipelineQualityStrip(analysis),
     renderSpecParamPanel(analysis),
     renderELoretaROIPanel(analysis),
+    renderNormativeTopomapGrid(analysis),
     renderNormativeZScoreHeatmap(analysis),
+    renderConnectivityClinicViz(analysis),
     renderAsymmetryGraphStrip(analysis),
   ];
   var joined = parts.filter(Boolean).join('');
@@ -2225,6 +2514,51 @@ let _patients = [];
 let _patient = null;
 let _medHistory = null;
 let _analyses = [];
+
+function _qeegExportPayload() {
+  if (!_patient || !_patient.id) return null;
+  return {
+    patient_id: _patient.id,
+    qeeg_analysis_id: _currentAnalysis?.id || window._qeegSelectedId || null,
+  };
+}
+
+async function _exportQEEGArtifact(kind) {
+  const payload = _qeegExportPayload();
+  if (!payload) {
+    showToast('Select a patient before exporting', 'warning');
+    return;
+  }
+  try {
+    const blob = kind === 'fhir'
+      ? await api.exportFHIRBundle(payload)
+      : await api.exportBIDSDerivatives(payload);
+    const suffix = new Date().toISOString().slice(0, 10);
+    const filename = kind === 'fhir'
+      ? `qeeg_fhir_bundle_${payload.patient_id}_${suffix}.json`
+      : `qeeg_bids_derivatives_${payload.patient_id}_${suffix}.zip`;
+    downloadBlob(blob, filename);
+    showToast(kind === 'fhir' ? 'FHIR bundle exported' : 'BIDS package exported', 'success');
+  } catch (err) {
+    showToast('Export failed: ' + (err?.message || String(err)), 'error');
+  }
+}
+
+window._qeegExportFHIRBundle = function () { return _exportQEEGArtifact('fhir'); };
+window._qeegExportBIDSPackage = function () { return _exportQEEGArtifact('bids'); };
+window._exportCurrentFHIRBundle = function () {
+  if (window.location.hash && window.location.hash.indexOf('mri-analysis') !== -1 && typeof window._mriExportFHIRBundle === 'function') {
+    return window._mriExportFHIRBundle();
+  }
+  return window._qeegExportFHIRBundle();
+};
+window._exportCurrentBIDSPackage = function () {
+  if (window.location.hash && window.location.hash.indexOf('mri-analysis') !== -1 && typeof window._mriExportBIDSPackage === 'function') {
+    return window._mriExportBIDSPackage();
+  }
+  return window._qeegExportBIDSPackage();
+};
+let _fusionSummary = null;
 let _collapsedSections = { medications: true, neurological: true, lifestyle: true };
 let _fusionSummary = null;
 
@@ -2611,6 +2945,10 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     + '<div class="qeeg-hero__icon">&#x1F9E0;</div>'
     + '<div><div class="qeeg-hero__title">qEEG Analyzer</div>'
     + '<div class="qeeg-hero__sub">Spectral analysis &middot; AI interpretation &middot; Pre/post comparison</div></div>'
+    + '<div class="qeeg-export-bar" style="margin-left:auto">'
+    + '<button class="btn btn-sm btn-outline" aria-label="Export patient FHIR bundle" onclick="window._qeegExportFHIRBundle()">FHIR</button>'
+    + '<button class="btn btn-sm btn-outline" aria-label="Export patient BIDS derivatives package" onclick="window._qeegExportBIDSPackage()">BIDS</button>'
+    + '</div>'
     + '</div>';
   pageHtml += renderPatientSelector(_patients, patientId);
   pageHtml += renderTabBar(tab);
@@ -2685,6 +3023,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
 
     try {
       var data;
+<<<<<<< HEAD
       if (analysisId === 'demo' && _isDemoMode()) {
         data = DEMO_QEEG_ANALYSIS;
       } else {
@@ -2692,6 +3031,15 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       }
       _currentAnalysis = data;
       _fusionSummary = await _fetchFusionSummary(data && data.patient_id);
+=======
+        if (analysisId === 'demo' && _isDemoMode()) {
+          data = DEMO_QEEG_ANALYSIS;
+        } else {
+          data = await api.getQEEGAnalysis(analysisId);
+        }
+        _currentAnalysis = data;
+        _fusionSummary = await _fetchFusionSummary(data && data.patient_id);
+>>>>>>> aa28508 (Add V3 fusion timeline annotations and export flows)
 
       // If pending — show manual trigger
       if (data.analysis_status === 'pending') {
@@ -2897,11 +3245,12 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       // ── Contract V2 AI upgrade panels (brain age, similarity indices,
       //     centiles, explainability, similar cases, protocol, longitudinal)
       //     — composite helper is null-guarded per field. Feature-flagged.
-      if (_aiUpgradesFeatureFlagEnabled()) {
-        html += renderAiUpgradePanels(data);
-      }
+        if (_aiUpgradesFeatureFlagEnabled()) {
+          html += renderAiUpgradePanels(data);
+        }
+        html += renderFusionSummaryCard(_fusionSummary, data && data.patient_id);
 
-      // Action buttons
+        // Action buttons
       var compareAction = (analysisId === 'demo' && _isDemoMode())
         ? "window._qeegComparisonId='demo';window._qeegTab='compare';window._nav('qeeg-analysis')"
         : "window._qeegTab='compare';window._nav('qeeg-analysis')";
@@ -2927,10 +3276,16 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         + '<button class="btn btn-primary" onclick="window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Generate AI Report</button>'
         + mneButtonHtml
         + aiButtonsHtml
+        + _qeegAnnotationButton({
+            patient_id: data && data.patient_id,
+            target_id: data && data.id,
+            anchor_label: (data && data.original_filename) || 'qEEG analysis',
+          })
         + '<button class="btn btn-outline" onclick="' + compareAction + '">Compare with Another</button>'
         + '</div>'
         + '<div id="qeeg-mne-run-status" aria-live="polite" style="text-align:center;margin-top:8px"></div>'
-        + '<div id="qeeg-ai-run-status" aria-live="polite" style="text-align:center;margin-top:4px"></div>';
+        + '<div id="qeeg-ai-run-status" aria-live="polite" style="text-align:center;margin-top:4px"></div>'
+        + '<div id="qeeg-annotation-drawer-host" class="analysis-anno-host"></div>';
 
       // ── Advanced Analyses Section ───────────────────────────────────────
       html += _renderAdvancedAnalyses(data, analysisId);
@@ -2943,6 +3298,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
 
       // Bind advanced analyses button
       setTimeout(function () {
+        _bindBrainRingFrames();
         var runBtn = document.getElementById('qeeg-run-advanced-btn');
         if (runBtn) {
           runBtn.addEventListener('click', async function () {
@@ -3028,6 +3384,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             });
           });
         }
+        _bindQEEGAnnotationButtons();
         // Collapsible group toggles
         document.querySelectorAll('.qeeg-adv-group-toggle').forEach(function (toggle) {
           toggle.setAttribute('tabindex', '0');
@@ -3508,8 +3865,18 @@ function renderComparison(comp) {
   const delta = comp.delta_powers_json || comp.delta_powers || {};
   const summary = comp.improvement_summary_json || comp.improvement_summary || {};
   const narrative = comp.ai_comparison_narrative || '';
+  const rci = comp.rci_summary || null;
+  const highlights = Array.isArray(comp.highlighted_changes) ? comp.highlighted_changes : [];
 
   let html = '';
+
+  html += '<div style="display:flex;justify-content:flex-end;margin-bottom:12px">'
+    + _qeegAnnotationButton({
+        patient_id: comp.patient_id,
+        target_id: comp.followup_analysis_id || comp.id,
+        anchor_label: 'Comparison review',
+      })
+    + '</div><div id="qeeg-annotation-drawer-host" class="analysis-anno-host"></div>';
 
   // ── Timeline header (Phase 4.1) ───────────────────────────────────────────
   var baseDate = comp.baseline_analyzed_at ? new Date(comp.baseline_analyzed_at) : null;
@@ -3576,6 +3943,27 @@ function renderComparison(comp) {
       + '<div class="ch-kpi-val">' + (summary.worsened || 0) + '</div>'
       + '<div class="ch-kpi-label">Worsened</div></div></div>'
     );
+  }
+
+  if (rci || highlights.length) {
+    var insightBits = '';
+    if (rci) {
+      insightBits += '<div class="qeeg-compare-insight">'
+        + '<div class="qeeg-compare-insight__label">Overall change</div>'
+        + '<div class="qeeg-compare-insight__value">' + esc(rci.label || 'stable') + '</div>'
+        + '<div class="qeeg-compare-insight__meta">Net response index: ' + esc((rci.net_response_index || 0).toFixed ? rci.net_response_index.toFixed(2) : rci.net_response_index) + '</div>'
+        + '</div>';
+    }
+    if (highlights.length) {
+      insightBits += '<div class="qeeg-compare-highlights"><div class="qeeg-compare-insight__label">Largest channel shifts</div>'
+        + highlights.slice(0, 5).map(function (item) {
+          var color = item.pct_change > 0 ? 'var(--red)' : 'var(--green)';
+          var sign = item.pct_change > 0 ? '+' : '';
+          return '<div class="qeeg-compare-highlight-row"><span>' + esc(item.channel) + ' · ' + esc(item.band) + '</span><strong style="color:' + color + '">' + sign + esc(item.pct_change) + '%</strong></div>';
+        }).join('')
+        + '</div>';
+    }
+    html += card('Compare Insights', '<div class="qeeg-compare-insights">' + insightBits + '</div>');
   }
 
   // ── Side-by-side topographic heatmaps (Phase 4.3) ─────────────────────────
@@ -3671,6 +4059,8 @@ function renderComparison(comp) {
     corrHtml += '</div>';
     html += card('Assessment Correlation', corrHtml);
   }
+
+  setTimeout(_bindQEEGAnnotationButtons, 0);
 
   return html;
 }

@@ -99,16 +99,25 @@ def test_fusion_recommendation_fails_soft_for_single_modality(
     body = resp.json()
     assert body["qeeg_analysis_id"] == "qeeg-only-1"
     assert body["mri_analysis_id"] is None
+<<<<<<< HEAD
     assert body["partial"] is True
     assert "Partial fusion available" in body["summary"]
 
 
 def test_fusion_recommendation_returns_empty_state_when_no_modalities_exist(
+=======
+    assert "Partial fusion available" in body["summary"]
+    assert any("Add MRI" in item or "missing" in item for item in body["recommendations"])
+
+
+def test_qeeg_sse_stream_emits_progress_snapshot(
+>>>>>>> aa28508 (Add V3 fusion timeline annotations and export flows)
     client: TestClient,
     auth_headers: dict[str, dict[str, str]],
 ) -> None:
     patient_id = _seed_patient(client, auth_headers)
 
+<<<<<<< HEAD
     resp = client.post(
         f"/api/v1/fusion/recommend/{patient_id}",
         headers=auth_headers["clinician"],
@@ -122,13 +131,69 @@ def test_fusion_recommendation_returns_empty_state_when_no_modalities_exist(
 
 
 def test_fusion_recommendation_forbids_guest_role(
+=======
+    db = SessionLocal()
+    try:
+        db.add(
+            QEEGAnalysis(
+                id="qeeg-sse-1",
+                patient_id=patient_id,
+                clinician_id="actor-clinician-demo",
+                analysis_status="processing:parsing",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    with client.stream(
+        "GET",
+        "/api/v1/qeeg-analysis/qeeg-sse-1/events",
+        headers=auth_headers["clinician"],
+    ) as resp:
+        assert resp.status_code == 200
+        first_chunk = next(resp.iter_text())
+    assert "event: progress" in first_chunk
+    assert '"analysis_id": "qeeg-sse-1"' in first_chunk
+    assert '"step": "parsing"' in first_chunk
+
+
+def test_mri_sse_stream_emits_terminal_snapshot(
+>>>>>>> aa28508 (Add V3 fusion timeline annotations and export flows)
     client: TestClient,
     auth_headers: dict[str, dict[str, str]],
 ) -> None:
     patient_id = _seed_patient(client, auth_headers)
 
+<<<<<<< HEAD
     resp = client.post(
         f"/api/v1/fusion/recommend/{patient_id}",
         headers=auth_headers["guest"],
     )
     assert resp.status_code == 403, resp.text
+=======
+    db = SessionLocal()
+    try:
+        db.add(
+            MriAnalysis(
+                analysis_id="mri-sse-1",
+                patient_id=patient_id,
+                job_id="mri-sse-1",
+                state="SUCCESS",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    with client.stream(
+        "GET",
+        "/api/v1/mri/status/mri-sse-1/events",
+        headers=auth_headers["clinician"],
+    ) as resp:
+        assert resp.status_code == 200
+        first_chunk = next(resp.iter_text())
+    assert "event: complete" in first_chunk
+    assert '"analysis_id": "mri-sse-1"' in first_chunk
+    assert '"state": "SUCCESS"' in first_chunk
+>>>>>>> aa28508 (Add V3 fusion timeline annotations and export flows)

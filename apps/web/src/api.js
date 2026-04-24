@@ -965,6 +965,12 @@ export const api = {
     const q = new URLSearchParams(params).toString();
     return apiFetchWithRetry(`/api/v1/outcomes${q ? '?' + q : ''}`);
   },
+  createOutcomeEvent: (data) =>
+    apiFetch('/api/v1/outcomes/events', { method: 'POST', body: JSON.stringify(data) }),
+  listOutcomeEvents: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/outcomes/events${q ? '?' + q : ''}`);
+  },
   courseOutcomeSummary: (courseId) => apiFetch(`/api/v1/outcomes/summary/${courseId}`),
   aggregateOutcomes: () => apiFetchWithRetry('/api/v1/outcomes/aggregate'),
 
@@ -1002,6 +1008,17 @@ export const api = {
     apiFetch('/api/v1/qeeg-analysis/compare', { method: 'POST', body: JSON.stringify(body) }),
   getQEEGComparison: (id) =>
     apiFetch(`/api/v1/qeeg-analysis/compare/${id}`),
+  listAnnotations: ({ patientId, targetType, targetId } = {}) => {
+    const params = new URLSearchParams();
+    if (patientId) params.set('patient_id', patientId);
+    if (targetType) params.set('target_type', targetType);
+    if (targetId) params.set('target_id', targetId);
+    return apiFetch(`/api/v1/annotations${params.toString() ? `?${params.toString()}` : ''}`);
+  },
+  createAnnotation: (body) =>
+    apiFetch('/api/v1/annotations', { method: 'POST', body: JSON.stringify(body) }),
+  deleteAnnotation: (id) =>
+    apiFetch(`/api/v1/annotations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   correlateQEEGWithAssessments: (analysisId) =>
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/correlate`, { method: 'POST' }),
   runAdvancedQEEGAnalyses: (analysisId) =>
@@ -1059,6 +1076,8 @@ export const api = {
     apiFetch(`/api/v1/mri/status/${encodeURIComponent(jobId)}`),
   getMRIReport: (analysisId) =>
     apiFetch(`/api/v1/mri/report/${encodeURIComponent(analysisId)}`),
+  getMRIViewerPayload: (analysisId) =>
+    apiFetch(`/api/v1/mri/${encodeURIComponent(analysisId)}/viewer.json`),
   getMRIMedRAG: (analysisId, topK = 20) =>
     apiFetch(`/api/v1/mri/medrag/${encodeURIComponent(analysisId)}?top_k=${encodeURIComponent(topK)}`),
   // Longitudinal compare — AI_UPGRADES P0 #4. Returns a LongitudinalReport:
@@ -1074,6 +1093,15 @@ export const api = {
     apiFetch(`/api/v1/mri/patients/${encodeURIComponent(patientId)}/analyses`),
   getFusionRecommendation: (patientId) =>
     apiFetch(`/api/v1/fusion/recommend/${encodeURIComponent(patientId)}`, { method: 'POST' }),
+<<<<<<< HEAD
+=======
+  getMRIPatientTimeline: (patientId) =>
+    apiFetch(`/api/v1/mri/patients/${encodeURIComponent(patientId)}/timeline`),
+  exportFHIRBundle: (data) =>
+    apiFetchBlob('/api/v1/export/fhir-r4-bundle', data),
+  exportBIDSDerivatives: (data) =>
+    apiFetchBlob('/api/v1/export/bids-derivatives', data),
+>>>>>>> aa28508 (Add V3 fusion timeline annotations and export flows)
 
   // ── Patient Portal (self-service for patient-role users) ─────────────────
   patientPortalMe: () => apiFetch('/api/v1/patient-portal/me'),
@@ -1081,6 +1109,7 @@ export const api = {
   patientPortalSessions: () => apiFetch('/api/v1/patient-portal/sessions'),
   patientPortalAssessments: () => apiFetch('/api/v1/patient-portal/assessments'),
   patientPortalOutcomes: () => apiFetch('/api/v1/patient-portal/outcomes'),
+  patientPortalSummary: () => apiFetch('/api/v1/patient-portal/summary'),
   patientPortalReports: () => apiFetch('/api/v1/patient-portal/reports'),
   patientPortalMessages: () => apiFetch('/api/v1/patient-portal/messages'),
   patientPortalSendMessage: (data) =>

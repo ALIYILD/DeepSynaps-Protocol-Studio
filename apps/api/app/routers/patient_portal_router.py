@@ -37,10 +37,12 @@ from app.persistence.models import (
     DeliveredSessionParameters,
     DeviceConnection,
     Message,
+    MriAnalysis,
     OutcomeSeries,
     Patient,
     PatientHomeProgramTaskCompletion,
     PatientMediaUpload,
+    QEEGAnalysis,
     TreatmentCourse,
     WearableDailySummary,
     WearableAlertFlag,
@@ -98,6 +100,16 @@ def _require_patient(actor: AuthenticatedActor, db: Session) -> Patient:
 
 def _dt(v) -> str:
     return v.isoformat() if isinstance(v, datetime) else str(v)
+
+
+def _safe_json(raw: Optional[str]) -> dict:
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 # ── Response schemas ───────────────────────────────────────────────────────────
@@ -179,6 +191,13 @@ class PortalOutcomeOut(BaseModel):
     measurement_point: str
     administered_at: str
     file_url: Optional[str] = None
+
+
+class PortalSimpleSummaryOut(BaseModel):
+    generated_at: str
+    latest_qeeg: Optional[dict] = None
+    latest_mri: Optional[dict] = None
+    outcomes_snapshot: list[dict] = []
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
@@ -503,6 +522,109 @@ def get_portal_outcomes(
         )
         for r in records
     ]
+
+
+@router.get("/summary", response_model=PortalSimpleSummaryOut)
+def get_portal_summary(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PortalSimpleSummaryOut:
+    if actor.role != "patient":
+        raise ApiServiceError(code="forbidden", message="Patient portal access only.", status_code=403)
+
+    patient = _require_patient(actor, db)
+    latest_qeeg = (
+        db.query(QEEGAnalysis)
+        .filter(QEEGAnalysis.patient_id == patient.id, QEEGAnalysis.analysis_status == "completed")
+        .order_by(QEEGAnalysis.analyzed_at.desc(), QEEGAnalysis.created_at.desc())
+        .first()
+    )
+    latest_mri = (
+        db.query(MriAnalysis)
+        .filter(MriAnalysis.patient_id == patient.id)
+        .order_by(MriAnalysis.created_at.desc())
+        .first()
+    )
+    outcomes = (
+        db.query(OutcomeSeries)
+        .filter(OutcomeSeries.patient_id == patient.id)
+        .order_by(OutcomeSeries.administered_at.desc())
+        .limit(6)
+        .all()
+    )
+
+    qeeg_summary = None
+    if latest_qeeg is not None:
+        quality = _safe_json(getattr(latest_qeeg, "quality_metrics_json", None))
+        flagged = []
+        try:
+            flagged = json.loads(getattr(latest_qeeg, "flagged_conditions", None) or "[]")
+        except Exception:
+            flagged = []
+        qeeg_summary = {
+            "analysis_id": latest_qeeg.id,
+            "recorded_on": latest_qeeg.analyzed_at.isoformat() if latest_qeeg.analyzed_at else _dt(latest_qeeg.created_at),
+            "headline": "Your latest brainwave review has been processed.",
+            "summary": "Your care team can compare this recording with earlier sessions to look for overall patterns and changes over time.",
+            "quality_note": (
+                f"{quality.get('n_epochs_retained')} clean segments were kept for review."
+                if quality.get("n_epochs_retained") is not None else None
+            ),
+            "follow_up_note": (
+                "Some patterns were marked for clinician review."
+                if isinstance(flagged, list) and flagged else
+                "No urgent review flags were attached to this recording."
+            ),
+        }
+
+    mri_summary = None
+    if latest_mri is not None:
+        structural = _safe_json(latest_mri.structural_json)
+        qc = _safe_json(latest_mri.qc_json)
+        stim_targets = []
+        try:
+            stim_targets = json.loads(latest_mri.stim_targets_json or "[]")
+        except Exception:
+            stim_targets = []
+        mri_summary = {
+            "analysis_id": latest_mri.analysis_id,
+            "recorded_on": _dt(latest_mri.created_at),
+            "headline": "Your latest scan summary is available.",
+            "summary": "This scan gives your clinician another way to review treatment planning and to compare scans over time when needed.",
+            "quality_note": (
+                "Image quality checks passed."
+                if qc.get("passed") is True else
+                "Your clinician may want to review image quality before using this scan for planning."
+            ),
+            "follow_up_note": (
+                f"{len(stim_targets)} treatment planning target(s) were prepared for clinician review."
+                if isinstance(stim_targets, list) and stim_targets else
+                "No planning targets were attached to this scan summary."
+            ),
+            "brain_age_note": (
+                "A research-only brain-age estimate was included for clinician interpretation."
+                if isinstance(structural.get("brain_age"), dict) and structural.get("brain_age") else None
+            ),
+        }
+
+    outcome_rows = [
+        {
+            "label": r.template_title or r.template_id,
+            "score": r.score_numeric if r.score_numeric is not None else r.score,
+            "measured_on": _dt(r.administered_at),
+            "note": "Lower scores often mean fewer symptoms, but your clinician will explain what this means for you."
+                if str(r.template_title or r.template_id).lower() in {"phq-9", "gad-7", "isi"} else
+                "This is one part of the overall picture your care team reviews with you.",
+        }
+        for r in outcomes
+    ]
+
+    return PortalSimpleSummaryOut(
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        latest_qeeg=qeeg_summary,
+        latest_mri=mri_summary,
+        outcomes_snapshot=outcome_rows,
+    )
 
 
 # ── Patient-facing reports (from PatientMediaUpload) ───────────────────────────

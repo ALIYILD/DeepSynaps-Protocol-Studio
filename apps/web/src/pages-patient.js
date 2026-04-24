@@ -361,6 +361,7 @@ export async function pgPatientDashboard(user) {
     homeTasksPortalRaw,
     wellnessLogsRaw,
     dashboardRaw,
+    patientSummaryRaw,
   ] = await Promise.all([
     api.patientPortalSessions().catch(() => null),
     api.patientPortalCourses().catch(() => null),
@@ -371,12 +372,14 @@ export async function pgPatientDashboard(user) {
     (api.portalListHomeProgramTasks ? api.portalListHomeProgramTasks().catch(() => null) : Promise.resolve(null)),
     (api.patientPortalWellnessLogs ? api.patientPortalWellnessLogs(7).catch(() => null) : Promise.resolve(null)),
     (api.patientPortalDashboard ? api.patientPortalDashboard().catch(() => null) : Promise.resolve(null)),
+    (api.patientPortalSummary ? api.patientPortalSummary().catch(() => null) : Promise.resolve(null)),
   ]);
 
   const sessions     = Array.isArray(portalSessions) ? portalSessions : [];
   const outcomes     = Array.isArray(portalOutcomes) ? portalOutcomes : [];
   const coursesArr   = Array.isArray(portalCourses) ? portalCourses : [];
   const messages     = Array.isArray(portalMessagesRaw) ? portalMessagesRaw : [];
+  const patientSummary = (patientSummaryRaw && typeof patientSummaryRaw === 'object') ? patientSummaryRaw : null;
 
   // Wearable daily summary → flatten to latest-valued metrics.
   const wearableDays = Array.isArray(wearableSummaryRaw) ? wearableSummaryRaw : [];
@@ -509,6 +512,51 @@ export async function pgPatientDashboard(user) {
     const xs = arr.filter(x => x != null && !Number.isNaN(Number(x))).map(Number);
     if (!xs.length) return null;
     return xs.reduce((a, b) => a + b, 0) / xs.length;
+  }
+  function _hmSimpleSummaryHtml() {
+    if (!patientSummary) return '';
+    const cards = [];
+    if (patientSummary.latest_qeeg) {
+      cards.push(
+        '<div class="hm-simple-card">'
+          + '<div class="hm-simple-card__eyebrow">Latest brainwave review</div>'
+          + '<div class="hm-simple-card__title">' + esc(patientSummary.latest_qeeg.headline || 'Your latest brainwave review is ready.') + '</div>'
+          + '<p>' + esc(patientSummary.latest_qeeg.summary || '') + '</p>'
+          + (patientSummary.latest_qeeg.quality_note ? '<div class="hm-simple-card__note">' + esc(patientSummary.latest_qeeg.quality_note) + '</div>' : '')
+          + (patientSummary.latest_qeeg.follow_up_note ? '<div class="hm-simple-card__note">' + esc(patientSummary.latest_qeeg.follow_up_note) + '</div>' : '')
+        + '</div>'
+      );
+    }
+    if (patientSummary.latest_mri) {
+      cards.push(
+        '<div class="hm-simple-card">'
+          + '<div class="hm-simple-card__eyebrow">Latest scan review</div>'
+          + '<div class="hm-simple-card__title">' + esc(patientSummary.latest_mri.headline || 'Your latest scan summary is ready.') + '</div>'
+          + '<p>' + esc(patientSummary.latest_mri.summary || '') + '</p>'
+          + (patientSummary.latest_mri.quality_note ? '<div class="hm-simple-card__note">' + esc(patientSummary.latest_mri.quality_note) + '</div>' : '')
+          + (patientSummary.latest_mri.follow_up_note ? '<div class="hm-simple-card__note">' + esc(patientSummary.latest_mri.follow_up_note) + '</div>' : '')
+        + '</div>'
+      );
+    }
+    var outcomesHtml = '';
+    if (Array.isArray(patientSummary.outcomes_snapshot) && patientSummary.outcomes_snapshot.length) {
+      outcomesHtml = '<div class="hm-simple-outcomes">'
+        + patientSummary.outcomes_snapshot.slice(0, 3).map(function (row) {
+          return '<div class="hm-simple-outcomes__row">'
+            + '<strong>' + esc(row.label || 'Outcome') + '</strong>'
+            + '<span>' + esc(row.score == null ? '—' : String(row.score)) + '</span>'
+            + '<small>' + esc(row.note || '') + '</small>'
+            + '</div>';
+        }).join('')
+        + '</div>';
+    }
+    if (!cards.length && !outcomesHtml) return '';
+    return '<div class="hm-simple-summary">'
+      + '<div class="hm-simple-summary__hd"><div><h3>Your latest summaries</h3><p>Plain-language updates from your most recent clinic reviews.</p></div>'
+      + '<button class="btn btn-ghost btn-sm" onclick="window._navPatient(\'patient-reports\')">Open reports →</button></div>'
+      + '<div class="hm-simple-summary__grid">' + cards.join('') + '</div>'
+      + outcomesHtml
+      + '</div>';
   }
   const wearable = {
     hasData:  wearableDays.length > 0,
@@ -1745,6 +1793,8 @@ export async function pgPatientDashboard(user) {
           </div>
         </div>
       </div>
+
+      ${_hmSimpleSummaryHtml()}
 
       <!-- ═══ AI nudge (only when a signal justifies one) ═══ -->
       ${_hmNudge ? `

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from io import BytesIO
@@ -7,6 +8,7 @@ from io import BytesIO
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from deepsynaps_core_schema import (
     HandbookGenerateRequest,
@@ -14,11 +16,14 @@ from deepsynaps_core_schema import (
 )
 
 from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.services.clinical_data import (
     generate_handbook_from_clinical_data,
     generate_protocol_draft_from_clinical_data,
 )
+from app.services.bids_export import build_bids_derivatives_zip
+from app.services.fhir_export import build_neuromodulation_fhir_bundle
 
 router = APIRouter(prefix="", tags=["export"])
 
@@ -53,6 +58,12 @@ class ExportHandbookDocxRequest(BaseModel):
 class ExportPatientGuideDocxRequest(BaseModel):
     condition_name: str
     modality_name: str
+
+
+class ExportNeuromodulationRequest(BaseModel):
+    patient_id: str
+    qeeg_analysis_id: str | None = None
+    mri_analysis_id: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -256,5 +267,50 @@ def export_patient_guide_docx(
     return StreamingResponse(
         BytesIO(docx_bytes),
         media_type=DOCX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/api/v1/export/fhir-r4-bundle")
+def export_fhir_r4_bundle(
+    payload: ExportNeuromodulationRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> StreamingResponse:
+    if actor.role not in ("clinician", "admin"):
+        raise HTTPException(status_code=403, detail="Export endpoints require clinician or admin role.")
+
+    bundle = build_neuromodulation_fhir_bundle(
+        db,
+        payload.patient_id,
+        qeeg_analysis_id=payload.qeeg_analysis_id,
+        mri_analysis_id=payload.mri_analysis_id,
+    )
+    filename = f'fhir_bundle_{_safe_filename_part(payload.patient_id)}.json'
+    return StreamingResponse(
+        BytesIO(json.dumps(bundle, indent=2).encode("utf-8")),
+        media_type="application/fhir+json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/api/v1/export/bids-derivatives")
+def export_bids_derivatives(
+    payload: ExportNeuromodulationRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> StreamingResponse:
+    if actor.role not in ("clinician", "admin"):
+        raise HTTPException(status_code=403, detail="Export endpoints require clinician or admin role.")
+
+    archive_bytes, filename = build_bids_derivatives_zip(
+        db,
+        payload.patient_id,
+        qeeg_analysis_id=payload.qeeg_analysis_id,
+        mri_analysis_id=payload.mri_analysis_id,
+    )
+    return StreamingResponse(
+        BytesIO(archive_bytes),
+        media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

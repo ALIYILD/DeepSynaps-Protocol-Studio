@@ -246,3 +246,51 @@ class TestCourseSummary:
         data = resp.json()
         assert data["summaries"] == []
         assert data["responder"] is None
+
+
+class TestOutcomeEvents:
+    def test_record_and_list_outcome_event(
+        self, client: TestClient, auth_headers: dict, patient_id: str, course_id: str
+    ) -> None:
+        create = client.post(
+            "/api/v1/outcomes/events",
+            json={
+                "patient_id": patient_id,
+                "course_id": course_id,
+                "event_type": "qeeg_improvement",
+                "title": "qEEG alpha normalisation trend",
+                "summary": "Posterior alpha power moved toward normative range.",
+                "severity": "positive",
+                "payload": {"band": "alpha", "direction": "normalising"},
+            },
+            headers=auth_headers["clinician"],
+        )
+        assert create.status_code == 201, create.text
+        data = create.json()
+        assert data["event_type"] == "qeeg_improvement"
+        assert data["severity"] == "positive"
+        assert data["payload"]["band"] == "alpha"
+
+        listing = client.get(
+            f"/api/v1/outcomes/events?patient_id={patient_id}",
+            headers=auth_headers["clinician"],
+        )
+        assert listing.status_code == 200, listing.text
+        payload = listing.json()
+        assert payload["total"] == 1
+        assert payload["items"][0]["title"] == "qEEG alpha normalisation trend"
+
+    def test_guest_cannot_record_outcome_event(
+        self, client: TestClient, auth_headers: dict, patient_id: str, course_id: str
+    ) -> None:
+        resp = client.post(
+            "/api/v1/outcomes/events",
+            json={
+                "patient_id": patient_id,
+                "course_id": course_id,
+                "event_type": "follow_up_due",
+                "title": "Follow-up due",
+            },
+            headers=auth_headers["guest"],
+        )
+        assert resp.status_code == 403
