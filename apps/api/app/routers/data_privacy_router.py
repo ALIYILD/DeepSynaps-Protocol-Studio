@@ -136,8 +136,8 @@ def _owned_export_or_404(db: Session, export_id: str, user: User) -> DataExport:
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
-@router.post("/export", response_model=DataExportCreateResponse)
 @limiter.limit("1/day")
+@router.post("/export", response_model=DataExportCreateResponse)
 def create_export(
     request: Request,
     background_tasks: BackgroundTasks,
