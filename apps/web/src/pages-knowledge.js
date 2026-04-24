@@ -105,61 +105,182 @@ export async function pgEvidence(setTopbar) {
 }
 
 function renderEvidenceTable(items) {
-  return cardWrap(`Evidence Records (${items.length})`, `
-    <div style="display:flex;flex-direction:column;gap:0">
-      ${items.map((e, idx) => {
-        const evColor = e.evidence_level === 'A' ? 'var(--teal)' : e.evidence_level === 'B' ? '#60a5fa' : 'var(--amber)';
-        return `
-        <div id="ev-row-${idx}" style="border-bottom:1px solid var(--border);transition:background var(--transition)">
-          <div class="ev-row-header" style="display:flex;align-items:center;gap:10px;padding:10px 4px;cursor:pointer;flex-wrap:wrap"
-               onclick="window._toggleEvidence(${idx})"
-               onmouseover="this.querySelector('.ev-view-link').style.opacity='1';this.closest('#ev-row-${idx}').style.background='rgba(255,255,255,0.02)'"
-               onmouseout="this.querySelector('.ev-view-link').style.opacity='0';this.closest('#ev-row-${idx}').style.background=''">
-            <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;background:${evColor}22;color:${evColor};flex-shrink:0">EV-${e.evidence_level || '?'}</span>
-            <div style="flex:1;min-width:0">
-              <div style="font-weight:600;font-size:12.5px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.title || e.condition || '—'}</div>
-              <div style="font-size:11px;color:var(--text-tertiary)">${e.condition || ''} ${e.symptom_cluster ? '· ' + e.symptom_cluster : ''}</div>
+  return `<div class="g3">
+    ${items.map((e, idx) => {
+      const evGrade = (e.evidence_level || '?').charAt(0);
+      const gradeMap = { A:{ color:'#16a34a', bg:'#16a34a18', label:'Strong RCT' }, B:{ color:'#3b82f6', bg:'#3b82f618', label:'Moderate' }, C:{ color:'#f59e0b', bg:'#f59e0b18', label:'Emerging' }, D:{ color:'#ef4444', bg:'#ef444418', label:'Limited' } };
+      const g = gradeMap[evGrade] || { color:'#64748b', bg:'#64748b18', label:'Ungraded' };
+
+      // Mini evidence strength gauge SVG
+      const barCount = evGrade === 'A' ? 4 : evGrade === 'B' ? 3 : evGrade === 'C' ? 2 : 1;
+      const gaugeSvg = `<svg viewBox="0 0 100 44" width="100" height="44" style="display:block">
+        <defs><linearGradient id="evg-${idx}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${g.color}" stop-opacity="0.12"/>
+          <stop offset="100%" stop-color="${g.color}" stop-opacity="0"/>
+        </linearGradient></defs>
+        <rect width="100" height="44" fill="url(#evg-${idx})" rx="6"/>
+        ${[0,1,2,3].map(i => {
+          const bx = 12 + i * 20; const bh = 8 + i * 7; const by = 38 - bh;
+          const active = i < barCount;
+          return `<rect x="${bx}" y="${by}" width="14" height="${bh}" rx="2" fill="${active ? g.color : g.color + '20'}" opacity="${active ? 0.8 : 0.3}"/>`;
+        }).join('')}
+        <text x="50" y="10" font-size="7" fill="${g.color}" text-anchor="middle" opacity="0.7" font-weight="600">Grade ${evGrade}</text>
+      </svg>`;
+
+      const teaser = (e.summary || '').slice(0, 100) + ((e.summary || '').length > 100 ? '...' : '');
+
+      return `<div class="card" style="margin-bottom:0;cursor:pointer;transition:border-color var(--transition),transform .15s,box-shadow .15s"
+        onmouseover="this.style.borderColor='${g.color}60';this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 24px ${g.color}15'"
+        onmouseout="this.style.borderColor='var(--border)';this.style.transform='';this.style.boxShadow=''"
+        onclick="window._openEvidenceDetail(${idx})">
+        <div style="padding:14px 16px">
+          <div style="display:flex;gap:14px;align-items:flex-start">
+            <!-- Evidence Gauge -->
+            <div style="flex-shrink:0;width:110px;border-radius:10px;background:${g.bg};border:1px solid ${g.color}20;padding:8px 5px 6px;text-align:center">
+              ${gaugeSvg}
+              <div style="font-size:9px;color:${g.color};font-weight:600;margin-top:3px">${g.label}</div>
             </div>
-            <span class="tag" style="flex-shrink:0">${e.modality || '—'}</span>
-            <span style="font-size:11px;color:var(--text-tertiary);flex-shrink:0">${e.regulatory_status || ''}</span>
-            <span class="ev-view-link" style="font-size:11px;color:var(--teal);flex-shrink:0;opacity:0;transition:opacity 0.15s;white-space:nowrap" onclick="event.stopPropagation();window._toggleEvidence(${idx})">View study →</span>
-            <span style="color:var(--text-tertiary);font-size:13px;flex-shrink:0" id="ev-chevron-${idx}">›</span>
+            <!-- Content -->
+            <div style="min-width:0;flex:1">
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+                <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;background:${g.bg};color:${g.color}">EV-${evGrade}</span>
+                ${e.modality ? `<span style="font-size:10px;padding:2px 7px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-tertiary)">${e.modality}</span>` : ''}
+              </div>
+              <div style="font-family:var(--font-display);font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${e.title || e.condition || '—'}</div>
+              <div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:6px">${e.condition || ''}${e.symptom_cluster ? ' &middot; ' + e.symptom_cluster : ''}</div>
+              <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">${teaser}</div>
+            </div>
+            <!-- Arrow -->
+            <div style="color:${g.color};opacity:0.4;font-size:18px;padding-top:14px">&rarr;</div>
           </div>
-          <div id="ev-expand-${idx}" style="display:none;padding:12px 4px 16px;border-top:1px solid var(--border)">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;font-size:12px">
-              ${[
-                ['Condition',     e.condition || '—'],
-                ['Symptom Cluster', e.symptom_cluster || '—'],
-                ['Modality',      e.modality || '—'],
-                ['Evidence Level', `EV-${e.evidence_level || '?'}`],
-                ['Regulatory',    e.regulatory_status || '—'],
-                ['Setting',       e.setting || '—'],
-              ].map(([k, v]) => `<div><span style="color:var(--text-tertiary)">${k}:</span> <span style="color:var(--text-primary)">${v}</span></div>`).join('')}
-            </div>
-            ${e.summary ? `<div style="font-size:12px;color:var(--text-secondary);line-height:1.65;margin-bottom:12px;padding:10px;background:rgba(0,0,0,0.2);border-radius:var(--radius-sm)">${e.summary}</div>` : ''}
-            ${e.reference || e.doi ? `<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px">
-              ${e.reference ? `<div>Reference: ${e.reference}</div>` : ''}
-              ${e.doi ? `<div>DOI: <span class="mono">${e.doi}</span></div>` : ''}
-            </div>` : ''}
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn btn-sm" onclick="window._nav('protocols-registry')">Find Protocols →</button>
-              ${e.modality ? `<button class="btn btn-sm" onclick="window._nav('devices')">Device Registry →</button>` : ''}
-            </div>
-          </div>
-        </div>`;
-      }).join('')}
-    </div>
-  `);
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
 }
 
-window._toggleEvidence = function(idx) {
-  const panel = document.getElementById(`ev-expand-${idx}`);
-  const chev  = document.getElementById(`ev-chevron-${idx}`);
-  if (!panel) return;
-  const open = panel.style.display !== 'none';
-  panel.style.display = open ? 'none' : '';
-  if (chev) chev.textContent = open ? '›' : '↓';
-  if (chev) chev.style.transform = open ? '' : 'rotate(0deg)';
+// Evidence detail modal
+function _openEvidenceModal(evidence) {
+  const old = document.getElementById('ds-evidence-modal');
+  if (old) old.remove();
+
+  const evGrade = (evidence.evidence_level || '?').charAt(0);
+  const gradeMap = { A:{ color:'#16a34a', label:'Grade A — Strong RCT / Meta-analysis' }, B:{ color:'#3b82f6', label:'Grade B — Moderate RCT evidence' }, C:{ color:'#f59e0b', label:'Grade C — Emerging / Observational' }, D:{ color:'#ef4444', label:'Grade D — Limited / Case Reports' } };
+  const g = gradeMap[evGrade] || { color:'#64748b', label:'Ungraded' };
+
+  // Find related protocols from protocol library
+  const relatedProtos = PROTOCOL_LIBRARY.filter(p => {
+    const cond = (evidence.condition || '').toLowerCase();
+    const mod = (evidence.modality || '').toLowerCase();
+    return (p.conditionId || '').replace(/-/g, ' ').includes(cond) || (p.name || '').toLowerCase().includes(mod);
+  }).slice(0, 8);
+
+  // Get condition evidence data
+  const condEvidence = evidence.condition ? getConditionEvidence(
+    (evidence.condition || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+  ) : null;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'ds-evidence-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(4px)';
+
+  overlay.innerHTML = `
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg,12px);max-width:780px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 24px 80px rgba(0,0,0,0.4)" onclick="event.stopPropagation()">
+      <!-- Header -->
+      <div style="position:sticky;top:0;z-index:1;background:var(--bg-card);border-bottom:1px solid var(--border);padding:20px 24px;display:flex;align-items:flex-start;gap:14px">
+        <div style="flex-shrink:0;width:44px;height:44px;border-radius:10px;background:${g.color}18;border:1px solid ${g.color}30;display:flex;align-items:center;justify-content:center">
+          <span style="font-size:16px;font-weight:800;color:${g.color}">${evGrade}</span>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-family:var(--font-display);font-size:16px;font-weight:700;color:var(--text-primary);line-height:1.35">${evidence.title || evidence.condition || '—'}</div>
+          <div style="display:flex;gap:6px;align-items:center;margin-top:5px;flex-wrap:wrap">
+            <span style="font-size:10px;padding:2px 8px;border-radius:999px;background:${g.color}18;color:${g.color};font-weight:600">${g.label}</span>
+            ${evidence.modality ? `<span style="font-size:10px;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-tertiary)">${evidence.modality}</span>` : ''}
+          </div>
+        </div>
+        <button onclick="document.getElementById('ds-evidence-modal')?.remove();document.body.style.overflow=''" style="background:none;border:none;color:var(--text-tertiary);cursor:pointer;font-size:20px;padding:4px 8px">&times;</button>
+      </div>
+
+      <div style="padding:24px">
+        <!-- Key Info Grid -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:24px">
+          ${[
+            ['Condition', evidence.condition, 'var(--teal)'],
+            ['Modality', evidence.modality, 'var(--blue)'],
+            ['Symptom Cluster', evidence.symptom_cluster, 'var(--violet)'],
+            ['Setting', evidence.setting, 'var(--amber)'],
+            ['Regulatory', evidence.regulatory_status, evidence.regulatory_status?.toLowerCase().includes('fda') ? 'var(--green)' : 'var(--text-tertiary)'],
+          ].filter(([,v]) => v).map(([k, v, color]) => `
+            <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:10px;padding:12px">
+              <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-tertiary);margin-bottom:4px">${k}</div>
+              <div style="font-size:13px;font-weight:600;color:${color}">${v}</div>
+            </div>`).join('')}
+        </div>
+
+        ${condEvidence ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:24px">
+          <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:var(--teal)">${condEvidence.paperCount?.toLocaleString() || '—'}</div>
+            <div style="font-size:9.5px;color:var(--text-tertiary)">Research Papers</div>
+          </div>
+          <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:var(--blue)">${condEvidence.trialCount?.toLocaleString() || '—'}</div>
+            <div style="font-size:9.5px;color:var(--text-tertiary)">Clinical Trials</div>
+          </div>
+          <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:var(--violet)">${condEvidence.metaAnalysisCount?.toLocaleString() || '—'}</div>
+            <div style="font-size:9.5px;color:var(--text-tertiary)">Meta-Analyses</div>
+          </div>
+        </div>` : ''}
+
+        <!-- Summary -->
+        ${evidence.summary ? `<div style="margin-bottom:20px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Study Summary</div>
+          <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65;padding:14px;background:rgba(0,0,0,0.15);border-radius:10px;border:1px solid var(--border)">${evidence.summary}</div>
+        </div>` : ''}
+
+        <!-- Related Protocols -->
+        ${relatedProtos.length ? `<div style="margin-bottom:20px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Related Protocols (${relatedProtos.length})</div>
+          <div style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto">
+            ${relatedProtos.map(p => {
+              const gc = {'A':'var(--green)','B':'var(--blue)','C':'var(--amber)','D':'var(--rose)'}[p.evidenceGrade] || 'var(--text-tertiary)';
+              return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid var(--border)">
+                <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;background:${gc}18;color:${gc}">${p.evidenceGrade || '?'}</span>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:11.5px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name}</div>
+                  <div style="font-size:10px;color:var(--text-tertiary)">${p.target || ''} &middot; ${p.subtype || ''}</div>
+                </div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>` : ''}
+
+        <!-- Reference / DOI -->
+        ${evidence.reference || evidence.doi ? `<div style="margin-bottom:16px;padding:12px;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid var(--border)">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);font-weight:600;margin-bottom:6px">Reference</div>
+          ${evidence.reference ? `<div style="font-size:12px;color:var(--text-secondary);line-height:1.5;margin-bottom:4px">${evidence.reference}</div>` : ''}
+          ${evidence.doi ? `<div style="font-size:11px;color:var(--text-tertiary)">DOI: <span style="font-family:var(--font-mono)">${evidence.doi}</span></div>` : ''}
+        </div>` : ''}
+
+        <!-- Action buttons -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm" onclick="document.getElementById('ds-evidence-modal')?.remove();document.body.style.overflow='';window._nav('protocols-registry')">Find Protocols &rarr;</button>
+          ${evidence.modality ? `<button class="btn btn-sm" onclick="document.getElementById('ds-evidence-modal')?.remove();document.body.style.overflow='';window._nav('devices')">Device Registry &rarr;</button>` : ''}
+        </div>
+      </div>
+    </div>`;
+
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) { overlay.remove(); document.body.style.overflow = ''; } });
+  document.body.style.overflow = 'hidden';
+  document.body.appendChild(overlay);
+  const esc = (e) => { if (e.key === 'Escape') { overlay.remove(); document.body.style.overflow = ''; document.removeEventListener('keydown', esc); } };
+  document.addEventListener('keydown', esc);
+}
+
+window._openEvidenceDetail = function(idx) {
+  const evidence = (window._evidenceData || [])[idx];
+  if (!evidence) return;
+  _openEvidenceModal(evidence);
 };
 
 // ── Device Registry ───────────────────────────────────────────────────────────
