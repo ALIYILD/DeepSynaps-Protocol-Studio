@@ -1,4 +1,7 @@
-"""add analysis annotations table
+"""add analysis annotations table.
+
+This migration is chained after the patient event contract branch so
+annotations land on the consolidated mainline before outcome events.
 
 Revision ID: 042_annotations
 Revises: 042_patient_event_contract
