@@ -166,6 +166,8 @@ let _modQEEGAnalysis = null;
 async function loadQEEGAnalysis() { return (_modQEEGAnalysis ??= await import('./pages-qeeg-analysis.js')); }
 let _modMRIAnalysis = null;
 async function loadMRIAnalysis() { return (_modMRIAnalysis ??= await import('./pages-mri-analysis.js')); }
+let _modMonitor = null;
+async function loadMonitor() { return (_modMonitor ??= await import('./pages-monitor.js')); }
 let _modPatientTimeline = null;
 async function loadPatientTimeline() { return (_modPatientTimeline ??= await import('./pages-patient-timeline.js')); }
 let _modMonitoring = null;
@@ -453,6 +455,7 @@ const NAV = [
   { id: 'schedule-v2',        label: 'Schedule',          icon: '🗓️' },
   { id: 'assessments-v2',     label: 'Assessments',       icon: '◉' },
   { id: 'patients-v2',        label: 'Patients',          icon: '👥' },
+  { id: 'monitor',            label: 'Monitor',           icon: '📡' },
   { id: 'mri-analysis',       label: 'MRI Analyzer',      icon: '🧠', ai: true },
 
   // ── PROTOCOL ─────────────────────────────────────────────────────────────────
@@ -867,6 +870,7 @@ const PAGE_TITLES = {
   'patient-queue': 'Today\'s Queue',
   'course-completion-report': 'Course Completion Report',
   'longitudinal-report': 'Longitudinal Outcomes Report',
+  monitor: 'Monitor',
   'patient-timeline': 'Patient Timeline',
   'scoring-calc': 'Clinical Scoring Calculator',
   'clinic-analytics': 'Clinic Analytics',
@@ -1451,6 +1455,7 @@ async function renderPage() {
     case 'schedule-v2':        { const m = await loadClinicalHubs(); await m.pgSchedulingHub(setTopbar, navigate); break; }
     case 'assessments-v2':     { const m = await loadClinicalHubs(); await m.pgAssessmentsHub(setTopbar, navigate); break; }
     case 'patients-v2':        { const m = await loadClinicalHubs(); await m.pgPatientHub(setTopbar, navigate); break; }
+    case 'monitor':            { const m = await loadMonitor(); await m.pgMonitor(setTopbar, navigate); break; }
     case 'protocol-studio':    { const m = await loadClinicalHubs(); await m.pgProtocolHub(setTopbar, navigate); break; }
     case 'brainmap-v2':        { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar, navigate); break; }
     case 'qeeg-analysis':      { const m = await loadQEEGAnalysis(); await m.pgQEEGAnalysis(setTopbar, navigate); break; }

@@ -1131,6 +1131,25 @@ export const api = {
   getPatientAlertFlags: (patientId) => apiFetchWithRetry(`/api/v1/wearables/patients/${patientId}/alerts`),
   dismissAlertFlag: (flagId) => apiFetch(`/api/v1/wearables/alerts/${flagId}/dismiss`, { method: 'POST' }),
   getClinicAlertSummary: () => apiFetchWithRetry('/api/v1/wearables/clinic/alerts/summary'),
+  monitorLiveSnapshot: () => apiFetchWithRetry('/api/v1/monitor/live'),
+  monitorDataQualityIssues: () => apiFetchWithRetry('/api/v1/monitor/dq'),
+  monitorIntegrations: () => apiFetchWithRetry('/api/v1/monitor/integrations'),
+  monitorFleet: () => apiFetchWithRetry('/api/v1/monitor/fleet'),
+  monitorConnectIntegration: (connectorId, data = {}) =>
+    apiFetch(`/api/v1/monitor/integrations/${encodeURIComponent(connectorId)}/connect`, { method: 'POST', body: JSON.stringify(data) }),
+  monitorSyncIntegration: (integrationId) =>
+    apiFetch(`/api/v1/monitor/integrations/${encodeURIComponent(integrationId)}/sync`, { method: 'POST' }),
+  monitorDisconnectIntegration: (integrationId) =>
+    apiFetch(`/api/v1/monitor/integrations/${encodeURIComponent(integrationId)}/disconnect`, { method: 'POST' }),
+  monitorResolveDataQualityIssue: (issueId, data = {}) =>
+    apiFetch(`/api/v1/monitor/dq/${encodeURIComponent(issueId)}/resolve`, { method: 'POST', body: JSON.stringify(data) }),
+  monitorLiveStreamUrl: () => {
+    const token = getToken();
+    const wsBase = API_BASE.replace(/^http/i, 'ws');
+    const url = new URL(`${wsBase}/api/v1/monitor/live/stream`);
+    if (token) url.searchParams.set('token', token);
+    return url.toString();
+  },
   wearableCopilotPatient: (messages, wearable_context) => apiFetch('/api/v1/chat/wearable-patient', { method: 'POST', body: JSON.stringify({ messages, patient_context: wearable_context }) }),
   wearableCopilotClinician: (patientId, messages) => apiFetch('/api/v1/chat/wearable-clinician', { method: 'POST', body: JSON.stringify({ patient_id: patientId, messages }) }),
 
