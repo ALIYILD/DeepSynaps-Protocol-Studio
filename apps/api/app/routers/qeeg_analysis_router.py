@@ -5,6 +5,7 @@ pre/post comparison, prediction, and correlation.
 """
 from __future__ import annotations
 
+import html as html_mod
 import json
 import logging
 import uuid
@@ -12,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, UploadFile
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -274,18 +276,21 @@ async def analyze_edf(
     if analysis.analysis_status == "completed":
         return AnalysisOut.from_record(analysis)
 
-    # Update status
-    analysis.analysis_status = "processing"
+    # Update status with step indicator
+    analysis.analysis_status = "processing:loading"
     db.commit()
 
     try:
-        # Load file
+        # Step 1: Load file
         settings = get_settings()
         from app.services import media_storage
 
         file_bytes = await media_storage.read_upload(analysis.file_ref, settings)
 
-        # Parse EDF
+        # Step 2: Parse EDF
+        analysis.analysis_status = "processing:parsing"
+        db.commit()
+
         from app.services.edf_parser import parse_edf_file, extract_eeg_channels
 
         parse_result = parse_edf_file(file_bytes, analysis.original_filename or "recording.edf")
@@ -305,16 +310,22 @@ async def analyze_edf(
         analysis.channels_json = json.dumps(parse_result["standard_channels"])
         analysis.channel_count = len(parse_result["standard_channels"])
 
-        # Extract standard 10-20 channels
+        # Step 3: Extract standard 10-20 channels
         raw_eeg = extract_eeg_channels(raw, channel_map)
 
-        # Artifact rejection
+        # Step 4: Artifact rejection
+        analysis.analysis_status = "processing:artifact_rejection"
+        db.commit()
+
         from app.services.spectral_analysis import apply_artifact_rejection, compute_band_powers
 
         cleaned_raw, artifact_stats = apply_artifact_rejection(raw_eeg)
         analysis.artifact_rejection_json = json.dumps(artifact_stats)
 
-        # Compute band powers
+        # Step 5: Compute band powers
+        analysis.analysis_status = "processing:spectral_analysis"
+        db.commit()
+
         band_powers = compute_band_powers(cleaned_raw)
         analysis.band_powers_json = json.dumps(band_powers)
         analysis.analysis_params_json = json.dumps({
@@ -323,7 +334,10 @@ async def analyze_edf(
             "bands": {"delta": [0.5, 4], "theta": [4, 8], "alpha": [8, 12], "beta": [12, 30], "gamma": [30, 45]},
         })
 
-        # Update linked QEEGRecord findings
+        # Step 6: Update linked QEEGRecord findings
+        analysis.analysis_status = "processing:finalizing"
+        db.commit()
+
         if analysis.qeeg_record_id:
             qeeg_record = db.query(QEEGRecord).filter_by(id=analysis.qeeg_record_id).first()
             if qeeg_record:
@@ -755,3 +769,520 @@ def correlate_with_assessments_endpoint(
     from app.services.qeeg_comparison import correlate_with_assessments
 
     return correlate_with_assessments(analysis.patient_id, analyses_data, db)
+
+
+# ── Processing Status ────────────────────────────────────────────────────────
+
+class StatusResponse(BaseModel):
+    status: str
+    step: Optional[str] = None
+    progress_pct: int
+    completed_analyses: int
+    total_analyses: int
+    error: Optional[str] = None
+    analyzed_at: Optional[str] = None
+
+
+@router.get("/{analysis_id}/status", response_model=StatusResponse)
+def get_analysis_status(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> StatusResponse:
+    """Lightweight status polling endpoint for an in-progress analysis.
+
+    Returns the current processing status, step indicator, and progress
+    percentage. When advanced analyses are running, progress is based on
+    how many of the 25 sub-analyses have completed.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    raw_status = analysis.analysis_status or "pending"
+    step: Optional[str] = None
+    progress_pct = 0
+    completed_adv = 0
+    total_adv = 0
+
+    if raw_status == "pending":
+        progress_pct = 0
+    elif raw_status.startswith("processing"):
+        # Extract step from statuses like "processing:parsing"
+        parts = raw_status.split(":", 1)
+        step = parts[1] if len(parts) > 1 else None
+
+        # Step-based progress for the basic pipeline
+        step_progress = {
+            "loading": 10,
+            "parsing": 25,
+            "artifact_rejection": 45,
+            "spectral_analysis": 65,
+            "finalizing": 85,
+        }
+        progress_pct = step_progress.get(step or "", 15)
+    elif raw_status == "completed":
+        progress_pct = 100
+        # Check advanced analyses progress
+        if analysis.advanced_analyses_json:
+            try:
+                adv_data = json.loads(analysis.advanced_analyses_json)
+                meta = adv_data.get("meta", {})
+                completed_adv = meta.get("completed", 0)
+                total_adv = meta.get("total", 0)
+            except (json.JSONDecodeError, TypeError):
+                pass
+    elif raw_status == "failed":
+        progress_pct = 0
+    else:
+        progress_pct = 0
+
+    return StatusResponse(
+        status=raw_status.split(":")[0],  # Return base status (processing, not processing:step)
+        step=step,
+        progress_pct=progress_pct,
+        completed_analyses=completed_adv,
+        total_analyses=total_adv,
+        error=analysis.analysis_error,
+        analyzed_at=analysis.analyzed_at.isoformat() if analysis.analyzed_at else None,
+    )
+
+
+# ── Data Quality Check ───────────────────────────────────────────────────────
+
+_STANDARD_1020_CHANNELS = 19  # Standard 10-20 montage channel count
+
+
+class QualityMetric(BaseModel):
+    metric: str
+    value: float | int | str
+    rating: str  # excellent, good, fair, poor
+    detail: str
+
+
+class QualityCheckResponse(BaseModel):
+    analysis_id: str
+    overall_grade: str  # excellent, good, fair, poor
+    overall_score: float  # 0-100
+    metrics: list[QualityMetric]
+    recommendations: list[str]
+
+
+@router.post("/{analysis_id}/quality-check", response_model=QualityCheckResponse)
+def run_quality_check(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> QualityCheckResponse:
+    """Compute data quality metrics from the uploaded EDF metadata.
+
+    Evaluates channel completeness, sample rate adequacy, and recording
+    duration to produce a composite quality grade. Should be called after
+    upload and before triggering full analysis so clinicians can decide
+    whether to proceed.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    metrics: list[QualityMetric] = []
+    recommendations: list[str] = []
+    scores: list[float] = []
+
+    # ── 1. Channel completeness ──────────────────────────────────────────
+    channel_count = analysis.channel_count or 0
+    if channel_count >= _STANDARD_1020_CHANNELS:
+        ch_rating = "excellent"
+        ch_score = 100.0
+    elif channel_count >= 14:
+        ch_rating = "good"
+        ch_score = 75.0
+    elif channel_count >= 8:
+        ch_rating = "fair"
+        ch_score = 50.0
+        recommendations.append(
+            f"Only {channel_count} channels detected. Full 10-20 montage (19 channels) "
+            "recommended for comprehensive qEEG analysis."
+        )
+    else:
+        ch_rating = "poor"
+        ch_score = max(25.0, (channel_count / _STANDARD_1020_CHANNELS) * 100.0)
+        recommendations.append(
+            f"Only {channel_count} channels detected. This is insufficient for reliable "
+            "qEEG analysis. At least 8 channels are recommended."
+        )
+
+    metrics.append(QualityMetric(
+        metric="channel_completeness",
+        value=channel_count,
+        rating=ch_rating,
+        detail=f"{channel_count}/{_STANDARD_1020_CHANNELS} standard 10-20 channels present",
+    ))
+    scores.append(ch_score)
+
+    # ── 2. Sample rate assessment ────────────────────────────────────────
+    sample_rate = analysis.sample_rate_hz or 0.0
+    if sample_rate >= 256:
+        sr_rating = "excellent"
+        sr_score = 100.0
+    elif sample_rate >= 128:
+        sr_rating = "good"
+        sr_score = 75.0
+    elif sample_rate >= 64:
+        sr_rating = "fair"
+        sr_score = 40.0
+        recommendations.append(
+            f"Sample rate is {sample_rate:.0f} Hz. A rate of 256 Hz or higher is recommended "
+            "for accurate high-frequency (beta/gamma) analysis."
+        )
+    else:
+        sr_rating = "poor"
+        sr_score = 15.0
+        recommendations.append(
+            f"Sample rate is {sample_rate:.0f} Hz, which is too low for reliable spectral "
+            "analysis. Minimum 128 Hz required; 256+ Hz recommended."
+        )
+
+    metrics.append(QualityMetric(
+        metric="sample_rate",
+        value=round(sample_rate, 1),
+        rating=sr_rating,
+        detail=f"{sample_rate:.0f} Hz (256+ Hz recommended)",
+    ))
+    scores.append(sr_score)
+
+    # ── 3. Recording duration assessment ─────────────────────────────────
+    duration = analysis.recording_duration_sec or 0.0
+    if duration >= 120:
+        dur_rating = "excellent"
+        dur_score = 100.0
+    elif duration >= 60:
+        dur_rating = "good"
+        dur_score = 75.0
+    elif duration >= 30:
+        dur_rating = "fair"
+        dur_score = 45.0
+        recommendations.append(
+            f"Recording duration is {duration:.0f}s. At least 120s (2 minutes) of artifact-free "
+            "data is recommended for stable spectral estimates."
+        )
+    else:
+        dur_rating = "poor"
+        dur_score = 15.0
+        recommendations.append(
+            f"Recording duration is only {duration:.0f}s. This is too short for reliable "
+            "qEEG analysis. Minimum 60s required; 120+ s recommended."
+        )
+
+    metrics.append(QualityMetric(
+        metric="recording_duration",
+        value=round(duration, 1),
+        rating=dur_rating,
+        detail=f"{duration:.0f}s recorded (120+ s recommended)",
+    ))
+    scores.append(dur_score)
+
+    # ── Overall grade ────────────────────────────────────────────────────
+    # Weighted: channels 40%, sample rate 30%, duration 30%
+    overall_score = (scores[0] * 0.40) + (scores[1] * 0.30) + (scores[2] * 0.30)
+
+    if overall_score >= 85:
+        overall_grade = "excellent"
+    elif overall_score >= 65:
+        overall_grade = "good"
+    elif overall_score >= 40:
+        overall_grade = "fair"
+    else:
+        overall_grade = "poor"
+
+    if not recommendations:
+        recommendations.append("Data quality looks good. Ready for analysis.")
+
+    return QualityCheckResponse(
+        analysis_id=analysis_id,
+        overall_grade=overall_grade,
+        overall_score=round(overall_score, 1),
+        metrics=metrics,
+        recommendations=recommendations,
+    )
+
+
+# ── PDF / HTML Report Export ─────────────────────────────────────────────────
+
+def _esc(text: str | None) -> str:
+    """HTML-escape a string, returning empty string for None."""
+    return html_mod.escape(str(text)) if text else ""
+
+
+def _build_confidence_bar(confidence: float) -> str:
+    """Return an inline HTML bar for a 0-100 confidence value."""
+    pct = max(0, min(100, int(confidence)))
+    if pct >= 70:
+        color = "#22c55e"
+    elif pct >= 40:
+        color = "#f59e0b"
+    else:
+        color = "#ef4444"
+    return (
+        f'<div style="background:#e5e7eb;border-radius:4px;height:12px;width:200px;display:inline-block;">'
+        f'<div style="background:{color};height:12px;border-radius:4px;width:{pct}%;"></div>'
+        f'</div> <span style="font-size:0.85em;">{pct}%</span>'
+    )
+
+
+def _render_report_html(
+    report: QEEGAIReport,
+    analysis: QEEGAnalysis,
+) -> str:
+    """Build a print-optimized HTML page from a qEEG AI report."""
+    narrative = json.loads(report.ai_narrative_json) if report.ai_narrative_json else {}
+    conditions = json.loads(report.condition_matches_json) if report.condition_matches_json else []
+    protocols = json.loads(report.protocol_suggestions_json) if report.protocol_suggestions_json else []
+    lit_refs = json.loads(report.literature_refs_json) if report.literature_refs_json else []
+
+    exec_summary = _esc(narrative.get("executive_summary", ""))
+    detailed_findings = narrative.get("detailed_findings", "")
+    if isinstance(detailed_findings, dict):
+        # Render dict keys/values
+        findings_html_parts = []
+        for key, val in detailed_findings.items():
+            findings_html_parts.append(f"<li><strong>{_esc(key)}:</strong> {_esc(str(val))}</li>")
+        findings_html = "<ul>" + "".join(findings_html_parts) + "</ul>"
+    elif isinstance(detailed_findings, list):
+        findings_html = "<ul>" + "".join(f"<li>{_esc(str(f))}</li>" for f in detailed_findings) + "</ul>"
+    else:
+        findings_html = f"<p>{_esc(str(detailed_findings))}</p>"
+
+    # Condition matches section
+    conditions_html = ""
+    if conditions:
+        rows = []
+        for c in conditions:
+            name = _esc(c.get("condition", c.get("name", "Unknown")))
+            conf = c.get("confidence", c.get("match_pct", 0))
+            if isinstance(conf, str):
+                try:
+                    conf = float(conf.rstrip("%"))
+                except ValueError:
+                    conf = 0
+            bar = _build_confidence_bar(conf)
+            note = _esc(c.get("note", c.get("rationale", "")))
+            rows.append(f"<tr><td>{name}</td><td>{bar}</td><td>{note}</td></tr>")
+        conditions_html = (
+            '<h2>Condition Matches</h2>'
+            '<table class="data-table"><thead><tr>'
+            "<th>Condition</th><th>Confidence</th><th>Notes</th>"
+            "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+        )
+
+    # Protocol suggestions section
+    protocols_html = ""
+    if protocols:
+        items = []
+        for p in protocols:
+            if isinstance(p, dict):
+                title = _esc(p.get("name", p.get("protocol", "")))
+                desc = _esc(p.get("description", p.get("rationale", "")))
+                items.append(f"<li><strong>{title}</strong>: {desc}</li>")
+            else:
+                items.append(f"<li>{_esc(str(p))}</li>")
+        protocols_html = "<h2>Protocol Suggestions</h2><ul>" + "".join(items) + "</ul>"
+
+    # Literature references section
+    refs_html = ""
+    if lit_refs:
+        ref_items = []
+        for ref in lit_refs:
+            if isinstance(ref, dict):
+                ref_items.append(f"<li>{_esc(ref.get('citation', str(ref)))}</li>")
+            else:
+                ref_items.append(f"<li>{_esc(str(ref))}</li>")
+        refs_html = "<h2>Literature References</h2><ol>" + "".join(ref_items) + "</ol>"
+
+    # Metadata
+    report_date = report.created_at.strftime("%Y-%m-%d %H:%M UTC") if report.created_at else "N/A"
+    analyzed_date = analysis.analyzed_at.strftime("%Y-%m-%d %H:%M UTC") if analysis.analyzed_at else "N/A"
+    channels_list = json.loads(analysis.channels_json) if analysis.channels_json else []
+    channels_str = _esc(", ".join(channels_list)) if channels_list else "N/A"
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qEEG Report - {_esc(report.id[:8])}</title>
+<style>
+  @media print {{
+    body {{ margin: 0; padding: 20px; }}
+    .no-print {{ display: none; }}
+  }}
+  body {{
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+    line-height: 1.6;
+    color: #1a1a1a;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 40px 24px;
+    background: #fff;
+  }}
+  .header {{
+    border-bottom: 3px solid #2563eb;
+    padding-bottom: 16px;
+    margin-bottom: 24px;
+  }}
+  .header h1 {{
+    color: #2563eb;
+    margin: 0 0 4px 0;
+    font-size: 1.6em;
+  }}
+  .header .subtitle {{
+    color: #6b7280;
+    font-size: 0.95em;
+  }}
+  .meta-grid {{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 24px;
+    background: #f8fafc;
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 24px;
+    font-size: 0.9em;
+  }}
+  .meta-grid dt {{ font-weight: 600; color: #4b5563; margin: 0; }}
+  .meta-grid dd {{ margin: 0 0 8px 0; }}
+  h2 {{
+    color: #1e40af;
+    border-bottom: 1px solid #e5e7eb;
+    padding-bottom: 6px;
+    margin-top: 32px;
+    font-size: 1.2em;
+  }}
+  .data-table {{
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+  }}
+  .data-table th, .data-table td {{
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e5e7eb;
+  }}
+  .data-table th {{
+    background: #f1f5f9;
+    font-weight: 600;
+    font-size: 0.9em;
+    color: #374151;
+  }}
+  .disclaimer {{
+    margin-top: 40px;
+    padding: 12px 16px;
+    background: #fef3c7;
+    border-left: 4px solid #f59e0b;
+    font-size: 0.85em;
+    color: #92400e;
+    border-radius: 0 4px 4px 0;
+  }}
+  .footer {{
+    margin-top: 32px;
+    text-align: center;
+    font-size: 0.8em;
+    color: #9ca3af;
+  }}
+  ul, ol {{ margin: 8px 0; padding-left: 24px; }}
+  li {{ margin-bottom: 6px; }}
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1>Quantitative EEG Analysis Report</h1>
+    <div class="subtitle">
+      Report ID: {_esc(report.id)} &middot; Type: {_esc(report.report_type)}
+    </div>
+  </div>
+
+  <dl class="meta-grid">
+    <dt>Patient ID</dt>
+    <dd>{_esc(analysis.patient_id)}</dd>
+    <dt>Analysis ID</dt>
+    <dd>{_esc(analysis.id)}</dd>
+    <dt>Recording Date</dt>
+    <dd>{_esc(analysis.recording_date) or "N/A"}</dd>
+    <dt>Analysis Date</dt>
+    <dd>{analyzed_date}</dd>
+    <dt>Report Generated</dt>
+    <dd>{report_date}</dd>
+    <dt>Eyes Condition</dt>
+    <dd>{_esc(analysis.eyes_condition) or "N/A"}</dd>
+    <dt>Channels</dt>
+    <dd>{channels_str} ({analysis.channel_count or 0} ch)</dd>
+    <dt>Duration / Sample Rate</dt>
+    <dd>{analysis.recording_duration_sec or 0:.1f}s / {analysis.sample_rate_hz or 0:.0f} Hz</dd>
+    <dt>Model Used</dt>
+    <dd>{_esc(report.model_used) or "N/A"}</dd>
+    <dt>Confidence</dt>
+    <dd>{_esc(report.confidence_note) or "N/A"}</dd>
+  </dl>
+
+  <h2>Executive Summary</h2>
+  <p>{exec_summary or "<em>No executive summary available.</em>"}</p>
+
+  <h2>Detailed Findings</h2>
+  {findings_html}
+
+  {conditions_html}
+  {protocols_html}
+  {refs_html}
+
+  {"<h2>Clinician Amendments</h2><p>" + _esc(report.clinician_amendments) + "</p>" if report.clinician_amendments else ""}
+
+  <div class="disclaimer">
+    <strong>Clinical Disclaimer:</strong> This report was generated by an AI system and is intended
+    to assist qualified clinicians in their assessment. It does not constitute a clinical diagnosis.
+    All findings should be reviewed and validated by a licensed healthcare professional in the
+    context of the patient&rsquo;s full clinical history.
+    {"<br><em>This report has been reviewed by the attending clinician.</em>" if report.clinician_reviewed else "<br><em>This report has NOT yet been reviewed by a clinician.</em>"}
+  </div>
+
+  <div class="footer">
+    DeepSynaps Protocol Studio &mdash; qEEG Analysis Report &mdash; Generated {report_date}
+  </div>
+</body>
+</html>"""
+
+
+@router.get("/{analysis_id}/reports/{report_id}/pdf")
+def export_report_html(
+    analysis_id: str,
+    report_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> HTMLResponse:
+    """Export an AI report as a downloadable, print-optimized HTML document.
+
+    Returns an HTML page with inline CSS formatted for clinical printing.
+    The Content-Disposition header triggers a file download in the browser.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    report = db.query(QEEGAIReport).filter_by(id=report_id, analysis_id=analysis_id).first()
+    if not report:
+        raise ApiServiceError(code="not_found", message="Report not found", status_code=404)
+
+    html_content = _render_report_html(report, analysis)
+    short_id = report_id[:8]
+
+    return HTMLResponse(
+        content=html_content,
+        headers={
+            "Content-Disposition": f'attachment; filename="qeeg_report_{short_id}.html"',
+        },
+    )

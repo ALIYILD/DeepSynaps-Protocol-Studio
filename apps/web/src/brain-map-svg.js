@@ -105,7 +105,7 @@ export function renderBrainMap10_20(options) {
 
   const parts = [];
   parts.push('<svg class="ds-brain-map" viewBox="0 0 400 400" width="' + size + '" height="' + size
-    + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="10-20 EEG electrode map">');
+    + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="10-20 EEG electrode map" tabindex="0">');
 
   // Defs: gradient for connection line + clip path for lobe zones
   parts.push('<defs>');
@@ -292,6 +292,7 @@ const HEATMAP_PALETTES = {
   warm:      ['#0d1b2a', '#1b2838', '#2a4858', '#3a7ca5', '#56b870', '#d4e157', '#ffca28', '#ff7043', '#e53935'],
   cool:      ['#0d1b2a', '#1a237e', '#283593', '#3949ab', '#42a5f5', '#4fc3f7', '#80deea', '#b2ebf2', '#e0f7fa'],
   diverging: ['#2196f3', '#64b5f6', '#bbdefb', '#e0e0e0', '#ffcdd2', '#ef5350', '#c62828'],
+  colorblind: ['#0d1b2a', '#253494', '#2c7fb8', '#41b6c4', '#a1dab4', '#ffffcc', '#fed976', '#fd8d3c', '#e31a1c'],
 };
 
 function _interpolateColor(palette, t) {
@@ -331,7 +332,7 @@ export function renderTopoHeatmap(bandPowers, options) {
   const range = vMax - vMin || 1;
 
   const parts = [];
-  parts.push('<svg class="ds-topo-heatmap" viewBox="0 0 400 430" width="' + size + '" height="' + Math.round(size * 430 / 400) + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="qEEG topographic heatmap — ' + band + '">');
+  parts.push('<svg class="ds-topo-heatmap" viewBox="0 0 400 430" width="' + size + '" height="' + Math.round(size * 430 / 400) + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="qEEG topographic heatmap — ' + band + '" tabindex="0">');
 
   // Defs: radial gradients per electrode for smooth interpolation
   parts.push('<defs><clipPath id="th-head-clip"><circle cx="200" cy="200" r="160"/></clipPath></defs>');
@@ -360,7 +361,7 @@ export function renderTopoHeatmap(bandPowers, options) {
   parts.push('<ellipse cx="34" cy="200" rx="10" ry="24" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>');
   parts.push('<ellipse cx="366" cy="200" rx="10" ry="24" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>');
 
-  // Electrode dots with value labels
+  // Electrode dots with value labels and tooltips
   SITES_10_20.forEach(function (site) {
     const v = bandPowers[site.id];
     const cx = 200 + site.x * 160;
@@ -369,10 +370,14 @@ export function renderTopoHeatmap(bandPowers, options) {
     const t = hasValue ? (v - vMin) / range : 0;
     const dotColor = hasValue ? _interpolateColor(palette, t) : 'rgba(30,40,60,0.8)';
     const textVal = hasValue ? (v < 10 ? v.toFixed(2) : v.toFixed(1)) : '-';
+    const tooltipText = site.id + ' (' + site.lobe + ')' + (hasValue ? ': ' + textVal + (unit ? ' ' + unit : '') : ': no data');
 
+    parts.push('<g class="ds-topo-electrode">');
+    parts.push('<title>' + tooltipText + '</title>');
     parts.push('<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="14" fill="' + dotColor + '" stroke="rgba(255,255,255,0.6)" stroke-width="1.2"/>');
     parts.push('<text x="' + cx.toFixed(1) + '" y="' + (cy - 2).toFixed(1) + '" text-anchor="middle" font-size="7" font-weight="600" fill="rgba(255,255,255,0.95)" font-family="system-ui,sans-serif">' + site.id + '</text>');
     parts.push('<text x="' + cx.toFixed(1) + '" y="' + (cy + 8).toFixed(1) + '" text-anchor="middle" font-size="6.5" fill="rgba(255,255,255,0.7)" font-family="system-ui,sans-serif">' + textVal + '</text>');
+    parts.push('</g>');
   });
 
   // Color-bar legend below the head
@@ -430,7 +435,7 @@ export function renderConnectivityMatrix(matrix, channelNames, options) {
   }
 
   var parts = [];
-  parts.push('<svg class="ds-conn-matrix" viewBox="0 0 ' + (totalSize + 30) + ' ' + (totalSize + 50) + '" width="' + size + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Connectivity matrix — ' + band + '">');
+  parts.push('<svg class="ds-conn-matrix" viewBox="0 0 ' + (totalSize + 30) + ' ' + (totalSize + 50) + '" width="' + size + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Connectivity matrix — ' + band + '" tabindex="0">');
 
   // Column labels (rotated)
   for (var c = 0; c < n; c++) {
@@ -490,7 +495,7 @@ export function renderConnectivityBrainMap(connections, options) {
   var band = opts.band || 'connectivity';
 
   var parts = [];
-  parts.push('<svg class="ds-conn-brain" viewBox="0 0 400 430" width="' + size + '" height="' + Math.round(size * 430 / 400) + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Connectivity brain map — ' + band + '">');
+  parts.push('<svg class="ds-conn-brain" viewBox="0 0 400 430" width="' + size + '" height="' + Math.round(size * 430 / 400) + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Connectivity brain map — ' + band + '" tabindex="0">');
 
   // Head circle
   parts.push('<circle cx="200" cy="200" r="160" fill="#0d1b2a" stroke="rgba(255,255,255,0.25)" stroke-width="2"/>');

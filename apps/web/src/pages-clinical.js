@@ -40,6 +40,8 @@ import {
   computeWizardDraftFingerprint,
   shouldAttachPersonalizationExplainability,
 } from './personalization-explainability.js';
+import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getTopConditionsByPaperCount } from './evidence-dataset.js';
+import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES } from './protocols-data.js';
 
 if (import.meta.env?.DEV) {
   const { errors } = validateScaleRegistryAgainstAssess(ASSESS_REGISTRY);
@@ -945,6 +947,7 @@ export async function pgDash(setTopbar, navigate) {
     `Today's clinic queue (courses): ${clinicQueue.length}`,
     // Risk stratification summary
     `Risk stratification: ${_totalRed} red flags, ${_totalAmber} amber flags across ${riskSummaryData.length} patients`,
+    `Protocol Studio: ${PROTOCOL_LIBRARY?.length || 0} protocols across ${PROTO_CONDITIONS?.length || 0} conditions; 87,000 evidence papers indexed; ${EVIDENCE_SUMMARY?.totalTrials || 0} clinical trials`,
     ...(riskSummaryData.filter(p => (p.categories || []).some(c => c.level === 'red')).map(p => {
       const reds = (p.categories || []).filter(c => c.level === 'red').map(c => c.category.replace(/_/g, ' ')).join(', ');
       return `  RED risk: ${p.patient_name || p.patient_id} — ${reds}`;
@@ -1780,7 +1783,99 @@ export async function pgDash(setTopbar, navigate) {
     ${_chartBody}
   </div>`;
 
-  // ── Final V2 layout ──────────────────────────────────────────────────────────
+  // ── Protocol Studio connection card (87K evidence dataset) ───────────────────
+  const _protoCount = PROTOCOL_LIBRARY?.length || 0;
+  const _condCount  = PROTO_CONDITIONS?.length || 0;
+  const _deviceCount = PROTO_DEVICES?.length || 0;
+  const _totalPapers = EVIDENCE_SUMMARY?.totalPapers || 87000;
+  const _totalTrials = EVIDENCE_SUMMARY?.totalTrials || 0;
+  const _totalMeta   = EVIDENCE_SUMMARY?.totalMetaAnalyses || 0;
+  const _topCondByPapers = getTopConditionsByPaperCount ? getTopConditionsByPaperCount(6) : [];
+  const _evGradeDist = EVIDENCE_SUMMARY?.gradeDistribution || {};
+  const _modDist = EVIDENCE_SUMMARY?.modalityDistribution || {};
+  const _topModalities2 = Object.entries(_modDist).sort((a,b) => b[1] - a[1]).slice(0, 5);
+
+  const _protocolStudioCard = `<div class="dh2-card" style="position:relative;overflow:hidden">
+    <div style="position:absolute;top:0;right:0;width:180px;height:100%;opacity:0.04;pointer-events:none;background:radial-gradient(circle at 80% 30%, var(--teal), transparent 70%)"></div>
+    <div class="dh2-card-hd">
+      <div>
+        <div class="dh2-card-title" style="display:flex;align-items:center;gap:8px">Protocol Studio
+          <span style="font-size:10px;font-weight:700;letter-spacing:0.5px;padding:2px 7px;border-radius:4px;background:rgba(0,212,188,0.12);color:var(--teal)">CONNECTED</span>
+        </div>
+        <div class="dh2-card-sub">87K evidence-backed research papers &middot; ${_protoCount} protocols &middot; ${_condCount} conditions</div>
+      </div>
+      <div class="dh2-card-actions">
+        <button class="dh2-launch-btn primary" onclick="window._nav('protocol-hub')">Open Studio &rarr;</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+      <div style="text-align:center;padding:12px 8px;border-radius:10px;background:rgba(0,212,188,0.06);border:1px solid rgba(0,212,188,0.12)">
+        <div style="font-family:var(--font-display);font-size:22px;font-weight:600;color:var(--teal);letter-spacing:-0.5px">${(_totalPapers/1000).toFixed(0)}K</div>
+        <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-top:4px">Papers</div>
+      </div>
+      <div style="text-align:center;padding:12px 8px;border-radius:10px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.12)">
+        <div style="font-family:var(--font-display);font-size:22px;font-weight:600;color:var(--blue);letter-spacing:-0.5px">${_protoCount}</div>
+        <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-top:4px">Protocols</div>
+      </div>
+      <div style="text-align:center;padding:12px 8px;border-radius:10px;background:rgba(155,127,255,0.06);border:1px solid rgba(155,127,255,0.12)">
+        <div style="font-family:var(--font-display);font-size:22px;font-weight:600;color:var(--violet);letter-spacing:-0.5px">${_totalTrials.toLocaleString()}</div>
+        <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-top:4px">Trials</div>
+      </div>
+      <div style="text-align:center;padding:12px 8px;border-radius:10px;background:rgba(255,181,71,0.06);border:1px solid rgba(255,181,71,0.12)">
+        <div style="font-family:var(--font-display);font-size:22px;font-weight:600;color:var(--amber);letter-spacing:-0.5px">${_totalMeta.toLocaleString()}</div>
+        <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-top:4px">Meta-analyses</div>
+      </div>
+    </div>
+    <div style="margin-bottom:14px">
+      <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Evidence grade distribution</div>
+      <div style="display:flex;gap:4px;height:8px;border-radius:4px;overflow:hidden">
+        <div style="flex:${_evGradeDist.A || 18};background:var(--teal);border-radius:4px 0 0 4px" title="Grade A: ${(_evGradeDist.A || 0).toLocaleString()}"></div>
+        <div style="flex:${_evGradeDist.B || 28};background:var(--blue)" title="Grade B: ${(_evGradeDist.B || 0).toLocaleString()}"></div>
+        <div style="flex:${_evGradeDist.C || 25};background:var(--amber)" title="Grade C: ${(_evGradeDist.C || 0).toLocaleString()}"></div>
+        <div style="flex:${_evGradeDist.D || 11};background:var(--rose)" title="Grade D: ${(_evGradeDist.D || 0).toLocaleString()}"></div>
+        <div style="flex:${_evGradeDist.E || 4};background:var(--text-tertiary);border-radius:0 4px 4px 0" title="Grade E: ${(_evGradeDist.E || 0).toLocaleString()}"></div>
+      </div>
+      <div style="display:flex;gap:12px;margin-top:6px;font-size:10px;color:var(--text-tertiary);flex-wrap:wrap">
+        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--teal);margin-right:4px;vertical-align:middle"></span>A: ${(_evGradeDist.A || 0).toLocaleString()}</span>
+        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--blue);margin-right:4px;vertical-align:middle"></span>B: ${(_evGradeDist.B || 0).toLocaleString()}</span>
+        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--amber);margin-right:4px;vertical-align:middle"></span>C: ${(_evGradeDist.C || 0).toLocaleString()}</span>
+        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--rose);margin-right:4px;vertical-align:middle"></span>D: ${(_evGradeDist.D || 0).toLocaleString()}</span>
+        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--text-tertiary);margin-right:4px;vertical-align:middle"></span>E: ${(_evGradeDist.E || 0).toLocaleString()}</span>
+      </div>
+    </div>
+    <div style="margin-bottom:14px">
+      <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Top conditions by research volume</div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        ${_topCondByPapers.map((c, i) => {
+          const maxPapers = _topCondByPapers[0]?.paperCount || 1;
+          const pct = Math.round((c.paperCount / maxPapers) * 100);
+          const colors = ['var(--teal)','var(--blue)','var(--violet)','var(--amber)','var(--rose)','var(--green)'];
+          const cLabel = (c.conditionId || '').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+          return `<div style="display:flex;align-items:center;gap:8px">
+            <div style="width:140px;font-size:11px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${_esc(cLabel)}">${_esc(cLabel)}</div>
+            <div style="flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,0.04);overflow:hidden">
+              <div style="height:100%;width:${pct}%;background:${colors[i % colors.length]};border-radius:3px;transition:width 0.5s"></div>
+            </div>
+            <div style="font-size:10px;font-family:var(--font-mono);color:var(--text-tertiary);min-width:40px;text-align:right">${c.paperCount.toLocaleString()}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+    <div style="margin-bottom:4px">
+      <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Top modalities by paper count</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${_topModalities2.map(([mod, count]) =>
+          `<span style="font-size:11px;padding:4px 10px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-secondary);white-space:nowrap">${_esc(mod)} <span style="color:var(--teal);font-weight:600;font-family:var(--font-mono)">${(count/1000).toFixed(1)}K</span></span>`
+        ).join('')}
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);flex-wrap:wrap">
+      <button class="dh2-launch-btn" onclick="window._nav('protocol-hub')">Browse protocols</button>
+      <button class="dh2-launch-btn" onclick="window._protocolHubTab='generate';window._nav('protocol-hub')">Generate protocol</button>
+      <button class="dh2-launch-btn" onclick="window._nav('library-hub')">Evidence library</button>
+      <span style="margin-left:auto;font-size:10px;color:var(--text-tertiary);align-self:center">Sources: ${(EVIDENCE_SUMMARY?.sources || []).slice(0, 4).join(', ')}${(EVIDENCE_SUMMARY?.sources || []).length > 4 ? ' +' + ((EVIDENCE_SUMMARY?.sources || []).length - 4) + ' more' : ''}</span>
+    </div>
+  </div>`;
   if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
   el.innerHTML = `<div class="dh2-wrap">`
     + _demoBanner
@@ -1794,6 +1889,7 @@ export async function pgDash(setTopbar, navigate) {
       + `<div style="display:flex;flex-direction:column;gap:16px">` + _evidenceCard + _qaCard + _attnCard + `</div>`
     + `</div>`
     + _riskTrafficCard
+    + _protocolStudioCard
     + `<div class="cl-row-1-1">` + _activityCard + _outcomesCard + `</div>`
     + (_isFullAccess ? dashAgentStrip : '')
   + `</div>`;

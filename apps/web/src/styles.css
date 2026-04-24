@@ -260,15 +260,16 @@ pre, code { max-width: 100%; }
 }
 .logo-icon {
   width: 42px; height: 42px;
-  background-color: #000;
+  background-color: #0c1230;
   background-image: url('/deepsynaps-logo.png');
   background-position: center;
-  background-size: 115%;
+  background-size: cover;
   background-repeat: no-repeat;
   border-radius: 50%;
   flex-shrink: 0;
   box-shadow: 0 0 14px rgba(74,124,247,0.35);
 }
+.logo-icon--lg { width: 44px; height: 44px; }
 .logo-name {
   font-family: var(--font-display);
   font-size: 14.5px;
@@ -800,6 +801,7 @@ select option, select optgroup { background: #1a2235; color: #e2e8f0; }
   padding: 0 48px; gap: 16px;
 }
 .pub-topbar-logo { display: flex; align-items: center; gap: 10px; cursor: pointer; flex: 1; }
+.pub-topbar-logo .logo-icon { width: 38px; height: 38px; }
 .pub-topbar-nav { display: flex; align-items: center; gap: 4px; }
 
 /* Mobile topbar action buttons (hidden on desktop) */
@@ -984,6 +986,7 @@ select option, select optgroup { background: #1a2235; color: #e2e8f0; }
   flex-wrap: wrap; gap: 12px;
 }
 .pub-footer-logo { display: flex; align-items: center; gap: 8px; font-family: var(--font-display); font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+.pub-footer-logo .logo-icon { width: 30px; height: 30px; box-shadow: none; }
 .pub-footer-links { display: flex; gap: 20px; flex-wrap: wrap; }
 .pub-footer-link { font-size: 11.5px; color: var(--text-tertiary); cursor: pointer; transition: color var(--transition); }
 .pub-footer-link:hover { color: var(--text-secondary); }
@@ -9118,19 +9121,23 @@ body.light-theme .topbar--scrolled { box-shadow: 0 1px 8px rgba(0,0,0,0.1); }
 /* Wider sidebar */
 :root { --sidebar-w: 240px; }
 
-/* ── Logo area ── */
-.logo-wrap {
+/* ── Logo area (scoped to sidebars) ── */
+#sidebar .logo-wrap,
+#patient-sidebar .logo-wrap {
   padding: 16px 14px 13px;
   border-bottom: 1px solid rgba(255,255,255,0.05);
   gap: 10px;
 }
-.logo-icon {
+#sidebar .logo-icon,
+#patient-sidebar .logo-icon {
   width: 36px; height: 36px;
   border-radius: 50%;
   box-shadow: 0 0 10px rgba(74,124,247,0.3);
 }
-.logo-name { font-size: 13.5px; font-weight: 700; letter-spacing: -0.4px; }
-.logo-sub { font-size: 8px; letter-spacing: 1.8px; margin-top: 1px; }
+#sidebar .logo-name,
+#patient-sidebar .logo-name { font-size: 13.5px; font-weight: 700; letter-spacing: -0.4px; }
+#sidebar .logo-sub,
+#patient-sidebar .logo-sub { font-size: 8px; letter-spacing: 1.8px; margin-top: 1px; }
 
 /* ── Nav items: rounded pill shape ── */
 .nav-item {
@@ -25035,7 +25042,7 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 /* Band power grid (topo heatmaps) */
 .qeeg-band-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 16px;
 }
 
@@ -25172,13 +25179,148 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   font-size: 13px;
 }
 
+/* ── AI report formatted findings ─────────────────────────────────────────── */
+.qeeg-finding-heading {
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px;
+  color: var(--teal); border-left: 3px solid var(--teal); padding-left: 10px;
+  margin: 20px 0 8px 0;
+}
+.qeeg-finding-para {
+  font-size: 13px; line-height: 1.7; color: var(--text-secondary); margin: 0 0 12px 0;
+}
+
+/* ── Band power table tints ──────────────────────────────────────────────── */
+.qeeg-bp-high { background: rgba(255,167,38,0.10); }
+.qeeg-bp-low  { background: rgba(66,165,245,0.10); }
+
+/* ── Normative z-score indicators ────────────────────────────────────────── */
+.qeeg-zscore { font-size: 9px; vertical-align: super; margin-left: 2px; font-weight: 700; }
+.qeeg-zscore--mild { color: var(--amber); }
+.qeeg-zscore--significant { color: var(--red); }
+
+/* ── Coherence band selector tabs ────────────────────────────────────────── */
+.qeeg-coh-tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.qeeg-coh-tab {
+  padding: 4px 12px; border-radius: 14px; font-size: 11px; font-weight: 600;
+  border: 1px solid var(--border); background: transparent; color: var(--text-secondary);
+  cursor: pointer; transition: all .15s;
+}
+.qeeg-coh-tab:hover { border-color: var(--border-hover); }
+.qeeg-coh-tab--active {
+  background: var(--coh-color, var(--teal)); color: #fff;
+  border-color: var(--coh-color, var(--teal));
+}
+
+/* ── Export bar ───────────────────────────────────────────────────────────── */
+.qeeg-export-bar { display: flex; gap: 6px; align-items: center; }
+.qeeg-export-bar .btn { font-size: 11px; padding: 3px 10px; }
+
+/* ── Category summary line (visible when collapsed) ──────────────────────── */
+.qeeg-adv-category__summary {
+  font-size: 11px; color: var(--text-tertiary); padding: 0 16px 10px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ── Comparison timeline header ──────────────────────────────────────────── */
+.qeeg-timeline {
+  display: flex; align-items: center; justify-content: center; gap: 0;
+  padding: 20px 16px; margin-bottom: 16px;
+}
+.qeeg-timeline__point {
+  text-align: center; flex-shrink: 0;
+}
+.qeeg-timeline__dot {
+  width: 14px; height: 14px; border-radius: 50%; margin: 0 auto 6px;
+  border: 2px solid var(--teal); background: var(--bg-card);
+}
+.qeeg-timeline__dot--active { background: var(--teal); }
+.qeeg-timeline__label { font-size: 11px; font-weight: 600; color: var(--text-primary); }
+.qeeg-timeline__date { font-size: 10px; color: var(--text-tertiary); }
+.qeeg-timeline__line {
+  flex: 1; height: 2px; background: var(--teal); opacity: .4; margin: 0 8px; margin-bottom: 20px;
+}
+.qeeg-timeline__days {
+  position: absolute; top: -18px; left: 50%; transform: translateX(-50%);
+  font-size: 10px; color: var(--teal); font-weight: 600; white-space: nowrap;
+}
+
+/* ── Comparison side-by-side topo pairs ──────────────────────────────────── */
+.qeeg-compare-topo-row {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; align-items: start;
+  margin-bottom: 12px;
+}
+.qeeg-compare-topo-row__label {
+  font-size: 11px; font-weight: 600; text-align: center; color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
 /* ── qEEG responsive ─────────────────────────────────────────────────────── */
 @media (max-width: 900px) {
   .qeeg-dropzone__fields { grid-template-columns: 1fr; }
   .qeeg-metric-grid { grid-template-columns: repeat(2, 1fr); }
   .qeeg-hero { padding: 14px 16px; }
+  .qeeg-compare-topo-row { grid-template-columns: 1fr; }
+  .qeeg-timeline { flex-wrap: wrap; gap: 8px; }
 }
 @media (max-width: 580px) {
-  .qeeg-band-grid { grid-template-columns: 1fr; }
-  .qeeg-metric-grid { grid-template-columns: 1fr; }
+  .qeeg-band-grid { grid-template-columns: 1fr !important; }
+  .qeeg-compare-topo-row { grid-template-columns: 1fr !important; }
+  .qeeg-metric-grid { grid-template-columns: repeat(2, 1fr) !important; }
+  .qeeg-hero { padding: 16px !important; }
+  .qeeg-hero h2,
+  .qeeg-hero__title { font-size: 18px !important; }
+  .qeeg-timeline { flex-direction: column; align-items: center; }
+  .qeeg-timeline__line { width: 2px; height: 24px; min-width: unset; }
+  .ch-kpi-strip { grid-template-columns: repeat(2, 1fr) !important; }
+  .qeeg-coh-tabs { justify-content: center; }
+  .qeeg-export-bar { flex-direction: column; gap: 6px; }
+  .ds-topo-heatmap { max-width: 100%; height: auto; }
+}
+@media (max-width: 380px) {
+  .qeeg-metric-grid { grid-template-columns: 1fr !important; }
+  .qeeg-adv-category__header { padding: 10px !important; }
+}
+
+/* ── qEEG table overflow for small screens ───────────────────────────────── */
+.qeeg-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* ── qEEG accessibility — focus-visible outlines ─────────────────────────── */
+.qeeg-adv-group-toggle:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+.qeeg-coh-tab:focus-visible {
+  outline: 2px solid var(--coh-color, var(--teal));
+  outline-offset: 2px;
+}
+.qeeg-dropzone:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+
+/* Screen reader only helper */
+.qeeg-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* High contrast mode support */
+@media (forced-colors: active) {
+  .qeeg-adv-category { border: 1px solid CanvasText; }
+  .qeeg-adv-item { border-bottom-color: CanvasText; }
+  .qeeg-coh-tab--active { border: 2px solid Highlight; }
+}
+
+/* Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  .qeeg-adv-category__body { transition: none !important; }
+  .qeeg-adv-arrow { transition: none !important; }
 }

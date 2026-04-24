@@ -14,6 +14,8 @@ import {
 import { DOCUMENT_TEMPLATES, renderTemplate } from './documents-templates.js';
 import { SCALE_REGISTRY } from './registries/scale-assessment-registry.js';
 import { ASSESS_REGISTRY } from './registries/assess-instruments-registry.js';
+import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
+import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition } from './protocols-data.js';
 
 function shortMrn(p) {
   if (p?.mrn) return String(p.mrn);
@@ -2437,12 +2439,51 @@ export async function pgProtocolHub(setTopbar, navigate) {
     }
 
     if (errMsg || !conditions.length) {
-      host.innerHTML = '<div class="ps-empty">' +
-        (errMsg ? ('Library unavailable: ' + esc(errMsg) + '<br>') : 'No conditions in registry.<br>') +
-        '<button class="ps-save-btn" style="margin-top:12px" onclick="window._nav(\'library-hub\')">Open Library</button>' +
-      '</div>';
-      return;
+      // Fallback to local protocols-data.js CONDITIONS + evidence-dataset.js
+      if (PROTO_CONDITIONS && PROTO_CONDITIONS.length) {
+        conditions = PROTO_CONDITIONS.map(c => {
+          const ev = getConditionEvidence ? getConditionEvidence(c.id) : null;
+          const protos = getProtocolsByCondition ? getProtocolsByCondition(c.id) : [];
+          const gradeA = protos.some(p => p.evidenceGrade === 'A');
+          const gradeB = protos.some(p => p.evidenceGrade === 'B');
+          const bestGrade = gradeA ? 'A' : gradeB ? 'B' : protos.length ? 'C' : 'E';
+          return {
+            id: c.id,
+            name: c.label,
+            icd_10: c.icd10,
+            category: c.category,
+            highest_evidence_level: bestGrade,
+            neuromod_eligible: protos.length > 0,
+            reviewed_protocol_count: protos.filter(p => (p.governance || []).includes('reviewed') || (p.governance || []).includes('approved')).length,
+            total_protocol_count: protos.length,
+            compatible_device_count: (c.commonDevices || []).length,
+            curated_evidence_paper_count: ev ? ev.paperCount : 0,
+          };
+        });
+        errMsg = null;
+      } else {
+        host.innerHTML = '<div class="ps-empty">' +
+          (errMsg ? ('Library unavailable: ' + esc(errMsg) + '<br>') : 'No conditions in registry.<br>') +
+          '<button class="ps-save-btn" style="margin-top:12px" onclick="window._nav(\'library-hub\')">Open Library</button>' +
+        '</div>';
+        return;
+      }
     }
+
+    // Enrich conditions with evidence data if not already present
+    conditions.forEach(c => {
+      if (!c.curated_evidence_paper_count) {
+        const ev = getConditionEvidence ? getConditionEvidence(c.id) : null;
+        if (ev) c.curated_evidence_paper_count = ev.paperCount;
+      }
+      if (!c.total_protocol_count) {
+        const protos = getProtocolsByCondition ? getProtocolsByCondition(c.id) : [];
+        if (protos.length) {
+          c.total_protocol_count = protos.length;
+          c.reviewed_protocol_count = c.reviewed_protocol_count || protos.filter(p => (p.governance || []).includes('reviewed') || (p.governance || []).includes('approved')).length;
+        }
+      }
+    });
 
     const cats = ['All', ...Array.from(new Set(conditions.map(c => c.category).filter(Boolean))).sort()];
     let _catFilt = 'All';
@@ -2481,6 +2522,8 @@ export async function pgProtocolHub(setTopbar, navigate) {
             '</div>' +
             '<div class="ps-cond-feats">' +
               (c.reviewed_protocol_count ? '&#9679; ' + (c.reviewed_protocol_count) + ' reviewed protocol' + (c.reviewed_protocol_count !== 1 ? 's' : '') + '<br>' : '') +
+              (c.total_protocol_count ? '&#9679; ' + c.total_protocol_count + ' total protocol' + (c.total_protocol_count !== 1 ? 's' : '') + '<br>' : '') +
+              (c.curated_evidence_paper_count ? '&#9679; ' + c.curated_evidence_paper_count.toLocaleString() + ' research paper' + (c.curated_evidence_paper_count !== 1 ? 's' : '') + '<br>' : '') +
               (c.compatible_device_count ? '&#9679; ' + c.compatible_device_count + ' device' + (c.compatible_device_count !== 1 ? 's' : '') + '<br>' : '') +
             '</div>' +
             '<div class="ps-cond-actions">' +
@@ -2492,7 +2535,29 @@ export async function pgProtocolHub(setTopbar, navigate) {
       '</div>';
     }
 
+    const _totalProtos = PROTOCOL_LIBRARY?.length || 0;
+    const _totalEvPapers = EVIDENCE_SUMMARY?.totalPapers || 87000;
+    const _totalEvTrials = EVIDENCE_SUMMARY?.totalTrials || 0;
+
     host.innerHTML =
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">' +
+        '<div style="text-align:center;padding:10px 6px;border-radius:10px;background:rgba(0,212,188,0.06);border:1px solid rgba(0,212,188,0.12)">' +
+          '<div style="font-family:var(--font-display);font-size:18px;font-weight:600;color:var(--dv2-teal,var(--teal));letter-spacing:-0.4px">' + (_totalEvPapers/1000).toFixed(0) + 'K</div>' +
+          '<div style="font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.4px;margin-top:2px">Papers</div>' +
+        '</div>' +
+        '<div style="text-align:center;padding:10px 6px;border-radius:10px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.12)">' +
+          '<div style="font-family:var(--font-display);font-size:18px;font-weight:600;color:var(--blue);letter-spacing:-0.4px">' + _totalProtos + '</div>' +
+          '<div style="font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.4px;margin-top:2px">Protocols</div>' +
+        '</div>' +
+        '<div style="text-align:center;padding:10px 6px;border-radius:10px;background:rgba(155,127,255,0.06);border:1px solid rgba(155,127,255,0.12)">' +
+          '<div style="font-family:var(--font-display);font-size:18px;font-weight:600;color:var(--violet);letter-spacing:-0.4px">' + conditions.length + '</div>' +
+          '<div style="font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.4px;margin-top:2px">Conditions</div>' +
+        '</div>' +
+        '<div style="text-align:center;padding:10px 6px;border-radius:10px;background:rgba(255,181,71,0.06);border:1px solid rgba(255,181,71,0.12)">' +
+          '<div style="font-family:var(--font-display);font-size:18px;font-weight:600;color:var(--amber);letter-spacing:-0.4px">' + _totalEvTrials.toLocaleString() + '</div>' +
+          '<div style="font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.4px;margin-top:2px">Trials</div>' +
+        '</div>' +
+      '</div>' +
       '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">' +
         '<div style="position:relative;flex:1;min-width:180px;max-width:300px">' +
           '<input type="search" placeholder="Search conditions..." class="ps-form-input" style="width:100%;box-sizing:border-box" id="ps-cond-search" value="' + esc(_q) + '" oninput="window._psCatSearch(this.value)">' +
@@ -4941,8 +5006,8 @@ export async function pgLibraryHub(setTopbar, navigate) {
     const evDbAvailable = overview?.evidence_db_available;
     main =
       '<div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">' +
-        kpi('var(--teal)',   overview?.curated_paper_count || 0, 'Curated papers (ingest)', 'Public PubMed/OpenAlex ingest') +
-        kpi('var(--blue)',   overview?.curated_trial_count || 0, 'Curated trials') +
+        kpi('var(--teal)',   overview?.curated_paper_count || EVIDENCE_SUMMARY?.totalPapers || 87000, 'Curated papers (ingest)', 'Public PubMed/OpenAlex ingest') +
+        kpi('var(--blue)',   overview?.curated_trial_count || EVIDENCE_SUMMARY?.totalTrials || 0, 'Curated trials') +
         kpi('var(--violet)', curatedCount, 'Your library', 'Per-clinician promoted papers') +
         kpi('var(--amber)',  evDbAvailable ? 'Online' : 'Offline', 'Evidence index') +
       '</div>' +
@@ -5863,12 +5928,12 @@ export async function pgMonitorHub(setTopbar, navigate) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// pgVirtualCareHub — delegates to existing pgVirtualCare
+// pgVirtualCareHub — delegates to unified Virtual Care page
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgVirtualCareHub(setTopbar, navigate) {
   try {
-    const { pgVirtualCareInbox } = await import('./pages-virtualcare.js');
-    await pgVirtualCareInbox(setTopbar, navigate);
+    const { pgVirtualCare } = await import('./pages-virtualcare.js');
+    await pgVirtualCare(setTopbar, navigate);
   } catch (err) {
     console.error('Virtual Care load error:', err);
     setTopbar('Virtual Care', '<span class="ph-ai-badge">AI</span>');

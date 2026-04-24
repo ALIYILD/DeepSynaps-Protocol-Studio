@@ -975,6 +975,8 @@ export const api = {
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/analyze`, { method: 'POST' }),
   getQEEGAnalysis: (id) =>
     apiFetch(`/api/v1/qeeg-analysis/${id}`),
+  getQEEGAnalysisStatus: (id) =>
+    apiFetch(`/api/v1/qeeg-analysis/${id}/status`),
   listPatientQEEGAnalyses: (patientId) =>
     apiFetch(`/api/v1/qeeg-analysis/patient/${patientId}`),
   generateQEEGAIReport: (analysisId, body = {}) =>

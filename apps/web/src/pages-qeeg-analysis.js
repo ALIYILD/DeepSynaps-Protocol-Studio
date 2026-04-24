@@ -10,7 +10,6 @@
 import { api } from './api.js';
 import { renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap } from './brain-map-svg.js';
 import { emptyState, showToast, spark } from './helpers.js';
-import { downloadBlob } from './api.js';
 
 // ── XSS escape ───────────────────────────────────────────────────────────────
 function esc(v) {
@@ -665,6 +664,7 @@ function renderUploadArea(patientId) {
     + '<input type="date" id="qeeg-rec-date" class="form-control" style="width:100%;font-size:12px"></div>'
     + '</div>'
     + '<div id="qeeg-upload-status" style="margin-top:12px"></div>'
+    + '<div id="qeeg-quality-indicator"></div>'
     + '</div>'
   );
 }
@@ -723,6 +723,24 @@ async function handleUpload(file, patientId) {
     if (statusEl) statusEl.innerHTML = '<div style="color:var(--green);font-size:13px">Uploaded successfully! '
       + badge('pending', 'var(--amber)')
       + ' <a href="#" onclick="window._qeegSelectedId=\'' + result.id + '\';window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\');return false" style="color:var(--blue);margin-left:8px">Go to Analysis tab to run spectral analysis</a></div>';
+
+    // Show recording quality indicator
+    var qualEl = document.getElementById('qeeg-quality-indicator');
+    if (qualEl && result) {
+      var chCount = result.channels_used || 0;
+      var sr = result.sample_rate_hz || 0;
+      var chColor = chCount >= 19 ? 'var(--green)' : chCount >= 10 ? 'var(--amber)' : 'var(--red)';
+      var srColor = sr >= 256 ? 'var(--green)' : sr >= 128 ? 'var(--amber)' : 'var(--red)';
+      var qualityHtml = '<div style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.06)">'
+        + '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Recording Quality</div>'
+        + '<div style="display:flex;gap:12px;flex-wrap:wrap">';
+      qualityHtml += '<div style="font-size:12px"><span style="color:' + chColor + ';font-weight:600">' + chCount + '</span> channels</div>'
+        + '<div style="font-size:12px"><span style="color:' + srColor + ';font-weight:600">' + sr + ' Hz</span> sample rate</div>';
+      if (result.eyes_condition) qualityHtml += '<div style="font-size:12px">Eyes: ' + esc(result.eyes_condition) + '</div>';
+      qualityHtml += '</div></div>';
+      qualEl.innerHTML = qualityHtml;
+    }
+
     // Refresh analyses list
     refreshAnalysesList(patientId);
   } catch (err) {
@@ -736,7 +754,7 @@ async function refreshAnalysesList(patientId) {
     _analyses = (resp && resp.items) || (Array.isArray(resp) ? resp : []);
     const listEl = document.getElementById('qeeg-analyses-list');
     if (listEl) listEl.innerHTML = renderAnalysisList(_analyses);
-  } catch (_) { /* silent */ }
+  } catch (err) { showToast('Failed to refresh analyses list: ' + (err.message || err), 'error'); }
 }
 
 // ── Analysis List ────────────────────────────────────────────────────────────
@@ -777,7 +795,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     try {
       const resp = await api.listPatients();
       _patients = Array.isArray(resp) ? resp : (resp && resp.items ? resp.items : []);
-    } catch (_) { _patients = []; }
+    } catch (err) { _patients = []; showToast('Failed to load patients: ' + (err.message || err), 'error'); }
   }
 
   // Load patient data if selected
@@ -792,8 +810,9 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       _patient = p;
       _medHistory = mh;
       _analyses = (aResp && aResp.items) || (Array.isArray(aResp) ? aResp : []);
-    } catch (_) {
+    } catch (err) {
       _patient = null; _medHistory = null; _analyses = [];
+      showToast('Failed to load patient data: ' + (err.message || err), 'error');
     }
   } else if (!patientId) {
     _patient = null; _medHistory = null; _analyses = [];
@@ -925,8 +944,26 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             if (st) st.innerHTML = spinner('Running spectral analysis...');
             try {
               await api.analyzeQEEG(analysisId);
-              showToast('Spectral analysis complete', 'success');
-              window._nav('qeeg-analysis'); // Reload to show results
+              showToast('Spectral analysis started', 'success');
+              // Start polling for status updates
+              if (st) st.innerHTML = spinner('Processing...') + '<div id="qeeg-analysis-progress"></div>';
+              var pollInterval = setInterval(async function () {
+                try {
+                  var statusResp = await api.getQEEGAnalysisStatus(analysisId);
+                  if (!statusResp) return;
+                  var progressEl = document.getElementById('qeeg-analysis-progress');
+                  if (progressEl && statusResp.progress_pct != null) {
+                    progressEl.innerHTML = '<div style="margin-top:8px">'
+                      + '<div style="background:rgba(255,255,255,0.1);border-radius:4px;height:6px;overflow:hidden">'
+                      + '<div style="width:' + statusResp.progress_pct + '%;background:var(--teal);height:100%;border-radius:4px;transition:width 0.3s"></div></div>'
+                      + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + (statusResp.completed_analyses || 0) + '/' + (statusResp.total_analyses || 25) + ' analyses completed</div></div>';
+                  }
+                  if (statusResp.status === 'completed' || statusResp.status === 'failed') {
+                    clearInterval(pollInterval);
+                    window._nav('qeeg-analysis');
+                  }
+                } catch (_e) { /* silent polling failure */ }
+              }, 2000);
             } catch (err) {
               if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(err.message || err) + '</div>';
               runBtn.disabled = false;
@@ -936,12 +973,29 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         return;
       }
 
-      // If processing — show polling spinner
+      // If processing — show progress bar and poll for status updates
       if (data.analysis_status === 'processing') {
         tabEl.innerHTML = '<div style="text-align:center;padding:48px">'
           + spinner('Analysis in progress... This usually takes a few seconds.')
+          + '<div id="qeeg-analysis-progress"></div>'
           + '</div>';
-        setTimeout(function () { window._nav('qeeg-analysis'); }, 3000);
+        var pollInterval = setInterval(async function () {
+          try {
+            var statusResp = await api.getQEEGAnalysisStatus(analysisId);
+            if (!statusResp) return;
+            var progressEl = document.getElementById('qeeg-analysis-progress');
+            if (progressEl && statusResp.progress_pct != null) {
+              progressEl.innerHTML = '<div style="margin-top:8px">'
+                + '<div style="background:rgba(255,255,255,0.1);border-radius:4px;height:6px;overflow:hidden">'
+                + '<div style="width:' + statusResp.progress_pct + '%;background:var(--teal);height:100%;border-radius:4px;transition:width 0.3s"></div></div>'
+                + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + (statusResp.completed_analyses || 0) + '/' + (statusResp.total_analyses || 25) + ' analyses completed</div></div>';
+            }
+            if (statusResp.status === 'completed' || statusResp.status === 'failed') {
+              clearInterval(pollInterval);
+              window._nav('qeeg-analysis');
+            }
+          } catch (_e) { /* silent polling failure */ }
+        }, 2000);
         return;
       }
 
@@ -1101,6 +1155,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             } catch (e) {
               runBtn.disabled = false;
               runBtn.textContent = 'Run Advanced Analyses';
+              showToast('Advanced analyses failed: ' + (e.message || e), 'error');
               var errEl = document.getElementById('qeeg-advanced-error');
               if (errEl) errEl.innerHTML = '<div style="color:var(--red);padding:8px;font-size:13px">Error: ' + esc(e.message || e) + '</div>';
             }
@@ -1108,6 +1163,9 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         }
         // Collapsible group toggles
         document.querySelectorAll('.qeeg-adv-group-toggle').forEach(function (toggle) {
+          toggle.setAttribute('tabindex', '0');
+          toggle.setAttribute('role', 'button');
+          toggle.setAttribute('aria-expanded', 'false');
           toggle.addEventListener('click', function () {
             var cat = toggle.parentElement;
             var body = cat ? cat.querySelector('.qeeg-adv-category__body') : null;
@@ -1118,6 +1176,13 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
               body.classList.toggle('qeeg-adv-category__body--collapsed');
               if (arrow) arrow.classList.toggle('qeeg-adv-arrow--collapsed');
               if (summary) summary.style.display = isCollapsed ? 'none' : '';
+              toggle.setAttribute('aria-expanded', isCollapsed ? 'true' : 'false');
+            }
+          });
+          toggle.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              toggle.click();
             }
           });
         });
@@ -1176,6 +1241,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
               window._qeegTab = 'report';
               window._nav('qeeg-analysis');
             } catch (err) {
+              showToast('AI report generation failed: ' + (err.message || err), 'error');
               if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(err.message || err) + '</div>';
               btn.disabled = false;
             }
@@ -1266,6 +1332,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             showToast('Review saved', 'success');
             if (st) st.innerHTML = '<div style="color:var(--green);font-size:13px">Review saved successfully.</div>';
           } catch (err) {
+            showToast('Failed to save review: ' + (err.message || err), 'error');
             if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(err.message || err) + '</div>';
             reviewBtn.disabled = false;
           }
@@ -1364,11 +1431,32 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           window._qeegComparisonId = result.id;
           window._nav('qeeg-analysis');
         } catch (err) {
+          showToast('Comparison failed: ' + (err.message || err), 'error');
           if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(err.message || err) + '</div>';
           cmpBtn.disabled = false;
         }
       });
     }
+
+    // Longitudinal trend section when 3+ completed analyses available
+    if (completedAnalyses.length >= 3) {
+      var trendHtml = '<div style="margin-top:20px"></div>';
+      trendHtml += card('Longitudinal Trend (' + completedAnalyses.length + ' sessions)',
+        '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">Tracking key biomarkers across all recording sessions.</div>'
+        + '<div style="text-align:center;padding:24px;color:var(--text-tertiary)">'
+        + '<div style="font-size:28px;margin-bottom:8px;opacity:0.5">&#x1F4C8;</div>'
+        + '<div style="font-size:13px">Longitudinal trend analysis requires 3+ completed recordings with consistent channel montage.</div>'
+        + '<div style="margin-top:12px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'
+        + completedAnalyses.map(function (a, idx) {
+            var dateStr = a.analyzed_at ? new Date(a.analyzed_at).toLocaleDateString() : 'N/A';
+            return '<span style="display:inline-block;padding:4px 10px;border-radius:12px;font-size:11px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1)">'
+              + '#' + (idx + 1) + ' ' + dateStr + '</span>';
+          }).join('')
+        + '</div></div>'
+      );
+      tabEl.innerHTML += trendHtml;
+    }
+
     return;
   }
 }
@@ -1381,6 +1469,57 @@ function renderComparison(comp) {
   const narrative = comp.ai_comparison_narrative || '';
 
   let html = '';
+
+  // ── Timeline header (Phase 4.1) ───────────────────────────────────────────
+  var baseDate = comp.baseline_analyzed_at ? new Date(comp.baseline_analyzed_at) : null;
+  var fuDate = comp.followup_analyzed_at ? new Date(comp.followup_analyzed_at) : null;
+  if (baseDate && fuDate) {
+    var daysBetween = Math.round((fuDate - baseDate) / 86400000);
+    html += '<div class="qeeg-timeline">'
+      + '<div class="qeeg-timeline__point">'
+      + '<div class="qeeg-timeline__dot"></div>'
+      + '<div class="qeeg-timeline__label">Baseline</div>'
+      + '<div class="qeeg-timeline__date">' + baseDate.toLocaleDateString() + '</div>'
+      + '</div>'
+      + '<div class="qeeg-timeline__line"></div>'
+      + '<div class="qeeg-timeline__days">' + daysBetween + ' days</div>'
+      + '<div class="qeeg-timeline__line"></div>'
+      + '<div class="qeeg-timeline__point">'
+      + '<div class="qeeg-timeline__dot qeeg-timeline__dot--active"></div>'
+      + '<div class="qeeg-timeline__label">Follow-up</div>'
+      + '<div class="qeeg-timeline__date">' + fuDate.toLocaleDateString() + '</div>'
+      + '</div>'
+      + '</div>';
+  }
+
+  // ── Ratio change KPI cards (Phase 4.2) ────────────────────────────────────
+  var ratios = comp.ratio_changes;
+  if (ratios && Object.keys(ratios).length) {
+    var ratioHtml = '<div class="ch-kpi-strip" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">';
+    var ratioLabels = {
+      theta_beta_ratio: 'Theta/Beta',
+      delta_alpha_ratio: 'Delta/Alpha',
+      alpha_peak_frequency_hz: 'Alpha Peak (Hz)',
+      frontal_alpha_asymmetry: 'Frontal Asym.',
+    };
+    Object.keys(ratios).forEach(function (key) {
+      var r = ratios[key];
+      var lbl = ratioLabels[key] || key.replace(/_/g, ' ');
+      var change = r.followup - r.baseline;
+      var pct = r.baseline !== 0 ? ((change / Math.abs(r.baseline)) * 100).toFixed(1) : '0.0';
+      var arrow = change > 0 ? '&#x25B2;' : change < 0 ? '&#x25BC;' : '&#x25CF;';
+      var color = key === 'alpha_peak_frequency_hz' ? (change > 0 ? 'var(--green)' : 'var(--red)')
+        : (change < 0 ? 'var(--green)' : change > 0 ? 'var(--red)' : 'var(--text-secondary)');
+      ratioHtml += '<div class="ch-kpi-card" style="--kpi-color:' + color + '">'
+        + '<div class="ch-kpi-val">' + r.followup.toFixed(2) + '</div>'
+        + '<div style="font-size:11px;color:' + color + ';margin:2px 0">' + arrow + ' ' + pct + '%</div>'
+        + '<div class="ch-kpi-label">' + esc(lbl) + '</div>'
+        + '<div style="font-size:10px;color:var(--text-tertiary)">was ' + r.baseline.toFixed(2) + '</div>'
+        + '</div>';
+    });
+    ratioHtml += '</div>';
+    html += card('Key Ratio Changes', ratioHtml);
+  }
 
   // Summary stats
   if (summary.improved !== undefined) {
@@ -1398,10 +1537,40 @@ function renderComparison(comp) {
     );
   }
 
+  // ── Side-by-side topographic heatmaps (Phase 4.3) ─────────────────────────
+  var baseBP = comp.baseline_band_powers;
+  if (baseBP && delta && delta.bands) {
+    var topoBands = ['alpha', 'theta', 'beta'];
+    topoBands.forEach(function (band) {
+      var baseChannels = baseBP.bands?.[band]?.channels;
+      var deltaChannels = delta.bands?.[band];
+      if (!baseChannels || !deltaChannels) return;
+      var baseMap = {};
+      var fuMap = {};
+      var changeMap = {};
+      Object.keys(baseChannels).forEach(function (ch) {
+        var bv = baseChannels[ch].relative_pct;
+        var dv = deltaChannels[ch]?.pct_change || 0;
+        if (bv != null) {
+          baseMap[ch] = bv;
+          fuMap[ch] = bv * (1 + dv / 100);
+          changeMap[ch] = dv;
+        }
+      });
+      var bandColor = BAND_COLORS[band] || 'var(--teal)';
+      html += '<div class="ds-card"><div class="ds-card__header"><h3 style="color:' + bandColor + '">' + esc(band.charAt(0).toUpperCase() + band.slice(1)) + ' — Baseline vs Follow-up</h3></div>'
+        + '<div class="ds-card__body"><div class="qeeg-compare-topo-row">'
+        + '<div><div class="qeeg-compare-topo-row__label">Baseline</div>' + renderTopoHeatmap(baseMap, { band: band + ' (baseline)', size: 180, colorScale: 'warm' }) + '</div>'
+        + '<div><div class="qeeg-compare-topo-row__label">Follow-up</div>' + renderTopoHeatmap(fuMap, { band: band + ' (follow-up)', size: 180, colorScale: 'warm' }) + '</div>'
+        + '<div><div class="qeeg-compare-topo-row__label">Change (%)</div>' + renderTopoHeatmap(changeMap, { band: band + ' change %', size: 180, colorScale: 'diverging' }) + '</div>'
+        + '</div></div></div>';
+    });
+  }
+
   // AI narrative
   if (narrative) {
     html += card('AI Comparison Narrative',
-      '<div class="qeeg-narrative">' + esc(narrative) + '</div>'
+      '<div class="qeeg-narrative">' + _formatNarrative(narrative) + '</div>'
     );
   }
 
@@ -1434,6 +1603,32 @@ function renderComparison(comp) {
     });
     tableHtml += '</tbody></table></div>';
     html += card('Power Changes (Follow-up vs Baseline)', tableHtml);
+  }
+
+  // ── Assessment correlation (Phase 4.4) ────────────────────────────────────
+  var corrData = _isDemoMode() ? DEMO_ASSESSMENT_CORRELATION : null;
+  if (corrData && corrData.correlations && corrData.correlations.length) {
+    var corrHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px">';
+    corrData.correlations.forEach(function (c) {
+      var trendColor = c.trend === 'improving' ? 'var(--green)' : c.trend === 'worsening' ? 'var(--red)' : 'var(--amber)';
+      var changePfx = c.score_change > 0 ? '+' : '';
+      corrHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:14px;border:1px solid rgba(255,255,255,0.06)">'
+        + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
+        + '<strong style="font-size:13px;color:var(--text-primary)">' + esc(c.assessment) + '</strong>'
+        + badge(c.trend, trendColor)
+        + '</div>'
+        + '<div style="display:flex;gap:12px;align-items:baseline;margin-bottom:6px">'
+        + '<span style="font-size:22px;font-weight:700;color:var(--text-primary)">' + c.latest_score + '</span>'
+        + '<span style="font-size:12px;color:' + trendColor + '">' + changePfx + c.score_change + ' (' + changePfx + c.score_pct_change.toFixed(1) + '%)</span>'
+        + '</div>'
+        + '<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px">Baseline: ' + c.baseline_score + '</div>';
+      if (c.scores && c.scores.length > 1) {
+        corrHtml += '<div>' + spark(c.scores, trendColor, c.assessment + ' trend') + '</div>';
+      }
+      corrHtml += '</div>';
+    });
+    corrHtml += '</div>';
+    html += card('Assessment Correlation', corrHtml);
   }
 
   return html;
