@@ -23,6 +23,9 @@ import {
   mountCopilotWidget,
 } from './qeeg-ai-panels.js';
 
+const FUSION_API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
+const FUSION_TOKEN_KEY = 'ds_access_token';
+
 // Feature flag for the Contract V2 AI upgrade panels + buttons. Defaults to
 // on; ops can disable without a redeploy by setting
 // window.DEEPSYNAPS_ENABLE_AI_UPGRADES = false before the app boots.
@@ -2533,6 +2536,7 @@ window._exportCurrentBIDSPackage = function () {
 };
 let _fusionSummary = null;
 let _collapsedSections = { medications: true, neurological: true, lifestyle: true };
+let _fusionSummary = null;
 
 function renderTabBar(activeTab) {
   return '<div class="ch-tab-bar" style="margin-bottom:20px">' +

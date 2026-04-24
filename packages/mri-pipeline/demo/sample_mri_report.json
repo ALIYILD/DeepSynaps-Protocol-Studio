@@ -32,7 +32,19 @@
     "wmh_volume_ml": {"value": 2.1, "unit": "mL", "z": 0.4, "percentile": 65, "flagged": false},
     "ventricular_volume_ml": {"value": 24.6, "unit": "mL", "z": 0.2, "percentile": 58, "flagged": false},
     "icv_ml": 1452,
-    "segmentation_engine": "synthseg_plus"
+    "segmentation_engine": "synthseg_plus",
+    "brain_age": {
+      "status": "ok",
+      "predicted_age_years": 58.7,
+      "chronological_age_years": 54.0,
+      "brain_age_gap_years": 4.7,
+      "gap_zscore": 1.42,
+      "cognition_cdr_estimate": 0.18,
+      "model_id": "brainage_cnn_v1",
+      "mae_years_reference": 3.30,
+      "runtime_sec": 1.92,
+      "error_message": null
+    }
   },
 
   "functional": {
@@ -69,6 +81,19 @@
       "suggested_parameters": {"protocol": "iTBS", "sessions": 30, "pulses_per_session": 600, "intensity_pct_rmt": 120.0, "frequency_hz": 50.0},
       "supporting_paper_ids_from_medrag": [1821, 34422, 51907],
       "confidence": "high",
+      "efield_dose": {
+        "status": "ok",
+        "v_per_m_at_target": 92.4,
+        "peak_v_per_m": 138.1,
+        "focality_50pct_volume_cm3": 4.6,
+        "iso_contour_mesh_s3": "artefacts/efield_rTMS_MDD_personalised_sgACC/subject_TMS_1-0001_Magstim_70mm_Fig8_scalar.msh",
+        "e_field_png_s3": "overlays/efield_rTMS_MDD_personalised_sgACC.png",
+        "coil_optimised": true,
+        "optimised_coil_pos": {"centre_x": -48.3, "centre_y": 40.1, "centre_z": 34.2, "direction_deg": 45.0},
+        "solver": "simnibs_fem",
+        "runtime_sec": 182.4,
+        "error_message": null
+      },
       "disclaimer": "Reference target coordinates derived from peer-reviewed literature. Not a substitute for clinician judgment. For neuronavigation planning only."
     },
     {
