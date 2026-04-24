@@ -9203,7 +9203,7 @@ export function bindBrainData(records, patMap, patients, setTopbar) {
       gamma_power:            parseFloat(document.getElementById('qr-gamma')?.value) || null,
       artifact_rejection_pct: parseFloat(document.getElementById('qr-artifact')?.value) || null,
       eyes_condition:         document.getElementById('qr-eyes')?.value || null,
-      notes:                  notesOut,
+      summary_notes:          notesOut,
     };
     try {
       await api.createQEEGRecord(payload);

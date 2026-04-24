@@ -482,10 +482,17 @@ async def upload_edf(
     eyes_condition: Optional[str] = Form(default=None),
     equipment: Optional[str] = Form(default=None),
     course_id: Optional[str] = Form(default=None),
+    survey_json: Optional[str] = Form(default=None),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> AnalysisOut:
-    """Upload an EDF/BDF/EEG file for qEEG analysis."""
+    """Upload an EDF/BDF/EEG file for qEEG analysis.
+
+    Optional ``survey_json`` carries the frontend clinical-context survey
+    (schema ``deepsynaps.qeeg_clinical_context.v1``). When supplied, it is
+    wrapped in stable delimiters and stored on the linked QEEGRecord so
+    :func:`generate_ai_report_endpoint` can surface it to the LLM.
+    """
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
 
@@ -536,6 +543,21 @@ async def upload_edf(
         settings=settings,
     )
 
+    # If the caller supplied a clinical-context survey, validate and wrap it
+    # in stable delimiters so /ai-report can recover it verbatim later.
+    wrapped_survey_notes: Optional[str] = None
+    if survey_json:
+        from app.services.qeeg_context_extractor import wrap_qeeg_context
+
+        try:
+            wrapped_survey_notes = wrap_qeeg_context(survey_json)
+        except ValueError as exc:
+            raise ApiServiceError(
+                code="invalid_survey_json",
+                message=f"survey_json is not valid JSON: {exc}",
+                status_code=422,
+            )
+
     # Create a linked QEEGRecord (for backward compatibility)
     qeeg_record = QEEGRecord(
         patient_id=patient_id,
@@ -546,6 +568,7 @@ async def upload_edf(
         equipment=equipment,
         eyes_condition=eyes_condition,
         raw_data_ref=file_ref,
+        summary_notes=wrapped_survey_notes,
     )
     db.add(qeeg_record)
     db.flush()
@@ -971,6 +994,10 @@ async def generate_ai_report_endpoint(
 
     # Deterministic condition matching
     from app.services.qeeg_ai_interpreter import match_condition_patterns, generate_ai_report
+    from app.services.qeeg_context_extractor import (
+        extract_qeeg_context,
+        format_context_for_prompt,
+    )
 
     # ── Load the new CONTRACT §1.1 feature dict if Agent B's pipeline wrote it.
     # Every column is nullable; when all are None we fall back to the legacy
@@ -1047,6 +1074,27 @@ async def generate_ai_report_endpoint(
         features if features is not None else band_powers
     )
 
+    # Auto-surface any clinician-supplied clinical-context survey that was
+    # embedded in the linked QEEGRecord's notes. Lets the LLM see recording
+    # confounders (caffeine, sleep, meds), prior neuromodulation history,
+    # and red-flag screen results alongside the band powers.
+    merged_patient_context = body.patient_context or None
+    survey_sources_used: list[str] = []
+    if analysis.qeeg_record_id:
+        linked_record = (
+            db.query(QEEGRecord).filter_by(id=analysis.qeeg_record_id).first()
+        )
+        if linked_record is not None:
+            survey_ctx = extract_qeeg_context(linked_record.summary_notes)
+            if survey_ctx:
+                survey_block = format_context_for_prompt(survey_ctx)
+                merged_patient_context = (
+                    f"{survey_block}\n\n{body.patient_context}"
+                    if body.patient_context
+                    else survey_block
+                )
+                survey_sources_used.append("qeeg_clinical_context_survey_v1")
+
     # Generate AI report (RAG-grounded when pipeline features are present).
     report_result = await generate_ai_report(
         band_powers=band_powers,
@@ -1054,7 +1102,7 @@ async def generate_ai_report_endpoint(
         zscores=zscores,
         flagged_conditions=flagged_conditions,
         quality=quality,
-        patient_context=body.patient_context,
+        patient_context=merged_patient_context,
         condition_matches=condition_matches,
         report_type=body.report_type,
         db_session=db,
@@ -1094,7 +1142,7 @@ async def generate_ai_report_endpoint(
         summary_type="qeeg_analysis",
         prompt_hash=report_result.get("prompt_hash"),
         response_preview=str(report_data.get("executive_summary", ""))[:200],
-        sources_used=json.dumps(sources_used),
+        sources_used=json.dumps([*sources_used, *survey_sources_used]),
         model_used=report_result.get("model_used"),
     )
     db.add(audit)
