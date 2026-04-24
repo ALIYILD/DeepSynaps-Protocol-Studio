@@ -27,6 +27,7 @@ dependencies = [
     "matplotlib>=3.7",
     "jinja2>=3.1",
     "pydantic>=2.5",
+    "plotly>=5.22",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +37,9 @@ dependencies = [
 # apt-get lines to the Dockerfile first.
 reporting = [
     "weasyprint>=60",
+    "kaleido>=0.2.1",
+    "holoviews>=1.19",
+    "bokeh>=3.4",
 ]
 # `pip install -e '.[rag]'` to enable Postgres-backed literature RAG via psycopg.
 # Studio's API image already carries psycopg2-binary so this extra is rarely

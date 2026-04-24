@@ -166,6 +166,8 @@ let _modQEEGAnalysis = null;
 async function loadQEEGAnalysis() { return (_modQEEGAnalysis ??= await import('./pages-qeeg-analysis.js')); }
 let _modMRIAnalysis = null;
 async function loadMRIAnalysis() { return (_modMRIAnalysis ??= await import('./pages-mri-analysis.js')); }
+let _modPatientTimeline = null;
+async function loadPatientTimeline() { return (_modPatientTimeline ??= await import('./pages-patient-timeline.js')); }
 let _modMonitoring = null;
 async function loadMonitoring() { return (_modMonitoring ??= await import('./pages-monitoring.js')); }
 
@@ -863,6 +865,7 @@ const PAGE_TITLES = {
   'patient-queue': 'Today\'s Queue',
   'course-completion-report': 'Course Completion Report',
   'longitudinal-report': 'Longitudinal Outcomes Report',
+  'patient-timeline': 'Patient Timeline',
   'scoring-calc': 'Clinical Scoring Calculator',
   'clinic-analytics': 'Clinic Analytics',
   'consent-automation': 'Consent & Compliance',
@@ -1448,6 +1451,7 @@ async function renderPage() {
     case 'brainmap-v2':        { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar, navigate); break; }
     case 'qeeg-analysis':      { const m = await loadQEEGAnalysis(); await m.pgQEEGAnalysis(setTopbar, navigate); break; }
     case 'mri-analysis':       { const m = await loadMRIAnalysis(); await m.pgMRIAnalysis(setTopbar, navigate); break; }
+    case 'patient-timeline':   { const m = await loadPatientTimeline(); await m.pgPatientTimeline(setTopbar, navigate); break; }
     case 'biomarkers':         { const m = await loadKnowledge(); await m.pgQEEGMaps(setTopbar); break; }
     case 'handbooks-v2':       { const m = await loadHandbooks(); await m.pgHandbooks(setTopbar); break; }
     case 'library-v2':         { window._resEvidenceTab = 'search'; window._nav('research-evidence'); break; }
@@ -2483,6 +2487,11 @@ window.addEventListener('popstate', (e) => {
   let _cachedCourses = null;
   let _cachedProtocols = null;
 
+  NAV_COMMANDS.push(
+    { type: 'nav', icon: '📊', title: 'qEEG Analyzer', page: 'qeeg-analysis' },
+    { type: 'nav', icon: '🧠', title: 'MRI Analyzer', page: 'mri-analysis' },
+  );
+
   // Fuzzy match: returns score (higher = better), or 0 if no match
   function _fuzzy(query, text) {
     if (!text) return 0;
@@ -2530,6 +2539,11 @@ window.addEventListener('popstate', (e) => {
     { type: 'action', icon: '📊', title: 'Log Outcome',          action: () => { window._closePaletteForce(); window._nav('outcomes'); } },
     { type: 'action', icon: '📅', title: 'Schedule Assessment',  action: () => { window._closePaletteForce(); window._nav('assessments-hub'); } },
   ];
+
+  QUICK_ACTIONS.push(
+    { type: 'action', icon: '🧾', title: 'Export FHIR Bundle', action: () => { window._closePaletteForce(); if (typeof window._exportCurrentFHIRBundle === 'function') window._exportCurrentFHIRBundle(); else window._nav('qeeg-analysis'); } },
+    { type: 'action', icon: '📦', title: 'Export BIDS Package', action: () => { window._closePaletteForce(); if (typeof window._exportCurrentBIDSPackage === 'function') window._exportCurrentBIDSPackage(); else window._nav('mri-analysis'); } },
+  );
 
   function _getRecentFromStorage() {
     try {

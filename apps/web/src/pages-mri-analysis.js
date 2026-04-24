@@ -14,8 +14,11 @@
 // Netlify preview (VITE_ENABLE_DEMO=1) see the full populated report without
 // the Fly API being online.
 // ─────────────────────────────────────────────────────────────────────────────
-import { api } from './api.js';
+import { api, downloadBlob } from './api.js';
 import { emptyState, showToast } from './helpers.js';
+
+const FUSION_API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
+const FUSION_TOKEN_KEY = 'ds_access_token';
 
 // ── Module state ────────────────────────────────────────────────────────────
 var _mriAnalysisId = null;
@@ -27,6 +30,7 @@ var _medragCache   = null;
 var _jobStatus     = null;       // { stage, state } snapshot
 var _jobPollTimer  = null;
 var _selectedCondition = 'mdd';
+var _fusionSummary = null;
 // Populated by pgMRIAnalysis() and re-read by the compare modal's submit
 // handler so we don't refetch on every click.
 var _patientAnalysesCache = { patientId: null, rows: [] };
@@ -65,6 +69,341 @@ function card(title, body, extra) {
   return '<div class="ds-card">'
     + (title ? '<div class="ds-card__header"><h3>' + esc(title) + '</h3>' + (extra || '') + '</div>' : '')
     + '<div class="ds-card__body">' + body + '</div></div>';
+}
+
+function _renderMRIAnnotationList(items) {
+  if (!Array.isArray(items) || !items.length) {
+    return '<div class="analysis-anno-empty">No notes pinned to this scan yet.</div>';
+  }
+  return items.map(function (item) {
+    return '<div class="analysis-anno-item">'
+      + (item.title ? '<div class="analysis-anno-item__title">' + esc(item.title) + '</div>' : '')
+      + (item.anchor_label ? '<div class="analysis-anno-item__anchor">' + esc(item.anchor_label) + '</div>' : '')
+      + '<div class="analysis-anno-item__body">' + esc(item.body || '') + '</div>'
+      + '<div class="analysis-anno-item__meta">' + esc(item.created_at ? new Date(item.created_at).toLocaleString() : '') + '</div>'
+      + '<button class="analysis-anno-item__delete" data-mri-annotation-delete="' + esc(item.id) + '">Delete</button>'
+      + '</div>';
+  }).join('');
+}
+
+function _mriAnnotationButton(context) {
+  if (!context || !context.patient_id || !context.target_id) return '';
+  var payload = JSON.stringify(context).replace(/"/g, '&quot;');
+  return '<button class="btn btn-sm btn-outline analysis-anno-launch" data-mri-annotation="' + payload + '">Notes</button>';
+}
+
+async function _openMRIAnnotationDrawer(context) {
+  if (!context || !context.patient_id || !context.target_id) return;
+  var host = document.getElementById('mri-annotation-drawer-host');
+  if (!host) return;
+  host.innerHTML = '<div class="analysis-anno-backdrop" data-mri-annotation-close="1"></div>'
+    + '<aside class="analysis-anno-drawer">'
+    + '<div class="analysis-anno-drawer__hd"><div><strong>Scan notes</strong><div class="analysis-anno-drawer__sub">'
+    + esc(context.anchor_label || 'MRI analysis') + '</div></div><button class="analysis-anno-drawer__close" data-mri-annotation-close="1">Close</button></div>'
+    + '<div id="mri-annotation-list" class="analysis-anno-list">' + spinner('Loading notes...') + '</div>'
+    + '<div class="analysis-anno-form">'
+    + '<input id="mri-annotation-title" class="form-control" maxlength="160" placeholder="Short title (optional)"/>'
+    + '<textarea id="mri-annotation-body" class="form-control" rows="4" maxlength="5000" placeholder="Add a note for this scan"></textarea>'
+    + '<input id="mri-annotation-anchor" class="form-control" maxlength="120" placeholder="Anchor label (optional)" value="' + esc(context.anchor_label || '') + '"/>'
+    + '<div style="display:flex;justify-content:flex-end"><button class="btn btn-sm btn-primary" id="mri-annotation-save">Save note</button></div>'
+    + '</div></aside>';
+  host.classList.add('analysis-anno-host--open');
+  var listEl = document.getElementById('mri-annotation-list');
+  try {
+    var rows = await api.listAnnotations({ patientId: context.patient_id, targetType: 'mri', targetId: context.target_id });
+    if (listEl) listEl.innerHTML = _renderMRIAnnotationList(rows);
+  } catch (err) {
+    if (listEl) listEl.innerHTML = '<div class="analysis-anno-empty">Could not load notes: ' + esc(err.message || err) + '</div>';
+  }
+  host.querySelectorAll('[data-mri-annotation-close="1"]').forEach(function (node) {
+    node.addEventListener('click', function () {
+      host.classList.remove('analysis-anno-host--open');
+      host.innerHTML = '';
+    });
+  });
+  host.querySelectorAll('[data-mri-annotation-delete]').forEach(function (node) {
+    node.addEventListener('click', async function () {
+      var id = node.getAttribute('data-mri-annotation-delete');
+      if (!id) return;
+      try {
+        await api.deleteAnnotation(id);
+        showToast('Note deleted', 'success');
+        _openMRIAnnotationDrawer(context);
+      } catch (err) {
+        showToast('Could not delete note: ' + (err.message || err), 'error');
+      }
+    });
+  });
+  var saveBtn = document.getElementById('mri-annotation-save');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async function () {
+      var bodyEl = document.getElementById('mri-annotation-body');
+      var titleEl = document.getElementById('mri-annotation-title');
+      var anchorEl = document.getElementById('mri-annotation-anchor');
+      var body = bodyEl && bodyEl.value ? bodyEl.value.trim() : '';
+      if (!body) {
+        showToast('Add some note text first', 'warning');
+        return;
+      }
+      saveBtn.disabled = true;
+      try {
+        await api.createAnnotation({
+          patient_id: context.patient_id,
+          target_type: 'mri',
+          target_id: context.target_id,
+          title: titleEl && titleEl.value ? titleEl.value.trim() : null,
+          body: body,
+          anchor_label: anchorEl && anchorEl.value ? anchorEl.value.trim() : null,
+          anchor_data: { analysis_id: context.target_id },
+        });
+        showToast('Note saved', 'success');
+        _openMRIAnnotationDrawer(context);
+      } catch (err) {
+        showToast('Could not save note: ' + (err.message || err), 'error');
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
+  }
+}
+
+function _bindMRIAnnotationButtons() {
+  document.querySelectorAll('[data-mri-annotation]').forEach(function (btn) {
+    if (btn.dataset.annotationBound === '1') return;
+    btn.dataset.annotationBound = '1';
+    btn.addEventListener('click', function () {
+      try {
+        var ctx = JSON.parse(btn.getAttribute('data-mri-annotation') || '{}');
+        _openMRIAnnotationDrawer(ctx);
+      } catch (_err) {
+        showToast('Could not open notes', 'error');
+      }
+    });
+  });
+}
+
+function _getFusionToken() {
+  try {
+    return globalThis.localStorage?.getItem?.(FUSION_TOKEN_KEY) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function _demoFusionSummary(patientId) {
+  return {
+    patient_id: patientId || 'demo-patient',
+    qeeg_analysis_id: null,
+    mri_analysis_id: DEMO_MRI_REPORT.analysis_id,
+    recommendations: ['MRI targeting is available. Add qEEG biomarkers to create a higher-confidence dual-modality plan.'],
+    summary: 'Partial fusion available from one modality only. Add qEEG data to strengthen target confidence.',
+    confidence: 0.4,
+    generated_at: new Date().toISOString(),
+  };
+}
+
+async function _fetchFusionSummary(patientId) {
+  if (!patientId) return null;
+  if (_isDemoMode()) return _demoFusionSummary(patientId);
+  try {
+    var headers = { 'Content-Type': 'application/json' };
+    var token = _getFusionToken();
+    if (token) headers.Authorization = 'Bearer ' + token;
+    var res = await fetch(
+      FUSION_API_BASE + '/api/v1/fusion/recommend/' + encodeURIComponent(patientId),
+      { method: 'POST', headers: headers }
+    );
+    if (!res.ok) throw new Error('Fusion request failed (' + res.status + ')');
+    return await res.json();
+  } catch (_) {
+    return null;
+  }
+}
+
+export function renderFusionSummaryCard(fusion, patientId) {
+  if (!patientId && !fusion) {
+    return card('Fusion summary',
+      '<div style="color:var(--text-secondary);font-size:13px">Run or load an MRI analysis to assemble a fusion summary.</div>');
+  }
+  if (!fusion) {
+    return card('Fusion summary',
+      '<div style="color:var(--text-secondary);font-size:13px">Fusion summary unavailable right now. Existing MRI targeting remains available.</div>');
+  }
+  var recs = Array.isArray(fusion.recommendations) ? fusion.recommendations : [];
+  var tags = [];
+  if (fusion.qeeg_analysis_id) tags.push('qEEG ready');
+  if (fusion.mri_analysis_id) tags.push('MRI ready');
+  if (fusion.confidence != null) tags.push('confidence ' + Math.round(Number(fusion.confidence || 0) * 100) + '%');
+  return card('Fusion summary',
+    '<div style="font-size:13px;color:var(--text-primary);line-height:1.55">' + esc(fusion.summary || '') + '</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">' + tags.map(function (item) {
+      return '<span class="ds-mri-mod-pill">' + esc(item) + '</span>';
+    }).join('') + '</div>'
+    + (recs.length
+      ? '<ul style="margin:10px 0 0 18px;padding:0;color:var(--text-secondary);font-size:12.5px;line-height:1.5">'
+        + recs.map(function (item) { return '<li>' + esc(item) + '</li>'; }).join('')
+        + '</ul>'
+      : '')
+  );
+}
+
+var _niivueLoaderPromise = null;
+
+function _getApiBase() {
+  return (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
+}
+
+function _viewerVolumeCandidates(report, payload) {
+  if (payload && payload.base_volume && payload.base_volume.url) {
+    var out = [];
+    var base = { url: payload.base_volume.url };
+    if (payload.base_volume.colormap) base.colormap = payload.base_volume.colormap;
+    if (payload.base_volume.opacity != null) base.opacity = payload.base_volume.opacity;
+    if (payload.base_volume.cal_min != null) base.cal_min = payload.base_volume.cal_min;
+    if (payload.base_volume.cal_max != null) base.cal_max = payload.base_volume.cal_max;
+    out.push(base);
+    (payload.overlays || []).forEach(function (overlay) {
+      if (!overlay || !overlay.url) return;
+      out.push({
+        url: overlay.url,
+        colormap: overlay.colormap,
+        opacity: overlay.opacity,
+        cal_min: overlay.cal_min,
+        cal_max: overlay.cal_max,
+      });
+    });
+    return out;
+  }
+  if (!report) return [];
+  var candidates = [];
+  function push(label, url) {
+    if (!url || typeof url !== 'string') return;
+    candidates.push({ name: label, url: url });
+  }
+  push('T1', report._t1_mni_path);
+  if (report.diffusion) {
+    push('FA', report.diffusion.fa_map_s3);
+    push('MD', report.diffusion.md_map_s3);
+  }
+  return candidates;
+}
+
+function _renderViewerFallback(el, opts, reason) {
+  if (!el) return false;
+  var firstTarget = opts && opts.targets && opts.targets[0] ? opts.targets[0] : null;
+  var coords = firstTarget && Array.isArray(firstTarget.mni_xyz) ? firstTarget.mni_xyz.join(', ') : 'n/a';
+  el.innerHTML =
+    '<div class="ds-mri-progressive-viewer__fallback">'
+    + '<div class="ds-mri-progressive-viewer__badge">Viewer fallback</div>'
+    + '<div class="ds-mri-progressive-viewer__title">' + esc(firstTarget && firstTarget.region_name || 'MRI target preview') + '</div>'
+    + '<div class="ds-mri-progressive-viewer__meta">MNI ' + esc(coords) + '</div>'
+    + '<p>' + esc(reason || 'Interactive viewer assets are not staged for this analysis.') + '</p>'
+    + '</div>';
+  return false;
+}
+
+function _renderOverlayIframe(el, opts) {
+  if (!el || !opts || !opts.analysisId || !opts.targetId) return false;
+  var src = _getApiBase() + '/api/v1/mri/overlay/' + encodeURIComponent(opts.analysisId) + '/' + encodeURIComponent(opts.targetId);
+  el.innerHTML =
+    '<iframe class="ds-mri-progressive-viewer__iframe" src="' + esc(src) + '" title="MRI overlay viewer"></iframe>';
+  return true;
+}
+
+function _loadNiiVueScript() {
+  if (typeof window === 'undefined') return Promise.reject(new Error('window unavailable'));
+  if (window.niivue && window.niivue.Niivue) return Promise.resolve(window.niivue);
+  if (_niivueLoaderPromise) return _niivueLoaderPromise;
+  _niivueLoaderPromise = new Promise(function (resolve, reject) {
+    var prior = document.querySelector('script[data-niivue-loader="1"]');
+    if (prior) {
+      prior.addEventListener('load', function () { resolve(window.niivue); }, { once: true });
+      prior.addEventListener('error', function () { reject(new Error('NiiVue failed to load')); }, { once: true });
+      return;
+    }
+    var script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/niivue@0.64.0/dist/niivue.umd.js';
+    script.async = true;
+    script.dataset.niivueLoader = '1';
+    script.onload = function () {
+      if (window.niivue && window.niivue.Niivue) resolve(window.niivue);
+      else reject(new Error('NiiVue global missing'));
+    };
+    script.onerror = function () { reject(new Error('NiiVue failed to load')); };
+    document.head.appendChild(script);
+  }).catch(function (err) {
+    _niivueLoaderPromise = null;
+    throw err;
+  });
+  return _niivueLoaderPromise;
+}
+
+export async function mountNiiVue(el, opts) {
+  if (!el) return false;
+  var payload = null;
+  try {
+    if (opts && opts.analysisId && api.getMRIViewerPayload) {
+      payload = await api.getMRIViewerPayload(opts.analysisId);
+    }
+  } catch (_payloadErr) {
+    payload = null;
+  }
+  var volumes = _viewerVolumeCandidates(opts && opts.report, payload);
+  if (!volumes.length) {
+    return _renderOverlayIframe(el, opts) || _renderViewerFallback(el, opts, 'No staged NIfTI volumes were found for this analysis.');
+  }
+  try {
+    var niivueLib = await _loadNiiVueScript();
+    var canvas = document.createElement('canvas');
+    canvas.className = 'ds-mri-progressive-viewer__canvas';
+    el.innerHTML = '';
+    el.appendChild(canvas);
+    var nv = new niivueLib.Niivue({ show3Dcrosshair: true, backColor: [0.03, 0.07, 0.12, 1] });
+    if (typeof nv.attachToCanvas === 'function') nv.attachToCanvas(canvas);
+    if (typeof nv.setSliceType === 'function') nv.setSliceType(nv.sliceTypeMultiplanar || 4);
+    await nv.loadVolumes(volumes);
+    if (payload && payload.initial_view === 'render' && typeof nv.setSliceType === 'function') {
+      nv.setSliceType(nv.sliceTypeRender || nv.sliceTypeMultiplanar || 4);
+    }
+    if (payload && Array.isArray(payload.meshes) && payload.meshes.length && typeof nv.loadMeshes === 'function') {
+      try { await nv.loadMeshes(payload.meshes); } catch (_meshErr) {}
+    }
+    if (payload && Array.isArray(payload.points) && payload.points.length) {
+      payload.points.forEach(function (point) {
+        if (typeof nv.addPoint === 'function') {
+          try {
+            nv.addPoint({
+              x: point.x,
+              y: point.y,
+              z: point.z,
+              label: point.label,
+              color: point.rgba,
+              radius: point.radius_mm,
+            });
+          } catch (_pointErr) {}
+        }
+      });
+    }
+    return true;
+  } catch (_err) {
+    return _renderOverlayIframe(el, opts) || _renderViewerFallback(el, opts, 'The viewer library was unavailable, so the target overlay was loaded instead.');
+  }
+}
+
+function _mountInlineMRIViewer(report) {
+  var host = document.getElementById('ds-mri-progressive-viewer');
+  if (!host) return;
+  host.innerHTML = '<div class="ds-mri-progressive-viewer__loading"><span class="spinner"></span>Preparing viewer…</div>';
+  var target0 = report && Array.isArray(report.stim_targets) && report.stim_targets[0]
+    ? report.stim_targets[0]
+    : null;
+  mountNiiVue(host, {
+    analysisId: report && report.analysis_id,
+    patientId: report && report.patient && report.patient.patient_id,
+    targetId: target0 && target0.target_id,
+    targets: report && report.stim_targets,
+    report: report,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -276,6 +615,7 @@ export function _resetMRIState() {
   _jobId = null;
   _report = null;
   _patientMeta = null;
+  _fusionSummary = null;
   _medragCache = null;
   _jobStatus = null;
   if (_jobPollTimer) { clearInterval(_jobPollTimer); _jobPollTimer = null; }
@@ -508,14 +848,34 @@ export function renderSliceViewer(report) {
   var aid = report && report.analysis_id ? report.analysis_id : null;
   var target0 = report && Array.isArray(report.stim_targets) && report.stim_targets[0]
     ? report.stim_targets[0].target_id : null;
+  var patientId = report && report.patient && report.patient.patient_id ? report.patient.patient_id : '';
+  var targetCount = report && Array.isArray(report.stim_targets) ? report.stim_targets.length : 0;
   var openable = aid && target0;
-  var body = '<div class="ds-mri-slice-viewer">'
-    + '<div class="ds-mri-slice-viewer__icon">T1</div>'
-    + '<div class="ds-mri-slice-viewer__msg">Interactive viewer available after overlay load.</div>'
+  var viewerState = _viewerVolumeCandidates(report).length
+    ? 'NiiVue volume mount ready'
+    : (openable ? 'Overlay endpoint fallback ready' : 'Waiting for analysis assets');
+  var body = '<div class="ds-mri-slice-viewer ds-mri-progressive-viewer-card">'
+    + '<div class="ds-mri-progressive-viewer__head">'
+    + '<div><div class="ds-mri-progressive-viewer__eyebrow">Progressive MRI Viewer</div>'
+    + '<div class="ds-mri-progressive-viewer__msg">' + esc(viewerState) + '</div></div>'
+    + '<div class="ds-mri-progressive-viewer__count">' + esc(String(targetCount || 0)) + ' target(s)</div>'
+    + '</div>'
+    + '<div id="ds-mri-progressive-viewer" class="ds-mri-progressive-viewer"></div>'
+    + '<div class="ds-mri-progressive-viewer__actions">'
+    + (aid
+      ? '<button class="btn btn-sm ds-mri-open-viewer-json" data-aid="' + esc(aid) + '">Inspect viewer payload</button>'
+      : '')
     + (openable
       ? '<button class="btn btn-sm ds-mri-open-overlay" data-aid="' + esc(aid) + '" data-target="' + esc(target0) + '">'
-        + 'Open overlay for first target</button>'
+        + 'Open first-target overlay</button>'
       : '<button class="btn btn-sm" disabled>Overlay unavailable</button>')
+    + (aid
+      ? '<button class="btn btn-sm ds-mri-copy-viewer-url" data-aid="' + esc(aid) + '">Copy viewer endpoint</button>'
+      : '')
+    + (patientId
+      ? '<button class="btn btn-sm ds-mri-open-timeline" data-patient="' + esc(patientId) + '">Open patient timeline</button>'
+      : '')
+    + '</div>'
     + '</div>';
   return card('3-plane slice viewer', body);
 }
@@ -929,8 +1289,20 @@ export function renderLongitudinalReport(result) {
       + 'style="max-width:100%;border-radius:8px;border:1px solid rgba(255,255,255,0.08)"/>'
       + '</div>'
     : '';
+  var meta = result.comparison_meta || {};
+  var findings = Array.isArray(meta.key_findings) ? meta.key_findings : [];
+  var metaHtml = findings.length
+    ? '<div class="ds-mri-compare-meta"><div class="ds-mri-compare-meta__hd">Largest changes</div>'
+      + findings.map(function (item) {
+        var sign = Number(item.delta_pct) > 0 ? '+' : '';
+        var tone = Number(item.delta_pct) >= 0 ? '#22c55e' : '#ef4444';
+        return '<div class="ds-mri-compare-meta__row"><span>' + esc(item.domain) + ' · ' + esc(item.region) + '</span><strong style="color:' + tone + '">' + sign + esc(item.delta_pct) + '%</strong></div>';
+      }).join('')
+      + '</div>'
+    : '';
   return summary
     + days
+    + metaHtml
     + _deltaTable(result.structural_changes, 'Structural change (thickness & volume)')
     + _deltaTable(result.diffusion_changes, 'Diffusion change (bundle FA)')
     + _deltaTable(result.functional_changes, 'Functional change (within-network FC)')
@@ -941,18 +1313,23 @@ export function renderLongitudinalReport(result) {
 function renderBottomStrip(report) {
   var aid = report && report.analysis_id ? report.analysis_id : _mriAnalysisId;
   var disabled = aid ? '' : ' disabled';
+  var patientId = report && report.patient && report.patient.patient_id ? report.patient.patient_id : '';
   return '<div class="ds-mri-bottom-strip">'
     + '<div class="ds-mri-bottom-strip__group">'
     + '<span class="ds-mri-bottom-strip__label">Download report</span>'
     + '<button class="btn btn-sm ds-mri-dl-pdf"'  + disabled + '>PDF</button>'
     + '<button class="btn btn-sm ds-mri-dl-html"' + disabled + '>HTML</button>'
     + '<button class="btn btn-sm ds-mri-dl-json"' + disabled + '>JSON</button>'
+    + '<button class="btn btn-sm ds-mri-dl-fhir"' + disabled + '>FHIR</button>'
+    + '<button class="btn btn-sm ds-mri-dl-bids"' + disabled + '>BIDS</button>'
     + '</div>'
     + '<div class="ds-mri-bottom-strip__group">'
+    + _mriAnnotationButton({ patient_id: patientId, target_id: aid, anchor_label: 'MRI analysis' })
     + '<button class="btn btn-sm ds-mri-share"' + disabled + '>Share with referring provider</button>'
     + '<button class="btn btn-sm ds-mri-open-neuronav"' + disabled + '>Open in Neuronav</button>'
     + '</div>'
-    + '</div>';
+    + '</div>'
+    + '<div id="mri-annotation-drawer-host" class="analysis-anno-host"></div>';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -969,16 +1346,18 @@ export function renderFullView(state) {
     + renderPipelineProgress(status);
 
   var right;
-  if (!report) {
-    right = card('Results',
-      emptyState('&#x1F9E0;',
-        'No analysis loaded',
-        'Upload a session and click Run analysis to compute MNI stim targets.'));
-  } else {
+    if (!report) {
+      right = card('Results',
+        emptyState('&#x1F9E0;',
+          'No analysis loaded',
+          'Upload a session and click Run analysis to compute MNI stim targets.'))
+        + renderFusionSummaryCard(state.fusion || null, state.patientId || null);
+    } else {
     // Amber "radiology review advised" banner sits above everything else
     // in the right column — safety-first surfacing per AI_UPGRADES §P0 #5.
     right = renderQCWarningsBanner(report)
       + renderPatientQCHeader(report)
+      + renderFusionSummaryCard(state.fusion || null, report && report.patient && report.patient.patient_id)
       + renderMRIQCChips(report)
       + renderBrainAgeCard(report)
       + renderTargetsPanel(report)
@@ -1126,6 +1505,41 @@ function _startPolling(navigate) {
 }
 
 function _wireRightColumn(navigate) {
+  _bindMRIAnnotationButtons();
+  document.querySelectorAll('.ds-mri-open-viewer-json').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var aid = btn.getAttribute('data-aid');
+      if (!aid) return;
+      try {
+        var payload = await api.getMRIViewerPayload(aid);
+        _openViewerPayloadModal(aid, payload);
+      } catch (err) {
+        showToast('Viewer payload unavailable: ' + (err && err.message ? err.message : err), 'error');
+      }
+    });
+  });
+  document.querySelectorAll('.ds-mri-copy-viewer-url').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var aid = btn.getAttribute('data-aid');
+      if (!aid) return;
+      var _apiBase = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
+      var text = _apiBase + '/api/v1/mri/' + encodeURIComponent(aid) + '/viewer.json';
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast('Viewer endpoint copied', 'success');
+      } catch (_err) {
+        showToast(text, 'info');
+      }
+    });
+  });
+  document.querySelectorAll('.ds-mri-open-timeline').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var patientId = btn.getAttribute('data-patient');
+      if (!patientId) return;
+      window._patientTimelinePatientId = patientId;
+      navigate('patient-timeline');
+    });
+  });
   document.querySelectorAll('.ds-mri-view-overlay, .ds-mri-open-overlay').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var tid = btn.getAttribute('data-target');
@@ -1178,6 +1592,14 @@ function _wireRightColumn(navigate) {
     a.href = url; a.download = 'mri_report_' + (aid || 'demo') + '.json'; a.click();
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   });
+  var fhirBtn = document.querySelector('.ds-mri-dl-fhir');
+  if (fhirBtn) fhirBtn.addEventListener('click', function () {
+    window._mriExportFHIRBundle();
+  });
+  var bidsBtn = document.querySelector('.ds-mri-dl-bids');
+  if (bidsBtn) bidsBtn.addEventListener('click', function () {
+    window._mriExportBIDSPackage();
+  });
   var shareBtn = document.querySelector('.ds-mri-share');
   if (shareBtn) shareBtn.addEventListener('click', function () {
     showToast('Sharing coming soon', 'info');
@@ -1194,6 +1616,39 @@ function _wireRightColumn(navigate) {
     navigate('mri-analysis');
   });
 }
+
+function _mriExportPayload() {
+  var patientId = (_patientMeta && _patientMeta.patient_id) || (_report && _report.patient && _report.patient.patient_id) || null;
+  if (!patientId) return null;
+  return {
+    patient_id: patientId,
+    mri_analysis_id: (_report && _report.analysis_id) || _mriAnalysisId || null,
+  };
+}
+
+async function _exportMRIArtifact(kind) {
+  var payload = _mriExportPayload();
+  if (!payload) {
+    showToast('Run or load an MRI analysis before exporting', 'warning');
+    return;
+  }
+  try {
+    var blob = kind === 'fhir'
+      ? await api.exportFHIRBundle(payload)
+      : await api.exportBIDSDerivatives(payload);
+    var suffix = new Date().toISOString().slice(0, 10);
+    var filename = kind === 'fhir'
+      ? 'mri_fhir_bundle_' + payload.patient_id + '_' + suffix + '.json'
+      : 'mri_bids_derivatives_' + payload.patient_id + '_' + suffix + '.zip';
+    downloadBlob(blob, filename);
+    showToast(kind === 'fhir' ? 'FHIR bundle exported' : 'BIDS package exported', 'success');
+  } catch (err) {
+    showToast('Export failed: ' + ((err && err.message) || String(err)), 'error');
+  }
+}
+
+window._mriExportFHIRBundle = function () { return _exportMRIArtifact('fhir'); };
+window._mriExportBIDSPackage = function () { return _exportMRIArtifact('bids'); };
 
 function _openOverlayModal(aid, tid) {
   var _apiBase = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
@@ -1213,6 +1668,28 @@ function _openOverlayModal(aid, tid) {
     + '</div>';
   document.body.appendChild(modal);
   var closeBtn = document.getElementById('ds-mri-overlay-close');
+  if (closeBtn) closeBtn.addEventListener('click', function () { modal.remove(); });
+  modal.addEventListener('click', function (e) { if (e.target === modal) modal.remove(); });
+}
+
+function _openViewerPayloadModal(aid, payload) {
+  var existing = document.getElementById('ds-mri-viewer-modal');
+  if (existing) existing.remove();
+  var modal = document.createElement('div');
+  modal.id = 'ds-mri-viewer-modal';
+  modal.className = 'ds-mri-overlay-modal';
+  modal.innerHTML =
+    '<div class="ds-mri-overlay-modal__panel">'
+    + '<div class="ds-mri-overlay-modal__head">'
+    + '<strong>NiiVue payload · ' + esc(aid) + '</strong>'
+    + '<button class="btn btn-sm" id="ds-mri-viewer-close">Close</button>'
+    + '</div>'
+    + '<pre style="margin:0;padding:16px;max-height:70vh;overflow:auto;background:#0f1115;color:#d6deeb;font-size:12px;line-height:1.55">'
+    + esc(JSON.stringify(payload, null, 2))
+    + '</pre>'
+    + '</div>';
+  document.body.appendChild(modal);
+  var closeBtn = document.getElementById('ds-mri-viewer-close');
   if (closeBtn) closeBtn.addEventListener('click', function () { modal.remove(); });
   modal.addEventListener('click', function (e) { if (e.target === modal) modal.remove(); });
 }
@@ -1283,14 +1760,18 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
     ];
   }
   _patientAnalysesCache = { patientId: pid || null, rows: patientAnalyses };
+  _fusionSummary = await _fetchFusionSummary(pid || (_report && _report.patient && _report.patient.patient_id));
 
   if (el) {
     el.innerHTML = renderFullView({
       report: _report,
       status: _jobStatus,
       medrag: medrag,
+      fusion: _fusionSummary,
+      patientId: pid || null,
       patientAnalyses: patientAnalyses,
     });
+    _mountInlineMRIViewer(_report);
     _wireUploader(navigate);
     _wireRunButton(navigate);
     _wireRightColumn(navigate);
@@ -1362,5 +1843,6 @@ export var _INTERNALS = {
   setAnalysisId:     function (a) { _mriAnalysisId = a; },
   setUploadId:       function (u) { _uploadId = u; },
   setJobId:          function (j) { _jobId = j; },
+  mountNiiVue:       mountNiiVue,
   getReport:         function () { return _report; },
 };
