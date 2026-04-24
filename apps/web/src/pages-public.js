@@ -45,6 +45,7 @@ function pubTopbar() {
         <button class="pub-nav-link" onclick="window._navPublic('signup-patient')" title="Patient portal access">${t('pub.nav.patients')}</button>
         ${_pubLangMenu()}
         <button class="pub-nav-link" onclick="window._showSignIn()">${t('pub.nav.signin')}</button>
+        <button class="pub-nav-link" onclick="window._pubShowAppModal()">Get the App</button>
         <button class="btn btn-primary btn-sm" onclick="window._navPublic('signup-professional')" style="margin-left:4px">${t('pub.nav.trial')}</button>
       </div>
       <!-- Mobile CTA strip (hidden on desktop via CSS) -->
@@ -60,6 +61,63 @@ function pubTopbar() {
     </div>
   `;
 }
+
+window._pubOpenLogin = function(role) {
+  window._showSignIn?.();
+  setTimeout(function () {
+    if (typeof window.switchAuthTab === 'function') window.switchAuthTab('login');
+    var btn = document.getElementById(role === 'patient' ? 'dv2-role-pt' : 'dv2-role-clin');
+    if (typeof window._dv2PickRole === 'function' && btn) window._dv2PickRole(role, btn);
+    document.getElementById('login-email')?.focus();
+  }, 40);
+};
+
+window._pubInstallHint = function() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent || '')
+    ? 'On iPhone or iPad, tap Share and then Add to Home Screen.'
+    : 'On Android or desktop Chrome, use Install App or Add to Home Screen from the browser menu.';
+};
+
+window._pubShowAppModal = function() {
+  var existing = document.getElementById('pub-app-modal');
+  if (existing) { existing.remove(); return; }
+  var modal = document.createElement('div');
+  modal.id = 'pub-app-modal';
+  modal.className = 'pub-app-modal';
+  modal.innerHTML = `
+    <div class="pub-app-modal__panel">
+      <button class="pub-app-modal__close" onclick="document.getElementById('pub-app-modal')?.remove()" aria-label="Close">×</button>
+      <div class="pub-app-modal__eyebrow">DeepSynaps on mobile</div>
+      <h3>Get the app or open the right login.</h3>
+      <p>Patients and clinicians can both use DeepSynaps on their phone. Install it as an app, or jump straight into the right access flow.</p>
+      <div class="pub-app-modal__grid">
+        <div class="pub-app-modal__card primary">
+          <div class="pub-app-modal__icon">📱</div>
+          <div class="pub-app-modal__title">Install App</div>
+          <div class="pub-app-modal__body">Use DeepSynaps as an installed app on iPhone, Android, tablet, or desktop.</div>
+          <button class="btn btn-primary btn-lg" onclick="window._installPWA?.()">Install DeepSynaps</button>
+          <div class="pub-app-modal__hint">${window._pubInstallHint()}</div>
+        </div>
+        <div class="pub-app-modal__card secondary">
+          <div class="pub-app-modal__icon">🩺</div>
+          <div class="pub-app-modal__title">Clinician Access</div>
+          <div class="pub-app-modal__body">Doctors and staff sign in to the clinician workspace for scheduling, review, outcomes, and messaging.</div>
+          <button class="btn btn-ghost btn-lg" onclick="document.getElementById('pub-app-modal')?.remove();window._pubOpenLogin('clinician')">Clinician Sign In</button>
+        </div>
+        <div class="pub-app-modal__card tertiary">
+          <div class="pub-app-modal__icon">💙</div>
+          <div class="pub-app-modal__title">Patient Access</div>
+          <div class="pub-app-modal__body">Patients activate their portal from an invite code or clinic email, then use the same installed app.</div>
+          <button class="btn btn-ghost btn-lg" onclick="document.getElementById('pub-app-modal')?.remove();window._navPublic('signup-patient')">Patient Portal</button>
+        </div>
+      </div>
+    </div>
+  `;
+  modal.addEventListener('click', function (e) {
+    if (e.target === modal) modal.remove();
+  });
+  document.body.appendChild(modal);
+};
 
 // expose locale switching globally so onclick handlers work
 window._pubSetLocale = function(code) {
@@ -315,6 +373,9 @@ export function pgHome() {
           <h1>Run your TMS &amp; neurofeedback clinic — <em>from first session to proven outcome.</em></h1>
           <p class="pub-hero-sub">${t('pub.hero.sub')}</p>
           <div class="pub-hero-ctas">
+            <button class="btn btn-primary btn-lg" onclick="window._pubShowAppModal()">Get the App</button>
+            <button class="btn btn-ghost btn-lg" onclick="window._pubOpenLogin('clinician')">Doctor Sign In</button>
+            <button class="btn btn-ghost btn-lg" onclick="window._navPublic('signup-patient')">Patient Portal</button>
             <button class="btn btn-primary btn-lg" onclick="window._startDemoTour()">${t('pub.hero.cta.tour')}</button>
             <button class="btn btn-ghost btn-lg" onclick="window._nav('pricing')">${t('pub.hero.cta.pricing')}</button>
           </div>
@@ -362,6 +423,37 @@ export function pgHome() {
     </div>
 
     <!-- ─── FEATURES (4 cards w/ inline SVG icons) ──────────────────────── -->
+    <section class="pub-section" style="padding-top:28px">
+      <div class="pub-section-head">
+        <div class="pub-section-kicker">One landing page, three paths</div>
+        <h2>Patients and doctors start from the same place.</h2>
+        <p class="lead">The landing page works as the distribution hub: install the app, sign in as a clinician, or activate patient access from an invite.</p>
+      </div>
+      <div class="pub-mobile-hub">
+        <div class="pub-mobile-hub__card primary">
+          <div class="pub-mobile-hub__icon">📱</div>
+          <div class="pub-mobile-hub__title">Get the App</div>
+          <div class="pub-mobile-hub__body">Install DeepSynaps as a phone app using the built-in PWA flow. One install works for both patients and clinicians.</div>
+          <button class="btn-hero-primary" onclick="window._pubShowAppModal()">Open App Options</button>
+          <div class="pub-mobile-hub__meta">iPhone, Android, tablet, and desktop supported.</div>
+        </div>
+        <div class="pub-mobile-hub__card">
+          <div class="pub-mobile-hub__icon">🩺</div>
+          <div class="pub-mobile-hub__title">For Doctors</div>
+          <div class="pub-mobile-hub__body">Clinicians can sign in on web or phone, then use mobile for alerts, messaging, patient review, and quick follow-up checks.</div>
+          <button class="btn-hero-secondary" onclick="window._pubOpenLogin('clinician')">Clinician Sign In</button>
+          <div class="pub-mobile-hub__meta">Desktop remains best for dense qEEG and MRI analysis.</div>
+        </div>
+        <div class="pub-mobile-hub__card">
+          <div class="pub-mobile-hub__icon">💙</div>
+          <div class="pub-mobile-hub__title">For Patients</div>
+          <div class="pub-mobile-hub__body">Patients use the same landing page to activate their portal, install the app, and check messages, forms, appointments, and progress.</div>
+          <button class="btn-hero-secondary" onclick="window._navPublic('signup-patient')">Activate Patient Portal</button>
+          <div class="pub-mobile-hub__meta">Invite code or clinic email required for first-time access.</div>
+        </div>
+      </div>
+    </section>
+
     <section class="pub-section dv2-features-section">
       <div class="pub-section-head">
         <div class="pub-section-kicker">${t('pub.section.features')}</div>
@@ -564,6 +656,28 @@ export function pgHome() {
       .dv2-hero .pub-hero-sub { font-size: 17px; line-height: 1.55; color: var(--text-secondary);
         max-width: 540px; margin: 0 0 32px; }
       .dv2-hero .pub-hero-ctas { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+      .pub-mobile-hub { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; }
+      .pub-mobile-hub__card { background:linear-gradient(180deg, rgba(14,22,40,0.88), rgba(8,13,26,0.96)); border:1px solid var(--border); border-radius:22px; padding:24px; box-shadow:0 24px 60px rgba(0,0,0,0.28); }
+      .pub-mobile-hub__card.primary { border-color:rgba(0,212,188,0.35); background:linear-gradient(135deg, rgba(0,212,188,0.08), rgba(14,22,40,0.95)); }
+      .pub-mobile-hub__icon { width:48px; height:48px; display:flex; align-items:center; justify-content:center; border-radius:14px; margin-bottom:14px; background:rgba(255,255,255,0.06); font-size:22px; }
+      .pub-mobile-hub__title { font-family:var(--font-display, 'Outfit', system-ui, sans-serif); font-size:20px; font-weight:600; letter-spacing:-0.02em; margin-bottom:8px; color:var(--text-primary); }
+      .pub-mobile-hub__body { color:var(--text-secondary); font-size:13px; line-height:1.65; margin-bottom:16px; min-height:84px; }
+      .pub-mobile-hub__meta { margin-top:12px; font-size:11.5px; color:var(--text-tertiary); line-height:1.5; }
+      .pub-app-modal { position:fixed; inset:0; z-index:1200; background:rgba(3,8,18,0.72); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; padding:24px; }
+      .pub-app-modal__panel { position:relative; width:min(1040px, 100%); max-height:calc(100vh - 48px); overflow:auto; border-radius:28px; border:1px solid rgba(255,255,255,0.1); background:linear-gradient(180deg, rgba(14,22,40,0.96), rgba(8,13,26,0.99)); padding:28px; box-shadow:0 40px 120px rgba(0,0,0,0.45); }
+      .pub-app-modal__close { position:absolute; top:16px; right:16px; width:40px; height:40px; border:none; border-radius:999px; cursor:pointer; background:rgba(255,255,255,0.06); color:var(--text-primary); font-size:24px; line-height:1; }
+      .pub-app-modal__eyebrow { font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--teal); font-weight:700; margin-bottom:8px; }
+      .pub-app-modal__panel h3 { font-family:var(--font-display, 'Outfit', system-ui, sans-serif); font-size:30px; letter-spacing:-0.03em; margin:0 0 10px; }
+      .pub-app-modal__panel > p { color:var(--text-secondary); max-width:720px; line-height:1.65; margin-bottom:22px; }
+      .pub-app-modal__grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
+      .pub-app-modal__card { border:1px solid var(--border); border-radius:22px; padding:22px; background:rgba(255,255,255,0.03); }
+      .pub-app-modal__card.primary { border-color:rgba(0,212,188,0.35); }
+      .pub-app-modal__card.secondary { border-color:rgba(74,158,255,0.26); }
+      .pub-app-modal__card.tertiary { border-color:rgba(167,139,250,0.26); }
+      .pub-app-modal__icon { font-size:24px; margin-bottom:12px; }
+      .pub-app-modal__title { font-family:var(--font-display, 'Outfit', system-ui, sans-serif); font-size:18px; font-weight:600; margin-bottom:8px; }
+      .pub-app-modal__body { color:var(--text-secondary); font-size:13px; line-height:1.6; margin-bottom:16px; min-height:66px; }
+      .pub-app-modal__hint { margin-top:12px; font-size:11.5px; line-height:1.5; color:var(--text-tertiary); }
 
       .dv2-trust-chips { margin-top: 28px; display: flex; gap: 10px; flex-wrap: wrap; }
       .dv2-chip { display: inline-flex; align-items: center; gap: 6px;
@@ -617,6 +731,12 @@ export function pgHome() {
 
       .pub-features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
       .dv2-features-4 { grid-template-columns: repeat(4, 1fr); }
+      @media (max-width: 980px) {
+        .pub-mobile-hub { grid-template-columns:1fr; }
+        .pub-mobile-hub__body { min-height:0; }
+        .pub-app-modal__grid { grid-template-columns:1fr; }
+        .pub-app-modal__body { min-height:0; }
+      }
       @media (max-width: 1100px) { .dv2-features-4 { grid-template-columns: repeat(2, 1fr); } }
       @media (max-width: 600px)  { .dv2-features-4 { grid-template-columns: 1fr; } }
       .pub-feature { padding: 28px 26px; border-radius: var(--radius-xl, 20px);
