@@ -707,6 +707,16 @@ function calloutTLDR(body) {
   </div>`;
 }
 
+function calloutSnapshot(body) {
+  return `<div style="display:grid;grid-template-columns:auto 1fr;gap:14px;padding:16px 18px;border-radius:${T.rmd};margin:0 0 24px;border:1px solid rgba(0,212,188,0.28);background:linear-gradient(135deg, rgba(0,212,188,0.12), rgba(74,158,255,0.08) 58%, rgba(255,255,255,0.02))">
+    <div style="width:32px;height:32px;border-radius:50%;background:${T.teal};color:#04121c;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:${T.fmono};box-shadow:0 0 0 6px rgba(0,212,188,0.08)">!</div>
+    <div>
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:${T.teal};margin-bottom:4px">Clinical snapshot</div>
+      <div style="color:${T.text1};font-size:14px;line-height:1.55">${esc(body)}</div>
+    </div>
+  </div>`;
+}
+
 function checklistBlock(entryId, items) {
   if (!items || !items.length) return `<p style="color:${T.text3}">No checklist on file.</p>`;
   const key = `ds_handbook_checklist_${entryId}`;
@@ -904,6 +914,115 @@ function renderLeftRail(entries) {
 }
 
 // ── Center reading pane ──────────────────────────────────────────────────────
+function renderCenterV2(entry, sections) {
+  if (!entry) {
+    const entries = buildEntries();
+    const byCat = new Map();
+    for (const e of entries) {
+      if (!byCat.has(e.collection)) byCat.set(e.collection, []);
+      byCat.get(e.collection).push(e);
+    }
+    const catOrder = [...new Set(CONDITION_REGISTRY.map(c => c.cat))];
+    const ordered = [...catOrder, 'Protocols', 'Safety & Ops', 'Training']
+      .filter(c => byCat.has(c))
+      .map(c => [c, byCat.get(c)]);
+    for (const [k, v] of byCat) if (!ordered.find(([x]) => x === k)) ordered.push([k, v]);
+
+    const cards = ordered.slice(0, 9).map(([cat, items]) => {
+      const sample = items[0];
+      return `<button onclick="window._hbOpen('${esc(sample.id)}')"
+        style="text-align:left;padding:16px;border-radius:${T.rmd};background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));border:1px solid ${T.border};cursor:pointer;font-family:inherit;display:flex;flex-direction:column;gap:7px;transition:border-color 0.15s, transform 0.15s"
+        onmouseover="this.style.borderColor='${T.teal}';this.style.transform='translateY(-1px)'"
+        onmouseout="this.style.borderColor='${T.border}';this.style.transform='translateY(0)'">
+        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-family:${T.fmono};font-weight:600;display:flex;align-items:center;justify-content:space-between">
+          <span>${esc(cat)}</span>
+          <span style="color:${T.text3};font-weight:500">${items.length} doc${items.length===1?'':'s'}</span>
+        </div>
+        <div style="font-size:15px;color:${T.text1};font-weight:600;font-family:${T.fdisp};line-height:1.3">${esc(sample.title)}</div>
+        <div style="font-size:11.5px;color:${T.text2};overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(sample.subtitle || '')}</div>
+      </button>`;
+    }).join('');
+
+    const total = entries.length;
+    const collections = ordered.length;
+    const featured = ordered[0]?.[1]?.[0];
+    return `<section style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};padding:42px clamp(20px, 4vw, 56px);min-height:calc(100vh - 180px);overflow-y:auto;max-height:calc(100vh - 120px)">
+      <div style="max-width:900px;margin:0 auto">
+        <div style="padding:24px;border:1px solid ${T.border};border-radius:${T.rmd};background:radial-gradient(circle at top left, rgba(0,212,188,0.16), transparent 30%), linear-gradient(135deg, rgba(255,255,255,0.03), rgba(74,158,255,0.05) 58%, rgba(255,181,71,0.04));margin-bottom:18px">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:${T.teal};font-family:${T.fmono};font-weight:600;margin-bottom:8px">Editorial handbooks library</div>
+          <h1 style="font-family:${T.fdisp};font-size:34px;font-weight:600;letter-spacing:-0.025em;line-height:1.05;margin:0 0 10px;color:${T.text1}">Clinical playbooks, protocols, and operating notes in one reading room.</h1>
+          <p style="font-size:14.5px;color:${T.text2};line-height:1.65;margin:0 0 16px;max-width:670px">Browse condition guides, protocol handbooks, safety SOPs, and training references with the same interface clinicians use during review. Open a document from the rail, generate an evidence-backed draft, or export the active handbook to DOCX.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <div style="padding:9px 12px;border-radius:999px;border:1px solid ${T.border};background:rgba(255,255,255,0.04);font-family:${T.fmono};font-size:11px;color:${T.text2}">${total} documents live</div>
+            <div style="padding:9px 12px;border-radius:999px;border:1px solid ${T.border};background:rgba(255,255,255,0.04);font-family:${T.fmono};font-size:11px;color:${T.text2}">${collections} collections</div>
+            <div style="padding:9px 12px;border-radius:999px;border:1px solid ${T.border};background:rgba(255,255,255,0.04);font-family:${T.fmono};font-size:11px;color:${T.text2}">Search, favourite, export</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin:0 0 28px">
+          <button onclick="document.getElementById('hb-filter')?.focus()" style="padding:8px 14px;border-radius:${T.rsm};font-size:12px;font-weight:600;color:${T.teal};background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.32);cursor:pointer;font-family:inherit">Search the library</button>
+          <button onclick="window._hbOpen('${esc(featured?.id || 'mdd')}')" style="padding:8px 14px;border-radius:${T.rsm};font-size:12px;color:${T.text2};background:${T.surface};border:1px solid ${T.border};cursor:pointer;font-family:inherit">Open featured handbook</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:12px">${cards}</div>
+      </div>
+    </section>`;
+  }
+
+  const version = entry.version || 'v1.0';
+  const minutes = readTime(JSON.stringify(entry.data || {}));
+  const tldr = (entry.data?.responseData || entry.data?.expectedResponse || entry.data?.patientExplain || `Canonical clinic handbook for ${entry.title}.`);
+  const heroTag = entry.kind === 'protocol' ? 'Protocol handbook' : entry.kind === 'condition' ? 'Condition handbook' : entry.kind === 'train' ? 'Training handbook' : 'Operations handbook';
+  const sopNum = `SOP-${(entry.id||'').toUpperCase().slice(0,8)}`;
+  const isFav = _isFav(entry.id);
+  const docxDisabled = entry.kind !== 'condition' && entry.kind !== 'protocol';
+
+  return `<section style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};display:flex;flex-direction:column;overflow:hidden;min-width:0">
+    <header style="padding:10px 22px;border-bottom:1px solid ${T.border};background:${T.bg};display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:7px;font-size:11.5px;color:${T.text3};font-weight:500;font-family:${T.fmono}">
+        <span>${esc(heroTag)}</span><span style="opacity:.4">/</span>
+        <span>${esc(entry.collection || 'Reference')}</span><span style="opacity:.4">/</span>
+        <strong style="color:${T.text1};font-weight:600">${esc(entry.title)}</strong>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:6px">
+        <button onclick="window._hbToggleFav('${esc(entry.id)}')" title="${isFav ? 'Remove from favourites' : 'Add to favourites'}"
+          style="padding:5px 11px;border-radius:5px;font-size:11px;color:${isFav ? T.amber : T.text2};background:transparent;border:1px solid ${isFav ? T.amber : T.border};cursor:pointer;font-family:inherit">${isFav ? 'Saved' : 'Save'}</button>
+        <button id="hb-export-docx-btn" onclick="window._hbExportDocx('${esc(entry.id)}')" ${docxDisabled ? 'disabled' : ''}
+          style="padding:5px 11px;border-radius:5px;font-size:11px;color:${docxDisabled ? T.text3 : T.text2};background:transparent;border:1px solid ${T.border};cursor:${docxDisabled ? 'not-allowed' : 'pointer'};font-family:inherit"
+          title="${docxDisabled ? 'DOCX export is only available for condition and protocol handbooks.' : 'Export as Word document'}">DOCX</button>
+        <button onclick="window._hbPrint()" style="padding:5px 11px;border-radius:5px;font-size:11px;color:${T.text2};background:transparent;border:1px solid ${T.border};cursor:pointer;font-family:inherit">Print</button>
+      </div>
+    </header>
+    <div id="hb-reading-pane" style="flex:1;overflow-y:auto;padding:0;max-height:calc(100vh - 180px)">
+      <article style="max-width:min(900px, 100%);margin:0 auto;padding:42px clamp(20px, 5vw, 56px) 96px;font-family:${T.fbody};color:${T.text2};line-height:1.65;font-size:15px">
+        <div style="display:inline-flex;align-items:center;gap:7px;padding:4px 10px;background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.22);border-radius:999px;font-size:10.5px;color:${T.teal};font-weight:600;letter-spacing:0.04em;font-family:${T.fmono};text-transform:uppercase">
+          <span style="background:${T.teal};color:#04121c;padding:1px 5px;border-radius:3px;font-weight:700">${esc(sopNum)}</span>${esc(heroTag)}
+        </div>
+        <h1 style="font-family:${T.fdisp};font-size:38px;font-weight:600;letter-spacing:-0.025em;line-height:1.1;margin:14px 0 10px;color:${T.text1};text-wrap:balance">${esc(entry.title)}</h1>
+        <p style="font-size:16px;color:${T.text2};line-height:1.55;max-width:620px;margin:0">${esc(entry.subtitle)}</p>
+        <div style="margin-top:18px;padding:18px;border:1px solid ${T.border};border-radius:${T.rmd};background:linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01))">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+            <span style="padding:7px 10px;border-radius:999px;background:${T.surface};border:1px solid ${T.border};font-size:11px;color:${T.text2};font-family:${T.fmono}">Version <strong style="color:${T.text1}">${esc(version)}</strong></span>
+            <span style="padding:7px 10px;border-radius:999px;background:${T.surface};border:1px solid ${T.border};font-size:11px;color:${T.text2};font-family:${T.fmono}">${esc(String(minutes))} min read</span>
+            <span style="padding:7px 10px;border-radius:999px;background:${T.surface};border:1px solid ${T.border};font-size:11px;color:${T.text2};font-family:${T.fmono}">${esc(entry.collection || 'Reference')}</span>
+          </div>
+          <p style="margin:0;font-size:13.5px;line-height:1.65;color:${T.text2};max-width:700px">This page is structured as a working handbook rather than a static article: start with the snapshot below, move section by section through workflow and safeguards, and use the right rail for orientation while you read.</p>
+        </div>
+
+        <div style="margin-top:28px">
+          ${calloutSnapshot(tldr)}
+
+          ${sections.map(s => `
+            <h2 id="hb-${esc(s.id)}" style="font-family:${T.fdisp};font-size:21px;font-weight:600;letter-spacing:-0.015em;color:${T.text1};margin:38px 0 12px;scroll-margin-top:24px;display:flex;align-items:center;gap:12px">
+              <span style="font-family:${T.fmono};font-size:11px;color:${T.text3};background:${T.surface};padding:3px 8px;border-radius:4px;font-weight:600;letter-spacing:0.04em">${esc(s.num)}</span>
+              ${esc(s.title)}
+            </h2>
+            <div>${s.render()}</div>
+          `).join('')}
+        </div>
+      </article>
+    </div>
+  </section>`;
+}
+
 function renderCenter(entry, sections) {
   if (!entry) {
     // Build a welcoming overview: one "suggested" card per collection + the
@@ -1007,6 +1126,70 @@ function renderCenter(entry, sections) {
 }
 
 // ── Right rail: TOC + meta + history + contributors + back-refs ──────────────
+function renderRightRailV2(entry, sections) {
+  if (!entry) {
+    return `<aside style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};padding:18px;color:${T.text3};font-size:12px;position:sticky;top:0;align-self:start">No handbook open.</aside>`;
+  }
+
+  const version = entry.version || 'v1.0';
+  const reviewStatus = 'Queued';
+  const reviewColor = T.amber;
+  const protocolRefCount = entry.kind === 'condition'
+    ? PROTOCOL_REGISTRY.filter(p => p.condition === entry.id).length
+    : 0;
+
+  return `<aside style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};display:flex;flex-direction:column;overflow:hidden;position:sticky;top:0;align-self:start;max-height:calc(100vh - 120px)">
+    <div style="flex:1;overflow-y:auto">
+      <div style="padding:16px;border-bottom:1px solid ${T.border};background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent)">
+        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono}">On this page</div>
+        <nav id="hb-toc" style="display:flex;flex-direction:column">
+          ${sections.map(s => `
+            <a href="#hb-${esc(s.id)}" data-toc="${esc(s.id)}" onclick="window._hbScroll(event,'${esc(s.id)}')"
+               style="padding:5px 0 5px 10px;border-left:2px solid transparent;font-size:11.5px;color:${_section===s.id?T.text1:T.text3};text-decoration:none;line-height:1.4;font-weight:${_section===s.id?'600':'400'};border-left-color:${_section===s.id?T.teal:'transparent'}">
+              ${esc(s.num)} ${esc(s.title)}
+            </a>`).join('')}
+        </nav>
+      </div>
+
+      <div style="padding:16px;border-bottom:1px solid ${T.border}">
+        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono};display:flex;align-items:center;justify-content:space-between">
+          Editorial status
+          <span style="font-family:${T.fmono};font-size:9.5px;color:${reviewColor};border:1px solid ${reviewColor};padding:1px 7px;border-radius:999px">o ${esc(reviewStatus)}</span>
+        </div>
+        <div style="font-size:11px;color:${T.text3};line-height:1.5">
+          Review workflow will surface owner, reviewer, and due date once the governance queue is connected. The handbook content below is still readable and exportable today.
+        </div>
+      </div>
+
+      <div style="padding:16px;border-bottom:1px solid ${T.border}">
+        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono};display:flex;align-items:center;justify-content:space-between">
+          Release track <span style="color:${T.text3};font-weight:500">${esc(version)}</span>
+        </div>
+        <div style="font-size:11px;color:${T.text3};line-height:1.5">
+          Detailed revision notes are not wired yet. For now, the active version label reflects the current handbook snapshot in the app.
+        </div>
+      </div>
+
+      <div style="padding:16px;border-bottom:1px solid ${T.border}">
+        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono}">Desk notes</div>
+        <div style="font-size:11px;color:${T.text3};line-height:1.5">Use favourites to build a personal short-list in the left rail while the contributor and sign-off services are still offline.</div>
+      </div>
+
+      <div style="padding:16px">
+        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono};display:flex;align-items:center;justify-content:space-between">
+          Linked records <span style="color:${T.text3};font-weight:500">${protocolRefCount}</span>
+        </div>
+        ${protocolRefCount > 0
+          ? `<button onclick="window._hbToast('Linked records','${protocolRefCount} linked record${protocolRefCount===1?'':'s'} in the protocol registry.')"
+              style="width:100%;padding:8px 10px;border-radius:6px;font-size:11.5px;color:${T.text2};background:${T.surface};border:1px solid ${T.border};cursor:pointer;font-family:inherit;text-align:left">
+              -> ${protocolRefCount} linked ${entry.kind==='condition' ? 'protocol' + (protocolRefCount===1?'':'s') : 'record' + (protocolRefCount===1?'':'s')} in the registry
+            </button>`
+          : `<div style="font-size:11px;color:${T.text3};line-height:1.5">No linked registry records for this handbook yet.</div>`}
+      </div>
+    </div>
+  </aside>`;
+}
+
 function renderRightRail(entry, sections) {
   if (!entry) {
     return `<aside style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};padding:18px;color:${T.text3};font-size:12px;position:sticky;top:0;align-self:start">No handbook open.</aside>`;
@@ -1091,8 +1274,8 @@ function render() {
     <div class="hb-shell" style="background:${T.bg};min-height:100%;padding:16px;font-family:${T.fbody};color:${T.text1}">
       <div class="hb-cols">
         ${renderLeftRail(entries)}
-        ${renderCenter(entry, sections)}
-        ${renderRightRail(entry, sections)}
+        ${renderCenterV2(entry, sections)}
+        ${renderRightRailV2(entry, sections)}
       </div>
     </div>`;
 
@@ -1124,7 +1307,7 @@ function render() {
 // ── Public entry point ───────────────────────────────────────────────────────
 export async function pgHandbooks(setTopbar /*, navigate */) {
   if (typeof setTopbar === 'function') {
-    setTopbar('Handbooks', `<span style="font-size:0.8rem;color:${T.text2};align-self:center">Clinical knowledge base · 65 documents</span>`);
+    setTopbar('Handbooks', `<span style="font-size:0.8rem;color:${T.text2};align-self:center">Editorial knowledge base · 65 documents</span>`);
   }
   _el = document.getElementById('content');
   if (!_el) return;
