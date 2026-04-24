@@ -244,6 +244,16 @@ export async function pgDevices(setTopbar) {
   window._devicesData = items;
   window._devEvStats  = _devEvStats;
 
+  window._openDeviceDetail = function(idx) {
+    const device = (window._devicesData || [])[idx];
+    if (!device) return;
+    const protoDevice = _findProtoDevice(device);
+    const _did = (device.id || '').toLowerCase();
+    const _dmod = (device.modality || device.name || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const de = (window._devEvStats || {})[_did] || (window._devEvStats || {})[_dmod] || {};
+    _openDeviceModal(device, de, protoDevice);
+  };
+
   window.filterDevices = function() {
     const q = document.getElementById('dev-search').value.toLowerCase();
     const mod = document.getElementById('dev-modality').value;
@@ -257,6 +267,262 @@ export async function pgDevices(setTopbar) {
   };
 }
 
+// ── Device type colour + SVG illustrations ──────────────────────────────────
+const _DEV_COLORS = {
+  tms:'#8b5cf6', tdcs:'#3b82f6', tacs:'#0ea5e9', ces:'#f59e0b', tavns:'#14b8a6',
+  tps:'#ec4899', pbm:'#f97316', pemf:'#6366f1', nf:'#10b981', tus:'#06b6d4',
+  dbs:'#e11d48', vns:'#8b5cf6', other:'#64748b',
+};
+
+function _miniDeviceSvg(deviceId) {
+  const c = _DEV_COLORS[deviceId] || '#64748b';
+  const w = 110, h = 50;
+  // Each device type gets a distinctive waveform/icon SVG
+  let path = '';
+  switch (deviceId) {
+    case 'tms': // magnetic pulse bursts
+      path = `<circle cx="55" cy="22" r="14" fill="none" stroke="${c}" stroke-width="1.5" opacity="0.5"/>
+        <circle cx="55" cy="22" r="8" fill="none" stroke="${c}" stroke-width="2"/>
+        <line x1="18" y1="40" x2="92" y2="40" stroke="${c}" stroke-width="0.4" stroke-dasharray="2,3" opacity="0.3"/>
+        ${[25,40,55,70,85].map((x,i) => {const a = [18,28,22,26,14][i]; return `<line x1="${x}" y1="40" x2="${x}" y2="${40-a}" stroke="${c}" stroke-width="2" stroke-linecap="round" opacity="0.7"/>`; }).join('')}`;
+      break;
+    case 'tdcs': // steady DC current flow
+      path = `<rect x="15" y="14" width="18" height="24" rx="3" fill="${c}" opacity="0.15" stroke="${c}" stroke-width="1"/>
+        <rect x="77" y="14" width="18" height="24" rx="3" fill="${c}" opacity="0.15" stroke="${c}" stroke-width="1"/>
+        <text x="24" y="30" font-size="10" fill="${c}" text-anchor="middle" font-weight="700">+</text>
+        <text x="86" y="30" font-size="10" fill="${c}" text-anchor="middle" font-weight="700">&minus;</text>
+        <path d="M36 26 Q55 18 74 26" fill="none" stroke="${c}" stroke-width="1.5" stroke-dasharray="4,2" opacity="0.6"/>
+        <polygon points="72,24 76,26 72,28" fill="${c}" opacity="0.6"/>`;
+      break;
+    case 'tacs': // alternating sine wave
+      { const pts = []; for (let i=0;i<=50;i++){const t=i/50; const x=10+t*90; const y=25-Math.sin(t*4*Math.PI)*14; pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);} 
+        path = `<polyline points="${pts.join(' ')}" fill="none" stroke="${c}" stroke-width="1.8" stroke-linecap="round" opacity="0.8"/>
+        <line x1="10" y1="25" x2="100" y2="25" stroke="${c}" stroke-width="0.3" stroke-dasharray="2,3" opacity="0.3"/>`; }
+      break;
+    case 'ces': // dual ear clips with current
+      path = `<ellipse cx="28" cy="25" rx="10" ry="14" fill="none" stroke="${c}" stroke-width="1.5" opacity="0.6"/>
+        <ellipse cx="82" cy="25" rx="10" ry="14" fill="none" stroke="${c}" stroke-width="1.5" opacity="0.6"/>
+        <circle cx="28" cy="25" r="3" fill="${c}" opacity="0.4"/>
+        <circle cx="82" cy="25" r="3" fill="${c}" opacity="0.4"/>
+        <path d="M38 25 Q55 18 72 25" fill="none" stroke="${c}" stroke-width="1.2" stroke-dasharray="3,2" opacity="0.5"/>`;
+      break;
+    case 'tavns': // ear with stimulation point
+      path = `<path d="M45 8 Q30 18 32 30 Q34 42 45 44 Q56 42 58 30 Q60 18 45 8" fill="none" stroke="${c}" stroke-width="1.5" opacity="0.6"/>
+        <circle cx="42" cy="28" r="4" fill="${c}" opacity="0.5"/>
+        ${[0,1,2].map(i => `<circle cx="42" cy="28" r="${8+i*5}" fill="none" stroke="${c}" stroke-width="0.8" opacity="${0.3-i*0.08}"/>`).join('')}
+        <line x1="62" y1="28" x2="95" y2="28" stroke="${c}" stroke-width="1" stroke-dasharray="3,2" opacity="0.4"/>`;
+      break;
+    case 'nf': // EEG feedback loop
+      { const pts = []; for (let i=0;i<=40;i++){const t=i/40; const x=10+t*90; const y=20-Math.sin(t*8*Math.PI)*8*Math.exp(-t*1.5); pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);} 
+        path = `<polyline points="${pts.join(' ')}" fill="none" stroke="${c}" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/>
+        <path d="M80 20 Q90 10 95 20 Q90 30 80 20" fill="${c}" opacity="0.15" stroke="${c}" stroke-width="1"/>
+        <line x1="10" y1="38" x2="100" y2="38" stroke="${c}" stroke-width="0.3" stroke-dasharray="2,3" opacity="0.3"/>
+        <polyline points="10,38 30,34 50,36 70,30 90,32" fill="none" stroke="${c}" stroke-width="1" opacity="0.4"/>`; }
+      break;
+    case 'pbm': // light beam rays
+      path = `<circle cx="55" cy="22" r="10" fill="${c}" opacity="0.15" stroke="${c}" stroke-width="1.2"/>
+        ${[0,1,2,3,4,5].map(i => { const a=i*60*Math.PI/180; const x1=55+14*Math.cos(a); const y1=22+14*Math.sin(a); const x2=55+22*Math.cos(a); const y2=22+22*Math.sin(a); return `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${c}" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>`; }).join('')}`;
+      break;
+    case 'tps': case 'tus': // ultrasound pulses
+      path = `<rect x="20" y="16" width="14" height="20" rx="3" fill="${c}" opacity="0.2" stroke="${c}" stroke-width="1"/>
+        ${[0,1,2,3].map(i => `<path d="M38 26 Q${48+i*10} ${16-i*2} ${48+i*10} ${36+i*2}" fill="none" stroke="${c}" stroke-width="1.2" opacity="${0.6-i*0.12}"/>`).join('')}`;
+      break;
+    case 'pemf': // pulsed field rings
+      path = `<ellipse cx="55" cy="25" rx="20" ry="12" fill="none" stroke="${c}" stroke-width="1.8" opacity="0.6"/>
+        <ellipse cx="55" cy="25" rx="30" ry="8" fill="none" stroke="${c}" stroke-width="1" opacity="0.3"/>
+        <ellipse cx="55" cy="25" rx="10" ry="5" fill="${c}" opacity="0.15"/>
+        ${[22,37,55,73,88].map((x,i) => `<line x1="${x}" y1="42" x2="${x}" y2="${42-[6,12,16,10,5][i]}" stroke="${c}" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>`).join('')}`;
+      break;
+    case 'dbs': // deep electrode probe
+      path = `<line x1="55" y1="6" x2="55" y2="38" stroke="${c}" stroke-width="2" opacity="0.7"/>
+        ${[0,1,2,3].map(i => `<rect x="50" y="${26-i*6}" width="10" height="4" rx="1" fill="${c}" opacity="${0.7-i*0.1}"/>`).join('')}
+        <circle cx="55" cy="40" r="3" fill="${c}" opacity="0.3"/>
+        ${[0,1,2].map(i => `<circle cx="55" cy="40" r="${6+i*4}" fill="none" stroke="${c}" stroke-width="0.7" opacity="${0.25-i*0.06}"/>`).join('')}`;
+      break;
+    case 'vns': // vagus nerve
+      path = `<path d="M55 6 Q50 14 52 22 Q54 30 50 38 Q48 44 52 48" fill="none" stroke="${c}" stroke-width="2" opacity="0.6"/>
+        <circle cx="52" cy="22" r="4" fill="${c}" opacity="0.3"/>
+        ${[0,1,2].map(i => `<circle cx="52" cy="22" r="${7+i*4}" fill="none" stroke="${c}" stroke-width="0.8" opacity="${0.3-i*0.08}"/>`).join('')}
+        <rect x="72" y="18" width="20" height="12" rx="3" fill="${c}" opacity="0.12" stroke="${c}" stroke-width="1"/>
+        <line x1="62" y1="22" x2="72" y2="24" stroke="${c}" stroke-width="1" stroke-dasharray="2,2" opacity="0.5"/>`;
+      break;
+    default: // generic signal
+      { const pts = []; for (let i=0;i<=40;i++){const t=i/40; const x=10+t*90; const y=25-Math.sin(t*3*Math.PI)*12; pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);} 
+        path = `<polyline points="${pts.join(' ')}" fill="none" stroke="${c}" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+        <line x1="10" y1="25" x2="100" y2="25" stroke="${c}" stroke-width="0.3" stroke-dasharray="2,3" opacity="0.3"/>`; }
+  }
+  return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="display:block">
+    <defs><linearGradient id="dg-${deviceId}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${c}" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="${c}" stop-opacity="0"/>
+    </linearGradient></defs>
+    <rect width="${w}" height="${h}" fill="url(#dg-${deviceId})" rx="6"/>
+    ${path}
+  </svg>`;
+}
+
+function _findProtoDevice(deviceItem) {
+  const did = (deviceItem.id || '').toLowerCase();
+  const dmod = (deviceItem.modality || deviceItem.name || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  return PROTO_DEVICES.find(p => p.id === did || p.id === dmod) || null;
+}
+
+function _openDeviceModal(device, evStats, protoDevice) {
+  const old = document.getElementById('ds-device-modal');
+  if (old) old.remove();
+
+  const c = _DEV_COLORS[protoDevice?.id] || _DEV_COLORS[(device.modality||'').toLowerCase()] || '#64748b';
+  const de = evStats || {};
+  const subtypes = protoDevice?.subtypes || [];
+  const cat = protoDevice?.category || '';
+  const icon = protoDevice?.icon || '';
+
+  // Get protocols for this device
+  const protos = PROTOCOL_LIBRARY.filter(p => {
+    if (protoDevice) return p.device === protoDevice.id;
+    const dn = (device.name || device.modality || '').toLowerCase();
+    return (p.device || '').toLowerCase() === dn;
+  });
+
+  // Unique conditions from protocols
+  const condSet = new Set(protos.map(p => p.conditionId));
+  const conditions = [...condSet].map(cid => {
+    const ce = getConditionEvidence(cid);
+    return { id: cid, label: cid.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), papers: ce?.paperCount || 0 };
+  }).sort((a,b) => b.papers - a.papers);
+
+  const isCertified = device.regulatory_status && (
+    device.regulatory_status.toLowerCase().includes('fda') ||
+    device.regulatory_status.toLowerCase().includes('approved') ||
+    device.regulatory_status.toLowerCase().includes('cleared')
+  );
+
+  const overlay = document.createElement('div');
+  overlay.id = 'ds-device-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(4px)';
+
+  overlay.innerHTML = `
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg,12px);max-width:820px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 24px 80px rgba(0,0,0,0.4)" onclick="event.stopPropagation()">
+      <!-- Header -->
+      <div style="position:sticky;top:0;z-index:1;background:var(--bg-card);border-bottom:1px solid var(--border);padding:20px 24px;display:flex;align-items:center;gap:16px">
+        <div style="width:52px;height:52px;border-radius:12px;background:${c}14;border:1px solid ${c}30;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">${icon}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-family:var(--font-display);font-size:17px;font-weight:700;color:var(--text-primary)">${device.name || device.modality || '—'}</div>
+          <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">
+            ${cat ? `<span style="font-size:10px;padding:2px 8px;border-radius:999px;background:${c}18;color:${c};font-weight:600">${cat}</span>` : ''}
+            ${isCertified ? '<span style="font-size:10px;padding:2px 8px;border-radius:999px;background:rgba(74,222,128,0.12);color:var(--green);font-weight:600">FDA Certified</span>' : ''}
+            ${device.manufacturer ? `<span style="font-size:10.5px;color:var(--text-tertiary)">${device.manufacturer}</span>` : ''}
+          </div>
+        </div>
+        <button onclick="document.getElementById('ds-device-modal')?.remove();document.body.style.overflow=''" style="background:none;border:none;color:var(--text-tertiary);cursor:pointer;font-size:20px;padding:4px 8px">&times;</button>
+      </div>
+
+      <div style="padding:24px">
+        <!-- Visualization + Quick Stats -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
+          <div style="border-radius:12px;background:${c}08;border:1px solid ${c}18;padding:16px;text-align:center">
+            <div style="transform:scale(1.6);transform-origin:center;margin:12px 0">${_miniDeviceSvg(protoDevice?.id || (device.modality||'').toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,''))}</div>
+            <div style="font-size:11px;color:${c};font-weight:600;margin-top:12px">${protoDevice?.label || device.modality || 'Device'}</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-content:start">
+            <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
+              <div style="font-size:22px;font-weight:800;color:var(--teal)">${de.protocols || 0}</div>
+              <div style="font-size:9.5px;color:var(--text-tertiary)">Protocols</div>
+            </div>
+            <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
+              <div style="font-size:22px;font-weight:800;color:var(--blue)">${de.conditions || conditions.length}</div>
+              <div style="font-size:9.5px;color:var(--text-tertiary)">Conditions</div>
+            </div>
+            <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
+              <div style="font-size:22px;font-weight:800;color:var(--violet)">${de.papers ? de.papers.toLocaleString() : '—'}</div>
+              <div style="font-size:9.5px;color:var(--text-tertiary)">Papers</div>
+            </div>
+            <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
+              <div style="font-size:22px;font-weight:800;color:var(--green)">${de.gradeA || 0}</div>
+              <div style="font-size:9.5px;color:var(--text-tertiary)">Grade A</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Description -->
+        ${device.summary ? `<div style="margin-bottom:20px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Description</div>
+          <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.6">${device.summary}</div>
+        </div>` : ''}
+
+        <!-- Subtypes -->
+        ${subtypes.length ? `<div style="margin-bottom:20px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Subtypes / Variants</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${subtypes.map(s => `<span style="font-size:11px;padding:4px 10px;border-radius:999px;background:${c}10;border:1px solid ${c}25;color:${c}">${s}</span>`).join('')}
+          </div>
+        </div>` : ''}
+
+        <!-- Specifications -->
+        ${(device.max_intensity_ma != null || device.frequency_hz_range || device.pulse_width_us || device.channels) ? `<div style="margin-bottom:20px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Technical Specifications</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            ${device.max_intensity_ma != null ? `<div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+              <div style="font-size:9.5px;color:var(--text-tertiary)">Max Intensity</div>
+              <div style="font-size:14px;font-weight:700;color:var(--text-primary);font-family:var(--font-mono)">${device.max_intensity_ma} mA</div>
+            </div>` : ''}
+            ${device.frequency_hz_range ? `<div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+              <div style="font-size:9.5px;color:var(--text-tertiary)">Frequency Range</div>
+              <div style="font-size:14px;font-weight:700;color:var(--text-primary);font-family:var(--font-mono)">${device.frequency_hz_range} Hz</div>
+            </div>` : ''}
+            ${device.pulse_width_us != null ? `<div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+              <div style="font-size:9.5px;color:var(--text-tertiary)">Pulse Width</div>
+              <div style="font-size:14px;font-weight:700;color:var(--text-primary);font-family:var(--font-mono)">${device.pulse_width_us} µs</div>
+            </div>` : ''}
+            ${device.channels ? `<div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+              <div style="font-size:9.5px;color:var(--text-tertiary)">Channels</div>
+              <div style="font-size:14px;font-weight:700;color:var(--text-primary);font-family:var(--font-mono)">${device.channels}</div>
+            </div>` : ''}
+          </div>
+        </div>` : ''}
+
+        <!-- Protocols -->
+        ${protos.length ? `<div style="margin-bottom:20px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Evidence-Based Protocols (${protos.length})</div>
+          <div style="display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto">
+            ${protos.slice(0, 15).map(p => {
+              const gradeColor = {'A':'var(--green)','B':'var(--blue)','C':'var(--amber)','D':'var(--rose)'}[p.evidenceGrade] || 'var(--text-tertiary)';
+              return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid var(--border)">
+                <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;background:${gradeColor}18;color:${gradeColor}">${p.evidenceGrade || '?'}</span>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:11.5px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name}</div>
+                  <div style="font-size:10px;color:var(--text-tertiary)">${p.target || ''}</div>
+                </div>
+                <div style="font-size:10px;color:var(--text-tertiary);white-space:nowrap">${p.subtype || ''}</div>
+              </div>`;
+            }).join('')}
+            ${protos.length > 15 ? `<div style="text-align:center;font-size:10.5px;color:var(--text-tertiary);padding:6px">+${protos.length-15} more protocols</div>` : ''}
+          </div>
+        </div>` : ''}
+
+        <!-- Conditions -->
+        ${conditions.length ? `<div style="margin-bottom:20px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Treated Conditions (${conditions.length})</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${conditions.map(cd => `<span style="font-size:10.5px;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-secondary)">${cd.label}${cd.papers ? ` <span style="color:var(--text-tertiary);font-size:9px">(${cd.papers.toLocaleString()})</span>` : ''}</span>`).join('')}
+          </div>
+        </div>` : ''}
+
+        <!-- Regulatory -->
+        ${device.regulatory_status ? `<div style="margin-bottom:12px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);font-weight:600;margin-bottom:6px">Regulatory Status</div>
+          <div style="font-size:12px;color:var(--text-secondary)">${device.regulatory_status}</div>
+        </div>` : ''}
+      </div>
+    </div>`;
+
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) { overlay.remove(); document.body.style.overflow = ''; } });
+  document.body.style.overflow = 'hidden';
+  document.body.appendChild(overlay);
+  const esc = (e) => { if (e.key === 'Escape') { overlay.remove(); document.body.style.overflow = ''; document.removeEventListener('keydown', esc); } };
+  document.addEventListener('keydown', esc);
+}
+
 function renderDeviceGrid(items, evStats) {
   const _ev = evStats || {};
   return `<div class="g3">
@@ -267,48 +533,41 @@ function renderDeviceGrid(items, evStats) {
         d.regulatory_status.toLowerCase().includes('approved') ||
         d.regulatory_status.toLowerCase().includes('cleared')
       );
-      // Lookup evidence stats by device id or modality name
       const _did = (d.id || '').toLowerCase();
       const _dmod = (d.modality || d.name || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
       const _de = _ev[_did] || _ev[_dmod] || {};
-      const _evLine = (_de.protocols || _de.papers)
-        ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;font-size:10.5px">
-            ${_de.protocols ? `<span style="color:var(--teal)">🧭 ${_de.protocols} protocols</span>` : ''}
-            ${_de.conditions ? `<span style="color:var(--blue)">🏥 ${_de.conditions} conditions</span>` : ''}
-            ${_de.papers ? `<span style="color:var(--violet)">📄 ${_de.papers.toLocaleString()} papers</span>` : ''}
-            ${_de.gradeA ? `<span style="color:var(--green)">⭐ ${_de.gradeA} Grade A</span>` : ''}
-          </div>`
-        : '';
-      return `<div class="card" style="margin-bottom:0;transition:border-color var(--transition)" onmouseover="this.style.borderColor='var(--border-teal)'" onmouseout="this.style.borderColor='var(--border)'">
-        <div class="card-body">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
-            <div>
-              <div style="font-family:var(--font-display);font-size:13px;font-weight:600;color:var(--text-primary)">${d.name || '—'}</div>
-              <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${d.manufacturer || '—'}</div>
+      const protoDevice = _findProtoDevice(d);
+      const devColor = _DEV_COLORS[protoDevice?.id] || _DEV_COLORS[_dmod] || '#64748b';
+      const svgId = protoDevice?.id || _dmod;
+
+      return `<div class="card" style="margin-bottom:0;cursor:pointer;transition:border-color var(--transition),transform .15s,box-shadow .15s"
+        onmouseover="this.style.borderColor='${devColor}60';this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 24px ${devColor}15'"
+        onmouseout="this.style.borderColor='var(--border)';this.style.transform='';this.style.boxShadow=''"
+        onclick="window._openDeviceDetail(${idx})">
+        <div style="padding:14px 16px">
+          <div style="display:flex;gap:14px;align-items:flex-start">
+            <!-- Mini Device SVG -->
+            <div style="flex-shrink:0;width:120px;border-radius:10px;background:${devColor}08;border:1px solid ${devColor}18;padding:8px 5px 6px;text-align:center">
+              ${_miniDeviceSvg(svgId)}
+              <div style="font-size:9px;color:${devColor};font-weight:600;margin-top:3px">${protoDevice?.category || d.modality || ''}</div>
             </div>
-            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-              <span class="tag">${d.modality || '—'}</span>
-              ${isCertified ? '<span style="font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:3px;background:rgba(74,222,128,0.12);color:var(--green);white-space:nowrap">✓ Certified</span>' : ''}
-            </div>
-          </div>
-          <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.55;margin-bottom:12px">${(d.summary || '—').slice(0, 100)}${(d.summary || '').length > 100 ? '…' : ''}</div>
-          ${d.regulatory_status ? `<div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:8px">Regulatory: ${d.regulatory_status}</div>` : ''}
-          ${d.channels ? fr('Channels', String(d.channels)) : ''}
-          ${d.use_type ? `<div style="margin-top:8px">${tag(d.use_type)}</div>` : ''}
-          ${d.best_for?.length ? `<div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">Best for: ${d.best_for.join(', ')}</div>` : ''}
-          ${_evLine}
-          <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
-            <button class="btn btn-sm" style="font-size:10.5px;width:100%" onclick="(function(){const s=document.getElementById('dev-specs-${idx}');if(s){s.style.display=s.style.display==='none'?'':'none';this.textContent=s.style.display==='none'?'Show specs':'Hide specs';}}).call(this)">Show specs</button>
-            <div id="dev-specs-${idx}" style="display:none;margin-top:10px">
-              <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Specifications</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11.5px">
-                ${d.max_intensity_ma != null ? `<div><span style="color:var(--text-tertiary)">Max intensity:</span> <span style="color:var(--text-primary);font-family:var(--font-mono)">${d.max_intensity_ma} mA</span></div>` : ''}
-                ${d.frequency_hz_range ? `<div><span style="color:var(--text-tertiary)">Frequency:</span> <span style="color:var(--text-primary);font-family:var(--font-mono)">${d.frequency_hz_range} Hz</span></div>` : ''}
-                ${d.pulse_width_us != null ? `<div><span style="color:var(--text-tertiary)">Pulse width:</span> <span style="color:var(--text-primary);font-family:var(--font-mono)">${d.pulse_width_us} µs</span></div>` : ''}
-                ${d.channels ? `<div><span style="color:var(--text-tertiary)">Channels:</span> <span style="color:var(--text-primary);font-family:var(--font-mono)">${d.channels}</span></div>` : ''}
-                ${!d.max_intensity_ma && !d.frequency_hz_range && !d.pulse_width_us && !d.channels ? '<div style="color:var(--text-tertiary);font-style:italic;grid-column:1/-1">Detailed specs not available</div>' : ''}
+            <!-- Content -->
+            <div style="min-width:0;flex:1">
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+                <span style="font-size:10px;padding:2px 7px;border-radius:999px;background:${devColor}15;color:${devColor};font-weight:600">${d.modality || '—'}</span>
+                ${isCertified ? '<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;background:rgba(74,222,128,0.12);color:var(--green)">FDA</span>' : ''}
               </div>
+              <div style="font-family:var(--font-display);font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:2px">${d.name || '—'}</div>
+              ${d.manufacturer ? `<div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:6px">${d.manufacturer}</div>` : ''}
+              <div style="font-size:11px;color:var(--text-secondary);line-height:1.5;margin-bottom:8px">${(d.summary || '').slice(0, 90)}${(d.summary || '').length > 90 ? '...' : ''}</div>
+              ${(_de.protocols || _de.papers) ? `<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:10px">
+                ${_de.protocols ? `<span style="color:var(--teal);font-weight:600">${_de.protocols} protocols</span>` : ''}
+                ${_de.papers ? `<span style="color:var(--violet);font-weight:600">${_de.papers.toLocaleString()} papers</span>` : ''}
+                ${_de.gradeA ? `<span style="color:var(--green);font-weight:600">${_de.gradeA} Grade A</span>` : ''}
+              </div>` : ''}
             </div>
+            <!-- Arrow -->
+            <div style="color:${devColor};opacity:0.4;font-size:18px;padding-top:14px">&rarr;</div>
           </div>
         </div>
       </div>`;
