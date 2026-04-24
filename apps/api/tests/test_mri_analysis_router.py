@@ -17,7 +17,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import AiSummaryAudit, MriAnalysis, MriUpload
+from app.persistence.models import (
+    AiSummaryAudit,
+    ClinicalSession,
+    MriAnalysis,
+    MriUpload,
+    OutcomeSeries,
+    Patient,
+    QEEGRecord,
+)
 from app.settings import get_settings
 
 
@@ -474,6 +482,90 @@ def test_overlay_returns_html_response(
 
 
 # ── §8 GET /medrag/{analysis_id} ─────────────────────────────────────────────
+
+
+def test_patient_timeline_returns_four_lanes(
+    client: TestClient,
+    auth_headers: dict,
+) -> None:
+    db = SessionLocal()
+    try:
+        db.add(
+            Patient(
+                id="pat-timeline-1",
+                clinician_id="actor-clinician-demo",
+                first_name="Timeline",
+                last_name="Patient",
+            )
+        )
+        db.add(
+            ClinicalSession(
+                id="sess-timeline-1",
+                patient_id="pat-timeline-1",
+                clinician_id="actor-clinician-demo",
+                scheduled_at="2026-01-12T09:00:00Z",
+                modality="rtms",
+                appointment_type="session",
+                status="completed",
+                outcome="positive",
+            )
+        )
+        db.add(
+            QEEGRecord(
+                id="qeeg-timeline-1",
+                patient_id="pat-timeline-1",
+                clinician_id="actor-clinician-demo",
+                course_id="course-1",
+                recording_type="resting",
+                recording_date="2026-01-10",
+                equipment="NeuroGuide 19ch",
+            )
+        )
+        db.add(
+            OutcomeSeries(
+                id="outcome-timeline-1",
+                patient_id="pat-timeline-1",
+                course_id="course-1",
+                template_id="PHQ-9",
+                template_title="PHQ-9 Depression",
+                score="8",
+                score_numeric=8.0,
+                measurement_point="post",
+                administered_at=datetime(2026, 1, 20, tzinfo=timezone.utc),
+                clinician_id="actor-clinician-demo",
+            )
+        )
+        db.add(
+            MriAnalysis(
+                analysis_id="mri-timeline-1",
+                patient_id="pat-timeline-1",
+                created_at=datetime(2026, 1, 8, tzinfo=timezone.utc),
+                job_id="mri-timeline-1",
+                state="SUCCESS",
+                condition="mdd",
+                stim_targets_json="[]",
+                modalities_present_json='["T1"]',
+                qc_json='{"passed": true}',
+                overlays_json="{}",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    resp = client.get(
+        "/api/v1/mri/patients/pat-timeline-1/timeline",
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["patient_id"] == "pat-timeline-1"
+    assert set(body["lanes"].keys()) == {"sessions", "qeeg", "mri", "outcomes"}
+    assert len(body["lanes"]["sessions"]) == 1
+    assert len(body["lanes"]["qeeg"]) == 1
+    assert len(body["lanes"]["mri"]) == 1
+    assert len(body["lanes"]["outcomes"]) == 1
+    assert body["links"]
 
 
 def test_medrag_returns_contract_shape(

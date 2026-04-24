@@ -8,6 +8,7 @@ GET   /api/v1/outcomes/summary/{course_id}  Compute pre/post delta and responder
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -18,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import OutcomeSeries, TreatmentCourse
+from app.persistence.models import OutcomeEvent, OutcomeSeries, TreatmentCourse
 
 router = APIRouter(prefix="/api/v1/outcomes", tags=["Outcomes"])
 
@@ -80,6 +81,72 @@ class OutcomeOut(BaseModel):
 
 class OutcomeListResponse(BaseModel):
     items: list[OutcomeOut]
+    total: int
+
+
+class OutcomeEventCreate(BaseModel):
+    patient_id: str
+    course_id: Optional[str] = None
+    outcome_id: Optional[str] = None
+    qeeg_analysis_id: Optional[str] = None
+    mri_analysis_id: Optional[str] = None
+    assessment_id: Optional[str] = None
+    event_type: str
+    title: str
+    summary: Optional[str] = None
+    severity: str = "info"
+    source_type: Optional[str] = None
+    source_id: Optional[str] = None
+    payload: dict = {}
+    recorded_at: Optional[str] = None
+
+
+class OutcomeEventOut(BaseModel):
+    id: str
+    patient_id: str
+    course_id: Optional[str]
+    outcome_id: Optional[str]
+    qeeg_analysis_id: Optional[str]
+    mri_analysis_id: Optional[str]
+    assessment_id: Optional[str]
+    event_type: str
+    title: str
+    summary: Optional[str]
+    severity: str
+    source_type: Optional[str]
+    source_id: Optional[str]
+    payload: dict
+    recorded_at: str
+    clinician_id: str
+    created_at: str
+
+    @classmethod
+    def from_record(cls, r: OutcomeEvent) -> "OutcomeEventOut":
+        def _dt(v) -> str:
+            return v.isoformat() if isinstance(v, datetime) else str(v)
+        return cls(
+            id=r.id,
+            patient_id=r.patient_id,
+            course_id=r.course_id,
+            outcome_id=r.outcome_id,
+            qeeg_analysis_id=r.qeeg_analysis_id,
+            mri_analysis_id=r.mri_analysis_id,
+            assessment_id=r.assessment_id,
+            event_type=r.event_type,
+            title=r.title,
+            summary=r.summary,
+            severity=r.severity,
+            source_type=r.source_type,
+            source_id=r.source_id,
+            payload=_coerce_json_object(r.payload_json),
+            recorded_at=_dt(r.recorded_at),
+            clinician_id=r.clinician_id,
+            created_at=_dt(r.created_at),
+        )
+
+
+class OutcomeEventListResponse(BaseModel):
+    items: list[OutcomeEventOut]
     total: int
 
 
@@ -180,6 +247,16 @@ def _normalize_condition_slug(raw: Optional[str]) -> str:
     return (raw or "").strip().lower().replace(" ", "-").replace("_", "-")
 
 
+def _coerce_json_object(raw: Optional[str]) -> dict:
+    if not raw:
+        return {}
+    try:
+        loaded = json.loads(raw)
+    except Exception:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
 def _course_matches_cohort(course: TreatmentCourse, cohort: str) -> bool:
     norm = _normalize_condition_slug(cohort)
     if not norm or norm == "all":
@@ -261,6 +338,79 @@ def list_outcomes(
     records = q.order_by(OutcomeSeries.administered_at).all()
     items = [OutcomeOut.from_record(r) for r in records]
     return OutcomeListResponse(items=items, total=len(items))
+
+
+@router.post("/events", response_model=OutcomeEventOut, status_code=201)
+def record_outcome_event(
+    body: OutcomeEventCreate,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> OutcomeEventOut:
+    require_minimum_role(actor, "clinician")
+
+    recorded_at = datetime.now(timezone.utc)
+    if body.recorded_at:
+        try:
+            recorded_at = datetime.fromisoformat(body.recorded_at.rstrip("Z"))
+            if recorded_at.tzinfo is None:
+                recorded_at = recorded_at.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+
+    severity = (body.severity or "info").strip().lower()
+    if severity not in {"info", "warning", "positive", "negative", "critical"}:
+        severity = "info"
+
+    record = OutcomeEvent(
+        patient_id=body.patient_id,
+        course_id=body.course_id,
+        outcome_id=body.outcome_id,
+        qeeg_analysis_id=body.qeeg_analysis_id,
+        mri_analysis_id=body.mri_analysis_id,
+        assessment_id=body.assessment_id,
+        event_type=body.event_type,
+        title=body.title,
+        summary=body.summary,
+        severity=severity,
+        source_type=body.source_type,
+        source_id=body.source_id,
+        payload_json=json.dumps(body.payload or {}),
+        recorded_at=recorded_at,
+        clinician_id=actor.actor_id,
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return OutcomeEventOut.from_record(record)
+
+
+@router.get("/events", response_model=OutcomeEventListResponse)
+def list_outcome_events(
+    patient_id: Optional[str] = Query(default=None),
+    course_id: Optional[str] = Query(default=None),
+    qeeg_analysis_id: Optional[str] = Query(default=None),
+    mri_analysis_id: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> OutcomeEventListResponse:
+    require_minimum_role(actor, "clinician")
+
+    q = db.query(OutcomeEvent)
+    if actor.role != "admin":
+        q = q.filter(OutcomeEvent.clinician_id == actor.actor_id)
+    if patient_id:
+        q = q.filter(OutcomeEvent.patient_id == patient_id)
+    if course_id:
+        q = q.filter(OutcomeEvent.course_id == course_id)
+    if qeeg_analysis_id:
+        q = q.filter(OutcomeEvent.qeeg_analysis_id == qeeg_analysis_id)
+    if mri_analysis_id:
+        q = q.filter(OutcomeEvent.mri_analysis_id == mri_analysis_id)
+
+    rows = q.order_by(OutcomeEvent.recorded_at.desc(), OutcomeEvent.created_at.desc()).limit(limit).all()
+    items = [OutcomeEventOut.from_record(row) for row in rows]
+    return OutcomeEventListResponse(items=items, total=len(items))
 
 
 @router.get("/summary/{course_id}", response_model=CourseSummaryListResponse)

@@ -446,6 +446,28 @@ class OutcomeSeries(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
+class OutcomeEvent(Base):
+    __tablename__ = "outcome_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    course_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    outcome_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("outcome_series.id", ondelete="SET NULL"), nullable=True, index=True)
+    qeeg_analysis_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    mri_analysis_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    assessment_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    summary: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, default="info")
+    source_type: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    source_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    payload_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), index=True)
+
+
 class ReviewQueueItem(Base):
     __tablename__ = "review_queue_items"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -1862,6 +1884,24 @@ class QEEGComparison(Base):
     ai_comparison_narrative: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     course_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class AnalysisAnnotation(Base):
+    """Clinician-authored note pinned to a qEEG or MRI analysis surface."""
+    __tablename__ = "analysis_annotations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    target_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)  # qeeg | mri
+    target_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    title: Mapped[Optional[str]] = mapped_column(String(160), nullable=True)
+    body: Mapped[str] = mapped_column(Text(), nullable=False)
+    anchor_label: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    anchor_data_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    visibility: Mapped[str] = mapped_column(String(20), nullable=False, default="clinical")
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 # ── MRI Analyzer Models (migration 039) ──────────────────────────────────────

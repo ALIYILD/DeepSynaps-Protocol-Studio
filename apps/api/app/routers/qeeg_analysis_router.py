@@ -5,6 +5,7 @@ pre/post comparison, prediction, and correlation.
 """
 from __future__ import annotations
 
+import asyncio
 import html as html_mod
 import json
 import logging
@@ -13,8 +14,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Form, Query, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -244,6 +245,13 @@ class ComparisonOut(BaseModel):
     delta_powers: Optional[dict] = None
     improvement_summary: Optional[dict] = None
     ai_comparison_narrative: Optional[str] = None
+    baseline_analyzed_at: Optional[str] = None
+    followup_analyzed_at: Optional[str] = None
+    baseline_band_powers: Optional[dict] = None
+    followup_band_powers: Optional[dict] = None
+    ratio_changes: Optional[dict] = None
+    rci_summary: Optional[dict] = None
+    highlighted_changes: list[dict] = Field(default_factory=list)
     created_at: str
 
     @classmethod
@@ -259,6 +267,131 @@ class ComparisonOut(BaseModel):
             ai_comparison_narrative=r.ai_comparison_narrative,
             created_at=r.created_at.isoformat() if r.created_at else "",
         )
+
+
+def _extract_ratio_changes(
+    baseline: Optional[dict],
+    followup: Optional[dict],
+) -> dict[str, dict[str, float]]:
+    baseline = baseline or {}
+    followup = followup or {}
+    bands_a = (baseline.get("bands") or {}) if isinstance(baseline, dict) else {}
+    bands_b = (followup.get("bands") or {}) if isinstance(followup, dict) else {}
+
+    def _mean_relative(bands: dict, band_name: str) -> Optional[float]:
+        channels = ((bands.get(band_name) or {}).get("channels") or {}) if isinstance(bands, dict) else {}
+        values = []
+        for payload in channels.values():
+            if isinstance(payload, dict) and payload.get("relative_pct") is not None:
+                try:
+                    values.append(float(payload["relative_pct"]))
+                except (TypeError, ValueError):
+                    continue
+        if not values:
+            return None
+        return sum(values) / len(values)
+
+    def _ratio(theta: Optional[float], beta: Optional[float]) -> Optional[float]:
+        if theta is None or beta in (None, 0):
+            return None
+        try:
+            return float(theta) / float(beta)
+        except (TypeError, ValueError, ZeroDivisionError):
+            return None
+
+    ratios: dict[str, dict[str, float]] = {}
+    theta_a = _mean_relative(bands_a, "theta")
+    beta_a = _mean_relative(bands_a, "beta")
+    theta_b = _mean_relative(bands_b, "theta")
+    beta_b = _mean_relative(bands_b, "beta")
+    tbr_a = _ratio(theta_a, beta_a)
+    tbr_b = _ratio(theta_b, beta_b)
+    if tbr_a is not None and tbr_b is not None:
+        ratios["theta_beta_ratio"] = {"baseline": round(tbr_a, 4), "followup": round(tbr_b, 4)}
+
+    delta_a = _mean_relative(bands_a, "delta")
+    alpha_a = _mean_relative(bands_a, "alpha")
+    delta_b = _mean_relative(bands_b, "delta")
+    alpha_b = _mean_relative(bands_b, "alpha")
+    dar_a = _ratio(delta_a, alpha_a)
+    dar_b = _ratio(delta_b, alpha_b)
+    if dar_a is not None and dar_b is not None:
+        ratios["delta_alpha_ratio"] = {"baseline": round(dar_a, 4), "followup": round(dar_b, 4)}
+
+    return ratios
+
+
+def _build_rci_summary(improvement_summary: Optional[dict]) -> Optional[dict]:
+    if not isinstance(improvement_summary, dict):
+        return None
+    improved = int(improvement_summary.get("improved") or 0)
+    worsened = int(improvement_summary.get("worsened") or 0)
+    unchanged = int(improvement_summary.get("unchanged") or 0)
+    total = improved + worsened + unchanged
+    if total <= 0:
+        return None
+    net = (improved - worsened) / total
+    if net >= 0.2:
+        label = "meaningful improvement"
+    elif net <= -0.2:
+        label = "possible worsening"
+    else:
+        label = "largely stable"
+    return {
+        "label": label,
+        "net_response_index": round(net, 3),
+        "improved_share": round(improved / total, 3),
+        "worsened_share": round(worsened / total, 3),
+    }
+
+
+def _build_highlighted_changes(delta_payload: Optional[dict]) -> list[dict]:
+    bands = (delta_payload or {}).get("bands") if isinstance(delta_payload, dict) else None
+    if not isinstance(bands, dict):
+        return []
+    changes: list[dict] = []
+    for band_name, channels in bands.items():
+        if not isinstance(channels, dict):
+            continue
+        for channel, payload in channels.items():
+            if not isinstance(payload, dict):
+                continue
+            pct_change = payload.get("pct_change")
+            if pct_change is None:
+                continue
+            try:
+                pct_val = float(pct_change)
+            except (TypeError, ValueError):
+                continue
+            changes.append({
+                "band": band_name,
+                "channel": channel,
+                "pct_change": round(pct_val, 2),
+                "absolute_change": payload.get("absolute_change"),
+            })
+    changes.sort(key=lambda item: abs(item["pct_change"]), reverse=True)
+    return changes[:8]
+
+
+def _enrich_comparison_payload(
+    comp: QEEGComparison,
+    baseline: Optional[QEEGAnalysis],
+    followup: Optional[QEEGAnalysis],
+) -> ComparisonOut:
+    payload = ComparisonOut.from_record(comp)
+    delta = payload.delta_powers or {}
+    summary = payload.improvement_summary or {}
+    base_bp = _maybe_json_loads(getattr(baseline, "band_powers_json", None)) if baseline else None
+    follow_bp = _maybe_json_loads(getattr(followup, "band_powers_json", None)) if followup else None
+    return payload.model_copy(update={
+        "baseline_analyzed_at": baseline.analyzed_at.isoformat() if baseline and baseline.analyzed_at else None,
+        "followup_analyzed_at": followup.analyzed_at.isoformat() if followup and followup.analyzed_at else None,
+        "baseline_band_powers": base_bp,
+        "followup_band_powers": follow_bp,
+        "ratio_changes": _extract_ratio_changes(base_bp, follow_bp),
+        "rci_summary": _build_rci_summary(summary),
+        "highlighted_changes": _build_highlighted_changes(delta),
+    })
 
 
 # ── Upload EDF File ──────────────────────────────────────────────────────────
@@ -1066,7 +1199,7 @@ async def create_comparison(
     db.commit()
     db.refresh(comp)
 
-    return ComparisonOut.from_record(comp)
+    return _enrich_comparison_payload(comp, baseline, followup)
 
 
 # ── Get Comparison ───────────────────────────────────────────────────────────
@@ -1084,7 +1217,9 @@ def get_comparison(
     if not comp:
         raise ApiServiceError(code="not_found", message="Comparison not found", status_code=404)
 
-    return ComparisonOut.from_record(comp)
+    baseline = db.query(QEEGAnalysis).filter_by(id=comp.baseline_analysis_id).first()
+    followup = db.query(QEEGAnalysis).filter_by(id=comp.followup_analysis_id).first()
+    return _enrich_comparison_payload(comp, baseline, followup)
 
 
 # ── Correlation with Assessments ─────────────────────────────────────────────
@@ -1135,6 +1270,50 @@ class StatusResponse(BaseModel):
     analyzed_at: Optional[str] = None
 
 
+def _analysis_status_payload(analysis: QEEGAnalysis) -> StatusResponse:
+    raw_status = analysis.analysis_status or "pending"
+    step: Optional[str] = None
+    progress_pct = 0
+    completed_adv = 0
+    total_adv = 0
+
+    if raw_status == "pending":
+        progress_pct = 0
+    elif raw_status.startswith("processing"):
+        parts = raw_status.split(":", 1)
+        step = parts[1] if len(parts) > 1 else None
+        step_progress = {
+            "loading": 10,
+            "parsing": 25,
+            "artifact_rejection": 45,
+            "spectral_analysis": 65,
+            "finalizing": 85,
+        }
+        progress_pct = step_progress.get(step or "", 15)
+    elif raw_status == "completed":
+        progress_pct = 100
+        if analysis.advanced_analyses_json:
+            try:
+                adv_data = json.loads(analysis.advanced_analyses_json)
+                meta = adv_data.get("meta", {})
+                completed_adv = meta.get("completed", 0)
+                total_adv = meta.get("total", 0)
+            except (json.JSONDecodeError, TypeError):
+                pass
+    elif raw_status == "failed":
+        progress_pct = 0
+
+    return StatusResponse(
+        status=raw_status.split(":")[0],
+        step=step,
+        progress_pct=progress_pct,
+        completed_analyses=completed_adv,
+        total_analyses=total_adv,
+        error=analysis.analysis_error,
+        analyzed_at=analysis.analyzed_at.isoformat() if analysis.analyzed_at else None,
+    )
+
+
 @router.get("/{analysis_id}/status", response_model=StatusResponse)
 def get_analysis_status(
     analysis_id: str,
@@ -1153,52 +1332,56 @@ def get_analysis_status(
     if not analysis:
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
 
-    raw_status = analysis.analysis_status or "pending"
-    step: Optional[str] = None
-    progress_pct = 0
-    completed_adv = 0
-    total_adv = 0
+    return _analysis_status_payload(analysis)
 
-    if raw_status == "pending":
-        progress_pct = 0
-    elif raw_status.startswith("processing"):
-        # Extract step from statuses like "processing:parsing"
-        parts = raw_status.split(":", 1)
-        step = parts[1] if len(parts) > 1 else None
 
-        # Step-based progress for the basic pipeline
-        step_progress = {
-            "loading": 10,
-            "parsing": 25,
-            "artifact_rejection": 45,
-            "spectral_analysis": 65,
-            "finalizing": 85,
-        }
-        progress_pct = step_progress.get(step or "", 15)
-    elif raw_status == "completed":
-        progress_pct = 100
-        # Check advanced analyses progress
-        if analysis.advanced_analyses_json:
-            try:
-                adv_data = json.loads(analysis.advanced_analyses_json)
-                meta = adv_data.get("meta", {})
-                completed_adv = meta.get("completed", 0)
-                total_adv = meta.get("total", 0)
-            except (json.JSONDecodeError, TypeError):
-                pass
-    elif raw_status == "failed":
-        progress_pct = 0
-    else:
-        progress_pct = 0
+@router.get("/{analysis_id}/events")
+async def stream_analysis_events(
+    analysis_id: str,
+    request: Request,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> StreamingResponse:
+    """SSE stream for qEEG analysis progress.
 
-    return StatusResponse(
-        status=raw_status.split(":")[0],  # Return base status (processing, not processing:step)
-        step=step,
-        progress_pct=progress_pct,
-        completed_analyses=completed_adv,
-        total_analyses=total_adv,
-        error=analysis.analysis_error,
-        analyzed_at=analysis.analyzed_at.isoformat() if analysis.analyzed_at else None,
+    This is intentionally additive and read-only: existing polling clients can
+    ignore it, while newer clients can subscribe for lighter-weight updates.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    async def event_generator():
+        last_payload: str | None = None
+        while True:
+            if await request.is_disconnected():
+                break
+            db.refresh(analysis)
+            payload = _analysis_status_payload(analysis).model_dump()
+            payload["analysis_id"] = analysis.id
+            payload["raw_status"] = analysis.analysis_status
+            encoded = json.dumps(payload)
+            if encoded != last_payload:
+                event_name = "complete" if payload["status"] in {"completed", "failed"} else "progress"
+                yield f"event: {event_name}\ndata: {encoded}\n\n"
+                last_payload = encoded
+                if payload["status"] in {"completed", "failed"}:
+                    break
+            else:
+                heartbeat = json.dumps({"analysis_id": analysis.id, "type": "heartbeat"})
+                yield f"event: heartbeat\ndata: {heartbeat}\n\n"
+            await asyncio.sleep(2.0)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

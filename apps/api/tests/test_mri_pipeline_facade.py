@@ -120,6 +120,21 @@ def test_generate_overlay_html_safe_returns_placeholder_when_missing(monkeypatch
     assert "Not a medical device" in html
 
 
+def test_generate_overlay_html_safe_resolves_demo_relative_asset() -> None:
+    import app.services.mri_pipeline as facade
+
+    html = facade.generate_overlay_html_safe(
+        analysis_id="a-1",
+        target_id="tid-1",
+        report={
+            "stim_targets": [{"target_id": "tid-1"}],
+            "overlays": {"tid-1": "sample_report_preview.html"},
+        },
+    )
+    assert isinstance(html, str)
+    assert "<html" in html.lower() or "<!doctype" in html.lower()
+
+
 def test_generate_report_pdf_safe_returns_none_when_missing(monkeypatch) -> None:
     import app.services.mri_pipeline as facade
 

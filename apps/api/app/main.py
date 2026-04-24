@@ -77,6 +77,7 @@ from app.routers.consent_management_router import router as consent_management_r
 from app.routers.home_program_tasks_router import router as home_program_tasks_router
 from app.routers.home_task_templates_router import router as home_task_templates_router
 from app.routers.agent_skills_router import router as agent_skills_router
+from app.routers.annotations_router import router as annotations_router
 from app.routers.reminders_router import router as reminders_router
 from app.routers.irb_router import router as irb_router
 from app.routers.evidence_router import router as evidence_router
@@ -180,6 +181,7 @@ app.include_router(consent_management_router)
 app.include_router(home_program_tasks_router)
 app.include_router(home_task_templates_router)
 app.include_router(agent_skills_router)
+app.include_router(annotations_router)
 app.include_router(reminders_router)
 app.include_router(irb_router)
 app.include_router(literature_router)

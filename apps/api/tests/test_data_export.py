@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
+
 from fastapi.testclient import TestClient
+
+from app.database import SessionLocal
+from app.persistence.models import MriAnalysis, QEEGAnalysis
 
 
 def _register(client: TestClient, email: str) -> str:
@@ -54,3 +60,125 @@ def test_delete_export_removes_row(client: TestClient) -> None:
         headers={"Authorization": f"Bearer {token}"},
     )
     assert follow.status_code == 404, follow.text
+
+
+def test_export_fhir_bundle_returns_patient_summary(client: TestClient, auth_headers: dict) -> None:
+    patient = client.post(
+        "/api/v1/patients",
+        json={"first_name": "Fhir", "last_name": "Patient", "dob": "1980-01-01", "gender": "F"},
+        headers=auth_headers["clinician"],
+    )
+    assert patient.status_code == 201, patient.text
+    patient_id = patient.json()["id"]
+
+    course = client.post(
+        "/api/v1/treatment-courses",
+        json={"patient_id": patient_id, "protocol_id": "PRO-FHIR"},
+        headers=auth_headers["clinician"],
+    )
+    assert course.status_code == 201, course.text
+    course_id = course.json()["id"]
+
+    client.post(
+        "/api/v1/outcomes",
+        json={
+            "patient_id": patient_id,
+            "course_id": course_id,
+            "template_id": "PHQ-9",
+            "template_title": "PHQ-9",
+            "score_numeric": 11,
+            "measurement_point": "post",
+        },
+        headers=auth_headers["clinician"],
+    )
+    client.post(
+        "/api/v1/outcomes/events",
+        json={
+            "patient_id": patient_id,
+            "course_id": course_id,
+            "event_type": "follow_up_completed",
+            "title": "Six week review",
+            "summary": "Symptoms improved after treatment block.",
+        },
+        headers=auth_headers["clinician"],
+    )
+
+    with SessionLocal() as db:
+        db.add(
+            QEEGAnalysis(
+                patient_id=patient_id,
+                clinician_id="clinician-demo",
+                analysis_status="completed",
+                band_powers_json=json.dumps({"alpha": {"Pz": 12.4}}),
+                flagged_conditions=json.dumps(["depression"]),
+                analyzed_at=datetime.now(timezone.utc),
+            )
+        )
+        db.add(
+            MriAnalysis(
+                analysis_id="mri-export-1",
+                patient_id=patient_id,
+                state="SUCCESS",
+                condition="mdd",
+                modalities_present_json=json.dumps(["T1", "rs_fMRI"]),
+                stim_targets_json=json.dumps([{"target_id": "dlpfc-l"}]),
+                qc_json=json.dumps({"passed": True}),
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+
+    resp = client.post(
+        "/api/v1/export/fhir-r4-bundle",
+        json={"patient_id": patient_id, "mri_analysis_id": "mri-export-1"},
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"].startswith("application/fhir+json")
+    bundle = resp.json()
+    assert bundle["resourceType"] == "Bundle"
+    resource_types = [entry["resource"]["resourceType"] for entry in bundle["entry"]]
+    assert "Patient" in resource_types
+    assert "DiagnosticReport" in resource_types
+    assert "Observation" in resource_types
+
+
+def test_export_bids_derivatives_returns_zip(client: TestClient, auth_headers: dict) -> None:
+    patient = client.post(
+        "/api/v1/patients",
+        json={"first_name": "Bids", "last_name": "Patient", "dob": "1982-06-10", "gender": "M"},
+        headers=auth_headers["clinician"],
+    )
+    assert patient.status_code == 201, patient.text
+    patient_id = patient.json()["id"]
+
+    with SessionLocal() as db:
+        db.add(
+            QEEGAnalysis(
+                patient_id=patient_id,
+                clinician_id="clinician-demo",
+                analysis_status="completed",
+                band_powers_json=json.dumps({"theta": {"Fz": 9.1}}),
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        db.add(
+            MriAnalysis(
+                analysis_id="mri-export-zip",
+                patient_id=patient_id,
+                state="SUCCESS",
+                modalities_present_json=json.dumps(["T1"]),
+                structural_json=json.dumps({"atlas": "DK"}),
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+
+    resp = client.post(
+        "/api/v1/export/bids-derivatives",
+        json={"patient_id": patient_id},
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"].startswith("application/zip")
+    assert resp.content[:2] == b"PK"

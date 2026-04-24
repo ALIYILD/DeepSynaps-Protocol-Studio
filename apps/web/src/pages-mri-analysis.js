@@ -14,8 +14,11 @@
 // Netlify preview (VITE_ENABLE_DEMO=1) see the full populated report without
 // the Fly API being online.
 // ─────────────────────────────────────────────────────────────────────────────
-import { api } from './api.js';
+import { api, downloadBlob } from './api.js';
 import { emptyState, showToast } from './helpers.js';
+
+const FUSION_API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
+const FUSION_TOKEN_KEY = 'ds_access_token';
 
 // ── Module state ────────────────────────────────────────────────────────────
 var _mriAnalysisId = null;
@@ -27,6 +30,10 @@ var _medragCache   = null;
 var _jobStatus     = null;       // { stage, state } snapshot
 var _jobPollTimer  = null;
 var _selectedCondition = 'mdd';
+var _fusionSummary = null;
+// Populated by pgMRIAnalysis() and re-read by the compare modal's submit
+// handler so we don't refetch on every click.
+var _patientAnalysesCache = { patientId: null, rows: [] };
 
 // ── Feature flag ────────────────────────────────────────────────────────────
 function _mriFeatureFlagEnabled() {
@@ -64,6 +71,331 @@ function card(title, body, extra) {
     + '<div class="ds-card__body">' + body + '</div></div>';
 }
 
+function _renderMRIAnnotationList(items) {
+  if (!Array.isArray(items) || !items.length) {
+    return '<div class="analysis-anno-empty">No notes pinned to this scan yet.</div>';
+  }
+  return items.map(function (item) {
+    return '<div class="analysis-anno-item">'
+      + (item.title ? '<div class="analysis-anno-item__title">' + esc(item.title) + '</div>' : '')
+      + (item.anchor_label ? '<div class="analysis-anno-item__anchor">' + esc(item.anchor_label) + '</div>' : '')
+      + '<div class="analysis-anno-item__body">' + esc(item.body || '') + '</div>'
+      + '<div class="analysis-anno-item__meta">' + esc(item.created_at ? new Date(item.created_at).toLocaleString() : '') + '</div>'
+      + '<button class="analysis-anno-item__delete" data-mri-annotation-delete="' + esc(item.id) + '">Delete</button>'
+      + '</div>';
+  }).join('');
+}
+
+function _mriAnnotationButton(context) {
+  if (!context || !context.patient_id || !context.target_id) return '';
+  var payload = JSON.stringify(context).replace(/"/g, '&quot;');
+  return '<button class="btn btn-sm btn-outline analysis-anno-launch" data-mri-annotation="' + payload + '">Notes</button>';
+}
+
+async function _openMRIAnnotationDrawer(context) {
+  if (!context || !context.patient_id || !context.target_id) return;
+  var host = document.getElementById('mri-annotation-drawer-host');
+  if (!host) return;
+  host.innerHTML = '<div class="analysis-anno-backdrop" data-mri-annotation-close="1"></div>'
+    + '<aside class="analysis-anno-drawer">'
+    + '<div class="analysis-anno-drawer__hd"><div><strong>Scan notes</strong><div class="analysis-anno-drawer__sub">'
+    + esc(context.anchor_label || 'MRI analysis') + '</div></div><button class="analysis-anno-drawer__close" data-mri-annotation-close="1">Close</button></div>'
+    + '<div id="mri-annotation-list" class="analysis-anno-list">' + spinner('Loading notes...') + '</div>'
+    + '<div class="analysis-anno-form">'
+    + '<input id="mri-annotation-title" class="form-control" maxlength="160" placeholder="Short title (optional)"/>'
+    + '<textarea id="mri-annotation-body" class="form-control" rows="4" maxlength="5000" placeholder="Add a note for this scan"></textarea>'
+    + '<input id="mri-annotation-anchor" class="form-control" maxlength="120" placeholder="Anchor label (optional)" value="' + esc(context.anchor_label || '') + '"/>'
+    + '<div style="display:flex;justify-content:flex-end"><button class="btn btn-sm btn-primary" id="mri-annotation-save">Save note</button></div>'
+    + '</div></aside>';
+  host.classList.add('analysis-anno-host--open');
+  var listEl = document.getElementById('mri-annotation-list');
+  try {
+    var rows = await api.listAnnotations({ patientId: context.patient_id, targetType: 'mri', targetId: context.target_id });
+    if (listEl) listEl.innerHTML = _renderMRIAnnotationList(rows);
+  } catch (err) {
+    if (listEl) listEl.innerHTML = '<div class="analysis-anno-empty">Could not load notes: ' + esc(err.message || err) + '</div>';
+  }
+  host.querySelectorAll('[data-mri-annotation-close="1"]').forEach(function (node) {
+    node.addEventListener('click', function () {
+      host.classList.remove('analysis-anno-host--open');
+      host.innerHTML = '';
+    });
+  });
+  host.querySelectorAll('[data-mri-annotation-delete]').forEach(function (node) {
+    node.addEventListener('click', async function () {
+      var id = node.getAttribute('data-mri-annotation-delete');
+      if (!id) return;
+      try {
+        await api.deleteAnnotation(id);
+        showToast('Note deleted', 'success');
+        _openMRIAnnotationDrawer(context);
+      } catch (err) {
+        showToast('Could not delete note: ' + (err.message || err), 'error');
+      }
+    });
+  });
+  var saveBtn = document.getElementById('mri-annotation-save');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async function () {
+      var bodyEl = document.getElementById('mri-annotation-body');
+      var titleEl = document.getElementById('mri-annotation-title');
+      var anchorEl = document.getElementById('mri-annotation-anchor');
+      var body = bodyEl && bodyEl.value ? bodyEl.value.trim() : '';
+      if (!body) {
+        showToast('Add some note text first', 'warning');
+        return;
+      }
+      saveBtn.disabled = true;
+      try {
+        await api.createAnnotation({
+          patient_id: context.patient_id,
+          target_type: 'mri',
+          target_id: context.target_id,
+          title: titleEl && titleEl.value ? titleEl.value.trim() : null,
+          body: body,
+          anchor_label: anchorEl && anchorEl.value ? anchorEl.value.trim() : null,
+          anchor_data: { analysis_id: context.target_id },
+        });
+        showToast('Note saved', 'success');
+        _openMRIAnnotationDrawer(context);
+      } catch (err) {
+        showToast('Could not save note: ' + (err.message || err), 'error');
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
+  }
+}
+
+function _bindMRIAnnotationButtons() {
+  document.querySelectorAll('[data-mri-annotation]').forEach(function (btn) {
+    if (btn.dataset.annotationBound === '1') return;
+    btn.dataset.annotationBound = '1';
+    btn.addEventListener('click', function () {
+      try {
+        var ctx = JSON.parse(btn.getAttribute('data-mri-annotation') || '{}');
+        _openMRIAnnotationDrawer(ctx);
+      } catch (_err) {
+        showToast('Could not open notes', 'error');
+      }
+    });
+  });
+}
+
+function _getFusionToken() {
+  try {
+    return globalThis.localStorage?.getItem?.(FUSION_TOKEN_KEY) || null;
+  } catch (_) {
+    return null;
+  }
+}
+function _demoFusionSummary(patientId) {
+  return {
+    patient_id: patientId || 'demo-patient',
+    qeeg_analysis_id: null,
+    mri_analysis_id: DEMO_MRI_REPORT.analysis_id,
+    recommendations: ['MRI targeting is available. Add qEEG biomarkers to create a higher-confidence dual-modality plan.'],
+    summary: 'Partial fusion available from one modality only. Add qEEG data to strengthen target confidence.',
+    confidence: 0.4,
+    generated_at: new Date().toISOString(),
+  };
+}
+
+async function _fetchFusionSummary(patientId) {
+  if (!patientId) return null;
+  if (_isDemoMode()) return _demoFusionSummary(patientId);
+  try {
+    return await api.getFusionRecommendation(patientId);
+  } catch (_) {
+    return null;
+  }
+}
+
+export function renderFusionSummaryCard(fusion, patientId) {
+  if (!patientId && !fusion) {
+    return card('Fusion summary',
+      '<div style="color:var(--text-secondary);font-size:13px">Run or load an MRI analysis to assemble a fusion summary.</div>');
+  }
+  if (!fusion) {
+    return card('Fusion summary',
+      '<div style="color:var(--text-secondary);font-size:13px">Fusion summary unavailable right now. Existing MRI targeting remains available.</div>');
+  }
+  var recs = Array.isArray(fusion.recommendations) ? fusion.recommendations : [];
+  var tags = [];
+  if (fusion.qeeg_analysis_id) tags.push('qEEG ready');
+  if (fusion.mri_analysis_id) tags.push('MRI ready');
+  if (fusion.confidence != null) tags.push('confidence ' + Math.round(Number(fusion.confidence || 0) * 100) + '%');
+  return card('Fusion summary',
+    '<div style="font-size:13px;color:var(--text-primary);line-height:1.55">' + esc(fusion.summary || '') + '</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">' + tags.map(function (item) {
+      return '<span class="ds-mri-mod-pill">' + esc(item) + '</span>';
+    }).join('') + '</div>'
+    + (recs.length
+      ? '<ul style="margin:10px 0 0 18px;padding:0;color:var(--text-secondary);font-size:12.5px;line-height:1.5">'
+        + recs.map(function (item) { return '<li>' + esc(item) + '</li>'; }).join('')
+        + '</ul>'
+      : '')
+  );
+}
+
+var _niivueLoaderPromise = null;
+
+function _getApiBase() {
+  return (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
+}
+
+function _viewerVolumeCandidates(report, payload) {
+  if (payload && payload.base_volume && payload.base_volume.url) {
+    var out = [];
+    var base = { url: payload.base_volume.url };
+    if (payload.base_volume.colormap) base.colormap = payload.base_volume.colormap;
+    if (payload.base_volume.opacity != null) base.opacity = payload.base_volume.opacity;
+    if (payload.base_volume.cal_min != null) base.cal_min = payload.base_volume.cal_min;
+    if (payload.base_volume.cal_max != null) base.cal_max = payload.base_volume.cal_max;
+    out.push(base);
+    (payload.overlays || []).forEach(function (overlay) {
+      if (!overlay || !overlay.url) return;
+      out.push({
+        url: overlay.url,
+        colormap: overlay.colormap,
+        opacity: overlay.opacity,
+        cal_min: overlay.cal_min,
+        cal_max: overlay.cal_max,
+      });
+    });
+    return out;
+  }
+  if (!report) return [];
+  var candidates = [];
+  function push(label, url) {
+    if (!url || typeof url !== 'string') return;
+    candidates.push({ name: label, url: url });
+  }
+  push('T1', report._t1_mni_path);
+  if (report.diffusion) {
+    push('FA', report.diffusion.fa_map_s3);
+    push('MD', report.diffusion.md_map_s3);
+  }
+  return candidates;
+}
+
+function _renderViewerFallback(el, opts, reason) {
+  if (!el) return false;
+  var firstTarget = opts && opts.targets && opts.targets[0] ? opts.targets[0] : null;
+  var coords = firstTarget && Array.isArray(firstTarget.mni_xyz) ? firstTarget.mni_xyz.join(', ') : 'n/a';
+  el.innerHTML =
+    '<div class="ds-mri-progressive-viewer__fallback">'
+    + '<div class="ds-mri-progressive-viewer__badge">Viewer fallback</div>'
+    + '<div class="ds-mri-progressive-viewer__title">' + esc(firstTarget && firstTarget.region_name || 'MRI target preview') + '</div>'
+    + '<div class="ds-mri-progressive-viewer__meta">MNI ' + esc(coords) + '</div>'
+    + '<p>' + esc(reason || 'Interactive viewer assets are not staged for this analysis.') + '</p>'
+    + '</div>';
+  return false;
+}
+
+function _renderOverlayIframe(el, opts) {
+  if (!el || !opts || !opts.analysisId || !opts.targetId) return false;
+  var src = _getApiBase() + '/api/v1/mri/overlay/' + encodeURIComponent(opts.analysisId) + '/' + encodeURIComponent(opts.targetId);
+  el.innerHTML =
+    '<iframe class="ds-mri-progressive-viewer__iframe" src="' + esc(src) + '" title="MRI overlay viewer"></iframe>';
+  return true;
+}
+
+function _loadNiiVueScript() {
+  if (typeof window === 'undefined') return Promise.reject(new Error('window unavailable'));
+  if (window.niivue && window.niivue.Niivue) return Promise.resolve(window.niivue);
+  if (_niivueLoaderPromise) return _niivueLoaderPromise;
+  _niivueLoaderPromise = new Promise(function (resolve, reject) {
+    var prior = document.querySelector('script[data-niivue-loader="1"]');
+    if (prior) {
+      prior.addEventListener('load', function () { resolve(window.niivue); }, { once: true });
+      prior.addEventListener('error', function () { reject(new Error('NiiVue failed to load')); }, { once: true });
+      return;
+    }
+    var script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/niivue@0.64.0/dist/niivue.umd.js';
+    script.async = true;
+    script.dataset.niivueLoader = '1';
+    script.onload = function () {
+      if (window.niivue && window.niivue.Niivue) resolve(window.niivue);
+      else reject(new Error('NiiVue global missing'));
+    };
+    script.onerror = function () { reject(new Error('NiiVue failed to load')); };
+    document.head.appendChild(script);
+  }).catch(function (err) {
+    _niivueLoaderPromise = null;
+    throw err;
+  });
+  return _niivueLoaderPromise;
+}
+
+export async function mountNiiVue(el, opts) {
+  if (!el) return false;
+  var payload = null;
+  try {
+    if (opts && opts.analysisId && api.getMRIViewerPayload) {
+      payload = await api.getMRIViewerPayload(opts.analysisId);
+    }
+  } catch (_payloadErr) {
+    payload = null;
+  }
+  var volumes = _viewerVolumeCandidates(opts && opts.report, payload);
+  if (!volumes.length) {
+    return _renderOverlayIframe(el, opts) || _renderViewerFallback(el, opts, 'No staged NIfTI volumes were found for this analysis.');
+  }
+  try {
+    var niivueLib = await _loadNiiVueScript();
+    var canvas = document.createElement('canvas');
+    canvas.className = 'ds-mri-progressive-viewer__canvas';
+    el.innerHTML = '';
+    el.appendChild(canvas);
+    var nv = new niivueLib.Niivue({ show3Dcrosshair: true, backColor: [0.03, 0.07, 0.12, 1] });
+    if (typeof nv.attachToCanvas === 'function') nv.attachToCanvas(canvas);
+    if (typeof nv.setSliceType === 'function') nv.setSliceType(nv.sliceTypeMultiplanar || 4);
+    await nv.loadVolumes(volumes);
+    if (payload && payload.initial_view === 'render' && typeof nv.setSliceType === 'function') {
+      nv.setSliceType(nv.sliceTypeRender || nv.sliceTypeMultiplanar || 4);
+    }
+    if (payload && Array.isArray(payload.meshes) && payload.meshes.length && typeof nv.loadMeshes === 'function') {
+      try { await nv.loadMeshes(payload.meshes); } catch (_meshErr) {}
+    }
+    if (payload && Array.isArray(payload.points) && payload.points.length) {
+      payload.points.forEach(function (point) {
+        if (typeof nv.addPoint === 'function') {
+          try {
+            nv.addPoint({
+              x: point.x,
+              y: point.y,
+              z: point.z,
+              label: point.label,
+              color: point.rgba,
+              radius: point.radius_mm,
+            });
+          } catch (_pointErr) {}
+        }
+      });
+    }
+    return true;
+  } catch (_err) {
+    return _renderOverlayIframe(el, opts) || _renderViewerFallback(el, opts, 'The viewer library was unavailable, so the target overlay was loaded instead.');
+  }
+}
+
+function _mountInlineMRIViewer(report) {
+  var host = document.getElementById('ds-mri-progressive-viewer');
+  if (!host) return;
+  host.innerHTML = '<div class="ds-mri-progressive-viewer__loading"><span class="spinner"></span>Preparing viewer…</div>';
+  var target0 = report && Array.isArray(report.stim_targets) && report.stim_targets[0]
+    ? report.stim_targets[0]
+    : null;
+  mountNiiVue(host, {
+    analysisId: report && report.analysis_id,
+    patientId: report && report.patient && report.patient.patient_id,
+    targetId: target0 && target0.target_id,
+    targets: report && report.stim_targets,
+    report: report,
+  });
+}
 // ─────────────────────────────────────────────────────────────────────────────
 // DEMO_MRI_REPORT — verbatim copy of demo/sample_mri_report.json.  Demo mode
 // feeds this directly to the renderers; no API call is required.
@@ -103,6 +435,18 @@ export var DEMO_MRI_REPORT = {
     ventricular_volume_ml: { value: 24.6, unit: "mL", z: 0.2, percentile: 58, flagged: false },
     icv_ml: 1452,
     segmentation_engine: "synthseg_plus",
+    brain_age: {
+      status: "ok",
+      predicted_age_years: 58.7,
+      chronological_age_years: 54.0,
+      brain_age_gap_years: 4.7,
+      gap_zscore: 1.42,
+      cognition_cdr_estimate: 0.18,
+      model_id: "brainage_cnn_v1",
+      mae_years_reference: 3.30,
+      runtime_sec: 1.92,
+      error_message: null,
+    },
   },
 
   functional: {
@@ -139,6 +483,19 @@ export var DEMO_MRI_REPORT = {
       suggested_parameters: { protocol: "iTBS", sessions: 30, pulses_per_session: 600, intensity_pct_rmt: 120.0, frequency_hz: 50.0 },
       supporting_paper_ids_from_medrag: [1821, 34422, 51907],
       confidence: "high",
+      efield_dose: {
+        status: "ok",
+        v_per_m_at_target: 92.4,
+        peak_v_per_m: 138.1,
+        focality_50pct_volume_cm3: 4.6,
+        iso_contour_mesh_s3: "artefacts/efield_rTMS_MDD_personalised_sgACC/subject_TMS_1-0001_Magstim_70mm_Fig8_scalar.msh",
+        e_field_png_s3: "overlays/efield_rTMS_MDD_personalised_sgACC.png",
+        coil_optimised: true,
+        optimised_coil_pos: { centre_x: -48.3, centre_y: 40.1, centre_z: 34.2, direction_deg: 45.0 },
+        solver: "simnibs_fem",
+        runtime_sec: 182.4,
+        error_message: null,
+      },
       disclaimer: "Reference target coordinates derived from peer-reviewed literature. Not a substitute for clinician judgment. For neuronavigation planning only.",
     },
     {
@@ -248,6 +605,7 @@ export function _resetMRIState() {
   _jobId = null;
   _report = null;
   _patientMeta = null;
+  _fusionSummary = null;
   _medragCache = null;
   _jobStatus = null;
   if (_jobPollTimer) { clearInterval(_jobPollTimer); _jobPollTimer = null; }
@@ -278,12 +636,16 @@ export function renderRegulatoryFooter() {
 }
 
 // ── Top bar (inside the page, not setTopbar) ────────────────────────────────
-function renderHero() {
+function renderHero(patientAnalyses) {
+  var compareBtn = renderCompareButton(patientAnalyses);
   return '<div class="qeeg-hero" style="background:linear-gradient(135deg,rgba(37,99,235,0.08),rgba(74,158,255,0.04));border-color:rgba(37,99,235,0.18)">'
     + '<div class="qeeg-hero__icon" style="background:rgba(37,99,235,0.14);color:#60a5fa">&#x1F9E0;</div>'
     + '<div style="flex:1"><div class="qeeg-hero__title">MRI Analyzer</div>'
     + '<div class="qeeg-hero__sub">Structural &middot; fMRI &middot; DTI &middot; MNI stim-target engine</div></div>'
-    + '<div><button class="btn btn-primary btn-sm" id="ds-mri-new-analysis">+ New analysis</button></div>'
+    + '<div>'
+    + '<button class="btn btn-primary btn-sm" id="ds-mri-new-analysis">+ New analysis</button>'
+    + compareBtn
+    + '</div>'
     + '</div>';
 }
 
@@ -476,14 +838,34 @@ export function renderSliceViewer(report) {
   var aid = report && report.analysis_id ? report.analysis_id : null;
   var target0 = report && Array.isArray(report.stim_targets) && report.stim_targets[0]
     ? report.stim_targets[0].target_id : null;
+  var patientId = report && report.patient && report.patient.patient_id ? report.patient.patient_id : '';
+  var targetCount = report && Array.isArray(report.stim_targets) ? report.stim_targets.length : 0;
   var openable = aid && target0;
-  var body = '<div class="ds-mri-slice-viewer">'
-    + '<div class="ds-mri-slice-viewer__icon">T1</div>'
-    + '<div class="ds-mri-slice-viewer__msg">Interactive viewer available after overlay load.</div>'
+  var viewerState = _viewerVolumeCandidates(report).length
+    ? 'NiiVue volume mount ready'
+    : (openable ? 'Overlay endpoint fallback ready' : 'Waiting for analysis assets');
+  var body = '<div class="ds-mri-slice-viewer ds-mri-progressive-viewer-card">'
+    + '<div class="ds-mri-progressive-viewer__head">'
+    + '<div><div class="ds-mri-progressive-viewer__eyebrow">Progressive MRI Viewer</div>'
+    + '<div class="ds-mri-progressive-viewer__msg">' + esc(viewerState) + '</div></div>'
+    + '<div class="ds-mri-progressive-viewer__count">' + esc(String(targetCount || 0)) + ' target(s)</div>'
+    + '</div>'
+    + '<div id="ds-mri-progressive-viewer" class="ds-mri-progressive-viewer"></div>'
+    + '<div class="ds-mri-progressive-viewer__actions">'
+    + (aid
+      ? '<button class="btn btn-sm ds-mri-open-viewer-json" data-aid="' + esc(aid) + '">Inspect viewer payload</button>'
+      : '')
     + (openable
       ? '<button class="btn btn-sm ds-mri-open-overlay" data-aid="' + esc(aid) + '" data-target="' + esc(target0) + '">'
-        + 'Open overlay for first target</button>'
+        + 'Open first-target overlay</button>'
       : '<button class="btn btn-sm" disabled>Overlay unavailable</button>')
+    + (aid
+      ? '<button class="btn btn-sm ds-mri-copy-viewer-url" data-aid="' + esc(aid) + '">Copy viewer endpoint</button>'
+      : '')
+    + (patientId
+      ? '<button class="btn btn-sm ds-mri-open-timeline" data-patient="' + esc(patientId) + '">Open patient timeline</button>'
+      : '')
+    + '</div>'
     + '</div>';
   return card('3-plane slice viewer', body);
 }
@@ -613,6 +995,62 @@ export function renderMedRAGPanel(rows) {
     '<div class="ds-mri-medrag-list">' + html + '</div>');
 }
 
+// ── Right-column: Brain age card (AI_UPGRADES §P0 #2) ──────────────────────
+// Shows predicted age + brain-age gap + CDR proxy only when the structural
+// block carries a ``brain_age`` sub-object with ``status === 'ok'``. Otherwise
+// returns an empty string so downstream layout is unchanged.
+//
+// Evidence: Alzheimer's Res Ther 2025 (PMC12125894, MAE 3.30y, cognition
+// AUC ≈ 0.95); Nature Aging 2025 (s41514-025-00260-x); UK Biobank CNN.
+export function renderBrainAgeCard(report) {
+  if (!report || !report.structural) return '';
+  var ba = report.structural.brain_age;
+  if (!ba || ba.status !== 'ok' || ba.predicted_age_years == null) return '';
+
+  var predicted = Number(ba.predicted_age_years);
+  var chrono = ba.chronological_age_years != null ? Number(ba.chronological_age_years) : null;
+  var gap = ba.brain_age_gap_years != null
+    ? Number(ba.brain_age_gap_years)
+    : (chrono != null ? predicted - chrono : null);
+  var mae = ba.mae_years_reference != null ? Number(ba.mae_years_reference) : 3.3;
+  var cdr = ba.cognition_cdr_estimate != null ? Number(ba.cognition_cdr_estimate) : null;
+
+  var gapColor = 'var(--text-tertiary)';
+  if (gap != null) {
+    if (gap < 0) gapColor = 'var(--green)';
+    else if (gap <= 3) gapColor = 'var(--amber)';
+    else gapColor = 'var(--red)';
+  }
+  var gapLabel = gap != null
+    ? (gap > 0 ? '+' : '') + gap.toFixed(1) + ' y'
+    : '—';
+  var cdrHtml = cdr != null
+    ? '<span class="ds-mri-brainage-cdr" title="Research use only — not a substitute for clinician judgment">'
+      + 'CDR proxy ' + cdr.toFixed(2) + '</span>'
+    : '';
+
+  var body = '<div class="ds-mri-brainage-card" role="group" aria-label="Brain-age prediction">'
+    + '<div class="ds-mri-brainage-head" style="display:flex;align-items:baseline;gap:8px">'
+    + '<span class="ds-mri-brainage-age" style="font-size:22px;font-weight:700">'
+    + esc(predicted.toFixed(1)) + ' y</span>'
+    + '<span class="ds-mri-brainage-mae" style="font-size:12px;color:var(--text-tertiary)">'
+    + '&plusmn; ' + esc(mae.toFixed(2)) + ' y MAE</span>'
+    + '</div>'
+    + '<div class="ds-mri-brainage-sub" style="display:flex;align-items:center;gap:10px;margin-top:4px;font-size:12px">'
+    + '<span>Brain-age gap </span>'
+    + '<span class="ds-mri-brainage-gap" style="font-weight:600;color:' + gapColor + '">'
+    + esc(gapLabel) + '</span>'
+    + cdrHtml
+    + '</div>'
+    + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px;line-height:1.4">'
+    + 'Research / wellness use only. Not a substitute for clinician judgment. '
+    + 'Model: ' + esc(ba.model_id || 'brainage_cnn_v1') + '.'
+    + '</div>'
+    + '</div>';
+
+  return card('Brain age', body);
+}
+
 // ── Right-column: patient/QC header ────────────────────────────────────────
 function renderPatientQCHeader(report) {
   if (!report) return '';
@@ -645,22 +1083,243 @@ function renderPatientQCHeader(report) {
   return card('Analysis summary', body);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Radiology screening layer (AI_UPGRADES §P0 #5)
+//
+// renderQCWarningsBanner — amber "radiology review advised" banner at the
+//   top of the analyzer detail panel when MRIQC flags low quality OR the
+//   incidental-finding triage surfaced a WMH / tumour / infarct candidate.
+// renderMRIQCChips      — compact CNR / SNR / motion FD chip strip, shown
+//   only when the MRIQC stage status is 'ok'.
+//
+// Copy uses "radiology review advised" / "clinical reference" language;
+// never diagnosis / treatment. Does not block pipeline progress.
+// ─────────────────────────────────────────────────────────────────────────────
+export function renderQCWarningsBanner(report) {
+  if (!report) return '';
+  var warnings = Array.isArray(report.qc_warnings) ? report.qc_warnings.slice() : [];
+  var qc = report.qc || {};
+  var incidental = qc.incidental || null;
+  if (incidental && incidental.any_flagged && Array.isArray(incidental.findings)) {
+    incidental.findings.forEach(function (f) {
+      var loc = f.location_region ? ' in ' + f.location_region : '';
+      var sev = f.severity ? ' (' + f.severity + ')' : '';
+      var label = 'Radiology review advised: '
+        + String(f.finding_type || 'finding').toUpperCase() + loc + sev;
+      if (warnings.indexOf(label) === -1) warnings.push(label);
+    });
+  }
+  if (!warnings.length) return '';
+  var items = warnings.map(function (w) {
+    return '<li>' + esc(w) + '</li>';
+  }).join('');
+  return '<div class="ds-mri-qc-banner qeeg-panel--error" role="alert" '
+    + 'style="background:rgba(245,158,11,0.10);border:1px solid rgba(245,158,11,0.35);'
+    + 'border-radius:8px;padding:12px 14px;margin-bottom:12px;color:var(--text-primary)">'
+    + '<div style="display:flex;align-items:center;gap:8px;font-weight:600;color:#b45309">'
+    + '<span aria-hidden="true">&#x26A0;</span>'
+    + 'Quality / incidental-finding review</div>'
+    + '<ul class="ds-mri-qc-banner__list" style="margin:6px 0 0 22px;padding:0;font-size:12.5px;line-height:1.55">'
+    + items + '</ul>'
+    + '<div style="margin-top:6px;font-size:11px;color:var(--text-tertiary)">'
+    + 'Clinical reference only — not a substitute for clinician judgment.'
+    + '</div>'
+    + '</div>';
+}
+
+export function renderMRIQCChips(report) {
+  if (!report) return '';
+  var qc = (report.qc || {});
+  var m = qc.mriqc;
+  if (!m || m.status !== 'ok') return '';
+  var bits = [];
+  function chip(label, value, unit) {
+    if (value == null || !isFinite(Number(value))) return;
+    bits.push(
+      '<span class="ds-mri-qc-chip" title="' + esc(label) + '" '
+        + 'style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;'
+        + 'border:1px solid rgba(255,255,255,0.18);border-radius:999px;'
+        + 'font-size:11px;color:var(--text-secondary);background:rgba(255,255,255,0.04)">'
+        + '<b>' + esc(label) + '</b>'
+        + esc(Number(value).toFixed(2)) + (unit ? ' ' + esc(unit) : '')
+      + '</span>'
+    );
+  }
+  chip('CNR', m.cnr);
+  chip('SNR', m.snr);
+  chip('FD', m.motion_mean_fd_mm, 'mm');
+  if (m.fwhm_mm != null) chip('FWHM', m.fwhm_mm, 'mm');
+  if (!bits.length) return '';
+  var passed = m.passes_threshold !== false;
+  var passColor = passed ? 'var(--green)' : 'var(--amber)';
+  var passLabel = passed ? 'thresholds passed' : 'below threshold — review';
+  return '<div class="ds-mri-qc-chipstrip" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px">'
+    + '<span style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-tertiary)">MRIQC</span>'
+    + bits.join('')
+    + '<span style="font-size:11px;color:' + passColor + '">' + esc(passLabel) + '</span>'
+    + '</div>';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Longitudinal compare (AI_UPGRADES §P0 #4)
+//
+// renderCompareButton — appears when >= 2 completed analyses exist for the
+//   patient. Click opens a two-select modal.
+// renderCompareModal  — two <select> dropdowns (baseline, followup) +
+//   Submit → calls api.compareMRI(baseline_id, followup_id) and renders
+//   renderLongitudinalReport(result) into the modal body.
+// renderLongitudinalReport — summary card + 3 delta tables + optional
+//   jacobian / divergent-overlay image.
+// ─────────────────────────────────────────────────────────────────────────────
+export function renderCompareButton(patientAnalyses) {
+  var rows = Array.isArray(patientAnalyses) ? patientAnalyses : [];
+  var completed = rows.filter(function (a) {
+    return String(a.state || '').toUpperCase() === 'SUCCESS';
+  });
+  if (completed.length < 2) return '';
+  return '<button class="btn btn-sm ds-mri-compare-btn" id="ds-mri-compare-btn" '
+    + 'title="Compare two analyses" style="margin-left:8px">'
+    + 'Compare &#x2194;</button>';
+}
+
+function _formatDate(iso) {
+  if (!iso) return '—';
+  try {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return esc(iso);
+    return d.toISOString().slice(0, 10);
+  } catch (_e) { return esc(iso); }
+}
+
+export function renderCompareModal(patientAnalyses) {
+  var rows = (Array.isArray(patientAnalyses) ? patientAnalyses : [])
+    .filter(function (a) { return String(a.state || '').toUpperCase() === 'SUCCESS'; });
+  var opts = rows.map(function (a) {
+    var label = _formatDate(a.created_at) + ' · ' + (a.condition || '—')
+      + ' · ' + String(a.analysis_id || '').slice(0, 8);
+    return '<option value="' + esc(a.analysis_id) + '">' + esc(label) + '</option>';
+  }).join('');
+  return '<div id="ds-mri-compare-modal" class="ds-mri-overlay-modal" '
+    + 'style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;'
+    + 'display:flex;align-items:center;justify-content:center;padding:24px">'
+    + '<div class="ds-mri-overlay-modal__panel" '
+    + 'style="background:var(--panel-bg,#0f172a);color:var(--text-primary);'
+    + 'border-radius:12px;max-width:960px;width:100%;max-height:90vh;overflow:auto;'
+    + 'padding:20px;border:1px solid rgba(255,255,255,0.08)">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
+    + '<strong>Compare analyses</strong>'
+    + '<button class="btn btn-sm" id="ds-mri-compare-close">Close</button>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end">'
+    + '<div><label class="form-label">Baseline</label>'
+    + '<select id="ds-mri-compare-baseline" class="form-control">' + opts + '</select></div>'
+    + '<div><label class="form-label">Follow-up</label>'
+    + '<select id="ds-mri-compare-followup" class="form-control">' + opts + '</select></div>'
+    + '<div><button class="btn btn-primary" id="ds-mri-compare-run">Run compare</button></div>'
+    + '</div>'
+    + '<div id="ds-mri-compare-result" style="margin-top:14px;font-size:13px"></div>'
+    + '<div style="margin-top:10px;font-size:11px;color:var(--text-tertiary)">'
+    + 'Clinical reference only. Longitudinal change map — not a diagnostic device.'
+    + '</div>'
+    + '</div></div>';
+}
+
+function _deltaTable(rows, title) {
+  if (!Array.isArray(rows) || !rows.length) {
+    return '<div class="ds-mri-compare-table" style="font-size:12px;color:var(--text-tertiary);margin:6px 0">'
+      + esc(title) + ': no comparable regions.</div>';
+  }
+  var sorted = rows.slice().sort(function (a, b) {
+    return Math.abs(Number(b.delta_pct) || 0) - Math.abs(Number(a.delta_pct) || 0);
+  });
+  var body = sorted.map(function (r) {
+    // "recovery" = positive delta on volume / thickness / FA / within-FC.
+    var isRecovery = (Number(r.delta_pct) || 0) >= 0;
+    var color = isRecovery ? '#22c55e' : '#ef4444';
+    var sign = isRecovery ? '+' : '';
+    var flag = r.flagged
+      ? '<span style="margin-left:6px;font-size:10px;color:' + color + '">&#x25CF;</span>'
+      : '';
+    return '<tr>'
+      + '<td style="padding:4px 8px">' + esc(r.region) + flag + '</td>'
+      + '<td style="padding:4px 8px;text-align:right">' + esc(Number(r.baseline_value).toFixed(3)) + '</td>'
+      + '<td style="padding:4px 8px;text-align:right">' + esc(Number(r.followup_value).toFixed(3)) + '</td>'
+      + '<td style="padding:4px 8px;text-align:right;color:' + color + '">'
+      + sign + esc(Number(r.delta_pct).toFixed(2)) + '%</td>'
+      + '</tr>';
+  }).join('');
+  return '<div class="ds-mri-compare-table" style="margin:10px 0">'
+    + '<div style="font-weight:600;margin-bottom:4px">' + esc(title) + '</div>'
+    + '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+    + '<thead><tr style="color:var(--text-tertiary);text-align:left">'
+    + '<th style="padding:4px 8px">Region</th>'
+    + '<th style="padding:4px 8px;text-align:right">Baseline</th>'
+    + '<th style="padding:4px 8px;text-align:right">Follow-up</th>'
+    + '<th style="padding:4px 8px;text-align:right">Δ%</th>'
+    + '</tr></thead><tbody>' + body + '</tbody></table>'
+    + '</div>';
+}
+
+export function renderLongitudinalReport(result) {
+  if (!result) return '';
+  var summary = result.summary
+    ? '<div class="ds-mri-compare-summary" style="padding:10px;border-radius:8px;'
+      + 'background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);'
+      + 'margin-bottom:10px;font-size:13px">' + esc(result.summary) + '</div>'
+    : '';
+  var days = result.days_between != null
+    ? '<div style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:8px">'
+      + esc(result.days_between) + ' day(s) between visits</div>'
+    : '';
+  var jac = result.change_overlay_png_s3 || result.jacobian_determinant_s3;
+  var overlay = jac
+    ? '<div class="ds-mri-compare-overlay" style="margin-top:10px">'
+      + '<div style="font-weight:600;margin-bottom:4px">Volumetric change overlay</div>'
+      + '<img src="' + esc(jac) + '" alt="Longitudinal change overlay" '
+      + 'style="max-width:100%;border-radius:8px;border:1px solid rgba(255,255,255,0.08)"/>'
+      + '</div>'
+    : '';
+  var meta = result.comparison_meta || {};
+  var findings = Array.isArray(meta.key_findings) ? meta.key_findings : [];
+  var metaHtml = findings.length
+    ? '<div class="ds-mri-compare-meta"><div class="ds-mri-compare-meta__hd">Largest changes</div>'
+      + findings.map(function (item) {
+        var sign = Number(item.delta_pct) > 0 ? '+' : '';
+        var tone = Number(item.delta_pct) >= 0 ? '#22c55e' : '#ef4444';
+        return '<div class="ds-mri-compare-meta__row"><span>' + esc(item.domain) + ' · ' + esc(item.region) + '</span><strong style="color:' + tone + '">' + sign + esc(item.delta_pct) + '%</strong></div>';
+      }).join('')
+      + '</div>'
+    : '';
+  return summary
+    + days
+    + metaHtml
+    + _deltaTable(result.structural_changes, 'Structural change (thickness & volume)')
+    + _deltaTable(result.diffusion_changes, 'Diffusion change (bundle FA)')
+    + _deltaTable(result.functional_changes, 'Functional change (within-network FC)')
+    + overlay;
+}
+
 // ── Bottom strip: actions ──────────────────────────────────────────────────
 function renderBottomStrip(report) {
   var aid = report && report.analysis_id ? report.analysis_id : _mriAnalysisId;
   var disabled = aid ? '' : ' disabled';
+  var patientId = report && report.patient && report.patient.patient_id ? report.patient.patient_id : '';
   return '<div class="ds-mri-bottom-strip">'
     + '<div class="ds-mri-bottom-strip__group">'
     + '<span class="ds-mri-bottom-strip__label">Download report</span>'
     + '<button class="btn btn-sm ds-mri-dl-pdf"'  + disabled + '>PDF</button>'
     + '<button class="btn btn-sm ds-mri-dl-html"' + disabled + '>HTML</button>'
     + '<button class="btn btn-sm ds-mri-dl-json"' + disabled + '>JSON</button>'
+    + '<button class="btn btn-sm ds-mri-dl-fhir"' + disabled + '>FHIR</button>'
+    + '<button class="btn btn-sm ds-mri-dl-bids"' + disabled + '>BIDS</button>'
     + '</div>'
     + '<div class="ds-mri-bottom-strip__group">'
+    + _mriAnnotationButton({ patient_id: patientId, target_id: aid, anchor_label: 'MRI analysis' })
     + '<button class="btn btn-sm ds-mri-share"' + disabled + '>Share with referring provider</button>'
     + '<button class="btn btn-sm ds-mri-open-neuronav"' + disabled + '>Open in Neuronav</button>'
     + '</div>'
-    + '</div>';
+    + '</div>'
+    + '<div id="mri-annotation-drawer-host" class="analysis-anno-host"></div>';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -681,9 +1340,17 @@ export function renderFullView(state) {
     right = card('Results',
       emptyState('&#x1F9E0;',
         'No analysis loaded',
-        'Upload a session and click Run analysis to compute MNI stim targets.'));
+        'Upload a session and click Run analysis to compute MNI stim targets.'))
+      + renderFusionSummaryCard(state.fusion || null, state.patientId || null);
   } else {
-    right = renderPatientQCHeader(report)
+    // Amber "radiology review advised" banner sits above everything else
+    // in the right column — safety-first surfacing per AI_UPGRADES §P0 #5.
+    right = renderQCWarningsBanner(report)
+      + renderPatientQCHeader(report)
+      + renderFusionSummaryCard(state.fusion || null, report && report.patient && report.patient.patient_id)
+      + renderMRIQCChips(report)
+      + renderBrainAgeCard(report)
+      + renderProgressiveViewerCard(report)
       + renderTargetsPanel(report)
       + renderSliceViewer(report)
       + renderGlassBrain(report)
@@ -691,7 +1358,7 @@ export function renderFullView(state) {
   }
 
   return '<div class="ch-shell ds-mri-shell">'
-    + renderHero()
+    + renderHero(state.patientAnalyses)
     + '<div class="ds-mri-layout">'
     + '<div class="ds-mri-col ds-mri-col--left">' + left + '</div>'
     + '<div class="ds-mri-col ds-mri-col--right">' + right + '</div>'
@@ -829,6 +1496,41 @@ function _startPolling(navigate) {
 }
 
 function _wireRightColumn(navigate) {
+  _bindMRIAnnotationButtons();
+  document.querySelectorAll('.ds-mri-open-viewer-json').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var aid = btn.getAttribute('data-aid');
+      if (!aid) return;
+      try {
+        var payload = await api.getMRIViewerPayload(aid);
+        _openViewerPayloadModal(aid, payload);
+      } catch (err) {
+        showToast('Viewer payload unavailable: ' + (err && err.message ? err.message : err), 'error');
+      }
+    });
+  });
+  document.querySelectorAll('.ds-mri-copy-viewer-url').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var aid = btn.getAttribute('data-aid');
+      if (!aid) return;
+      var _apiBase = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
+      var text = _apiBase + '/api/v1/mri/' + encodeURIComponent(aid) + '/viewer.json';
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast('Viewer endpoint copied', 'success');
+      } catch (_err) {
+        showToast(text, 'info');
+      }
+    });
+  });
+  document.querySelectorAll('.ds-mri-open-timeline').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var patientId = btn.getAttribute('data-patient');
+      if (!patientId) return;
+      window._patientTimelinePatientId = patientId;
+      navigate('patient-timeline');
+    });
+  });
   document.querySelectorAll('.ds-mri-view-overlay, .ds-mri-open-overlay').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var tid = btn.getAttribute('data-target');
@@ -881,6 +1583,14 @@ function _wireRightColumn(navigate) {
     a.href = url; a.download = 'mri_report_' + (aid || 'demo') + '.json'; a.click();
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   });
+  var fhirBtn = document.querySelector('.ds-mri-dl-fhir');
+  if (fhirBtn) fhirBtn.addEventListener('click', function () {
+    window._mriExportFHIRBundle();
+  });
+  var bidsBtn = document.querySelector('.ds-mri-dl-bids');
+  if (bidsBtn) bidsBtn.addEventListener('click', function () {
+    window._mriExportBIDSPackage();
+  });
   var shareBtn = document.querySelector('.ds-mri-share');
   if (shareBtn) shareBtn.addEventListener('click', function () {
     showToast('Sharing coming soon', 'info');
@@ -897,6 +1607,39 @@ function _wireRightColumn(navigate) {
     navigate('mri-analysis');
   });
 }
+
+function _mriExportPayload() {
+  var patientId = (_patientMeta && _patientMeta.patient_id) || (_report && _report.patient && _report.patient.patient_id) || null;
+  if (!patientId) return null;
+  return {
+    patient_id: patientId,
+    mri_analysis_id: (_report && _report.analysis_id) || _mriAnalysisId || null,
+  };
+}
+
+async function _exportMRIArtifact(kind) {
+  var payload = _mriExportPayload();
+  if (!payload) {
+    showToast('Run or load an MRI analysis before exporting', 'warning');
+    return;
+  }
+  try {
+    var blob = kind === 'fhir'
+      ? await api.exportFHIRBundle(payload)
+      : await api.exportBIDSDerivatives(payload);
+    var suffix = new Date().toISOString().slice(0, 10);
+    var filename = kind === 'fhir'
+      ? 'mri_fhir_bundle_' + payload.patient_id + '_' + suffix + '.json'
+      : 'mri_bids_derivatives_' + payload.patient_id + '_' + suffix + '.zip';
+    downloadBlob(blob, filename);
+    showToast(kind === 'fhir' ? 'FHIR bundle exported' : 'BIDS package exported', 'success');
+  } catch (err) {
+    showToast('Export failed: ' + ((err && err.message) || String(err)), 'error');
+  }
+}
+
+window._mriExportFHIRBundle = function () { return _exportMRIArtifact('fhir'); };
+window._mriExportBIDSPackage = function () { return _exportMRIArtifact('bids'); };
 
 function _openOverlayModal(aid, tid) {
   var _apiBase = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
@@ -916,6 +1659,28 @@ function _openOverlayModal(aid, tid) {
     + '</div>';
   document.body.appendChild(modal);
   var closeBtn = document.getElementById('ds-mri-overlay-close');
+  if (closeBtn) closeBtn.addEventListener('click', function () { modal.remove(); });
+  modal.addEventListener('click', function (e) { if (e.target === modal) modal.remove(); });
+}
+
+function _openViewerPayloadModal(aid, payload) {
+  var existing = document.getElementById('ds-mri-viewer-modal');
+  if (existing) existing.remove();
+  var modal = document.createElement('div');
+  modal.id = 'ds-mri-viewer-modal';
+  modal.className = 'ds-mri-overlay-modal';
+  modal.innerHTML =
+    '<div class="ds-mri-overlay-modal__panel">'
+    + '<div class="ds-mri-overlay-modal__head">'
+    + '<strong>NiiVue payload · ' + esc(aid) + '</strong>'
+    + '<button class="btn btn-sm" id="ds-mri-viewer-close">Close</button>'
+    + '</div>'
+    + '<pre style="margin:0;padding:16px;max-height:70vh;overflow:auto;background:#0f1115;color:#d6deeb;font-size:12px;line-height:1.55">'
+    + esc(JSON.stringify(payload, null, 2))
+    + '</pre>'
+    + '</div>';
+  document.body.appendChild(modal);
+  var closeBtn = document.getElementById('ds-mri-viewer-close');
   if (closeBtn) closeBtn.addEventListener('click', function () { modal.remove(); });
   modal.addEventListener('click', function (e) { if (e.target === modal) modal.remove(); });
 }
@@ -966,11 +1731,93 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
     medrag = _synthesiseMedRAGFromReport(_report);
   }
 
+  // Fetch the patient's completed analyses so the hero can surface the
+  // "Compare ←→" button when >= 2 exist. Demo mode synthesises two rows.
+  var patientAnalyses = [];
+  var pid = _patientMeta && _patientMeta.patient_id;
+  _fusionSummary = await _fetchFusionSummary(pid || (_report && _report.patient && _report.patient.patient_id));
+  if (pid && !_isDemoMode()) {
+    try {
+      var res2 = await api.listPatientMRIAnalyses(pid);
+      patientAnalyses = (res2 && res2.analyses) || [];
+    } catch (_e) { patientAnalyses = []; }
+  } else if (_isDemoMode() && _report) {
+    // Demo: surface two synthetic completed analyses so the Compare
+    // button renders on the preview deploy.
+    patientAnalyses = [
+      { analysis_id: _report.analysis_id, state: 'SUCCESS',
+        condition: 'mdd', created_at: '2025-06-10T09:00:00Z' },
+      { analysis_id: 'demo-baseline-2024', state: 'SUCCESS',
+        condition: 'mdd', created_at: '2025-01-10T09:00:00Z' },
+    ];
+  }
+  _patientAnalysesCache = { patientId: pid || null, rows: patientAnalyses };
+  _fusionSummary = await _fetchFusionSummary(pid || (_report && _report.patient && _report.patient.patient_id));
+
   if (el) {
-    el.innerHTML = renderFullView({ report: _report, status: _jobStatus, medrag: medrag });
+    el.innerHTML = renderFullView({
+      report: _report,
+      status: _jobStatus,
+      medrag: medrag,
+      fusion: _fusionSummary,
+      patientId: pid || (_report && _report.patient && _report.patient.patient_id) || null,
+      patientAnalyses: patientAnalyses,
+    });
+    _mountInlineMRIViewer(_report);
     _wireUploader(navigate);
     _wireRunButton(navigate);
     _wireRightColumn(navigate);
+    _wireCompareButton(patientAnalyses);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Compare-button wiring (AI_UPGRADES §P0 #4)
+// ─────────────────────────────────────────────────────────────────────────────
+function _wireCompareButton(patientAnalyses) {
+  var btn = document.getElementById('ds-mri-compare-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    _openCompareModal(patientAnalyses);
+  });
+}
+
+function _openCompareModal(patientAnalyses) {
+  var existing = document.getElementById('ds-mri-compare-modal');
+  if (existing) existing.remove();
+  var holder = document.createElement('div');
+  holder.innerHTML = renderCompareModal(patientAnalyses);
+  document.body.appendChild(holder.firstChild);
+  var closeBtn = document.getElementById('ds-mri-compare-close');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', function () {
+      var m = document.getElementById('ds-mri-compare-modal');
+      if (m) m.remove();
+    });
+  }
+  var runBtn = document.getElementById('ds-mri-compare-run');
+  if (runBtn) runBtn.addEventListener('click', _handleCompareRun);
+}
+
+async function _handleCompareRun() {
+  var base = document.getElementById('ds-mri-compare-baseline');
+  var fup  = document.getElementById('ds-mri-compare-followup');
+  var out  = document.getElementById('ds-mri-compare-result');
+  if (!base || !fup || !out) return;
+  if (base.value === fup.value) {
+    out.innerHTML = '<div style="color:var(--amber);font-size:12px">'
+      + 'Pick two different analyses.</div>';
+    return;
+  }
+  out.innerHTML = '<div style="display:flex;align-items:center;gap:8px">'
+    + '<span class="spinner"></span> Computing change map…</div>';
+  try {
+    var result = await api.compareMRI(base.value, fup.value);
+    out.innerHTML = renderLongitudinalReport(result);
+  } catch (err) {
+    out.innerHTML = '<div style="color:var(--red);font-size:12px">'
+      + 'Compare failed: ' + esc(err && err.message ? err.message : String(err))
+      + '</div>';
   }
 }
 
@@ -988,5 +1835,6 @@ export var _INTERNALS = {
   setAnalysisId:     function (a) { _mriAnalysisId = a; },
   setUploadId:       function (u) { _uploadId = u; },
   setJobId:          function (j) { _jobId = j; },
+  mountNiiVue:       mountNiiVue,
   getReport:         function () { return _report; },
 };
