@@ -779,6 +779,68 @@ export async function pgQEEGMaps(setTopbar) {
     document.body.appendChild(overlayEl);
   }
 
+  // ── Mini EEG waveform SVG for cards ────────────────────────────────────────
+  const _BAND_MAP = {
+    'delta': { freq: 2, amp: 0.9, label: 'Delta 0.5-4 Hz' },
+    'theta': { freq: 4, amp: 0.75, label: 'Theta 4-8 Hz' },
+    'alpha': { freq: 10, amp: 0.7, label: 'Alpha 8-13 Hz' },
+    'beta':  { freq: 20, amp: 0.5, label: 'Beta 13-30 Hz' },
+    'gamma': { freq: 40, amp: 0.35, label: 'Gamma 30-100 Hz' },
+    'smr':   { freq: 13, amp: 0.55, label: 'SMR 12-15 Hz' },
+    'mu':    { freq: 10, amp: 0.6, label: 'Mu 8-13 Hz' },
+    'erp':   { freq: 8, amp: 0.8, label: 'ERP waveform' },
+    'hrv':   { freq: 1, amp: 0.85, label: 'Heart rate' },
+    'sleep': { freq: 3, amp: 0.8, label: 'Sleep cycle' },
+    'bio':   { freq: 0.5, amp: 0.6, label: 'Biomarker level' },
+    'cog':   { freq: 6, amp: 0.65, label: 'Cognitive task' },
+    'tms':   { freq: 15, amp: 0.7, label: 'TMS-EEG' },
+  };
+
+  function _guessBand(marker, group) {
+    const n = (marker.name + ' ' + marker.notation + ' ' + marker.id).toLowerCase();
+    if (group.id === 'autonomic-cardiac') return 'hrv';
+    if (group.id === 'sleep-architecture') return 'sleep';
+    if (group.id === 'inflammatory-endocrine') return 'bio';
+    if (group.id === 'cognitive-behavioral') return 'cog';
+    if (group.id === 'tms-eeg') return 'tms';
+    if (group.id === 'erp') return 'erp';
+    if (n.includes('delta')) return 'delta';
+    if (n.includes('theta')) return 'theta';
+    if (n.includes('alpha') || n.includes('iaf') || n.includes('paf') || n.includes('faa')) return 'alpha';
+    if (n.includes('gamma')) return 'gamma';
+    if (n.includes('smr') || n.includes('sensorimotor')) return 'smr';
+    if (n.includes('mu')) return 'mu';
+    if (n.includes('beta') || n.includes('tbr')) return 'beta';
+    if (n.includes('erp') || n.includes('p300') || n.includes('n200') || n.includes('mmn')) return 'erp';
+    return 'alpha'; // default
+  }
+
+  function _miniWaveformSvg(marker, group) {
+    const band = _BAND_MAP[_guessBand(marker, group)];
+    const w = 120, h = 48, pad = 4;
+    const color = group.tone;
+    const points = [];
+    const steps = 60;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = pad + t * (w - 2 * pad);
+      // Main wave + slight noise
+      const wave = Math.sin(t * band.freq * Math.PI) * band.amp;
+      const noise = Math.sin(t * 47) * 0.08 + Math.sin(t * 23) * 0.05;
+      const y = h / 2 - (wave + noise) * (h / 2 - pad);
+      points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+    }
+    return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="display:block">
+      <defs><linearGradient id="wg-${marker.id}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.3"/>
+        <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+      </linearGradient></defs>
+      <polyline points="${points.join(' ')}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+      <polyline points="${pad},${h - pad} ${points.join(' ')} ${w - pad},${h - pad}" fill="url(#wg-${marker.id})" stroke="none"/>
+      <line x1="${pad}" y1="${h / 2}" x2="${w - pad}" y2="${h / 2}" stroke="${color}" stroke-width="0.3" stroke-dasharray="2,3" opacity="0.3"/>
+    </svg>`;
+  }
+
   function renderMarker(marker, group, idx) {
     const backendMatch = backendBiomarkerLookup.get(marker.name.toLowerCase()) || null;
     const searchBlob = [
@@ -800,8 +862,13 @@ export async function pgQEEGMaps(setTopbar) {
       backendMatch?.clinical_significance || '',
     ].join(' ').toLowerCase();
 
-    const teaser = marker.measures.length > 150 ? marker.measures.slice(0, 150) + '...' : marker.measures;
-    const condPills = (marker.conditions || []).slice(0, 4).map(c => `<span style="font-size:10px;padding:2px 7px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-tertiary)">${c}</span>`).join('');
+    const teaser = marker.measures.length > 120 ? marker.measures.slice(0, 120) + '...' : marker.measures;
+    const condPills = (marker.conditions || []).slice(0, 3).map(c => `<span style="font-size:9.5px;padding:2px 7px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-tertiary)">${c}</span>`).join('');
+    const bandKey = _guessBand(marker, group);
+    const bandInfo = _BAND_MAP[bandKey];
+    const waveform = _miniWaveformSvg(marker, group);
+    const sites = _parseSites(marker.site);
+    const siteLabel = sites.length > 0 ? sites.slice(0, 3).join(', ') : marker.site.split(/[,(;]/)[0].trim();
 
     return `
       <article class="card nb-marker" data-search="${searchBlob}" style="margin-bottom:0;border:1px solid rgba(255,255,255,0.07);overflow:hidden;transition:border-color .2s,box-shadow .2s;cursor:pointer"
@@ -809,19 +876,30 @@ export async function pgQEEGMaps(setTopbar) {
         onmouseover="this.style.borderColor='${group.tone}44';this.style.boxShadow='0 0 20px ${group.tone}18'"
         onmouseout="this.style.borderColor='rgba(255,255,255,0.07)';this.style.boxShadow='none'"
       >
-        <div style="padding:16px 18px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0))">
-          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
-            <div style="min-width:0;flex:1">
-              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-                <span style="font-size:10px;padding:3px 8px;border-radius:999px;background:${group.tone}18;color:${group.tone};letter-spacing:.08em;text-transform:uppercase">${group.title}</span>
-                <span style="font-size:10px;padding:3px 8px;border-radius:999px;background:rgba(255,255,255,0.04);color:var(--text-tertiary);border:1px solid var(--border)">${marker.evidence}</span>
-              </div>
-              <div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:4px">${marker.name}</div>
-              <div style="font-size:11px;color:var(--text-tertiary);font-family:var(--font-mono, monospace);margin-bottom:8px">${marker.notation}</div>
-              <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:8px">${teaser}</div>
-              <div style="display:flex;flex-wrap:wrap;gap:5px">${condPills}</div>
+        <div style="padding:14px 16px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0))">
+          <div style="display:flex;gap:14px;align-items:flex-start">
+
+            <!-- Mini EEG Chart Card -->
+            <div style="flex-shrink:0;width:130px;border-radius:10px;background:${group.tone}08;border:1px solid ${group.tone}18;padding:8px 5px 6px;text-align:center">
+              ${waveform}
+              <div style="font-size:9px;color:${group.tone};margin-top:4px;letter-spacing:.04em;font-weight:600">${bandInfo.label}</div>
+              <div style="font-size:8.5px;color:var(--text-tertiary);margin-top:2px">${siteLabel}</div>
             </div>
-            <div style="color:${group.tone};font-size:14px;line-height:1;flex-shrink:0;margin-top:4px;opacity:0.7">&rarr;</div>
+
+            <!-- Content -->
+            <div style="min-width:0;flex:1">
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+                <span style="font-size:9.5px;padding:2px 7px;border-radius:999px;background:${group.tone}18;color:${group.tone};letter-spacing:.08em;text-transform:uppercase">${group.title}</span>
+                <span style="font-size:9.5px;padding:2px 7px;border-radius:999px;background:rgba(255,255,255,0.04);color:var(--text-tertiary);border:1px solid var(--border)">${marker.evidence}</span>
+              </div>
+              <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:3px;line-height:1.3">${marker.name}</div>
+              <div style="font-size:10.5px;color:var(--text-tertiary);font-family:var(--font-mono, monospace);margin-bottom:6px">${marker.notation}</div>
+              <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.55;margin-bottom:6px">${teaser}</div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px">${condPills}</div>
+            </div>
+
+            <!-- Arrow -->
+            <div style="color:${group.tone};font-size:14px;line-height:1;flex-shrink:0;margin-top:4px;opacity:0.6">&rarr;</div>
           </div>
         </div>
       </article>`;

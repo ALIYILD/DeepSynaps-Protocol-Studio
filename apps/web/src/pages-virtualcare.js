@@ -5,6 +5,7 @@
 
 import { api } from './api.js';
 import { CONDITION_HOME_TEMPLATES } from './home-program-condition-templates.js';
+import { EVIDENCE_TOTAL_PAPERS, EVIDENCE_SUMMARY } from './evidence-dataset.js';
 
 const _e = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const _fmtTime = iso => { try { return new Date(iso).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'}); } catch { return iso; } };
@@ -1516,7 +1517,7 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
       <div class="vc-db-card-hd">
         <div>
           <div class="vc-db-card-title">Evidence governance${demoChip}</div>
-          <div class="vc-db-card-meta">Active registry grades &middot; last synced 12 min ago</div>
+          <div class="vc-db-card-meta">Active registry grades &middot; ${EVIDENCE_TOTAL_PAPERS.toLocaleString()} papers indexed &middot; last synced 12 min ago</div>
         </div>
         <button class="vc-db-tab active" id="vc-db-ev-all-btn">All current</button>
       </div>

@@ -13,6 +13,12 @@ import {
 } from './friendly-forms.js';
 import { SUPPORTED_FORMS, getAssessmentConfig } from './assessment-forms.js';
 import { renderBrainMap10_20 } from './brain-map-svg.js';
+import {
+  EVIDENCE_TOTAL_PAPERS,
+  EVIDENCE_TOTAL_TRIALS,
+  EVIDENCE_SUMMARY,
+  getConditionEvidence,
+} from './evidence-dataset.js';
 
 // ── Nav definition ────────────────────────────────────────────────────────────
 // Patient nav: each item is tagged with a `tone` so the sidebar renders
@@ -1023,7 +1029,7 @@ export async function pgPatientDashboard(user) {
           <svg width="18" height="18"><use href="#i-book-open"/></svg>
         </div>
         <div class="pth2-tile-title">Education Library</div>
-        <div class="pth2-tile-sub">${targetAreaLine ? esc(targetAreaLine) : 'Journals, courses, podcasts, and clinic videos'}</div>
+        <div class="pth2-tile-sub">${targetAreaLine ? esc(targetAreaLine) : (EVIDENCE_TOTAL_PAPERS.toLocaleString() + '+ papers, courses, podcasts & clinic videos')}</div>
         <div class="pth2-tile-meta">Explore</div>
       </button>`);
 
@@ -1200,6 +1206,11 @@ export async function pgPatientDashboard(user) {
             <div class="pth2-target-sub">${targetAreaLine ? esc(targetAreaLine) : 'Target area set by your care team.'}</div>
           </div>
         </div>
+        ${(() => {
+          const slug = (cond || '').toLowerCase().replace(/\s+/g,'-').replace(/[()]/g,'');
+          const ev = slug ? getConditionEvidence(slug) : null;
+          return ev ? `<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary);display:flex;align-items:center;gap:6px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>${ev.paperCount.toLocaleString()} research papers &middot; ${ev.rctCount.toLocaleString()} RCTs indexed for this condition</div>` : '';
+        })()}
       </div>`;
   }
 
@@ -11481,6 +11492,11 @@ export async function pgPatientLearn() {
       <div style="font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--violet,#9b7fff);margin-bottom:8px">Patient learning library</div>
       <div style="font-size:20px;font-weight:700;color:var(--text-primary);margin-bottom:6px">Education Library</div>
       <div style="font-size:12.5px;color:var(--text-secondary);max-width:900px">Academic journals, YouTube explainers, podcasts, Udemy and edX courses, clinic premium videos, and conference or seminar replays curated for neuromodulation patients.</div>
+      <div style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text-tertiary)">
+        <span>${EVIDENCE_TOTAL_PAPERS.toLocaleString()} peer-reviewed papers</span>
+        <span>${EVIDENCE_TOTAL_TRIALS.toLocaleString()} clinical trials</span>
+        <span>${EVIDENCE_SUMMARY.totalConditions} conditions indexed</span>
+      </div>
     </div>
 
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px">

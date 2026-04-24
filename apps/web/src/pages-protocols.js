@@ -8,6 +8,7 @@ import {
 } from './protocols-data.js';
 import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
 import { renderLiveEvidencePanel } from './live-evidence.js';
+import { renderPersonalizationWizard, bindPersonalizationActions } from './protocol-personalization-wizard.js';
 import { api } from './api.js';
 
 // Normalise a /api/v1/registry/protocols row into the shape pgProtocolSearch
@@ -511,6 +512,7 @@ export async function pgProtocolDetail(setTopbar, navigate) {
         <div class="prot-detail-hero-actions">
           <button class="prot-detail-use-btn" onclick="window._protUseProtocol('${_esc(proto.id)}')">Use This Protocol</button>
           <button class="prot-detail-edit-btn" onclick="window._protEditProtocol('${_esc(proto.id)}')">Edit / Customize</button>
+          <button class="prot-detail-personalize-btn" onclick="window._protPersonalize('${_esc(proto.id)}')">&#9881; Personalize</button>
         </div>
       </div>
 
@@ -593,6 +595,19 @@ export async function pgProtocolDetail(setTopbar, navigate) {
   window._protEditProtocol = id => {
     window._protDetailId = id;
     window._nav('protocol-builder');
+  };
+
+  // ── Personalization Wizard ─────────────────────────────────────────────────
+  bindPersonalizationActions();
+  window._protPersonalize = id => {
+    const p = PROTOCOL_LIBRARY.find(x => x.id === id);
+    if (!p) return;
+    // Reset wizard state for a fresh session
+    window._pwizState = null;
+    const html = renderPersonalizationWizard(p, {});
+    const host = document.createElement('div');
+    host.innerHTML = html;
+    document.body.appendChild(host.firstElementChild);
   };
 
   // ── Recent literature (last 30 days) — populated post-render ─────────────
@@ -982,6 +997,7 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
             </div>
 
             <div class="prot-b-actions">
+              <button class="prot-b-save-btn" onclick="window._protBPersonalize()" style="border-color:var(--teal,#14b8a6);color:var(--teal,#14b8a6)">&#9881; Personalize</button>
               <button class="prot-b-save-btn" onclick="window._protBSave()">Save as Draft</button>
               <button class="prot-b-submit-btn" onclick="window._protBSubmit()">Submit for Review</button>
             </div>
@@ -1049,6 +1065,34 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
   window._protBAI   = v => { _b.aiPersonalization = v; };
   window._protBScan = v => { _b.scanGuidedNotes = v; };
   window._protGovToggle = g => _govToggle(g);
+
+  // ── Personalize from builder ───────────────────────────────────────────────
+  bindPersonalizationActions();
+  window._protBPersonalize = () => {
+    if (!_b.name || !_b.conditionId || !_b.device) {
+      window._showNotifToast?.({ title: 'Required', body: 'Set protocol name, condition and device before personalizing.', severity: 'warn' });
+      return;
+    }
+    // Build a draft object that mirrors PROTOCOL_LIBRARY shape
+    const draft = {
+      id: 'builder-draft',
+      name: _b.name,
+      conditionId: _b.conditionId,
+      device: _b.device,
+      subtype: _b.subtype,
+      target: _b.target,
+      parameters: { ..._b.params },
+      evidenceGrade: _b.evidenceGrade,
+      governance: [..._b.governance],
+      contraindications: _b.contraindications.split('\n').filter(Boolean),
+      type: _b.type,
+    };
+    window._pwizState = null;
+    const html = renderPersonalizationWizard(draft, {});
+    const host = document.createElement('div');
+    host.innerHTML = html;
+    document.body.appendChild(host.firstElementChild);
+  };
 
   // Builder drafts persist locally by default. When a patient context has been
   // stashed by pgPatients / rx flow (window._builderPatientId), the draft is

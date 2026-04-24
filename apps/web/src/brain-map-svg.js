@@ -1001,3 +1001,724 @@ export function renderChannelQualityMap(channelStats, channels, options) {
   parts.push('</svg>');
   return parts.join('');
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// renderAsymmetryMap — Hemispheric asymmetry topographic map
+//
+// regions:  { frontal: {index, direction}, central: {...}, temporal: {...},
+//             parietal: {...}, occipital: {...} }
+// options.size: number — SVG width/height (default 400)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function renderAsymmetryMap(regions, options) {
+  var opts = options || {};
+  var size = Number.isFinite(opts.size) ? opts.size : 400;
+
+  if (!regions) return '<div>No asymmetry data</div>';
+
+  // Find max absolute index for normalization
+  var maxIdx = 0;
+  var regionKeys = ['frontal', 'central', 'temporal', 'parietal', 'occipital'];
+  regionKeys.forEach(function (key) {
+    if (regions[key] && regions[key].index != null) {
+      var absVal = Math.abs(regions[key].index);
+      if (absVal > maxIdx) maxIdx = absVal;
+    }
+  });
+  maxIdx = maxIdx || 1;
+
+  var parts = [];
+  parts.push('<svg class="ds-asymmetry-map" viewBox="0 0 400 480" width="' + size + '" height="' + Math.round(size * 480 / 400) + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Hemispheric asymmetry map" tabindex="0">');
+
+  // Title
+  parts.push('<text x="200" y="22" text-anchor="middle" font-size="13" font-weight="700" fill="rgba(255,255,255,0.9)" font-family="system-ui,sans-serif">Hemispheric Asymmetry</text>');
+
+  // Head circle
+  var headCx = 200;
+  var headCy = 220;
+  var headR = 155;
+  parts.push('<circle cx="' + headCx + '" cy="' + headCy + '" r="' + headR + '" fill="#0d1b2a" stroke="rgba(255,255,255,0.25)" stroke-width="2"/>');
+
+  // Nose + ears
+  parts.push('<polygon points="' + headCx + ',' + (headCy - headR - 12) + ' ' + (headCx - 12) + ',' + (headCy - headR + 8) + ' ' + (headCx + 12) + ',' + (headCy - headR + 8) + '" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5" stroke-linejoin="round"/>');
+  parts.push('<ellipse cx="' + (headCx - 166) + '" cy="' + headCy + '" rx="10" ry="24" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>');
+  parts.push('<ellipse cx="' + (headCx + 166) + '" cy="' + headCy + '" rx="10" ry="24" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>');
+
+  // Vertical midline (hemispheric divider)
+  parts.push('<line x1="' + headCx + '" y1="' + (headCy - headR) + '" x2="' + headCx + '" y2="' + (headCy + headR) + '" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" stroke-dasharray="6,3"/>');
+
+  // Hemisphere labels
+  parts.push('<text x="' + (headCx - headR + 20) + '" y="' + (headCy - headR + 25) + '" font-size="11" font-weight="600" fill="rgba(255,255,255,0.4)" font-family="system-ui,sans-serif">L</text>');
+  parts.push('<text x="' + (headCx + headR - 20) + '" y="' + (headCy - headR + 25) + '" text-anchor="end" font-size="11" font-weight="600" fill="rgba(255,255,255,0.4)" font-family="system-ui,sans-serif">R</text>');
+
+  // Draw electrode dots colored by asymmetry
+  SITES_10_20.forEach(function (site) {
+    var cx = headCx + site.x * headR;
+    var cy = headCy + site.y * headR;
+    var regionData = regions[site.lobe];
+    var fillColor = 'rgba(60,60,80,0.6)';
+
+    if (regionData && regionData.index != null) {
+      var idx = regionData.index;
+      var intensity = Math.min(1, Math.abs(idx) / maxIdx);
+
+      if (idx > 0) {
+        // Left dominant = red shading on left electrodes
+        if (site.x <= 0) {
+          fillColor = 'rgba(239,68,68,' + (0.2 + intensity * 0.7).toFixed(2) + ')';
+        } else {
+          fillColor = 'rgba(239,68,68,' + (0.05 + intensity * 0.15).toFixed(2) + ')';
+        }
+      } else if (idx < 0) {
+        // Right dominant = blue shading on right electrodes
+        if (site.x >= 0) {
+          fillColor = 'rgba(66,165,245,' + (0.2 + intensity * 0.7).toFixed(2) + ')';
+        } else {
+          fillColor = 'rgba(66,165,245,' + (0.05 + intensity * 0.15).toFixed(2) + ')';
+        }
+      } else {
+        fillColor = 'rgba(150,150,150,0.3)';
+      }
+    }
+
+    parts.push('<g class="ds-asym-electrode">');
+    parts.push('<title>' + site.id + ' (' + site.lobe + ')</title>');
+    parts.push('<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="14" fill="' + fillColor + '" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>');
+    parts.push('<text x="' + cx.toFixed(1) + '" y="' + (cy + 4).toFixed(1) + '" text-anchor="middle" font-size="7" font-weight="600" fill="rgba(255,255,255,0.9)" font-family="system-ui,sans-serif">' + site.id + '</text>');
+    parts.push('</g>');
+  });
+
+  // Asymmetry value labels per region (placed near lobe areas)
+  var regionLabelPositions = {
+    frontal:   { x: 200, y: 100 },
+    central:   { x: 130, y: 215 },
+    temporal:  { x: 270, y: 215 },
+    parietal:  { x: 200, y: 310 },
+    occipital: { x: 200, y: 380 }
+  };
+  regionKeys.forEach(function (key) {
+    var regionData = regions[key];
+    if (!regionData || regionData.index == null) return;
+    var pos = regionLabelPositions[key];
+    var dirLabel = regionData.direction === 'left' ? 'L' : 'R';
+    var idxText = regionData.index > 0 ? '+' + regionData.index.toFixed(2) : regionData.index.toFixed(2);
+
+    // Background pill for label
+    var pillW = 80;
+    var pillH = 16;
+    parts.push('<rect x="' + (pos.x - pillW / 2) + '" y="' + (pos.y - 11) + '" width="' + pillW + '" height="' + pillH + '" rx="4" fill="rgba(0,0,0,0.6)" stroke="rgba(255,255,255,0.15)" stroke-width="0.5"/>');
+    parts.push('<text x="' + pos.x + '" y="' + (pos.y + 1) + '" text-anchor="middle" font-size="8" font-weight="600" fill="rgba(255,255,255,0.85)" font-family="system-ui,sans-serif">' + key.charAt(0).toUpperCase() + key.slice(1) + ': ' + idxText + ' ' + dirLabel + '</text>');
+  });
+
+  // Legend
+  var legendY = 440;
+  parts.push('<circle cx="80" cy="' + legendY + '" r="6" fill="rgba(239,68,68,0.7)"/>');
+  parts.push('<text x="92" y="' + (legendY + 3) + '" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">Left dominant</text>');
+  parts.push('<circle cx="230" cy="' + legendY + '" r="6" fill="rgba(66,165,245,0.7)"/>');
+  parts.push('<text x="242" y="' + (legendY + 3) + '" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">Right dominant</text>');
+
+  parts.push('</svg>');
+  return parts.join('');
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// renderPowerBarChart — Horizontal bar chart of absolute/relative band powers
+//
+// bandPowers: { delta: {mean, status}, theta: {...}, alpha: {...},
+//               beta: {...}, gamma: {...} }
+// options.width:      number (default 500)
+// options.height:     number (default 250)
+// options.title:      string (default 'Absolute Power Spectra')
+// options.showStatus: boolean (default true)
+// ─────────────────────────────────────────────────────────────────────────────
+
+var _POWER_BAND_COLORS = {
+  delta: '#42a5f5',
+  theta: '#ab47bc',
+  alpha: '#66bb6a',
+  beta:  '#ffa726',
+  gamma: '#ec407a'
+};
+
+export function renderPowerBarChart(bandPowers, options) {
+  var opts = options || {};
+  var width  = opts.width  || 500;
+  var height = opts.height || 250;
+  var title  = opts.title != null ? opts.title : 'Absolute Power Spectra';
+  var showStatus = opts.showStatus !== false;
+
+  if (!bandPowers) return '<div>No band power data</div>';
+
+  var bandKeys = ['delta', 'theta', 'alpha', 'beta', 'gamma'];
+  var maxVal = 0;
+  bandKeys.forEach(function (key) {
+    if (bandPowers[key] && bandPowers[key].mean != null) {
+      var v = Math.abs(bandPowers[key].mean);
+      if (v > maxVal) maxVal = v;
+    }
+  });
+  maxVal = maxVal || 1;
+
+  var mL = 70;   // left margin for labels
+  var mR = showStatus ? 120 : 60;  // right margin for value + status
+  var mT = 35;   // top margin for title
+  var mB = 15;   // bottom margin
+  var barAreaW = width - mL - mR;
+  var barH = 22;
+  var barGap = 8;
+  var totalBarsH = bandKeys.length * (barH + barGap) - barGap;
+  var adjHeight = Math.max(height, mT + totalBarsH + mB);
+
+  var parts = [];
+  parts.push('<svg class="ds-power-bar-chart" viewBox="0 0 ' + width + ' ' + adjHeight + '" width="' + width + '" height="' + adjHeight + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="' + title + '" tabindex="0">');
+
+  // Title
+  parts.push('<text x="' + (width / 2) + '" y="22" text-anchor="middle" font-size="13" font-weight="700" fill="rgba(255,255,255,0.9)" font-family="system-ui,sans-serif">' + title + '</text>');
+
+  // Subtle grid lines
+  for (var gi = 0; gi <= 4; gi++) {
+    var gx = mL + barAreaW * gi / 4;
+    parts.push('<line x1="' + gx.toFixed(1) + '" y1="' + mT + '" x2="' + gx.toFixed(1) + '" y2="' + (mT + totalBarsH) + '" stroke="rgba(255,255,255,0.08)" stroke-width="0.5"/>');
+  }
+
+  // Bars
+  bandKeys.forEach(function (key, idx) {
+    var data = bandPowers[key];
+    if (!data) return;
+    var val = data.mean != null ? data.mean : 0;
+    var barW = Math.max(2, (Math.abs(val) / maxVal) * barAreaW);
+    var yPos = mT + idx * (barH + barGap);
+    var color = _POWER_BAND_COLORS[key] || '#9e9e9e';
+
+    // Band label on left
+    parts.push('<text x="' + (mL - 8) + '" y="' + (yPos + barH / 2 + 4) + '" text-anchor="end" font-size="10" font-weight="600" fill="rgba(255,255,255,0.85)" font-family="system-ui,sans-serif">' + key.charAt(0).toUpperCase() + key.slice(1) + '</text>');
+
+    // Bar background
+    parts.push('<rect x="' + mL + '" y="' + yPos + '" width="' + barAreaW + '" height="' + barH + '" rx="3" fill="rgba(255,255,255,0.04)"/>');
+
+    // Bar fill
+    parts.push('<rect x="' + mL + '" y="' + yPos + '" width="' + barW.toFixed(1) + '" height="' + barH + '" rx="3" fill="' + color + '" fill-opacity="0.7"/>');
+
+    // Value text on right of bar
+    var valText = val.toExponential(2);
+    parts.push('<text x="' + (mL + barAreaW + 8) + '" y="' + (yPos + barH / 2 + 4) + '" font-size="9" fill="rgba(255,255,255,0.7)" font-family="system-ui,sans-serif">' + valText + '</text>');
+
+    // Status badge
+    if (showStatus && data.status) {
+      var statusColor = '#66bb6a'; // Normal = green
+      if (data.status === 'Reduced') statusColor = '#ffa726';
+      if (data.status === 'Elevated') statusColor = '#ef5350';
+
+      var badgeX = mL + barAreaW + 70;
+      var badgeW = data.status.length * 6 + 10;
+      parts.push('<rect x="' + badgeX + '" y="' + (yPos + 3) + '" width="' + badgeW + '" height="' + (barH - 6) + '" rx="4" fill="' + statusColor + '" fill-opacity="0.2" stroke="' + statusColor + '" stroke-width="0.5"/>');
+      parts.push('<text x="' + (badgeX + badgeW / 2) + '" y="' + (yPos + barH / 2 + 3) + '" text-anchor="middle" font-size="8" font-weight="600" fill="' + statusColor + '" font-family="system-ui,sans-serif">' + data.status + '</text>');
+    }
+  });
+
+  parts.push('</svg>');
+  return parts.join('');
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// renderTBRBarChart — Vertical bar chart of theta/beta ratio per channel
+//
+// tbrPerChannel: { Fp1: 2.47, Fp2: 3.17, F7: 2.85, ... }
+// options.width:     number (default 600)
+// options.height:    number (default 280)
+// options.threshold: number — clinical TBR threshold line (default 4.0)
+// ─────────────────────────────────────────────────────────────────────────────
+
+var _TBR_CHANNEL_ORDER = [
+  'Fp1','Fp2','F7','F3','Fz','F4','F8',
+  'T7','C3','Cz','C4','T8',
+  'P7','P3','Pz','P4','P8',
+  'O1','O2'
+];
+
+export function renderTBRBarChart(tbrPerChannel, options) {
+  var opts = options || {};
+  var width  = opts.width  || 600;
+  var height = opts.height || 280;
+  var threshold = opts.threshold != null ? opts.threshold : 4.0;
+
+  if (!tbrPerChannel) return '<div>No TBR data</div>';
+
+  // Collect channels in standard order, filtering to those present
+  var channels = [];
+  _TBR_CHANNEL_ORDER.forEach(function (ch) {
+    if (tbrPerChannel[ch] != null) channels.push(ch);
+  });
+  // Add any remaining channels not in standard order
+  var chKeys = Object.keys(tbrPerChannel);
+  chKeys.forEach(function (ch) {
+    if (channels.indexOf(ch) === -1 && tbrPerChannel[ch] != null) channels.push(ch);
+  });
+
+  if (channels.length === 0) return '<div>No TBR data</div>';
+
+  // Find max TBR and compute overall average
+  var maxTBR = 0;
+  var tbrSum = 0;
+  channels.forEach(function (ch) {
+    var v = tbrPerChannel[ch];
+    if (v > maxTBR) maxTBR = v;
+    tbrSum += v;
+  });
+  maxTBR = Math.max(maxTBR, threshold + 1); // ensure threshold line is visible
+  var avgTBR = tbrSum / channels.length;
+
+  var mL = 45;   // left margin for y-axis
+  var mR = 15;   // right margin
+  var mT = 50;   // top margin for title + overall TBR
+  var mB = 55;   // bottom margin for labels
+  var plotW = width - mL - mR;
+  var plotH = height - mT - mB;
+  var barW = Math.max(6, Math.min(24, (plotW / channels.length) * 0.7));
+  var barGap = plotW / channels.length;
+
+  var parts = [];
+  parts.push('<svg class="ds-tbr-bar-chart" viewBox="0 0 ' + width + ' ' + height + '" width="' + width + '" height="' + height + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Theta/Beta Ratio by Channel" tabindex="0">');
+
+  // Title
+  parts.push('<text x="' + (width / 2) + '" y="20" text-anchor="middle" font-size="13" font-weight="700" fill="rgba(255,255,255,0.9)" font-family="system-ui,sans-serif">Theta/Beta Ratio by Channel</text>');
+
+  // Overall TBR display
+  parts.push('<text x="' + (width / 2) + '" y="38" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">Overall TBR: ' + avgTBR.toFixed(2) + '</text>');
+
+  // Plot background
+  parts.push('<rect x="' + mL + '" y="' + mT + '" width="' + plotW + '" height="' + plotH + '" fill="rgba(255,255,255,0.02)" rx="2"/>');
+
+  // Y-axis grid lines and labels
+  var yTicks = 5;
+  for (var yi = 0; yi <= yTicks; yi++) {
+    var yVal = maxTBR * yi / yTicks;
+    var yPos = mT + plotH - (plotH * yi / yTicks);
+    parts.push('<line x1="' + mL + '" y1="' + yPos.toFixed(1) + '" x2="' + (mL + plotW) + '" y2="' + yPos.toFixed(1) + '" stroke="rgba(255,255,255,0.08)" stroke-width="0.5"/>');
+    parts.push('<text x="' + (mL - 6) + '" y="' + (yPos + 3).toFixed(1) + '" text-anchor="end" font-size="8" fill="rgba(255,255,255,0.5)" font-family="system-ui,sans-serif">' + yVal.toFixed(1) + '</text>');
+  }
+
+  // Threshold line
+  var threshY = mT + plotH - (plotH * (threshold / maxTBR));
+  parts.push('<line x1="' + mL + '" y1="' + threshY.toFixed(1) + '" x2="' + (mL + plotW) + '" y2="' + threshY.toFixed(1) + '" stroke="rgba(239,68,68,0.6)" stroke-width="1.5" stroke-dasharray="6,3"/>');
+  parts.push('<text x="' + (mL + plotW + 2) + '" y="' + (threshY - 4).toFixed(1) + '" font-size="7" font-weight="600" fill="rgba(239,68,68,0.8)" font-family="system-ui,sans-serif">Clinical Threshold (' + threshold.toFixed(1) + ')</text>');
+
+  // Vertical bars
+  channels.forEach(function (ch, idx) {
+    var val = tbrPerChannel[ch];
+    var barHeight = Math.max(1, (val / maxTBR) * plotH);
+    var xPos = mL + idx * barGap + (barGap - barW) / 2;
+    var yPos = mT + plotH - barHeight;
+
+    // Color by TBR range
+    var color;
+    if (val < 2.0) {
+      color = '#42a5f5'; // blue - hypoarousal
+    } else if (val <= 4.0) {
+      color = '#66bb6a'; // green - normal
+    } else {
+      color = '#ef5350'; // red - elevated
+    }
+
+    parts.push('<rect x="' + xPos.toFixed(1) + '" y="' + yPos.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + barHeight.toFixed(1) + '" rx="2" fill="' + color + '" fill-opacity="0.75"><title>' + ch + ': ' + val.toFixed(2) + '</title></rect>');
+
+    // Value on top of bar
+    parts.push('<text x="' + (xPos + barW / 2).toFixed(1) + '" y="' + (yPos - 4).toFixed(1) + '" text-anchor="middle" font-size="6" fill="rgba(255,255,255,0.7)" font-family="system-ui,sans-serif">' + val.toFixed(1) + '</text>');
+
+    // Channel label (rotated 45 degrees)
+    var labelX = xPos + barW / 2;
+    var labelY = mT + plotH + 12;
+    parts.push('<text x="' + labelX.toFixed(1) + '" y="' + labelY.toFixed(1) + '" text-anchor="end" font-size="8" font-weight="600" fill="rgba(255,255,255,0.7)" font-family="system-ui,sans-serif" transform="rotate(-45,' + labelX.toFixed(1) + ',' + labelY.toFixed(1) + ')">' + ch + '</text>');
+  });
+
+  // Y-axis label
+  var yAxisY = mT + plotH / 2;
+  parts.push('<text x="12" y="' + yAxisY + '" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif" transform="rotate(-90,12,' + yAxisY + ')">TBR Value</text>');
+
+  parts.push('</svg>');
+  return parts.join('');
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// renderSignalDeviationChart — Dual bar chart: mean amplitude + std deviation
+//
+// deviations: { Fp1: {mean, std}, Fp2: {mean, std}, ... }
+// options.width:  number (default 600)
+// options.height: number (default 350)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function renderSignalDeviationChart(deviations, options) {
+  var opts = options || {};
+  var width  = opts.width  || 600;
+  var height = opts.height || 350;
+
+  if (!deviations) return '<div>No signal deviation data</div>';
+
+  // Collect channels in standard order
+  var channels = [];
+  _TBR_CHANNEL_ORDER.forEach(function (ch) {
+    if (deviations[ch]) channels.push(ch);
+  });
+  var devKeys = Object.keys(deviations);
+  devKeys.forEach(function (ch) {
+    if (channels.indexOf(ch) === -1 && deviations[ch]) channels.push(ch);
+  });
+
+  if (channels.length === 0) return '<div>No signal deviation data</div>';
+
+  // Find max values for normalization
+  var maxMean = 0;
+  var maxStd = 0;
+  var highestMeanCh = channels[0];
+  var highestStdCh = channels[0];
+  channels.forEach(function (ch) {
+    var d = deviations[ch];
+    var absMean = Math.abs(d.mean || 0);
+    var absStd = Math.abs(d.std || 0);
+    if (absMean > maxMean) { maxMean = absMean; highestMeanCh = ch; }
+    if (absStd > maxStd) { maxStd = absStd; highestStdCh = ch; }
+  });
+  maxMean = maxMean || 1;
+  maxStd = maxStd || 1;
+
+  var mL = 60;
+  var mR = 15;
+  var mT = 35;
+  var mMid = 20;  // gap between top and bottom sections
+  var mB = 50;
+  var plotW = width - mL - mR;
+  var sectionH = (height - mT - mMid - mB) / 2;
+  var barGap = plotW / channels.length;
+  var barW = Math.max(6, Math.min(20, barGap * 0.7));
+
+  var parts = [];
+  parts.push('<svg class="ds-signal-deviation" viewBox="0 0 ' + width + ' ' + height + '" width="' + width + '" height="' + height + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EEG Signal Deviations" tabindex="0">');
+
+  // Title
+  parts.push('<text x="' + (width / 2) + '" y="22" text-anchor="middle" font-size="13" font-weight="700" fill="rgba(255,255,255,0.9)" font-family="system-ui,sans-serif">EEG Signal Deviations</text>');
+
+  // ── Top section: Mean amplitude (bars from zero line) ──
+  var topY = mT;
+  var zeroY = topY + sectionH / 2; // zero line in middle of top section
+
+  // Section label
+  parts.push('<text x="' + (width / 2) + '" y="' + (topY - 2) + '" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.5)" font-family="system-ui,sans-serif">Mean Amplitude</text>');
+
+  // Background
+  parts.push('<rect x="' + mL + '" y="' + topY + '" width="' + plotW + '" height="' + sectionH + '" fill="rgba(255,255,255,0.02)" rx="2"/>');
+
+  // Zero line
+  parts.push('<line x1="' + mL + '" y1="' + zeroY.toFixed(1) + '" x2="' + (mL + plotW) + '" y2="' + zeroY.toFixed(1) + '" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>');
+
+  // Y-axis labels for top section
+  parts.push('<text x="' + (mL - 5) + '" y="' + (topY + 8) + '" text-anchor="end" font-size="7" fill="rgba(255,255,255,0.4)" font-family="system-ui,sans-serif">+' + maxMean.toExponential(1) + '</text>');
+  parts.push('<text x="' + (mL - 5) + '" y="' + (zeroY + 3) + '" text-anchor="end" font-size="7" fill="rgba(255,255,255,0.4)" font-family="system-ui,sans-serif">0</text>');
+  parts.push('<text x="' + (mL - 5) + '" y="' + (topY + sectionH) + '" text-anchor="end" font-size="7" fill="rgba(255,255,255,0.4)" font-family="system-ui,sans-serif">-' + maxMean.toExponential(1) + '</text>');
+
+  // Mean amplitude bars
+  channels.forEach(function (ch, idx) {
+    var d = deviations[ch];
+    var val = d.mean || 0;
+    var normalized = val / maxMean;
+    var barHeight = Math.abs(normalized) * (sectionH / 2);
+    var xPos = mL + idx * barGap + (barGap - barW) / 2;
+
+    // Color gradient based on magnitude
+    var intensity = Math.min(1, Math.abs(normalized));
+    var color = 'rgba(74,158,255,' + (0.3 + intensity * 0.6).toFixed(2) + ')';
+
+    if (val >= 0) {
+      // Bar goes up from zero
+      parts.push('<rect x="' + xPos.toFixed(1) + '" y="' + (zeroY - barHeight).toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + barHeight.toFixed(1) + '" rx="1" fill="' + color + '"><title>' + ch + ' mean: ' + val.toExponential(2) + '</title></rect>');
+    } else {
+      // Bar goes down from zero
+      parts.push('<rect x="' + xPos.toFixed(1) + '" y="' + zeroY.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + barHeight.toFixed(1) + '" rx="1" fill="' + color + '"><title>' + ch + ' mean: ' + val.toExponential(2) + '</title></rect>');
+    }
+
+    // Highlight annotation for highest mean
+    if (ch === highestMeanCh) {
+      parts.push('<circle cx="' + (xPos + barW / 2).toFixed(1) + '" cy="' + (val >= 0 ? zeroY - barHeight - 8 : zeroY + barHeight + 8).toFixed(1) + '" r="3" fill="#ffa726"/>');
+      parts.push('<text x="' + (xPos + barW / 2).toFixed(1) + '" y="' + (val >= 0 ? zeroY - barHeight - 14 : zeroY + barHeight + 16).toFixed(1) + '" text-anchor="middle" font-size="6" font-weight="600" fill="#ffa726" font-family="system-ui,sans-serif">Highest</text>');
+    }
+  });
+
+  // ── Bottom section: Standard deviation (bars going up only) ──
+  var botY = topY + sectionH + mMid;
+
+  // Section label
+  parts.push('<text x="' + (width / 2) + '" y="' + (botY - 2) + '" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.5)" font-family="system-ui,sans-serif">Standard Deviation</text>');
+
+  // Background
+  parts.push('<rect x="' + mL + '" y="' + botY + '" width="' + plotW + '" height="' + sectionH + '" fill="rgba(255,255,255,0.02)" rx="2"/>');
+
+  // Y-axis labels for bottom section
+  parts.push('<text x="' + (mL - 5) + '" y="' + (botY + 8) + '" text-anchor="end" font-size="7" fill="rgba(255,255,255,0.4)" font-family="system-ui,sans-serif">' + maxStd.toExponential(1) + '</text>');
+  parts.push('<text x="' + (mL - 5) + '" y="' + (botY + sectionH) + '" text-anchor="end" font-size="7" fill="rgba(255,255,255,0.4)" font-family="system-ui,sans-serif">0</text>');
+
+  // Std deviation bars
+  channels.forEach(function (ch, idx) {
+    var d = deviations[ch];
+    var val = d.std || 0;
+    var normalized = val / maxStd;
+    var barHeight = Math.max(1, normalized * sectionH);
+    var xPos = mL + idx * barGap + (barGap - barW) / 2;
+    var yPos = botY + sectionH - barHeight;
+
+    // Color gradient based on deviation magnitude
+    var intensity = Math.min(1, normalized);
+    var r = Math.round(100 + intensity * 139);
+    var g = Math.round(200 - intensity * 130);
+    var b = Math.round(255 - intensity * 180);
+    var color = 'rgb(' + r + ',' + g + ',' + b + ')';
+
+    parts.push('<rect x="' + xPos.toFixed(1) + '" y="' + yPos.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + barHeight.toFixed(1) + '" rx="1" fill="' + color + '" fill-opacity="0.75"><title>' + ch + ' std: ' + val.toExponential(2) + '</title></rect>');
+
+    // Highlight annotation for highest variability
+    if (ch === highestStdCh) {
+      parts.push('<circle cx="' + (xPos + barW / 2).toFixed(1) + '" cy="' + (yPos - 8).toFixed(1) + '" r="3" fill="#ef5350"/>');
+      parts.push('<text x="' + (xPos + barW / 2).toFixed(1) + '" y="' + (yPos - 14).toFixed(1) + '" text-anchor="middle" font-size="6" font-weight="600" fill="#ef5350" font-family="system-ui,sans-serif">Most Variable</text>');
+    }
+
+    // Channel label on x-axis (shared between sections)
+    var labelX = xPos + barW / 2;
+    var labelY = botY + sectionH + 12;
+    parts.push('<text x="' + labelX.toFixed(1) + '" y="' + labelY.toFixed(1) + '" text-anchor="end" font-size="7" font-weight="600" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif" transform="rotate(-45,' + labelX.toFixed(1) + ',' + labelY.toFixed(1) + ')">' + ch + '</text>');
+  });
+
+  parts.push('</svg>');
+  return parts.join('');
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// renderBiomarkerGauges — Semi-circular gauge meters for condition likelihoods
+//
+// conditions: [{name, likelihood, relevance}, ...]
+// options.width:     number (default 600)
+// options.columns:   number (default 3)
+// options.gaugeSize: number — diameter of each gauge (default 100)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function renderBiomarkerGauges(conditions, options) {
+  var opts = options || {};
+  var svgWidth   = opts.width     || 600;
+  var columns    = opts.columns   || 3;
+  var gaugeSize  = opts.gaugeSize || 100;
+
+  if (!conditions || !conditions.length) return '<div>No biomarker data</div>';
+
+  // Sort by likelihood descending
+  var sorted = conditions.slice().sort(function (a, b) {
+    return (b.likelihood || 0) - (a.likelihood || 0);
+  });
+
+  var rows = Math.ceil(sorted.length / columns);
+  var cellW = svgWidth / columns;
+  var cellH = gaugeSize + 55; // gauge + name + badge
+  var totalH = rows * cellH + 30; // +30 for title
+
+  var parts = [];
+  parts.push('<svg class="ds-biomarker-gauges" viewBox="0 0 ' + svgWidth + ' ' + totalH + '" width="' + svgWidth + '" height="' + totalH + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Biomarker condition gauges" tabindex="0">');
+
+  // Title
+  parts.push('<text x="' + (svgWidth / 2) + '" y="20" text-anchor="middle" font-size="13" font-weight="700" fill="rgba(255,255,255,0.9)" font-family="system-ui,sans-serif">Condition Likelihood Gauges</text>');
+
+  sorted.forEach(function (cond, idx) {
+    var col = idx % columns;
+    var row = Math.floor(idx / columns);
+    var cx = col * cellW + cellW / 2;
+    var cy = 30 + row * cellH + gaugeSize / 2 + 10;
+    var r = gaugeSize / 2 - 5;
+    var likelihood = cond.likelihood || 0;
+
+    // Arc color based on likelihood range
+    var arcColor;
+    if (likelihood <= 0) {
+      arcColor = '#616161'; // gray for 0%
+    } else if (likelihood <= 30) {
+      arcColor = '#66bb6a'; // green
+    } else if (likelihood <= 50) {
+      arcColor = '#ffa726'; // amber
+    } else if (likelihood <= 70) {
+      arcColor = '#ff7043'; // orange
+    } else {
+      arcColor = '#ef5350'; // red
+    }
+
+    // Background arc (full semi-circle, 180 degrees)
+    // Semi-circle from left to right (180 degrees, going clockwise from 9 o'clock to 3 o'clock)
+    var bgStartX = cx - r;
+    var bgStartY = cy;
+    var bgEndX = cx + r;
+    var bgEndY = cy;
+    parts.push('<path d="M' + bgStartX.toFixed(1) + ',' + bgStartY.toFixed(1) + ' A' + r + ',' + r + ' 0 0,1 ' + bgEndX.toFixed(1) + ',' + bgEndY.toFixed(1) + '" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8" stroke-linecap="round"/>');
+
+    // Filled arc proportional to likelihood
+    if (likelihood > 0) {
+      var fraction = Math.min(1, likelihood / 100);
+      var angle = Math.PI * fraction;  // 0 to PI for 0% to 100%
+      var endX = cx - r * Math.cos(angle);
+      var endY = cy - r * Math.sin(angle);
+      var largeArc = fraction > 0.5 ? 1 : 0;
+      parts.push('<path d="M' + bgStartX.toFixed(1) + ',' + bgStartY.toFixed(1) + ' A' + r + ',' + r + ' 0 ' + largeArc + ',1 ' + endX.toFixed(1) + ',' + endY.toFixed(1) + '" fill="none" stroke="' + arcColor + '" stroke-width="8" stroke-linecap="round" opacity="0.85"/>');
+    }
+
+    // Percentage text in center
+    parts.push('<text x="' + cx + '" y="' + (cy - 2) + '" text-anchor="middle" font-size="16" font-weight="700" fill="' + (likelihood > 0 ? arcColor : 'rgba(255,255,255,0.3)') + '" font-family="system-ui,sans-serif">' + likelihood.toFixed(0) + '%</text>');
+
+    // Condition name below gauge
+    var nameY = cy + r / 2 + 12;
+    parts.push('<text x="' + cx + '" y="' + nameY.toFixed(1) + '" text-anchor="middle" font-size="9" font-weight="600" fill="rgba(255,255,255,0.85)" font-family="system-ui,sans-serif">' + (cond.name || 'Unknown') + '</text>');
+
+    // Relevance badge below name
+    if (cond.relevance) {
+      var relColor = '#66bb6a'; // default green
+      if (cond.relevance === 'Limited') relColor = '#78909c';
+      if (cond.relevance === 'Moderate') relColor = '#ffa726';
+      if (cond.relevance === 'High' || cond.relevance === 'Significant') relColor = '#ef5350';
+
+      var badgeY = nameY + 14;
+      var badgeW = cond.relevance.length * 5.5 + 12;
+      parts.push('<rect x="' + (cx - badgeW / 2) + '" y="' + (badgeY - 9) + '" width="' + badgeW + '" height="14" rx="4" fill="' + relColor + '" fill-opacity="0.2" stroke="' + relColor + '" stroke-width="0.5"/>');
+      parts.push('<text x="' + cx + '" y="' + (badgeY + 2) + '" text-anchor="middle" font-size="7" font-weight="600" fill="' + relColor + '" font-family="system-ui,sans-serif">' + cond.relevance + '</text>');
+    }
+  });
+
+  parts.push('</svg>');
+  return parts.join('');
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// renderBrodmannTable — SVG table of Brodmann area Z-scores
+//
+// areas: [{area, name, z_score, status, channels: [...]}, ...]
+// options.width: number (default 600)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function renderBrodmannTable(areas, options) {
+  var opts = options || {};
+  var width = opts.width || 600;
+
+  if (!areas || !areas.length) return '<div>No Brodmann area data</div>';
+
+  // Table layout
+  var mL = 10;
+  var mT = 35;
+  var rowH = 28;
+  var headerH = 30;
+  var tableW = width - mL * 2;
+  var totalH = mT + headerH + areas.length * rowH + 10;
+
+  // Column widths (proportional)
+  var colWidths = [0.22, 0.22, 0.16, 0.18, 0.22]; // area, name, z-score, status, channels
+  var colLabels = ['Area', 'Name', 'Z-Score', 'Status', 'Channels'];
+
+  function colX(colIdx) {
+    var x = mL;
+    for (var i = 0; i < colIdx; i++) {
+      x += tableW * colWidths[i];
+    }
+    return x;
+  }
+
+  function colMidX(colIdx) {
+    return colX(colIdx) + tableW * colWidths[colIdx] / 2;
+  }
+
+  // Escape helper for text content
+  function esc(str) {
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  var parts = [];
+  parts.push('<svg class="ds-brodmann-table" viewBox="0 0 ' + width + ' ' + totalH + '" width="' + width + '" height="' + totalH + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Brodmann Area Analysis" tabindex="0">');
+
+  // Title
+  parts.push('<text x="' + (width / 2) + '" y="22" text-anchor="middle" font-size="13" font-weight="700" fill="rgba(255,255,255,0.9)" font-family="system-ui,sans-serif">Brodmann Area Analysis</text>');
+
+  // Header row background
+  parts.push('<rect x="' + mL + '" y="' + mT + '" width="' + tableW + '" height="' + headerH + '" rx="3" fill="rgba(255,255,255,0.08)"/>');
+
+  // Header labels
+  for (var hi = 0; hi < colLabels.length; hi++) {
+    parts.push('<text x="' + (colX(hi) + 8) + '" y="' + (mT + headerH / 2 + 4) + '" font-size="9" font-weight="700" fill="rgba(255,255,255,0.8)" font-family="system-ui,sans-serif">' + colLabels[hi] + '</text>');
+  }
+
+  // Data rows
+  areas.forEach(function (row, idx) {
+    var ry = mT + headerH + idx * rowH;
+
+    // Alternating row backgrounds
+    if (idx % 2 === 0) {
+      parts.push('<rect x="' + mL + '" y="' + ry + '" width="' + tableW + '" height="' + rowH + '" fill="rgba(255,255,255,0.03)"/>');
+    }
+
+    // Row border
+    parts.push('<line x1="' + mL + '" y1="' + (ry + rowH) + '" x2="' + (mL + tableW) + '" y2="' + (ry + rowH) + '" stroke="rgba(255,255,255,0.06)" stroke-width="0.5"/>');
+
+    var textY = ry + rowH / 2 + 4;
+
+    // Column 0: Area name
+    parts.push('<text x="' + (colX(0) + 8) + '" y="' + textY + '" font-size="8" fill="rgba(255,255,255,0.75)" font-family="system-ui,sans-serif">' + esc(row.area || '') + '</text>');
+
+    // Column 1: Anatomical name
+    parts.push('<text x="' + (colX(1) + 8) + '" y="' + textY + '" font-size="8" fill="rgba(255,255,255,0.75)" font-family="system-ui,sans-serif">' + esc(row.name || '') + '</text>');
+
+    // Column 2: Z-score with color and inline bar
+    var zScore = row.z_score != null ? row.z_score : 0;
+    var absZ = Math.abs(zScore);
+    var zColor;
+    if (absZ > 2.0) {
+      zColor = '#ef5350'; // red — significant
+    } else if (absZ > 1.5) {
+      zColor = '#ffa726'; // amber — borderline
+    } else {
+      zColor = '#66bb6a'; // green — normal
+    }
+
+    // Z-score cell background tint
+    var zCellX = colX(2);
+    var zCellW = tableW * colWidths[2];
+    parts.push('<rect x="' + zCellX + '" y="' + ry + '" width="' + zCellW + '" height="' + rowH + '" fill="' + zColor + '" fill-opacity="0.08"/>');
+
+    // Small horizontal deviation bar (centered at midpoint of cell)
+    var barMaxW = zCellW * 0.4;
+    var barW = Math.min(barMaxW, (absZ / 3) * barMaxW); // normalize to z=3
+    var barMidX = zCellX + zCellW / 2;
+    var barY = ry + rowH / 2 - 2;
+    if (zScore >= 0) {
+      parts.push('<rect x="' + barMidX + '" y="' + barY + '" width="' + barW.toFixed(1) + '" height="4" rx="1" fill="' + zColor + '" fill-opacity="0.5"/>');
+    } else {
+      parts.push('<rect x="' + (barMidX - barW).toFixed(1) + '" y="' + barY + '" width="' + barW.toFixed(1) + '" height="4" rx="1" fill="' + zColor + '" fill-opacity="0.5"/>');
+    }
+
+    // Z-score text
+    parts.push('<text x="' + (zCellX + 8) + '" y="' + textY + '" font-size="9" font-weight="600" fill="' + zColor + '" font-family="system-ui,sans-serif">' + zScore.toFixed(2) + '</text>');
+
+    // Column 3: Status badge
+    var status = row.status || '';
+    var statusColor = '#66bb6a';
+    if (status === 'borderline') statusColor = '#ffa726';
+    if (status === 'abnormal' || status === 'significant') statusColor = '#ef5350';
+
+    var statusX = colX(3) + 8;
+    var statusBadgeW = Math.max(40, status.length * 5.5 + 12);
+    parts.push('<rect x="' + statusX + '" y="' + (ry + 6) + '" width="' + statusBadgeW + '" height="' + (rowH - 12) + '" rx="4" fill="' + statusColor + '" fill-opacity="0.15" stroke="' + statusColor + '" stroke-width="0.5"/>');
+    parts.push('<text x="' + (statusX + statusBadgeW / 2) + '" y="' + textY + '" text-anchor="middle" font-size="8" font-weight="600" fill="' + statusColor + '" font-family="system-ui,sans-serif">' + esc(status) + '</text>');
+
+    // Column 4: Channels
+    var chText = Array.isArray(row.channels) ? row.channels.join(', ') : '';
+    parts.push('<text x="' + (colX(4) + 8) + '" y="' + textY + '" font-size="8" fill="rgba(255,255,255,0.65)" font-family="system-ui,sans-serif">' + esc(chText) + '</text>');
+  });
+
+  // Table outer border
+  parts.push('<rect x="' + mL + '" y="' + mT + '" width="' + tableW + '" height="' + (headerH + areas.length * rowH) + '" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="1" rx="3"/>');
+
+  parts.push('</svg>');
+  return parts.join('');
+}

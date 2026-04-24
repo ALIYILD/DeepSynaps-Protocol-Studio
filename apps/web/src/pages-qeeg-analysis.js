@@ -8,7 +8,7 @@
 //   4. Compare          — pre/post comparison
 // ─────────────────────────────────────────────────────────────────────────────
 import { api } from './api.js';
-import { renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap, renderICAComponents, renderWaveletHeatmap, renderChannelQualityMap } from './brain-map-svg.js';
+import { renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap, renderICAComponents, renderWaveletHeatmap, renderChannelQualityMap, renderAsymmetryMap, renderPowerBarChart, renderTBRBarChart, renderSignalDeviationChart, renderBiomarkerGauges, renderBrodmannTable } from './brain-map-svg.js';
 import { emptyState, showToast, spark } from './helpers.js';
 
 // ── XSS escape ───────────────────────────────────────────────────────────────
@@ -140,6 +140,559 @@ var _currentAnalysis = null;
 var _currentReport = null;
 var _coherenceBand = 'alpha';
 
+// ── Comprehensive Report Renderer ────────────────────────────────────────────
+// Generates the full clinical qEEG report HTML from a report object + analysis data.
+function _renderComprehensiveReport(report, analysis) {
+  var narrative = report.ai_narrative || report.ai_narrative_json || {};
+  var conditions = report.condition_matches || report.condition_matches_json || [];
+  var suggestions = report.protocol_suggestions || report.protocol_suggestions_json || [];
+  var bp = analysis ? (analysis.band_powers || analysis.band_powers_json || {}) : {};
+  var ratios = bp.derived_ratios || {};
+  var adv = analysis ? (analysis.advanced_analyses || {}) : {};
+  var advResults = adv.results || {};
+  var normDev = analysis ? (analysis.normative_deviations_json || analysis.normative_deviations || null) : null;
+  var html = '';
+
+  // ── Print / Download button bar ─────────────────────────────────────────
+  html += '<div class="qeeg-export-bar" style="justify-content:flex-end;margin-bottom:8px">'
+    + '<button class="btn btn-sm btn-outline" aria-label="Print AI report" onclick="window._qeegPrintReport()">Print Report</button>'
+    + '<button class="btn btn-sm btn-outline" aria-label="Download report as PDF" onclick="window._qeegDownloadPDF()">Download PDF</button></div>';
+
+  // ── Section 1: Patient Information ──────────────────────────────────────
+  if (analysis) {
+    var patientInfoRows = '';
+    if (_patient) {
+      var fullName = ((_patient.first_name || '') + ' ' + (_patient.last_name || '')).trim();
+      if (fullName) patientInfoRows += '<tr><td style="font-weight:600;width:40%;color:var(--text-secondary)">Patient Name</td><td>' + esc(fullName) + '</td></tr>';
+      if (_patient.dob) patientInfoRows += '<tr><td style="font-weight:600;color:var(--text-secondary)">Date of Birth</td><td>' + esc(_patient.dob) + '</td></tr>';
+      if (_patient.gender) patientInfoRows += '<tr><td style="font-weight:600;color:var(--text-secondary)">Gender</td><td>' + esc(_patient.gender) + '</td></tr>';
+      if (_patient.primary_condition) patientInfoRows += '<tr><td style="font-weight:600;color:var(--text-secondary)">Primary Condition</td><td>' + esc(_patient.primary_condition) + '</td></tr>';
+    }
+    if (patientInfoRows) {
+      html += card('Patient Information',
+        '<table class="ds-table" style="width:100%;font-size:13px"><tbody>' + patientInfoRows + '</tbody></table>'
+      );
+    }
+  }
+
+  // ── Section 2: EEG Recording Parameters ─────────────────────────────────
+  if (analysis) {
+    var recRows = '';
+    if (analysis.recording_date || analysis.analyzed_at) {
+      recRows += '<tr><td style="font-weight:600;width:40%;color:var(--text-secondary)">Recording Date</td><td>'
+        + esc(analysis.recording_date || new Date(analysis.analyzed_at).toLocaleDateString()) + '</td></tr>';
+    }
+    if (analysis.amplifier_type || analysis.equipment) {
+      recRows += '<tr><td style="font-weight:600;color:var(--text-secondary)">Amplifier / Equipment</td><td>'
+        + esc(analysis.amplifier_type || analysis.equipment) + '</td></tr>';
+    }
+    recRows += '<tr><td style="font-weight:600;color:var(--text-secondary)">Electrode Placement</td><td>'
+      + esc(analysis.electrode_placement || 'International 10-20 System') + '</td></tr>';
+    if (analysis.sample_rate_hz) {
+      recRows += '<tr><td style="font-weight:600;color:var(--text-secondary)">Sample Rate</td><td>'
+        + esc(analysis.sample_rate_hz) + ' Hz</td></tr>';
+    }
+    var chCount = analysis.channels_used || analysis.channel_count || 0;
+    if (chCount) {
+      recRows += '<tr><td style="font-weight:600;color:var(--text-secondary)">Channels Used</td><td>'
+        + esc(chCount) + '</td></tr>';
+    }
+    if (analysis.recording_duration_sec) {
+      var durMin = (analysis.recording_duration_sec / 60).toFixed(1);
+      recRows += '<tr><td style="font-weight:600;color:var(--text-secondary)">Recording Duration</td><td>'
+        + esc(durMin) + ' minutes (' + esc(analysis.recording_duration_sec) + ' sec)</td></tr>';
+    }
+    var eegState = analysis.eeg_state || analysis.eyes_condition;
+    if (eegState) {
+      recRows += '<tr><td style="font-weight:600;color:var(--text-secondary)">EEG State</td><td>Eyes '
+        + esc(eegState) + '</td></tr>';
+    }
+    // Channel names — derive from band power keys if not explicit
+    var chanNames = analysis.channel_names;
+    if (!chanNames && bp.bands) {
+      var firstBand = Object.keys(bp.bands)[0];
+      if (firstBand && bp.bands[firstBand] && bp.bands[firstBand].channels) {
+        chanNames = Object.keys(bp.bands[firstBand].channels);
+      }
+    }
+    if (chanNames && chanNames.length) {
+      recRows += '<tr><td style="font-weight:600;color:var(--text-secondary)">Channel Names</td><td style="font-size:12px">'
+        + chanNames.map(esc).join(', ') + '</td></tr>';
+    }
+    // Artifact rejection summary
+    var artifact = analysis.artifact_rejection || analysis.artifact_rejection_json || {};
+    if (artifact.epochs_total) {
+      var keepPct = ((artifact.epochs_kept / artifact.epochs_total * 100) || 0).toFixed(0);
+      recRows += '<tr><td style="font-weight:600;color:var(--text-secondary)">Artifact Rejection</td><td>'
+        + esc(artifact.epochs_kept) + '/' + esc(artifact.epochs_total) + ' epochs kept (' + keepPct + '%)'
+        + (artifact.flat_channels && artifact.flat_channels.length
+          ? ' | Flat: ' + artifact.flat_channels.map(esc).join(', ') : '')
+        + '</td></tr>';
+    }
+    if (recRows) {
+      html += card('EEG Recording Parameters',
+        '<table class="ds-table" style="width:100%;font-size:13px"><tbody>' + recRows + '</tbody></table>'
+      );
+    }
+  }
+
+  // ── Section 3: Brain Connectivity Summary ───────────────────────────────
+  var connDetail = analysis ? analysis.connectivity_detail : null;
+  var disconnResult = advResults.disconnection_flags;
+  var cohResult = advResults.coherence_matrix;
+  var pliResult = advResults.pli_icoh;
+  var wpliResult = advResults.wpli;
+
+  if (connDetail || disconnResult || cohResult) {
+    var connHtml = '';
+
+    if (connDetail) {
+      // Disconnected channels
+      if (connDetail.disconnected_channels) {
+        var dcList = connDetail.disconnected_channels;
+        connHtml += '<div style="margin-bottom:12px"><strong style="font-size:13px;color:var(--text-primary)">Disconnected Channels: '
+          + esc(dcList.length) + '</strong>';
+        if (dcList.length) {
+          connHtml += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">';
+          dcList.forEach(function (ch) {
+            var imp = ch.importance || 'normal';
+            var impColor = imp === 'high' ? 'var(--red)' : imp === 'medium' ? 'var(--amber)' : 'var(--blue)';
+            connHtml += badge(esc(ch.name || ch), impColor);
+          });
+          connHtml += '</div>';
+        }
+        connHtml += '</div>';
+      }
+      // High connectivity pairs
+      if (connDetail.high_connectivity_pairs && connDetail.high_connectivity_pairs.length) {
+        var hcp = connDetail.high_connectivity_pairs;
+        connHtml += '<div style="margin-bottom:12px"><strong style="font-size:13px;color:var(--text-primary)">High Connectivity Pairs: '
+          + esc(hcp.length) + '</strong>'
+          + '<div style="overflow-x:auto;margin-top:6px"><table class="ds-table" style="width:100%;font-size:12px">'
+          + '<thead><tr><th>Pair</th><th>Coherence</th><th>Normal Range</th><th>Status</th></tr></thead><tbody>';
+        hcp.forEach(function (p) {
+          var statusColor = p.status === 'overactive' ? 'var(--red)' : p.status === 'underactive' ? 'var(--blue)' : 'var(--green)';
+          connHtml += '<tr><td style="font-weight:600">' + esc(p.pair || (p.ch1 + '-' + p.ch2)) + '</td>'
+            + '<td>' + (p.coherence != null ? p.coherence.toFixed(3) : '-') + '</td>'
+            + '<td>' + esc(p.normal_range || '-') + '</td>'
+            + '<td>' + badge(p.status || 'normal', statusColor) + '</td></tr>';
+        });
+        connHtml += '</tbody></table></div></div>';
+      }
+      // Moderate connectivity pairs
+      if (connDetail.moderate_connectivity_pairs && connDetail.moderate_connectivity_pairs.length) {
+        connHtml += '<div style="margin-bottom:12px"><strong style="font-size:13px;color:var(--text-primary)">Moderate Connectivity Pairs: '
+          + esc(connDetail.moderate_connectivity_pairs.length) + '</strong></div>';
+      }
+      // Regional connectivity means
+      if (connDetail.regional_means) {
+        var rm = connDetail.regional_means;
+        var regionNames = Object.keys(rm);
+        if (regionNames.length) {
+          connHtml += '<div style="margin-bottom:8px"><strong style="font-size:13px;color:var(--text-primary)">Regional Connectivity Means</strong>'
+            + '<div style="overflow-x:auto;margin-top:6px"><table class="ds-table" style="width:100%;font-size:12px">'
+            + '<thead><tr><th>Region</th><th>Mean Coherence</th><th>Status</th></tr></thead><tbody>';
+          regionNames.forEach(function (reg) {
+            var val = rm[reg];
+            var mean = typeof val === 'object' ? val.mean : val;
+            var status = typeof val === 'object' ? (val.status || 'normal') : 'normal';
+            var statusColor = status === 'overactive' ? 'var(--red)' : status === 'underactive' ? 'var(--blue)' : 'var(--green)';
+            connHtml += '<tr><td style="font-weight:600;text-transform:capitalize">' + esc(reg) + '</td>'
+              + '<td>' + (mean != null ? (typeof mean === 'number' ? mean.toFixed(3) : esc(mean)) : '-') + '</td>'
+              + '<td>' + badge(status, statusColor) + '</td></tr>';
+          });
+          connHtml += '</tbody></table></div></div>';
+        }
+      }
+    }
+
+    // Fallback: use advanced analyses disconnection flags
+    if (!connDetail && disconnResult && disconnResult.status === 'ok') {
+      var dd = disconnResult.data || {};
+      connHtml += '<div style="margin-bottom:12px"><strong style="font-size:13px;color:var(--text-primary)">Disconnection Flags: '
+        + esc(dd.flagged_count || 0) + ' / ' + esc(dd.total_pairs_checked || 0) + ' pairs</strong>';
+      if (dd.flags && dd.flags.length) {
+        connHtml += '<div style="overflow-x:auto;margin-top:6px"><table class="ds-table" style="width:100%;font-size:12px">'
+          + '<thead><tr><th>Channel 1</th><th>Channel 2</th><th>Band</th><th>Coherence</th></tr></thead><tbody>';
+        dd.flags.forEach(function (f) {
+          connHtml += '<tr><td>' + esc(f.ch1) + '</td><td>' + esc(f.ch2) + '</td>'
+            + '<td>' + esc(f.band) + '</td>'
+            + '<td style="color:var(--amber)">' + (f.coherence != null ? f.coherence.toFixed(3) : '-') + '</td></tr>';
+        });
+        connHtml += '</tbody></table></div>';
+      }
+      connHtml += '</div>';
+    }
+
+    // PLI / wPLI summary
+    if (pliResult && pliResult.status === 'ok' && pliResult.data) {
+      connHtml += '<div style="margin-top:8px;display:flex;gap:16px;flex-wrap:wrap">';
+      connHtml += '<div style="font-size:12px;color:var(--text-secondary)"><strong>Mean Alpha PLI:</strong> '
+        + (pliResult.data.mean_pli != null ? pliResult.data.mean_pli.toFixed(3) : '-') + '</div>';
+      if (wpliResult && wpliResult.status === 'ok' && wpliResult.data && wpliResult.data.bands) {
+        Object.keys(wpliResult.data.bands).forEach(function (b) {
+          connHtml += '<div style="font-size:12px;color:var(--text-secondary)"><strong>' + esc(b)
+            + ' wPLI:</strong> ' + (wpliResult.data.bands[b].mean_wpli != null ? wpliResult.data.bands[b].mean_wpli.toFixed(3) : '-') + '</div>';
+        });
+      }
+      connHtml += '</div>';
+    }
+
+    if (connHtml) {
+      html += card('Brain Connectivity Summary', connHtml);
+    }
+  }
+
+  // ── Section 4: Quantitative EEG Data Summary ───────────────────────────
+  var qeegRows = '';
+
+  // TBR with inattention index
+  if (ratios.theta_beta_ratio != null) {
+    var tbrVal = ratios.theta_beta_ratio;
+    var tbrColor = tbrVal > 4.5 ? 'var(--red)' : tbrVal > 3.5 ? 'var(--amber)' : 'var(--green)';
+    var tbrLabel = tbrVal > 4.5 ? 'Elevated' : tbrVal > 3.5 ? 'Borderline' : 'Normal';
+    var inattentionIdx = tbrVal > 4.5 ? 'High' : tbrVal > 3.5 ? 'Moderate' : 'Low';
+    qeegRows += '<tr><td style="font-weight:600;color:var(--text-secondary)">Theta/Beta Ratio (TBR)</td>'
+      + '<td>' + tbrVal.toFixed(2) + ' ' + badge(tbrLabel, tbrColor) + '</td>'
+      + '<td style="font-size:12px;color:var(--text-tertiary)">Inattention index: ' + esc(inattentionIdx) + ' | Clinical threshold: 4.5</td></tr>';
+  }
+
+  // IAPF with regional breakdown
+  var iapfResult = advResults.iapf_plasticity;
+  if (iapfResult && iapfResult.status === 'ok' && iapfResult.data) {
+    var iapfData = iapfResult.data;
+    var iapfVal = iapfData.posterior_iapf_hz;
+    var iapfColor = iapfVal < 8.5 ? 'var(--red)' : iapfVal > 10.5 ? 'var(--blue)' : 'var(--green)';
+    var iapfLabel = iapfVal < 8.5 ? 'Slow' : iapfVal > 10.5 ? 'Fast' : 'Normal';
+    var iapfNote = 'Global mean: ' + (iapfData.mean_iapf_hz || '-') + ' Hz';
+    if (analysis && analysis.iapf_regional) {
+      var regParts = [];
+      Object.keys(analysis.iapf_regional).forEach(function (reg) {
+        regParts.push(esc(reg) + ': ' + esc(analysis.iapf_regional[reg]) + ' Hz');
+      });
+      if (regParts.length) iapfNote += ' | ' + regParts.join(', ');
+    }
+    qeegRows += '<tr><td style="font-weight:600;color:var(--text-secondary)">Individual Alpha Peak Frequency (IAPF)</td>'
+      + '<td>' + iapfVal.toFixed(2) + ' Hz ' + badge(iapfLabel, iapfColor) + '</td>'
+      + '<td style="font-size:12px;color:var(--text-tertiary)">' + iapfNote + '</td></tr>';
+  }
+
+  // Power spectra deviations summary
+  if (normDev) {
+    var sigDeviations = 0;
+    var totalCells = 0;
+    Object.keys(normDev).forEach(function (ch) {
+      Object.keys(normDev[ch]).forEach(function (b) {
+        totalCells++;
+        if (Math.abs(normDev[ch][b]) >= 2.0) sigDeviations++;
+      });
+    });
+    qeegRows += '<tr><td style="font-weight:600;color:var(--text-secondary)">Power Spectra Deviations</td>'
+      + '<td>' + esc(sigDeviations) + ' significant (|z| &gt;= 2.0) out of ' + esc(totalCells) + ' measurements</td>'
+      + '<td style="font-size:12px;color:var(--text-tertiary)">Based on normative database z-scores</td></tr>';
+  }
+
+  // Asymmetry analysis summary
+  var asymResult = advResults.full_asymmetry_matrix;
+  var asymSev = advResults.regional_asymmetry_severity;
+  if (asymResult && asymResult.status === 'ok') {
+    var faaNote = '';
+    if (advResults.frontal_alpha_dominance && advResults.frontal_alpha_dominance.data) {
+      var fad = advResults.frontal_alpha_dominance.data;
+      faaNote = 'FAA: ' + (fad.mean_faa != null ? fad.mean_faa.toFixed(2) : '-') + ' (' + esc(fad.overall_dominance || '-') + ' dominant)';
+    }
+    var sevNote = '';
+    if (asymSev && asymSev.data && asymSev.data.overall_severity) {
+      sevNote = 'Overall severity: ' + esc(asymSev.data.overall_severity);
+    }
+    if (analysis && analysis.asymmetry_detail && analysis.asymmetry_detail.regions) {
+      var asymRegions = Object.keys(analysis.asymmetry_detail.regions);
+      if (asymRegions.length) sevNote += (sevNote ? ' | ' : '') + 'Regions: ' + asymRegions.map(esc).join(', ');
+    }
+    qeegRows += '<tr><td style="font-weight:600;color:var(--text-secondary)">Asymmetry Analysis</td>'
+      + '<td>' + (faaNote || esc(asymResult.summary || '-')) + '</td>'
+      + '<td style="font-size:12px;color:var(--text-tertiary)">' + sevNote + '</td></tr>';
+  }
+
+  // Brodmann areas summary
+  if (analysis && analysis.brodmann_areas) {
+    var baCount = Object.keys(analysis.brodmann_areas).length;
+    qeegRows += '<tr><td style="font-weight:600;color:var(--text-secondary)">Brodmann Area Analysis</td>'
+      + '<td>' + esc(baCount) + ' areas analyzed</td>'
+      + '<td style="font-size:12px;color:var(--text-tertiary)">See detailed Brodmann section below</td></tr>';
+  }
+
+  if (qeegRows) {
+    html += card('Quantitative EEG Data Summary',
+      '<div style="overflow-x:auto"><table class="ds-table" style="width:100%;font-size:13px">'
+      + '<thead><tr><th style="width:30%">Metric</th><th style="width:35%">Value</th><th style="width:35%">Notes</th></tr></thead>'
+      + '<tbody>' + qeegRows + '</tbody></table></div>'
+    );
+  }
+
+  // ── Section 5: Clinical Overview ────────────────────────────────────────
+  var clinicalHtml = '';
+
+  // Clinical overview or executive summary
+  if (narrative.clinical_overview) {
+    clinicalHtml += '<div class="qeeg-narrative" style="margin-bottom:16px">' + esc(narrative.clinical_overview) + '</div>';
+  } else if (narrative.summary) {
+    clinicalHtml += '<div class="qeeg-narrative qeeg-narrative--summary" style="margin-bottom:16px">' + esc(narrative.summary) + '</div>';
+  }
+
+  // Key EEG observations per region
+  if (narrative.key_observations) {
+    var obs = narrative.key_observations;
+    var regionOrder = ['frontal', 'parietal', 'temporal', 'occipital'];
+    var regionColors = { frontal: 'var(--blue)', parietal: 'var(--teal)', temporal: 'var(--amber)', occipital: 'var(--violet)' };
+    var obsHtml = '<div style="margin-bottom:12px"><strong style="font-size:13px">Key EEG Observations by Region</strong></div>'
+      + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">';
+    regionOrder.forEach(function (reg) {
+      if (!obs[reg]) return;
+      var regColor = regionColors[reg] || 'var(--teal)';
+      obsHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px;border-left:3px solid ' + regColor + '">'
+        + '<div style="font-weight:700;font-size:12px;text-transform:uppercase;color:' + regColor + ';margin-bottom:4px">' + esc(reg) + '</div>'
+        + '<div style="font-size:12px;color:var(--text-secondary)">' + esc(obs[reg]) + '</div></div>';
+    });
+    obsHtml += '</div>';
+    clinicalHtml += obsHtml;
+  }
+
+  // FIRDA / OIRDA findings
+  if (narrative.firda_oirda) {
+    clinicalHtml += '<div style="margin-top:12px;padding:10px;background:rgba(255,181,71,0.06);border-radius:8px;border:1px solid rgba(255,181,71,0.15)">'
+      + '<strong style="font-size:12px;color:var(--amber)">FIRDA / OIRDA Findings</strong>'
+      + '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">' + esc(narrative.firda_oirda) + '</div></div>';
+  }
+
+  // Epileptiform analysis
+  if (narrative.epileptiform) {
+    clinicalHtml += '<div style="margin-top:12px;padding:10px;background:rgba(239,83,80,0.06);border-radius:8px;border:1px solid rgba(239,83,80,0.15)">'
+      + '<strong style="font-size:12px;color:var(--red)">Epileptiform Activity</strong>'
+      + '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">' + esc(narrative.epileptiform) + '</div></div>';
+  }
+
+  // Detailed findings with section headings
+  if (narrative.detailed_findings) {
+    clinicalHtml += '<div style="margin-top:16px"><strong style="font-size:13px">Detailed Findings</strong></div>'
+      + '<div class="qeeg-narrative qeeg-narrative--findings" style="margin-top:8px">'
+      + _formatNarrative(narrative.detailed_findings) + '</div>';
+  }
+
+  if (clinicalHtml) {
+    html += card('Clinical Overview', clinicalHtml);
+  }
+
+  // ── Section 6: Visualizations ───────────────────────────────────────────
+  var vizHtml = '';
+
+  // Asymmetry topographic map
+  if (analysis && analysis.asymmetry_detail && analysis.asymmetry_detail.regions && typeof renderAsymmetryMap === 'function') {
+    vizHtml += card('Asymmetry Topographic Map',
+      '<div style="text-align:center">' + renderAsymmetryMap(analysis.asymmetry_detail.regions) + '</div>');
+  }
+
+  // Absolute power bar chart
+  if (analysis && analysis.absolute_power && typeof renderPowerBarChart === 'function') {
+    vizHtml += card('Absolute Power Distribution',
+      '<div style="text-align:center">' + renderPowerBarChart(analysis.absolute_power) + '</div>');
+  }
+
+  // TBR per-channel bar chart
+  if (analysis && analysis.tbr_per_channel && typeof renderTBRBarChart === 'function') {
+    vizHtml += card('Theta/Beta Ratio by Channel',
+      '<div style="text-align:center">' + renderTBRBarChart(analysis.tbr_per_channel) + '</div>');
+  }
+
+  // Signal deviation chart
+  if (analysis && analysis.signal_deviations && typeof renderSignalDeviationChart === 'function') {
+    vizHtml += card('Signal Deviations from Normative Database',
+      '<div style="text-align:center">' + renderSignalDeviationChart(analysis.signal_deviations) + '</div>');
+  }
+
+  if (vizHtml) {
+    html += '<div class="qeeg-section-divider"></div>' + vizHtml;
+  }
+
+  // ── Section 7: Pathological Signs ───────────────────────────────────────
+  if (analysis && analysis.pathological_signs) {
+    var pathHtml = '';
+    var ps = analysis.pathological_signs;
+
+    // Spikes table
+    if (ps.spikes && ps.spikes.length) {
+      pathHtml += '<div style="margin-bottom:12px"><strong style="font-size:13px;color:var(--red)">Spikes</strong>'
+        + '<div style="overflow-x:auto;margin-top:6px"><table class="ds-table" style="width:100%;font-size:12px">'
+        + '<thead><tr><th>Channel</th><th>Count</th><th>Avg Amplitude</th><th>Duration</th></tr></thead><tbody>';
+      ps.spikes.forEach(function (s) {
+        var sevColor = (s.count || 0) > 10 ? 'var(--red)' : (s.count || 0) > 5 ? 'var(--amber)' : 'var(--green)';
+        pathHtml += '<tr><td style="font-weight:600">' + esc(s.channel) + '</td>'
+          + '<td style="color:' + sevColor + ';font-weight:600">' + esc(s.count) + '</td>'
+          + '<td>' + esc(s.avg_amplitude || '-') + '</td>'
+          + '<td>' + esc(s.duration || '-') + '</td></tr>';
+      });
+      pathHtml += '</tbody></table></div></div>';
+    }
+
+    // Sharp waves table
+    if (ps.sharp_waves && ps.sharp_waves.length) {
+      pathHtml += '<div style="margin-bottom:12px"><strong style="font-size:13px;color:var(--amber)">Sharp Waves</strong>'
+        + '<div style="overflow-x:auto;margin-top:6px"><table class="ds-table" style="width:100%;font-size:12px">'
+        + '<thead><tr><th>Channel</th><th>Count</th><th>Avg Amplitude</th><th>Duration</th></tr></thead><tbody>';
+      ps.sharp_waves.forEach(function (s) {
+        var sevColor = (s.count || 0) > 10 ? 'var(--red)' : (s.count || 0) > 5 ? 'var(--amber)' : 'var(--green)';
+        pathHtml += '<tr><td style="font-weight:600">' + esc(s.channel) + '</td>'
+          + '<td style="color:' + sevColor + ';font-weight:600">' + esc(s.count) + '</td>'
+          + '<td>' + esc(s.avg_amplitude || '-') + '</td>'
+          + '<td>' + esc(s.duration || '-') + '</td></tr>';
+      });
+      pathHtml += '</tbody></table></div></div>';
+    }
+
+    // Slow waves summary
+    if (ps.slow_waves) {
+      var sw = ps.slow_waves;
+      var swSevColor = sw.severity === 'severe' ? 'var(--red)' : sw.severity === 'moderate' ? 'var(--amber)' : 'var(--green)';
+      pathHtml += '<div style="margin-bottom:12px"><strong style="font-size:13px">Slow Waves</strong> '
+        + badge(sw.severity || 'normal', swSevColor)
+        + '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">'
+        + esc(sw.summary || 'No abnormal slow wave activity detected.') + '</div></div>';
+    }
+
+    // Suppression summary
+    if (ps.suppression) {
+      var sup = ps.suppression;
+      var supSevColor = sup.severity === 'severe' ? 'var(--red)' : sup.severity === 'moderate' ? 'var(--amber)' : 'var(--green)';
+      pathHtml += '<div style="margin-bottom:12px"><strong style="font-size:13px">Suppression</strong> '
+        + badge(sup.severity || 'none', supSevColor)
+        + '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">'
+        + esc(sup.summary || 'No suppression patterns detected.') + '</div></div>';
+    }
+
+    if (pathHtml) {
+      html += card('Pathological Signs', pathHtml);
+    }
+  }
+
+  // ── Section 8: Brodmann Area Analysis ───────────────────────────────────
+  if (analysis && analysis.brodmann_areas) {
+    var brodHtml = '';
+    if (typeof renderBrodmannTable === 'function') {
+      brodHtml = renderBrodmannTable(analysis.brodmann_areas);
+    } else {
+      // Fallback HTML table
+      var baKeys = Object.keys(analysis.brodmann_areas);
+      if (baKeys.length) {
+        brodHtml = '<div style="overflow-x:auto"><table class="ds-table" style="width:100%;font-size:12px">'
+          + '<thead><tr><th>Brodmann Area</th><th>Region</th><th>Function</th><th>Status</th></tr></thead><tbody>';
+        baKeys.forEach(function (ba) {
+          var area = analysis.brodmann_areas[ba];
+          var statusColor = area.status === 'abnormal' ? 'var(--red)' : area.status === 'borderline' ? 'var(--amber)' : 'var(--green)';
+          brodHtml += '<tr><td style="font-weight:600">' + esc(ba) + '</td>'
+            + '<td>' + esc(area.region || '-') + '</td>'
+            + '<td>' + esc(area.function || '-') + '</td>'
+            + '<td>' + badge(area.status || 'normal', statusColor) + '</td></tr>';
+        });
+        brodHtml += '</tbody></table></div>';
+      }
+    }
+    if (brodHtml) {
+      html += card('Brodmann Area Analysis', brodHtml);
+    }
+  }
+
+  // ── Section 9: Biomarker Analysis ───────────────────────────────────────
+  if (analysis && analysis.biomarkers) {
+    var bioHtml = '';
+    if (analysis.biomarkers.conditions && typeof renderBiomarkerGauges === 'function') {
+      bioHtml += renderBiomarkerGauges(analysis.biomarkers.conditions);
+    }
+    // Summary metrics
+    var bioMetrics = [];
+    if (ratios.alpha_peak_frequency_hz != null) {
+      bioMetrics.push({ label: 'Peak Alpha Frequency (PAF)', value: ratios.alpha_peak_frequency_hz.toFixed(2) + ' Hz' });
+    }
+    if (ratios.theta_beta_ratio != null) {
+      bioMetrics.push({ label: 'Theta/Beta Ratio (TBR)', value: ratios.theta_beta_ratio.toFixed(2) });
+    }
+    if (analysis.biomarkers.gamma_power != null) {
+      bioMetrics.push({ label: 'Gamma Power', value: typeof analysis.biomarkers.gamma_power === 'number'
+        ? analysis.biomarkers.gamma_power.toFixed(2) : esc(analysis.biomarkers.gamma_power) });
+    }
+    if (bioMetrics.length) {
+      bioHtml += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:12px">';
+      bioMetrics.forEach(function (m) {
+        bioHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px 16px;border:1px solid rgba(255,255,255,0.06);min-width:160px">'
+          + '<div style="font-size:18px;font-weight:700;color:var(--text-primary)">' + esc(m.value) + '</div>'
+          + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">' + esc(m.label) + '</div></div>';
+      });
+      bioHtml += '</div>';
+    }
+    // Disclaimer
+    bioHtml += '<div style="margin-top:12px;padding:10px;background:rgba(255,255,255,0.03);border-radius:6px;border:1px solid rgba(255,255,255,0.06);font-size:11px;color:var(--text-tertiary);font-style:italic">'
+      + 'These biomarkers reflect momentary patterns in brainwave activity based on mathematical models. They are not diagnostic conclusions.</div>';
+    html += card('Biomarker Analysis', bioHtml);
+  }
+
+  // ── Section 10: Comprehensive Narrative Sections ────────────────────────
+  if (narrative.sections && Array.isArray(narrative.sections) && narrative.sections.length) {
+    var sectionsHtml = '';
+    narrative.sections.forEach(function (sec, idx) {
+      var secNum = idx + 1;
+      sectionsHtml += card(secNum + '. ' + (sec.title || 'Section ' + secNum),
+        '<div style="font-size:13px;color:var(--text-secondary);line-height:1.7">' + esc(sec.content || '') + '</div>'
+      );
+    });
+    html += '<div class="qeeg-section-divider"></div>'
+      + '<div style="margin-bottom:12px"><strong style="font-size:15px;color:var(--text-primary)">Comprehensive Narrative</strong></div>'
+      + sectionsHtml;
+  }
+
+  // ── Section 11: Condition Pattern Matches ───────────────────────────────
+  if (conditions.length) {
+    var condHtml = '<div style="display:flex;flex-direction:column;gap:8px">';
+    conditions.forEach(function (c) {
+      var conf = (c.confidence || 0);
+      var pct = Math.round(conf * 100);
+      var barColor = conf > 0.7 ? 'var(--red)' : conf > 0.4 ? 'var(--amber)' : 'var(--blue)';
+      condHtml += '<div style="display:flex;align-items:center;gap:12px">'
+        + '<div style="width:160px;font-weight:600;font-size:13px">' + esc(c.condition || c.name || 'Unknown') + '</div>'
+        + '<div style="flex:1;background:rgba(255,255,255,0.06);border-radius:4px;height:20px;position:relative">'
+        + '<div style="width:' + pct + '%;height:100%;background:' + barColor + ';border-radius:4px;transition:width .3s"></div>'
+        + '<span style="position:absolute;right:8px;top:2px;font-size:11px;color:var(--text-primary)">' + pct + '%</span></div></div>';
+    });
+    condHtml += '</div>';
+    html += card('Condition Pattern Matches', condHtml);
+  }
+
+  // ── Section 12: Protocol Suggestions ────────────────────────────────────
+  if (suggestions.length) {
+    var sugHtml = '<ul style="margin:0;padding-left:20px">';
+    suggestions.forEach(function (s) {
+      sugHtml += '<li style="margin-bottom:8px;font-size:13px;color:var(--text-secondary)">'
+        + '<strong>' + esc(s.protocol || s.title || '') + '</strong>'
+        + (s.rationale ? ': ' + esc(s.rationale) : '') + '</li>';
+    });
+    sugHtml += '</ul>';
+    html += card('Protocol Suggestions', sugHtml);
+  }
+
+  // ── Section 13: Clinician Review ────────────────────────────────────────
+  html += card('Clinician Review',
+    '<div style="padding:8px">'
+    + (report.clinician_reviewed
+      ? '<div style="margin-bottom:8px">' + badge('Reviewed', 'var(--green)') + '</div>'
+      : '<div style="margin-bottom:8px">' + badge('Pending Review', 'var(--amber)') + '</div>')
+    + '<textarea id="qeeg-amendments" class="form-control" rows="3" placeholder="Add clinical amendments or notes...">'
+    + esc(report.clinician_amendments || '') + '</textarea>'
+    + '<div style="margin-top:8px;text-align:right">'
+    + '<button class="btn btn-sm btn-outline" id="qeeg-save-review">Save & Mark Reviewed</button></div>'
+    + '<div id="qeeg-review-status" aria-live="polite" style="margin-top:8px"></div></div>'
+  );
+
+  return html;
+}
+
 const TAB_META = {
   patient:   { label: 'Patient & Upload',  color: 'var(--blue)' },
   analysis:  { label: 'Analysis',          color: 'var(--teal)' },
@@ -187,6 +740,11 @@ var DEMO_QEEG_ANALYSIS = {
   channel_count: 19,
   sample_rate_hz: 256,
   recording_duration_sec: 600,
+  recording_date: '2026-04-07T10:51:29',
+  amplifier_type: 'MITSAR',
+  electrode_placement: '10-20 System',
+  eeg_state: 'Eyes Open',
+  channel_names: ['Fp1','Fpz','Fp2','F7','F3','Fz','F4','F8','T3','C3','Cz','C4','T4','T5','P3','Pz','P4','T6','O1','Oz','O2'],
   eyes_condition: 'closed',
   analyzed_at: new Date().toISOString(),
   band_powers: {
@@ -379,16 +937,160 @@ var DEMO_QEEG_ANALYSIS = {
         summary: 'Prefrontal theta cordance mildly elevated. Literature suggests potential predictor of antidepressant response. Posterior alpha cordance within normal limits.' },
     },
   },
+  signal_deviations: {
+    Fp1: {mean: 3.44e-8, std: 7.88e-6}, Fp2: {mean: 4.27e-8, std: 6.40e-6},
+    F7: {mean: 1.05e-7, std: 6.41e-6}, F3: {mean: -7.72e-9, std: 7.41e-6},
+    Fz: {mean: 2.60e-8, std: 7.66e-6}, F4: {mean: 1.70e-8, std: 7.04e-6},
+    F8: {mean: 1.03e-8, std: 7.61e-6}, T3: {mean: -2.83e-8, std: 6.28e-6},
+    C3: {mean: -3.52e-8, std: 7.14e-6}, Cz: {mean: -3.22e-8, std: 7.90e-6},
+    C4: {mean: -5.31e-9, std: 6.54e-6}, T4: {mean: 4.40e-8, std: 5.37e-6},
+    T5: {mean: 3.56e-8, std: 5.78e-6}, P3: {mean: -5.14e-8, std: 6.94e-6},
+    Pz: {mean: 3.75e-8, std: 7.07e-6}, P4: {mean: -2.95e-9, std: 6.20e-6},
+    T6: {mean: 1.40e-9, std: 4.19e-6}, O1: {mean: -1.38e-8, std: 6.50e-6},
+    O2: {mean: 2.60e-9, std: 6.03e-6}
+  },
+  tbr_per_channel: {
+    Fp1: 2.47, Fp2: 3.17, F7: 2.85, F3: 3.54, Fz: 4.03, F4: 3.08, F8: 3.88,
+    T3: 2.72, C3: 3.18, Cz: 3.55, C4: 3.02, T4: 3.50, T5: 2.67,
+    P3: 3.15, Pz: 3.30, P4: 3.05, T6: 2.56, O1: 3.01, O2: 2.81
+  },
+  pathological_signs: {
+    severity: 'moderate',
+    spikes: {
+      total: 8,
+      channels: {
+        Fp1: {count: 1, avg_amplitude: -51.9, avg_duration_ms: 20},
+        F3: {count: 2, avg_amplitude: -2.2, avg_duration_ms: 30},
+        Fz: {count: 1, avg_amplitude: -51.1, avg_duration_ms: 40},
+        F4: {count: 1, avg_amplitude: 56.8, avg_duration_ms: 52},
+        Cz: {count: 1, avg_amplitude: 54.4, avg_duration_ms: 60},
+        T4: {count: 2, avg_amplitude: -51.7, avg_duration_ms: 38}
+      }
+    },
+    sharp_waves: {
+      total: 8,
+      channels: {
+        Fp1: {count: 4, avg_amplitude: -4.5, avg_duration_ms: 91},
+        F7: {count: 1, avg_amplitude: -53.4, avg_duration_ms: 84},
+        F3: {count: 1, avg_amplitude: -54.1, avg_duration_ms: 120},
+        F4: {count: 1, avg_amplitude: 58.6, avg_duration_ms: 88},
+        C3: {count: 1, avg_amplitude: 50.7, avg_duration_ms: 100},
+        Cz: {count: 1, avg_amplitude: 53.9, avg_duration_ms: 112}
+      }
+    },
+    slow_waves: {total: 1, channels: {T3: {count: 1}}},
+    suppression: {total_channels: 19, total_duration_sec: 173.0}
+  },
+  brodmann_areas: [
+    {area: 'Brodmann Area 37', name: 'Fusiform Gyrus', z_score: -1.71, status: 'borderline', channels: ['T5','T6'], functions: ['Object recognition','Visual word processing'], clinical_relevance: 'Object agnosia, Reading difficulties'},
+    {area: 'Brodmann Area 21, 22', name: 'Temporal Lobe', z_score: -0.95, status: 'normal', channels: ['T3','T4'], functions: ['Auditory processing','Language'], clinical_relevance: ''},
+    {area: 'Brodmann Area 6', name: 'Premotor Cortex', z_score: 0.93, status: 'normal', channels: ['F3','F4','Cz'], functions: ['Motor planning'], clinical_relevance: ''},
+    {area: 'Brodmann Area 8', name: 'Frontal Eye Fields', z_score: 0.82, status: 'normal', channels: ['F3','F4','Fz'], functions: ['Eye movements','Attention'], clinical_relevance: ''},
+    {area: 'Brodmann Area 1, 2, 3', name: 'Somatosensory Cortex', z_score: -1.20, status: 'normal', channels: ['C3','C4','Cz'], functions: ['Sensory processing'], clinical_relevance: ''},
+    {area: 'Brodmann Area 9', name: 'Prefrontal Cortex', z_score: 1.30, status: 'mild_increase', channels: ['F3','F4','Fz'], functions: ['Executive function','Working memory'], clinical_relevance: 'Increased cognitive effort'}
+  ],
+  asymmetry_detail: {
+    overall: 'significant',
+    regions: {
+      frontal: {index: 0.22, direction: 'left', status: 'normal', description: 'May indicate increased analytical processing'},
+      central: {index: -10.83, direction: 'right', status: 'high', description: 'Marked hemispheric asymmetry'},
+      temporal: {index: 0.43, direction: 'left', status: 'normal', description: 'Enhanced verbal processing'},
+      parietal: {index: 0.21, direction: 'left', status: 'normal', description: ''},
+      occipital: {index: -1.38, direction: 'right', status: 'normal', description: ''}
+    },
+    band_findings: {
+      delta: [{region: 'Temporal (T5/T6)', value: 30.8, status: 'high', function: 'auditory integration'}],
+      theta: [{region: 'Temporal (T5/T6)', value: 34.4, status: 'high', function: 'auditory integration'}],
+      alpha: [{region: 'Occipital (O1/O2)', value: 18.0, status: 'normal', function: 'visual processing'}],
+      beta: [{region: 'Temporal (T5/T6)', value: 34.4, status: 'high', function: 'auditory integration'}]
+    }
+  },
+  biomarkers: {
+    summary: 'Secondary patterns detected.',
+    conditions: [
+      {name: 'Dyslexia', likelihood: 51.05, relevance: 'Moderate Indication'},
+      {name: 'Autism', likelihood: 49.52, relevance: 'Mild Indication'},
+      {name: 'ADHD', likelihood: 26.31, relevance: 'Limited Indication'},
+      {name: 'Cognitive Decline', likelihood: 24.42, relevance: 'Limited Indication'},
+      {name: 'Celiac', likelihood: 20.05, relevance: 'Limited Indication'},
+      {name: 'Depression', likelihood: 17.10, relevance: 'Limited Indication'},
+      {name: 'Anxiety', likelihood: 17.10, relevance: 'Limited Indication'},
+      {name: 'Tinnitus', likelihood: 17.10, relevance: 'Limited Indication'},
+      {name: 'OCD', likelihood: 15.81, relevance: 'Limited Indication'},
+      {name: 'Insomnia', likelihood: 0.00, relevance: 'Limited Indication'}
+    ],
+    paf: {value: 10.01, status: 'Within typical range'},
+    tbr: {value: 3.79, status: 'Elevated - attention-related patterns'},
+    gamma_power: {value: 0.00, status: 'Reduced - integration difficulties'}
+  },
+  connectivity_detail: {
+    disconnected: [
+      {channel: 'T4', importance: 'high', effect: 'Right temporal disconnection affecting auditory processing'},
+      {channel: 'T6', importance: 'high', effect: 'Temporal dysfunction affecting auditory and memory processing'}
+    ],
+    high_connectivity: [
+      {pair: 'Fp1-F7', coherence: 0.89, normal: 0.7, status: 'overactive', effect: 'Poor cognitive flexibility'},
+      {pair: 'Fp2-F4', coherence: 0.77, normal: 0.5, status: 'overactive', effect: 'Heightened anxiety or focus issues'},
+      {pair: 'Fp2-F8', coherence: 0.82, normal: 0.5, status: 'overactive', effect: 'Attention regulation issues'},
+      {pair: 'F7-F3', coherence: 0.75, normal: 0.4, status: 'overactive', effect: 'Impaired cognitive flexibility'},
+      {pair: 'F3-Fz', coherence: 0.84, normal: 0.6, status: 'overactive', effect: 'Altered cognitive processing'},
+      {pair: 'F3-C3', coherence: 0.78, normal: 0.7, status: 'overactive', effect: 'Enhanced frontal-central coupling'},
+      {pair: 'Fz-F4', coherence: 0.77, normal: 0.3, status: 'overactive', effect: 'Heightened attention/focus'},
+      {pair: 'C3-P3', coherence: 0.81, normal: 0.6, status: 'overactive', effect: 'Sensorimotor processing issues'},
+      {pair: 'T5-P3', coherence: 0.75, normal: 0.3, status: 'overactive', effect: 'Enhanced language processing'},
+      {pair: 'P3-Pz', coherence: 0.78, normal: 0.5, status: 'overactive', effect: 'Attentional synchronization'},
+      {pair: 'Pz-P4', coherence: 0.75, normal: 0.25, status: 'overactive', effect: 'Altered spatial processing'}
+    ],
+    moderate_connectivity: [
+      {pair: 'Fp1-F3', coherence: 0.60, normal: 0.4, status: 'overactive', effect: 'Altered frontal synchronization'},
+      {pair: 'F3-T3', coherence: 0.56, normal: 0.3, status: 'overactive', effect: 'Hyper-synchronization'},
+      {pair: 'Fz-C3', coherence: 0.69, normal: 0.3, status: 'overactive', effect: 'Excessive synchronization'},
+      {pair: 'T3-T5', coherence: 0.62, normal: 0.3, status: 'overactive', effect: 'Temporal hyperconnectivity'},
+      {pair: 'T5-O1', coherence: 0.68, normal: 0.3, status: 'overactive', effect: 'Abnormal temporal-occipital sync'}
+    ],
+    regional_means: {
+      interhemispheric: {mean: 0.338, variability: 0.239},
+      pfc: {mean: 0.427, pattern: 'moderate connectivity'},
+      temporal: {mean: 0.298, pattern: 'weak connectivity'},
+      parietal: {mean: 0.521, pattern: 'moderate connectivity'},
+      occipital: {mean: 0.397, pattern: 'moderate connectivity'}
+    }
+  },
+  iapf_regional: {
+    overall: 11.96,
+    frontal: {min: 10.01, max: 11.96},
+    central: {min: 9.8, max: 10.5},
+    temporal: {min: 9.5, max: 10.2},
+    parietal: {min: 9.6, max: 10.3},
+    occipital: {o1: 10.01, o2: 10.01},
+    status: 'High',
+    typical_range: '9.0-11.0 Hz',
+    interpretation: 'Sometimes associated with high arousal, stress, or anxiety'
+  },
+  absolute_power: {
+    delta: {mean: 3.91e-12, max_location: 'Cz', status: 'Reduced'},
+    theta: {mean: 1.54e-12, max_location: 'Cz', status: 'Reduced'},
+    alpha: {mean: 1.53e-12, max_location: 'Fz', status: 'Reduced'},
+    beta: {mean: 5.12e-13, max_location: 'Cz', status: 'Reduced'},
+    gamma: {mean: 1.62e-12, max_location: 'Fp1', status: 'Reduced'}
+  },
+  relative_power: {
+    delta: {pct: 2.8, status: 'Reduced'},
+    theta: {pct: 1.1, status: 'Reduced'},
+    alpha: {pct: 1.1, status: 'Reduced'},
+    beta: {pct: 0.4, status: 'Normal'},
+    gamma: {pct: 0.1, status: 'Normal'}
+  },
+  power_ratios: {
+    theta_beta: 2.96,
+    alpha_theta: 1.01
+  }
 };
 
 var DEMO_QEEG_REPORT = {
   id: 'demo-report',
   ai_narrative: {
-    summary: 'This eyes-closed qEEG recording from a 19-channel 10-20 montage reveals a mildly atypical spectral profile. '
-      + 'Alpha peak frequency at 9.24 Hz falls in the low-normal range with dominant posterior alpha distribution (O1: 42%, O2: 41%). '
-      + 'Frontal theta is mildly elevated at Fz (22%), yielding a borderline theta/beta ratio of 3.82 (clinical threshold 4.5). '
-      + 'Left frontal alpha asymmetry (FAA 0.18) may indicate relative right frontal hypoactivation, a pattern associated with withdrawal-related affective styles. '
-      + 'Overall cortical complexity and connectivity measures are within normal limits.',
+    summary: 'This eyes-open qEEG recording from a 30-channel setup reveals moderate alterations in cortical activity with regional imbalances in power distribution and asymmetry, particularly affecting the frontal and temporal areas.',
     detailed_findings: 'SPECTRAL ANALYSIS:\n'
       + 'Delta band power shows expected frontal predominance (Fp1: 30%, Fp2: 29%) with appropriate posterior attenuation (O1: 15%, O2: 15%). '
       + 'No focal delta abnormalities suggestive of structural lesions.\n\n'
@@ -406,6 +1108,29 @@ var DEMO_QEEG_REPORT = {
       + 'CLINICAL IMPRESSION:\n'
       + 'The combination of mild frontal theta excess, borderline TBR, and left frontal alpha asymmetry suggests a profile consistent with '
       + 'mild attentional and mood-related dysregulation. These findings warrant clinical correlation with presenting symptoms.',
+    clinical_overview: 'The QEEG analysis reveals that the frontal brain regions, particularly in channels such as F3, F4, and Fz, show elevated theta oscillations (~4.5Hz) with decreased alpha activity. Parietal regions display reduced alpha power integral to sensory integration. Temporal lobe analysis indicates isolated focal slowing and sporadic sharp transients in T3. Occipital regions show normal alpha peak frequencies (O1: 10.2Hz, O2: 10.0Hz).',
+    key_observations: {
+      frontal: {channels: 'F3, F4, Fz', finding: 'Increased theta power (~4.5Hz), reduced alpha', impact: 'Difficulties with focus and decision-making'},
+      parietal: {channels: 'P3, Pz, P4', finding: 'Marked reduction in alpha power', impact: 'Affects sensory integration and spatial processing'},
+      temporal: {channels: 'T3, T4, T5, T6', finding: 'Focal slowing, isolated sharp transients', impact: 'Difficulties in auditory processing and memory recall'},
+      occipital: {channels: 'O1, O2', finding: 'Normal alpha peaks (O1: 10.2Hz, O2: 10.0Hz)', impact: 'Visual perception largely intact'}
+    },
+    firda_oirda: {firda: 'Detected sporadically in frontal channels (Fp1, F7)', oirda: 'Observed in occipital/temporal channels (T3)', impact: 'Transient lapses in alertness'},
+    epileptiform: {findings: 'Occasional focal spikes in temporal region, burst durations under 3 seconds', tbr: 3.2, normal_tbr: '2.5-3.0', impact: 'Difficulty sustaining attention'},
+    sections: [
+      {title: 'Cognitive and Neurological Profile', content: 'Elevated IAPF with frontal high-arousal patterns. Theta/beta ratio of 3.17 indicates attentional regulation imbalance. High delta dominance across channels suggests reduced cortical activation. Notable asymmetries in temporal (~39.9%) and occipital (~90.5%) regions.'},
+      {title: 'Mental Health and Brain Function', content: 'Subtle frontal asymmetries correlate with emotional regulation. Significant inattention index (6.3 at Fz vs norm of 2). Intermittent low-amplitude epileptiform discharges in temporal regions. Overall pattern of increased delta with reduced beta2/gamma consistent with hyperarousal.'},
+      {title: 'Sensory Processing and Brain Function', content: 'Occipital channels show normal alpha peaks ensuring visual processing. Temporal channels show prominent delta and occasional sharp waves affecting auditory processing. High delta dominance affects sensorimotor integration.'},
+      {title: 'Nonverbal Communication and Brain Activity', content: 'Elevated frontal synchronisation with atypical temporal activity may affect facial expression recognition and social cue integration. Temporal asymmetry may correlate with difficulties in auditory-linguistic processing.'},
+      {title: 'Everyday Strengths and Challenges', content: 'Enhanced frontal activation supports executive functions. Persistent asymmetries denote multisensory integration challenges. Elevated attention indices create a mixed adaptability profile.'},
+      {title: 'Cognitive and Behavioural Trends', content: 'Sustained elevated theta/beta ratio indicates attentional control issues. Reduced beta2 and gamma power correlates with cognitive fatigability. Dynamic microstate patterns hint at reduced neural flexibility.'},
+      {title: 'Nutrition and Brain Health', content: 'Incorporate omega-3 fatty acids, B-vitamins, magnesium, and antioxidants. Regular balanced meals stabilize glucose for sustained cognitive effort.'},
+      {title: 'Tailored Lifestyle Recommendations', content: 'Regular aerobic exercise 3-4 times weekly. Mind-body practices like yoga for stress regulation. Cognitive training exercises. Structured daily schedule with planned breaks.'},
+      {title: 'Long-Term Learning and Career Guidance', content: 'Structured environments with clear task delineation suit the profile. Roles emphasising systematic planning and detailed task management. Productivity tools and organisational apps recommended.'},
+      {title: 'Social and Recreational Support', content: 'Structured group activities. Social skills training. Recreational pursuits combining physical movement with social interaction.'},
+      {title: 'Treatment and Assistive Strategies', content: 'Neurofeedback sessions for brainwave control. Mindfulness and meditation for hyperarousal reduction. CBT for anxiety and attention difficulties. Assistive technologies for executive dysfunction.'},
+      {title: 'Ongoing Development and Monitoring', content: 'Follow-up QEEG evaluations every 3-6 months. Detailed symptom diary. Regular consultations with neuropsychological and nutritional specialists. Adjust interventions based on longitudinal data.'}
+    ]
   },
   condition_matches: [
     { condition: 'Major Depressive Disorder', confidence: 0.68 },
@@ -1286,68 +2011,20 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       // Display latest report
       const report = reports[0];
       _currentReport = report;
-      const narrative = report.ai_narrative || report.ai_narrative_json || {};
-      const conditions = report.condition_matches || report.condition_matches_json || [];
-      const suggestions = report.protocol_suggestions || report.protocol_suggestions_json || [];
-
-      let html = '';
-
-      // Print / Download button bar
-      html += '<div class="qeeg-export-bar" style="justify-content:flex-end;margin-bottom:8px">'
-        + '<button class="btn btn-sm btn-outline" aria-label="Print AI report" onclick="window._qeegPrintReport()">Print Report</button>'
-        + '<button class="btn btn-sm btn-outline" aria-label="Download report as PDF" onclick="window._qeegDownloadPDF()">Download PDF</button></div>';
-
-      // Executive summary
-      if (narrative.summary) {
-        html += card('Executive Summary', '<div class="qeeg-narrative qeeg-narrative--summary">' + esc(narrative.summary) + '</div>');
+      // Load analysis data for comprehensive report
+      var analysisData = null;
+      if (analysisId === 'demo' && _isDemoMode()) {
+        analysisData = DEMO_QEEG_ANALYSIS;
+      } else if (_currentAnalysis && _currentAnalysis.id === analysisId) {
+        analysisData = _currentAnalysis;
+      } else {
+        try {
+          analysisData = await api.getQEEGAnalysis(analysisId);
+        } catch (_) { /* analysis data enhances report but is not required */ }
       }
+      if (analysisData) _currentAnalysis = analysisData;
 
-      // Detailed findings (formatted with section headings)
-      if (narrative.detailed_findings) {
-        html += card('Detailed Findings', '<div class="qeeg-narrative qeeg-narrative--findings">' + _formatNarrative(narrative.detailed_findings) + '</div>');
-      }
-
-      // Condition matches
-      if (conditions.length) {
-        let condHtml = '<div style="display:flex;flex-direction:column;gap:8px">';
-        conditions.forEach(function (c) {
-          const conf = (c.confidence || 0);
-          const pct = Math.round(conf * 100);
-          const barColor = conf > 0.7 ? 'var(--red)' : conf > 0.4 ? 'var(--amber)' : 'var(--blue)';
-          condHtml += '<div style="display:flex;align-items:center;gap:12px">'
-            + '<div style="width:160px;font-weight:600;font-size:13px">' + esc(c.condition || c.name || 'Unknown') + '</div>'
-            + '<div style="flex:1;background:rgba(255,255,255,0.06);border-radius:4px;height:20px;position:relative">'
-            + '<div style="width:' + pct + '%;height:100%;background:' + barColor + ';border-radius:4px;transition:width .3s"></div>'
-            + '<span style="position:absolute;right:8px;top:2px;font-size:11px;color:var(--text-primary)">' + pct + '%</span></div></div>';
-        });
-        condHtml += '</div>';
-        html += card('Condition Pattern Matches', condHtml);
-      }
-
-      // Protocol suggestions
-      if (suggestions.length) {
-        let sugHtml = '<ul style="margin:0;padding-left:20px">';
-        suggestions.forEach(function (s) {
-          sugHtml += '<li style="margin-bottom:8px;font-size:13px;color:var(--text-secondary)">'
-            + '<strong>' + esc(s.protocol || s.title || '') + '</strong>'
-            + (s.rationale ? ': ' + esc(s.rationale) : '') + '</li>';
-        });
-        sugHtml += '</ul>';
-        html += card('Protocol Suggestions', sugHtml);
-      }
-
-      // Clinician review
-      html += card('Clinician Review',
-        '<div style="padding:8px">'
-        + (report.clinician_reviewed
-          ? '<div style="margin-bottom:8px">' + badge('Reviewed', 'var(--green)') + '</div>'
-          : '<div style="margin-bottom:8px">' + badge('Pending Review', 'var(--amber)') + '</div>')
-        + '<textarea id="qeeg-amendments" class="form-control" rows="3" placeholder="Add clinical amendments or notes...">'
-        + esc(report.clinician_amendments || '') + '</textarea>'
-        + '<div style="margin-top:8px;text-align:right">'
-        + '<button class="btn btn-sm btn-outline" id="qeeg-save-review">Save & Mark Reviewed</button></div>'
-        + '<div id="qeeg-review-status" aria-live="polite" style="margin-top:8px"></div></div>'
-      );
+      var html = _renderComprehensiveReport(report, analysisData);
 
       if (analysisId === 'demo' && _isDemoMode()) {
         html = _demoBanner() + html;

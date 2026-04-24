@@ -2,7 +2,16 @@
  * Home Therapy Tab — clinician-facing functions for pages-clinical.js
  * Called via renderHomeTherapyTab() and bindHomeTherapyActions() injected
  * into the patient detail switchPT('home-therapy') case.
+ *
+ * Sub-views:
+ *   "review"    — original Session Review / clinician queue  (default)
+ *   "adherence" — Therapy Adherence Dashboard (imported module)
  */
+
+import { renderAdherenceDashboard, bindAdherenceActions } from './therapy-adherence-dashboard.js';
+
+/** Track which sub-view is active (persists across re-renders within session) */
+let _htSubView = 'review';
 
 const SEV_COLORS = {
   info:     'var(--blue)',
@@ -168,7 +177,71 @@ export async function renderHomeTherapyTab(patientId, apiObj) {
       </div>
     </div>` : '';
 
+  // ── Sub-view tab bar ──
+  const subViewBar = `
+    <style>
+      .ht-subview-bar {
+        display: flex;
+        gap: 6px;
+        padding: 0 0 4px;
+      }
+      .ht-subview-tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 7px 16px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        font-family: inherit;
+        transition: all 0.12s;
+      }
+      .ht-subview-tab:hover {
+        color: var(--text-primary);
+        border-color: rgba(0,212,188,0.3);
+      }
+      .ht-subview-tab.active {
+        background: rgba(0,212,188,0.14);
+        border-color: var(--teal);
+        color: var(--teal);
+      }
+      .ht-subview-tab .ht-sv-icon {
+        font-size: 13px;
+        line-height: 1;
+      }
+    </style>
+    <div class="ht-subview-bar">
+      <button class="ht-subview-tab ${_htSubView === 'review' ? 'active' : ''}"
+              onclick="window._htSwitchSubView('review')">
+        <span class="ht-sv-icon">&#9776;</span> Session Review
+      </button>
+      <button class="ht-subview-tab ${_htSubView === 'adherence' ? 'active' : ''}"
+              onclick="window._htSwitchSubView('adherence')">
+        <span class="ht-sv-icon">&#9673;</span> Adherence
+      </button>
+    </div>`;
+
+  // ── Decide which sub-view to render ──
+  if (_htSubView === 'adherence') {
+    let adherenceHtml;
+    try {
+      adherenceHtml = await renderAdherenceDashboard(patientId, apiObj);
+    } catch (_e) {
+      adherenceHtml = `<div style="padding:32px;text-align:center;color:var(--text-tertiary)">Could not load adherence data.</div>`;
+    }
+    return `<div class="ht-wrap">
+      ${subViewBar}
+      ${adherenceHtml}
+    </div>`;
+  }
+
+  // Default: Session Review sub-view
   return `<div class="ht-wrap">
+    ${subViewBar}
     ${kpiStrip}
     ${deviceCard}
     ${flagsCard}
@@ -180,6 +253,17 @@ export async function renderHomeTherapyTab(patientId, apiObj) {
 
 export function bindHomeTherapyActions(patientId, apiObj) {
   const a = apiObj;
+
+  // ── Sub-view toggle ──
+  window._htSwitchSubView = function(view) {
+    _htSubView = view;
+    window.switchPT('home-therapy');
+  };
+
+  // ── Bind adherence dashboard interactions (when on that sub-view) ──
+  if (_htSubView === 'adherence') {
+    bindAdherenceActions();
+  }
 
   window._htAssignDevice = async function(pid) {
     const name = prompt('Device name (e.g. Fisher Wallace Stimulator):');

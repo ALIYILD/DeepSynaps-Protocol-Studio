@@ -613,15 +613,18 @@ test('pickCallTier: defaults mode to video when mode param is missing/invalid', 
 
 // ── demoMessagesSeed ────────────────────────────────────────────────────────
 
-test('demoMessagesSeed: returns exactly 3 messages, all tagged _demo', () => {
+test('demoMessagesSeed: returns exactly 4 items (3 messages + 1 self-assessment), all tagged _demo', () => {
   const seed = demoMessagesSeed();
-  assert.equal(seed.length, 3);
+  assert.equal(seed.length, 4);
   for (const m of seed) {
     assert.equal(m._demo, true);
     assert.ok(m.id);
-    assert.ok(m.body);
     assert.ok(m.created_at);
   }
+  // First 3 are conversational messages with a body
+  for (const m of seed.slice(0, 3)) assert.ok(m.body);
+  // 4th is a self-assessment record (no body, has template_id)
+  assert.ok(seed[3].template_id);
 });
 
 test('demoMessagesSeed: alternates clinician → patient → clinician', () => {
@@ -629,8 +632,8 @@ test('demoMessagesSeed: alternates clinician → patient → clinician', () => {
   assert.equal(seed[0].sender_type, 'clinician');
   assert.equal(seed[1].sender_type, 'patient');
   assert.equal(seed[2].sender_type, 'clinician');
-  // All three share the same thread so they render as one conversation.
-  const threadIds = new Set(seed.map(m => m.thread_id));
+  // First three share the same thread so they render as one conversation.
+  const threadIds = new Set(seed.slice(0, 3).map(m => m.thread_id));
   assert.equal(threadIds.size, 1);
 });
 

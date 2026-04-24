@@ -164,6 +164,10 @@ let _modBrainMap = null;
 async function loadBrainMap()     { return (_modBrainMap ??= await import('./pages-brainmap.js')); }
 let _modQEEGAnalysis = null;
 async function loadQEEGAnalysis() { return (_modQEEGAnalysis ??= await import('./pages-qeeg-analysis.js')); }
+let _modConsent = null;
+async function loadConsent() { return (_modConsent ??= await import('./pages-consent.js')); }
+let _modMonitoring = null;
+async function loadMonitoring() { return (_modMonitoring ??= await import('./pages-monitoring.js')); }
 
 // ── Helpers that delegate to the clinical module once loaded ──────────────────
 // Called synchronously in navigate() before renderPage(); safe to no-op until
@@ -455,7 +459,6 @@ const NAV = [
   { id: 'qeeg-analysis',      label: 'qEEG Analyzer',     icon: '📊', ai: true },
   { id: 'biomarkers',          label: 'Biomarkers',         icon: '🧬' },
   { id: 'handbooks-v2',       label: 'Handbooks',         icon: '📚' },
-  { id: 'library-v2',         label: 'Library',           icon: '📖' },
   { id: 'research-evidence',  label: 'Research Evidence', icon: '🔬', ai: true },
 
   // ── SESSIONS ─────────────────────────────────────────────────────────────────
@@ -470,6 +473,8 @@ const NAV = [
   { id: 'ai-agent-v2',        label: 'AI Practice Agents', icon: '🤖', ai: true },
   // Research has moved into Reports (Reports → Research tab).
   { id: 'governance-v2',      label: 'Governance',        icon: '🛡️' },
+  { id: 'consent-management', label: 'Consent',           icon: '✍️' },
+  { id: 'system-health',       label: 'System Health',     icon: '💚' },
   { id: 'academy',            label: 'Academy',           icon: '🎓' },
   { id: 'marketplace',        label: 'Marketplace',       icon: '🛒' },
 ];
@@ -483,7 +488,6 @@ const NAV_ICONS = {
   'assessments':       `<svg viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M8 12h.01"/><path d="M12 12h4"/><path d="M8 16h.01"/><path d="M12 16h4"/></svg>`,
   'protocol-hub':      `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="m4.22 4.22 2.12 2.12"/><path d="m17.66 17.66 2.12 2.12"/><path d="M2 12h3"/><path d="M19 12h3"/><path d="m4.22 19.78 2.12-2.12"/><path d="m17.66 6.34 2.12-2.12"/></svg>`,
   'scheduling-hub':    `<svg viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/></svg>`,
-  'library-hub':       `<svg viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>`,
   'monitor-hub':       `<svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>`,
   'virtual-care-hub':  `<svg viewBox="0 0 24 24"><path d="m22 8-6 4 6 4V8z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>`,
   'documents-hub':     `<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`,
@@ -524,7 +528,6 @@ NAV_ICONS['patients-v2']     = NAV_ICONS['patients-hub'];
 NAV_ICONS['protocol-studio'] = NAV_ICONS['protocol-builder'];
 NAV_ICONS['brainmap-v2']     = NAV_ICONS['brain-map-planner'];
 NAV_ICONS['handbooks-v2']    = NAV_ICONS['handbooks'];
-NAV_ICONS['library-v2']      = NAV_ICONS['library-hub'];
 NAV_ICONS['live-session']    = NAV_ICONS['virtual-care-hub'];
 NAV_ICONS['home-tasks-v2']   = NAV_ICONS['home-task-manager'];
 NAV_ICONS['documents-v2']    = NAV_ICONS['documents-hub'];
@@ -533,6 +536,8 @@ NAV_ICONS['finance-v2']      = NAV_ICONS['finance-hub'];
 NAV_ICONS['ai-agent-v2']     = NAV_ICONS['protocol-hub'];
 NAV_ICONS['research-v2']     = NAV_ICONS['protocol-wizard'];
 NAV_ICONS['governance-v2']   = NAV_ICONS['adverse-events'];
+NAV_ICONS['consent-management'] = `<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15l2 2 4-4"/></svg>`;
+NAV_ICONS['system-health']   = `<svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/><circle cx="12" cy="12" r="2" fill="currentColor" opacity=".4"/></svg>`;
 NAV_ICONS['research-evidence'] = `<svg viewBox="0 0 24 24"><path d="M10 2v6a2 2 0 0 1-2 2H2"/><path d="M14 2v6a2 2 0 0 0 2 2h6"/><path d="M12 18v4"/><path d="M8 22h8"/><circle cx="12" cy="14" r="4"/></svg>`;
 NAV_ICONS['academy']         = `<svg viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`;
 NAV_ICONS['marketplace']     = `<svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" x2="21" y1="6" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>`;
@@ -871,6 +876,8 @@ const PAGE_TITLES = {
   'literature': 'Evidence Library',
   'irb-manager': 'IRB Manager',
   'research-evidence': 'Research Evidence',
+  'consent-management': 'Consent Management',
+  'system-health': 'System Health',
 };
 
 // ── Navigate ──────────────────────────────────────────────────────────────────
@@ -1308,7 +1315,7 @@ async function renderPage() {
     case 'telehealth-recorder': { const m = await loadPractice(); await m.pgTelehealthRecorder(setTopbar); break; }
     case 'monitoring': { window._monitorHubTab = 'monitoring'; window._nav('monitor-hub'); break; }
     case 'wearables':  { window._monitorHubTab = 'monitoring'; window._nav('monitor-hub'); break; }
-    case 'library-hub':    { const { pgLibraryHub }    = await loadClinicalHubs(); await pgLibraryHub(setTopbar, navigate);    break; }
+    case 'library-hub':    { window._resEvidenceTab = 'search'; window._nav('research-evidence'); break; }
     case 'monitor-hub':    { const { pgMonitorHub }    = await loadClinicalHubs(); await pgMonitorHub(setTopbar, navigate);    break; }
     case 'virtual-care-hub':{ const { pgVirtualCareHub } = await loadClinicalHubs(); await pgVirtualCareHub(setTopbar, navigate); break; }
     case 'home-task-manager': { const m = await loadClinicalTools(); await m.pgHomePrograms(setTopbar, navigate); break; }
@@ -1422,16 +1429,16 @@ async function renderPage() {
     case 'prescriptions-full':   { const { pgPrescriptions } = await loadClinicalTools(); await pgPrescriptions(setTopbar); break; }
     case 'patient-protocol':    { const { pgPatientProtocolView }  = await loadClinicalTools(); await pgPatientProtocolView(setTopbar); break; }
     case 'protocol-detail':     { const { pgProtocolDetail }       = await loadProtocols(); await pgProtocolDetail(setTopbar, navigate); break; }
-    case 'condition-packages':   { window._libraryHubTab = 'packages'; window._nav('library-hub'); break; }
+    case 'condition-packages':   { window._resEvidenceTab = 'conditions'; window._nav('research-evidence'); break; }
     case 'condition-package':   { const { pgConditionPackage }     = await loadKnowledge(); await pgConditionPackage(setTopbar, navigate);  break; }
     case 'notes-dictation': { window._monitorHubTab = 'notes'; window._nav('monitor-hub'); break; }
     case 'wearable-integration': { const m = await loadPractice(); await m.pgWearableIntegration(setTopbar); break; }
     // ── Registries ─────────────────────────────────────────────────────────
-    case 'reg-conditions':     { window._libraryHubTab = 'conditions'; window._nav('library-hub'); break; }
+    case 'reg-conditions':     { window._resEvidenceTab = 'conditions'; window._nav('research-evidence'); break; }
     case 'reg-assessments':    { window._clinicalHubTab = 'registry'; window._nav('assessments'); break; }
     case 'reg-protocols-full':{ const m = await loadRegistries(); await m.pgProtocolRegistryPage(setTopbar);   break; }
-    case 'reg-devices':        { window._libraryHubTab = 'devices'; window._nav('library-hub'); break; }
-    case 'reg-targets':        { window._libraryHubTab = 'targets'; window._nav('library-hub'); break; }
+    case 'reg-devices':        { window._resEvidenceTab = 'protocols'; window._nav('research-evidence'); break; }
+    case 'reg-targets':        { window._resEvidenceTab = 'neuro'; window._nav('research-evidence'); break; }
     case 'reg-handbooks-full':{ const m = await loadRegistries(); await m.pgHandbookRegistry(setTopbar);       break; }
     case 'reg-virtual-care':   { window._nav('virtual-care-hub'); break; }
     // ── design-v2 routes — alias new IDs onto existing page renderers ────
@@ -1443,7 +1450,7 @@ async function renderPage() {
     case 'qeeg-analysis':      { const m = await loadQEEGAnalysis(); await m.pgQEEGAnalysis(setTopbar, navigate); break; }
     case 'biomarkers':         { const m = await loadKnowledge(); await m.pgQEEGMaps(setTopbar); break; }
     case 'handbooks-v2':       { const m = await loadHandbooks(); await m.pgHandbooks(setTopbar); break; }
-    case 'library-v2':         { const m = await loadClinicalHubs(); await m.pgLibraryHub(setTopbar, navigate); break; }
+    case 'library-v2':         { window._resEvidenceTab = 'search'; window._nav('research-evidence'); break; }
     case 'live-session':       { window._vcUnifiedDefaultTab = 'dashboard'; const m = await loadVirtualCare(); await m.pgVirtualCare(setTopbar, navigate); break; }
     case 'live-session-monitor': { window._vcUnifiedDefaultTab = 'livesession'; const m = await loadVirtualCare(); await m.pgVirtualCare(setTopbar, navigate); break; }
     case 'home-tasks-v2':      { const m = await loadClinicalTools(); await m.pgHomePrograms(setTopbar, navigate); break; }
@@ -1453,7 +1460,9 @@ async function renderPage() {
     case 'ai-agent-v2':        { const m = await loadAgents(); await m.pgAgentChat(setTopbar); break; }
     case 'research-v2':        { const m = await loadResearch(); await m.pgResearch(setTopbar, navigate); break; }
     case 'governance-v2':      { const m = await loadPractice(); await m.pgGovernance(setTopbar, navigate); break; }
+    case 'consent-management': { const m = await loadConsent(); await m.pgConsentManagement(setTopbar, navigate); break; }
     case 'research-evidence':  { const m = await loadResearchEvidence(); await m.pgResearchEvidence(setTopbar, navigate); break; }
+    case 'system-health':      { const m = await loadMonitoring(); await m.pgMonitoring(setTopbar, navigate); break; }
     default:
       el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-tertiary)">Page not found.</div>`;
   }

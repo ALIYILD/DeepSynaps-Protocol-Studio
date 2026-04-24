@@ -947,7 +947,7 @@ export async function pgDash(setTopbar, navigate) {
     `Today's clinic queue (courses): ${clinicQueue.length}`,
     // Risk stratification summary
     `Risk stratification: ${_totalRed} red flags, ${_totalAmber} amber flags across ${riskSummaryData.length} patients`,
-    `Protocol Studio: ${PROTOCOL_LIBRARY?.length || 0} protocols across ${PROTO_CONDITIONS?.length || 0} conditions; 87,000 evidence papers indexed; ${EVIDENCE_SUMMARY?.totalTrials || 0} clinical trials`,
+    `Protocol Studio: ${PROTOCOL_LIBRARY?.length || 0} protocols across ${PROTO_CONDITIONS?.length || 0} conditions; ${(EVIDENCE_SUMMARY?.totalPapers || 87000).toLocaleString()} evidence papers indexed; ${EVIDENCE_SUMMARY?.totalTrials || 0} clinical trials`,
     ...(riskSummaryData.filter(p => (p.categories || []).some(c => c.level === 'red')).map(p => {
       const reds = (p.categories || []).filter(c => c.level === 'red').map(c => c.category.replace(/_/g, ' ')).join(', ');
       return `  RED risk: ${p.patient_name || p.patient_id} — ${reds}`;
@@ -1872,7 +1872,7 @@ export async function pgDash(setTopbar, navigate) {
     <div style="display:flex;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);flex-wrap:wrap">
       <button class="dh2-launch-btn" onclick="window._nav('protocol-hub')">Browse protocols</button>
       <button class="dh2-launch-btn" onclick="window._protocolHubTab='generate';window._nav('protocol-hub')">Generate protocol</button>
-      <button class="dh2-launch-btn" onclick="window._nav('library-hub')">Evidence library</button>
+      <button class="dh2-launch-btn" onclick="window._nav('research-evidence')">Evidence library</button>
       <span style="margin-left:auto;font-size:10px;color:var(--text-tertiary);align-self:center">Sources: ${(EVIDENCE_SUMMARY?.sources || []).slice(0, 4).join(', ')}${(EVIDENCE_SUMMARY?.sources || []).length > 4 ? ' +' + ((EVIDENCE_SUMMARY?.sources || []).length - 4) + ' more' : ''}</span>
     </div>
   </div>`;

@@ -642,6 +642,7 @@ export function pickCallTier(ctx = {}, opts = {}) {
  */
 export function demoMessagesSeed(now = Date.now()) {
   const HOUR = 3600000;
+  const ONE_DAY = 86400000;
   const iso = (ms) => new Date(ms).toISOString();
   const TH = 'demo-thread-kolmar';
   return [

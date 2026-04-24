@@ -2464,7 +2464,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
       } else {
         host.innerHTML = '<div class="ps-empty">' +
           (errMsg ? ('Library unavailable: ' + esc(errMsg) + '<br>') : 'No conditions in registry.<br>') +
-          '<button class="ps-save-btn" style="margin-top:12px" onclick="window._nav(\'library-hub\')">Open Library</button>' +
+          '<button class="ps-save-btn" style="margin-top:12px" onclick="window._nav(\'research-evidence\')">Open Research Evidence</button>' +
         '</div>';
         return;
       }

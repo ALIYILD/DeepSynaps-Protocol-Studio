@@ -1,6 +1,7 @@
 # Node
 node_modules/
 dist/
+dist-check/
 
 # Python
 __pycache__/
@@ -57,6 +58,11 @@ testfile.txt
 testresult.txt
 tests_full.txt
 batch1.txt
+
+# Debug screenshots / temp images
+*.png
+!apps/web/public/*.png
+vibe_images/
 
 # Local Netlify folder
 .netlify

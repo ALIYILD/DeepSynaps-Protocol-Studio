@@ -2,6 +2,10 @@ import { api } from './api.js';
 import { currentUser } from './auth.js';
 import { spinner } from './helpers.js';
 import {
+  EVIDENCE_TOTAL_PAPERS,
+  EVIDENCE_SUMMARY,
+} from './evidence-dataset.js';
+import {
   ffInput,
   ffTextarea,
   ffSelect,
@@ -164,7 +168,7 @@ function step3Html() {
 
       <div class="ff-card">
         <div class="ff-card-title">Protocol basics</div>
-        <p class="ff-card-sub">We use these to seed recommendations — you can refine every parameter afterwards.</p>
+        <p class="ff-card-sub">We use these to seed recommendations from our ${EVIDENCE_TOTAL_PAPERS.toLocaleString()}-paper evidence base — you can refine every parameter afterwards.</p>
         ${ffInput({
           id: 'onb-proto-condition',
           label: 'Condition',
@@ -179,7 +183,7 @@ function step3Html() {
           label: 'Modality',
           options: MODALITIES,
           placeholder: 'Select modality…',
-          help: 'Choose the neuromodulation method you plan to use for this patient.',
+          help: `Choose the neuromodulation method you plan to use for this patient. Recommendations draw from ${EVIDENCE_TOTAL_PAPERS.toLocaleString()} indexed papers across ${Object.keys(EVIDENCE_SUMMARY.modalityDistribution).length} modalities.`,
         })}
         ${ffTextarea({
           id: 'onb-proto-symptoms',
