@@ -260,7 +260,11 @@ pre, code { max-width: 100%; }
 }
 .logo-icon {
   width: 42px; height: 42px;
-  background: #000 url('/deepsynaps-logo.png') center/115%;
+  background-color: #000;
+  background-image: url('/deepsynaps-logo.png');
+  background-position: center;
+  background-size: 115%;
+  background-repeat: no-repeat;
   border-radius: 50%;
   flex-shrink: 0;
   box-shadow: 0 0 14px rgba(74,124,247,0.35);
