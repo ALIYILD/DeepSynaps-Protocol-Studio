@@ -53,7 +53,7 @@ class ChatRequest(BaseModel):
 
 class AgentChatRequest(BaseModel):
     messages: list[ChatMessage]
-    provider: str = "anthropic"          # "anthropic" | "openai"
+    provider: str = "glm-free"            # "glm-free" | "anthropic" | "openai"
     openai_key: str | None = None        # doctor's own OpenAI key (never stored)
     context: str | None = None           # dashboard context snippet injected by frontend
 

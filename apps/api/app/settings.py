@@ -101,7 +101,7 @@ class AppSettings(BaseModel):
     # OpenAI (optional — doctors can bring their own key)
     openai_api_key: str = Field(default="")
 
-    # GLM-4 (Zhipu AI free tier — OpenAI-compatible API)
+    # GLM-4.7 (Zhipu AI free tier — OpenAI-compatible API via open.bigmodel.cn)
     glm_api_key: str = Field(default="")
 
     # Wearable token encryption (Fernet key — generate with:
@@ -258,8 +258,8 @@ def load_settings() -> AppSettings:
                 "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
                 # OpenAI
                 "openai_api_key": os.getenv("OPENAI_API_KEY", ""),
-                # GLM-4
-                "glm_api_key": os.getenv("GLM_API_KEY", ""),
+                # LLM (OpenRouter or GLM — OpenAI-compatible endpoint)
+                "glm_api_key": os.getenv("GLM_API_KEY", os.getenv("OPENROUTER_API_KEY", "")),
                 # Wearable token encryption
                 "wearable_token_enc_key": os.getenv("WEARABLE_TOKEN_ENC_KEY", ""),
                 # Settings API Fernet key (TOTP secret encryption)

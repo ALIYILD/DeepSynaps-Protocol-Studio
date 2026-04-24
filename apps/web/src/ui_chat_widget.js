@@ -153,7 +153,7 @@ export function mountAppAgentWidget(kind) {
       <div class="ds-chat-panel__hd">
         <div>
           <div class="ds-chat-panel__title">${kind === 'patient' ? 'Your AI Agent' : 'Clinic AI Agent'}</div>
-          <div class="ds-chat-panel__sub">Powered by OpenClaw \u00b7 GLM-4 Free</div>
+          <div class="ds-chat-panel__sub">Powered by OpenClaw \u00b7 Llama 3.3 70B</div>
         </div>
         <button class="ds-chat-x" id="ds-agent-close" type="button" aria-label="Close">×</button>
       </div>

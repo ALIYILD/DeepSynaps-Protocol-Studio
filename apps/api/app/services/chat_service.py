@@ -28,13 +28,17 @@ def _sanitize_llm_output(text: str) -> str:
 
 # ── Unified LLM caller ────────────────────────────────────────────────────────
 # All chat + draft paths go through `_llm_chat` (sync) / `_llm_chat_async`.
-# Order: GLM-4.5-Flash via open.bigmodel.cn (free), Anthropic fallback.
-# Override via env: GLM_MODEL, ANTHROPIC_MODEL.
+# Primary: OpenRouter (free models via openrouter.ai), Anthropic fallback.
+# Override via env: LLM_BASE_URL, LLM_MODEL, ANTHROPIC_MODEL.
 
-_GLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
+_LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
+_LLM_HEADERS = {
+    "HTTP-Referer": "https://deepsynaps-studio-preview.netlify.app",
+    "X-Title": "DeepSynaps Protocol Studio",
+}
 
-def _glm_model() -> str:
-    return os.getenv("GLM_MODEL", "glm-4.5-flash")
+def _llm_model() -> str:
+    return os.getenv("LLM_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
 
 def _anthropic_fallback_model() -> str:
     return os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
@@ -51,16 +55,16 @@ def _llm_chat(
     if settings.glm_api_key:
         try:
             from openai import OpenAI
-            client = OpenAI(api_key=settings.glm_api_key, base_url=_GLM_BASE_URL)
+            client = OpenAI(api_key=settings.glm_api_key, base_url=_LLM_BASE_URL, default_headers=_LLM_HEADERS)
             resp = client.chat.completions.create(
-                model=_glm_model(),
+                model=_llm_model(),
                 max_tokens=max_tokens,
                 temperature=temperature,
                 messages=[{"role": "system", "content": system}] + messages,
             )
             return _sanitize_llm_output(resp.choices[0].message.content or "")
         except Exception as exc:
-            _llm_log.warning("GLM call failed, trying fallback: %s", exc)
+            _llm_log.warning("LLM call failed, trying fallback: %s", exc)
     if settings.anthropic_api_key:
         client = Anthropic(api_key=settings.anthropic_api_key)
         resp = client.messages.create(
@@ -84,16 +88,16 @@ async def _llm_chat_async(
     if settings.glm_api_key:
         try:
             from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=settings.glm_api_key, base_url=_GLM_BASE_URL)
+            client = AsyncOpenAI(api_key=settings.glm_api_key, base_url=_LLM_BASE_URL, default_headers=_LLM_HEADERS)
             resp = await client.chat.completions.create(
-                model=_glm_model(),
+                model=_llm_model(),
                 max_tokens=max_tokens,
                 temperature=temperature,
                 messages=[{"role": "system", "content": system}] + messages,
             )
             return _sanitize_llm_output(resp.choices[0].message.content or "")
         except Exception as exc:
-            _llm_log.warning("GLM async call failed, trying fallback: %s", exc)
+            _llm_log.warning("LLM async call failed, trying fallback: %s", exc)
     if settings.anthropic_api_key:
         import anthropic as _anthropic
         client = _anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
