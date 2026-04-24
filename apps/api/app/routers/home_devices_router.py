@@ -615,7 +615,7 @@ def generate_home_therapy_summary(
 
     if settings.glm_api_key or settings.anthropic_api_key:
         try:
-            from app.services.chat_service import _llm_chat, _glm_model, _anthropic_fallback_model
+            from app.services.chat_service import _llm_chat, _llm_model, _anthropic_fallback_model
             system = (
                 "You are a clinical AI assistant helping clinicians review home "
                 "neuromodulation therapy progress. Summarise adherence patterns, "
@@ -631,7 +631,7 @@ def generate_home_therapy_summary(
                 )}],
                 max_tokens=600,
             ) or summary_text
-            model_used = _glm_model() if settings.glm_api_key else _anthropic_fallback_model()
+            model_used = _llm_model() if settings.glm_api_key else _anthropic_fallback_model()
         except Exception as exc:
             _logger.warning("AI summary generation failed: %s", exc)
             summary_text = "AI summary temporarily unavailable. Review session logs directly."

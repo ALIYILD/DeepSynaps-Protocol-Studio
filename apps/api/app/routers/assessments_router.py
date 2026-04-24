@@ -1372,7 +1372,7 @@ def ai_summary_assessment_endpoint(
     confidence: float = 0.5
     try:
         # Lazy import — chat_service pulls the anthropic SDK at import time.
-        from app.services.chat_service import _llm_chat, _anthropic_fallback_model  # type: ignore
+        from app.services.chat_service import _llm_chat, _llm_model, _anthropic_fallback_model  # type: ignore
         from app.settings import get_settings
 
         settings = get_settings()
@@ -1385,9 +1385,7 @@ def ai_summary_assessment_endpoint(
                 not_configured_message="",
             ).strip()
             if summary_text:
-                model_used = _anthropic_fallback_model() if settings.anthropic_api_key and not settings.glm_api_key else (
-                    "glm-4.5-flash" if settings.glm_api_key else _anthropic_fallback_model()
-                )
+                model_used = _llm_model() if settings.glm_api_key else _anthropic_fallback_model()
                 source = "llm"
                 confidence = 0.78
     except Exception as exc:  # noqa: BLE001 — never fail the endpoint because of LLM issues

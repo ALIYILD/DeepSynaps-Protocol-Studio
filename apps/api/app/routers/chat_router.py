@@ -20,6 +20,7 @@ from app.services.chat_service import (
     chat_agent,
     chat_wearable_patient,
     chat_wearable_clinician,
+    _llm_model,
 )
 from app.services import telegram_service as tg
 from app.settings import get_settings
@@ -377,7 +378,7 @@ def wearable_patient_chat(
 
     if actor.role == 'patient' and pt:
         try:
-            _log_ai_summary(pt.id, actor, 'patient_wearable', reply, ['wearable_summary'], 'claude-haiku-4-5-20251001', db)
+            _log_ai_summary(pt.id, actor, 'patient_wearable', reply, ['wearable_summary'], _llm_model(), db)
         except Exception:
             _audit_logger.warning("Failed to write AI summary audit for patient %s", pt.id)
 
@@ -413,7 +414,7 @@ def wearable_clinician_chat(
     try:
         _log_ai_summary(
             body.patient_id, actor, 'clinician_monitoring', reply,
-            ['wearable_summary', 'patient_record'], 'claude-opus-4-6', db,
+            ['wearable_summary', 'patient_record'], _llm_model(), db,
         )
     except Exception:
         _audit_logger.warning(

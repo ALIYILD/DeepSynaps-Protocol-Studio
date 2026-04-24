@@ -298,7 +298,7 @@ async def generate_ai_report(
             "source": "llm",
             "data": parsed,
             "prompt_hash": prompt_hash,
-            "model_used": "glm-4.5-flash",
+            "model_used": "meta-llama/llama-3.3-70b-instruct:free",
         }
 
     except Exception as exc:
