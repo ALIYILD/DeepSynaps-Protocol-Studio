@@ -993,6 +993,10 @@ export const api = {
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/correlate`, { method: 'POST' }),
   runAdvancedQEEGAnalyses: (analysisId) =>
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/run-advanced`, { method: 'POST' }),
+  runQEEGQualityCheck: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/quality-check`, { method: 'POST' }),
+  getQEEGReportPDF: (analysisId, reportId) =>
+    `/api/v1/qeeg-analysis/${analysisId}/reports/${reportId}/pdf`,
 
   // ── Patient Portal (self-service for patient-role users) ─────────────────
   patientPortalMe: () => apiFetch('/api/v1/patient-portal/me'),

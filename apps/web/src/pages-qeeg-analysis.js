@@ -737,8 +737,27 @@ async function handleUpload(file, patientId) {
       qualityHtml += '<div style="font-size:12px"><span style="color:' + chColor + ';font-weight:600">' + chCount + '</span> channels</div>'
         + '<div style="font-size:12px"><span style="color:' + srColor + ';font-weight:600">' + sr + ' Hz</span> sample rate</div>';
       if (result.eyes_condition) qualityHtml += '<div style="font-size:12px">Eyes: ' + esc(result.eyes_condition) + '</div>';
-      qualityHtml += '</div></div>';
+      qualityHtml += '</div><div id="qeeg-quality-detail" style="margin-top:8px"></div></div>';
       qualEl.innerHTML = qualityHtml;
+
+      // Call backend quality-check endpoint for detailed scoring
+      if (result.id) {
+        api.runQEEGQualityCheck(result.id).then(function (qr) {
+          var detailEl = document.getElementById('qeeg-quality-detail');
+          if (!detailEl || !qr) return;
+          var gradeColors = { excellent: 'var(--green)', good: 'var(--teal)', fair: 'var(--amber)', poor: 'var(--red)' };
+          var gc = gradeColors[qr.overall_grade] || 'var(--text-secondary)';
+          var dHtml = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
+            + badge(qr.overall_grade, gc)
+            + '<span style="font-size:12px;color:var(--text-secondary)">Score: ' + (qr.overall_score || 0).toFixed(0) + '/100</span></div>';
+          if (qr.recommendations && qr.recommendations.length) {
+            qr.recommendations.forEach(function (rec) {
+              dHtml += '<div style="font-size:11px;color:var(--text-tertiary);padding:2px 0">' + esc(rec) + '</div>';
+            });
+          }
+          detailEl.innerHTML = dHtml;
+        }).catch(function () { /* quality check not available, local indicators sufficient */ });
+      }
     }
 
     // Refresh analyses list
@@ -1259,9 +1278,10 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
 
       let html = '';
 
-      // Print button bar
-      html += '<div style="display:flex;justify-content:flex-end;margin-bottom:8px">'
-        + '<button class="btn btn-sm btn-outline" onclick="window._qeegPrintReport()">Print Report</button></div>';
+      // Print / Download button bar
+      html += '<div class="qeeg-export-bar" style="justify-content:flex-end;margin-bottom:8px">'
+        + '<button class="btn btn-sm btn-outline" onclick="window._qeegPrintReport()">Print Report</button>'
+        + '<button class="btn btn-sm btn-outline" onclick="window._qeegDownloadPDF()">Download PDF</button></div>';
 
       // Executive summary
       if (narrative.summary) {
@@ -1734,6 +1754,19 @@ window._qeegPrintReport = function () {
   html += '</body></html>';
   w.document.write(html);
   w.document.close();
+};
+
+// ── PDF download via backend endpoint ────────────────────────────────────────
+window._qeegDownloadPDF = function () {
+  if (!_currentReport) return showToast('No report data loaded', 'warning');
+  if (!_currentAnalysis) return showToast('No analysis data loaded', 'warning');
+  var analysisId = _currentAnalysis.id;
+  var reportId = _currentReport.id;
+  if (!analysisId || !reportId) return showToast('Missing analysis or report ID', 'warning');
+  // Build the PDF endpoint URL and open in new tab (triggers HTML download)
+  var pdfUrl = api.getQEEGReportPDF(analysisId, reportId);
+  window.open(pdfUrl, '_blank');
+  showToast('Downloading PDF report...', 'success');
 };
 
 // ── Coherence band switcher ──────────────────────────────────────────────────
