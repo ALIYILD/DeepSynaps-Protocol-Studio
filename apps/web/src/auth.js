@@ -120,8 +120,9 @@ window._handleSessionExpired = function() {
 
 // ── isAuthenticated (synchronous) ─────────────────────────────────────────────
 window._isAuthenticated = function() {
-  // In dev mode with no token, allow demo sessions that set currentUser directly
-  if (import.meta.env.DEV && currentUser) return true;
+  // Allow demo sessions that set currentUser directly (dev mode or VITE_ENABLE_DEMO)
+  const _demoOk = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1';
+  if (_demoOk && currentUser) return true;
   return !!api.getToken();
 };
 
