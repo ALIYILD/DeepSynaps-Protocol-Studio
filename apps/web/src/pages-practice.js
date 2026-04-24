@@ -10058,6 +10058,497 @@ export async function pgGovernance(setTopbar, _navigate) {
   window._gvRefreshAudit = async () => { _rerender(); };
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Settings Hub — tabbed container: General · Governance · System Health
+// Replaces standalone pgGovernance nav entry by bundling it under a unified
+// Settings experience. The old governance-v2 route redirects here (tab=governance).
+// ══════════════════════════════════════════════════════════════════════════════
+export async function pgSettingsHub(setTopbar, navigate) {
+  const tab = window._settingsHubTab || 'general';
+  window._settingsHubTab = tab;
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  const _esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  setTopbar('Settings',
+    `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--surface-elev-1);color:var(--text-secondary);font-weight:500">Configuration & Governance</span>`);
+
+  const TABS = [
+    { id: 'general',    label: 'General',    icon: '⚙️' },
+    { id: 'governance', label: 'Governance',  icon: '🛡️' },
+  ];
+
+  const tabBar = TABS.map(t =>
+    `<button role="tab" aria-selected="${tab === t.id}" tabindex="${tab === t.id ? '0' : '-1'}"
+       class="ch-tab${tab === t.id ? ' ch-tab--active' : ''}"
+       ${tab === t.id ? 'style="--tab-color:var(--teal)"' : ''}
+       onclick="window._settingsHubTab='${t.id}';window._nav('settings-v2')">${t.icon} ${_esc(t.label)}</button>`
+  ).join('');
+
+  el.innerHTML = `<div class="ch-shell">
+    <div class="ch-tab-bar" role="tablist" aria-label="Settings sections">${tabBar}</div>
+    <div class="ch-body" id="settings-hub-body">${spinner()}</div>
+  </div>`;
+
+  const body = document.getElementById('settings-hub-body');
+  if (!body) return;
+
+  if (tab === 'general') {
+    await _renderSettingsGeneral(body, _esc, navigate);
+  } else if (tab === 'governance') {
+    await _renderSettingsGovernance(body, _esc, navigate);
+  }
+}
+
+/* ── General settings tab (inline) ─────────────────────────────────────────── */
+async function _renderSettingsGeneral(body, _esc, navigate) {
+  const lsGet = (k) => { try { return (typeof localStorage !== 'undefined' && localStorage.getItem(k)) || ''; } catch { return ''; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+  const currentUser = window.currentUser || {};
+
+  // ── Load preferences ──────────────────────────────────────────────────────
+  let serverPrefs = null, serverClinic = null;
+  try { serverPrefs = await api.getPreferences(); } catch {}
+  try { serverClinic = await api.getClinic(); } catch {}
+
+  const pref = (sv, lk, fb = '') => (sv != null && sv !== '') ? sv : (lsGet(lk) || fb);
+
+  const currentLang     = pref(serverPrefs?.language,    'ds_lang', 'en');
+  const dateFormat      = pref(serverPrefs?.date_format, 'ds_date_format', 'ISO');
+  const timeFormat      = pref(serverPrefs?.time_format, 'ds_time_format', '24h');
+  const measureUnits    = pref(serverPrefs?.units,       'ds_units', 'metric');
+  const clinicName      = pref(serverClinic?.name,       'ds_clinic_name', '');
+  const clinicTZ        = pref(serverClinic?.timezone,   'ds_clinic_tz', (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return 'UTC'; } })());
+  const autoLogout      = (() => { if (serverPrefs?.auto_logout_min != null) return serverPrefs.auto_logout_min === 0 ? 'never' : String(serverPrefs.auto_logout_min); return lsGet('ds_auto_logout') || '30'; })();
+  const analyticsOptIn  = (serverPrefs?.analytics_opt_in != null) ? !!serverPrefs.analytics_opt_in : (lsGet('ds_analytics_opt_in') || 'true') === 'true';
+  const errorReportIn   = (serverPrefs?.error_reports_opt_in != null) ? !!serverPrefs.error_reports_opt_in : (lsGet('ds_error_reports_opt_in') || 'true') === 'true';
+
+  body.innerHTML = `
+  <div style="max-width:780px;margin:0 auto;display:flex;flex-direction:column;gap:20px">
+
+    <!-- Clinic Info -->
+    <div class="card">
+      <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border)">
+        <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Clinic Information</span>
+      </div>
+      <div class="card-body" style="display:flex;flex-direction:column;gap:14px">
+        <div class="form-group">
+          <label class="form-label">Clinic Name</label>
+          <input id="sg-clinic-name" class="form-control" value="${_esc(clinicName)}" placeholder="Enter clinic name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Timezone</label>
+          <input id="sg-clinic-tz" class="form-control" value="${_esc(clinicTZ)}" placeholder="e.g. Europe/London">
+        </div>
+      </div>
+    </div>
+
+    <!-- Locale & Format -->
+    <div class="card">
+      <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border)">
+        <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Locale & Formatting</span>
+      </div>
+      <div class="card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="form-group">
+          <label class="form-label">Language</label>
+          <select id="sg-lang" class="form-control">
+            ${['en','tr','de','fr','es','ar','zh','ja'].map(l => `<option value="${l}" ${currentLang === l ? 'selected' : ''}>${l.toUpperCase()}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Date Format</label>
+          <select id="sg-date" class="form-control">
+            ${['ISO','US','EU','UK'].map(f => `<option value="${f}" ${dateFormat === f ? 'selected' : ''}>${f}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Time Format</label>
+          <select id="sg-time" class="form-control">
+            <option value="24h" ${timeFormat === '24h' ? 'selected' : ''}>24-hour</option>
+            <option value="12h" ${timeFormat === '12h' ? 'selected' : ''}>12-hour</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Measurement Units</label>
+          <select id="sg-units" class="form-control">
+            <option value="metric" ${measureUnits === 'metric' ? 'selected' : ''}>Metric</option>
+            <option value="imperial" ${measureUnits === 'imperial' ? 'selected' : ''}>Imperial</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Security -->
+    <div class="card">
+      <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border)">
+        <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Security & Privacy</span>
+      </div>
+      <div class="card-body" style="display:flex;flex-direction:column;gap:14px">
+        <div class="form-group">
+          <label class="form-label">Auto-Logout</label>
+          <select id="sg-autologout" class="form-control">
+            ${[['15','15 minutes'],['30','30 minutes'],['60','1 hour'],['never','Never']].map(([v,l]) => `<option value="${v}" ${autoLogout === v ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <input type="checkbox" id="sg-analytics" ${analyticsOptIn ? 'checked' : ''} style="accent-color:var(--teal)">
+          <label for="sg-analytics" class="form-label" style="margin:0;cursor:pointer">Share anonymous analytics to improve the platform</label>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <input type="checkbox" id="sg-errors" ${errorReportIn ? 'checked' : ''} style="accent-color:var(--teal)">
+          <label for="sg-errors" class="form-label" style="margin:0;cursor:pointer">Send error reports automatically</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div style="display:flex;gap:10px;justify-content:flex-end;padding-bottom:20px">
+      <button class="btn btn-ghost" onclick="window._nav('settings-v2')">Discard</button>
+      <button class="btn btn-primary" id="sg-save">Save Settings</button>
+    </div>
+  </div>`;
+
+  // ── Save handler ────────────────────────────────────────────────────────────
+  document.getElementById('sg-save')?.addEventListener('click', async () => {
+    const vals = {
+      language:    document.getElementById('sg-lang')?.value,
+      date_format: document.getElementById('sg-date')?.value,
+      time_format: document.getElementById('sg-time')?.value,
+      units:       document.getElementById('sg-units')?.value,
+    };
+    const al = document.getElementById('sg-autologout')?.value;
+    vals.auto_logout_min = al === 'never' ? 0 : parseInt(al, 10);
+    vals.analytics_opt_in     = document.getElementById('sg-analytics')?.checked;
+    vals.error_reports_opt_in = document.getElementById('sg-errors')?.checked;
+
+    // Mirror to localStorage
+    lsSet('ds_lang', vals.language);
+    lsSet('ds_date_format', vals.date_format);
+    lsSet('ds_time_format', vals.time_format);
+    lsSet('ds_units', vals.units);
+    lsSet('ds_auto_logout', al);
+    lsSet('ds_analytics_opt_in', String(vals.analytics_opt_in));
+    lsSet('ds_error_reports_opt_in', String(vals.error_reports_opt_in));
+
+    // Clinic info
+    const cn = document.getElementById('sg-clinic-name')?.value || '';
+    const tz = document.getElementById('sg-clinic-tz')?.value || '';
+    lsSet('ds_clinic_name', cn);
+    lsSet('ds_clinic_tz', tz);
+
+    try { await api.updatePreferences(vals); } catch {}
+    try { await api.updateClinic({ name: cn, timezone: tz }); } catch {}
+
+    window._dsToast?.({ title: 'Settings saved', body: 'Your preferences have been updated.', severity: 'ok' });
+  });
+}
+
+/* ── Governance tab — delegates to the existing pgGovernance ────────────────── */
+async function _renderSettingsGovernance(body, _esc, navigate) {
+  // Temporarily swap #content so pgGovernance renders into our body element
+  const realContent = document.getElementById('content');
+  if (realContent) realContent.id = '_content_backup';
+  body.id = 'content';
+  try {
+    await pgGovernance(
+      // setTopbar no-op — we already set the topbar in the hub
+      () => {},
+      navigate
+    );
+  } finally {
+    body.id = 'settings-hub-body';
+    if (realContent) realContent.id = 'content';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Tickets — Support ticket creation and tracking for maintenance / dev team
+// Users and OpenClaw agents can create tickets that get routed to the admin/dev
+// team. Each ticket has priority, category, status, and a message thread.
+// ══════════════════════════════════════════════════════════════════════════════
+export async function pgTickets(setTopbar, navigate) {
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  const _esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  setTopbar('Tickets',
+    `<button class="btn btn-primary btn-sm" id="tk-new-btn">+ New Ticket</button>`);
+
+  // ── Load tickets (localStorage-backed until real API) ─────────────────────
+  const STORE_KEY = 'ds_tickets';
+  const _loadTickets = () => {
+    try { const raw = localStorage.getItem(STORE_KEY); return raw ? JSON.parse(raw) : []; } catch { return []; }
+  };
+  const _saveTickets = (arr) => {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(arr)); } catch {}
+  };
+  let tickets = _loadTickets();
+
+  // Seed demo tickets if empty
+  if (tickets.length === 0) {
+    tickets = [
+      { id: 'TK-1001', title: 'EEG upload timeout on large files', category: 'bug', priority: 'high', status: 'open', source: 'user', created: new Date(Date.now() - 86400000 * 2).toISOString(), messages: [{ from: 'Dr. Sarah Chen', text: 'Files over 200MB fail silently during upload. Browser console shows a 504 gateway timeout.', ts: new Date(Date.now() - 86400000 * 2).toISOString() }, { from: 'DevOps Bot', text: 'Acknowledged. Investigating nginx proxy timeout configuration.', ts: new Date(Date.now() - 86400000).toISOString() }] },
+      { id: 'TK-1002', title: 'Request: Dark mode for session view', category: 'feature', priority: 'low', status: 'open', source: 'user', created: new Date(Date.now() - 86400000 * 5).toISOString(), messages: [{ from: 'Alex Morgan', text: 'During evening sessions the bright screen is uncomfortable. Dark mode would help.', ts: new Date(Date.now() - 86400000 * 5).toISOString() }] },
+      { id: 'TK-1003', title: 'Database backup verification failed', category: 'maintenance', priority: 'critical', status: 'in-progress', source: 'agent', created: new Date(Date.now() - 86400000).toISOString(), messages: [{ from: 'OpenClaw Agent', text: 'Automated backup verification detected checksum mismatch on evidence.db replica. Initiating re-sync.', ts: new Date(Date.now() - 86400000).toISOString() }, { from: 'System', text: 'Re-sync started. ETA: 45 minutes.', ts: new Date(Date.now() - 3600000 * 6).toISOString() }] },
+      { id: 'TK-1004', title: 'SSL certificate renewal needed', category: 'maintenance', priority: 'medium', status: 'resolved', source: 'agent', created: new Date(Date.now() - 86400000 * 10).toISOString(), messages: [{ from: 'OpenClaw Agent', text: 'Certificate for api.deepsynaps.com expires in 14 days. Auto-renewal triggered.', ts: new Date(Date.now() - 86400000 * 10).toISOString() }, { from: 'System', text: 'Certificate renewed successfully. Valid until 2027-04-24.', ts: new Date(Date.now() - 86400000 * 9).toISOString() }] },
+    ];
+    _saveTickets(tickets);
+  }
+
+  let filterStatus = 'all';
+  let selectedTicketId = null;
+
+  function _render() {
+    const filtered = filterStatus === 'all' ? tickets : tickets.filter(t => t.status === filterStatus);
+    const counts = { all: tickets.length, open: tickets.filter(t => t.status === 'open').length, 'in-progress': tickets.filter(t => t.status === 'in-progress').length, resolved: tickets.filter(t => t.status === 'resolved').length };
+    const prioColor = { critical: 'var(--red, #ef4444)', high: 'var(--amber, #ffb547)', medium: 'var(--blue, #4a9eff)', low: 'var(--text-tertiary)' };
+    const statusColor = { open: 'var(--teal, #00d4bc)', 'in-progress': 'var(--amber, #ffb547)', resolved: 'var(--green, #22c55e)' };
+    const catIcon = { bug: '\u{1F41B}', feature: '\u{2728}', maintenance: '\u{1F527}', question: '\u{2753}', other: '\u{1F4CB}' };
+
+    const ticketRows = filtered.map(t => `
+      <div class="tk-row ${selectedTicketId === t.id ? 'tk-row--active' : ''}" onclick="window._tkSelect('${_esc(t.id)}')" style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s${selectedTicketId === t.id ? ';background:var(--surface-elev-1)' : ''}" onmouseover="this.style.background='var(--surface-elev-1)'" onmouseout="this.style.background='${selectedTicketId === t.id ? 'var(--surface-elev-1)' : 'transparent'}'">
+        <span style="font-size:14px">${catIcon[t.category] || catIcon.other}</span>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:11px;color:var(--text-tertiary);font-family:var(--font-mono, monospace)">${_esc(t.id)}</span>
+            ${t.source === 'agent' ? '<span style="font-size:9px;padding:1px 6px;border-radius:8px;background:rgba(155,127,255,0.15);color:var(--violet, #9b7fff);font-weight:600">AGENT</span>' : ''}
+          </div>
+          <div style="font-size:13px;font-weight:500;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(t.title)}</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${new Date(t.created).toLocaleDateString()} &middot; ${t.messages?.length || 0} message${(t.messages?.length || 0) !== 1 ? 's' : ''}</div>
+        </div>
+        <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:${statusColor[t.status] || 'var(--border)'}22;color:${statusColor[t.status] || 'var(--text-tertiary)'};font-weight:600;text-transform:capitalize">${_esc(t.status)}</span>
+        <span style="width:8px;height:8px;border-radius:50%;background:${prioColor[t.priority] || prioColor.low};flex-shrink:0" title="${_esc(t.priority)} priority"></span>
+      </div>`).join('');
+
+    const detailPane = selectedTicketId ? _renderDetail(tickets.find(t => t.id === selectedTicketId)) : `
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-tertiary);gap:8px;padding:40px">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></svg>
+        <span style="font-size:13px">Select a ticket to view details</span>
+      </div>`;
+
+    el.innerHTML = `
+    <div style="display:flex;height:calc(100vh - 120px);overflow:hidden">
+      <!-- Left: Ticket List -->
+      <div style="width:420px;min-width:320px;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden">
+        <!-- Filter bar -->
+        <div style="display:flex;gap:6px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap">
+          ${['all','open','in-progress','resolved'].map(s => `<button class="btn btn-sm ${filterStatus === s ? 'btn-primary' : 'btn-ghost'}" onclick="window._tkFilter('${s}')" style="font-size:11px;text-transform:capitalize">${s === 'all' ? 'All' : s} (${counts[s] || 0})</button>`).join('')}
+        </div>
+        <!-- List -->
+        <div style="flex:1;overflow-y:auto">
+          ${ticketRows || '<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:13px">No tickets found</div>'}
+        </div>
+      </div>
+      <!-- Right: Detail -->
+      <div style="flex:1;overflow-y:auto" id="tk-detail">
+        ${detailPane}
+      </div>
+    </div>`;
+  }
+
+  function _renderDetail(t) {
+    if (!t) return '';
+    const prioColor = { critical: 'var(--red)', high: 'var(--amber)', medium: 'var(--blue)', low: 'var(--text-tertiary)' };
+    const statusColor = { open: 'var(--teal)', 'in-progress': 'var(--amber)', resolved: 'var(--green)' };
+    const catLabel = { bug: 'Bug Report', feature: 'Feature Request', maintenance: 'Maintenance', question: 'Question', other: 'Other' };
+
+    const msgs = (t.messages || []).map(m => `
+      <div style="display:flex;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)">
+        <div style="width:32px;height:32px;border-radius:50%;background:${m.from === 'OpenClaw Agent' || m.from === 'System' || m.from === 'DevOps Bot' ? 'rgba(155,127,255,0.15)' : 'var(--surface-elev-1)'};display:flex;align-items:center;justify-content:center;font-size:12px;color:${m.from === 'OpenClaw Agent' || m.from === 'System' || m.from === 'DevOps Bot' ? 'var(--violet)' : 'var(--text-secondary)'};flex-shrink:0;font-weight:600">
+          ${m.from === 'OpenClaw Agent' ? '\u{1F916}' : m.from === 'System' ? '\u{2699}' : m.from === 'DevOps Bot' ? '\u{1F916}' : (m.from || 'U').charAt(0).toUpperCase()}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+            <span style="font-size:12px;font-weight:600;color:var(--text-primary)">${_esc(m.from)}</span>
+            <span style="font-size:10px;color:var(--text-tertiary)">${new Date(m.ts).toLocaleString()}</span>
+          </div>
+          <div style="font-size:13px;color:var(--text-secondary);line-height:1.5">${_esc(m.text)}</div>
+        </div>
+      </div>`).join('');
+
+    return `
+    <div style="padding:24px;max-width:720px">
+      <!-- Header -->
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:20px">
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <span style="font-size:12px;color:var(--text-tertiary);font-family:var(--font-mono, monospace)">${_esc(t.id)}</span>
+            <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:${(statusColor[t.status] || 'var(--border)')}22;color:${statusColor[t.status] || 'var(--text-tertiary)'};font-weight:600;text-transform:capitalize">${_esc(t.status)}</span>
+            <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:${(prioColor[t.priority] || 'var(--border)')}22;color:${prioColor[t.priority] || 'var(--text-tertiary)'};font-weight:600;text-transform:capitalize">${_esc(t.priority)}</span>
+            ${t.source === 'agent' ? '<span style="font-size:9px;padding:2px 6px;border-radius:8px;background:rgba(155,127,255,0.15);color:var(--violet);font-weight:600">AGENT-REPORTED</span>' : ''}
+          </div>
+          <h3 style="font-size:18px;font-weight:600;color:var(--text-primary);margin:0 0 4px">${_esc(t.title)}</h3>
+          <div style="font-size:11px;color:var(--text-tertiary)">${catLabel[t.category] || t.category} &middot; Created ${new Date(t.created).toLocaleDateString()}</div>
+        </div>
+        ${t.status !== 'resolved' ? `
+        <div style="display:flex;gap:6px">
+          <select id="tk-status-change" class="form-control" style="font-size:11px;padding:4px 8px;width:auto">
+            <option value="open" ${t.status === 'open' ? 'selected' : ''}>Open</option>
+            <option value="in-progress" ${t.status === 'in-progress' ? 'selected' : ''}>In Progress</option>
+            <option value="resolved" ${t.status === 'resolved' ? 'selected' : ''}>Resolved</option>
+          </select>
+          <button class="btn btn-sm btn-ghost" onclick="window._tkChangeStatus()">Update</button>
+        </div>` : ''}
+      </div>
+
+      <!-- Messages -->
+      <div style="margin-bottom:20px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Messages (${(t.messages || []).length})</div>
+        ${msgs}
+      </div>
+
+      <!-- Reply -->
+      ${t.status !== 'resolved' ? `
+      <div style="border:1px solid var(--border);border-radius:var(--radius, 8px);overflow:hidden">
+        <textarea id="tk-reply" rows="3" placeholder="Write a reply..." style="width:100%;border:none;background:var(--surface-elev-1);color:var(--text-primary);padding:12px;font-size:13px;resize:vertical;font-family:inherit"></textarea>
+        <div style="display:flex;justify-content:flex-end;padding:8px 12px;background:var(--surface-elev-1);border-top:1px solid var(--border);gap:8px">
+          <button class="btn btn-sm btn-ghost" onclick="window._tkAgentReport('${_esc(t.id)}')" title="Simulate OpenClaw agent adding a diagnostic note">Agent Note</button>
+          <button class="btn btn-sm btn-primary" onclick="window._tkReply('${_esc(t.id)}')">Send Reply</button>
+        </div>
+      </div>` : '<div style="padding:12px;background:rgba(34,197,94,0.08);border-radius:var(--radius, 8px);text-align:center;font-size:13px;color:var(--green)">This ticket has been resolved.</div>'}
+    </div>`;
+  }
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
+  window._tkFilter = (s) => { filterStatus = s; selectedTicketId = null; _render(); };
+  window._tkSelect = (id) => { selectedTicketId = id; _render(); };
+
+  window._tkReply = (id) => {
+    const text = document.getElementById('tk-reply')?.value?.trim();
+    if (!text) return;
+    const t = tickets.find(x => x.id === id);
+    if (!t) return;
+    const user = window.currentUser?.display_name || window.currentUser?.email?.split('@')[0] || 'You';
+    t.messages = t.messages || [];
+    t.messages.push({ from: user, text, ts: new Date().toISOString() });
+    _saveTickets(tickets);
+    _render();
+    window._dsToast?.({ title: 'Reply sent', body: `Response added to ${id}`, severity: 'ok' });
+  };
+
+  window._tkAgentReport = (id) => {
+    const t = tickets.find(x => x.id === id);
+    if (!t) return;
+    t.messages = t.messages || [];
+    t.messages.push({
+      from: 'OpenClaw Agent',
+      text: 'Automated diagnostic: Ran health checks on affected subsystem. CPU: nominal. Memory: 78% utilization. Disk I/O: elevated latency (avg 42ms, threshold 25ms). Recommend investigating storage backend. Attaching full diagnostic log to internal trace.',
+      ts: new Date().toISOString()
+    });
+    _saveTickets(tickets);
+    _render();
+    window._dsToast?.({ title: 'Agent note added', body: 'OpenClaw diagnostic attached.', severity: 'ok' });
+  };
+
+  window._tkChangeStatus = () => {
+    if (!selectedTicketId) return;
+    const t = tickets.find(x => x.id === selectedTicketId);
+    if (!t) return;
+    const newStatus = document.getElementById('tk-status-change')?.value;
+    if (newStatus && newStatus !== t.status) {
+      t.status = newStatus;
+      t.messages = t.messages || [];
+      t.messages.push({ from: 'System', text: `Status changed to "${newStatus}".`, ts: new Date().toISOString() });
+      _saveTickets(tickets);
+      _render();
+      window._dsToast?.({ title: 'Status updated', body: `${t.id} is now ${newStatus}`, severity: 'ok' });
+    }
+  };
+
+  // ── New Ticket modal ──────────────────────────────────────────────────────
+  window._tkShowNew = () => {
+    const overlay = document.createElement('div');
+    overlay.id = 'tk-modal-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9000;display:flex;align-items:center;justify-content:center';
+    overlay.innerHTML = `
+      <div style="background:var(--bg-panel, #0a1d29);border:1px solid var(--border);border-radius:12px;padding:24px;width:480px;max-width:90vw;max-height:85vh;overflow-y:auto">
+        <h3 style="font-size:16px;font-weight:600;color:var(--text-primary);margin:0 0 16px">Create New Ticket</h3>
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div class="form-group">
+            <label class="form-label">Title</label>
+            <input id="tk-new-title" class="form-control" placeholder="Brief description of the issue">
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <div class="form-group">
+              <label class="form-label">Category</label>
+              <select id="tk-new-cat" class="form-control">
+                <option value="bug">Bug Report</option>
+                <option value="maintenance">Maintenance</option>
+                <option value="feature">Feature Request</option>
+                <option value="question">Question</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Priority</label>
+              <select id="tk-new-prio" class="form-control">
+                <option value="low">Low</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Source</label>
+            <select id="tk-new-source" class="form-control">
+              <option value="user">Manual (User)</option>
+              <option value="agent">OpenClaw Agent (Automated)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea id="tk-new-desc" class="form-control" rows="4" placeholder="Describe the issue, steps to reproduce, or what the agent detected..."></textarea>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+          <button class="btn btn-ghost" onclick="document.getElementById('tk-modal-overlay')?.remove()">Cancel</button>
+          <button class="btn btn-primary" onclick="window._tkCreate()">Create Ticket</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  };
+
+  window._tkCreate = () => {
+    const title = document.getElementById('tk-new-title')?.value?.trim();
+    const desc  = document.getElementById('tk-new-desc')?.value?.trim();
+    if (!title) { window._dsToast?.({ title: 'Missing title', body: 'Please enter a ticket title.', severity: 'warn' }); return; }
+
+    const cat    = document.getElementById('tk-new-cat')?.value || 'other';
+    const prio   = document.getElementById('tk-new-prio')?.value || 'medium';
+    const source = document.getElementById('tk-new-source')?.value || 'user';
+    const nextId = 'TK-' + (1000 + tickets.length + 1);
+    const from   = source === 'agent' ? 'OpenClaw Agent' : (window.currentUser?.display_name || window.currentUser?.email?.split('@')[0] || 'You');
+
+    const newTicket = {
+      id: nextId,
+      title,
+      category: cat,
+      priority: prio,
+      status: 'open',
+      source,
+      created: new Date().toISOString(),
+      messages: desc ? [{ from, text: desc, ts: new Date().toISOString() }] : [],
+    };
+
+    tickets.unshift(newTicket);
+    _saveTickets(tickets);
+    document.getElementById('tk-modal-overlay')?.remove();
+    selectedTicketId = nextId;
+    _render();
+    window._dsToast?.({ title: 'Ticket created', body: `${nextId}: ${title}`, severity: 'ok' });
+  };
+
+  // Initial render
+  _render();
+
+  // Wire the topbar + New Ticket button
+  document.getElementById('tk-new-btn')?.addEventListener('click', () => window._tkShowNew());
+}
+
 // ── Clinician Account (st-* design) ───────────────────────────────────────────
 // Clinician-facing account/preferences page using the same st-* layout as the
 // patient Settings. Re-uses CSS already in styles.css. Save/discard are local

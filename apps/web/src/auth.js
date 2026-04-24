@@ -444,7 +444,7 @@ function _injectAuthDv2Styles() {
     .dv2-auth-main { display: flex; align-items: center; justify-content: center;
       padding: 48px 32px; background: var(--bg-base, #080d1a); position: relative; overflow-y: auto; }
     @media (max-width: 600px) { .dv2-auth-main { padding: 28px 18px; } }
-    .dv2-auth-card { width: 100%; max-width: 460px; }
+    .dv2-auth-card { width: 100%; max-width: min(460px, calc(100vw - 28px)); }
     .dv2-auth-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 12px;
       background: var(--bg-surface, rgba(255,255,255,0.04));
       border: 1px solid var(--border, rgba(255,255,255,0.06)); margin-bottom: 28px; }
@@ -463,6 +463,7 @@ function _injectAuthDv2Styles() {
       line-height: 1.55; margin-bottom: 24px; }
 
     .dv2-auth-role-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
+    @media (max-width: 480px) { .dv2-auth-role-picker { grid-template-columns: 1fr; } }
     .dv2-auth-role { padding: 14px 14px; border-radius: 12px;
       background: var(--bg-surface, rgba(255,255,255,0.04));
       border: 1px solid var(--border, rgba(255,255,255,0.06));

@@ -2045,11 +2045,13 @@ export async function pgProtocolStudio(setTopbar, navigate) {
       @media (max-width: 1200px) { .studio-grid { grid-template-columns: 1fr; } }
       @media (max-width: 900px) {
         .studio-opt-grid { grid-template-columns: repeat(2, 1fr) !important; }
+        .studio-target-grid { grid-template-columns: repeat(2, 1fr); }
         .studio-pane { padding: 16px; }
         .studio-pane-title { font-size: 17px; }
       }
       @media (max-width: 580px) {
         .studio-opt-grid { grid-template-columns: 1fr !important; }
+        .studio-target-grid { grid-template-columns: 1fr; }
         .studio-pane { padding: 14px; border-radius: 10px; }
         .studio-pane-title { font-size: 16px; }
         .studio-pane-hd { flex-direction: column; align-items: flex-start; gap: 8px; }

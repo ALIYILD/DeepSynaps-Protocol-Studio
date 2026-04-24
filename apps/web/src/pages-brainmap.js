@@ -701,6 +701,7 @@ function styleBlock() {
       }
       @media (max-width: 600px) {
         .dv2bm-clinical > :first-child { max-height: 140px; }
+        .dv2bm-research { grid-template-columns: 1fr; padding: 16px; }
       }
 
       .dv2bm-left { border-right:1px solid ${T.border}; background:${T.panel}; display:flex; flex-direction:column; overflow:hidden; }
@@ -727,7 +728,7 @@ function styleBlock() {
       .dv2bm-center { display:flex; flex-direction:column; min-height:0; padding:16px 20px 12px; background:${T.bg}; }
       .dv2bm-canvas-wrap { flex:1; min-height:0; position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; }
       .dv2bm-canvas-glow { position:absolute; inset:0; background:radial-gradient(ellipse at center, ${T.teal}14 0%, transparent 60%); pointer-events:none; }
-      .dv2bm-canvas { position:relative; width:400px; height:400px; }
+      .dv2bm-canvas { position:relative; width:min(400px, 100%); height:auto; aspect-ratio:1; }
       .dv2bm-canvas-legend { margin-top:10px; display:flex; gap:14px; font-size:10px; font-family:${T.fmono}; color:${T.t3}; }
       .dv2bm-canvas-legend i { width:9px; height:9px; border-radius:50%; display:inline-block; margin-right:5px; vertical-align:middle; }
       .dv2bm-view-modes { display:flex; gap:6px; margin-top:10px; justify-content:center; }
@@ -741,7 +742,7 @@ function styleBlock() {
       .dv2bm-scrub-phase { display:flex; align-items:center; justify-content:center; font-size:10px; font-family:${T.fmono}; font-weight:600; letter-spacing:0.02em; overflow:hidden; white-space:nowrap; padding:0 8px; }
       .dv2bm-scrub-handle { position:absolute; top:-3px; bottom:-3px; width:3px; background:${T.teal}; cursor:ew-resize; box-shadow:0 0 10px ${T.teal}; }
 
-      .dv2bm-placeholder { display:flex; flex-direction:column; align-items:center; justify-content:center; height:400px; width:400px; background:${T.panel}; border:1px dashed ${T.border}; border-radius:12px; }
+      .dv2bm-placeholder { display:flex; flex-direction:column; align-items:center; justify-content:center; height:auto; aspect-ratio:1; width:min(400px, 100%); background:${T.panel}; border:1px dashed ${T.border}; border-radius:12px; }
       .dv2bm-placeholder-icon { font-size:56px; color:${T.t3}; }
       .dv2bm-placeholder-title { font-family:${T.fdisp}; font-size:16px; color:${T.t1}; font-weight:600; margin-top:6px; }
       .dv2bm-placeholder-sub { font-size:11.5px; color:${T.t3}; margin-top:4px; }

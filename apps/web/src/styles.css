@@ -546,7 +546,7 @@ nav { flex: 1; overflow-y: auto; padding: 10px 0; }
 .dash-agent-modal__panel {
   position: relative;
   width: 100%;
-  max-width: 520px;
+  max-width: min(520px, calc(100vw - 24px));
   max-height: min(88vh, 640px);
   margin: 0 auto;
   display: flex;
@@ -770,10 +770,11 @@ select option, select optgroup { background: #1a2235; color: #e2e8f0; }
   .metric-card div:nth-child(2) { font-size: 24px; }
 }
 @media (max-width: 640px) {
-  .g2,.g3 { grid-template-columns: 1fr; }
+  .g2,.g3,.g4 { grid-template-columns: 1fr; }
   #content { padding: 14px; }
   .dash-stat-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dash-quick-actions { grid-template-columns: 1fr 1fr; }
+  .metric-card div:nth-child(2) { font-size: 20px; }
 }
 
 /* ── Public shell ── */
@@ -2794,7 +2795,7 @@ select option, select optgroup { background: #1a2235; color: #e2e8f0; }
 
 /* ── Transfer / Org Modals ── */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 900; display: flex; align-items: center; justify-content: center; }
-.modal-card { background: var(--navy-800); border: 1px solid var(--border-hover); border-radius: 14px; padding: 28px; width: 100%; max-width: 480px; box-shadow: 0 16px 48px rgba(0,0,0,0.6); }
+.modal-card { background: var(--navy-800); border: 1px solid var(--border-hover); border-radius: 14px; padding: 28px; width: 100%; max-width: min(480px, calc(100vw - 24px)); box-shadow: 0 16px 48px rgba(0,0,0,0.6); }
 .modal-card h3 { font-size: 16px; font-weight: 700; margin-bottom: 16px; color: var(--text-primary); }
 .modal-card p { font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; }
 .modal-card label { display: block; font-size: 11.5px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; margin-top: 14px; }
@@ -26617,3 +26618,277 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   line-height: 1.55;
 }
 .ds-mri-footer-regulatory strong { color: #fde68a; }
+
+/* ── Comprehensive Responsive Overrides ────────────────────────────────────── */
+/* Ensures all components adapt properly to phones, tablets, and varying monitors */
+
+/* --- Tablet breakpoint (900px) --- */
+@media (max-width: 900px) {
+  /* Override inline style grids on ch-kpi-strip (JS uses inline grid-template-columns) */
+  .ch-kpi-strip { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* Virtual care decision grid */
+  .vc-decision-grid { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* Topbar search - hide on smaller tablets, keep search button */
+  .palette-search-topbar { display: none !important; }
+
+  /* Public topbar padding */
+  .pub-topbar { padding: 0 16px !important; }
+
+  /* Heatmap min-width override for tablets */
+  .pub-hm-grid { min-width: 100% !important; }
+
+  /* Patient topbar tighten */
+  #patient-topbar { padding: 0 14px; }
+
+  /* Sidebar overlay for mobile drawer */
+  #sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 99; }
+  #sidebar-overlay.visible { display: block; }
+
+  /* Show sidebar toggle */
+  #sidebar-toggle { display: flex !important; }
+
+  /* Patient bottom nav show on mobile */
+  #pt-bottom-nav { display: flex !important; }
+  #patient-content { padding-bottom: 64px; }
+}
+
+/* --- Small tablet / large phone breakpoint (768px) --- */
+@media (max-width: 768px) {
+  /* Public topbar responsive - hide desktop nav, show mobile CTAs */
+  .pub-topbar-nav { display: none !important; }
+  .pub-topbar-mobile-ctas { display: flex !important; }
+  .pub-mobile-patient-bar { display: flex !important; }
+
+  /* Auth title size reduction */
+  .dv2-auth-title { font-size: 22px !important; }
+
+  /* Modal card mobile padding */
+  .modal-card { padding: 20px 16px; }
+
+  /* Notification panel responsive */
+  #notif-panel { width: min(360px, calc(100vw - 32px)) !important; }
+
+  /* Offline queue panel responsive */
+  #offline-queue-panel { width: min(320px, calc(100vw - 32px)) !important; }
+
+  /* Command palette responsive */
+  .cmd-palette-modal { width: calc(100vw - 24px) !important; max-width: 100% !important; margin: 12px !important; }
+
+  /* Evidence sidebar tighter */
+  .pub-ev-tabs { width: 140px; }
+
+  /* Condition grid intermediate step */
+  .pub-condition-grid { grid-template-columns: repeat(3, 1fr) !important; }
+
+  /* Compliance grid intermediate step */
+  .pub-compliance-grid { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* Clinic switcher text truncation */
+  #clinic-name-display { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; }
+}
+
+/* --- Phone breakpoint (640px) --- */
+@media (max-width: 640px) {
+  /* Content area tighter padding */
+  #content, #patient-content { padding: 12px !important; }
+
+  /* Topbar tighter */
+  #topbar { padding: 0 10px; gap: 8px; }
+  #topbar-right { padding-left: 8px; gap: 4px; }
+
+  /* Condition grid to 2 cols */
+  .pub-condition-grid { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* Compliance grid to 2 cols */
+  .pub-compliance-grid { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* KPI strips collapse further */
+  .ch-kpi-strip { grid-template-columns: 1fr 1fr !important; gap: 8px !important; }
+
+  /* All inline-style 4-col grids in page content */
+  #content [style*="grid-template-columns:repeat(4"],
+  #content [style*="grid-template-columns: repeat(4"],
+  #patient-content [style*="grid-template-columns:repeat(4"],
+  #patient-content [style*="grid-template-columns: repeat(4"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* All inline-style 5-col grids */
+  #content [style*="grid-template-columns:repeat(5"],
+  #content [style*="grid-template-columns: repeat(5"],
+  #patient-content [style*="grid-template-columns:repeat(5"],
+  #patient-content [style*="grid-template-columns: repeat(5"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* All inline-style 3-col grids */
+  #content [style*="grid-template-columns:repeat(3"],
+  #content [style*="grid-template-columns: repeat(3"],
+  #patient-content [style*="grid-template-columns:repeat(3"],
+  #patient-content [style*="grid-template-columns: repeat(3"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Hero section tighter */
+  .pub-hero { padding: 40px 16px !important; }
+  .pub-hero-title { font-size: 28px !important; }
+  .pub-hero-sub { font-size: 14px !important; }
+
+  /* Section padding reduction */
+  .pub-section { padding: 40px 16px !important; }
+  .pub-compliance-strip { padding: 32px 16px !important; }
+
+  /* Card padding reduction */
+  .pub-compliance-card { padding: 14px 10px; }
+  .pub-feature-card { padding: 16px 14px; }
+
+  /* Toast responsive */
+  .ds-chat-fab { right: 12px; bottom: 72px; width: 48px; height: 48px; }
+  .ds-chat-fab--agent { bottom: 128px; }
+
+  /* Tables become scrollable blocks */
+  table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+
+  /* Brain map placeholder & canvas responsive */
+  .dv2bm-canvas, .dv2bm-placeholder {
+    width: min(100%, 320px) !important;
+    height: auto !important;
+    aspect-ratio: 1;
+  }
+}
+
+/* --- Small phone breakpoint (480px) --- */
+@media (max-width: 480px) {
+  /* Auth responsive */
+  .dv2-auth-main { padding: 20px 12px !important; }
+  .dv2-auth-card { max-width: calc(100vw - 24px) !important; }
+  .dv2-auth-title { font-size: 20px !important; }
+  .dv2-auth-role-picker { grid-template-columns: 1fr !important; }
+
+  /* Single column for all grids */
+  #content [style*="grid-template-columns:repeat(3"],
+  #content [style*="grid-template-columns: repeat(3"],
+  #content [style*="grid-template-columns:repeat(4"],
+  #content [style*="grid-template-columns: repeat(4"],
+  #content [style*="grid-template-columns:repeat(5"],
+  #content [style*="grid-template-columns: repeat(5"],
+  #patient-content [style*="grid-template-columns:repeat(3"],
+  #patient-content [style*="grid-template-columns: repeat(3"],
+  #patient-content [style*="grid-template-columns:repeat(4"],
+  #patient-content [style*="grid-template-columns: repeat(4"],
+  #patient-content [style*="grid-template-columns:repeat(5"],
+  #patient-content [style*="grid-template-columns: repeat(5"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* KPI strips single column */
+  .ch-kpi-strip { grid-template-columns: 1fr !important; }
+  .g4 { grid-template-columns: 1fr !important; }
+
+  /* All two-column grids go single */
+  .g2 { grid-template-columns: 1fr !important; }
+
+  /* Condition grid single column */
+  .pub-condition-grid { grid-template-columns: 1fr !important; }
+  .pub-compliance-grid { grid-template-columns: 1fr !important; }
+
+  /* Modals full-width */
+  .modal-card { max-width: calc(100vw - 16px) !important; padding: 16px 12px !important; border-radius: 10px !important; }
+  .modal-overlay { padding: 8px; }
+  .dash-agent-modal__panel { max-width: calc(100vw - 16px) !important; }
+
+  /* Command palette full width */
+  .cmd-palette-modal { width: calc(100vw - 16px) !important; margin: 8px !important; }
+
+  /* Topbar compact */
+  #topbar { gap: 4px; }
+  #topbar h1, #page-title { font-size: 13px !important; }
+
+  /* Public hero very compact */
+  .pub-hero { padding: 32px 12px !important; }
+  .pub-hero-title { font-size: 24px !important; line-height: 1.2 !important; }
+  .pub-section { padding: 32px 12px !important; }
+
+  /* Stat numbers smaller */
+  .pub-stat-num { font-size: 32px !important; }
+
+  /* Footer responsive */
+  .pub-footer { padding: 16px 12px !important; gap: 8px; }
+
+  /* Chat panel full width on small phones */
+  .ds-chat-panel { width: calc(100vw - 24px) !important; right: 12px !important; bottom: 72px !important; }
+
+  /* Reduce font sizes for readability at narrow widths */
+  .pub-compliance-title { font-size: 16px; }
+  .pub-section-title { font-size: 20px !important; }
+}
+
+/* --- Very small phone breakpoint (380px) --- */
+@media (max-width: 380px) {
+  /* Ultra compact padding */
+  #content, #patient-content { padding: 8px !important; }
+  .pub-hero { padding: 24px 8px !important; }
+  .pub-hero-title { font-size: 20px !important; }
+  .pub-section { padding: 24px 8px !important; }
+
+  /* Auth ultra compact */
+  .dv2-auth-main { padding: 16px 8px !important; }
+  .dv2-auth-tabs { margin-bottom: 16px; }
+
+  /* Everything single column */
+  .g2, .g3, .g4 { grid-template-columns: 1fr !important; }
+  .dash-stat-bar { grid-template-columns: 1fr !important; }
+  .dash-quick-actions { grid-template-columns: 1fr !important; }
+
+  /* Topbar minimal */
+  #topbar { padding: 0 8px; }
+  #search-btn { display: none !important; }
+  #clinic-switcher { display: none !important; }
+}
+
+/* --- Touch device optimizations --- */
+@media (hover: none) and (pointer: coarse) {
+  /* Larger touch targets */
+  .btn, button { min-height: 44px; min-width: 44px; }
+  .btn-sm { min-height: 36px; }
+  .nav-link { min-height: 44px; }
+  .pub-nav-link { min-height: 44px; padding: 10px 14px; }
+  .form-control { min-height: 44px; font-size: 16px; }
+  select.form-control { min-height: 44px; font-size: 16px; }
+  textarea.form-control { font-size: 16px; }
+
+  /* Prevent iOS zoom on input focus */
+  input, select, textarea { font-size: 16px !important; }
+
+  /* Wider scrollbar thumb for easier touch scrolling */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); }
+}
+
+/* --- Landscape phone --- */
+@media (max-height: 500px) and (orientation: landscape) {
+  .pub-hero { padding: 24px 20px !important; min-height: auto !important; }
+  .pub-hero-title { font-size: 24px !important; }
+  #sidebar { max-height: 100vh; overflow-y: auto; }
+  .modal-card { max-height: 90vh; overflow-y: auto; }
+  .ds-chat-panel { max-height: 50vh !important; }
+}
+
+/* --- Large desktop / ultrawide --- */
+@media (min-width: 1600px) {
+  #content { max-width: 1400px; margin: 0 auto; }
+  .pub-section { max-width: 1400px; margin-left: auto; margin-right: auto; }
+}
+
+/* --- Print responsive override --- */
+@media print {
+  #sidebar, #topbar, #sidebar-toggle, #sidebar-overlay,
+  .ds-chat-fab, .ds-chat-panel, #cmd-palette,
+  #notif-bell, #notif-panel, #page-loading-bar,
+  #pt-bottom-nav, .pub-topbar { display: none !important; }
+  #app-shell { margin-left: 0 !important; }
+  #content { padding: 0 !important; overflow: visible !important; }
+  body { background: #fff !important; color: #000 !important; }
+}

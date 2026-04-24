@@ -287,7 +287,7 @@ window._showOfflineQueue = function() {
   if (existing) { existing.remove(); return; }
   const panel = document.createElement('div');
   panel.id = 'offline-queue-panel';
-  panel.style.cssText = 'position:fixed;bottom:60px;left:16px;width:320px;max-height:320px;background:var(--navy-850,#0f172a);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:12px;z-index:400;box-shadow:0 8px 32px rgba(0,0,0,.5);overflow:hidden;display:flex;flex-direction:column';
+  panel.style.cssText = 'position:fixed;bottom:60px;left:16px;width:min(320px,calc(100vw - 32px));max-height:320px;background:var(--navy-850,#0f172a);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:12px;z-index:400;box-shadow:0 8px 32px rgba(0,0,0,.5);overflow:hidden;display:flex;flex-direction:column';
   panel.innerHTML = `
     <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
       <span style="font-size:13px;font-weight:600">Pending Syncs (${q.length})</span>
@@ -475,7 +475,8 @@ const NAV = [
   { id: 'finance-v2',         label: 'Finance',           icon: '💰' },
   { id: 'ai-agent-v2',        label: 'AI Practice Agents', icon: '🤖', ai: true },
   // Research has moved into Reports (Reports → Research tab).
-  { id: 'governance-v2',      label: 'Governance',        icon: '🛡️' },
+  { id: 'settings-v2',        label: 'Settings',          icon: '⚙️' },
+  { id: 'tickets',            label: 'Tickets',           icon: '🎫' },
   { id: 'system-health',       label: 'System Health',     icon: '💚' },
   { id: 'academy',            label: 'Academy',           icon: '🎓' },
   { id: 'marketplace',        label: 'Marketplace',       icon: '🛒' },
@@ -538,6 +539,8 @@ NAV_ICONS['finance-v2']      = NAV_ICONS['finance-hub'];
 NAV_ICONS['ai-agent-v2']     = NAV_ICONS['protocol-hub'];
 NAV_ICONS['research-v2']     = NAV_ICONS['protocol-wizard'];
 NAV_ICONS['governance-v2']   = NAV_ICONS['adverse-events'];
+NAV_ICONS['settings-v2']     = NAV_ICONS['settings'];
+NAV_ICONS['tickets']         = `<svg viewBox="0 0 24 24"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></svg>`;
 NAV_ICONS['system-health']   = `<svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/><circle cx="12" cy="12" r="2" fill="currentColor" opacity=".4"/></svg>`;
 NAV_ICONS['research-evidence'] = `<svg viewBox="0 0 24 24"><path d="M10 2v6a2 2 0 0 1-2 2H2"/><path d="M14 2v6a2 2 0 0 0 2 2h6"/><path d="M12 18v4"/><path d="M8 22h8"/><circle cx="12" cy="14" r="4"/></svg>`;
 NAV_ICONS['mri-analysis'] = `<svg viewBox="0 0 24 24"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-3 2.5 2.5 0 0 1 .49-4.78 2.5 2.5 0 0 1 1.5-4.58A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.07-3 2.5 2.5 0 0 0-.49-4.78 2.5 2.5 0 0 0-1.5-4.58A2.5 2.5 0 0 0 14.5 2Z"/><circle cx="12" cy="12" r="2" fill="currentColor" opacity=".5"/></svg>`;
@@ -880,6 +883,8 @@ const PAGE_TITLES = {
   'irb-manager': 'IRB Manager',
   'research-evidence': 'Research Evidence',
   'system-health': 'System Health',
+  'settings-v2': 'Settings',
+  'tickets': 'Tickets',
 };
 
 // ── Navigate ──────────────────────────────────────────────────────────────────
@@ -1463,7 +1468,9 @@ async function renderPage() {
     case 'finance-v2':         { const m = await loadClinicalHubs(); await m.pgFinanceHub(setTopbar, navigate); break; }
     case 'ai-agent-v2':        { const m = await loadAgents(); await m.pgAgentChat(setTopbar); break; }
     case 'research-v2':        { const m = await loadResearch(); await m.pgResearch(setTopbar, navigate); break; }
-    case 'governance-v2':      { const m = await loadPractice(); await m.pgGovernance(setTopbar, navigate); break; }
+    case 'governance-v2':      { window._settingsHubTab = 'governance'; const m = await loadPractice(); await m.pgSettingsHub(setTopbar, navigate); break; }
+    case 'settings-v2':        { const m = await loadPractice(); await m.pgSettingsHub(setTopbar, navigate); break; }
+    case 'tickets':            { const m = await loadPractice(); await m.pgTickets(setTopbar, navigate); break; }
     case 'consent-management': { window._docsHubTab = 'consent'; navigate('documents-hub'); break; }
     case 'research-evidence':  { const m = await loadResearchEvidence(); await m.pgResearchEvidence(setTopbar, navigate); break; }
     case 'system-health':      { const m = await loadMonitoring(); await m.pgMonitoring(setTopbar, navigate); break; }
@@ -1513,7 +1520,7 @@ window._updateNotifBadge = function() {
 function _showNotifToast(notif) {
   const color = notif.severity === 'serious' ? 'var(--red)' : notif.severity === 'warn' ? 'var(--amber)' : 'var(--teal)';
   const t = document.createElement('div');
-  t.style.cssText = `position:fixed;bottom:24px;right:24px;max-width:320px;padding:12px 16px;border-radius:10px;background:var(--navy-800);border:1px solid ${color};z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.5);cursor:pointer;transition:opacity 0.3s`;
+  t.style.cssText = `position:fixed;bottom:24px;right:24px;max-width:min(320px,calc(100vw - 48px));padding:12px 16px;border-radius:10px;background:var(--navy-800);border:1px solid ${color};z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.5);cursor:pointer;transition:opacity 0.3s`;
   t.innerHTML = `<div style="font-size:12.5px;font-weight:600;color:var(--text-primary);margin-bottom:3px">${esc(notif.title)}</div><div style="font-size:11.5px;color:var(--text-secondary)">${esc(notif.body)}</div>`;
   t.onclick = () => { if (notif.link) window._nav(notif.link); t.remove(); };
   document.body.appendChild(t);
@@ -1702,7 +1709,7 @@ window._toggleNotifPanel = function() {
 
   panel = document.createElement('div');
   panel.id = 'notif-panel';
-  panel.style.cssText = 'position:fixed;top:52px;right:16px;width:360px;max-height:480px;background:var(--navy-850);border:1px solid var(--border);border-radius:var(--radius-lg);z-index:800;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.4);display:flex;flex-direction:column';
+  panel.style.cssText = 'position:fixed;top:52px;right:16px;width:min(360px,calc(100vw - 32px));max-height:480px;background:var(--navy-850);border:1px solid var(--border);border-radius:var(--radius-lg);z-index:800;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.4);display:flex;flex-direction:column';
   panel.innerHTML = `
     <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:rgba(0,0,0,0.2)">
       <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Notifications</span>
