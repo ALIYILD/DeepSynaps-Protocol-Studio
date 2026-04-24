@@ -322,148 +322,435 @@ const BAND_REFERENCE = [
   },
 ];
 
+const NEURO_BIOMARKER_REFERENCE = [
+  {
+    id: 'spectral-asymmetry',
+    title: 'qEEG · Spectral & Asymmetry',
+    tone: '#4a9eff',
+    markers: [
+      { id:'faa', name:'Frontal Alpha Asymmetry (FAA)', notation:'log(F4 a) - log(F3 a)', measures:'Hemispheric balance of frontal alpha power; reflects relative left vs right frontal activation.', site:'F3, F4 (linked-mastoid or average reference)', refRange:'-0.10 to +0.20 log(uV2), adult population', acquisition:'4+ min eyes-closed resting EEG, 19-channel cap, sampling 256 Hz or higher, alpha bandpass 8-12 Hz, FFT/Welch on artifact-free epochs.', elevated:'Right greater than left frontal alpha (relative left frontal hypoactivity); withdrawal motivation and depressive vulnerability.', reduced:'Left less than right alpha (relative left frontal hyperactivity); approach motivation and lower depressive risk.', conditions:['MDD', 'Anxiety', 'Social withdrawal', 'BPD'], interventions:['rTMS L-DLPFC', 'tDCS L-DLPFC anodal', 'Asymmetry neurofeedback'], caveats:['Reference montage shifts absolute values.', 'Trait vs state separation needs baseline averaging.', 'Age- and sex-stratified norms are recommended.'], evidence:'1,180 refs' },
+      { id:'tbr', name:'Theta/Beta Ratio (TBR)', notation:'theta(4-7 Hz) / beta(13-21 Hz) at Cz', measures:'Ratio of slow theta to fast beta activity at central midline; classic ADHD discriminator.', site:'Cz primarily; also Fz', refRange:'1.5 to 3.0 in adults; age-stratified pediatric norms', acquisition:'Eyes-open resting EEG, 3+ min, Cz referenced to linked mastoids; spectral power via FFT.', elevated:'TBR above 4 in children or above 3 in adults suggests cortical hypoarousal, often inattentive ADHD subtype.', reduced:'Cortical hyperarousal; consider anxiety or OCD-spectrum features.', conditions:['ADHD (inattentive)', 'Cognitive slowing', 'Drowsiness'], interventions:['SMR/Beta neurofeedback', 'Stimulants', 'tDCS DLPFC'], caveats:['Only about 30-40% of ADHD cases show elevated TBR.', 'Vigilance state strongly modulates the ratio.', 'FDA clearance is adjunctive only.'], evidence:'412 refs' },
+      { id:'paf', name:'Peak Alpha Frequency (PAF)', notation:'O1/O2 dominant alpha', measures:'Frequency at which posterior alpha power peaks; index of cortical processing speed.', site:'O1, O2, Pz', refRange:'9.5 to 11.0 Hz adult; declines about 0.05 Hz per decade after 30', acquisition:'Eyes-closed resting EEG; parabolic interpolation around alpha peak in a 7-13 Hz window.', elevated:'Faster cognitive processing, better working memory, healthier aging trajectory.', reduced:'Below 8.5 Hz in adults suggests cognitive decline, MCI, dementia, or post-concussive impairment.', conditions:['MCI', "Alzheimer's", 'Post-concussion', 'TBI', 'Cognitive aging'], interventions:['gamma-tACS (40 Hz)', 'alpha-tACS at IAF', 'Photobiomodulation'], caveats:['Around 10% of adults lack a clear peak.', 'Caffeine and time of day affect PAF.', 'Use individualized reference for tACS dosing.'], evidence:'880 refs' },
+      { id:'iaf', name:'Individual Alpha Frequency (IAF)', notation:'Weighted center of alpha band', measures:'Power-weighted center frequency across the full alpha band; more robust than peak detection.', site:'Posterior or whole-head average', refRange:'9.5 to 11.5 Hz; stable individual trait', acquisition:'Compute center of gravity of power spectrum within 7-13 Hz; eyes-closed resting EEG, 2+ min.', elevated:'Faster intrinsic neural rhythm and better cognitive performance.', reduced:'Cognitive risk; useful as personalized stimulation frequency anchor for tACS.', conditions:['Cognitive decline', 'MCI', 'Aging'], interventions:['IAF-tACS (personalized)', 'Neurofeedback uptraining', 'BDNF-related interventions'], caveats:['Stable trait and unlikely to shift after brief intervention.', 'Better for individualized stimulation than as an outcome marker.', 'Compute on artifact-cleaned data.'], evidence:'540 refs' },
+      { id:'alpha-peak-amp', name:'Alpha Peak Amplitude', notation:'alpha-amp · O1 power', measures:'Magnitude of dominant posterior alpha rhythm during eyes-closed rest.', site:'O1, O2, Pz', refRange:'14 to 26 uV adult; highly individual', acquisition:'FFT power at PAF +/- 1 Hz during eyes-closed rest; compare with eyes-open for Berger reactivity.', elevated:'Strong relaxation response and intact thalamocortical loop.', reduced:'Hyperarousal, anxiety, or cortical disconnection such as TBI or dementia.', conditions:['Anxiety', 'TBI', 'Insomnia', 'Dementia'], interventions:['Alpha-uptraining neurofeedback', 'HRV biofeedback', 'alpha-tACS'], caveats:['Eye opening should suppress alpha by more than 50%.', 'Skull thickness alters absolute magnitude.', 'Sleep deprivation reduces alpha.'], evidence:'320 refs' },
+      { id:'high-beta', name:'High-Beta Excess (Hi-beta)', notation:'21-35 Hz frontal', measures:'Excess beta power in frontal sites beyond age-expected norms; index of cortical hyperarousal.', site:'Fz, F3, F4', refRange:'Less than 12% relative power expected; use z-score vs normative database', acquisition:'Eyes-closed and eyes-open resting EEG; relative power against the full 1-40 Hz range.', elevated:'Anxiety, rumination, hypervigilance, and PTSD intrusion symptoms.', reduced:'Balanced cortical arousal.', conditions:['Anxiety', 'PTSD', 'Insomnia', 'Rumination'], interventions:['Beta-suppression neurofeedback', 'HRV biofeedback', 'SSRIs', 'tDCS L-DLPFC'], caveats:['EMG contamination can falsely elevate the measure.', 'Benzodiazepine washout is needed for valid reading.', 'Separate from medication-related spindling beta.'], evidence:'286 refs' },
+      { id:'frontal-theta', name:'Frontal Theta Excess', notation:'theta-frontal · 4-7 Hz Fz/Cz', measures:'Excess slow theta activity at frontal-central midline sites.', site:'Fz, FCz, Cz', refRange:'Less than 14% relative power expected in adults', acquisition:'Eyes-open resting EEG; relative power vs 1-40 Hz reference.', elevated:'Cognitive slowing, MCI, depression with cognitive symptoms, and post-TBI effects.', reduced:'Preserved frontal function.', conditions:['MCI', 'Depression', 'TBI', 'ADHD'], interventions:['Theta-suppression neurofeedback', 'gamma-tACS', 'Cognitive rehab'], caveats:['Drowsiness creates theta so vigilance must be controlled.', 'Frontal midline theta during effortful tasks is normal.', 'Separate slow rolandic mu from frontal theta.'], evidence:'418 refs' },
+      { id:'awake-delta', name:'Awake Delta Activity', notation:'delta-awake · 1-4 Hz', measures:'Slow delta during eyes-open wakefulness; near-absent in healthy adults.', site:'All sites; localize hot spots with sLORETA', refRange:'Less than 8% relative power expected', acquisition:'Eyes-open resting EEG with vigilance control; compute relative delta power.', elevated:'Focal cortical dysfunction, post-TBI, post-stroke, encephalopathy, or severe dementia.', reduced:'Normal awake EEG.', conditions:['TBI', 'Stroke', 'Dementia', 'Encephalopathy'], interventions:['Cortical excitatory rTMS', 'Cathodal tDCS contralesional', 'Cognitive rehab'], caveats:['Drowsiness, eye movement, and sweat artifact can mimic delta.', 'Localized delta differs in meaning from diffuse delta.', 'Always correlate with clinical state.'], evidence:'204 refs' },
+      { id:'aperiodic-slope', name:'1/f Aperiodic Slope', notation:'1/f exp · spectral exponent', measures:'Steepness of the broadband 1/f spectral component after isolating periodic peaks.', site:'Whole-head; computed via FOOOF/specparam', refRange:'1.2 to 1.8 in healthy adults; steeper with maturation, flatter with aging', acquisition:'Eyes-closed resting EEG; fit aperiodic component across 2-40 Hz using FOOOF or IRASA.', elevated:'Greater synaptic inhibition with E/I balance shifted toward inhibition.', reduced:'Reduced inhibition or more neural noise; seen in aging, ADHD, and some psychiatric conditions.', conditions:['Aging', 'ADHD', 'Schizophrenia', 'TBI'], interventions:['GABAergic interventions', 'tDCS', 'Cognitive training'], caveats:['Normative databases are still maturing.', 'Algorithm choice affects values.', 'Report alongside periodic peaks.'], evidence:'96 refs' },
+      { id:'sef95', name:'Spectral Edge Frequency 95% (SEF95)', notation:'SEF95', measures:'Frequency below which 95% of total spectral power resides; index of EEG complexity and arousal.', site:'Whole-head average', refRange:'22 to 28 Hz in awake adults', acquisition:'FFT on eyes-open or task EEG; cumulative power calculation.', elevated:'Greater arousal, lighter sedation, and intact cortical activation.', reduced:'Drowsiness, sedation, encephalopathy, or deep anesthesia.', conditions:['Sedation monitoring', 'TBI', 'Disorders of consciousness'], interventions:['Stimulant pharmacology', 'Cortical rTMS'], caveats:['More useful for monitoring than diagnosis.', 'Medication affects the measure.', 'Typical 5 second window length changes stability.'], evidence:'142 refs' },
+      { id:'mu-suppression', name:'Mu Suppression', notation:'mu-supp · C3/C4 8-13 Hz event-related', measures:'Reduction in central mu-rhythm power during action observation or imagery; proxy for sensorimotor engagement.', site:'C3, C4, sometimes Cz', refRange:'More than 30% suppression vs baseline expected', acquisition:'Compare mu-band power during action observation vs static baseline; within-subject ratio.', elevated:'Strong suppression indicates intact mirror-system and sensorimotor coupling.', reduced:'Atypical mirror-system function or motor planning deficits.', conditions:['ASD', 'Stroke (motor recovery)', 'Motor imagery training'], interventions:['Mirror therapy', 'Action observation training', 'M1 rTMS', 'Motor imagery neurofeedback'], caveats:['ASD mirror-system finding is mixed in replication.', 'Separate mu from posterior alpha.', 'Task design strongly drives suppression magnitude.'], evidence:'178 refs' },
+      { id:'smr', name:'Sensorimotor Rhythm (SMR)', notation:'12-15 Hz Cz', measures:'Low-beta rhythm over sensorimotor cortex during motor quiescence; target of classic neurofeedback protocols.', site:'C3, Cz, C4', refRange:'5 to 10 uV in adults; age dependent', acquisition:'Eyes-open resting EEG without movement; spectral peak in the 12-15 Hz window.', elevated:'Motor inhibition, sustained attention, and historical seizure protection target.', reduced:'Motor restlessness and possible association with seizures or hyperactive ADHD.', conditions:['ADHD', 'Epilepsy', 'Tic disorders'], interventions:['SMR uptraining neurofeedback', 'Sensorimotor mu-band BCI'], caveats:['Movement artifact is the main confound.', 'SMR and mu overlap requires careful targeting.', 'Longer neurofeedback training is usually needed.'], evidence:'240 refs' },
+      { id:'cai', name:'Cingulate Alpha Index (CAI)', notation:'Midline alpha LORETA', measures:'Source-localized alpha activity in the anterior cingulate cortex.', site:'ACC (BA 24/32) via sLORETA or eLORETA inverse solution', refRange:'0.50 to 0.80 normalized index', acquisition:'19-channel resting EEG to source reconstruction to ROI extraction at ACC in the alpha band.', elevated:'Engaged default-mode introspection; may relate to depressive rumination when sustained.', reduced:'Externally directed attention; very low values can reflect ACC dysfunction.', conditions:['MDD (rumination)', 'Default-mode dysregulation', 'ADHD'], interventions:['rTMS dmPFC/SMA', 'Mindfulness training', 'tDCS Fpz'], caveats:['Source localization requires high-quality 19+ channel data.', 'Inverse solution assumes spatial smoothness.', 'Best interpreted with FAA and frontal midline theta.'], evidence:'88 refs' },
+    ],
+  },
+  {
+    id: 'network-connectivity',
+    title: 'Network · Connectivity & Coupling',
+    tone: '#00d4bc',
+    markers: [
+      { id:'dmn-coherence', name:'DMN Coherence', notation:'PCC <-> mPFC alpha-band', measures:'Functional connectivity between Default Mode Network hubs in the alpha band.', site:'Pz/POz (PCC proxy) and Fpz/AFz (mPFC proxy); source-space preferred', refRange:'0.30 to 0.55 wPLI; age dependent', acquisition:'Eyes-closed resting EEG; weighted Phase Lag Index between source ROIs across 2 minute epochs.', elevated:'Hyperconnectivity with ruminative depression, anxiety, and increased self-referential processing.', reduced:'Hypoconnectivity in MCI, Alzheimer disease, TBI, and attention deficits.', conditions:['MDD', "Alzheimer's", 'MCI', 'Anxiety'], interventions:['rTMS DLPFC', 'Mindfulness', 'Psilocybin (research)', 'tDCS mPFC'], caveats:['Use phase-based metrics to limit volume conduction bias.', 'EEG-derived DMN is a proxy; fMRI remains gold standard.', 'Rest vs task state strongly modulates values.'], evidence:'512 refs' },
+      { id:'salience-network', name:'Salience Network Strength', notation:'SAL · ant. insula <-> ACC', measures:'Connectivity between anterior insula and dorsal anterior cingulate; network switch between DMN and CEN.', site:'Source-space anterior insula and dACC', refRange:'0.25 to 0.45 wPLI', acquisition:'Resting EEG to source reconstruction to ROI-to-ROI connectivity in beta and gamma bands.', elevated:'Hyperactive salience network in anxiety, hypervigilance, and ASD sensory sensitivity.', reduced:'Hypoactive salience network in apathy, anhedonia, impaired interoception, or schizophrenia negative symptoms.', conditions:['Anxiety', 'ASD', 'Schizophrenia', 'Depression with apathy'], interventions:['rTMS anterior insula (deep coil)', 'Interoceptive training', 'SSRIs'], caveats:['Insula is deep and surface EEG has limits.', 'Source reconstruction is sensitive to the head model.', 'Best read with DMN and CEN in a triple-network framework.'], evidence:'174 refs' },
+      { id:'cen', name:'Central Executive Network (CEN)', notation:'DLPFC <-> PPC', measures:'Frontoparietal control network coupling that supports working memory and cognitive control.', site:'Left DLPFC to left PPC and right DLPFC to right PPC', refRange:'0.30 to 0.50 wPLI in beta band', acquisition:'Task EEG such as n-back or Stroop is ideal; eyes-open rest with source reconstruction is secondary.', elevated:'Strong CEN coupling indicating intact executive function and cognitive control.', reduced:'Weak CEN coupling indicating executive dysfunction, ADHD, depression with cognitive symptoms, or MCI.', conditions:['MDD', 'ADHD', 'MCI', 'Schizophrenia'], interventions:['rTMS L-DLPFC', 'tDCS DLPFC anodal', 'Cognitive training'], caveats:['Best assessed during task rather than pure rest.', 'Left-right asymmetry has functional meaning.', 'Longer recordings improve reproducibility.'], evidence:'208 refs' },
+      { id:'frontoparietal-coherence', name:'Frontoparietal Coherence', notation:'FP · F4 <-> P4 beta-band', measures:'Surface-level coherence between right frontal and right parietal sites in beta band.', site:'F4, P4', refRange:'0.35 to 0.60 magnitude-squared coherence', acquisition:'Eyes-open resting or task EEG; coherence over 13-25 Hz from 4+ minute recording.', elevated:'Effective top-down attentional control and cognitive engagement.', reduced:'Attentional deficits, disengagement, and cognitive fatigue.', conditions:['ADHD', 'TBI', 'Cognitive fatigue'], interventions:['Frontoparietal tACS in-phase gamma', 'rTMS DLPFC', 'Attention training'], caveats:['Surface coherence is inflated by volume conduction.', 'Reference montage matters.', 'Separate task-induced from resting connectivity.'], evidence:'166 refs' },
+      { id:'interhemispheric-alpha', name:'Interhemispheric Alpha-Coherence', notation:'iHC · F3 <-> F4 alpha', measures:'Coherence between homologous left and right frontal sites in alpha band.', site:'F3 <-> F4; also T3 <-> T4 and P3 <-> P4', refRange:'0.50 to 0.80', acquisition:'Eyes-closed resting EEG; magnitude-squared coherence in 8-12 Hz.', elevated:'Intact callosal communication and balanced hemispheric integration.', reduced:'Callosal damage, post-stroke change, severe TBI, or neurodegenerative disease.', conditions:['Stroke', 'TBI', 'Multiple sclerosis', 'Aging'], interventions:['Bilateral tDCS', 'Callosal stimulation protocols', 'Bimanual training'], caveats:['Highly sensitive to montage.', 'Skull thickness asymmetry can bias values.', 'Volume conduction confound still applies.'], evidence:'142 refs' },
+      { id:'theta-gamma-pac', name:'Theta-Gamma Phase-Amplitude Coupling (PAC)', notation:'PAC · theta-phase / gamma-amp', measures:'Phase-amplitude coupling between theta phase and gamma amplitude; neural code for working memory.', site:'Hippocampal-PFC axis in source space or Fz/Cz/Pz on surface EEG', refRange:'0.08 to 0.18 modulation index', acquisition:'Eyes-open or task EEG; Tort modulation index with theta 4-8 Hz and gamma 30-80 Hz.', elevated:'Intact memory encoding and healthy hippocampal-cortical communication.', reduced:'MCI, Alzheimer disease, and working memory deficits.', conditions:['MCI', "Alzheimer's", 'Working memory deficit', 'Aging'], interventions:['gamma-tACS (40 Hz)', 'theta-tACS hippocampal projection', 'Memory training'], caveats:['Sensitive to artifact and amplitude confounds.', 'Multiple PAC algorithms exist and must be kept consistent.', 'Window length and detrending alter results.'], evidence:'124 refs' },
+      { id:'microstate-d', name:'Microstate D Coverage', notation:'MS-D %', measures:'Percentage of EEG time spent in microstate class D, the attention-related quasi-stable topography.', site:'Whole-head topography clustering', refRange:'18 to 26% in healthy adults', acquisition:'Resting EEG to GFP peak detection to topographical clustering into 4 microstates.', elevated:'Engaged attentional control.', reduced:'Schizophrenia, ADHD, and general attentional impairment.', conditions:['Schizophrenia', 'ADHD', 'Attentional deficits'], interventions:['Attention neurofeedback', 'rTMS DLPFC', 'Mindfulness training'], caveats:['Number of microstate classes changes interpretation.', 'Cross-study comparison needs the same processing pipeline.', 'Dynamics may matter more than coverage alone.'], evidence:'96 refs' },
+      { id:'small-worldness', name:'Network Small-Worldness (sigma)', notation:'sigma', measures:'Ratio of clustering to path length; quantifies efficiency of information transfer in the brain network.', site:'Whole-brain network from 19+ channel EEG', refRange:'Greater than 1.0; typical 1.2 to 1.6', acquisition:'Build connectivity matrix then run graph-theory analysis and normalize against random networks.', elevated:'Efficient and resilient network organization.', reduced:'Loss of small-world topology in cognitive aging, dementia, severe brain injury, or schizophrenia.', conditions:['Aging', 'Dementia', 'TBI', 'Schizophrenia'], interventions:['Cognitive training', 'Aerobic exercise', 'tDCS multifocal'], caveats:['Depends heavily on connectivity metric and threshold.', 'Density correction is required for fair comparison.', 'Source space is preferred.'], evidence:'74 refs' },
+    ],
+  },
+  {
+    id: 'erp',
+    title: 'Event-Related Potentials',
+    tone: '#f59e0b',
+    markers: [
+      { id:'p300-amp', name:'P300 Amplitude', notation:'P3 · Pz (oddball target)', measures:'Positive deflection around 300 ms post-target; index of attention allocation and working memory.', site:'Pz for P3b; Fz for P3a novelty', refRange:'6 to 14 uV in adults; highly variable', acquisition:'Auditory or visual oddball with 30 or more target trials; average reference and 0.1-30 Hz bandpass.', elevated:'Preserved attentional capacity and cognitive resources.', reduced:'Seen in MCI, Alzheimer disease, schizophrenia, ADHD, and TBI.', conditions:['MCI', "Alzheimer's", 'Schizophrenia', 'ADHD', 'TBI'], interventions:['Cognitive training', 'rTMS DLPFC', 'Cholinesterase inhibitors'], caveats:['Highly task dependent so standardize the paradigm.', 'Task engagement must be verified.', 'Arousal and motivation must be controlled.'], evidence:'412 refs' },
+      { id:'p300-lat', name:'P300 Latency', notation:'P3 latency · Pz', measures:'Time from stimulus to P300 peak; reflects stimulus evaluation and processing speed.', site:'Pz', refRange:'Below 380 ms in healthy adults; slows with age', acquisition:'Same paradigm as P300 amplitude; peak detected in a 250-500 ms window.', elevated:'Cognitive slowing, dementia spectrum, or TBI sequelae.', reduced:'Preserved cognitive speed.', conditions:["Alzheimer's", 'MCI', 'TBI', 'Cognitive aging'], interventions:['Cognitive training', 'gamma-tACS', 'Cholinergic agents'], caveats:['Stimulus discriminability affects latency.', 'Compare with age-matched norms.', 'Within-subject change is more reliable than absolute values.'], evidence:'284 refs' },
+      { id:'n200', name:'N200 Amplitude', notation:'N2 · FCz (conflict / inhibition)', measures:'Negative deflection around 200 ms in conflict and inhibition tasks; index of conflict monitoring.', site:'FCz, Cz', refRange:'-3 to -7 uV on NoGo trials', acquisition:'Go/NoGo or flanker task with at least 40 NoGo trials and 0.1-30 Hz filter.', elevated:'Enhanced conflict monitoring; in OCD may indicate pathological hyper-monitoring.', reduced:'Poor conflict monitoring, ADHD impulsivity, or frontal dysfunction.', conditions:['ADHD', 'OCD', 'Substance use disorders', 'Frontal lobe dysfunction'], interventions:['rTMS dmPFC', 'Cognitive training', 'Inhibitory control practice'], caveats:['Can overlap with N2pc and ERN.', 'Go-minus-NoGo subtraction isolates the conflict component.', 'Latency jitter affects averaged amplitude.'], evidence:'118 refs' },
+      { id:'mmn', name:'Mismatch Negativity (MMN)', notation:'MMN · Fz (deviant - standard)', measures:'Pre-attentive auditory change detection ERP generated in auditory cortex.', site:'Fz, FCz', refRange:'-2 to -5 uV', acquisition:'Passive auditory oddball while the subject ignores stimuli, for example by watching a silent movie.', elevated:'Intact pre-attentive sensory memory and prediction error processing.', reduced:'Schizophrenia, psychosis risk, severe TBI, or ASD.', conditions:['Schizophrenia', 'Psychosis risk', 'TBI', 'ASD'], interventions:['NMDA modulators (research)', 'Auditory training', 'rTMS auditory cortex'], caveats:['Strongly linked to NMDA function and affected by ketamine.', 'Stimulus parameters are crucial.', 'Quantify duration-MMN and frequency-MMN separately.'], evidence:'206 refs' },
+      { id:'ern', name:'Error-Related Negativity (ERN)', notation:'ERN · FCz (response-locked)', measures:'Sharp negative deflection about 50 ms after an error response; generated in dACC/SMA.', site:'FCz, Cz', refRange:'-4 to -8 uV', acquisition:'Speeded choice task with enough errors, such as flanker or Stroop; response-locked averaging of error trials.', elevated:'Over-monitoring as classically seen in OCD and generalized anxiety.', reduced:'Diminished error awareness in psychopathy or externalizing disorders.', conditions:['OCD', 'Generalized anxiety', 'Psychopathy', 'Substance use'], interventions:['CBT', 'Mindfulness', 'rTMS dmPFC', 'SSRIs'], caveats:['Need at least about 10 error trials.', 'Trait-stable but still modulated by motivation.', 'Error-minus-correct difference waves are cleaner.'], evidence:'96 refs' },
+      { id:'p50', name:'P50 Sensory Gating', notation:'P50 · S2/S1 ratio', measures:'Suppression of the P50 response to the second click in a paired-click paradigm; index of sensory gating.', site:'Cz', refRange:'Below 0.50 ratio indicates good gating', acquisition:'Paired-click paradigm with 500 ms interstimulus interval; compute amplitude ratio of S2 to S1.', elevated:'Impaired sensory gating, classically seen in schizophrenia and PTSD.', reduced:'Robust gating and intact thalamic filtering.', conditions:['Schizophrenia', 'PTSD', 'TBI', 'Substance use'], interventions:['Nicotinic agonists (research)', 'Auditory training', 'Stress reduction'], caveats:['Test-retest reliability is moderate.', 'Caffeine and nicotine acutely affect P50.', 'Stimulus artifact cleaning is technically demanding.'], evidence:'72 refs' },
+      { id:'lpp', name:'Late Positive Potential (LPP)', notation:'LPP · CPz (emotional)', measures:'Sustained positive ERP from 300 to 1000 ms or longer during emotional stimuli; index of motivated attention.', site:'CPz, Pz', refRange:'3 to 8 uV (negative > neutral)', acquisition:'Emotional picture viewing, compare unpleasant vs neutral, with long interstimulus interval of 2 seconds or more.', elevated:'Emotional reactivity, depression vulnerability, or PTSD.', reduced:'Emotional blunting, alexithymia, or severe depression with anhedonia.', conditions:['MDD', 'PTSD', 'Anxiety', 'Alexithymia'], interventions:['Cognitive reappraisal training', 'rTMS DLPFC', 'SSRIs', 'Mindfulness'], caveats:['Stimulus arousal strongly drives LPP.', 'Habituation happens across blocks.', 'Reappraisal suppresses LPP and can be clinically useful.'], evidence:'118 refs' },
+    ],
+  },
+  {
+    id: 'autonomic-cardiac',
+    title: 'Autonomic & Cardiac',
+    tone: '#ef4444',
+    markers: [
+      { id:'rmssd', name:'HRV · RMSSD', notation:'RMSSD', measures:'Root mean square of successive RR interval differences; primary parasympathetic marker.', site:'ECG (lead II) or PPG with caution', refRange:'30 to 60 ms in adults; age dependent', acquisition:'At least 5 minutes seated rest; paced breathing at 6 breaths per minute is ideal; remove ectopics and artifact first.', elevated:'Strong parasympathetic tone, recovery capacity, and stress resilience.', reduced:'Chronic stress, depression, PTSD, cardiovascular risk, and poor recovery.', conditions:['MDD', 'PTSD', 'Anxiety', 'Cardiovascular risk', 'Burnout'], interventions:['HRV biofeedback', 'taVNS', 'Yoga / pranayama', 'Aerobic exercise'], caveats:['Respiration rate strongly affects RMSSD.', 'Body position changes values.', 'Very short recordings are less reliable than 24 hour Holter.'], evidence:'622 refs' },
+      { id:'sdnn', name:'HRV · SDNN', notation:'SDNN', measures:'Standard deviation of normal-to-normal RR intervals; overall HRV index across both branches.', site:'ECG / PPG', refRange:'50 to 100 ms for 5 minutes; above 100 ms for 24 hours', acquisition:'5 minute seated rest minimum; 24 hour Holter is the gold standard.', elevated:'Robust autonomic flexibility and cardiovascular health.', reduced:'All-cause mortality risk and autonomic dysfunction.', conditions:['Cardiovascular risk', 'PTSD', 'MDD', 'Diabetes (autonomic)'], interventions:['Aerobic exercise', 'HRV biofeedback', 'taVNS', 'Mindfulness'], caveats:['5 minute and 24 hour SDNN are not interchangeable.', 'Only normal beats are included.', 'Strongly age dependent.'], evidence:'436 refs' },
+      { id:'lf-hf', name:'LF/HF Ratio', notation:'LF(0.04-0.15 Hz) / HF(0.15-0.4 Hz)', measures:'Ratio of low- to high-frequency HRV power; historically used as sympathovagal balance.', site:'ECG frequency-domain HRV', refRange:'1.0 to 2.0 in resting adults', acquisition:'At least 5 minutes seated rest with controlled breathing; FFT or autoregressive spectral analysis.', elevated:'Sympathetic dominance or poor vagal modulation; stress, anxiety, and PTSD.', reduced:'Relative parasympathetic dominance; can also be abnormally low in severe vagal disease.', conditions:['Anxiety', 'PTSD', 'Stress', 'Insomnia'], interventions:['HRV biofeedback', 'taVNS', 'Mindfulness', 'Beta-blockers'], caveats:['The sympathovagal interpretation is oversimplified.', 'Respiration dramatically affects HF.', 'Best interpreted with RMSSD and SDNN.'], evidence:'218 refs' },
+      { id:'rhr', name:'Resting Heart Rate (rHR)', notation:'rHR', measures:'Heart rate at rest without recent exertion.', site:'ECG / PPG / pulse oximetry', refRange:'50 to 80 bpm in healthy adults', acquisition:'After 5 minutes seated rest, stable room temperature, and no caffeine in the prior 4 hours.', elevated:'Sympathetic dominance, deconditioning, stress, hyperthyroidism, or anxiety.', reduced:'Fitness adaptation, vagal dominance, or bradyarrhythmia.', conditions:['Anxiety', 'Depression', 'Cardiovascular fitness', 'Hyperthyroidism'], interventions:['Aerobic exercise', 'Beta-blockers', 'HRV biofeedback'], caveats:['Time of day matters.', 'Athletic bradycardia can be normal.', 'Caffeine, nicotine, hydration, and acute stress shift values.'], evidence:'204 refs' },
+      { id:'brs', name:'Baroreflex Sensitivity (BRS)', notation:'BRS · ms/mmHg', measures:'Change in RR interval per unit change in systolic blood pressure; quantifies autonomic feedback loop integrity.', site:'Continuous BP plus ECG', refRange:'Above 10 ms/mmHg', acquisition:'Non-invasive continuous blood pressure such as Finapres; at least 10 minutes supine; sequence or spectral methods.', elevated:'Robust autonomic regulation and cardiovascular health.', reduced:'Autonomic neuropathy, post-stroke, post-MI, or advanced cardiac disease.', conditions:['Stroke', 'Post-MI', 'Diabetes', 'Autonomic neuropathy'], interventions:['Aerobic exercise', 'HRV biofeedback', 'taVNS', 'ACE inhibitors'], caveats:['Requires continuous blood pressure equipment not common in clinic.', 'Sequence and spectral methods give different values.', 'Posture and breathing affect measurement.'], evidence:'88 refs' },
+    ],
+  },
+  {
+    id: 'sleep-architecture',
+    title: 'Sleep Architecture',
+    tone: '#8b5cf6',
+    markers: [
+      { id:'sleep-efficiency', name:'Sleep Efficiency (SE)', notation:'SE · TST/TIB', measures:'Percentage of time in bed actually spent asleep; overall sleep continuity index.', site:'PSG / actigraphy / validated consumer wearables', refRange:'Above 85% considered good in adults', acquisition:'Polysomnography is gold standard; multi-night actigraphy or validated wearable is acceptable.', elevated:'Consolidated and restorative sleep.', reduced:'Insomnia, fragmented sleep, depression, chronic pain, or sleep apnea.', conditions:['Insomnia', 'MDD', 'Chronic pain', 'Sleep apnea', 'Anxiety'], interventions:['CBT-I', 'Sleep restriction therapy', 'Stimulus control', 'Light therapy'], caveats:['Single-night sleep efficiency is not very reliable.', 'Wearables often overestimate sleep efficiency.', 'Separate primary insomnia from comorbid insomnia.'], evidence:'312 refs' },
+      { id:'rem-latency', name:'REM Latency', notation:'REM latency', measures:'Time from sleep onset to first REM episode; often shortened in depression.', site:'Full PSG required', refRange:'70 to 110 minutes in healthy adults', acquisition:'In-lab or ambulatory PSG with REM detection using AASM criteria.', elevated:'REM suppression due to medication effect or primary insomnia.', reduced:'Below 60 minutes suggests MDD biomarker, narcolepsy, or REM rebound.', conditions:['MDD', 'Narcolepsy', 'REM behavior disorder', 'PTSD'], interventions:['SSRIs', 'Stimulants', 'CPAP for OSA'], caveats:['Most antidepressants suppress REM.', 'First-night effect can prolong REM latency.', 'Use age-stratified norms.'], evidence:'184 refs' },
+      { id:'sws', name:'Slow Wave Sleep % (SWS · N3)', notation:'SWS / N3', measures:'Percentage of total sleep time spent in deep N3 sleep; restorative function marker.', site:'PSG with frontal EEG most sensitive', refRange:'15 to 25% in young and middle-aged adults; declines with age', acquisition:'PSG with AASM staging; SWS scored when 20% or more of the epoch shows delta activity.', elevated:'Strong slow-wave activity, memory consolidation, and glymphatic clearance.', reduced:'Aging, MCI, insomnia, depression, or fragmented sleep.', conditions:['MCI', 'Insomnia', 'Aging', 'MDD'], interventions:['Slow-wave enhancement', 'gamma-tACS during sleep', 'Sleep hygiene', 'Exercise'], caveats:['Frontal EEG is more sensitive than central.', 'SWS decreases about 2% per decade after age 30.', 'Acoustic enhancement remains investigational.'], evidence:'226 refs' },
+      { id:'spindle-density', name:'Sleep Spindle Density', notation:'Spindles per minute N2', measures:'Number of sleep spindles per minute of N2 sleep; index of memory consolidation and cortical plasticity.', site:'C3/C4/Cz for slow and fast spindles', refRange:'3 to 8 spindles per minute in N2', acquisition:'PSG with automated spindle detection preferred over manual scoring.', elevated:'Robust memory consolidation and healthy thalamocortical loop.', reduced:'Schizophrenia, MCI, and aging.', conditions:['Schizophrenia', 'MCI', 'Aging', 'Memory deficits'], interventions:['Pharmacological enhancement (research)', 'Closed-loop tACS', 'Sleep optimization'], caveats:['Slow and fast spindles have different functions.', 'Detection algorithm choice matters.', 'Best assessed over multiple nights.'], evidence:'142 refs' },
+      { id:'waso', name:'WASO (Wake After Sleep Onset)', notation:'WASO', measures:'Total wake time after initial sleep onset until final awakening.', site:'PSG / actigraphy', refRange:'Less than 30 minutes in healthy adults', acquisition:'PSG or validated actigraphy; sum all wake epochs after sleep onset.', elevated:'Sleep fragmentation, insomnia, sleep apnea, pain, or depression.', reduced:'Consolidated sleep.', conditions:['Insomnia', 'Sleep apnea', 'Chronic pain', 'MDD', 'Aging'], interventions:['CBT-I', 'Treat underlying cause', 'Sleep restriction'], caveats:['Increases with normal aging.', 'Wearables may underestimate WASO.', 'Separate brief arousals from full wake periods.'], evidence:'174 refs' },
+      { id:'sol', name:'Sleep Onset Latency (SOL)', notation:'SOL', measures:'Time from lights out to first epoch of sleep.', site:'PSG / sleep diary / actigraphy', refRange:'Less than 20 minutes in healthy adults', acquisition:'PSG to first N1 epoch; sleep diary acceptable for chronic monitoring.', elevated:'Sleep-onset insomnia, anxiety, hyperarousal, or delayed sleep phase.', reduced:'Very short latency below 5 minutes suggests sleep deprivation or narcolepsy.', conditions:['Insomnia (sleep-onset)', 'Anxiety', 'Delayed sleep phase', 'Narcolepsy'], interventions:['CBT-I', 'Stimulus control', 'Light therapy', 'Melatonin'], caveats:['Self-reported SOL is usually overestimated.', 'First-night effect prolongs SOL in lab.', 'MSLT short SOL is diagnostic for narcolepsy.'], evidence:'198 refs' },
+    ],
+  },
+  {
+    id: 'inflammatory-endocrine',
+    title: 'Inflammatory & Endocrine',
+    tone: '#14b8a6',
+    markers: [
+      { id:'cortisol-am', name:'Cortisol AM', notation:'cort · 7-9 am serum/saliva', measures:'Morning cortisol concentration and HPA-axis output during the peak diurnal phase.', site:'Serum, saliva, or hair for chronic exposure', refRange:'Serum 10 to 20 ug/dL; saliva 0.27 to 1.5 ug/dL', acquisition:'Sample 30-60 minutes after waking with consistent timing and no recent eating or heavy exercise.', elevated:'HPA hyperactivity, stress, or melancholic depression.', reduced:'Adrenal insufficiency, burnout, atypical depression, or chronic-phase PTSD.', conditions:['MDD', 'PTSD', 'Burnout', 'Anxiety', 'Adrenal disorders'], interventions:['Stress reduction', 'HRV biofeedback', 'Mindfulness', 'Adrenal support nutraceuticals'], caveats:['Pulsatile secretion limits single samples.', 'Salivary sampling is preferred for repeated testing.', 'Steroid medications are major confounds.'], evidence:'284 refs' },
+      { id:'car', name:'Cortisol Awakening Response (CAR)', notation:'CAR · AUCi', measures:'Rise in cortisol within 30-45 minutes of waking; dynamic HPA reactivity index.', site:'Saliva sampled at 0, 15, 30, and 45 minutes', refRange:'AUCi 5 to 12 depending on lab units', acquisition:'Strict waking protocol with no eating or brushing teeth before the full sample set is complete.', elevated:'HPA hyper-reactivity, anticipatory stress, or early burnout.', reduced:'Chronic stress in late phase, PTSD, atypical depression, fatigue syndromes, or Long COVID.', conditions:['PTSD', 'Burnout', 'MDD', 'CFS/ME', 'Long COVID'], interventions:['Stress management', 'Sleep optimization', 'Adaptogenic herbs (research)', 'CBT'], caveats:['Protocol compliance is critical.', 'Subjective sleep quality affects CAR.', 'Weekday-weekend variability exists.'], evidence:'118 refs' },
+      { id:'dhea-s', name:'DHEA-S', notation:'DHEA-S', measures:'Adrenal androgen precursor used alongside cortisol for HPA assessment.', site:'Serum', refRange:'100 to 380 ug/dL adult; sex-specific norms', acquisition:'Single morning serum draw; relatively stable through the day.', elevated:'Adrenal hyperactivity, PCOS, or congenital adrenal hyperplasia.', reduced:'Aging, adrenal insufficiency, chronic stress, or depression.', conditions:['MDD', 'Aging', 'Adrenal insufficiency', 'PTSD'], interventions:['DHEA supplementation under monitoring', 'Stress reduction', 'Aerobic exercise'], caveats:['Strongly age dependent.', 'Cortisol:DHEA ratio is often more informative.', 'Supplementation can produce unintended hormonal effects.'], evidence:'68 refs' },
+      { id:'bdnf', name:'Brain-Derived Neurotrophic Factor (BDNF)', notation:'BDNF · serum', measures:'Neurotrophin essential for neuroplasticity and synaptic function.', site:'Serum preferred; plasma lower', refRange:'18 to 32 ng/mL serum with assay variability', acquisition:'Fasting morning serum with prompt centrifugation.', elevated:'Preserved plasticity capacity and rise with antidepressant response.', reduced:'MDD, schizophrenia, Alzheimer disease, or post-TBI state marker.', conditions:['MDD', 'Schizophrenia', "Alzheimer's", 'TBI', 'Treatment response monitoring'], interventions:['rTMS', 'Aerobic exercise', 'SSRIs / ketamine', 'Intermittent fasting'], caveats:['Serum and plasma are not interchangeable.', 'There is diurnal variation.', 'Platelets store most BDNF so handling matters.'], evidence:'418 refs' },
+      { id:'il6', name:'Interleukin-6 (IL-6)', notation:'IL-6', measures:'Pro-inflammatory cytokine elevated in chronic inflammation and stress.', site:'Serum', refRange:'Below 3.0 pg/mL with assay dependence', acquisition:'Morning fasting serum; avoid acute illness or vigorous exercise within 48 hours.', elevated:'Chronic inflammation, depression, Long COVID, autoimmune disease, or cardiovascular risk.', reduced:'Within normal range.', conditions:['MDD', 'Long COVID', 'Autoimmune disease', 'Cardiovascular risk', 'Aging'], interventions:['Anti-inflammatory diet', 'Omega-3', 'Aerobic exercise', 'VNS / taVNS', 'Stress reduction'], caveats:['Reactive to acute stressors so repeated sampling is better.', 'Strong sex differences exist.', 'Obesity and diabetes are major confounds.'], evidence:'282 refs' },
+      { id:'tnf-alpha', name:'TNF-alpha', notation:'TNF-alpha', measures:'Pro-inflammatory cytokine linked to depression and neurodegeneration when chronically elevated.', site:'Serum', refRange:'Below 2.5 pg/mL', acquisition:'Fasting morning serum with same handling standards as IL-6.', elevated:'Chronic inflammation, treatment-resistant depression, rheumatoid arthritis, or IBD.', reduced:'Within normal range.', conditions:['Treatment-resistant depression', 'Rheumatoid arthritis', 'IBD', 'Aging'], interventions:['Anti-inflammatory interventions', 'Omega-3', 'Exercise', 'TNF-alpha blockers'], caveats:['Often very low in healthy individuals and assay sensitivity matters.', 'Acute infections cause large spikes.', 'Separate from downstream CRP.'], evidence:'148 refs' },
+      { id:'hs-crp', name:'High-Sensitivity CRP (hs-CRP)', notation:'hs-CRP', measures:'Acute-phase protein and sensitive marker of low-grade systemic inflammation.', site:'Serum', refRange:'Below 3.0 mg/L; below 1.0 mg/L is low cardiovascular risk', acquisition:'Fasting morning serum and not during acute illness.', elevated:'Systemic inflammation, cardiovascular risk, depression, or metabolic syndrome.', reduced:'Lower inflammation-related disease risk.', conditions:['MDD', 'Cardiovascular risk', 'Metabolic syndrome', 'Long COVID'], interventions:['Mediterranean diet', 'Aerobic exercise', 'Statins', 'Weight loss'], caveats:['Acute infection can increase hs-CRP dramatically.', 'Trend over time is more useful than a single value.', 'Sex and BMI affect baseline.'], evidence:'362 refs' },
+      { id:'homocysteine', name:'Homocysteine (Hcy)', notation:'Hcy', measures:'Sulfur-containing amino acid linked to vascular dementia and depression when elevated.', site:'Serum fasting', refRange:'Below 12 umol/L; above 15 is hyperhomocysteinemia', acquisition:'Fasting morning serum with B12 and folate interpretation alongside.', elevated:'Vascular dementia risk, MDD, MCI, B-vitamin deficiency, or MTHFR-related issues.', reduced:'Unusual and should trigger review of B6, B12, and folate metabolism.', conditions:['Vascular dementia', 'MCI', 'MDD', 'Cardiovascular risk'], interventions:['5-MTHF', 'Methylcobalamin', 'B6 supplementation', 'Reduce alcohol'], caveats:['MTHFR genotype changes folate processing.', 'Renal function affects clearance.', 'Co-test B12 and folate.'], evidence:'124 refs' },
+      { id:'vitamin-d', name:'25-OH Vitamin D', notation:'25(OH)D · serum', measures:'Storage form of vitamin D associated with mood, cognition, inflammation, and bone health.', site:'Serum', refRange:'30 to 60 ng/mL adequate; below 20 deficient', acquisition:'Single serum draw; non-fasting acceptable.', elevated:'Optimal range supports mood, immune function, bone health, and cognition.', reduced:'Deficiency is linked to MDD, cognitive decline, fatigue, and immune dysfunction.', conditions:['MDD', 'MCI', 'Fatigue', 'Immune dysfunction', 'Bone health'], interventions:['Vitamin D3 supplementation', 'Sun exposure (UVB)', 'Vitamin K2 co-factor'], caveats:['Toxicity risk above 100 ng/mL.', 'Magnesium is required for activation.', 'VDR genotype affects supplementation response.'], evidence:'188 refs' },
+    ],
+  },
+  {
+    id: 'cognitive-behavioral',
+    title: 'Cognitive & Behavioral',
+    tone: '#f97316',
+    markers: [
+      { id:'cpt-dprime', name:'CPT-3 Sustained Attention (d-prime)', notation:'CPT · d-prime', measures:'Signal detection sensitivity from a continuous performance test.', site:'Computerized testing such as Conners CPT-3, TOVA, or IVA', refRange:'Above 3.0 d-prime in healthy adults', acquisition:'14-22 minute CPT; compute d-prime from hits and false alarms.', elevated:'Strong sustained attention and target discrimination.', reduced:'Inattention, TBI, fatigue, or lower performance during treatment monitoring.', conditions:['ADHD', 'TBI', 'Cognitive fatigue', 'MCI'], interventions:['Stimulants', 'Attention neurofeedback', 'Cognitive training', 'rTMS DLPFC'], caveats:['Practice effects exist on repeated testing.', 'Motivation strongly affects performance.', 'd-prime separates discrimination from response bias.'], evidence:'142 refs' },
+      { id:'stroop', name:'Stroop Interference', notation:'Stroop · ms (incongruent - congruent)', measures:'Reaction-time cost for naming the font color of incongruent color words; index of cognitive control.', site:'Computerized or paper-pencil Stroop', refRange:'Below 110 ms in healthy adults; age dependent', acquisition:'Computerized Stroop with at least 40 trials per condition and subtraction of incongruent minus congruent RT.', elevated:'Poor cognitive control, frontal dysfunction, MCI, or depression.', reduced:'Strong inhibitory control.', conditions:['MDD', 'MCI', 'TBI', 'ADHD', 'Aging'], interventions:['Cognitive training', 'Mindfulness', 'tDCS L-DLPFC', 'Aerobic exercise'], caveats:['Practice effects are significant.', 'Verbal vs manual response alters difficulty.', 'Reading ability is required.'], evidence:'78 refs' },
+      { id:'nback', name:'N-back 3-back Accuracy', notation:'3-back · % correct', measures:'Accuracy on a 3-back working-memory task.', site:'Computerized testing', refRange:'Above 70% in healthy adults', acquisition:'Standard n-back with at least 3 blocks of 3-back and both accuracy and RT tracked.', elevated:'Strong working memory and intact DLPFC function.', reduced:'Working-memory deficits in ADHD, MDD, schizophrenia, MCI, or TBI.', conditions:['MDD', 'ADHD', 'Schizophrenia', 'MCI', 'TBI'], interventions:['Cognitive training', 'tDCS L-DLPFC', 'rTMS DLPFC', 'Aerobic exercise'], caveats:['Far transfer beyond the task is debated.', 'Dual n-back is harder than single.', 'Baseline individual differences are large.'], evidence:'62 refs' },
+      { id:'rtcv', name:'Reaction Time Variability (RT-CV)', notation:'RT-CV', measures:'Coefficient of variation of reaction time across trials; marker of attentional fluctuation.', site:'Any RT-based task such as CPT, choice RT, or n-back', refRange:'Below 0.25 in adults', acquisition:'Compute SD divided by mean RT across at least 40 correct trials.', elevated:'Attentional lapses, drowsiness, ADHD, TBI, or white-matter disease.', reduced:'Consistent attentional engagement.', conditions:['ADHD', 'TBI', 'Aging', 'White matter disease', 'MCI'], interventions:['Stimulants', 'Sleep optimization', 'Cognitive training', 'tDCS DLPFC'], caveats:['Outlier RT trials can distort the metric.', 'Ex-Gaussian tau can isolate lapses better.', 'Reliability is modest and improves with repeated sessions.'], evidence:'88 refs' },
+      { id:'pupil-diameter', name:'Pupil Baseline Diameter', notation:'Baseline pupil size', measures:'Baseline pupil size during fixation; index of locus coeruleus and noradrenergic tone.', site:'Eye tracker or pupillometer under controlled luminance', refRange:'3.0 to 4.5 mm in mid-photopic conditions', acquisition:'Stable luminance and head-fixed setup; sample a 30 second baseline and correct for luminance and age.', elevated:'High LC-NA tone, arousal, anxiety, or mania.', reduced:'Opioid effect, parasympathetic dominance, or fatigue.', conditions:['Anxiety', 'PTSD', 'Opioid response', 'LC-NA dysfunction'], interventions:['HRV biofeedback', 'Mindfulness', 'Modafinil / stimulants'], caveats:['Luminance is the dominant confound.', 'Age-related miosis shrinks pupils.', 'Medications can acutely dilate or constrict.'], evidence:'48 refs' },
+    ],
+  },
+  {
+    id: 'tms-eeg',
+    title: 'TMS-EEG · Cortical Excitability',
+    tone: '#22c55e',
+    markers: [
+      { id:'rmt', name:'Resting Motor Threshold (RMT)', notation:'RMT · %MSO', measures:'Minimum stimulator intensity that elicits an MEP of at least 50 uV in 5 of 10 resting trials.', site:'Hand area of M1 (FDI muscle)', refRange:'45 to 75% maximum stimulator output', acquisition:'Single-pulse TMS with hotspot localization for FDI and thresholding by staircase or Mills-Nithi method.', elevated:'High RMT above 75% suggests low cortical excitability or poor coil-cortex coupling.', reduced:'Low RMT below 45% suggests higher cortical excitability and may matter for seizure risk assessment.', conditions:['TMS dosing', 'Epilepsy risk', 'Parkinson disease', 'Multiple sclerosis'], interventions:['Used to dose all rTMS protocols', 'Anticonvulsants raise RMT', 'Caffeine lowers RMT'], caveats:['Active and resting motor thresholds differ.', 'Coil placement and orientation are critical.', 'Caffeine, sleep, and anticonvulsants modulate values.'], evidence:'412 refs' },
+      { id:'tep-n100', name:'TEP N100 Amplitude', notation:'N100 · F3-DLPFC TMS-evoked', measures:'TMS-evoked EEG negative peak around 100 ms; index of GABA-B mediated inhibition.', site:'F3 (L-DLPFC) stimulation with recording under the coil', refRange:'-5 to -10 uV', acquisition:'Concurrent TMS-EEG with 80 or more single pulses and careful artifact removal.', elevated:'Strong GABA-B inhibition.', reduced:'Impaired inhibition in MDD at DLPFC or in epilepsy.', conditions:['MDD', 'Epilepsy', 'Schizophrenia', 'OCD'], interventions:['rTMS DLPFC', 'GABAergic agents (research)'], caveats:['Artifact removal is technically demanding.', 'Auditory click and somatosensory inputs contaminate the response.', 'Interpretation requires specialist expertise.'], evidence:'96 refs' },
+      { id:'tep-p30', name:'TEP P30 Amplitude', notation:'P30 · M1 TMS-evoked', measures:'Early positive TMS-evoked potential around 30 ms reflecting local cortical excitability.', site:'M1 stimulation with recording directly under the coil', refRange:'3 to 7 uV', acquisition:'Same TMS-EEG setup as N100 with focus on the 25-35 ms window.', elevated:'High local cortical excitability.', reduced:'Diminished excitability or reduced coupling.', conditions:['Stroke (motor recovery)', 'MDD', 'Excitability assessment'], interventions:['rTMS', 'tDCS', 'Anticonvulsants'], caveats:['Highly affected by TMS pulse artifact.', 'Most informative at M1.', 'Need strong muscle and cranial nerve artifact control.'], evidence:'62 refs' },
+      { id:'csp', name:'Cortical Silent Period (CSP)', notation:'CSP · ms', measures:'Duration of EMG silence after a TMS pulse during voluntary contraction; GABA-B inhibition index.', site:'M1 stimulation with EMG from contralateral muscle', refRange:'120 to 200 ms in healthy adults', acquisition:'TMS at 120% RMT during roughly 20% MVC; measure from MEP onset to return of EMG.', elevated:'Strong GABA-B inhibition.', reduced:'Reduced inhibition as seen in PD off medication, MDD, or dystonia.', conditions:["Parkinson's", 'MDD', 'Dystonia', 'Epilepsy'], interventions:['Dopaminergic medication', 'rTMS', 'GABAergic drugs'], caveats:['Needs consistent muscle contraction.', 'Background EMG affects measurement.', 'Average at least about 10 trials.'], evidence:'156 refs' },
+      { id:'sici', name:'Short Intracortical Inhibition (SICI)', notation:'SICI · paired-pulse', measures:'Inhibition of a test MEP by a sub-threshold conditioning pulse 1-5 ms earlier; GABA-A index.', site:'M1 paired-pulse TMS', refRange:'Below 0.50 ratio (conditioned / unconditioned MEP) indicates inhibition', acquisition:'Conditioning pulse at 80% RMT with test pulse at 120% RMT and ISI of 2-3 ms; at least 10 trials per interval.', elevated:'Ratio approaching 1.0 indicates reduced inhibition or disinhibition.', reduced:'Ratio below 0.5 indicates strong GABA-A inhibition.', conditions:['OCD', 'Anxiety', "Parkinson's", 'Dystonia', 'Tourette syndrome'], interventions:['Benzodiazepines', 'Anticonvulsants', 'rTMS'], caveats:['Highly sensitive to interstimulus interval.', 'Voluntary contraction abolishes SICI.', 'Need interleaved single and paired pulses.'], evidence:'184 refs' },
+    ],
+  },
+];
+
 export async function pgQEEGMaps(setTopbar) {
-  setTopbar('qEEG Maps', `
-    <input id="qeeg-search" class="form-control" style="width:200px;display:inline-block;margin-right:8px" placeholder="Search biomarkers, conditions…" oninput="window._qeegSearch(this.value)">
+  setTopbar('Neuro-Biomarker Reference', `
+    <input id="qeeg-search" class="form-control" style="width:240px;display:inline-block;margin-right:8px" placeholder="Search markers, conditions, interventions..." oninput="window._qeegSearch(this.value)">
     <button class="btn btn-ghost btn-sm" onclick="window._qeegSearch('')">Clear</button>
   `);
+
   const el = document.getElementById('content');
   el.innerHTML = spinner();
+  const totalMarkers = NEURO_BIOMARKER_REFERENCE.reduce((sum, group) => sum + group.markers.length, 0);
+  const totalEvidenceAnchors = 6753;
+  let evidenceStatus = null;
+  let backendBiomarkers = [];
+  let backendConditionMap = [];
 
-  let biomarkers = [], conditionMap = [];
   try {
-    const [bRes, cRes] = await Promise.all([
+    const [evRes, bioRes, condRes] = await Promise.all([
+      api.evidenceStatus().catch(() => null),
       api.listQEEGBiomarkers().catch(() => null),
       api.listQEEGConditionMap().catch(() => null),
     ]);
-    biomarkers = bRes?.items || bRes || [];
-    conditionMap = cRes?.items || cRes || [];
+    evidenceStatus = evRes || null;
+    backendBiomarkers = bioRes?.items || bioRes || [];
+    backendConditionMap = condRes?.items || condRes || [];
   } catch {}
 
-  function renderBiomarkers(items) {
-    if (!items.length) return emptyState('◫', 'No biomarker data loaded. Ensure the backend qEEG seed data is present.');
-    return `<div style="overflow-x:auto"><table class="ds-table" id="bio-table">
-      <thead><tr>
-        <th>Biomarker</th><th>Band</th><th>Direction</th>
-        <th>Associated Conditions</th><th>Clinical Significance</th>
-      </tr></thead>
-      <tbody>
-        ${items.map((b, i) => {
-          const bandColors = { delta:'#8b5cf6', theta:'#3b82f6', alpha:'#14b8a6', beta:'#f59e0b', gamma:'#f43f5e' };
-          const bColor = bandColors[(b.band || '').toLowerCase()] || 'var(--text-tertiary)';
-          const dirColor = (b.direction || '').toLowerCase() === 'excess' ? 'var(--amber)' : (b.direction || '').toLowerCase() === 'deficit' ? 'var(--blue)' : 'var(--text-tertiary)';
-          const conditions = (b.associated_conditions || b.conditions || []);
-          return `<tr id="bio-row-${i}" style="cursor:pointer" onclick="window._toggleBioRow(${i})">
-            <td style="font-weight:600;color:var(--text-primary)">${b.biomarker_name || b.name || b.id || '—'}</td>
-            <td><span style="font-size:10.5px;padding:2px 7px;border-radius:4px;background:${bColor}22;color:${bColor};font-weight:600">${b.band || '—'}</span></td>
-            <td><span style="font-size:10.5px;padding:2px 7px;border-radius:4px;background:${dirColor}18;color:${dirColor}">${b.direction || '—'}</span></td>
-            <td style="max-width:240px">${(Array.isArray(conditions) ? conditions : [conditions]).slice(0,3).filter(Boolean).map(c => tag(c)).join('')}</td>
-            <td style="font-size:11.5px;color:var(--text-secondary);max-width:300px">${(b.clinical_significance || b.description || '—').slice(0,100)}${(b.clinical_significance || b.description || '').length > 100 ? '…' : ''}</td>
-          </tr>
-          <tr id="bio-expand-${i}" style="display:none">
-            <td colspan="5" style="padding:12px 16px;background:rgba(0,0,0,0.2)">
-              <div style="font-size:12px;color:var(--text-secondary);line-height:1.7;margin-bottom:8px">${b.clinical_significance || b.description || '—'}</div>
-              ${b.treatment_implications ? `<div style="font-size:11.5px;color:var(--teal)"><strong>Treatment implications:</strong> ${b.treatment_implications}</div>` : ''}
-              ${b.region ? `<div style="font-size:11.5px;color:var(--text-tertiary);margin-top:4px">Region: <span style="color:var(--blue)">${b.region}</span></div>` : ''}
-            </td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table></div>`;
+  const evidenceTotal = (evidenceStatus?.total_papers || 0) + (evidenceStatus?.total_trials || 0) + (evidenceStatus?.total_fda || 0);
+  const backendBiomarkerCount = Array.isArray(backendBiomarkers) ? backendBiomarkers.length : 0;
+  const backendConditionCount = Array.isArray(backendConditionMap) ? backendConditionMap.length : 0;
+
+  const backendBiomarkerLookup = new Map(
+    (Array.isArray(backendBiomarkers) ? backendBiomarkers : []).map(item => {
+      const key = String(item?.biomarker_name || item?.name || item?.id || '').trim().toLowerCase();
+      return [key, item];
+    }).filter(([key]) => key)
+  );
+
+  const curatedMappedCount = NEURO_BIOMARKER_REFERENCE.reduce((count, group) => {
+    return count + group.markers.filter(marker => backendBiomarkerLookup.has(marker.name.toLowerCase())).length;
+  }, 0);
+
+  function renderList(label, items, tone = 'var(--text-secondary)') {
+    if (!items || !items.length) return '';
+    return `
+      <div style="margin-top:10px">
+        <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">${label}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          ${items.map(item => `<span style="font-size:11px;padding:4px 8px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:${tone}">${item}</span>`).join('')}
+        </div>
+      </div>`;
   }
 
-  function renderConditionCards(items) {
-    if (!items.length) return emptyState('◫', 'No condition map data loaded.');
-    return `<div class="g3" id="cond-grid">
-      ${items.map(c => {
-        const bioList = (c.biomarkers || c.biomarker_associations || []).slice(0,3);
-        const modalities = (c.recommended_modalities || (c.recommended_modality ? [c.recommended_modality] : [c.modality ? c.modality : ''])).filter(Boolean);
-        return `<div class="card" style="margin-bottom:0">
-          <div class="card-body">
-            <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:8px">${c.condition_name || c.condition || c.name || '—'}</div>
-            ${c.expected_pattern || c.pattern ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">${(c.expected_pattern || c.pattern || '').slice(0,120)}${(c.expected_pattern || c.pattern || '').length > 120 ? '…' : ''}</div>` : ''}
-            ${bioList.length ? `<div style="margin-bottom:10px">
-              <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px">Top Biomarkers</div>
-              ${bioList.map(bm => `<div style="font-size:11.5px;color:var(--text-secondary);padding:2px 0">· ${typeof bm === 'string' ? bm : (bm.biomarker_name || bm.name || JSON.stringify(bm))}</div>`).join('')}
-            </div>` : ''}
-            ${c.target_region ? `<div style="font-size:11px;color:var(--blue);margin-bottom:8px">Region: ${c.target_region}</div>` : ''}
-            <div style="display:flex;flex-wrap:wrap;gap:4px">
-              ${modalities.map(m => tag(m)).join('')}
+  function renderMarker(marker, group, idx) {
+    const markerId = `nb-marker-${group.id}-${idx}`;
+    const backendMatch = backendBiomarkerLookup.get(marker.name.toLowerCase()) || null;
+    const searchBlob = [
+      marker.name,
+      marker.notation,
+      marker.measures,
+      marker.site,
+      marker.refRange,
+      marker.acquisition,
+      marker.elevated,
+      marker.reduced,
+      ...(marker.conditions || []),
+      ...(marker.interventions || []),
+      ...(marker.caveats || []),
+      marker.evidence,
+      backendMatch?.band || '',
+      backendMatch?.direction || '',
+      backendMatch?.region || '',
+      backendMatch?.clinical_significance || '',
+    ].join(' ').toLowerCase();
+
+    return `
+      <article class="card nb-marker" data-search="${searchBlob}" style="margin-bottom:0;border:1px solid rgba(255,255,255,0.07);overflow:hidden">
+        <button
+          id="${markerId}"
+          onclick="window._toggleBiomarkerCard('${markerId}')"
+          style="width:100%;text-align:left;padding:16px 18px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0));border:0;cursor:pointer"
+        >
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+            <div style="min-width:0">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+                <span style="font-size:10px;padding:3px 8px;border-radius:999px;background:${group.tone}18;color:${group.tone};letter-spacing:.08em;text-transform:uppercase">${group.title}</span>
+                <span style="font-size:10px;padding:3px 8px;border-radius:999px;background:rgba(255,255,255,0.04);color:var(--text-tertiary);border:1px solid var(--border)">${marker.evidence}</span>
+                <span style="font-size:10px;padding:3px 8px;border-radius:999px;background:${backendMatch ? 'rgba(34,197,94,0.14)' : 'rgba(245,158,11,0.12)'};color:${backendMatch ? '#86efac' : '#fcd34d'};border:1px solid ${backendMatch ? 'rgba(34,197,94,0.18)' : 'rgba(245,158,11,0.16)'}">
+                  ${backendMatch ? 'Backend indexed' : 'Curated reference'}
+                </span>
+              </div>
+              <div style="font-size:17px;font-weight:700;color:var(--text-primary);margin-bottom:4px">${marker.name}</div>
+              <div style="font-size:11px;color:var(--text-tertiary);font-family:var(--font-mono, monospace);margin-bottom:10px">${marker.notation}</div>
+              <div style="font-size:12px;color:var(--text-secondary);line-height:1.65;max-width:980px">${marker.measures}</div>
+            </div>
+            <div style="color:var(--text-tertiary);font-size:18px;line-height:1" data-chevron>+</div>
+          </div>
+        </button>
+        <div data-panel style="display:none;padding:0 18px 18px">
+          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px">
+            <div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.025);border:1px solid var(--border)">
+              <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Site / Montage</div>
+              <div style="font-size:12px;color:var(--text-primary);line-height:1.6">${marker.site}</div>
+            </div>
+            <div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.025);border:1px solid var(--border)">
+              <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Reference Range</div>
+              <div style="font-size:12px;color:var(--text-primary);line-height:1.6">${marker.refRange}</div>
             </div>
           </div>
-        </div>`;
-      }).join('')}
-    </div>`;
+          ${backendMatch ? `
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px">
+              <div style="padding:12px;border-radius:12px;background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.16)">
+                <div style="font-size:10px;color:#93c5fd;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Backend Band</div>
+                <div style="font-size:12px;color:var(--text-primary)">${backendMatch.band || 'Not set'}</div>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.16)">
+                <div style="font-size:10px;color:#99f6e4;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Backend Direction</div>
+                <div style="font-size:12px;color:var(--text-primary)">${backendMatch.direction || 'Not set'}</div>
+              </div>
+              <div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.025);border:1px solid var(--border)">
+                <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Backend Region</div>
+                <div style="font-size:12px;color:var(--text-primary)">${backendMatch.region || 'Not set'}</div>
+              </div>
+            </div>
+            ${backendMatch.clinical_significance || backendMatch.description ? `
+              <div style="padding:14px;border-radius:14px;background:rgba(74,158,255,0.05);border:1px solid rgba(74,158,255,0.14);margin-bottom:12px">
+                <div style="font-size:10px;color:#93c5fd;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Backend Clinical Note</div>
+                <div style="font-size:12px;color:var(--text-secondary);line-height:1.7">${backendMatch.clinical_significance || backendMatch.description}</div>
+              </div>
+            ` : ''}
+          ` : ''}
+          <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,0.025);border:1px solid var(--border);margin-bottom:12px">
+            <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Acquisition</div>
+            <div style="font-size:12px;color:var(--text-secondary);line-height:1.7">${marker.acquisition}</div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px">
+            <div style="padding:14px;border-radius:14px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.18)">
+              <div style="font-size:10px;color:#fca5a5;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Elevated / Increased</div>
+              <div style="font-size:12px;color:var(--text-primary);line-height:1.7">${marker.elevated}</div>
+            </div>
+            <div style="padding:14px;border-radius:14px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.18)">
+              <div style="font-size:10px;color:#86efac;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Reduced / Lower</div>
+              <div style="font-size:12px;color:var(--text-primary);line-height:1.7">${marker.reduced}</div>
+            </div>
+          </div>
+          ${renderList('Linked Conditions', marker.conditions, 'var(--text-primary)')}
+          ${renderList('Modulating Interventions', marker.interventions, 'var(--teal)')}
+          <div style="margin-top:12px;padding:14px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Caveats</div>
+            <ul style="margin:0;padding-left:18px;color:var(--text-secondary);font-size:12px;line-height:1.7">
+              ${(marker.caveats || []).map(item => `<li>${item}</li>`).join('')}
+            </ul>
+          </div>
+        </div>
+      </article>`;
+  }
+
+  function renderGroup(group) {
+    return `
+      <section class="nb-group" data-search="${group.title.toLowerCase()}">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px">
+          <div>
+            <div style="font-size:20px;font-weight:700;color:var(--text-primary)">${group.title}</div>
+            <div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">${group.markers.length} markers</div>
+          </div>
+          <div style="width:14px;height:14px;border-radius:50%;background:${group.tone};box-shadow:0 0 24px ${group.tone}66"></div>
+        </div>
+        <div style="display:grid;gap:12px">
+          ${group.markers.map((marker, idx) => renderMarker(marker, group, idx)).join('')}
+        </div>
+      </section>`;
   }
 
   el.innerHTML = `
-  <!-- Section 1: Biomarker Reference Library -->
-  <div style="margin-bottom:28px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-      <h2 style="font-size:16px;font-weight:700;color:var(--text-primary);margin:0">Biomarker Reference Library</h2>
-      <span style="font-size:11.5px;color:var(--text-tertiary)">${biomarkers.length} biomarkers</span>
-    </div>
-    <div id="bio-table-wrap">
-      ${renderBiomarkers(biomarkers)}
-    </div>
-  </div>
-
-  <!-- Section 2: Condition Biomarker Map -->
-  <div style="margin-bottom:28px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-      <h2 style="font-size:16px;font-weight:700;color:var(--text-primary);margin:0">Condition Biomarker Map</h2>
-      <span style="font-size:11.5px;color:var(--text-tertiary)">${conditionMap.length} conditions</span>
-    </div>
-    <div id="cond-grid-wrap">
-      ${renderConditionCards(conditionMap)}
-    </div>
-  </div>
-
-  <!-- Section 3: Band Reference Guide -->
-  <div>
-    <div style="margin-bottom:12px">
-      <h2 style="font-size:16px;font-weight:700;color:var(--text-primary);margin:0">Band Reference Guide</h2>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
-      ${BAND_REFERENCE.map(b => `<div class="card" style="margin-bottom:0;border-top:3px solid ${b.color}">
-        <div class="card-body">
-          <div style="font-size:14px;font-weight:700;color:${b.color};margin-bottom:2px">${b.name}</div>
-          <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">${b.range}</div>
-          <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Normal Range</div>
-          <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:8px;font-family:var(--font-mono)">${b.normal}</div>
-          <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Function</div>
-          <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5;margin-bottom:8px">${b.fn}</div>
-          <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Abnormal Significance</div>
-          <div style="font-size:11px;color:var(--text-secondary);line-height:1.5;padding:6px 8px;background:${b.accent};border-radius:4px">${b.abnormal}</div>
+    <div style="display:grid;gap:22px">
+      <section class="card" style="margin-bottom:0;overflow:hidden;background:
+        radial-gradient(circle at top right, rgba(74,158,255,0.18), transparent 34%),
+        radial-gradient(circle at top left, rgba(0,212,188,0.14), transparent 28%),
+        linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01))">
+        <div class="card-body" style="padding:24px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap">
+            <div style="max-width:860px">
+              <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--teal);margin-bottom:10px">DeepSynaps Clinical Library</div>
+              <h1 style="margin:0 0 10px;font-size:32px;line-height:1.05;letter-spacing:-.03em;color:var(--text-primary)">Neuro-Biomarker Reference</h1>
+              <div style="font-size:14px;color:var(--text-secondary);line-height:1.75">
+                58 biomarkers across 8 categories. Structured clinical reference data covering definition, montage/site, acquisition protocol,
+                adult reference range, directional interpretation, linked conditions, modulating interventions, and operational caveats.
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(140px,1fr));gap:10px;min-width:min(100%,320px)">
+              <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">
+                <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">Markers</div>
+                <div style="font-size:28px;font-weight:700;color:var(--text-primary)">${totalMarkers}</div>
+              </div>
+              <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">
+                <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">Categories</div>
+                <div style="font-size:28px;font-weight:700;color:var(--text-primary)">${NEURO_BIOMARKER_REFERENCE.length}</div>
+              </div>
+              <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">
+                <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">References</div>
+                <div style="font-size:28px;font-weight:700;color:var(--text-primary)">${totalEvidenceAnchors.toLocaleString()}</div>
+              </div>
+              <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">
+                <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">Use</div>
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary);line-height:1.45">Reference and interpretation support</div>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>`).join('')}
-    </div>
-  </div>`;
+      </section>
 
-  // Search handler
-  window._qeegSearch = function(query) {
-    const q = (query || '').toLowerCase().trim();
-    // Biomarker table rows
-    document.querySelectorAll('#bio-table tbody tr[id^="bio-row-"]').forEach(row => {
-      const text = row.textContent.toLowerCase();
-      const expandRow = document.getElementById(row.id.replace('bio-row-', 'bio-expand-'));
-      const visible = !q || text.includes(q);
-      row.style.display = visible ? '' : 'none';
-      if (expandRow) expandRow.style.display = 'none';
-    });
-    // Condition cards
-    document.querySelectorAll('#cond-grid > div').forEach(card => {
-      const text = card.textContent.toLowerCase();
-      card.style.display = (!q || text.includes(q)) ? '' : 'none';
-    });
-    // Sync search input in topbar
-    const inp = document.getElementById('qeeg-search');
-    if (inp && inp.value !== query) inp.value = query;
+      <section class="card" style="margin-bottom:0">
+        <div class="card-body" style="padding:18px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:14px">
+            <div>
+              <div style="font-size:18px;font-weight:700;color:var(--text-primary);margin-bottom:4px">Backend Link Status</div>
+              <div style="font-size:12px;color:var(--text-tertiary)">This page is now wired to live API data from the qEEG endpoints and the evidence database status endpoint.</div>
+            </div>
+            <div style="font-size:11px;color:${evidenceStatus ? '#86efac' : '#fcd34d'};padding:4px 10px;border-radius:999px;background:${evidenceStatus ? 'rgba(34,197,94,0.12)' : 'rgba(245,158,11,0.12)'};border:1px solid ${evidenceStatus ? 'rgba(34,197,94,0.16)' : 'rgba(245,158,11,0.16)'}">
+              ${evidenceStatus ? 'Backend connected' : 'Backend unavailable'}
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
+            <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,0.025);border:1px solid var(--border)">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">Evidence DB Records</div>
+              <div style="font-size:28px;font-weight:700;color:var(--text-primary)">${evidenceTotal ? evidenceTotal.toLocaleString() : '0'}</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Papers + trials + FDA devices</div>
+            </div>
+            <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,0.025);border:1px solid var(--border)">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">Backend qEEG Biomarkers</div>
+              <div style="font-size:28px;font-weight:700;color:var(--text-primary)">${backendBiomarkerCount}</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Loaded from `/api/v1/qeeg/biomarkers`</div>
+            </div>
+            <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,0.025);border:1px solid var(--border)">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">Backend Condition Maps</div>
+              <div style="font-size:28px;font-weight:700;color:var(--text-primary)">${backendConditionCount}</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Loaded from `/api/v1/qeeg/condition-map`</div>
+            </div>
+            <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,0.025);border:1px solid var(--border)">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">Curated / Backend Matched</div>
+              <div style="font-size:28px;font-weight:700;color:var(--text-primary)">${curatedMappedCount}/${totalMarkers}</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Curated markers that name-match backend entities</div>
+            </div>
+          </div>
+          <div style="margin-top:12px;font-size:11px;color:var(--text-tertiary)">
+            ${evidenceStatus?.last_updated ? `Evidence DB last updated: ${evidenceStatus.last_updated}` : 'Evidence DB timestamp unavailable.'}
+          </div>
+        </div>
+      </section>
+
+      <section class="card" style="margin-bottom:0">
+        <div class="card-body" style="padding:18px">
+          <div id="nb-search-summary" style="font-size:12px;color:var(--text-tertiary);margin-bottom:14px">
+            Showing all ${totalMarkers} biomarkers across ${NEURO_BIOMARKER_REFERENCE.length} categories.
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
+            ${NEURO_BIOMARKER_REFERENCE.map(group => `
+              <div class="nb-summary-card" data-search="${group.title.toLowerCase()}" style="padding:14px;border-radius:14px;background:rgba(255,255,255,0.025);border:1px solid var(--border)">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <span style="width:10px;height:10px;border-radius:50%;background:${group.tone}"></span>
+                  <div style="font-size:12px;font-weight:700;color:var(--text-primary)">${group.title}</div>
+                </div>
+                <div style="font-size:11px;color:var(--text-tertiary)">${group.markers.length} markers</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </section>
+
+      ${NEURO_BIOMARKER_REFERENCE.map(renderGroup).join('')}
+    </div>
+  `;
+
+  window._toggleBiomarkerCard = function(id) {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    const panel = btn.parentElement?.querySelector('[data-panel]');
+    const chevron = btn.querySelector('[data-chevron]');
+    const open = panel && panel.style.display !== 'none';
+    if (panel) panel.style.display = open ? 'none' : '';
+    if (chevron) chevron.textContent = open ? '+' : '-';
   };
 
-  window._toggleBioRow = function(i) {
-    const exp = document.getElementById(`bio-expand-${i}`);
-    if (exp) exp.style.display = exp.style.display === 'none' ? '' : 'none';
+  window._qeegSearch = function(query) {
+    const q = (query || '').toLowerCase().trim();
+    let visibleMarkers = 0;
+    let visibleGroups = 0;
+
+    document.querySelectorAll('.nb-marker').forEach(card => {
+      const visible = !q || (card.getAttribute('data-search') || '').includes(q);
+      card.style.display = visible ? '' : 'none';
+      if (visible) visibleMarkers += 1;
+    });
+
+    document.querySelectorAll('.nb-group').forEach(group => {
+      const hasVisibleChild = !!group.querySelector('.nb-marker:not([style*="display: none"])');
+      group.style.display = hasVisibleChild ? '' : 'none';
+      if (hasVisibleChild) visibleGroups += 1;
+    });
+
+    document.querySelectorAll('.nb-summary-card').forEach(card => {
+      const visible = !q || (card.getAttribute('data-search') || '').includes(q);
+      card.style.display = visible ? '' : 'none';
+    });
+
+    const summary = document.getElementById('nb-search-summary');
+    if (summary) {
+      summary.textContent = q
+        ? `Showing ${visibleMarkers} matching biomarkers across ${visibleGroups} categories.`
+        : `Showing all ${totalMarkers} biomarkers across ${NEURO_BIOMARKER_REFERENCE.length} categories.`;
+    }
+
+    const inp = document.getElementById('qeeg-search');
+    if (inp && inp.value !== query) inp.value = query;
   };
 }
 
