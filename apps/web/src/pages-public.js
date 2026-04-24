@@ -2137,6 +2137,7 @@ export function pgSignupProfessional() {
           For qualified clinicians, technicians, and clinic administrators.
           All accounts are reviewed before full protocol access is granted.
         </div>
+        ${(() => { const _sp = localStorage.getItem('ds_selected_plan'); return _sp ? `<div style="display:inline-flex;align-items:center;gap:6px;margin-bottom:12px;padding:5px 12px;border-radius:20px;background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.2);font-size:11.5px;color:var(--teal);font-weight:600">Selected plan: ${_sp.charAt(0).toUpperCase() + _sp.slice(1)}</div>` : ''; })()}
 
         <div class="step-indicator">
           <div class="step-pip active" id="pip-1"></div>
@@ -2301,13 +2302,18 @@ export function pgSignupProfessional() {
     const name     = document.getElementById('prof-clinic').value.trim();
     const email    = document.getElementById('prof-email').value.trim();
     const password = document.getElementById('prof-password').value;
+    const role     = document.getElementById('prof-role')?.value || 'clinician';
 
     try {
-      const res = await api.register(email, name, password);
+      const res = await api.register(email, name, password, role);
       if (!res?.access_token) throw new Error('Registration failed. Please try again.');
       api.setToken(res.access_token);
       if (res.refresh_token) api.setRefreshToken(res.refresh_token);
-      const user = res.user || { email, display_name: name, role: 'clinician', package_id: 'clinician_pro' };
+      const user = res.user || { email, display_name: name, role, package_id: 'clinician_pro' };
+
+      // Persist registration profile for onboarding pre-fill
+      const condition = document.getElementById('prof-condition')?.value || '';
+      try { localStorage.setItem('ds_registration_profile', JSON.stringify({ clinic: name, role, modalities: selectedMods || [], condition })); } catch (_) {}
 
       document.getElementById('prof-step-3').style.display = 'none';
       document.getElementById('prof-step-done').style.display = '';
@@ -2348,7 +2354,7 @@ export function pgSignupPatient() {
 
         <div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:24px">
           <button class="tab-btn active" id="tab-invite" onclick="window._ptTab('invite')">Invitation Code</button>
-          <button class="tab-btn" id="tab-direct" onclick="window._ptTab('direct')">Clinic Email Link</button>
+          <button class="tab-btn" id="tab-direct" onclick="window._ptTab('direct')">Already Registered?</button>
         </div>
 
         <!-- Invite code form -->
@@ -2377,20 +2383,15 @@ export function pgSignupPatient() {
           </button>
         </div>
 
-        <!-- Direct email form -->
+        <!-- Direct sign-in redirect -->
         <div id="pt-direct-form" style="display:none">
           <div class="notice notice-info" style="margin-bottom:16px">
-            If your clinic registered you directly, enter your email to receive an activation link.
+            If your clinic already created your account, you can sign in directly with the credentials they provided. No separate activation is needed.
           </div>
-          <div class="form-group">
-            <label class="form-label">Email Address</label>
-            <input id="pt-email-direct" class="form-control" type="email" placeholder="patient@email.com">
-          </div>
-          <div id="pt-direct-err" style="color:var(--red);font-size:12px;margin-bottom:10px;display:none"></div>
           <button
             style="width:100%;font-size:13px;padding:12px;border-radius:var(--radius-lg);background:linear-gradient(135deg,var(--blue-dim),var(--violet));color:#fff;font-family:var(--font-body);font-weight:600;border:none;cursor:pointer"
-            onclick="window._ptEmailSend()">
-            Send Activation Link &rarr;
+            onclick="window._showSignIn()">
+            Sign In &rarr;
           </button>
         </div>
 
@@ -2443,19 +2444,6 @@ export function pgSignupPatient() {
       err.textContent = e.message || 'Activation failed. Please check your invite code and try again.';
       err.style.display = '';
     }
-  };
-
-  window._ptEmailSend = function() {
-    const email = document.getElementById('pt-email-direct').value.trim();
-    const err   = document.getElementById('pt-direct-err');
-    err.style.display = 'none';
-    if (!email) { err.textContent = 'Email required.'; err.style.display = ''; return; }
-    document.getElementById('pt-direct-form').innerHTML = `
-      <div class="notice notice-ok">
-        To receive an activation link for <strong>${email}</strong>, please contact your clinic directly.
-        Your clinic administrator will send you an activation email.
-      </div>
-    `;
   };
 }
 

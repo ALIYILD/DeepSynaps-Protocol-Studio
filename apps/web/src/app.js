@@ -1147,7 +1147,7 @@ async function renderPage() {
   el.scrollTop = 0;
 
   // ── Auth guard (synchronous — runs before any async data fetch) ───────────
-  const _publicRoutes = ['home', 'login', 'register', 'onboarding', 'onboarding-wizard'];
+  const _publicRoutes = ['home', 'login', 'register', 'onboarding', 'onboarding-wizard', 'pricing'];
   if (!_publicRoutes.includes(currentPage) && !window._isAuthenticated?.()) {
     el.innerHTML = `
       <div class="auth-required-notice">

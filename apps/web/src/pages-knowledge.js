@@ -2801,12 +2801,18 @@ export async function pgPricing(setTopbar) {
       return;
     }
     if (planId === 'trial') {
-      window.location.href = '/signup?plan=professional';
+      localStorage.setItem('ds_selected_plan', 'professional');
+      localStorage.setItem('ds_selected_billing', _pricingAnnual ? 'annual' : 'monthly');
+      if (window._navPublic) { window._navPublic('signup-professional'); }
+      else if (window._nav) { window._nav('signup-professional'); }
       return;
     }
     const plan = PRICING_PLANS.find(p => p.id === planId);
     if (plan) {
-      window.location.href = plan.cta.href;
+      localStorage.setItem('ds_selected_plan', plan.id);
+      localStorage.setItem('ds_selected_billing', _pricingAnnual ? 'annual' : 'monthly');
+      if (window._navPublic) { window._navPublic('signup-professional'); }
+      else if (window._nav) { window._nav('signup-professional'); }
     }
   };
 
