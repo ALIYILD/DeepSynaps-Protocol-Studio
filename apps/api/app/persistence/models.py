@@ -1825,6 +1825,59 @@ class QEEGComparison(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
+# ── MRI Analyzer Models (migration 039) ──────────────────────────────────────
+#
+# Mirrors ``packages/mri-pipeline/medrag_extensions/04_migration_mri.sql``.
+# All JSON payloads are stored as Text blobs for SQLite portability; real
+# Postgres deployments can lift them into JSONB + pgvector(200) out-of-band.
+# See the ``app.services.mri_pipeline`` façade for the read/write contract.
+
+
+class MriAnalysis(Base):
+    """One MRI Analyzer run per row; JSON columns match the ``MRIReport`` schema."""
+    __tablename__ = "mri_analyses"
+
+    analysis_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    patient_id: Mapped[str] = mapped_column(Text(), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), index=True,
+    )
+    modalities_present_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    structural_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    functional_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    diffusion_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    stim_targets_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    medrag_query_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    overlays_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    qc_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    # 200-d cross-modal embedding as a JSON list of floats (pgvector-portable).
+    embedding_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    pipeline_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    norm_db_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    # Job + state tracking.
+    job_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    upload_ref: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    condition: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    age: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    sex: Mapped[Optional[str]] = mapped_column(String(4), nullable=True)
+
+
+class MriUpload(Base):
+    """One row per ``POST /mri/upload`` call; points at the on-disk blob."""
+    __tablename__ = "mri_uploads"
+
+    upload_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    patient_id: Mapped[Optional[str]] = mapped_column(Text(), nullable=True, index=True)
+    path: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    filename: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    file_size_bytes: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    mimetype: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc),
+    )
+
+
 class RiskStratificationResult(Base):
     """Per-patient, per-category traffic-light risk level (upserted on compute)."""
     __tablename__ = "risk_stratification_results"

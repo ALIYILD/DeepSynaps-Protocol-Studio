@@ -25995,3 +25995,457 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 @media (max-width: 520px) {
   .qeeg-ai-copilot { right: 8px; bottom: 8px; width: calc(100vw - 16px); }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   MRI Analyzer — page-specific styles (mirrors qEEG analyzer visual language)
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.ds-mri-shell { display: flex; flex-direction: column; min-height: 100%; gap: 12px; }
+
+.ds-mri-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .ds-mri-layout { grid-template-columns: 1fr; }
+}
+
+.ds-mri-col { min-width: 0; }
+.ds-mri-col--left  { display: flex; flex-direction: column; gap: 0; }
+.ds-mri-col--right { display: flex; flex-direction: column; gap: 0; }
+
+/* Dropzone */
+.ds-mri-dropzone {
+  border: 1.5px dashed rgba(74, 158, 255, 0.35);
+  background: rgba(74, 158, 255, 0.04);
+  border-radius: 10px;
+  padding: 20px 14px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.ds-mri-dropzone:hover,
+.ds-mri-dropzone.is-over {
+  border-color: rgba(74, 158, 255, 0.7);
+  background: rgba(74, 158, 255, 0.08);
+}
+.ds-mri-dropzone:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+.ds-mri-upload-status { font-family: var(--font-mono, monospace); }
+
+/* Pipeline progress pills */
+.ds-mri-stage-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ds-mri-stage-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--text-secondary);
+}
+.ds-mri-stage-pill__icon { font-size: 12px; }
+.ds-mri-stage-pill__state {
+  text-transform: uppercase;
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  opacity: 0.8;
+}
+.ds-mri-stage-pill--queued  { color: var(--text-tertiary); }
+.ds-mri-stage-pill--running {
+  color: var(--blue);
+  background: rgba(74,158,255,0.1);
+  border-color: rgba(74,158,255,0.3);
+  animation: ds-mri-running-pulse 1.6s ease-in-out infinite;
+}
+.ds-mri-stage-pill--done {
+  color: var(--green);
+  background: rgba(74,222,128,0.08);
+  border-color: rgba(74,222,128,0.25);
+}
+.ds-mri-stage-pill--failed {
+  color: var(--red, #ff6b6b);
+  background: rgba(255,107,107,0.08);
+  border-color: rgba(255,107,107,0.3);
+}
+@keyframes ds-mri-running-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(74,158,255,0.15); }
+  50%      { box-shadow: 0 0 0 6px rgba(74,158,255,0.00); }
+}
+
+/* Modality badges (per DASHBOARD_PAGE_SPEC.md §Color mapping) */
+.ds-mri-modality-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.ds-mri-badge-rtms         { background: rgba(255,181,71,0.14);  color: #f59e0b; }
+.ds-mri-badge-tps          { background: rgba(192,38,211,0.14);  color: #e879f9; }
+.ds-mri-badge-tfus         { background: rgba(6,182,212,0.14);   color: #22d3ee; }
+.ds-mri-badge-tdcs         { background: rgba(74,222,128,0.14);  color: #4ade80; }
+.ds-mri-badge-tacs         { background: rgba(234,179,8,0.14);   color: #facc15; }
+.ds-mri-badge-personalised { background: rgba(244,63,94,0.14);   color: #fb7185; }
+
+/* Rose pulsing dot for *_personalised targets */
+.ds-mri-pulsing-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #fb7185;
+  box-shadow: 0 0 0 0 rgba(244,63,94,0.5);
+  animation: ds-mri-pulse 1.4s infinite;
+  flex-shrink: 0;
+}
+@keyframes ds-mri-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(244,63,94,0.55); transform: scale(1); }
+  70%  { box-shadow: 0 0 0 9px rgba(244,63,94,0);  transform: scale(1.05); }
+  100% { box-shadow: 0 0 0 0 rgba(244,63,94,0);   transform: scale(1); }
+}
+
+/* Target card */
+.ds-mri-targets-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ds-mri-target-card {
+  position: relative;
+  padding: 14px 14px 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-left-width: 4px;
+  border-radius: 10px;
+}
+.ds-mri-target-card.ds-mri-badge-rtms         { border-left-color: #f59e0b; }
+.ds-mri-target-card.ds-mri-badge-tps          { border-left-color: #e879f9; }
+.ds-mri-target-card.ds-mri-badge-tfus         { border-left-color: #22d3ee; }
+.ds-mri-target-card.ds-mri-badge-tdcs         { border-left-color: #4ade80; }
+.ds-mri-target-card.ds-mri-badge-tacs         { border-left-color: #facc15; }
+.ds-mri-target-card.ds-mri-badge-personalised { border-left-color: #fb7185; }
+
+.ds-mri-target-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.ds-mri-target-region {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 140px;
+}
+.ds-mri-target-method {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono, monospace);
+  margin-bottom: 8px;
+}
+.ds-mri-target-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  margin: 6px 0 8px;
+}
+.ds-mri-target-params b { color: var(--text-primary); font-weight: 600; margin-right: 4px; }
+.ds-mri-target-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(255,255,255,0.06);
+}
+
+/* MNI coord pill (monospace) */
+.ds-mri-mni {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.05);
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-mri-conf-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  border: 1px solid;
+  letter-spacing: 0.5px;
+}
+
+/* Chip rows */
+.ds-mri-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+.ds-mri-chips__label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+  margin-right: 6px;
+}
+.ds-mri-doi-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(74,158,255,0.08);
+  color: var(--blue);
+  border: 1px solid rgba(74,158,255,0.22);
+  font-size: 10.5px;
+  font-family: var(--font-mono, monospace);
+  text-decoration: none;
+}
+.ds-mri-doi-chip:hover {
+  background: rgba(74,158,255,0.16);
+  border-color: rgba(74,158,255,0.4);
+}
+.ds-mri-paper-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(155,127,255,0.08);
+  color: var(--violet, #9b7fff);
+  border: 1px solid rgba(155,127,255,0.22);
+  font-size: 10.5px;
+  font-family: var(--font-mono, monospace);
+}
+
+/* Slice viewer placeholder */
+.ds-mri-slice-viewer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 8px;
+  border: 1px dashed rgba(255,255,255,0.08);
+}
+.ds-mri-slice-viewer__icon {
+  width: 54px; height: 54px;
+  border-radius: 8px;
+  background: rgba(37,99,235,0.15);
+  color: #60a5fa;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 18px;
+  letter-spacing: 0.5px;
+}
+.ds-mri-slice-viewer__msg {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+/* Glass-brain SVG container */
+.ds-mri-glass-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.ds-mri-glass {
+  width: 100%;
+  max-width: 240px;
+  height: auto;
+  display: block;
+}
+
+/* Patient + QC header */
+.ds-mri-pt-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ds-mri-pt-header__label {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  letter-spacing: 0.5px;
+}
+.ds-mri-pt-header__val {
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.ds-mri-mod-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(37,99,235,0.12);
+  color: #60a5fa;
+  border: 1px solid rgba(37,99,235,0.25);
+  font-size: 10.5px;
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+/* MedRAG literature */
+.ds-mri-medrag-list { display: flex; flex-direction: column; gap: 10px; }
+.ds-mri-medrag-row {
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+}
+.ds-mri-medrag-row__head {
+  display: flex; justify-content: space-between; gap: 10px;
+  font-size: 12.5px; font-weight: 600;
+  color: var(--text-primary);
+}
+.ds-mri-medrag-title { flex: 1; }
+.ds-mri-medrag-year {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono, monospace);
+}
+.ds-mri-medrag-row__meta {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 11px; margin-top: 4px;
+}
+.ds-mri-medrag-doi {
+  font-family: var(--font-mono, monospace);
+  color: var(--blue);
+  text-decoration: none;
+}
+.ds-mri-medrag-doi:hover { text-decoration: underline; }
+.ds-mri-medrag-doi--missing { color: var(--text-tertiary); }
+.ds-mri-medrag-score {
+  display: flex; align-items: center; gap: 8px; flex: 1;
+  max-width: 220px;
+}
+.ds-mri-medrag-score__bar {
+  flex: 1;
+  height: 6px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.ds-mri-medrag-score__fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--teal), var(--blue));
+}
+.ds-mri-medrag-score__num {
+  font-family: var(--font-mono, monospace);
+  color: var(--teal);
+  font-weight: 700;
+}
+.ds-mri-medrag-hits {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  margin-top: 6px;
+}
+.ds-mri-medrag-hit {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(0,212,188,0.06);
+  color: var(--teal);
+  border: 1px solid rgba(0,212,188,0.2);
+  font-size: 10.5px;
+  font-family: var(--font-mono, monospace);
+}
+
+/* Bottom strip */
+.ds-mri-bottom-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.ds-mri-bottom-strip__group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ds-mri-bottom-strip__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  letter-spacing: 0.5px;
+  margin-right: 4px;
+}
+
+/* Overlay iframe modal */
+.ds-mri-overlay-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.78);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.ds-mri-overlay-modal__panel {
+  width: min(960px, 100%);
+  height: min(80vh, 720px);
+  background: var(--bg-surface-2, #0e1628);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.ds-mri-overlay-modal__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.ds-mri-overlay-modal__iframe {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}
+
+/* Persistent regulatory footer */
+.ds-mri-footer-regulatory {
+  margin-top: 8px;
+  padding: 10px 14px;
+  border: 1px solid rgba(251,191,36,0.28);
+  background: rgba(251,191,36,0.06);
+  color: #fbbf24;
+  border-radius: 8px;
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.ds-mri-footer-regulatory strong { color: #fde68a; }

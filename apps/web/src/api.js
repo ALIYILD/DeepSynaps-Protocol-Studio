@@ -1029,6 +1029,28 @@ export const api = {
   fetchQEEGPatientTrajectory: (patientId) =>
     apiFetch(`/api/v1/qeeg-analysis/patients/${patientId}/trajectory`),
 
+  // ── MRI Analyzer (packages/mri-pipeline; see portal_integration/api_contract.md)
+  // Multipart upload (.zip DICOM or .nii.gz NIfTI). FormData must include
+  //   file: File, patient_id: string
+  uploadMRISession: (formData) =>
+    apiFetch('/api/v1/mri/upload', { method: 'POST', body: formData }),
+  // Start a background analysis. `opts` keys map to the form fields in
+  // api_contract.md §2: upload_id, patient_id, condition, age, sex, run_mode.
+  startMRIAnalysis: (opts = {}) => {
+    const fd = new FormData();
+    Object.keys(opts).forEach((k) => {
+      const v = opts[k];
+      if (v !== undefined && v !== null && v !== '') fd.append(k, String(v));
+    });
+    return apiFetch('/api/v1/mri/analyze', { method: 'POST', body: fd });
+  },
+  getMRIStatus: (jobId) =>
+    apiFetch(`/api/v1/mri/status/${encodeURIComponent(jobId)}`),
+  getMRIReport: (analysisId) =>
+    apiFetch(`/api/v1/mri/report/${encodeURIComponent(analysisId)}`),
+  getMRIMedRAG: (analysisId, topK = 20) =>
+    apiFetch(`/api/v1/mri/medrag/${encodeURIComponent(analysisId)}?top_k=${encodeURIComponent(topK)}`),
+
   // ── Patient Portal (self-service for patient-role users) ─────────────────
   patientPortalMe: () => apiFetch('/api/v1/patient-portal/me'),
   patientPortalCourses: () => apiFetch('/api/v1/patient-portal/courses'),

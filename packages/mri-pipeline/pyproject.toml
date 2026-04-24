@@ -1,0 +1,108 @@
+[project]
+name = "deepsynaps-mri"
+version = "0.1.0"
+description = "MRI / fMRI / DTI analyzer for DeepSynaps Studio clinical dashboard — structural + functional analysis + stim-target localization"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [{ name = "Sehzade Yildirim", email = "sehzadeyildirim@hotmail.com" }]
+
+# Core deps only. Heavy neuroimaging + reporting dependencies live in
+# ``[project.optional-dependencies]`` so this package installs cleanly inside
+# the Studio Dockerfile on ``python:3.11-slim``. Each pipeline stage guards
+# its own heavy imports — the façade at ``apps/api/app/services/mri_pipeline.py``
+# treats the optional dep stack as absent by default and surfaces a styled
+# "unavailable" envelope rather than crashing the API worker.
+#
+# This mirrors the qeeg-pipeline slim pattern — pip's resolver can't pair a
+# declared dep name with a sibling editable path in the same
+# ``pip install`` invocation, so heavy libs are added out-of-band by the
+# Dockerfile / deployment as needed.
+dependencies = [
+    "jinja2>=3.1",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "pydantic>=2.5",
+    "scipy>=1.11",
+]
+
+[project.optional-dependencies]
+# `pip install -e '.[neuro]'` for the full neuroimaging stack. Needed for
+# real pipeline runs (DICOM ingest, registration, segmentation, tractography).
+# Building some of these on python:3.11-slim requires system libraries
+# (libjpeg, libpng, blas, lapack, cmake) — add apt-get lines to the
+# Dockerfile first if you enable them in prod.
+neuro = [
+    "nibabel>=5.2",
+    "nilearn>=0.10.4",
+    "dipy>=1.9",
+    "pydicom>=2.4",
+    "dicom2nifti>=2.4",
+    "deid>=0.3",
+    "antspyx>=0.4",
+    "scikit-learn>=1.3",
+    "matplotlib>=3.7",
+    "plotly>=5.18",
+    "pillow>=10.0",
+    "imageio>=2.34",
+]
+# `pip install -e '.[reporting]'` to enable Jinja+WeasyPrint PDF rendering.
+# Needs system libs: libpango, libcairo, libgdk-pixbuf — NOT installed by the
+# Studio Dockerfile base image. The façade falls back to a plain HTML summary
+# without these, so PDF generation returns 503 instead of crashing.
+reporting = [
+    "weasyprint>=60",
+]
+# `pip install -e '.[api]'` for standalone FastAPI + Celery deployment
+# outside the Studio monorepo. Studio's API image already carries FastAPI
+# so this extra is rarely needed there.
+api = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "celery>=5.3",
+    "redis>=5.0",
+    "boto3>=1.34",
+    "httpx>=0.27",
+]
+# `pip install -e '.[db]'` for pgvector-backed MedRAG retrieval against
+# the shared ``deepsynaps`` Postgres instance. Studio already has psycopg
+# installed in the API image; keep this for the standalone use case.
+db = [
+    "psycopg[binary]>=3.1",
+    "pgvector>=0.3",
+    "sqlalchemy>=2.0",
+]
+# `pip install -e '.[embeddings]'` for MedRAG abstract embeddings.
+embeddings = [
+    "sentence-transformers>=3.0",
+    "torch>=2.1",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "ruff>=0.3",
+    "mypy>=1.8",
+]
+gpu = [
+    # For FastSurfer parcellation — install outside pip:
+    #   docker pull deepmi/fastsurfer:latest
+    "torch>=2.1",
+]
+
+[project.scripts]
+ds-mri = "deepsynaps_mri.cli:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --strict-markers"

@@ -1,0 +1,125 @@
+{
+  "analysis_id": "8a7f1c52-2f5d-4b11-9c66-0a1c1bd8c9e3",
+  "patient": {
+    "patient_id": "DS-2026-000123",
+    "age": 54,
+    "sex": "F",
+    "handedness": "R",
+    "chief_complaint": "Treatment-resistant major depressive disorder"
+  },
+  "modalities_present": ["T1", "rs_fMRI", "DTI"],
+
+  "qc": {
+    "t1_snr": 18.4,
+    "fmri_framewise_displacement_mean_mm": 0.121,
+    "fmri_outlier_volume_pct": 2.3,
+    "dti_outlier_volumes": 1,
+    "segmentation_failed_regions": [],
+    "passed": true,
+    "notes": ["pipeline_version=0.1.0"]
+  },
+
+  "structural": {
+    "atlas": "Desikan-Killiany",
+    "cortical_thickness_mm": {
+      "dlpfc_l": {"value": 2.31, "unit": "mm", "z": -1.8, "percentile": 3.6, "flagged": false},
+      "acc_l":   {"value": 2.65, "unit": "mm", "z": -2.4, "percentile": 0.8, "flagged": true}
+    },
+    "subcortical_volume_mm3": {
+      "hippocampus_l": {"value": 3400, "unit": "mm^3", "z": -1.1, "percentile": 13.6, "flagged": false},
+      "amygdala_l":    {"value": 1420, "unit": "mm^3", "z": -2.1, "percentile": 1.8,  "flagged": true}
+    },
+    "wmh_volume_ml": {"value": 2.1, "unit": "mL", "z": 0.4, "percentile": 65, "flagged": false},
+    "ventricular_volume_ml": {"value": 24.6, "unit": "mL", "z": 0.2, "percentile": 58, "flagged": false},
+    "icv_ml": 1452,
+    "segmentation_engine": "synthseg_plus"
+  },
+
+  "functional": {
+    "networks": [
+      {"network": "DMN", "mean_within_fc": {"value": 0.41, "unit": "r", "z": -1.3, "flagged": false}, "top_hubs": ["PCC", "mPFC", "precuneus"]},
+      {"network": "SN",  "mean_within_fc": {"value": 0.29, "unit": "r", "z": -2.0, "flagged": true},  "top_hubs": ["R_anterior_insula", "dACC"]},
+      {"network": "CEN", "mean_within_fc": {"value": 0.33, "unit": "r", "z": -1.7, "flagged": false}, "top_hubs": ["L_DLPFC", "L_IPL"]}
+    ],
+    "sgACC_DLPFC_anticorrelation": {"value": -0.37, "unit": "fisher_z", "z": -2.6, "flagged": true},
+    "fc_matrix_shape": [256, 256],
+    "atlas": "DiFuMo-256"
+  },
+
+  "diffusion": {
+    "bundles": [
+      {"bundle": "UF_L",  "mean_FA": {"value": 0.41, "z": -1.9, "flagged": false}, "mean_MD": {"value": 7.9e-4}, "streamline_count": 2184},
+      {"bundle": "CG_L",  "mean_FA": {"value": 0.39, "z": -2.2, "flagged": true},  "mean_MD": {"value": 8.3e-4}, "streamline_count": 1902},
+      {"bundle": "AF_L",  "mean_FA": {"value": 0.52, "z": -0.4, "flagged": false}, "mean_MD": {"value": 7.1e-4}, "streamline_count": 2766}
+    ],
+    "fa_map_s3": null, "md_map_s3": null, "tractogram_s3": null
+  },
+
+  "stim_targets": [
+    {
+      "target_id": "rTMS_MDD_personalised_sgACC",
+      "modality": "rtms",
+      "condition": "mdd",
+      "region_name": "Left DLPFC — patient-specific sgACC anticorrelation",
+      "region_code": "dlpfc_l",
+      "mni_xyz": [-41.0, 43.0, 28.0],
+      "patient_xyz": null,
+      "method": "sgACC_anticorrelation_personalised",
+      "method_reference_dois": ["10.1016/j.biopsych.2012.04.028", "10.1176/appi.ajp.2021.20101429"],
+      "suggested_parameters": {"protocol": "iTBS", "sessions": 30, "pulses_per_session": 600, "intensity_pct_rmt": 120.0, "frequency_hz": 50.0},
+      "supporting_paper_ids_from_medrag": [1821, 34422, 51907],
+      "confidence": "high",
+      "disclaimer": "Reference target coordinates derived from peer-reviewed literature. Not a substitute for clinician judgment. For neuronavigation planning only."
+    },
+    {
+      "target_id": "rTMS_MDD_F3_Beam",
+      "modality": "rtms",
+      "condition": "mdd",
+      "region_name": "Left DLPFC — F3 Beam group target",
+      "region_code": "dlpfc_l",
+      "mni_xyz": [-37, 26, 49],
+      "method": "F3_Beam_projection",
+      "method_reference_dois": ["10.1016/j.brs.2009.03.005"],
+      "suggested_parameters": {"protocol": "iTBS", "sessions": 30, "pulses_per_session": 600, "intensity_pct_rmt": 120.0, "frequency_hz": 50.0},
+      "supporting_paper_ids_from_medrag": [],
+      "confidence": "medium",
+      "disclaimer": "Reference target coordinates derived from peer-reviewed literature. Not a substitute for clinician judgment. For neuronavigation planning only."
+    },
+    {
+      "target_id": "tFUS_TRD_SCC",
+      "modality": "tfus",
+      "condition": "mdd",
+      "region_name": "Subcallosal cingulate (SCC / BA25)",
+      "region_code": "acc_rostral",
+      "mni_xyz": [4, 20, -12],
+      "method": "tFUS_SCC_Riis",
+      "method_reference_dois": ["10.1016/j.brs.2023.01.016"],
+      "suggested_parameters": {"protocol": "tFUS", "sessions": 1, "duty_cycle_pct": 5.0, "derated_i_spta_mw_cm2": 720.0, "mechanical_index": 0.8},
+      "confidence": "low",
+      "disclaimer": "Reference target coordinates derived from peer-reviewed literature. Not a substitute for clinician judgment. For neuronavigation planning only."
+    }
+  ],
+
+  "medrag_query": {
+    "findings": [
+      {"type": "region_metric",  "value": "acc_l_thickness",           "zscore": -2.4, "polarity": -1},
+      {"type": "region_metric",  "value": "amygdala_l_volume",          "zscore": -2.1, "polarity": -1},
+      {"type": "network_metric", "value": "SN_within_fc",               "zscore": -2.0, "polarity": -1},
+      {"type": "network_metric", "value": "sgACC_DLPFC_anticorrelation","zscore": -2.6, "polarity": -1},
+      {"type": "region_metric",  "value": "CG_L_FA",                    "zscore": -2.2, "polarity": -1}
+    ],
+    "conditions": ["mdd"]
+  },
+
+  "overlays": {
+    "rTMS_MDD_personalised_sgACC": "overlays/rTMS_MDD_personalised_sgACC_interactive.html",
+    "rTMS_MDD_F3_Beam":             "overlays/rTMS_MDD_F3_Beam_interactive.html",
+    "tFUS_TRD_SCC":                 "overlays/tFUS_TRD_SCC_interactive.html"
+  },
+
+  "report_pdf_s3":  null,
+  "report_html_s3": null,
+
+  "pipeline_version": "0.1.0",
+  "norm_db_version": "ISTAGING-v1"
+}

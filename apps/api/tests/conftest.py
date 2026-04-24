@@ -31,6 +31,11 @@ SOURCE_PATHS = [
     # we surface it on sys.path so the AI-upgrade bridge + longitudinal /
     # copilot modules are importable without `pip install -e`.
     REPO_ROOT / "packages" / "qeeg-pipeline" / "src",
+    # Sibling MRI pipeline — see mri_pipeline façade. Heavy neuro deps
+    # are optional extras so the import may still fail (HAS_MRI_PIPELINE
+    # guards that), but making the path visible lets the façade load
+    # schemas without pip-installing the package.
+    REPO_ROOT / "packages" / "mri-pipeline" / "src",
 ]
 
 for source_path in SOURCE_PATHS:
