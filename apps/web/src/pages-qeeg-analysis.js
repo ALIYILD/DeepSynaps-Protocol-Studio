@@ -2536,7 +2536,6 @@ window._exportCurrentBIDSPackage = function () {
 };
 let _fusionSummary = null;
 let _collapsedSections = { medications: true, neurological: true, lifestyle: true };
-let _fusionSummary = null;
 
 function renderTabBar(activeTab) {
   return '<div class="ch-tab-bar" style="margin-bottom:20px">' +
