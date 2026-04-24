@@ -18,6 +18,7 @@ from app.services.chat_service import (
     chat_patient,
     chat_public_faq,
     chat_agent,
+    chat_agent_with_evidence,
     chat_wearable_patient,
     chat_wearable_clinician,
     _llm_model,
@@ -59,9 +60,20 @@ class AgentChatRequest(BaseModel):
     context: str | None = None           # dashboard context snippet injected by frontend
 
 
+class CitedPaper(BaseModel):
+    id: int
+    pmid: str | None = None
+    title: str | None = None
+    url: str | None = None
+
+
 class ChatResponse(BaseModel):
     reply: str
     role: str = "assistant"
+    # Populated by /agent when the user's message hit the evidence RAG path;
+    # empty list on every other endpoint. Top 5 papers cited inline as [1]…[5]
+    # so the frontend can render a "Papers cited" panel beside the reply.
+    cited_papers: list[CitedPaper] = []
 
 
 class SalesInquiryRequest(BaseModel):
@@ -135,12 +147,22 @@ def agent_chat(
     body: AgentChatRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> ChatResponse:
-    """Authenticated doctor practice management agent."""
+    """Authenticated doctor practice management agent.
+
+    Runs the doctor-facing agent through the evidence-RAG pipeline so the LLM
+    can cite real papers from our 87k-paper evidence DB. `cited_papers` in
+    the response is the top-5 papers that were injected into the system
+    prompt (empty list when no clinical cues were detected in the message or
+    the evidence DB is unavailable).
+    """
     from app.auth import require_minimum_role
     require_minimum_role(actor, "clinician")
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
-    reply = chat_agent(msgs, body.provider, body.openai_key, body.context)
-    return ChatResponse(reply=reply)
+    reply, papers = chat_agent_with_evidence(
+        msgs, body.provider, body.openai_key, body.context
+    )
+    cited = [CitedPaper(**p) for p in papers]
+    return ChatResponse(reply=reply, cited_papers=cited)
 
 
 @router.post("/clinician", response_model=ChatResponse)
