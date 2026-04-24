@@ -239,10 +239,22 @@ export async function pgConsentManagement(setTopbar, navigate) {
   }
   const root = document.getElementById('content');
   if (!root) return;
+  await _mountConsent(root, { standalone: true });
+}
+
+/** Embeddable panel — used by Documents Hub consent tab */
+export async function renderConsentPanel(container) {
+  if (!container) return;
+  await _mountConsent(container, { standalone: false });
+}
+
+async function _mountConsent(rootEl, opts) {
+  const standalone = opts?.standalone !== false;
 
   // Initialise / restore state
   if (!window._consentState) window._consentState = defaultState();
   const S = window._consentState;
+  S._embedded = !standalone;
 
   // Try to load live consent records from API (graceful fallback)
   try {
@@ -498,7 +510,7 @@ export async function pgConsentManagement(setTopbar, navigate) {
     });
   };
 
-  function render() { _render(root, S); }
+  function render() { _render(rootEl, S); }
   render();
 }
 
@@ -568,9 +580,10 @@ function _initSignaturePad() {
 
 // ── Render ───────────────────────────────────────────────────────────────────
 function _render(root, S) {
+  const embedCls = S._embedded ? ' cm-wrap--embedded' : '';
   root.innerHTML = `
     ${_styleBlock()}
-    <div class="cm-wrap">
+    <div class="cm-wrap${embedCls}">
       ${_tabBar(S.tab)}
       <div class="cm-body">
         ${S.viewingConsent ? _renderConsentDetail(S) : ''}
@@ -1230,5 +1243,10 @@ function _styleBlock() {
       .cm-tpl-grid { grid-template-columns:1fr; }
       .cm-detail-hero { flex-direction:column; }
     }
+
+    /* Embedded mode (inside Documents Hub) */
+    .cm-wrap--embedded { height:auto; background:transparent; }
+    .cm-wrap--embedded .cm-body { overflow-y:visible; }
+    .cm-wrap--embedded .cm-tab-bar { border-radius:8px 8px 0 0; }
   </style>`;
 }

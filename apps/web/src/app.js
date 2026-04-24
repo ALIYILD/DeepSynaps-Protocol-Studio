@@ -164,8 +164,6 @@ let _modBrainMap = null;
 async function loadBrainMap()     { return (_modBrainMap ??= await import('./pages-brainmap.js')); }
 let _modQEEGAnalysis = null;
 async function loadQEEGAnalysis() { return (_modQEEGAnalysis ??= await import('./pages-qeeg-analysis.js')); }
-let _modConsent = null;
-async function loadConsent() { return (_modConsent ??= await import('./pages-consent.js')); }
 let _modMonitoring = null;
 async function loadMonitoring() { return (_modMonitoring ??= await import('./pages-monitoring.js')); }
 
@@ -473,7 +471,6 @@ const NAV = [
   { id: 'ai-agent-v2',        label: 'AI Practice Agents', icon: '🤖', ai: true },
   // Research has moved into Reports (Reports → Research tab).
   { id: 'governance-v2',      label: 'Governance',        icon: '🛡️' },
-  { id: 'consent-management', label: 'Consent',           icon: '✍️' },
   { id: 'system-health',       label: 'System Health',     icon: '💚' },
   { id: 'academy',            label: 'Academy',           icon: '🎓' },
   { id: 'marketplace',        label: 'Marketplace',       icon: '🛒' },
@@ -536,7 +533,6 @@ NAV_ICONS['finance-v2']      = NAV_ICONS['finance-hub'];
 NAV_ICONS['ai-agent-v2']     = NAV_ICONS['protocol-hub'];
 NAV_ICONS['research-v2']     = NAV_ICONS['protocol-wizard'];
 NAV_ICONS['governance-v2']   = NAV_ICONS['adverse-events'];
-NAV_ICONS['consent-management'] = `<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15l2 2 4-4"/></svg>`;
 NAV_ICONS['system-health']   = `<svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/><circle cx="12" cy="12" r="2" fill="currentColor" opacity=".4"/></svg>`;
 NAV_ICONS['research-evidence'] = `<svg viewBox="0 0 24 24"><path d="M10 2v6a2 2 0 0 1-2 2H2"/><path d="M14 2v6a2 2 0 0 0 2 2h6"/><path d="M12 18v4"/><path d="M8 22h8"/><circle cx="12" cy="14" r="4"/></svg>`;
 NAV_ICONS['academy']         = `<svg viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`;
@@ -876,7 +872,6 @@ const PAGE_TITLES = {
   'literature': 'Evidence Library',
   'irb-manager': 'IRB Manager',
   'research-evidence': 'Research Evidence',
-  'consent-management': 'Consent Management',
   'system-health': 'System Health',
 };
 
@@ -1460,7 +1455,7 @@ async function renderPage() {
     case 'ai-agent-v2':        { const m = await loadAgents(); await m.pgAgentChat(setTopbar); break; }
     case 'research-v2':        { const m = await loadResearch(); await m.pgResearch(setTopbar, navigate); break; }
     case 'governance-v2':      { const m = await loadPractice(); await m.pgGovernance(setTopbar, navigate); break; }
-    case 'consent-management': { const m = await loadConsent(); await m.pgConsentManagement(setTopbar, navigate); break; }
+    case 'consent-management': { window._docsHubTab = 'consent'; navigate('documents-hub'); break; }
     case 'research-evidence':  { const m = await loadResearchEvidence(); await m.pgResearchEvidence(setTopbar, navigate); break; }
     case 'system-health':      { const m = await loadMonitoring(); await m.pgMonitoring(setTopbar, navigate); break; }
     default:
@@ -2465,7 +2460,7 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '📝', title: 'Clinical Notes',       page: 'clinical-notes' },
     { type: 'nav', icon: '🗓️', title: 'Calendar',             page: 'calendar' },
     { type: 'nav', icon: '📤', title: 'Data Export',           page: 'data-export' },
-    { type: 'nav', icon: '🔒', title: 'Consent Management',   page: 'consent-automation' },
+    { type: 'nav', icon: '🔒', title: 'Consent Management',   page: 'documents-hub' },
     { type: 'nav', icon: '⏰', title: 'Reminders',            page: 'reminders' },
   ];
 

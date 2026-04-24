@@ -6028,7 +6028,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
   const TAB_META = {
     all:       { label: 'All Documents',   color: 'var(--blue)'   },
     templates: { label: 'Templates',       color: 'var(--teal)'   },
-    consent:   { label: 'Consent Forms',   color: 'var(--violet)' },
+    consent:   { label: 'Consent',          color: 'var(--violet)' },
     letters:   { label: 'Patient Letters', color: 'var(--amber)'  },
     uploads:   { label: 'Uploads',         color: 'var(--green)'  },
   };
@@ -6395,22 +6395,9 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       </div>`;
   }
   else if (tab === 'consent') {
-    const consentTpls = TEMPLATES.filter(t=>t.cat==='Consent'||t.cat==='Privacy'||t.cat==='Telehealth'||t.cat==='AI');
-    const signedDocs  = data.docs.filter(d=>d.type==='Consent'||d.type==='Privacy');
-    main = `
-      <div class="ch-two-col">
-        <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Consent Templates</span><button class="ch-btn-sm ch-btn-teal" onclick="window._docsHubTab='templates';window._nav('documents-hub')">Browse All Templates →</button></div>
-          ${consentTpls.map(t=>{
-            const safeId = String(t.id).replace(/'/g,"\\'");
-            return '<div class="book-row"><div class="book-info"><div class="book-patient">'+t.name+'</div><div class="book-clinician">'+t.pages+' pages · '+t.langs.join('/')+'</div></div><div class="book-actions"><button class="ch-btn-sm" onclick="window._docsPreview(\''+safeId+'\')">Preview</button><button class="ch-btn-sm ch-btn-teal" onclick="window._docsSendTemplate(\''+safeId+'\')">Send to Sign</button></div></div>';
-          }).join('')}
-        </div>
-        <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Signed Consents</span></div>
-          ${signedDocs.length ? docRows(signedDocs) : '<div class="ch-empty">No signed consents yet.</div>'}
-        </div>
-      </div>`;
+    main = `<div id="consent-embed-root" style="min-height:400px">
+      <div style="padding:40px;text-align:center;color:var(--text-tertiary);font-size:13px">Loading consent module&hellip;</div>
+    </div>`;
   }
   else if (tab === 'letters') {
     let patients = [];
@@ -6522,6 +6509,15 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       </div>
     </div>
   </div>`;
+
+  // Mount embedded consent module when consent tab is active
+  if (tab === 'consent') {
+    const embedRoot = document.getElementById('consent-embed-root');
+    if (embedRoot) {
+      const { renderConsentPanel } = await import('./pages-consent.js');
+      await renderConsentPanel(embedRoot);
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
