@@ -668,12 +668,12 @@ export async function pgQEEGMaps(setTopbar) {
             <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,0.025);border:1px solid var(--border)">
               <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">Backend qEEG Biomarkers</div>
               <div style="font-size:28px;font-weight:700;color:var(--text-primary)">${backendBiomarkerCount}</div>
-              <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Loaded from `/api/v1/qeeg/biomarkers`</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Loaded from /api/v1/qeeg/biomarkers</div>
             </div>
             <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,0.025);border:1px solid var(--border)">
               <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">Backend Condition Maps</div>
               <div style="font-size:28px;font-weight:700;color:var(--text-primary)">${backendConditionCount}</div>
-              <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Loaded from `/api/v1/qeeg/condition-map`</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Loaded from /api/v1/qeeg/condition-map</div>
             </div>
             <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,0.025);border:1px solid var(--border)">
               <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">Curated / Backend Matched</div>
