@@ -477,7 +477,6 @@ const NAV = [
   // Research has moved into Reports (Reports → Research tab).
   { id: 'settings-v2',        label: 'Settings',          icon: '⚙️' },
   { id: 'tickets',            label: 'Tickets',           icon: '🎫' },
-  { id: 'system-health',       label: 'System Health',     icon: '💚' },
   { id: 'academy',            label: 'Academy',           icon: '🎓' },
   { id: 'marketplace',        label: 'Marketplace',       icon: '🛒' },
 ];
@@ -1473,7 +1472,7 @@ async function renderPage() {
     case 'tickets':            { const m = await loadPractice(); await m.pgTickets(setTopbar, navigate); break; }
     case 'consent-management': { window._docsHubTab = 'consent'; navigate('documents-hub'); break; }
     case 'research-evidence':  { const m = await loadResearchEvidence(); await m.pgResearchEvidence(setTopbar, navigate); break; }
-    case 'system-health':      { const m = await loadMonitoring(); await m.pgMonitoring(setTopbar, navigate); break; }
+    case 'system-health':      { window._settingsHubTab = 'system-health'; const m = await loadPractice(); await m.pgSettingsHub(setTopbar, navigate); break; }
     default:
       el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-tertiary)">Page not found.</div>`;
   }

@@ -244,6 +244,8 @@ export async function pgMonitoring(setTopbar, navigate) {
   const tab = window._monitoringTab || 'overview';
   window._monitoringTab = tab;
   const el = document.getElementById('content');
+  const navTarget = window._monitoringNavRoute || 'system-health';
+  const navToMonitoring = () => `window._nav('${navTarget}')`;
 
   setTopbar('System Health',
     `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${T.green};color:#000;font-weight:600">Monitoring</span>`);
@@ -254,7 +256,7 @@ export async function pgMonitoring(setTopbar, navigate) {
       '<button role="tab" aria-selected="' + (tab === id) + '" tabindex="' + (tab === id ? '0' : '-1') + '"' +
       ' class="ch-tab' + (tab === id ? ' ch-tab--active' : '') + '"' +
       (tab === id ? ' style="--tab-color:' + m.color + '"' : '') +
-      ` onclick="window._monitoringTab='${id}';window._nav('system-health')">${esc(m.label)}</button>`
+      ` onclick="window._monitoringTab='${id}';${navToMonitoring()}">${esc(m.label)}</button>`
     ).join('');
   }
 
@@ -359,7 +361,7 @@ async function renderOverview(body) {
     </div>
     <div style="text-align:center;padding:8px 0">
       <button class="btn-secondary" style="font-size:12px;padding:6px 16px;border-radius:8px;border:1px solid ${T.border};background:${T.surface};color:${T.t2};cursor:pointer"
-        onclick="window._monitoringTab='overview';window._nav('system-health')">
+        onclick="window._monitoringTab='overview';${navToMonitoring()}">
         Refresh
       </button>
       <span style="font-size:11px;color:${T.t3};margin-left:8px">Auto-refresh: 60s</span>
@@ -405,7 +407,7 @@ async function renderActivity(body) {
     const label = f === 'all' ? 'All' : (TYPE_META[f]?.label || f);
     const active = filter === f;
     return `<button style="padding:4px 10px;font-size:11px;border-radius:6px;border:1px solid ${active ? T.teal : T.border};background:${active ? T.teal : 'transparent'};color:${active ? '#000' : T.t2};cursor:pointer;font-weight:${active ? '600' : '400'}"
-      onclick="window._actFilter='${f}';window._monitoringTab='activity';window._nav('system-health')">${esc(label)}</button>`;
+      onclick="window._actFilter='${f}';window._monitoringTab='activity';${navToMonitoring()}">${esc(label)}</button>`;
   }).join('');
 
   const rows = filteredItems.map(item => {
@@ -517,14 +519,14 @@ async function renderErrors(body) {
     const active = severityFilter === f;
     const color = f === 'all' ? T.teal : SEV_META[f]?.color || T.t2;
     return `<button style="padding:4px 10px;font-size:11px;border-radius:6px;border:1px solid ${active ? color : T.border};background:${active ? color + '22' : 'transparent'};color:${active ? color : T.t2};cursor:pointer;font-weight:${active ? '600' : '400'}"
-      onclick="window._errFilter='${f}';window._monitoringTab='errors';window._nav('system-health')">${label}</button>`;
+      onclick="window._errFilter='${f}';window._monitoringTab='errors';${navToMonitoring()}">${label}</button>`;
   }).join('');
 
   const rows = filtered.map(e => {
     const sev = SEV_META[e.severity] || SEV_META.info;
     const expanded = window._errExpanded === e.id;
     return `<div style="border:1px solid ${T.border};border-radius:10px;margin-bottom:8px;overflow:hidden;background:${sev.bg}">
-      <div style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;cursor:pointer" onclick="window._errExpanded=window._errExpanded==='${e.id}'?null:'${e.id}';window._monitoringTab='errors';window._nav('system-health')">
+      <div style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;cursor:pointer" onclick="window._errExpanded=window._errExpanded==='${e.id}'?null:'${e.id}';window._monitoringTab='errors';${navToMonitoring()}">
         <span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;background:${sev.color}20;color:${sev.color};text-transform:uppercase;flex-shrink:0;margin-top:1px">${esc(e.severity)}</span>
         <div style="flex:1;min-width:0">
           <div style="font-size:12.5px;color:${T.t1};font-weight:500;word-break:break-word">${esc(e.message)}</div>
@@ -533,7 +535,7 @@ async function renderErrors(body) {
         <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
           ${e.stack ? `<span style="font-size:10px;color:${T.t3}">${expanded ? 'Collapse' : 'Expand'}</span>` : ''}
           <button title="Dismiss" style="background:none;border:none;cursor:pointer;color:${T.t3};font-size:14px;padding:2px 4px"
-            onclick="event.stopPropagation();window._errDismissed.add('${e.id}');window._monitoringTab='errors';window._nav('system-health')">
+            onclick="event.stopPropagation();window._errDismissed.add('${e.id}');window._monitoringTab='errors';${navToMonitoring()}">
             &times;
           </button>
         </div>
@@ -550,7 +552,7 @@ async function renderErrors(body) {
       ${filterPills}
       <div style="flex:1"></div>
       <button style="padding:4px 10px;font-size:11px;border-radius:6px;border:1px solid ${T.border};background:${T.surface};color:${T.t2};cursor:pointer"
-        onclick="window._errDismissed=new Set();window._monitoringTab='errors';window._nav('system-health')">
+        onclick="window._errDismissed=new Set();window._monitoringTab='errors';${navToMonitoring()}">
         Reset dismissed
       </button>
     </div>
@@ -623,7 +625,7 @@ async function renderPipeline(body) {
     </div>
     <div style="text-align:center;margin-top:16px">
       <button style="padding:8px 20px;font-size:12px;border-radius:8px;border:1px solid ${T.teal};background:${T.teal}15;color:${T.teal};cursor:pointer;font-weight:600"
-        onclick="window._monitoringTab='pipeline';window._nav('system-health')">
+        onclick="window._monitoringTab='pipeline';${navToMonitoring()}">
         Trigger Manual Sync
       </button>
     </div>`;

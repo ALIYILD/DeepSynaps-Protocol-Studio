@@ -10079,6 +10079,8 @@ export async function pgSettingsHub(setTopbar, navigate) {
     { id: 'governance', label: 'Governance',  icon: '🛡️' },
   ];
 
+  TABS.push({ id: 'system-health', label: 'System Health', icon: '💚' });
+
   const tabBar = TABS.map(t =>
     `<button role="tab" aria-selected="${tab === t.id}" tabindex="${tab === t.id ? '0' : '-1'}"
        class="ch-tab${tab === t.id ? ' ch-tab--active' : ''}"
@@ -10098,6 +10100,8 @@ export async function pgSettingsHub(setTopbar, navigate) {
     await _renderSettingsGeneral(body, _esc, navigate);
   } else if (tab === 'governance') {
     await _renderSettingsGovernance(body, _esc, navigate);
+  } else if (tab === 'system-health') {
+    await _renderSettingsSystemHealth(body, _esc, navigate);
   }
 }
 
@@ -10267,6 +10271,22 @@ async function _renderSettingsGovernance(body, _esc, navigate) {
 // Users and OpenClaw agents can create tickets that get routed to the admin/dev
 // team. Each ticket has priority, category, status, and a message thread.
 // ══════════════════════════════════════════════════════════════════════════════
+async function _renderSettingsSystemHealth(body, _esc, navigate) {
+  const realContent = document.getElementById('content');
+  const prevNavRoute = window._monitoringNavRoute;
+  if (realContent) realContent.id = '_content_backup';
+  body.id = 'content';
+  window._monitoringNavRoute = 'settings-v2';
+  try {
+    const { pgMonitoring } = await import('./pages-monitoring.js');
+    await pgMonitoring(() => {}, navigate);
+  } finally {
+    window._monitoringNavRoute = prevNavRoute;
+    body.id = 'settings-hub-body';
+    if (realContent) realContent.id = 'content';
+  }
+}
+
 export async function pgTickets(setTopbar, navigate) {
   const el = document.getElementById('content');
   if (!el) return;
