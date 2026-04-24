@@ -38,7 +38,7 @@ _LLM_HEADERS = {
 }
 
 def _llm_model() -> str:
-    return os.getenv("LLM_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+    return os.getenv("LLM_MODEL", "z-ai/glm-4.5-air:free")
 
 def _anthropic_fallback_model() -> str:
     return os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")

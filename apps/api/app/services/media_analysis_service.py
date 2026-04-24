@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Shared constants
 # ---------------------------------------------------------------------------
 
-_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
+_MODEL = "z-ai/glm-4.5-air:free"
 
 _SYSTEM_PROMPT = (
     "You are a clinical documentation assistant for a neuromodulation clinic.\n"

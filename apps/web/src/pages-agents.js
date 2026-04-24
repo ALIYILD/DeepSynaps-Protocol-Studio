@@ -6,7 +6,7 @@ let _agentBusy = false;
 let _agentProvider = localStorage.getItem('ds_agent_provider') || 'glm-free';
 let _agentOAKey = localStorage.getItem('ds_agent_oa_key') || '';
 const PROVIDERS = [
-  { id: 'glm-free', label: 'Llama 3.3 70B (Free)', desc: 'Free tier via OpenRouter — no API key needed. Works with OpenClaw.', icon: '🆓' },
+  { id: 'glm-free', label: 'GLM-4.5 Air (Free)', desc: 'Free tier via OpenRouter — no API key needed. Works with OpenClaw.', icon: '🆓' },
   { id: 'anthropic', label: 'Claude', desc: 'System key. No config needed.', icon: '🧠' },
   { id: 'openai', label: 'GPT-4o', desc: 'Requires your own API key.', icon: '✦' },
 ];
