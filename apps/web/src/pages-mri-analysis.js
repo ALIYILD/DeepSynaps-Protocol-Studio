@@ -17,9 +17,6 @@
 import { api, downloadBlob } from './api.js';
 import { emptyState, showToast } from './helpers.js';
 
-const FUSION_API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
-const FUSION_TOKEN_KEY = 'ds_access_token';
-
 // ── Module state ────────────────────────────────────────────────────────────
 var _mriAnalysisId = null;
 var _uploadId      = null;
@@ -182,13 +179,6 @@ function _bindMRIAnnotationButtons() {
   });
 }
 
-function _getFusionToken() {
-  try {
-    return globalThis.localStorage?.getItem?.(FUSION_TOKEN_KEY) || null;
-  } catch (_) {
-    return null;
-  }
-}
 function _demoFusionSummary(patientId) {
   return {
     patient_id: patientId || 'demo-patient',
@@ -1735,7 +1725,6 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
   // "Compare ←→" button when >= 2 exist. Demo mode synthesises two rows.
   var patientAnalyses = [];
   var pid = _patientMeta && _patientMeta.patient_id;
-  _fusionSummary = await _fetchFusionSummary(pid || (_report && _report.patient && _report.patient.patient_id));
   if (pid && !_isDemoMode()) {
     try {
       var res2 = await api.listPatientMRIAnalyses(pid);

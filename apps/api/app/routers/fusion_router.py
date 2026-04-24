@@ -1,13 +1,9 @@
-<<<<<<< HEAD
-"""qEEG + MRI fusion router."""
-=======
 """qEEG + MRI fusion router.
 
 Read-only heuristic endpoint for combining the latest persisted qEEG and MRI
 analyses for a patient. This intentionally ships as a thin orchestration layer
 over existing data rather than a new model or pipeline stage.
 """
->>>>>>> aa28508 (Add V3 fusion timeline annotations and export flows)
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends

@@ -1,13 +1,9 @@
-<<<<<<< HEAD
-"""Lightweight multi-modal fusion helpers for qEEG + MRI summaries."""
-=======
 """Lightweight multi-modal fusion helpers for qEEG + MRI summaries.
 
 The functions in this module are intentionally dependency-light so the API can
 assemble patient-level recommendations from persisted JSON rows even when the
 heavier neuro stacks are unavailable.
 """
->>>>>>> aa28508 (Add V3 fusion timeline annotations and export flows)
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -138,13 +134,7 @@ def _build_recommendations(
         if target:
             recommendations.append(f"Proceed with the qEEG-guided {primary} approach targeting {target}.")
         else:
-<<<<<<< HEAD
-            recommendations.append(
-                f"Proceed with the qEEG-guided {primary} approach and verify target selection clinically."
-            )
-=======
             recommendations.append(f"Proceed with the qEEG-guided {primary} approach and verify target selection clinically.")
->>>>>>> aa28508 (Add V3 fusion timeline annotations and export flows)
     elif isinstance(mri_targets, list) and mri_targets:
         target = mri_targets[0] if isinstance(mri_targets[0], dict) else {}
         region = target.get("region_name") or target.get("region_code") or "MRI-defined target"
@@ -178,10 +168,7 @@ def synthesize_fusion_recommendation(
     mri_analysis_id: str | None,
     mri: dict[str, Any] | None,
 ) -> dict[str, Any]:
-<<<<<<< HEAD
-=======
     """Build a simple, additive fusion summary from persisted modality payloads."""
->>>>>>> aa28508 (Add V3 fusion timeline annotations and export flows)
     qeeg_signals = _pick_top_qeeg_signals(qeeg)
     mri_signals = _pick_top_mri_signals(mri)
     recommendations = _build_recommendations(patient_id, qeeg, mri)
