@@ -72,6 +72,13 @@ window._pubOpenLogin = function(role) {
   }, 40);
 };
 
+window._pubScrollTo = function(selector) {
+  var shell = document.getElementById('public-shell');
+  var el = shell && shell.querySelector(selector);
+  var off = window.innerWidth <= 768 ? 116 : 80;
+  if (shell && el) shell.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + shell.scrollTop - off), behavior: 'smooth' });
+};
+
 window._pubInstallHint = function() {
   return /iphone|ipad|ipod/i.test(navigator.userAgent || '')
     ? 'On iPhone or iPad, tap Share and then Add to Home Screen.'
@@ -377,7 +384,7 @@ export function pgHome() {
             <button class="btn btn-ghost btn-lg" onclick="window._pubOpenLogin('clinician')">Doctor Sign In</button>
             <button class="btn btn-ghost btn-lg" onclick="window._navPublic('signup-patient')">Patient Portal</button>
             <button class="btn btn-primary btn-lg" onclick="window._startDemoTour()">${t('pub.hero.cta.tour')}</button>
-            <button class="btn btn-ghost btn-lg" onclick="window._nav('pricing')">${t('pub.hero.cta.pricing')}</button>
+            <button class="btn btn-ghost btn-lg" onclick="window._pubScrollTo('.pub-pricing-section')">${t('pub.hero.cta.pricing')}</button>
           </div>
           <div class="dv2-trust-chips">
             <span class="dv2-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>HIPAA-Aligned</span>
@@ -461,25 +468,25 @@ export function pgHome() {
         <p class="lead">Conditions, modalities, devices and safety rules live in one registry — every protocol, assessment, and patient guide stays consistent.</p>
       </div>
       <div class="pub-features dv2-features-4">
-        <div class="pub-feature" onclick="window._nav('patient-queue')" style="cursor:pointer">
+        <div class="pub-feature" onclick="window._navPublic('signup-professional')" style="cursor:pointer">
           <div class="pub-feature-tag">Live</div>
           <div class="pub-feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h12"/></svg></div>
           <div class="pub-feature-title">Today&rsquo;s Queue</div>
           <div class="pub-feature-body">Every patient, session status, overdue assessment, and missed homework in one screen. Start sessions in one click.</div>
         </div>
-        <div class="pub-feature" onclick="window._nav('protocols')" style="cursor:pointer">
+        <div class="pub-feature" onclick="window._navPublic('signup-professional')" style="cursor:pointer">
           <div class="pub-feature-tag">10-20 · fMRI</div>
           <div class="pub-feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg></div>
           <div class="pub-feature-title">Protocol Studio</div>
           <div class="pub-feature-body">DLPFC, SMA, mPFC — every target mapped to anchor electrodes with a live 10-20 preview that updates as you change montage.</div>
         </div>
-        <div class="pub-feature" onclick="window._nav('scoring-calc')" style="cursor:pointer">
+        <div class="pub-feature" onclick="window._navPublic('signup-professional')" style="cursor:pointer">
           <div class="pub-feature-tag">42 instruments</div>
           <div class="pub-feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 7h6M9 11h6M9 15h4"/></svg></div>
           <div class="pub-feature-title">Assessments</div>
           <div class="pub-feature-body">PHQ-9, GAD-7, AQ-10, ACE-Q and 38 more — automated scoring, longitudinal views, and patient-portal form delivery.</div>
         </div>
-        <div class="pub-feature" onclick="window._nav('outcomes')" style="cursor:pointer">
+        <div class="pub-feature" onclick="window._navPublic('signup-professional')" style="cursor:pointer">
           <div class="pub-feature-tag">Course-level</div>
           <div class="pub-feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg></div>
           <div class="pub-feature-title">Reports</div>
@@ -589,7 +596,7 @@ export function pgHome() {
         <p>${t('pub.cta.sub')} 14-day trial on production-parity infrastructure. No credit card required.</p>
         <div class="pub-cta-ctas">
           <button class="btn btn-primary btn-lg" onclick="window._navPublic('signup-professional')">${t('pub.cta.trial')}</button>
-          <button class="btn btn-ghost btn-lg" onclick="window._nav('pricing')">${t('pub.cta.demo')}</button>
+          <button class="btn btn-ghost btn-lg" onclick="window._pubScrollTo('.pub-pricing-section')">${t('pub.cta.demo')}</button>
         </div>
       </div>
 
@@ -605,7 +612,7 @@ export function pgHome() {
       <div class="pub-footer">
         <div>© 2026 DeepSynaps. ${t('pub.footer.tagline')}</div>
         <div class="pub-footer-links">
-          <a href="#" onclick="window._nav('pricing');return false">Pricing</a>
+          <a href="#" onclick="window._pubScrollTo('.pub-pricing-section');return false">Pricing</a>
           <a href="#" onclick="window._showSignIn();return false">Sign In</a>
           <a href="mailto:team@deepsynaps.com">Contact</a>
           <a href="#" onclick="window._navPublic('signup-patient');return false">Patient portal</a>
@@ -1027,7 +1034,7 @@ export function pgHome() {
     const banner = document.getElementById('demo-tour-banner');
     if (banner) banner.remove();
     window._demoTour = null;
-    window._nav('pricing');
+    window._pubScrollTo('.pub-pricing-section');
     if (typeof window._showNotifToast === 'function') {
       window._showNotifToast({ title: 'Tour complete', body: '14-day free trial \u2014 no credit card required.', severity: 'success' });
     }
