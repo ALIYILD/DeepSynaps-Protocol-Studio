@@ -3,12 +3,41 @@ import sys
 from logging.config import fileConfig
 
 from sqlalchemy import create_engine, pool
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.schema import CreateIndex, CreateTable
 from alembic import context
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from app.persistence.models import Base  # noqa: E402
 from app.settings import get_settings  # noqa: E402
+
+
+# ── Idempotent DDL on SQLite ─────────────────────────────────────────────────
+# Fly's SQLite volume was partially bootstrapped via Base.metadata.create_all()
+# before every migration was wired through alembic, leaving the schema ahead of
+# the stamped revision in places. Rather than patching each historical migration
+# (17+ create_table entries from rev 014 onward), emit IF NOT EXISTS on the
+# SQLite dialect so replays are harmless.
+
+@compiles(CreateTable, "sqlite")
+def _sqlite_create_table_if_not_exists(element, compiler, **kw):
+    text = compiler.visit_create_table(element, **kw)
+    if text.lstrip().startswith("CREATE TABLE IF NOT EXISTS"):
+        return text
+    return text.replace("CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1)
+
+
+@compiles(CreateIndex, "sqlite")
+def _sqlite_create_index_if_not_exists(element, compiler, **kw):
+    text = compiler.visit_create_index(element, **kw)
+    if "INDEX IF NOT EXISTS" in text:
+        return text
+    return (
+        text
+        .replace("CREATE INDEX", "CREATE INDEX IF NOT EXISTS", 1)
+        .replace("CREATE UNIQUE INDEX", "CREATE UNIQUE INDEX IF NOT EXISTS", 1)
+    )
 
 config = context.config
 if config.config_file_name is not None:
