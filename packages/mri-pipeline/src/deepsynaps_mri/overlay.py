@@ -174,6 +174,85 @@ def render_all_targets(
     return {t.target_id: render_target_overlays(t, t1_mni_path, out_dir) for t in targets}
 
 
+def render_efield_overlay(
+    t1_mni_path: str | Path,
+    e_field_png: str | Path,
+    out_path: str | Path | None = None,
+    *,
+    alpha: float = 0.55,
+) -> str:
+    """Compose an E-field heatmap PNG on top of the T1 slice rendered by
+    :func:`render_target_overlays`.
+
+    Produces a single combined PNG with the SimNIBS E-field heatmap
+    (see :func:`deepsynaps_mri.efield.simulate_efield`) layered over the
+    T1 anatomical slice. Used by the target cards on the analyzer page.
+
+    Parameters
+    ----------
+    t1_mni_path
+        Path to the T1 MNI volume used as the anatomical backdrop.
+    e_field_png
+        Path to the E-field heatmap slice PNG produced by SimNIBS.
+    out_path
+        Destination PNG. When ``None`` a temp file is created.
+    alpha
+        Foreground alpha (0 = invisible → 1 = opaque). Defaults to 0.55,
+        matching the nilearn overlay style.
+
+    Returns
+    -------
+    str
+        Path to the composed PNG. Raises only when neither PIL nor
+        matplotlib is importable — callers should catch to fall back to
+        the T1-only triptych.
+
+    Notes
+    -----
+    This helper is deliberately PIL-first — matplotlib is used only when
+    PIL is missing. Both libraries are optional in the slim image.
+    """
+    t1_mni_path = Path(t1_mni_path)
+    e_field_png = Path(e_field_png)
+    if out_path is None:
+        tmp = tempfile.NamedTemporaryFile(
+            suffix=".png", prefix="efield_overlay_", delete=False
+        )
+        out_path = Path(tmp.name)
+        tmp.close()
+    else:
+        out_path = Path(out_path)
+
+    try:
+        from PIL import Image  # type: ignore[import-not-found]
+
+        base = Image.open(str(t1_mni_path)).convert("RGBA")
+        heat = Image.open(str(e_field_png)).convert("RGBA")
+        if heat.size != base.size:
+            heat = heat.resize(base.size, Image.BILINEAR)
+        a = max(0.0, min(1.0, float(alpha)))
+        blended = Image.blend(base, heat, a)
+        blended.save(str(out_path))
+        return str(out_path)
+    except Exception as exc:  # noqa: BLE001
+        log.info("PIL overlay compose failed (%s) — trying matplotlib", exc)
+
+    import matplotlib.pyplot as plt
+    import matplotlib.image as mpimg
+
+    base_img = mpimg.imread(str(t1_mni_path))
+    heat_img = mpimg.imread(str(e_field_png))
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.imshow(base_img, cmap="gray")
+    ax.imshow(heat_img, cmap="hot", alpha=float(alpha))
+    ax.set_axis_off()
+    fig.tight_layout(pad=0)
+    fig.savefig(str(out_path), dpi=150, bbox_inches="tight", pad_inches=0)
+    plt.close(fig)
+    return str(out_path)
+
+
 def combined_glass_brain(
     targets: list[StimTarget],
     out_path: str | Path,

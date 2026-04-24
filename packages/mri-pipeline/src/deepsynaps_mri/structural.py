@@ -33,6 +33,47 @@ log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Brain-age hook (optional — graceful on missing torch)
+# ---------------------------------------------------------------------------
+def attach_brain_age(
+    metrics: StructuralMetrics,
+    t1_preprocessed_path: Path,
+    chronological_age: float | None,
+    weights_path: Path | None = None,
+) -> StructuralMetrics:
+    """Attach a :class:`~deepsynaps_mri.schemas.BrainAgePrediction` to ``metrics``.
+
+    Wraps :func:`deepsynaps_mri.models.brain_age.predict_brain_age` so
+    structural callers do not need to import torch directly. Graceful on
+    every failure mode — ``StructuralMetrics.brain_age`` is populated with
+    a ``status='dependency_missing'`` or ``status='failed'`` envelope
+    instead of raising.
+
+    Parameters
+    ----------
+    metrics
+        The :class:`StructuralMetrics` to mutate. Returned unchanged.
+    t1_preprocessed_path
+        Path to the preprocessed T1 (skull-stripped, MNI-registered).
+    chronological_age
+        Patient's chronological age in years (optional).
+    weights_path
+        Optional override for the CNN weights; see ``predict_brain_age``.
+    """
+    try:
+        from .models.brain_age import predict_brain_age
+
+        metrics.brain_age = predict_brain_age(
+            t1_preprocessed_path=t1_preprocessed_path,
+            chronological_age=chronological_age,
+            weights_path=weights_path,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("brain-age attach failed: %s", exc)
+    return metrics
+
+
+# ---------------------------------------------------------------------------
 # Engine availability probes
 # ---------------------------------------------------------------------------
 def _has_cuda() -> bool:

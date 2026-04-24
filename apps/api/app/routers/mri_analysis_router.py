@@ -541,3 +541,118 @@ async def get_medrag(
     return await mri_pipeline_facade.run_medrag_for_analysis_safe(
         report, top_k=top_k
     )
+
+
+# ── 9a. List analyses per patient (for the Compare modal) ───────────────────
+
+
+@router.get("/patients/{patient_id}/analyses")
+def list_patient_analyses(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Return a short list of MRI analyses for ``patient_id``.
+
+    Shape: ``{"patient_id", "analyses": [{analysis_id, created_at, state,
+    condition}]}``. Powers the ``Compare ←→`` modal on the Analyzer page,
+    which needs ≥ 2 completed analyses to enable the longitudinal button.
+    """
+    require_minimum_role(actor, "clinician")
+
+    rows = (
+        db.query(MriAnalysis)
+        .filter_by(patient_id=patient_id)
+        .order_by(MriAnalysis.created_at.desc())
+        .all()
+    )
+    analyses = [
+        {
+            "analysis_id": r.analysis_id,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "state": r.state,
+            "condition": r.condition,
+        }
+        for r in rows
+    ]
+    return {"patient_id": patient_id, "analyses": analyses}
+
+
+# ── 9. Longitudinal compare ──────────────────────────────────────────────────
+
+
+@router.get("/compare/{baseline_id}/{followup_id}")
+def compare_mri(
+    baseline_id: str,
+    followup_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> JSONResponse:
+    """Compute a visit-to-visit change map between two MRI analyses.
+
+    Loads both analyses from the DB (must belong to the same patient),
+    rehydrates ``MRIReport`` JSON from the stored ``*_json`` columns,
+    then calls :func:`deepsynaps_mri.longitudinal.compute_change_map`
+    and returns the resulting :class:`LongitudinalReport`-shaped dict.
+
+    This is the longitudinal upgrade from AI_UPGRADES §P0 #4:
+    Reuter 2012 (FreeSurfer longitudinal pipeline, DOI
+    ``10.1016/j.neuroimage.2012.02.084``) + SyN Jacobian (Avants 2008);
+    TPS AD 6-month follow-up (NCT05910619). Decision-support only.
+    """
+    require_minimum_role(actor, "clinician")
+
+    base_row = db.query(MriAnalysis).filter_by(analysis_id=baseline_id).first()
+    if base_row is None:
+        raise ApiServiceError(
+            code="analysis_not_found",
+            message=f"baseline analysis_id {baseline_id!r} not found",
+            status_code=404,
+        )
+    fup_row = db.query(MriAnalysis).filter_by(analysis_id=followup_id).first()
+    if fup_row is None:
+        raise ApiServiceError(
+            code="analysis_not_found",
+            message=f"followup analysis_id {followup_id!r} not found",
+            status_code=404,
+        )
+    if base_row.patient_id != fup_row.patient_id:
+        raise ApiServiceError(
+            code="patient_mismatch",
+            message="baseline and followup analyses belong to different patients",
+            status_code=422,
+        )
+
+    baseline_report = _report_from_row(base_row)
+    followup_report = _report_from_row(fup_row)
+
+    days_between: Optional[int] = None
+    try:
+        if base_row.created_at and fup_row.created_at:
+            days_between = abs((fup_row.created_at - base_row.created_at).days)
+    except Exception:  # pragma: no cover - defensive
+        days_between = None
+
+    # Lazy-import the longitudinal module so environments without the mri
+    # pipeline on sys.path still load the router.
+    try:
+        from deepsynaps_mri.longitudinal import compute_change_map
+    except ImportError as exc:  # pragma: no cover - optional dep
+        _log.warning("longitudinal module unavailable: %s", exc)
+        return JSONResponse(
+            {
+                "code": "longitudinal_unavailable",
+                "message": "Longitudinal change-map module is not available in this build.",
+            },
+            status_code=503,
+        )
+
+    report = compute_change_map(
+        baseline_report=baseline_report,
+        followup_report=followup_report,
+        days_between=days_between,
+    )
+
+    # Serialise via pydantic for stable, explicit shape on the wire.
+    payload = report.model_dump(mode="json") if hasattr(report, "model_dump") else report.dict()
+    return JSONResponse(payload)

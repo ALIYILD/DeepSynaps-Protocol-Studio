@@ -26,9 +26,13 @@ from pathlib import Path
 from typing import Iterable
 from uuid import uuid4
 
+from concurrent.futures import ThreadPoolExecutor
+
+from . import efield as efield_mod
 from . import fmri as fmri_mod
 from . import io as io_mod
 from . import overlay as overlay_mod
+from . import qc as qc_mod
 from . import registration as reg_mod
 from . import structural as struct_mod
 from . import targeting as tgt_mod
@@ -40,6 +44,7 @@ from .schemas import (
     PatientMeta,
     QCMetrics,
     StimTarget,
+    StructuralMetrics,
 )
 
 log = logging.getLogger(__name__)
@@ -135,6 +140,23 @@ def run_pipeline(
         if "DTI" in ctx.scans or "DWI" in ctx.scans:
             modalities_present.append(Modality.DTI)
 
+        # ── Radiology screening layer (AI_UPGRADES §P0 #5) ──────────────
+        # MRIQC IQMs + incidental-finding triage run at the earliest point
+        # after ingest. Results populate QCMetrics.mriqc / .incidental. A
+        # flagged finding appends an amber warning to ``ctx.qc_warnings``
+        # but does NOT block the pipeline — clinicians always see the
+        # scan, they just see a "radiology review advised" banner too.
+        if "T1" in ctx.scans:
+            t1_path = Path(ctx.scans["T1"])
+            try:
+                ctx.qc.mriqc = qc_mod.run_mriqc(t1_path, modality="T1w")
+            except Exception as exc:      # noqa: BLE001
+                log.warning("MRIQC screening failed, continuing: %s", exc)
+            try:
+                ctx.qc.incidental = qc_mod.screen_incidental_findings(t1_path)
+            except Exception as exc:      # noqa: BLE001
+                log.warning("Incidental-finding screening failed, continuing: %s", exc)
+
     # 2. REGISTRATION (T1 -> MNI)
     if "register" in stages and "T1" in ctx.scans:
         log.info("stage: register (T1 -> MNI)")
@@ -160,6 +182,21 @@ def run_pipeline(
         except Exception as e:                              # noqa: BLE001
             log.warning("structural stage failed: %s", e)
             ctx.qc.notes.append(f"structural_failed: {e}")
+
+        # Brain-age CNN — non-blocking. Prefers the MNI-registered T1
+        # produced by stage 2; falls back to the raw T1 when registration
+        # was skipped. Graceful on missing torch / missing weights.
+        try:
+            if struct_metrics is None:
+                struct_metrics = StructuralMetrics()
+            t1_for_age = ctx.t1_mni_path or Path(ctx.scans["T1"])
+            struct_mod.attach_brain_age(
+                struct_metrics,
+                t1_preprocessed_path=t1_for_age,
+                chronological_age=float(patient.age) if patient.age else None,
+            )
+        except Exception as e:                              # noqa: BLE001
+            log.warning("brain-age attach skipped: %s", e)
 
     # 4. FUNCTIONAL
     personalised_dlpfc = None
@@ -208,6 +245,19 @@ def run_pipeline(
             include_modalities=include_modalities_for_targets,
         )
 
+        # 6b. E-FIELD DOSE (SimNIBS) — per-target forward solve. Runs in a
+        # bounded ThreadPoolExecutor so multiple targets don't serialise
+        # the expensive FEM. Graceful on every failure mode: a missing
+        # SimNIBS install stamps each target with
+        # status='dependency_missing' instead of crashing the pipeline.
+        # Evidence: Wang 2024 (PMC10922371); Makarov 2025 (imag_a_00412);
+        # TAP pipeline NCT03289923.
+        t1_for_efield = ctx.t1_mni_path or (
+            Path(ctx.scans["T1"]) if "T1" in ctx.scans else None
+        )
+        if t1_for_efield is not None and stim_targets:
+            _attach_efield_doses(stim_targets, t1_for_efield, out_dir)
+
     # 7. OVERLAYS
     if "overlay" in stages and ctx.t1_mni_path and stim_targets:
         log.info("stage: overlay")
@@ -220,6 +270,10 @@ def run_pipeline(
     if "medrag" in stages:
         medrag_q = _build_medrag_query(condition, struct_metrics, func_metrics, diff_metrics)
 
+    # Amber warnings surfaced at the top of the analyzer page — from the
+    # MRIQC + incidental-finding triage pass that runs during ingest.
+    qc_warnings = qc_mod.build_qc_warnings(ctx.qc.mriqc, ctx.qc.incidental)
+
     report = MRIReport(
         analysis_id=uuid4(),
         patient=patient,
@@ -231,6 +285,7 @@ def run_pipeline(
         stim_targets=stim_targets,
         medrag_query=medrag_q,
         overlays=overlays,
+        qc_warnings=qc_warnings,
     )
     ctx.report = report
 
@@ -243,6 +298,67 @@ def run_pipeline(
         report.report_pdf_s3 = str(pdf_path)
 
     return report
+
+
+# ---------------------------------------------------------------------------
+# E-field helper — concurrent SimNIBS forward solves per stim target
+# ---------------------------------------------------------------------------
+def _attach_efield_doses(
+    stim_targets: list[StimTarget],
+    t1_path: Path,
+    out_dir: Path,
+) -> None:
+    """Attach :class:`EfieldDose` to every TMS/tDCS ``StimTarget``.
+
+    Runs SimNIBS forward solves inside a bounded
+    :class:`~concurrent.futures.ThreadPoolExecutor`. All exceptions are
+    collapsed into ``status='failed'`` envelopes so the pipeline survives
+    SimNIBS being missing or a per-target solver crash.
+    """
+    from .schemas import EfieldDose
+
+    targets_to_solve = [
+        t for t in stim_targets if t.modality in ("rtms", "tdcs")
+    ]
+    if not targets_to_solve:
+        return
+
+    def _solve(target: StimTarget) -> tuple[str, EfieldDose]:
+        try:
+            params = target.suggested_parameters
+            dose = efield_mod.simulate_efield(
+                t1_path=t1_path,
+                target_mni=target.mni_xyz,
+                modality="tms" if target.modality == "rtms" else "tdcs",
+                coil=(
+                    "Magstim_70mm_Fig8"
+                    if target.modality == "rtms" else None
+                ),
+                intensity_pct_rmt=params.intensity_pct_rmt,
+                current_ma=None,
+                out_dir=out_dir / "artefacts" / f"efield_{target.target_id}",
+            )
+            return target.target_id, dose
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "E-field solve failed for target %s: %s",
+                target.target_id, exc,
+            )
+            return target.target_id, EfieldDose(
+                status="failed",
+                solver="unavailable",
+                error_message=f"{type(exc).__name__}: {exc}",
+            )
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            for tid, dose in pool.map(_solve, targets_to_solve):
+                for target in stim_targets:
+                    if target.target_id == tid:
+                        target.efield_dose = dose
+                        break
+    except Exception as exc:  # noqa: BLE001
+        log.warning("E-field batch skipped due to executor error: %s", exc)
 
 
 # ---------------------------------------------------------------------------

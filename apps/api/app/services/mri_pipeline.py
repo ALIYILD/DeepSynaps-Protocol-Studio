@@ -239,13 +239,13 @@ def run_analysis_safe(
 _OVERLAY_PLACEHOLDER = """<!doctype html>
 <html><head><meta charset="utf-8"><title>Overlay unavailable</title>
 <style>
-  body{font-family:system-ui,sans-serif;background:#f8fafc;color:#0f172a;
-       display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
-  .card{max-width:520px;padding:2rem;border-radius:12px;background:#fff;
-        box-shadow:0 4px 24px rgba(15,23,42,.08);border:1px solid #e2e8f0}
-  h1{font-size:1.1rem;margin:0 0 .5rem 0;color:#2563eb}
-  p{margin:.25rem 0;font-size:.9rem;line-height:1.4}
-  .foot{margin-top:1rem;font-size:.75rem;color:#64748b}
+  body{{font-family:system-ui,sans-serif;background:#f8fafc;color:#0f172a;
+       display:flex;align-items:center;justify-content:center;height:100vh;margin:0}}
+  .card{{max-width:520px;padding:2rem;border-radius:12px;background:#fff;
+        box-shadow:0 4px 24px rgba(15,23,42,.08);border:1px solid #e2e8f0}}
+  h1{{font-size:1.1rem;margin:0 0 .5rem 0;color:#2563eb}}
+  p{{margin:.25rem 0;font-size:.9rem;line-height:1.4}}
+  .foot{{margin-top:1rem;font-size:.75rem;color:#64748b}}
 </style></head>
 <body><div class="card">
   <h1>Overlay unavailable in this build</h1>

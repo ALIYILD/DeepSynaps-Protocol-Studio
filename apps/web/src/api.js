@@ -1061,6 +1061,17 @@ export const api = {
     apiFetch(`/api/v1/mri/report/${encodeURIComponent(analysisId)}`),
   getMRIMedRAG: (analysisId, topK = 20) =>
     apiFetch(`/api/v1/mri/medrag/${encodeURIComponent(analysisId)}?top_k=${encodeURIComponent(topK)}`),
+  // Longitudinal compare — AI_UPGRADES P0 #4. Returns a LongitudinalReport:
+  // { baseline_analysis_id, followup_analysis_id, days_between,
+  //   structural_changes[], functional_changes[], diffusion_changes[],
+  //   jacobian_determinant_s3, change_overlay_png_s3, summary }.
+  compareMRI: (baselineId, followupId) =>
+    apiFetch(`/api/v1/mri/compare/${encodeURIComponent(baselineId)}/${encodeURIComponent(followupId)}`),
+  // Lists completed MRI analyses for a patient — used by the Compare modal
+  // to let clinicians pick baseline / follow-up rows. Optional helper; the
+  // frontend falls back gracefully when the endpoint is absent.
+  listPatientMRIAnalyses: (patientId) =>
+    apiFetch(`/api/v1/mri/patients/${encodeURIComponent(patientId)}/analyses`),
 
   // ── Patient Portal (self-service for patient-role users) ─────────────────
   patientPortalMe: () => apiFetch('/api/v1/patient-portal/me'),
