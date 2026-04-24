@@ -8572,6 +8572,168 @@ export async function pgBrainData(setTopbar) {
           <div class="form-group"><label class="form-label">Notes</label>
             <textarea id="qr-notes" class="form-control" rows="2" placeholder="Key findings, LORETA summary…"></textarea>
           </div>
+
+          <!-- Clinical Context Survey — bundled as LLM-ready JSON alongside the EDF recording -->
+          <details id="qr-survey-panel" style="margin:14px 0 8px;border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:rgba(20,184,166,0.04)">
+            <summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--teal);list-style:none;display:flex;align-items:center;gap:8px;user-select:none">
+              <span>◧ Clinical Context Survey</span>
+              <span style="font-size:10.5px;font-weight:500;color:var(--text-tertiary);margin-left:auto">Helps an LLM interpret the EDF</span>
+            </summary>
+            <div style="margin-top:10px;font-size:11.5px;color:var(--text-tertiary);line-height:1.5;margin-bottom:10px">
+              Answers get bundled into a compact, self-describing JSON payload (schema <code style="color:var(--teal)">deepsynaps.qeeg_clinical_context.v1</code>) that accompanies the EDF when an LLM interprets this recording. All fields optional.
+            </div>
+
+            <div style="font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin:4px 0 6px">Recording conditions</div>
+            <div class="g2" style="gap:8px;margin-bottom:6px">
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Recording state</label>
+                <select id="qs-state" class="form-control">
+                  <option value="resting">Resting</option>
+                  <option value="task">Task / cognitive</option>
+                  <option value="sleep">Sleep</option>
+                  <option value="post_session">Post-treatment</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Time of day</label>
+                <select id="qs-tod" class="form-control">
+                  <option value="morning">Morning</option>
+                  <option value="afternoon">Afternoon</option>
+                  <option value="evening">Evening</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Environment</label>
+                <select id="qs-env" class="form-control">
+                  <option value="clinic">Clinic</option>
+                  <option value="home">Home</option>
+                  <option value="lab">Research lab</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin:10px 0 6px">Patient state at recording</div>
+            <div class="g2" style="gap:8px">
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Caffeine (last 4 h)</label>
+                <select id="qs-caff" class="form-control">
+                  <option value="none">None</option>
+                  <option value="one_cup">1 cup</option>
+                  <option value="two_plus">2+ cups</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Alcohol / cannabis (last 24 h)</label>
+                <select id="qs-sub" class="form-control">
+                  <option value="none">None</option>
+                  <option value="some">Some</option>
+                  <option value="significant">Significant</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Sleep quality (prev night)</label>
+                <select id="qs-slpq" class="form-control">
+                  <option value="good">Good</option>
+                  <option value="fair">Fair</option>
+                  <option value="poor">Poor</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Sleep hours</label>
+                <input id="qs-slph" class="form-control" type="number" min="0" max="24" step="0.5" placeholder="7">
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Anxiety now (0–10)</label>
+                <input id="qs-anx" class="form-control" type="number" min="0" max="10" step="1" placeholder="0–10">
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Alertness now (0–10)</label>
+                <input id="qs-alt" class="form-control" type="number" min="0" max="10" step="1" placeholder="0–10">
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:6px">
+              <label class="form-label" style="font-size:11px">EEG-active medications</label>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;font-size:11px">
+                ${['ssri','snri','benzodiazepine','stimulant','antipsychotic','antiepileptic','hypnotic','lithium','beta_blocker','opioid','none'].map(m => `
+                  <label style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--border);border-radius:999px;cursor:pointer;color:var(--text-secondary)">
+                    <input type="checkbox" class="qs-med" value="${m}"> ${m.replace(/_/g,' ')}
+                  </label>`).join('')}
+              </div>
+            </div>
+
+            <div style="font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin:10px 0 6px">Clinical picture</div>
+            <div class="form-group" style="margin-bottom:6px">
+              <label class="form-label" style="font-size:11px">Primary clinical question</label>
+              <input id="qs-pq" class="form-control" placeholder="e.g. Is left DLPFC rTMS indicated for treatment-resistant MDD?">
+            </div>
+            <div class="form-group" style="margin-bottom:6px">
+              <label class="form-label" style="font-size:11px">Provisional diagnoses</label>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;font-size:11px">
+                ${['mdd','bipolar','gad','ptsd','ocd','adhd','asd','schizophrenia','tbi','stroke','dementia','insomnia','chronic_pain','tinnitus','epilepsy','migraine','other'].map(d => `
+                  <label style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--border);border-radius:999px;cursor:pointer;color:var(--text-secondary)">
+                    <input type="checkbox" class="qs-dx" value="${d}"> ${d.replace(/_/g,' ')}
+                  </label>`).join('')}
+              </div>
+            </div>
+            <div class="g2" style="gap:8px">
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Symptom duration</label>
+                <select id="qs-dur" class="form-control">
+                  <option value="lt_1m">&lt; 1 month</option>
+                  <option value="1_6m">1–6 months</option>
+                  <option value="6_24m">6–24 months</option>
+                  <option value="gt_2y">&gt; 2 years</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Head injury history</label>
+                <select id="qs-ti" class="form-control">
+                  <option value="none">None</option>
+                  <option value="mild_concussion">Mild concussion</option>
+                  <option value="moderate_tbi">Moderate TBI</option>
+                  <option value="severe_tbi">Severe TBI</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Seizure history</label>
+                <select id="qs-sz" class="form-control">
+                  <option value="no">No</option>
+                  <option value="yes">Yes</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:6px">
+              <label class="form-label" style="font-size:11px">Prior neuromodulation tried</label>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;font-size:11px">
+                ${['rtms','tdcs','neurofeedback','tvns','dbs','ect','none'].map(n => `
+                  <label style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--border);border-radius:999px;cursor:pointer;color:var(--text-secondary)">
+                    <input type="checkbox" class="qs-prior" value="${n}"> ${n.replace(/_/g,' ')}
+                  </label>`).join('')}
+              </div>
+            </div>
+
+            <div style="font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin:10px 0 6px">Analysis goals</div>
+            <div class="g2" style="gap:8px">
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Candidate modality</label>
+                <select id="qs-mod" class="form-control">
+                  <option value="undecided">Not yet decided</option>
+                  <option value="tms">TMS / rTMS</option>
+                  <option value="tdcs">tDCS</option>
+                  <option value="neurofeedback">Neurofeedback</option>
+                  <option value="tvns">tVNS / taVNS</option>
+                  <option value="tacs">tACS</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Target region (optional)</label>
+                <input id="qs-roi" class="form-control" placeholder="e.g. Left DLPFC, F3–F4">
+              </div>
+            </div>
+
+            <div style="font-size:10px;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:.8px;margin:10px 0 6px">Red-flag screen</div>
+            <div style="display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--text-secondary)">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="qs-rf-si"> Active suicidal ideation</label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="qs-rf-neuro"> Unexplained recent neurological symptoms</label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="qs-rf-sync"> Recent syncope or seizure-like episode</label>
+            </div>
+
+            <div style="display:flex;gap:6px;margin-top:14px;flex-wrap:wrap;align-items:center">
+              <button type="button" class="btn btn-sm" onclick="window._qeegSurveyPreview()">Preview JSON</button>
+              <button type="button" class="btn btn-sm" onclick="window._qeegSurveyCopy()">Copy JSON</button>
+              <button type="button" class="btn btn-sm" onclick="window._qeegSurveyDownload()">Download .json</button>
+              <span id="qs-status" style="font-size:11px;color:var(--text-tertiary);margin-left:4px"></span>
+            </div>
+            <pre id="qs-preview" style="display:none;margin-top:8px;padding:10px;background:rgba(0,0,0,0.3);border-radius:6px;font-family:var(--font-mono,monospace);font-size:10.5px;color:var(--teal);max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-word"></pre>
+          </details>
+
           <div id="qr-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:8px"></div>
           <div style="display:flex;gap:8px">
             <button class="btn" onclick="document.getElementById('qeeg-form-panel').style.display='none'">Cancel</button>
@@ -8901,11 +9063,133 @@ export function bindBrainData(records, patMap, patients, setTopbar) {
     }
   };
 
+  // ── Clinical Context Survey — LLM-ready JSON bundle ───────────────────────
+  // Schema: deepsynaps.qeeg_clinical_context.v1. This payload is self-describing
+  // (includes instructions_for_llm) so any LLM can consume it without an
+  // external schema doc. Paired with EDF-derived band powers, it gives the
+  // model both the numbers and the clinical context to interpret them.
+  window._qeegSurveyBuild = function() {
+    const val   = id  => (document.getElementById(id)?.value ?? '') || null;
+    const num   = id  => { const v = document.getElementById(id)?.value; return (v === '' || v == null) ? null : Number(v); };
+    const chk   = id  => !!document.getElementById(id)?.checked;
+    const multi = sel => Array.from(document.querySelectorAll(sel)).filter(x => x.checked).map(x => x.value);
+
+    const fileName = document.getElementById('qr-file-input')?.files?.[0]?.name || null;
+
+    return {
+      schema: 'deepsynaps.qeeg_clinical_context.v1',
+      generated_at: new Date().toISOString(),
+      recording: {
+        patient_ref:     val('qr-patient'),
+        recording_date:  val('qr-date'),
+        filename:        fileName,
+        device:          val('qr-device'),
+        channels:        num('qr-channels'),
+        duration_min:    num('qr-duration'),
+        eyes_condition:  val('qr-eyes'),
+        recording_state: val('qs-state'),
+        time_of_day:     val('qs-tod'),
+        environment:     val('qs-env'),
+      },
+      state_at_recording: {
+        caffeine_4h:           val('qs-caff'),
+        alcohol_cannabis_24h:  val('qs-sub'),
+        sleep_quality:         val('qs-slpq'),
+        sleep_hours:           num('qs-slph'),
+        anxiety_0_10:          num('qs-anx'),
+        alertness_0_10:        num('qs-alt'),
+        eeg_active_meds:       multi('.qs-med'),
+      },
+      clinical: {
+        primary_question:      val('qs-pq'),
+        provisional_diagnoses: multi('.qs-dx'),
+        symptom_duration:      val('qs-dur'),
+        head_injury_history:   val('qs-ti'),
+        seizure_history:       val('qs-sz') === 'yes',
+        prior_neuromod:        multi('.qs-prior'),
+      },
+      analysis_goals: {
+        candidate_modality: val('qs-mod'),
+        target_region:      val('qs-roi'),
+      },
+      red_flags: {
+        active_si:                  chk('qs-rf-si'),
+        unexplained_neuro_symptoms: chk('qs-rf-neuro'),
+        recent_syncope_or_seizure:  chk('qs-rf-sync'),
+      },
+      clinician_notes: val('qr-notes'),
+      _instructions_for_llm:
+        'This is clinical context for interpreting an EDF qEEG recording. ' +
+        'Consider recording confounders (caffeine, sleep, medications, alcohol/cannabis, time of day) before attributing findings to pathology. ' +
+        'Any true flag under `red_flags` requires immediate clinician attention and must not be minimized in the analysis narrative. ' +
+        'Respect `analysis_goals.candidate_modality` unless the EEG data indicates a contraindication. ' +
+        'Prior neuromodulation attempts under `clinical.prior_neuromod` are relevant for resistance patterns and should inform protocol suggestions.',
+    };
+  };
+
+  window._qeegSurveyJSON = function() {
+    return JSON.stringify(window._qeegSurveyBuild(), null, 2);
+  };
+
+  window._qeegSurveyPreview = function() {
+    const pre = document.getElementById('qs-preview');
+    if (!pre) return;
+    if (pre.style.display === 'none') {
+      pre.textContent = window._qeegSurveyJSON();
+      pre.style.display = '';
+    } else {
+      pre.style.display = 'none';
+    }
+  };
+
+  window._qeegSurveyCopy = async function() {
+    const status = document.getElementById('qs-status');
+    try {
+      await navigator.clipboard.writeText(window._qeegSurveyJSON());
+      if (status) { status.textContent = '✓ Copied'; setTimeout(() => { status.textContent = ''; }, 2000); }
+    } catch (_) {
+      if (status) { status.textContent = 'Copy failed'; setTimeout(() => { status.textContent = ''; }, 2000); }
+    }
+  };
+
+  window._qeegSurveyDownload = function() {
+    const survey = window._qeegSurveyBuild();
+    const blob = new Blob([JSON.stringify(survey, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const ref  = survey.recording.patient_ref || 'unknown';
+    const date = survey.recording.recording_date || new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `qeeg_context_${ref}_${date}.json`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
+    const status = document.getElementById('qs-status');
+    if (status) { status.textContent = '✓ Downloaded'; setTimeout(() => { status.textContent = ''; }, 2000); }
+  };
+
   window._saveQEEGRecord = async function() {
     const errEl = document.getElementById('qr-error');
     if (errEl) errEl.style.display = 'none';
     const patientId = document.getElementById('qr-patient')?.value;
     if (!patientId) { if (errEl) { errEl.textContent = 'Select a patient.'; errEl.style.display = 'block'; } return; }
+
+    // Embed survey JSON in notes inside stable delimiters so it can be
+    // recovered verbatim by downstream LLM interpretation without a schema migration.
+    const humanNotes = (document.getElementById('qr-notes')?.value || '').trim();
+    let notesOut = null;
+    try {
+      const survey = window._qeegSurveyBuild?.();
+      if (survey) {
+        const block = '<<qeeg_context_v1>>\n' + JSON.stringify(survey) + '\n<</qeeg_context_v1>>';
+        notesOut = humanNotes ? (humanNotes + '\n\n' + block) : block;
+      } else {
+        notesOut = humanNotes || null;
+      }
+    } catch (_) {
+      notesOut = humanNotes || null;
+    }
+
     const payload = {
       patient_id:             patientId,
       recorded_at:            document.getElementById('qr-date')?.value || null,
@@ -8919,7 +9203,7 @@ export function bindBrainData(records, patMap, patients, setTopbar) {
       gamma_power:            parseFloat(document.getElementById('qr-gamma')?.value) || null,
       artifact_rejection_pct: parseFloat(document.getElementById('qr-artifact')?.value) || null,
       eyes_condition:         document.getElementById('qr-eyes')?.value || null,
-      notes:                  document.getElementById('qr-notes')?.value || null,
+      notes:                  notesOut,
     };
     try {
       await api.createQEEGRecord(payload);
