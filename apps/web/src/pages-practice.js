@@ -9718,6 +9718,8 @@ export async function pgGovernance(setTopbar, _navigate) {
   };
 
   // KPI strip — every line uses real loaded counts; no fabricated breakdowns.
+  // Real grade counts from loaded evidence — used by KPI strip and ledger card.
+  const _evCounts = (() => { const c={A:0,B:0,C:0,D:0}; _evidenceLedger.forEach(r=>{ if(c[r.grade]!=null) c[r.grade]++; }); return c; })();
   const _aeOpen     = aes.filter(a => /open|under|investig|active/i.test(a.status||'') || !/closed|resolved/i.test(a.status||'')).length;
   const _aeMod      = aes.filter(a => /mod/i.test(a.severity||'')).length;
   const _aeSev      = aes.filter(a => /severe|sae/i.test(a.severity||'')).length;
@@ -9728,8 +9730,6 @@ export async function pgGovernance(setTopbar, _navigate) {
   const _scoreSub   = _complianceScore == null
     ? 'No live signals · waiting on AE / review / evidence data'
     : 'Weighted from AE close-rate, review completion, evidence quality';
-  // Real grade counts from loaded evidence — used by KPI strip and ledger card.
-  const _evCounts = (() => { const c={A:0,B:0,C:0,D:0}; _evidenceLedger.forEach(r=>{ if(c[r.grade]!=null) c[r.grade]++; }); return c; })();
   const _kpiStrip = `<div class="dv2-gv-kpis" style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:16px">
     ${_kpi('Compliance · live', _scoreLabel, _scoreSub, _complianceScore == null ? 'warn' : 'ok')}
     ${_kpi('Reviews open', _openReviews, `${reviewItems.length} total in queue`, 'warn')}
@@ -9841,7 +9841,7 @@ export async function pgGovernance(setTopbar, _navigate) {
     </tr>`;
   };
 
-  // _evCounts is hoisted above the KPI strip; see definition near _evidenceLedger.
+  // _evCounts is declared above the KPI strip (before first use).
   const _evChips = [
     { key:'all', label:`All ${_evidenceLedger.length}` },
     { key:'A',   label:`Grade A · ${_evCounts.A}` },
