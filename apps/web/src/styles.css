@@ -261,7 +261,7 @@ pre, code { max-width: 100%; }
 .logo-icon {
   width: 42px; height: 42px;
   background-color: #0c1230;
-  background-image: url('/deepsynaps-logo.png');
+  background-image: url('/deepsynaps-logo.svg');
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;

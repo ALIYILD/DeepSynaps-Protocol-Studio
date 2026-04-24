@@ -14842,7 +14842,7 @@ export async function pgPatientNotificationSettings(setTopbarFn) {
     if ('Notification' in window && Notification.permission === 'granted') {
       new Notification('DeepSynaps Reminder', {
         body: 'This is a test notification from your Patient Portal.',
-        icon: '/manifest-icon-192.png',
+        icon: '/icon-192.png',
       });
     }
   });

@@ -158,6 +158,8 @@ async function loadVirtualCare()  { return (_modVirtualCare  ??= await import('.
 async function loadConditions()   { return (_modConditions   ??= await import('./pages-conditions.js')); }
 let _modResearch = null;
 async function loadResearch()     { return (_modResearch ??= await import('./pages-research.js')); }
+let _modResearchEvidence = null;
+async function loadResearchEvidence() { return (_modResearchEvidence ??= await import('./pages-research-evidence.js')); }
 let _modBrainMap = null;
 async function loadBrainMap()     { return (_modBrainMap ??= await import('./pages-brainmap.js')); }
 let _modQEEGAnalysis = null;
@@ -454,6 +456,7 @@ const NAV = [
   { id: 'biomarkers',          label: 'Biomarkers',         icon: '🧬' },
   { id: 'handbooks-v2',       label: 'Handbooks',         icon: '📚' },
   { id: 'library-v2',         label: 'Library',           icon: '📖' },
+  { id: 'research-evidence',  label: 'Research Evidence', icon: '🔬', ai: true },
 
   // ── SESSIONS ─────────────────────────────────────────────────────────────────
   { section: 'Sessions', sectionId: 'sessions', collapsed: false },
@@ -530,6 +533,7 @@ NAV_ICONS['finance-v2']      = NAV_ICONS['finance-hub'];
 NAV_ICONS['ai-agent-v2']     = NAV_ICONS['protocol-hub'];
 NAV_ICONS['research-v2']     = NAV_ICONS['protocol-wizard'];
 NAV_ICONS['governance-v2']   = NAV_ICONS['adverse-events'];
+NAV_ICONS['research-evidence'] = `<svg viewBox="0 0 24 24"><path d="M10 2v6a2 2 0 0 1-2 2H2"/><path d="M14 2v6a2 2 0 0 0 2 2h6"/><path d="M12 18v4"/><path d="M8 22h8"/><circle cx="12" cy="14" r="4"/></svg>`;
 NAV_ICONS['academy']         = `<svg viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`;
 NAV_ICONS['marketplace']     = `<svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" x2="21" y1="6" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>`;
 
@@ -866,6 +870,7 @@ const PAGE_TITLES = {
   'evidence-builder': 'Evidence Builder',
   'literature': 'Evidence Library',
   'irb-manager': 'IRB Manager',
+  'research-evidence': 'Research Evidence',
 };
 
 // ── Navigate ──────────────────────────────────────────────────────────────────
@@ -1448,6 +1453,7 @@ async function renderPage() {
     case 'ai-agent-v2':        { const m = await loadAgents(); await m.pgAgentChat(setTopbar); break; }
     case 'research-v2':        { const m = await loadResearch(); await m.pgResearch(setTopbar, navigate); break; }
     case 'governance-v2':      { const m = await loadPractice(); await m.pgGovernance(setTopbar, navigate); break; }
+    case 'research-evidence':  { const m = await loadResearchEvidence(); await m.pgResearchEvidence(setTopbar, navigate); break; }
     default:
       el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-tertiary)">Page not found.</div>`;
   }

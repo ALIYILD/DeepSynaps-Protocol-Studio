@@ -6,6 +6,7 @@ import {
   CONDITIONS, DEVICES, PROTOCOL_TYPES, GOVERNANCE_LABELS, EVIDENCE_GRADES,
   PROTOCOL_LIBRARY, searchProtocols, getProtocolsByCondition, getCondition, getDevice,
 } from './protocols-data.js';
+import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
 import { renderLiveEvidencePanel } from './live-evidence.js';
 import { api } from './api.js';
 
@@ -175,6 +176,9 @@ export async function pgProtocolSearch(setTopbar, navigate) {
       });
     }
 
+    const _evPapers = EVIDENCE_SUMMARY?.totalPapers || 87000;
+    const _evTrials = EVIDENCE_SUMMARY?.totalTrials || 0;
+
     const summaryStrip = `
       <div class="prot-summary-strip">
         <div class="prot-chip"><span class="prot-chip-val">${totalProtocols}</span><span class="prot-chip-lbl">Protocols</span></div>
@@ -182,6 +186,8 @@ export async function pgProtocolSearch(setTopbar, navigate) {
         <div class="prot-chip prot-chip-green"><span class="prot-chip-val">${gradeACount}</span><span class="prot-chip-lbl">Grade A</span></div>
         <div class="prot-chip prot-chip-blue"><span class="prot-chip-val">${onLabelCount}</span><span class="prot-chip-lbl">On-Label</span></div>
         <div class="prot-chip prot-chip-purple"><span class="prot-chip-val">${aiCount}</span><span class="prot-chip-lbl">AI-Personalized</span></div>
+        <div class="prot-chip" title="87K curated research papers indexed"><span class="prot-chip-val">${(_evPapers / 1000).toFixed(0)}K</span><span class="prot-chip-lbl">Papers</span></div>
+        <div class="prot-chip" title="Clinical trials from evidence dataset"><span class="prot-chip-val">${_evTrials.toLocaleString()}</span><span class="prot-chip-lbl">Trials</span></div>
         ${backendCount ? `<div class="prot-chip" title="Live from /api/v1/registry/protocols"><span class="prot-chip-val">${backendCount}</span><span class="prot-chip-lbl">Registry</span></div>` : ''}
       </div>`;
 
@@ -299,10 +305,12 @@ export async function pgProtocolSearch(setTopbar, navigate) {
       mainContent = conditionsWithResults.length
         ? conditionsWithResults.map(cond => {
             const condProtos = results.filter(p => p.conditionId === cond.id);
+            const _condEv = getConditionEvidence(cond.id);
+            const _paperInfo = _condEv?.paperCount ? ` \u00B7 ${_condEv.paperCount.toLocaleString()} papers` : '';
             return `<div class="prot-cond-group">
               <div class="prot-cond-header">
                 <span class="prot-cond-label">${_esc(cond.label)}</span>
-                <span class="prot-cond-meta">${_esc(cond.icd10)} \u00B7 ${condProtos.length} protocol${condProtos.length!==1?'s':''}</span>
+                <span class="prot-cond-meta">${_esc(cond.icd10)} \u00B7 ${condProtos.length} protocol${condProtos.length!==1?'s':''}${_paperInfo}</span>
                 <div class="prot-cond-devices">${(cond.commonDevices||[]).map(d=>`<span title="${_esc(_deviceLabel(d))}">${_deviceIcon(d)}</span>`).join('')}</div>
               </div>
               <div class="prot-card-grid">${condProtos.map(_protCard).join('')}</div>

@@ -1,16 +1,50 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <linearGradient id="bg" x1="0.25" y1="0" x2="0.75" y2="1">
-      <stop offset="0%" stop-color="#0c1230"/>
-      <stop offset="40%" stop-color="#1a2a6c"/>
+    <linearGradient id="bg" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0%" stop-color="#0a0f2e"/>
+      <stop offset="45%" stop-color="#1a2a6c"/>
       <stop offset="100%" stop-color="#4a7cf7"/>
     </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
   </defs>
+
+  <!-- Background -->
   <circle cx="256" cy="256" r="256" fill="url(#bg)"/>
-  <path d="M 280 128
-           C 220 128, 168 170, 168 218
-           C 168 266, 220 282, 260 298
-           C 300 314, 344 330, 344 378
-           C 344 418, 296 440, 236 416"
-        fill="none" stroke="#ffffff" stroke-width="38" stroke-linecap="round"/>
+
+  <g filter="url(#glow)">
+    <!-- Central neuron soma -->
+    <circle cx="256" cy="250" r="26" fill="#ffffff" opacity="0.95"/>
+
+    <!-- Axon (main trunk going down) -->
+    <path d="M 256 276 Q 260 330 278 380" stroke="#ffffff" stroke-width="13" fill="none" stroke-linecap="round"/>
+    <!-- Axon terminal branches -->
+    <path d="M 278 380 Q 296 405 318 415" stroke="#ffffff" stroke-width="7" fill="none" stroke-linecap="round" opacity="0.8"/>
+    <path d="M 278 380 Q 268 410 258 425" stroke="#ffffff" stroke-width="7" fill="none" stroke-linecap="round" opacity="0.8"/>
+    <!-- Synaptic terminal dots -->
+    <circle cx="318" cy="415" r="7" fill="#ffffff" opacity="0.75"/>
+    <circle cx="258" cy="425" r="7" fill="#ffffff" opacity="0.75"/>
+
+    <!-- Dendrite: upper-left -->
+    <path d="M 238 230 Q 205 185 175 148" stroke="#ffffff" stroke-width="11" fill="none" stroke-linecap="round"/>
+    <path d="M 175 148 Q 155 120 138 105" stroke="#ffffff" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.7"/>
+    <path d="M 175 148 Q 175 118 185 95" stroke="#ffffff" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.7"/>
+
+    <!-- Dendrite: upper-right -->
+    <path d="M 276 232 Q 315 195 355 165" stroke="#ffffff" stroke-width="11" fill="none" stroke-linecap="round"/>
+    <path d="M 355 165 Q 378 148 395 132" stroke="#ffffff" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.7"/>
+    <path d="M 355 165 Q 368 142 372 118" stroke="#ffffff" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.7"/>
+
+    <!-- Dendrite: left -->
+    <path d="M 232 255 Q 185 262 145 280" stroke="#ffffff" stroke-width="9" fill="none" stroke-linecap="round" opacity="0.9"/>
+    <path d="M 145 280 Q 122 292 108 308" stroke="#ffffff" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.65"/>
+    <path d="M 145 280 Q 120 272 105 258" stroke="#ffffff" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.65"/>
+
+    <!-- Dendrite: right -->
+    <path d="M 280 258 Q 325 268 368 288" stroke="#ffffff" stroke-width="9" fill="none" stroke-linecap="round" opacity="0.9"/>
+    <path d="M 368 288 Q 392 300 408 316" stroke="#ffffff" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.65"/>
+    <path d="M 368 288 Q 394 280 410 268" stroke="#ffffff" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.65"/>
+  </g>
 </svg>

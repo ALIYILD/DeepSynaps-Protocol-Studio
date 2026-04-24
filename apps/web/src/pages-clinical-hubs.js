@@ -4601,20 +4601,59 @@ export async function pgLibraryHub(setTopbar, navigate) {
   const actorRole = (actor?.role || actor?.actor_role || '').toLowerCase();
   const isAdmin = actorRole === 'admin' || actorRole === 'superadmin';
 
-  // Lazy-load PROTOCOL_LIBRARY so the Needs Review tab can surface unreviewed /
-  // verify-flagged entries. Failures degrade silently — count badge falls back to 0.
+  // Lazy-load PROTOCOL_LIBRARY + evidence dataset so every tab can surface
+  // evidence-backed metrics. Failures degrade silently — counts fall back to 0.
   let _protosAll = [], _condsAll = [], _devsAll = [];
+  let _condEvidence = [], _evSummary = null;
   try {
-    const pd = await import('./protocols-data.js');
-    _protosAll = pd.PROTOCOL_LIBRARY || [];
-    _condsAll  = pd.CONDITIONS       || [];
-    _devsAll   = pd.DEVICES          || [];
+    const [pd, ed] = await Promise.all([
+      import('./protocols-data.js'),
+      import('./evidence-dataset.js'),
+    ]);
+    _protosAll    = pd.PROTOCOL_LIBRARY    || [];
+    _condsAll     = pd.CONDITIONS          || [];
+    _devsAll      = pd.DEVICES             || [];
+    _condEvidence = ed.CONDITION_EVIDENCE   || [];
+    _evSummary    = ed.EVIDENCE_SUMMARY     || null;
   } catch {}
   const _needsReviewRows = _protosAll.filter(p =>
     (Array.isArray(p.governance) && p.governance.includes('unreviewed')) ||
     (typeof p.notes === 'string' && /verify/i.test(p.notes))
   );
   const _needsReviewCount = _needsReviewRows.length;
+
+  // ── Per-device evidence aggregation from 87K dataset ──────────────────────
+  // Build a map: deviceId → { protocolCount, conditionCount, paperCount, gradeA }
+  const _deviceEvMap = {};
+  for (const d of _devsAll) {
+    _deviceEvMap[d.id] = { protocolCount: 0, conditionCount: 0, paperCount: 0, gradeACount: 0, conditions: new Set() };
+  }
+  for (const p of _protosAll) {
+    const de = _deviceEvMap[p.device];
+    if (de) {
+      de.protocolCount++;
+      if (p.conditionId) de.conditions.add(p.conditionId);
+      if (String(p.evidenceGrade).toUpperCase() === 'A') de.gradeACount++;
+    }
+  }
+  // Sum paper counts from conditions each device covers
+  for (const did of Object.keys(_deviceEvMap)) {
+    const de = _deviceEvMap[did];
+    de.conditionCount = de.conditions.size;
+    let papers = 0;
+    for (const cid of de.conditions) {
+      const ev = _condEvidence.find(e => e.conditionId === cid);
+      if (ev) papers += ev.paperCount;
+    }
+    de.paperCount = papers;
+    delete de.conditions; // free Set
+  }
+
+  // ── Per-condition evidence lookup for packages tab ─────────────────────────
+  const _condEvMap = {};
+  for (const ce of _condEvidence) _condEvMap[ce.conditionId] = ce;
+  const _totalEvPapersLib = _evSummary?.totalPapers || EVIDENCE_SUMMARY?.totalPapers || 87000;
+  const _totalEvTrialsLib = _evSummary?.totalTrials || EVIDENCE_SUMMARY?.totalTrials || 0;
 
   // "Conditions" tab moved to Protocol Studio (protocol-hub route, Tab 1).
   // Library Hub retains Devices, Packages, Evidence, and Needs Review.
@@ -4900,17 +4939,26 @@ export async function pgLibraryHub(setTopbar, navigate) {
 
   // ── TAB: DEVICES ───────────────────────────────────────────────────────
   else if (tab === 'devices') {
-    const modalityValues = Array.from(new Set(devices.map(d => d.modality).filter(Boolean))).sort();
+    // Enrich API devices with local evidence data if available
+    const _devsFallback = (!devices.length && _devsAll.length)
+      ? _devsAll.map(d => ({ id: d.id, name: d.label || d.id, modality: d.id.replace(/-/g,' '), review_status: 'curated' }))
+      : [];
+    const _devRows = devices.length ? devices : _devsFallback;
+    const modalityValues = Array.from(new Set(_devRows.map(d => d.modality).filter(Boolean))).sort();
     const types = ['All', ...modalityValues];
-    const filtered = filt === 'All' ? devices : devices.filter(d => d.modality === filt);
+    const filtered = filt === 'All' ? _devRows : _devRows.filter(d => d.modality === filt);
     const rows = libraryHelpers.filterRows(filtered, q, ['name', 'manufacturer', 'modality', 'regulatory_status', 'official_indication']);
-    const reviewedCount = devices.filter(d => libraryHelpers.isReviewed(d.review_status)).length;
+    const reviewedCount = _devRows.filter(d => libraryHelpers.isReviewed(d.review_status)).length;
+    const _totalDevProtos = _protosAll.length;
+    const _totalDevPapers = _totalEvPapersLib;
     main =
-      '<div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">' +
-        kpi('var(--teal)',   devices.length, 'Devices') +
+      '<div class="ch-kpi-strip" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr));margin-bottom:16px">' +
+        kpi('var(--teal)',   _devRows.length, 'Devices') +
         kpi('var(--blue)',   reviewedCount, 'Reviewed') +
         kpi('var(--violet)', modalityValues.length, 'Modalities') +
-        kpi('var(--amber)',  rows.length, 'Filtered') +
+        kpi('var(--rose)',   _totalDevProtos, 'Protocols', 'Total protocols across all devices') +
+        kpi('var(--amber)',  (_totalDevPapers / 1000).toFixed(0) + 'K', 'Research papers', '87K curated research papers indexed') +
+        kpi('var(--teal)',   rows.length, 'Filtered') +
       '</div>' +
       '<div class="ch-card">' +
         '<div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">' +
@@ -4918,7 +4966,7 @@ export async function pgLibraryHub(setTopbar, navigate) {
           sInput('devices', 'Search device, manufacturer, modality, indication…') +
         '</div>' +
         '<div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">' + pills(types, filt, 'devices') + '</div>' +
-        (!devices.length
+        (!_devRows.length
           ? '<div class="ch-empty" style="padding:30px 16px">Device registry is empty. Admin must import <code>data/clinical/devices.csv</code>.</div>'
           : rows.length
             ? '<div class="lib-grid">' + rows.map(d => {
@@ -4928,6 +4976,17 @@ export async function pgLibraryHub(setTopbar, navigate) {
                 const settingTag = d.home_vs_clinic ? '<span class="lib-tag">' + esc(d.home_vs_clinic) + '</span>' : '';
                 const indicationLine = d.official_indication
                   ? '<div class="lib-feature lib-feature--indication" title="Official indication">🎯 ' + esc(d.official_indication) + '</div>'
+                  : '';
+                // Evidence metrics from 87K dataset
+                const _devId = (d.modality || d.id || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+                const _dEv = _deviceEvMap[_devId] || _deviceEvMap[d.id] || {};
+                const evidenceLine = (_dEv.protocolCount || _dEv.paperCount)
+                  ? '<div class="lib-features">' +
+                      '<span class="lib-feature" title="Protocols using this device">🧭 ' + (_dEv.protocolCount || 0) + ' protocols</span>' +
+                      '<span class="lib-feature" title="Conditions treated">🏥 ' + (_dEv.conditionCount || 0) + ' conditions</span>' +
+                      (_dEv.paperCount ? '<span class="lib-feature" title="Research papers from 87K dataset">📄 ' + (_dEv.paperCount).toLocaleString() + ' papers</span>' : '') +
+                      (_dEv.gradeACount ? '<span class="lib-feature" title="Grade A evidence protocols">⭐ ' + _dEv.gradeACount + ' Grade A</span>' : '') +
+                    '</div>'
                   : '';
                 return (
                   '<article class="lib-card lib-card--device" aria-label="' + esc(d.name || d.id) + '">' +
@@ -4945,6 +5004,7 @@ export async function pgLibraryHub(setTopbar, navigate) {
                       (d.last_reviewed_at ? '<span class="lib-tag" title="Last reviewed by clinical team">Reviewed ' + esc(d.last_reviewed_at) + '</span>' : '') +
                     '</div>' +
                     (indicationLine ? '<div class="lib-features">' + indicationLine + '</div>' : '') +
+                    evidenceLine +
                   '</article>'
                 );
               }).join('') + '</div>'
@@ -4956,21 +5016,28 @@ export async function pgLibraryHub(setTopbar, navigate) {
   else if (tab === 'packages') {
     const rows = libraryHelpers.filterRows(conditions.filter(c => c.has_condition_package), q, ['name', 'category']);
     main =
-      '<div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">' +
+      '<div class="ch-kpi-strip" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr));margin-bottom:16px">' +
         kpi('var(--rose)',   overview?.condition_package_count || packageSlugs.length, 'Curated packages') +
         kpi('var(--teal)',   conditions.filter(c => c.neuromod_eligible && c.has_condition_package).length, 'Eligible bundles') +
         kpi('var(--blue)',   conditions.filter(c => c.has_condition_package && c.reviewed_protocol_count > 0).length, 'With reviewed protocol') +
-        kpi('var(--amber)',  rows.length, 'Filtered') +
+        kpi('var(--violet)', (_totalEvPapersLib / 1000).toFixed(0) + 'K', 'Research papers', '87K curated evidence papers indexed across all conditions') +
+        kpi('var(--amber)',  _totalEvTrialsLib.toLocaleString(), 'Clinical trials', 'Total trials from evidence dataset') +
+        kpi('var(--teal)',   rows.length, 'Filtered') +
       '</div>' +
       '<div class="ch-card">' +
         '<div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">' +
           '<span class="ch-card-title">Condition Packages</span>' +
-          '<span style="font-size:11px;color:var(--text-tertiary)">Reusable bundles: condition · assessments · protocol candidates · safety review</span>' +
+          '<span style="font-size:11px;color:var(--text-tertiary)">Reusable bundles: condition · assessments · protocol candidates · safety review · 87K evidence papers</span>' +
           sInput('packages', 'Search packages…') +
         '</div>' +
         (!rows.length
           ? '<div class="ch-empty" style="padding:30px 16px">No condition packages match. Curated packages live under <code>data/conditions/*.json</code>.</div>'
-          : '<div class="lib-grid">' + rows.map(c => (
+          : '<div class="lib-grid">' + rows.map(c => {
+              const _cEv = _condEvMap[c.id] || {};
+              const _cPapers = c.curated_evidence_paper_count || _cEv.paperCount || 0;
+              const _cTrials = _cEv.trialCount || 0;
+              const _cProtos = c.total_protocol_count || _protosAll.filter(p => p.conditionId === c.id).length;
+              return (
               '<article class="lib-card lib-card--package" aria-label="' + esc(c.name) + ' package">' +
                 '<div class="lib-card-top">' +
                   '<span class="lib-card-name">' + esc(c.name) + '</span>' +
@@ -4983,17 +5050,19 @@ export async function pgLibraryHub(setTopbar, navigate) {
                 '</div>' +
                 '<div class="lib-features">' +
                   '<span class="lib-feature">🧪 ' + (c.assessment_count || 0) + ' assessments</span>' +
-                  '<span class="lib-feature">🧭 ' + (c.reviewed_protocol_count || 0) + ' protocols</span>' +
+                  '<span class="lib-feature">🧭 ' + _cProtos + ' protocols</span>' +
                   '<span class="lib-feature">🔌 ' + (c.compatible_device_count || 0) + ' devices</span>' +
+                  (_cPapers ? '<span class="lib-feature" title="Research papers from 87K curated dataset">📄 ' + _cPapers.toLocaleString() + ' papers</span>' : '') +
+                  (_cTrials ? '<span class="lib-feature" title="Clinical trials">🔬 ' + _cTrials.toLocaleString() + ' trials</span>' : '') +
                 '</div>' +
                 '<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">' +
                   '<button class="ch-btn-sm ch-btn-teal" onclick="window._libOpenPackage(\'' + esc(c.package_slug) + '\')">Open package →</button>' +
-                  ((c.reviewed_protocol_count || 0) > 0
+                  ((c.reviewed_protocol_count || 0) > 0 || _cProtos > 0
                     ? '<button class="ch-btn-sm" onclick="window._libFindProtocol(\'' + esc(c.id) + '\',\'' + esc(c.name).replace(/'/g, '\\\'') + '\')">Find protocol</button>'
                     : '') +
                 '</div>' +
               '</article>'
-            )).join('') + '</div>') +
+            );}).join('') + '</div>') +
       '</div>';
   }
 
@@ -5005,11 +5074,18 @@ export async function pgLibraryHub(setTopbar, navigate) {
     const curatedCount = curatedLitItems.length;
     const evDbAvailable = overview?.evidence_db_available;
     main =
-      '<div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">' +
-        kpi('var(--teal)',   overview?.curated_paper_count || EVIDENCE_SUMMARY?.totalPapers || 87000, 'Curated papers (ingest)', 'Public PubMed/OpenAlex ingest') +
-        kpi('var(--blue)',   overview?.curated_trial_count || EVIDENCE_SUMMARY?.totalTrials || 0, 'Curated trials') +
+      '<div class="ch-kpi-strip" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr));margin-bottom:16px">' +
+        kpi('var(--teal)',   overview?.curated_paper_count || _totalEvPapersLib, 'Curated papers', 'Public PubMed/OpenAlex ingest — 87K indexed') +
+        kpi('var(--blue)',   overview?.curated_trial_count || _totalEvTrialsLib, 'Curated trials') +
+        kpi('var(--rose)',   _evSummary?.totalMetaAnalyses || EVIDENCE_SUMMARY?.totalMetaAnalyses || 0, 'Meta-analyses') +
         kpi('var(--violet)', curatedCount, 'Your library', 'Per-clinician promoted papers') +
-        kpi('var(--amber)',  evDbAvailable ? 'Online' : 'Offline', 'Evidence index') +
+        kpi('var(--amber)',  _condEvidence.length || _condsAll.length || 0, 'Conditions covered') +
+        kpi('var(--teal)',   evDbAvailable ? 'Online' : 'Offline', 'Evidence index') +
+      '</div>' +
+      '<div class="ch-card" style="margin-bottom:16px;padding:14px 16px;display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,rgba(45,212,191,0.08),rgba(96,165,250,0.08));border:1px solid rgba(45,212,191,0.2)">' +
+        '<div style="flex:1"><span style="font-weight:600;font-size:13px">Explore the full 87K-paper research evidence dataset</span>' +
+        '<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Interactive dashboard across 53 conditions, 13 modalities, assessments, protocols, devices, biomarkers &amp; more</div></div>' +
+        '<button class="btn btn-primary btn-sm" onclick="window._nav(\'research-evidence\')">Open Research Evidence Dashboard &rarr;</button>' +
       '</div>' +
       '<div class="ch-card" style="margin-bottom:16px">' +
         '<div class="ch-card-hd"><span class="ch-card-title">External evidence search (brokered)</span>' +
@@ -5242,12 +5318,13 @@ export async function pgLibraryHub(setTopbar, navigate) {
           'or use the triage buttons on a paper row.' +
         '</div>' +
       '</div>' +
-      '<div class="ch-kpi-strip" style="grid-template-columns:repeat(5,1fr);margin-bottom:16px">' +
+      '<div class="ch-kpi-strip" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr));margin-bottom:16px">' +
         kpi('var(--amber)',  totalUnreviewed, 'Unreviewed', 'governance array contains "unreviewed"') +
-        kpi('var(--blue)',   totalVerify,     'With verify flags', 'notes field mentions "verify"') +
-        kpi('var(--teal)',   gradeABHighPri,  'Grade A / B (priority)', 'Highest clinical priority — strong evidence awaiting review') +
-        kpi('var(--violet)', pendingPapers,   'Pending papers', 'Cross-protocol literature_watch rows (verdict=pending), deduped by PMID') +
-        kpi('var(--rose)',   totalUnreviewed, 'Added this week', 'Batch landed 2026-04-17') +
+        kpi('var(--blue)',   totalVerify,     'Verify flags', 'notes field mentions "verify"') +
+        kpi('var(--teal)',   gradeABHighPri,  'Grade A/B priority', 'Highest clinical priority — strong evidence awaiting review') +
+        kpi('var(--violet)', pendingPapers,   'Pending papers', 'Cross-protocol literature_watch rows (verdict=pending)') +
+        kpi('var(--rose)',   _protosAll.length, 'Total protocols', 'From curated 87K-paper evidence library') +
+        kpi('var(--teal)',   (_totalEvPapersLib / 1000).toFixed(0) + 'K', 'Evidence base', '87K papers indexed across ' + _condEvidence.length + ' conditions') +
       '</div>' +
       protosSection +
       papersSection;

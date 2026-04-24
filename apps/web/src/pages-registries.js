@@ -19,6 +19,8 @@ import {
 } from './registries.js';
 import { renderRegistryInfoModal } from './registry-widget-info.js';
 import { api } from './api.js';
+import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
+import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition } from './protocols-data.js';
 
 // ── Live data merge helpers ───────────────────────────────────────────────────
 // Each registry page below calls these to pull authoritative data from the
@@ -209,7 +211,7 @@ export async function pgConditionRegistry(setTopbar) {
 
   setTopbar('Condition Registry', `
     <div style="display:flex;gap:8px">
-      <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${DATA.length} conditions</span>
+      <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${DATA.length} conditions · ${(EVIDENCE_SUMMARY?.totalPapers || 87000).toLocaleString()} papers · ${PROTOCOL_LIBRARY?.length || 0} protocols</span>
       <button class="btn btn-sm" onclick="window._regAbout?.('conditions')">ℹ About</button>
     </div>
   `);
@@ -231,7 +233,12 @@ export async function pgConditionRegistry(setTopbar) {
 
     window._regDetailItems = data;
     const cards = data.length
-      ? data.map((c, i) => regCardClickable('conditions', i,
+      ? data.map((c, i) => {
+          const _cEv = getConditionEvidence(c.id);
+          const _cProtos = getProtocolsByCondition(c.id);
+          const _paperLine = _cEv?.paperCount ? `<div style="margin-top:4px"><span style="color:var(--text-tertiary);font-size:0.75rem">Evidence:</span> ${_cEv.paperCount.toLocaleString()} papers · ${_cEv.trialCount || 0} trials · ${_cEv.metaAnalysisCount || 0} meta-analyses</div>` : '';
+          const _protoLine = _cProtos?.length ? `<div style="margin-top:2px"><span style="color:var(--text-tertiary);font-size:0.75rem">Protocols:</span> ${_cProtos.length} curated protocols</div>` : '';
+          return regCardClickable('conditions', i,
           `<div style="display:flex;align-items:flex-start;gap:8px;justify-content:space-between">
             <div>
               <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">${esc(c.name)}</div>
@@ -241,10 +248,11 @@ export async function pgConditionRegistry(setTopbar) {
           </div>`,
           `<div><span style="color:var(--text-tertiary);font-size:0.75rem">Modalities:</span> ${c.modalities.map(esc).join(', ')}</div>
            <div><span style="color:var(--text-tertiary);font-size:0.75rem">Targets:</span> ${c.targets.map(esc).join(', ')}</div>
+           ${_paperLine}${_protoLine}
            ${c.notes ? `<div style="margin-top:4px;color:var(--text-secondary)">${esc(c.notes)}</div>` : ''}
            <div style="margin-top:8px;font-size:0.72rem;color:var(--text-tertiary)">Click for cross-registry context · references</div>`,
           `${labelBadge(c.onLabel)}${(c.flags||[]).map(f => `<span style="padding:1px 7px;border-radius:10px;font-size:0.68rem;font-weight:600;background:var(--red-500,#ef4444)20;color:#f87171;border:1px solid #ef444440">${esc(f)}</span>`).join('')}`
-        )).join('')
+        );}).join('')
       : emptyState('No conditions match your filter.');
 
     el.innerHTML = `
@@ -347,7 +355,7 @@ export async function pgProtocolRegistryPage(setTopbar) {
   const DATA = _mergeProtocolsFromApi(apiItems);
 
   setTopbar('Protocol Registry', `
-    <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${DATA.length} templates</span>
+    <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${DATA.length} templates · ${(EVIDENCE_SUMMARY?.totalPapers || 87000).toLocaleString()} evidence papers</span>
     <button class="btn btn-sm" onclick="window._regAbout?.('protocols')">ℹ About</button>
   `);
   const el = document.getElementById('content');
@@ -368,7 +376,10 @@ export async function pgProtocolRegistryPage(setTopbar) {
 
     window._regDetailItems = data;
     const cards = data.length
-      ? data.map((p, i) => regCardClickable('protocols', i,
+      ? data.map((p, i) => {
+          const _pEv = getConditionEvidence(p.condition);
+          const _pPaperLine = _pEv?.paperCount ? `<div style="margin-top:4px"><span style="color:var(--text-tertiary);font-size:0.72rem">Evidence base:</span> ${_pEv.paperCount.toLocaleString()} papers · ${_pEv.trialCount || 0} trials</div>` : '';
+          return regCardClickable('protocols', i,
           `<div style="display:flex;align-items:flex-start;gap:8px;justify-content:space-between">
             <div>
               <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">${esc(p.name)}</div>
@@ -383,10 +394,11 @@ export async function pgProtocolRegistryPage(setTopbar) {
             <div><span style="color:var(--text-tertiary);font-size:0.72rem">Intensity</span><br>${esc(p.intensity)}</div>
             <div><span style="color:var(--text-tertiary);font-size:0.72rem">Sessions</span><br>${esc(p.sessions)} (${esc(p.sessPerWeek)}×/wk, ${esc(p.duration)})</div>
           </div>
+          ${_pPaperLine}
           ${p.notes ? `<div style="margin-top:6px;color:var(--text-secondary);font-size:0.8rem">${esc(p.notes)}</div>` : ''}
           <div style="margin-top:8px;font-size:0.72rem;color:var(--text-tertiary)">Click for cross-registry context · references</div>`,
           p.onLabel ? `<span style="padding:1px 7px;border-radius:10px;font-size:0.68rem;font-weight:700;background:#22c55e20;color:#4ade80;border:1px solid #22c55e40">On-Label</span>` : ''
-        )).join('')
+        );}).join('')
       : emptyState('No protocols match.');
 
     el.innerHTML = `
@@ -421,7 +433,7 @@ export async function pgDeviceRegistry(setTopbar) {
   const DATA = _mergeDevicesFromApi(apiItems);
 
   setTopbar('Device Registry', `
-    <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${DATA.length} devices</span>
+    <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${DATA.length} devices · ${PROTOCOL_LIBRARY?.length || 0} protocols · ${(EVIDENCE_SUMMARY?.totalPapers || 87000).toLocaleString()} papers</span>
     <button class="btn btn-sm" onclick="window._regAbout?.('devices')">ℹ About</button>
   `);
   const el = document.getElementById('content');
@@ -447,7 +459,12 @@ export async function pgDeviceRegistry(setTopbar) {
 
     window._regDetailItems = data;
     const cards = data.length
-      ? data.map((d, i) => regCardClickable('devices', i,
+      ? data.map((d, i) => {
+          // Count protocols using this device from the 87K-backed library
+          const _devProtos = PROTOCOL_LIBRARY?.filter(p => p.device === d.id || p.device === d.modality?.toLowerCase()?.replace(/\s+/g,'-')) || [];
+          const _devCondCount = new Set(_devProtos.map(p => p.conditionId)).size;
+          const _devProtoLine = _devProtos.length ? `<div style="margin-top:4px"><span style="color:var(--text-tertiary);font-size:0.72rem">Protocols:</span> ${_devProtos.length} protocols across ${_devCondCount} conditions</div>` : '';
+          return regCardClickable('devices', i,
           `<div style="display:flex;align-items:flex-start;gap:8px;justify-content:space-between">
             <div>
               <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">${esc(d.name)}</div>
@@ -458,10 +475,11 @@ export async function pgDeviceRegistry(setTopbar) {
           `<div><span style="color:var(--text-tertiary);font-size:0.72rem">Type:</span> ${esc(d.type)}</div>
            <div><span style="color:var(--text-tertiary);font-size:0.72rem">Clearance:</span> ${esc(d.clearance)}</div>
            <div><span style="color:var(--text-tertiary);font-size:0.72rem">Indication:</span> ${esc(d.indication)}</div>
+           ${_devProtoLine}
            ${d.notes ? `<div style="margin-top:4px;color:var(--text-secondary)">${esc(d.notes)}</div>` : ''}
            <div style="margin-top:8px;font-size:0.72rem;color:var(--text-tertiary)">Click for cross-registry context · references</div>`,
           `<span style="padding:1px 7px;border-radius:10px;font-size:0.68rem;font-weight:600;background:var(--surface-2,rgba(255,255,255,.06));color:var(--text-secondary);border:1px solid var(--border)">${esc(d.channels)} ch</span>`
-        )).join('')
+        );}).join('')
       : emptyState('No devices match.');
 
     el.innerHTML = `
