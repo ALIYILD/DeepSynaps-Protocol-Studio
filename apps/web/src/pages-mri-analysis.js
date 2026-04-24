@@ -71,8 +71,6 @@ function card(title, body, extra) {
     + '<div class="ds-card__body">' + body + '</div></div>';
 }
 
-<<<<<<< HEAD
-=======
 function _renderMRIAnnotationList(items) {
   if (!Array.isArray(items) || !items.length) {
     return '<div class="analysis-anno-empty">No notes pinned to this scan yet.</div>';
@@ -191,8 +189,6 @@ function _getFusionToken() {
     return null;
   }
 }
-
->>>>>>> aa28508 (Add V3 fusion timeline annotations and export flows)
 function _demoFusionSummary(patientId) {
   return {
     patient_id: patientId || 'demo-patient',
@@ -209,19 +205,7 @@ async function _fetchFusionSummary(patientId) {
   if (!patientId) return null;
   if (_isDemoMode()) return _demoFusionSummary(patientId);
   try {
-<<<<<<< HEAD
     return await api.getFusionRecommendation(patientId);
-=======
-    var headers = { 'Content-Type': 'application/json' };
-    var token = _getFusionToken();
-    if (token) headers.Authorization = 'Bearer ' + token;
-    var res = await fetch(
-      FUSION_API_BASE + '/api/v1/fusion/recommend/' + encodeURIComponent(patientId),
-      { method: 'POST', headers: headers }
-    );
-    if (!res.ok) throw new Error('Fusion request failed (' + res.status + ')');
-    return await res.json();
->>>>>>> aa28508 (Add V3 fusion timeline annotations and export flows)
   } catch (_) {
     return null;
   }
@@ -254,8 +238,6 @@ export function renderFusionSummaryCard(fusion, patientId) {
   );
 }
 
-<<<<<<< HEAD
-=======
 var _niivueLoaderPromise = null;
 
 function _getApiBase() {
@@ -414,8 +396,6 @@ function _mountInlineMRIViewer(report) {
     report: report,
   });
 }
-
->>>>>>> aa28508 (Add V3 fusion timeline annotations and export flows)
 // ─────────────────────────────────────────────────────────────────────────────
 // DEMO_MRI_REPORT — verbatim copy of demo/sample_mri_report.json.  Demo mode
 // feeds this directly to the renderers; no API call is required.
@@ -1356,7 +1336,6 @@ export function renderFullView(state) {
     + renderPipelineProgress(status);
 
   var right;
-<<<<<<< HEAD
   if (!report) {
     right = card('Results',
       emptyState('&#x1F9E0;',
@@ -1364,15 +1343,6 @@ export function renderFullView(state) {
         'Upload a session and click Run analysis to compute MNI stim targets.'))
       + renderFusionSummaryCard(state.fusion || null, state.patientId || null);
   } else {
-=======
-    if (!report) {
-      right = card('Results',
-        emptyState('&#x1F9E0;',
-          'No analysis loaded',
-          'Upload a session and click Run analysis to compute MNI stim targets.'))
-        + renderFusionSummaryCard(state.fusion || null, state.patientId || null);
-    } else {
->>>>>>> aa28508 (Add V3 fusion timeline annotations and export flows)
     // Amber "radiology review advised" banner sits above everything else
     // in the right column — safety-first surfacing per AI_UPGRADES §P0 #5.
     right = renderQCWarningsBanner(report)
@@ -1380,7 +1350,7 @@ export function renderFullView(state) {
       + renderFusionSummaryCard(state.fusion || null, report && report.patient && report.patient.patient_id)
       + renderMRIQCChips(report)
       + renderBrainAgeCard(report)
-      + renderFusionSummaryCard(state.fusion || null, report && report.patient && report.patient.patient_id)
+      + renderProgressiveViewerCard(report)
       + renderTargetsPanel(report)
       + renderSliceViewer(report)
       + renderGlassBrain(report)
@@ -1790,11 +1760,7 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
       status: _jobStatus,
       medrag: medrag,
       fusion: _fusionSummary,
-<<<<<<< HEAD
       patientId: pid || (_report && _report.patient && _report.patient.patient_id) || null,
-=======
-      patientId: pid || null,
->>>>>>> aa28508 (Add V3 fusion timeline annotations and export flows)
       patientAnalyses: patientAnalyses,
     });
     _mountInlineMRIViewer(_report);
