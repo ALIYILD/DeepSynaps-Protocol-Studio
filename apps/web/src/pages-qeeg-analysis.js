@@ -1595,6 +1595,159 @@ var DEMO_QEEG_ANALYSIS = {
   power_ratios: {
     theta_beta: 2.96,
     alpha_theta: 1.01
+  },
+
+  // ── MNE-Python pipeline fields (CONTRACT.md §1) ─────────────────────────────
+  // Compact demo payload so the new UI sections render on the Netlify preview
+  // without needing a live Fly API. Every field below matches the AnalysisOut
+  // shape the backend will eventually produce; the renderers are shared.
+  pipeline_version: '0.1.0',
+  norm_db_version: 'toy-0.1',
+  flagged_conditions: ['mdd', 'anxiety', 'adhd'],
+  quality_metrics: (function () {
+    return {
+      n_channels_input: 19,
+      n_channels_rejected: 1,
+      bad_channels: ['T5'],
+      n_epochs_total: 278,
+      n_epochs_retained: 261,
+      ica_components_dropped: 4,
+      ica_labels_dropped: { eye: 2, muscle: 1, heart: 1 },
+      sfreq_input: 256,
+      sfreq_output: 250,
+      bandpass: [1.0, 45.0],
+      notch_hz: 50.0,
+    };
+  })(),
+  aperiodic: (function () {
+    // Slope + offset + r² per channel. Slope > 1.5 suggests hyperarousal,
+    // < 1.0 suggests cortical slowing.
+    var chs = ['Fp1','Fp2','F7','F3','Fz','F4','F8','T3','C3','Cz','C4','T4','T5','P3','Pz','P4','T6','O1','O2'];
+    var slopes = [1.51,1.48,1.34,1.45,1.38,1.42,1.33,1.24,1.35,1.40,1.36,1.22,1.18,1.32,1.29,1.31,1.20,1.26,1.28];
+    var offsets = [2.8,2.7,2.5,2.6,2.5,2.6,2.5,2.3,2.4,2.5,2.4,2.3,2.2,2.3,2.3,2.3,2.2,2.3,2.3];
+    var r2 = [0.96,0.96,0.94,0.97,0.95,0.96,0.94,0.93,0.98,0.96,0.97,0.92,0.90,0.97,0.96,0.96,0.91,0.95,0.95];
+    var out = { slope: {}, offset: {}, r_squared: {} };
+    chs.forEach(function (c, i) { out.slope[c] = slopes[i]; out.offset[c] = offsets[i]; out.r_squared[c] = r2[i]; });
+    return out;
+  })(),
+  peak_alpha_freq: (function () {
+    var chs = ['Fp1','Fp2','F7','F3','Fz','F4','F8','T3','C3','Cz','C4','T4','T5','P3','Pz','P4','T6','O1','O2'];
+    var paf = [9.2,9.3,9.0,9.5,9.3,9.4,9.1,8.8,9.6,9.4,9.5,8.9,null,9.8,10.1,9.9,9.0,10.2,10.1];
+    var out = {};
+    chs.forEach(function (c, i) { out[c] = paf[i]; });
+    return out;
+  })(),
+  asymmetry: {
+    // ln(F4 alpha) − ln(F3 alpha). Positive = left hypoactivation, depression-associated.
+    frontal_alpha_F3_F4: 0.21,
+    frontal_alpha_F7_F8: 0.14,
+  },
+  graph_metrics: {
+    delta:     { clustering_coef: 0.48, char_path_length: 2.12, small_worldness: 1.24 },
+    theta:     { clustering_coef: 0.52, char_path_length: 1.98, small_worldness: 1.38 },
+    alpha:     { clustering_coef: 0.61, char_path_length: 1.82, small_worldness: 1.52 },
+    beta:      { clustering_coef: 0.45, char_path_length: 2.25, small_worldness: 1.18 },
+    gamma:     { clustering_coef: 0.38, char_path_length: 2.56, small_worldness: 1.04 },
+  },
+  connectivity: (function () {
+    // Minimal wPLI / coherence structure — only exposes the channel list so
+    // the AI narrative + other summaries can reference it. Full NxN matrices
+    // are omitted from the demo payload to keep the bundle small; the UI
+    // panels that consume them gracefully handle absent matrices.
+    var chs = ['Fp1','Fp2','F7','F3','Fz','F4','F8','T3','C3','Cz','C4','T4','T5','P3','Pz','P4','T6','O1','O2'];
+    return { wpli: {}, coherence: {}, channels: chs };
+  })(),
+  source_roi: {
+    method: 'eLORETA',
+    bands: {
+      alpha: {
+        'lh.superiorfrontal':    0.421,
+        'rh.superiorfrontal':    0.398,
+        'lh.rostralmiddlefrontal': 0.352,
+        'rh.rostralmiddlefrontal': 0.341,
+        'lh.lateralorbitofrontal': 0.287,
+        'rh.lateralorbitofrontal': 0.294,
+        'lh.precentral':         0.512,
+        'rh.precentral':         0.498,
+        'lh.superiorparietal':   0.641,
+        'rh.superiorparietal':   0.632,
+        'lh.inferiorparietal':   0.589,
+        'rh.inferiorparietal':   0.576,
+        'lh.precuneus':          0.711,
+        'rh.precuneus':          0.702,
+        'lh.superiortemporal':   0.342,
+        'rh.superiortemporal':   0.358,
+        'lh.middletemporal':     0.298,
+        'rh.middletemporal':     0.312,
+        'lh.lateraloccipital':   0.768,
+        'rh.lateraloccipital':   0.752,
+        'lh.cuneus':             0.812,
+        'rh.cuneus':             0.801,
+        'lh.rostralanteriorcingulate': 0.241,
+        'rh.rostralanteriorcingulate': 0.235,
+        'lh.posteriorcingulate': 0.398,
+        'rh.posteriorcingulate': 0.391,
+        'lh.insula':             0.324,
+        'rh.insula':             0.318,
+      },
+      theta: {
+        'lh.superiorfrontal':    0.612,
+        'rh.superiorfrontal':    0.589,
+        'lh.rostralmiddlefrontal': 0.548,
+        'rh.rostralmiddlefrontal': 0.521,
+        'lh.precentral':         0.332,
+        'rh.precentral':         0.321,
+        'lh.superiorparietal':   0.241,
+        'rh.superiorparietal':   0.238,
+        'lh.precuneus':          0.312,
+        'rh.precuneus':          0.308,
+        'lh.rostralanteriorcingulate': 0.581,
+        'rh.rostralanteriorcingulate': 0.572,
+      },
+      beta: {
+        'lh.superiorfrontal':    0.198,
+        'rh.superiorfrontal':    0.187,
+        'lh.precentral':         0.412,
+        'rh.precentral':         0.398,
+        'lh.postcentral':        0.432,
+        'rh.postcentral':        0.418,
+        'lh.superiorparietal':   0.324,
+        'rh.superiorparietal':   0.318,
+      },
+    },
+  },
+  normative_zscores: {
+    norm_db_version: 'toy-0.1',
+    spectral: {
+      bands: (function () {
+        var chs = ['Fp1','Fp2','F7','F3','Fz','F4','F8','T3','C3','Cz','C4','T4','T5','P3','Pz','P4','T6','O1','O2'];
+        var zs = {
+          delta:    [1.2,1.1,0.8,0.4,-0.2,0.4,0.7,0.3,-0.3,-0.5,-0.3,0.3,-0.2,-0.8,-1.0,-0.7,-0.2,-1.2,-1.2],
+          theta:    [0.8,0.6,0.3,1.1,2.1,0.9,0.2,-0.1,0.6,1.8,0.4,-0.2,-0.5,-0.2,-0.1,-0.3,-0.4,-0.6,-0.5],
+          alpha:    [-0.3,-0.4,-0.2,0.2,-0.5,0.5,-0.3,0.1,0.8,0.3,1.0,0.0,1.5,2.2,2.5,2.3,1.4,2.8,2.7],
+          beta:     [0.5,0.6,0.7,0.3,-0.1,0.3,0.8,0.5,0.1,-0.1,0.1,0.6,0.2,0.0,-0.2,-0.1,0.2,0.0,-0.1],
+          gamma:    [0.6,0.5,1.1,0.4,0.6,0.3,0.9,0.7,0.1,0.4,0.0,0.8,0.7,-0.1,-0.3,-0.1,0.6,-0.4,-0.3],
+        };
+        var out = {};
+        Object.keys(zs).forEach(function (b) {
+          out[b] = { absolute_uv2: {}, relative: {} };
+          chs.forEach(function (c, i) {
+            out[b].absolute_uv2[c] = zs[b][i];
+            // Relative z-scores synthesised as a dampened variant.
+            out[b].relative[c] = +(zs[b][i] * 0.6).toFixed(2);
+          });
+        });
+        return out;
+      })(),
+    },
+    flagged: [
+      { metric: 'spectral.bands.theta.absolute_uv2', channel: 'Fz', z: 2.10 },
+      { metric: 'spectral.bands.alpha.absolute_uv2', channel: 'Pz', z: 2.50 },
+      { metric: 'spectral.bands.alpha.absolute_uv2', channel: 'O1', z: 2.80 },
+      { metric: 'spectral.bands.alpha.absolute_uv2', channel: 'O2', z: 2.70 },
+      { metric: 'spectral.bands.alpha.absolute_uv2', channel: 'P3', z: 2.20 },
+      { metric: 'spectral.bands.alpha.absolute_uv2', channel: 'P4', z: 2.30 },
+    ],
   }
 };
 
@@ -1656,6 +1809,28 @@ var DEMO_QEEG_REPORT = {
   ],
   clinician_reviewed: false,
   clinician_amendments: '',
+
+  // ── MNE pipeline AI shape (CONTRACT.md §5.4) ───────────────────────────────
+  // Populated so the RAG-cited narrative panel renders in demo mode.
+  data: {
+    executive_summary: 'Resting eyes-closed qEEG shows excess frontal theta at Fz [1], posterior alpha hyper-amplitude across Pz/P3/P4/O1/O2 [2], and positive F3/F4 frontal alpha asymmetry consistent with left-frontal hypoactivation [3]. SpecParam aperiodic exponents are mildly elevated in frontal leads [4]. Findings labelled for research/wellness use only.',
+    findings: [
+      { region: 'frontal midline (Fz)', band: 'theta', observation: 'Theta z = +2.10 at Fz, pattern commonly reported in inattention and rumination studies [1][4].', citations: [1, 4] },
+      { region: 'posterior (Pz, O1, O2)', band: 'alpha', observation: 'Posterior alpha hyper-amplitude (z 2.5–2.8) consistent with hypoaroused vigilance state [2].', citations: [2] },
+      { region: 'frontal (F3/F4)', band: 'alpha', observation: 'Frontal alpha asymmetry F3/F4 = +0.21 — left hypoactivation signature often reported in depressive phenotypes [3].', citations: [3] },
+    ],
+    protocol_recommendations: [
+      { protocol: 'rTMS - Left DLPFC (10 Hz)', rationale: 'Left-frontal hypoactivation → excitatory HF rTMS over left DLPFC [3].' },
+      { protocol: 'SMR / theta neurofeedback at Fz', rationale: 'Up-train SMR (12–15 Hz) while inhibiting theta (4–8 Hz) at Fz [1].' },
+    ],
+    confidence_level: 'moderate',
+  },
+  literature_refs: [
+    { n: 1, pmid: '21890290', doi: '10.1111/j.1467-9450.2011.00893.x', title: 'Frontal EEG theta and inattention: a meta-analysis', year: 2011, url: 'https://pubmed.ncbi.nlm.nih.gov/21890290/' },
+    { n: 2, pmid: '16022942', doi: '10.1016/j.ijpsycho.2005.05.008', title: 'Posterior alpha power and cortical hypoarousal', year: 2005, url: 'https://pubmed.ncbi.nlm.nih.gov/16022942/' },
+    { n: 3, pmid: '11215648', doi: '10.1016/S0301-0511(00)00091-9', title: 'Frontal EEG asymmetry and the approach–withdrawal model', year: 2001, url: 'https://pubmed.ncbi.nlm.nih.gov/11215648/' },
+    { n: 4, pmid: '33010823', doi: '10.1038/s41593-020-00744-x', title: 'Parameterizing neural power spectra into periodic and aperiodic components', year: 2020, url: 'https://pubmed.ncbi.nlm.nih.gov/33010823/' },
+  ],
 };
 
 /* Build comparison delta powers from compact arrays */
