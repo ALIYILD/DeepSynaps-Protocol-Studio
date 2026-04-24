@@ -40,5 +40,16 @@ dependencies = [
     "numpy>=1.26.0,<3.0.0",
 ]
 
+[project.optional-dependencies]
+# Editable path dep on the standalone MNE / SpecParam / eLORETA / normative-z
+# pipeline. Pulled in ONLY when you `pip install -e ".[qeeg]"` — keeping it
+# out of the base `dependencies` list means plain `pip install` succeeds on
+# machines that don't have MNE-Python / fooof / autoreject / pyprep /
+# mne-icalabel / mne-connectivity installed. The runtime import is already
+# guarded in `app/routers/qeeg_analysis_router.py::_try_import_full_pipeline`.
+qeeg = [
+    "deepsynaps-qeeg @ file:///C:/Users/yildi/OneDrive/Desktop/deepsynaps_qeeg_analyzer",
+]
+
 [tool.setuptools]
 py-modules = []

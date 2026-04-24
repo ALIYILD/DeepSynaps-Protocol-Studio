@@ -1702,6 +1702,21 @@ class QEEGAnalysis(Base):
     artifact_rejection_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     analysis_params_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     advanced_analyses_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    # ── MNE-pipeline fields (migration 037) ──────────────────────────────────
+    # Added by the full MNE-Python / SpecParam / eLORETA / normative pipeline
+    # defined in deepsynaps_qeeg_analyzer/CONTRACT.md §2. All nullable so
+    # legacy rows written before 037 remain valid.
+    aperiodic_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    peak_alpha_freq_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    connectivity_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    asymmetry_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    graph_metrics_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    source_roi_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    normative_zscores_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    flagged_conditions: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # JSON array
+    quality_metrics_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    pipeline_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    norm_db_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     analyzed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
