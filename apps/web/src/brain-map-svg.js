@@ -543,3 +543,461 @@ export function renderConnectivityBrainMap(connections, options) {
   parts.push('</svg>');
   return parts.join('');
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// renderICAComponents — Grid of ICA component topographic mini-maps
+//
+// components:  array of {label, type, weights: {ch: val}, variance_explained}
+// channels:    array of channel name strings
+// options.size:          number — overall SVG width (default 280)
+// options.maxComponents: number — max components to render (default 6)
+// ─────────────────────────────────────────────────────────────────────────────
+
+var _ICA_TYPE_COLORS = {
+  brain_alpha: '#4caf50',
+  brain:       '#4caf50',
+  eye_blink:   '#ef5350',
+  muscle:      '#ff9800',
+  cardiac:     '#ab47bc',
+  other:       '#9e9e9e',
+};
+
+function _icaTypeLabel(type) {
+  if (type === 'brain_alpha' || type === 'brain') return 'Brain';
+  if (type === 'eye_blink') return 'Eye';
+  if (type === 'muscle')    return 'Muscle';
+  if (type === 'cardiac')   return 'Cardiac';
+  return 'Other';
+}
+
+function _icaIsArtifact(type) {
+  return type === 'eye_blink' || type === 'muscle' || type === 'cardiac';
+}
+
+export function renderICAComponents(components, channels, options) {
+  var opts = options || {};
+  var size = Number.isFinite(opts.size) ? opts.size : 280;
+  var maxComponents = opts.maxComponents || 6;
+
+  if (!components || !components.length) return '<div>No ICA data</div>';
+
+  var comps = components.slice(0, maxComponents);
+  var cols = Math.min(comps.length, 3);
+  var rows = Math.ceil(comps.length / cols);
+
+  // Each mini-topo cell dimensions (viewBox units)
+  var cellW = 160;
+  var cellH = 200;
+  var pad = 10;
+  var totalW = cols * cellW + (cols + 1) * pad;
+  var totalH = rows * cellH + (rows + 1) * pad;
+
+  var icaPalette = HEATMAP_PALETTES.diverging;
+
+  var parts = [];
+  parts.push('<svg class="ds-ica-components" viewBox="0 0 ' + totalW + ' ' + totalH + '" width="' + size + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ICA component topographic maps" tabindex="0">');
+
+  comps.forEach(function (comp, idx) {
+    var col = idx % cols;
+    var row = Math.floor(idx / cols);
+    var ox = pad + col * (cellW + pad);
+    var oy = pad + row * (cellH + pad);
+    var artifact = _icaIsArtifact(comp.type);
+    var groupOpacity = artifact ? 0.55 : 1.0;
+
+    // Weight min/max for symmetric normalization
+    var absMax = 0;
+    SITES_10_20.forEach(function (site) {
+      var w = comp.weights ? comp.weights[site.id] : undefined;
+      if (w !== undefined && w !== null && Number.isFinite(w)) {
+        if (Math.abs(w) > absMax) absMax = Math.abs(w);
+      }
+    });
+    absMax = absMax || 1;
+
+    var headCx = ox + cellW / 2;
+    var headCy = oy + 60;
+    var headR = 50;
+    var clipId = 'ica-clip-' + idx;
+
+    parts.push('<g class="ds-ica-comp" opacity="' + groupOpacity + '">');
+
+    // Clip definition for this mini-head
+    parts.push('<defs><clipPath id="' + clipId + '"><circle cx="' + headCx + '" cy="' + headCy + '" r="' + headR + '"/></clipPath></defs>');
+
+    // Mini head background
+    parts.push('<circle cx="' + headCx + '" cy="' + headCy + '" r="' + headR + '" fill="#0d1b2a" stroke="rgba(255,255,255,0.25)" stroke-width="1.2"/>');
+
+    // Nose indicator
+    parts.push('<polygon points="' + headCx + ',' + (headCy - headR - 6) + ' ' + (headCx - 4) + ',' + (headCy - headR + 1) + ' ' + (headCx + 4) + ',' + (headCy - headR + 1) + '" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.3)" stroke-width="0.8" stroke-linejoin="round"/>');
+
+    // Radial weight fills (clipped to head)
+    parts.push('<g clip-path="url(#' + clipId + ')">');
+    SITES_10_20.forEach(function (site) {
+      var w = comp.weights ? comp.weights[site.id] : undefined;
+      if (w === undefined || w === null) return;
+      // Normalize: -absMax -> 0, 0 -> 0.5, +absMax -> 1
+      var t = (w / absMax + 1) / 2;
+      var color = _interpolateColor(icaPalette, t);
+      var ecx = headCx + site.x * headR;
+      var ecy = headCy + site.y * headR;
+      parts.push('<circle cx="' + ecx.toFixed(1) + '" cy="' + ecy.toFixed(1) + '" r="20" fill="' + color + '" opacity="0.6"/>');
+    });
+    parts.push('</g>');
+
+    // Head outline (on top)
+    parts.push('<circle cx="' + headCx + '" cy="' + headCy + '" r="' + headR + '" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>');
+
+    // Small electrode dots
+    SITES_10_20.forEach(function (site) {
+      var ecx = headCx + site.x * headR;
+      var ecy = headCy + site.y * headR;
+      parts.push('<circle cx="' + ecx.toFixed(1) + '" cy="' + ecy.toFixed(1) + '" r="2.5" fill="rgba(255,255,255,0.5)" stroke="none"/>');
+    });
+
+    // Component label
+    var labelY = oy + 125;
+    var labelText = comp.label || 'IC?';
+    parts.push('<text x="' + headCx + '" y="' + labelY + '" text-anchor="middle" font-size="11" font-weight="700" fill="rgba(255,255,255,0.9)" font-family="system-ui,sans-serif">' + labelText + '</text>');
+
+    // Strikethrough line for artifacts
+    if (artifact) {
+      var halfW = labelText.length * 3.5;
+      parts.push('<line x1="' + (headCx - halfW) + '" y1="' + (labelY - 3) + '" x2="' + (headCx + halfW) + '" y2="' + (labelY - 3) + '" stroke="rgba(239,68,68,0.7)" stroke-width="1.5"/>');
+    }
+
+    // Type badge
+    var badgeColor = _ICA_TYPE_COLORS[comp.type] || _ICA_TYPE_COLORS.other;
+    var badgeText = _icaTypeLabel(comp.type);
+    var badgeW = badgeText.length * 6 + 12;
+    var badgeY = labelY + 14;
+    parts.push('<rect x="' + (headCx - badgeW / 2) + '" y="' + (badgeY - 9) + '" width="' + badgeW + '" height="14" rx="3" fill="' + badgeColor + '" opacity="0.25"/>');
+    parts.push('<text x="' + headCx + '" y="' + (badgeY + 2) + '" text-anchor="middle" font-size="8" font-weight="600" fill="' + badgeColor + '" font-family="system-ui,sans-serif">' + badgeText + '</text>');
+
+    // Variance explained
+    var varY = badgeY + 18;
+    var varPct = (comp.variance_explained != null) ? (comp.variance_explained * 100).toFixed(1) : '?';
+    parts.push('<text x="' + headCx + '" y="' + varY + '" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.55)" font-family="system-ui,sans-serif">Var: ' + varPct + '%</text>');
+
+    parts.push('</g>');
+  });
+
+  parts.push('</svg>');
+  return parts.join('');
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// renderWaveletHeatmap — Time-frequency spectral power heatmap
+//
+// timeFreqData: {times: [], frequencies: [], power: [[]], channel: "Cz"}
+// options.width:      number — SVG width (default 500)
+// options.height:     number — SVG height (default 300)
+// options.colorScale: string — palette name (default 'warm')
+// ─────────────────────────────────────────────────────────────────────────────
+
+var _BAND_DEFS = [
+  { name: 'Delta', lo: 0.5, hi: 4   },
+  { name: 'Theta', lo: 4,   hi: 8   },
+  { name: 'Alpha', lo: 8,   hi: 13  },
+  { name: 'Beta',  lo: 13,  hi: 30  },
+  { name: 'Gamma', lo: 30,  hi: 100 },
+];
+
+export function renderWaveletHeatmap(timeFreqData, options) {
+  var opts = options || {};
+  var width  = opts.width  || 500;
+  var height = opts.height || 300;
+  var colorScaleName = opts.colorScale || 'warm';
+
+  if (!timeFreqData || !timeFreqData.times || !timeFreqData.frequencies || !timeFreqData.power) {
+    return '<div>No time-frequency data</div>';
+  }
+
+  var times   = timeFreqData.times;
+  var freqs   = timeFreqData.frequencies;
+  var power   = timeFreqData.power;
+  var channel = timeFreqData.channel || '';
+  var palette = HEATMAP_PALETTES[colorScaleName] || HEATMAP_PALETTES.warm;
+
+  // Layout margins
+  var mL = 50;   // left  (y-axis labels)
+  var mR = 80;   // right (band labels + color bar)
+  var mT = 30;   // top   (title)
+  var mB = 40;   // bottom (x-axis labels)
+  var plotW = width  - mL - mR;
+  var plotH = height - mT - mB;
+
+  // Power range for color mapping
+  var pMin = Infinity, pMax = -Infinity;
+  for (var ri = 0; ri < power.length; ri++) {
+    for (var ci = 0; ci < power[ri].length; ci++) {
+      var pv = power[ri][ci];
+      if (Number.isFinite(pv)) {
+        if (pv < pMin) pMin = pv;
+        if (pv > pMax) pMax = pv;
+      }
+    }
+  }
+  if (!Number.isFinite(pMin)) pMin = 0;
+  if (!Number.isFinite(pMax)) pMax = 1;
+  var pRange = pMax - pMin || 1;
+
+  // Frequency log-scale helpers
+  var fMin    = Math.max(0.5, freqs[0]);
+  var fMax    = freqs[freqs.length - 1];
+  var logMin  = Math.log10(fMin);
+  var logMax  = Math.log10(fMax);
+  var logSpan = logMax - logMin || 1;
+
+  function freqToY(f) {
+    var logF = Math.log10(Math.max(0.5, f));
+    var t = (logF - logMin) / logSpan;
+    return mT + plotH * (1 - t);   // high freq at top
+  }
+
+  // Time linear helpers
+  var tMin  = times[0];
+  var tMax  = times[times.length - 1];
+  var tSpan = tMax - tMin || 1;
+
+  function timeToX(tv) {
+    return mL + plotW * ((tv - tMin) / tSpan);
+  }
+
+  var nFreqs = freqs.length;
+  var nTimes = times.length;
+  var cellW  = plotW / Math.max(1, nTimes);
+
+  var parts = [];
+  parts.push('<svg class="ds-wavelet-heatmap" viewBox="0 0 ' + width + ' ' + height + '" width="' + width + '" height="' + height + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Time-frequency wavelet heatmap' + (channel ? ' \u2014 ' + channel : '') + '" tabindex="0">');
+
+  // Plot background
+  parts.push('<rect x="' + mL + '" y="' + mT + '" width="' + plotW + '" height="' + plotH + '" fill="#0d1b2a"/>');
+
+  // Heatmap cells (frequency rows x time columns)
+  for (var fi = 0; fi < nFreqs; fi++) {
+    var fLo  = fi > 0          ? (freqs[fi - 1] + freqs[fi]) / 2 : freqs[fi];
+    var fHi  = fi < nFreqs - 1 ? (freqs[fi] + freqs[fi + 1]) / 2 : freqs[fi];
+    var yTop = freqToY(fHi);
+    var yBot = freqToY(fLo);
+    var rH   = Math.max(0.5, yBot - yTop);
+
+    for (var ti = 0; ti < nTimes; ti++) {
+      var val = (power[fi] && power[fi][ti] != null) ? power[fi][ti] : 0;
+      var tn  = Number.isFinite(val) ? (val - pMin) / pRange : 0;
+      var col = _interpolateColor(palette, tn);
+      var xPos = mL + ti * cellW;
+      parts.push('<rect x="' + xPos.toFixed(1) + '" y="' + yTop.toFixed(1) + '" width="' + (cellW + 0.5).toFixed(1) + '" height="' + (rH + 0.5).toFixed(1) + '" fill="' + col + '"/>');
+    }
+  }
+
+  // Band boundary dashed lines + right-side labels
+  var drawnBoundaries = {};
+  _BAND_DEFS.forEach(function (band) {
+    [band.lo, band.hi].forEach(function (f) {
+      if (f >= fMin && f <= fMax && !drawnBoundaries[f]) {
+        drawnBoundaries[f] = true;
+        var yLine = freqToY(f);
+        parts.push('<line x1="' + mL + '" y1="' + yLine.toFixed(1) + '" x2="' + (mL + plotW) + '" y2="' + yLine.toFixed(1) + '" stroke="rgba(255,255,255,0.3)" stroke-width="0.5" stroke-dasharray="4,3"/>');
+      }
+    });
+    // Band label at geometric midpoint
+    var bLo = Math.max(band.lo, fMin);
+    var bHi = Math.min(band.hi, fMax);
+    if (bLo < bHi) {
+      var midFreq = Math.sqrt(bLo * bHi);
+      var yLabel  = freqToY(midFreq);
+      parts.push('<text x="' + (mL + plotW + 4) + '" y="' + (yLabel + 3).toFixed(1) + '" font-size="7" fill="rgba(255,255,255,0.55)" font-family="system-ui,sans-serif">' + band.name + '</text>');
+    }
+  });
+
+  // Y-axis label (Frequency)
+  var yAxisLabelY = mT + plotH / 2;
+  parts.push('<text x="14" y="' + yAxisLabelY + '" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif" transform="rotate(-90,14,' + yAxisLabelY + ')">Frequency (Hz)</text>');
+
+  // Y-axis tick marks
+  var yTicks = [1, 2, 4, 8, 13, 20, 30, 40];
+  for (var yi = 0; yi < yTicks.length; yi++) {
+    var yf = yTicks[yi];
+    if (yf >= fMin && yf <= fMax) {
+      var yp = freqToY(yf);
+      parts.push('<line x1="' + (mL - 3) + '" y1="' + yp.toFixed(1) + '" x2="' + mL + '" y2="' + yp.toFixed(1) + '" stroke="rgba(255,255,255,0.4)" stroke-width="0.8"/>');
+      parts.push('<text x="' + (mL - 5) + '" y="' + (yp + 3).toFixed(1) + '" text-anchor="end" font-size="7" fill="rgba(255,255,255,0.5)" font-family="system-ui,sans-serif">' + yf + '</text>');
+    }
+  }
+
+  // X-axis label (Time)
+  parts.push('<text x="' + (mL + plotW / 2) + '" y="' + (height - 5) + '" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">Time (s)</text>');
+
+  // X-axis tick marks
+  var nXTicks = Math.min(8, nTimes);
+  for (var xi = 0; xi <= nXTicks; xi++) {
+    var tv = tMin + (tSpan * xi / nXTicks);
+    var xp = timeToX(tv);
+    parts.push('<line x1="' + xp.toFixed(1) + '" y1="' + (mT + plotH) + '" x2="' + xp.toFixed(1) + '" y2="' + (mT + plotH + 3) + '" stroke="rgba(255,255,255,0.4)" stroke-width="0.8"/>');
+    parts.push('<text x="' + xp.toFixed(1) + '" y="' + (mT + plotH + 13) + '" text-anchor="middle" font-size="7" fill="rgba(255,255,255,0.5)" font-family="system-ui,sans-serif">' + tv.toFixed(1) + '</text>');
+  }
+
+  // Plot border
+  parts.push('<rect x="' + mL + '" y="' + mT + '" width="' + plotW + '" height="' + plotH + '" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="0.8"/>');
+
+  // Title (channel name)
+  if (channel) {
+    parts.push('<text x="' + (mL + plotW / 2) + '" y="' + (mT - 10) + '" text-anchor="middle" font-size="11" font-weight="600" fill="rgba(255,255,255,0.85)" font-family="system-ui,sans-serif">' + channel + ' \u2014 Time-Frequency</text>');
+  }
+
+  // Color bar legend on the right
+  var cbX = mL + plotW + 45;
+  var cbW = 10;
+  var cbH = plotH;
+  for (var cbi = 0; cbi < cbH; cbi++) {
+    var cbT   = 1 - cbi / cbH;  // top = high, bottom = low
+    var cbCol = _interpolateColor(palette, cbT);
+    parts.push('<rect x="' + cbX + '" y="' + (mT + cbi) + '" width="' + cbW + '" height="1.5" fill="' + cbCol + '"/>');
+  }
+  parts.push('<rect x="' + cbX + '" y="' + mT + '" width="' + cbW + '" height="' + cbH + '" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="0.5"/>');
+  parts.push('<text x="' + (cbX + cbW / 2) + '" y="' + (mT - 3) + '" text-anchor="middle" font-size="6" fill="rgba(255,255,255,0.5)" font-family="system-ui,sans-serif">' + pMax.toFixed(1) + '</text>');
+  parts.push('<text x="' + (cbX + cbW / 2) + '" y="' + (mT + cbH + 9) + '" text-anchor="middle" font-size="6" fill="rgba(255,255,255,0.5)" font-family="system-ui,sans-serif">' + pMin.toFixed(1) + '</text>');
+
+  parts.push('</svg>');
+  return parts.join('');
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// renderChannelQualityMap — Topographic map colored by recording quality
+//
+// channelStats: { [ch]: {quality, peak_to_peak, std, flat_pct} }
+// channels:     array of channel name strings
+// options.size: number — SVG width (default 320)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function _qualityColor(q) {
+  if (q >= 0.8) return '#4caf50';   // green
+  if (q >= 0.6) return '#ffca28';   // yellow
+  return '#ef5350';                  // red
+}
+
+function _qualityGrade(q) {
+  if (q >= 0.9) return 'A';
+  if (q >= 0.8) return 'B';
+  if (q >= 0.7) return 'C';
+  if (q >= 0.6) return 'D';
+  return 'F';
+}
+
+export function renderChannelQualityMap(channelStats, channels, options) {
+  var opts = options || {};
+  var size = Number.isFinite(opts.size) ? opts.size : 320;
+
+  if (!channelStats) return '<div>No quality data</div>';
+
+  // Compute overall average quality
+  var chList = channels || Object.keys(channelStats);
+  var qualitySum   = 0;
+  var qualityCount = 0;
+  chList.forEach(function (ch) {
+    var stat = channelStats[ch] || channelStats[_mapChannel(ch)];
+    if (stat && stat.quality != null && Number.isFinite(stat.quality)) {
+      qualitySum += stat.quality;
+      qualityCount++;
+    }
+  });
+  var avgQuality = qualityCount > 0 ? qualitySum / qualityCount : 0;
+  var grade      = _qualityGrade(avgQuality);
+  var gradeColor = _qualityColor(avgQuality);
+
+  // Head center shifted down to make room for title
+  var headCx = 200;
+  var headCy = 220;
+  var headR  = 155;
+
+  var parts = [];
+  parts.push('<svg class="ds-channel-quality" viewBox="0 0 400 480" width="' + size + '" height="' + Math.round(size * 480 / 400) + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Channel quality topographic map" tabindex="0">');
+
+  // Overall quality grade at top
+  parts.push('<text x="200" y="22" text-anchor="middle" font-size="12" font-weight="700" fill="' + gradeColor + '" font-family="system-ui,sans-serif">Overall Quality: Grade ' + grade + ' (' + (avgQuality * 100).toFixed(0) + '%)</text>');
+
+  // Head circle
+  parts.push('<circle cx="' + headCx + '" cy="' + headCy + '" r="' + headR + '" fill="#0d1b2a" stroke="rgba(255,255,255,0.25)" stroke-width="2"/>');
+
+  // Nose + ears (adjusted to headCy)
+  parts.push('<polygon points="' + headCx + ',' + (headCy - headR - 12) + ' ' + (headCx - 12) + ',' + (headCy - headR + 8) + ' ' + (headCx + 12) + ',' + (headCy - headR + 8) + '" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5" stroke-linejoin="round"/>');
+  parts.push('<ellipse cx="' + (headCx - 166) + '" cy="' + headCy + '" rx="10" ry="24" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>');
+  parts.push('<ellipse cx="' + (headCx + 166) + '" cy="' + headCy + '" rx="10" ry="24" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>');
+
+  // Midline + coronal guides
+  parts.push('<line x1="' + headCx + '" y1="' + (headCy - headR) + '" x2="' + headCx + '" y2="' + (headCy + headR) + '" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="2,4"/>');
+  parts.push('<line x1="' + (headCx - headR) + '" y1="' + headCy + '" x2="' + (headCx + headR) + '" y2="' + headCy + '" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="2,4"/>');
+
+  // Electrode dots colored and sized by quality
+  SITES_10_20.forEach(function (site) {
+    var cx = headCx + site.x * headR;
+    var cy = headCy + site.y * headR;
+
+    // Look up stats (try direct name, then mapped backend names)
+    var stat = channelStats[site.id];
+    if (!stat) {
+      // Try reverse: find a backend key whose SVG mapping is this site
+      for (var bk in _BACKEND_TO_SVG) {
+        if (_BACKEND_TO_SVG[bk] === site.id && channelStats[bk]) {
+          stat = channelStats[bk];
+          break;
+        }
+      }
+    }
+
+    var quality = (stat && stat.quality != null && Number.isFinite(stat.quality)) ? stat.quality : null;
+    var hasData = quality !== null;
+
+    var dotColor  = hasData ? _qualityColor(quality) : 'rgba(60,60,80,0.6)';
+    var dotRadius = hasData ? 8 + quality * 10 : 8;   // 8 (poor) to 18 (perfect)
+    var strokeCol = hasData ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.2)';
+
+    // Tooltip
+    var tip = [site.id + ' (' + site.lobe + ')'];
+    if (hasData) {
+      tip.push('Quality: ' + (quality * 100).toFixed(0) + '%');
+      if (stat.peak_to_peak != null) tip.push('Peak-to-peak: ' + stat.peak_to_peak.toFixed(1) + ' uV');
+      if (stat.std != null)          tip.push('Std: ' + stat.std.toFixed(1));
+      if (stat.flat_pct != null)     tip.push('Flat: ' + (stat.flat_pct * 100).toFixed(1) + '%');
+    } else {
+      tip.push('No data');
+    }
+
+    parts.push('<g class="ds-quality-electrode">');
+    parts.push('<title>' + tip.join('\n') + '</title>');
+    // Outer halo (proportional to quality)
+    parts.push('<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' + dotRadius.toFixed(1) + '" fill="' + dotColor + '" fill-opacity="0.3" stroke="' + dotColor + '" stroke-width="1.5"/>');
+    // Inner solid dot
+    parts.push('<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="3" fill="' + dotColor + '"/>');
+    // Channel label above the dot
+    parts.push('<text x="' + cx.toFixed(1) + '" y="' + (cy - dotRadius - 3).toFixed(1) + '" text-anchor="middle" font-size="7" font-weight="600" fill="rgba(255,255,255,0.8)" font-family="system-ui,sans-serif">' + site.id + '</text>');
+    // Quality percentage inside the halo
+    if (hasData) {
+      parts.push('<text x="' + cx.toFixed(1) + '" y="' + (cy + 3).toFixed(1) + '" text-anchor="middle" font-size="6" font-weight="600" fill="rgba(255,255,255,0.9)" font-family="system-ui,sans-serif">' + (quality * 100).toFixed(0) + '%</text>');
+    }
+    parts.push('</g>');
+  });
+
+  // Legend
+  var legendY = 420;
+  var legendItems = [
+    { color: '#4caf50', label: 'Good (>80%)' },
+    { color: '#ffca28', label: 'Fair (60-80%)' },
+    { color: '#ef5350', label: 'Poor (<60%)' },
+  ];
+  legendItems.forEach(function (item, idx) {
+    var lx = 60 + idx * 110;
+    parts.push('<circle cx="' + lx + '" cy="' + legendY + '" r="5" fill="' + item.color + '" fill-opacity="0.5" stroke="' + item.color + '" stroke-width="1"/>');
+    parts.push('<text x="' + (lx + 10) + '" y="' + (legendY + 3) + '" font-size="8" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + item.label + '</text>');
+  });
+
+  // Size legend note
+  parts.push('<text x="200" y="448" text-anchor="middle" font-size="7" fill="rgba(255,255,255,0.4)" font-family="system-ui,sans-serif">Dot size proportional to signal quality</text>');
+
+  parts.push('</svg>');
+  return parts.join('');
+}

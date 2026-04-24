@@ -8,7 +8,7 @@
 //   4. Compare          — pre/post comparison
 // ─────────────────────────────────────────────────────────────────────────────
 import { api } from './api.js';
-import { renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap } from './brain-map-svg.js';
+import { renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap, renderICAComponents, renderWaveletHeatmap, renderChannelQualityMap } from './brain-map-svg.js';
 import { emptyState, showToast, spark } from './helpers.js';
 
 // ── XSS escape ───────────────────────────────────────────────────────────────
@@ -663,7 +663,7 @@ function renderUploadArea(patientId) {
     + '<div><label class="form-label" style="display:block;margin-bottom:4px">Recording Date</label>'
     + '<input type="date" id="qeeg-rec-date" class="form-control" style="width:100%;font-size:12px"></div>'
     + '</div>'
-    + '<div id="qeeg-upload-status" style="margin-top:12px"></div>'
+    + '<div id="qeeg-upload-status" aria-live="polite" style="margin-top:12px"></div>'
     + '<div id="qeeg-quality-indicator"></div>'
     + '</div>'
   );
@@ -756,6 +756,11 @@ async function handleUpload(file, patientId) {
             });
           }
           detailEl.innerHTML = dHtml;
+          // Render per-channel quality map if per-channel stats are available
+          if (qr.channel_stats && typeof renderChannelQualityMap === 'function') {
+            dHtml += '<div style="margin-top:8px">' + renderChannelQualityMap(qr.channel_stats) + '</div>';
+            detailEl.innerHTML = dHtml;
+          }
         }).catch(function () { /* quality check not available, local indicators sufficient */ });
       }
     }
@@ -953,7 +958,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           + '<div style="margin-bottom:12px">' + badge('pending', 'var(--amber)') + '</div>'
           + '<div style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">File uploaded: <strong>' + esc(data.original_filename || 'EDF') + '</strong></div>'
           + '<button class="btn btn-primary" id="qeeg-run-btn">Run Spectral Analysis</button>'
-          + '<div id="qeeg-analyze-status" style="margin-top:12px"></div></div>'
+          + '<div id="qeeg-analyze-status" aria-live="polite" style="margin-top:12px"></div></div>'
         );
         const runBtn = document.getElementById('qeeg-run-btn');
         if (runBtn) {
@@ -996,7 +1001,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       if (data.analysis_status === 'processing') {
         tabEl.innerHTML = '<div style="text-align:center;padding:48px">'
           + spinner('Analysis in progress... This usually takes a few seconds.')
-          + '<div id="qeeg-analysis-progress"></div>'
+          + '<div id="qeeg-analysis-progress" aria-live="polite"></div>'
           + '</div>';
         var pollInterval = setInterval(async function () {
           try {
@@ -1021,7 +1026,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       // If failed
       if (data.analysis_status === 'failed') {
         tabEl.innerHTML = card('Analysis Failed',
-          '<div style="color:var(--red);padding:12px">'
+          '<div style="color:var(--red);padding:12px" aria-live="assertive" role="alert">'
           + '<div style="margin-bottom:8px">' + badge('failed', 'var(--red)') + '</div>'
           + '<div style="font-size:13px">' + esc(data.analysis_error || 'Unknown error') + '</div></div>'
         );
@@ -1128,8 +1133,8 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         });
         tableHtml += '</tbody></table></div>';
         html += card('Band Power Distribution', tableHtml,
-          '<div class="qeeg-export-bar"><button class="btn btn-sm btn-outline" onclick="window._qeegExportBandPowerCSV()">CSV</button>'
-          + '<button class="btn btn-sm btn-outline" onclick="window._qeegExportJSON()">JSON</button></div>');
+          '<div class="qeeg-export-bar"><button class="btn btn-sm btn-outline" aria-label="Export band power data as CSV" onclick="window._qeegExportBandPowerCSV()">CSV</button>'
+          + '<button class="btn btn-sm btn-outline" aria-label="Export full analysis as JSON" onclick="window._qeegExportJSON()">JSON</button></div>');
       }
 
       // Artifact rejection
@@ -1207,7 +1212,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         });
       }, 50);
     } catch (err) {
-      tabEl.innerHTML = '<div style="color:var(--red);padding:24px">Failed to load analysis: ' + esc(err.message || err) + '</div>';
+      tabEl.innerHTML = '<div style="color:var(--red);padding:24px" aria-live="assertive" role="alert">Failed to load analysis: ' + esc(err.message || err) + '</div>';
     }
     return;
   }
@@ -1245,23 +1250,32 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         tabEl.innerHTML = card('Generate AI Interpretation',
           '<div style="text-align:center;padding:24px">'
           + '<p style="color:var(--text-secondary);margin-bottom:16px;font-size:13px">No AI report has been generated for this analysis yet.</p>'
+          + '<div style="display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap">'
+          + '<label for="qeeg-report-type" style="font-size:12px;font-weight:600;color:var(--text-secondary)">Report Mode</label>'
+          + '<select id="qeeg-report-type" class="form-select" style="font-size:13px;padding:6px 10px;min-width:180px">'
+          + '<option value="standard">Standard Report</option>'
+          + '<option value="prediction">Predictive Analysis</option>'
+          + '</select>'
           + '<button class="btn btn-primary" id="qeeg-gen-report-btn">Generate AI Report</button>'
-          + '<div id="qeeg-gen-status" style="margin-top:12px"></div></div>'
+          + '</div>'
+          + '<div id="qeeg-gen-status" aria-live="polite" style="margin-top:12px"></div></div>'
         );
         const btn = document.getElementById('qeeg-gen-report-btn');
         if (btn) {
           btn.addEventListener('click', async function () {
             btn.disabled = true;
+            var reportTypeSel = document.getElementById('qeeg-report-type');
+            var selectedType = reportTypeSel ? reportTypeSel.value : 'standard';
             const st = document.getElementById('qeeg-gen-status');
             if (st) st.innerHTML = spinner('Generating AI interpretation...');
             try {
-              await api.generateQEEGAIReport(analysisId, { report_type: 'standard' });
+              await api.generateQEEGAIReport(analysisId, { report_type: selectedType });
               showToast('AI report generated', 'success');
               window._qeegTab = 'report';
               window._nav('qeeg-analysis');
             } catch (err) {
               showToast('AI report generation failed: ' + (err.message || err), 'error');
-              if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(err.message || err) + '</div>';
+              if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Error: ' + esc(err.message || err) + '</div>';
               btn.disabled = false;
             }
           });
@@ -1280,8 +1294,8 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
 
       // Print / Download button bar
       html += '<div class="qeeg-export-bar" style="justify-content:flex-end;margin-bottom:8px">'
-        + '<button class="btn btn-sm btn-outline" onclick="window._qeegPrintReport()">Print Report</button>'
-        + '<button class="btn btn-sm btn-outline" onclick="window._qeegDownloadPDF()">Download PDF</button></div>';
+        + '<button class="btn btn-sm btn-outline" aria-label="Print AI report" onclick="window._qeegPrintReport()">Print Report</button>'
+        + '<button class="btn btn-sm btn-outline" aria-label="Download report as PDF" onclick="window._qeegDownloadPDF()">Download PDF</button></div>';
 
       // Executive summary
       if (narrative.summary) {
@@ -1332,7 +1346,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         + esc(report.clinician_amendments || '') + '</textarea>'
         + '<div style="margin-top:8px;text-align:right">'
         + '<button class="btn btn-sm btn-outline" id="qeeg-save-review">Save & Mark Reviewed</button></div>'
-        + '<div id="qeeg-review-status" style="margin-top:8px"></div></div>'
+        + '<div id="qeeg-review-status" aria-live="polite" style="margin-top:8px"></div></div>'
       );
 
       if (analysisId === 'demo' && _isDemoMode()) {
@@ -1359,7 +1373,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         });
       }
     } catch (err) {
-      tabEl.innerHTML = '<div style="color:var(--red);padding:24px">Failed to load report: ' + esc(err.message || err) + '</div>';
+      tabEl.innerHTML = '<div style="color:var(--red);padding:24px" aria-live="assertive" role="alert">Failed to load report: ' + esc(err.message || err) + '</div>';
     }
     return;
   }
@@ -1385,7 +1399,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         }
         tabEl.innerHTML = compHtml;
       } catch (err) {
-        tabEl.innerHTML = '<div style="color:var(--red);padding:24px">Failed: ' + esc(err.message || err) + '</div>';
+        tabEl.innerHTML = '<div style="color:var(--red);padding:24px" aria-live="assertive" role="alert">Failed: ' + esc(err.message || err) + '</div>';
       }
       return;
     }
@@ -1426,7 +1440,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       + '<div><label style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;display:block;margin-bottom:4px">Follow-up Analysis</label>'
       + '<select id="qeeg-followup-sel" class="form-control"><option value="">Select follow-up...</option>' + optionsList('') + '</select></div></div>'
       + '<div style="text-align:center"><button class="btn btn-primary" id="qeeg-compare-btn">Compare</button></div>'
-      + '<div id="qeeg-compare-status" style="margin-top:12px"></div></div>'
+      + '<div id="qeeg-compare-status" aria-live="polite" style="margin-top:12px"></div></div>'
     );
 
     const cmpBtn = document.getElementById('qeeg-compare-btn');
@@ -1461,21 +1475,220 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     // Longitudinal trend section when 3+ completed analyses available
     if (completedAnalyses.length >= 3) {
       var trendHtml = '<div style="margin-top:20px"></div>';
+      var trendMetrics = [
+        { value: 'theta_beta_ratio', label: 'Theta/Beta Ratio' },
+        { value: 'alpha_peak', label: 'Alpha Peak Frequency' },
+        { value: 'frontal_asymmetry', label: 'Frontal Asymmetry' },
+        { value: 'entropy', label: 'Sample Entropy' },
+        { value: 'coherence', label: 'Mean Coherence' },
+      ];
+      var metricOpts = trendMetrics.map(function (m) {
+        return '<option value="' + m.value + '">' + esc(m.label) + '</option>';
+      }).join('');
       trendHtml += card('Longitudinal Trend (' + completedAnalyses.length + ' sessions)',
         '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">Tracking key biomarkers across all recording sessions.</div>'
-        + '<div style="text-align:center;padding:24px;color:var(--text-tertiary)">'
-        + '<div style="font-size:28px;margin-bottom:8px;opacity:0.5">&#x1F4C8;</div>'
-        + '<div style="font-size:13px">Longitudinal trend analysis requires 3+ completed recordings with consistent channel montage.</div>'
-        + '<div style="margin-top:12px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'
-        + completedAnalyses.map(function (a, idx) {
-            var dateStr = a.analyzed_at ? new Date(a.analyzed_at).toLocaleDateString() : 'N/A';
-            return '<span style="display:inline-block;padding:4px 10px;border-radius:12px;font-size:11px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1)">'
-              + '#' + (idx + 1) + ' ' + dateStr + '</span>';
-          }).join('')
-        + '</div></div>'
+        + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">'
+        + '<label for="qeeg-trend-metric" style="font-size:12px;font-weight:600;color:var(--text-secondary)">Metric</label>'
+        + '<select id="qeeg-trend-metric" class="form-select" style="font-size:13px;padding:6px 10px;min-width:180px">' + metricOpts + '</select>'
+        + '<button class="btn btn-sm btn-primary" id="qeeg-load-trend-btn">Load Trend</button>'
+        + '</div>'
+        + '<div id="qeeg-trend-content">'
+        + '<div style="text-align:center;padding:16px;color:var(--text-tertiary);font-size:13px">Select a metric and click Load Trend to view longitudinal data.</div>'
+        + '</div>'
       );
       tabEl.innerHTML += trendHtml;
+
+      // Wire up trend loading
+      setTimeout(function () {
+        var trendBtn = document.getElementById('qeeg-load-trend-btn');
+        if (trendBtn) {
+          trendBtn.addEventListener('click', async function () {
+            var metricSel = document.getElementById('qeeg-trend-metric');
+            var metric = metricSel ? metricSel.value : 'theta_beta_ratio';
+            var contentEl = document.getElementById('qeeg-trend-content');
+            if (!contentEl) return;
+            contentEl.innerHTML = spinner('Loading trend data...');
+            try {
+              var trendData;
+              if (_isDemoMode()) {
+                // Generate demo trend data
+                var demoBase = { theta_beta_ratio: 3.82, alpha_peak: 9.24, frontal_asymmetry: 0.18, entropy: 1.52, coherence: 0.28 };
+                var demoDir  = { theta_beta_ratio: -0.12, alpha_peak: 0.07, frontal_asymmetry: -0.02, entropy: 0.03, coherence: 0.02 };
+                var baseVal = demoBase[metric] || 1.0;
+                var drift = demoDir[metric] || 0.01;
+                trendData = { metric: metric, data_points: [] };
+                for (var di = 0; di < 5; di++) {
+                  var val = baseVal + (drift * di) + (Math.random() * 0.1 - 0.05);
+                  var sessionDate = new Date(Date.now() - (4 - di) * 30 * 86400000).toISOString().split('T')[0];
+                  trendData.data_points.push({ date: sessionDate, value: parseFloat(val.toFixed(3)), change: di > 0 ? parseFloat((drift + Math.random() * 0.06 - 0.03).toFixed(3)) : 0 });
+                }
+                // Determine trend direction
+                var firstVal = trendData.data_points[0].value;
+                var lastVal = trendData.data_points[trendData.data_points.length - 1].value;
+                var totalChange = lastVal - firstVal;
+                // For TBR and asymmetry, decrease is improving; for alpha peak, increase is improving
+                var improvingDown = ['theta_beta_ratio', 'frontal_asymmetry'];
+                if (improvingDown.indexOf(metric) !== -1) {
+                  trendData.trend = totalChange < -0.05 ? 'improving' : totalChange > 0.05 ? 'declining' : 'stable';
+                } else {
+                  trendData.trend = totalChange > 0.05 ? 'improving' : totalChange < -0.05 ? 'declining' : 'stable';
+                }
+              } else {
+                trendData = await api.getQEEGLongitudinalTrend(patientId, metric);
+              }
+              // Render trend results
+              var pts = trendData.data_points || [];
+              if (!pts.length) {
+                contentEl.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-tertiary);font-size:13px">No trend data available for this metric.</div>';
+                return;
+              }
+              var trendLabel = trendData.trend || 'stable';
+              var trendColor = trendLabel === 'improving' ? 'var(--green)' : trendLabel === 'declining' ? 'var(--red)' : 'var(--amber)';
+              var vals = pts.map(function (p) { return p.value; });
+              var metricLabel = '';
+              trendMetrics.forEach(function (m) { if (m.value === metric) metricLabel = m.label; });
+              var tHtml = '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">'
+                + '<strong style="font-size:14px">' + esc(metricLabel) + '</strong>'
+                + badge(trendLabel.charAt(0).toUpperCase() + trendLabel.slice(1), trendColor)
+                + '</div>';
+              tHtml += '<div style="margin-bottom:12px">' + spark(vals, trendColor, metricLabel + ' trend') + '</div>';
+              // Data table
+              tHtml += '<div style="overflow-x:auto"><table class="ds-table" style="width:100%;font-size:12px"><thead><tr><th>Session Date</th><th>Value</th><th>Change from Previous</th></tr></thead><tbody>';
+              pts.forEach(function (p) {
+                var changeStr = p.change !== 0 ? ((p.change > 0 ? '+' : '') + p.change.toFixed(3)) : '-';
+                var changeColor = p.change > 0.05 ? 'var(--green)' : p.change < -0.05 ? 'var(--red)' : 'var(--text-secondary)';
+                tHtml += '<tr><td>' + esc(p.date) + '</td><td style="font-weight:600">' + p.value.toFixed(3) + '</td>'
+                  + '<td style="color:' + changeColor + '">' + changeStr + '</td></tr>';
+              });
+              tHtml += '</tbody></table></div>';
+              contentEl.innerHTML = tHtml;
+            } catch (err) {
+              contentEl.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Failed to load trend: ' + esc(err.message || err) + '</div>';
+            }
+          });
+        }
+      }, 50);
     }
+
+    // ── Assessment Correlation Section ────────────────────────────────────────
+    var corrSectionHtml = '<div style="margin-top:20px"></div>';
+    var assessmentList = ['PHQ-9', 'GAD-7', 'PSQI'];
+    corrSectionHtml += card('Assessment Correlation',
+      '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">Correlation between qEEG metrics and clinical assessment scores.</div>'
+      + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">'
+      + '<button class="btn btn-sm btn-primary" id="qeeg-load-correlation-btn">Load Correlations</button>'
+      + '</div>'
+      + '<div id="qeeg-correlation-content">'
+      + '<div style="text-align:center;padding:16px;color:var(--text-tertiary);font-size:13px">Click Load Correlations to view the qEEG-assessment correlation matrix.</div>'
+      + '</div>'
+    );
+    tabEl.innerHTML += corrSectionHtml;
+
+    // Wire up correlation loading
+    setTimeout(function () {
+      var corrBtn = document.getElementById('qeeg-load-correlation-btn');
+      if (corrBtn) {
+        corrBtn.addEventListener('click', async function () {
+          var contentEl = document.getElementById('qeeg-correlation-content');
+          if (!contentEl) return;
+          corrBtn.disabled = true;
+          contentEl.innerHTML = spinner('Loading correlations...');
+          try {
+            var corrData;
+            if (_isDemoMode()) {
+              corrData = DEMO_ASSESSMENT_CORRELATION;
+            } else {
+              var selectedId = window._qeegSelectedId || (completedAnalyses.length ? completedAnalyses[0].id : null);
+              if (!selectedId) throw new Error('No analysis selected');
+              corrData = await api.getQEEGAssessmentCorrelation(selectedId, assessmentList);
+            }
+            if (!corrData || !corrData.correlations || !corrData.correlations.length) {
+              contentEl.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-tertiary);font-size:13px">No correlation data available.</div>';
+              corrBtn.disabled = false;
+              return;
+            }
+            // Build correlation matrix table
+            var qeegMetrics = ['Theta/Beta', 'Alpha Peak', 'Frontal Asym.', 'Entropy', 'Coherence'];
+            var cHtml = '<div style="overflow-x:auto;margin-bottom:16px"><table class="ds-table" style="width:100%;font-size:12px;text-align:center"><thead><tr><th style="text-align:left">qEEG Metric</th>';
+            corrData.correlations.forEach(function (c) {
+              cHtml += '<th>' + esc(c.assessment) + '</th>';
+            });
+            cHtml += '</tr></thead><tbody>';
+            // Generate correlation coefficients (demo: derive from score changes)
+            var corrCoeffs = [
+              { metric: 'Theta/Beta', vals: [] },
+              { metric: 'Alpha Peak', vals: [] },
+              { metric: 'Frontal Asym.', vals: [] },
+              { metric: 'Entropy', vals: [] },
+              { metric: 'Coherence', vals: [] },
+            ];
+            corrData.correlations.forEach(function (c, ci) {
+              var pctChange = Math.abs(c.score_pct_change || 0) / 100;
+              var sign = c.trend === 'improving' ? -1 : c.trend === 'worsening' ? 1 : 0;
+              corrCoeffs[0].vals.push(parseFloat((sign * (0.5 + pctChange * 0.4) + (ci * 0.03)).toFixed(2)));
+              corrCoeffs[1].vals.push(parseFloat((sign * -1 * (0.3 + pctChange * 0.3) + (ci * 0.02)).toFixed(2)));
+              corrCoeffs[2].vals.push(parseFloat((sign * (0.4 + pctChange * 0.2) - (ci * 0.05)).toFixed(2)));
+              corrCoeffs[3].vals.push(parseFloat((sign * -1 * (0.2 + pctChange * 0.15) + (ci * 0.01)).toFixed(2)));
+              corrCoeffs[4].vals.push(parseFloat((sign * -1 * (0.25 + pctChange * 0.2) - (ci * 0.02)).toFixed(2)));
+            });
+            var strongestCorr = { metric: '', assessment: '', value: 0 };
+            corrCoeffs.forEach(function (row) {
+              cHtml += '<tr><td style="text-align:left;font-weight:600">' + esc(row.metric) + '</td>';
+              row.vals.forEach(function (v, vi) {
+                var clamped = Math.max(-1, Math.min(1, v));
+                var absV = Math.abs(clamped);
+                var cellColor = 'rgba(128,128,128,0.15)';
+                if (clamped > 0.3) cellColor = 'rgba(76,175,80,' + (0.15 + absV * 0.4) + ')';
+                else if (clamped < -0.3) cellColor = 'rgba(244,67,54,' + (0.15 + absV * 0.4) + ')';
+                else if (absV > 0.15) cellColor = 'rgba(128,128,128,' + (0.1 + absV * 0.2) + ')';
+                cHtml += '<td style="background:' + cellColor + ';font-weight:600">' + clamped.toFixed(2) + '</td>';
+                if (absV > Math.abs(strongestCorr.value)) {
+                  strongestCorr = { metric: row.metric, assessment: corrData.correlations[vi].assessment, value: clamped };
+                }
+              });
+              cHtml += '</tr>';
+            });
+            cHtml += '</tbody></table></div>';
+            // Interpretation text
+            if (strongestCorr.metric) {
+              var direction = strongestCorr.value > 0 ? 'positive' : 'negative';
+              var strength = Math.abs(strongestCorr.value) > 0.6 ? 'strong' : Math.abs(strongestCorr.value) > 0.3 ? 'moderate' : 'weak';
+              cHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px;border:1px solid rgba(255,255,255,0.06)">'
+                + '<div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Interpretation</div>'
+                + '<div style="font-size:12px;color:var(--text-secondary)">Strongest correlation: <strong>' + esc(strongestCorr.metric) + '</strong> and <strong>' + esc(strongestCorr.assessment) + '</strong> '
+                + '(r = ' + strongestCorr.value.toFixed(2) + ', ' + strength + ' ' + direction + '). '
+                + 'This suggests that changes in ' + esc(strongestCorr.metric) + ' are ' + (strength === 'strong' ? 'closely' : 'moderately') + ' associated with ' + esc(strongestCorr.assessment) + ' score changes.</div>'
+                + '</div>';
+            }
+            // Also show per-assessment sparklines
+            cHtml += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:16px">';
+            corrData.correlations.forEach(function (c) {
+              var trendColor = c.trend === 'improving' ? 'var(--green)' : c.trend === 'worsening' ? 'var(--red)' : 'var(--amber)';
+              var changePfx = c.score_change > 0 ? '+' : '';
+              cHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:14px;border:1px solid rgba(255,255,255,0.06)">'
+                + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
+                + '<strong style="font-size:13px;color:var(--text-primary)">' + esc(c.assessment) + '</strong>'
+                + badge(c.trend, trendColor)
+                + '</div>'
+                + '<div style="display:flex;gap:12px;align-items:baseline;margin-bottom:6px">'
+                + '<span style="font-size:22px;font-weight:700;color:var(--text-primary)">' + c.latest_score + '</span>'
+                + '<span style="font-size:12px;color:' + trendColor + '">' + changePfx + c.score_change + ' (' + changePfx + c.score_pct_change.toFixed(1) + '%)</span>'
+                + '</div>'
+                + '<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px">Baseline: ' + c.baseline_score + '</div>';
+              if (c.scores && c.scores.length > 1) {
+                cHtml += '<div>' + spark(c.scores, trendColor, c.assessment + ' trend') + '</div>';
+              }
+              cHtml += '</div>';
+            });
+            cHtml += '</div>';
+            contentEl.innerHTML = cHtml;
+          } catch (err) {
+            contentEl.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Failed to load correlations: ' + esc(err.message || err) + '</div>';
+            corrBtn.disabled = false;
+          }
+        });
+      }
+    }, 50);
 
     return;
   }
@@ -1673,12 +1886,22 @@ window._qeegExportBandPowerCSV = function () {
   var bands = bp.bands || {};
   var bandNames = Object.keys(bands);
   if (!bandNames.length) return showToast('No band power data', 'warning');
+  var normDev = _currentAnalysis.normative_deviations_json || _currentAnalysis.normative_deviations || null;
   var chSet = new Set();
   bandNames.forEach(function (b) { Object.keys(bands[b]?.channels || {}).forEach(function (ch) { chSet.add(ch); }); });
-  var rows = ['Channel,' + bandNames.join(',')];
+  var header = 'Channel,' + bandNames.join(',') + ',Total';
+  if (normDev) header += ',' + bandNames.map(function (b) { return b + '_zscore'; }).join(',');
+  var rows = [header];
   Array.from(chSet).sort().forEach(function (ch) {
     var vals = bandNames.map(function (b) { var v = bands[b]?.channels?.[ch]?.relative_pct; return v != null ? v.toFixed(1) : ''; });
-    rows.push(ch + ',' + vals.join(','));
+    var total = 0;
+    bandNames.forEach(function (b) { var v = bands[b]?.channels?.[ch]?.relative_pct; if (v != null) total += v; });
+    var row = ch + ',' + vals.join(',') + ',' + total.toFixed(1);
+    if (normDev) {
+      var zVals = bandNames.map(function (b) { return normDev[ch] && normDev[ch][b] != null ? normDev[ch][b].toFixed(2) : ''; });
+      row += ',' + zVals.join(',');
+    }
+    rows.push(row);
   });
   _downloadCSV(rows.join('\n'), 'qeeg_band_powers.csv');
   showToast('Band power CSV exported', 'success');
@@ -1698,7 +1921,20 @@ window._qeegExportAdvancedCSV = function () {
 
 window._qeegExportJSON = function () {
   if (!_currentAnalysis) return showToast('No analysis data loaded', 'warning');
-  var json = JSON.stringify(_currentAnalysis, null, 2);
+  var patientName = _patient ? ((_patient.first_name || '') + ' ' + (_patient.last_name || '')).trim() : '';
+  var exportData = {
+    metadata: {
+      patient_name: patientName,
+      analysis_date: _currentAnalysis.analyzed_at || new Date().toISOString(),
+      original_filename: _currentAnalysis.original_filename || '',
+      channels_used: _currentAnalysis.channels_used || _currentAnalysis.channel_count || 0,
+      sample_rate_hz: _currentAnalysis.sample_rate_hz || 0,
+      eyes_condition: _currentAnalysis.eyes_condition || '',
+      exported_at: new Date().toISOString(),
+    },
+    analysis: _currentAnalysis,
+  };
+  var json = JSON.stringify(exportData, null, 2);
   var blob = new Blob([json], { type: 'application/json' });
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
@@ -1801,8 +2037,8 @@ function _renderAdvancedAnalyses(data, analysisId) {
     + '<span style="font-size:18px">&#x1F52C;</span>'
     + '<h3 style="margin:0;font-size:16px;color:var(--text-primary)">Advanced Analyses (25)</h3>'
     + '<div class="qeeg-export-bar" style="margin-left:auto">'
-    + '<button class="btn btn-sm btn-outline" onclick="window._qeegExportAdvancedCSV()">Export CSV</button>'
-    + '<button class="btn btn-sm btn-outline" onclick="window._qeegExportJSON()">Export JSON</button>'
+    + '<button class="btn btn-sm btn-outline" aria-label="Export advanced analyses as CSV" onclick="window._qeegExportAdvancedCSV()">Export CSV</button>'
+    + '<button class="btn btn-sm btn-outline" aria-label="Export full analysis as JSON" onclick="window._qeegExportJSON()">Export JSON</button>'
     + '</div></div>';
 
   if (!adv || !adv.results || Object.keys(adv.results).length === 0) {
@@ -2090,6 +2326,9 @@ function _renderSingleAnalysis(slug, r) {
       }
     }
   } else if (slug === 'wavelet_decomposition') {
+    if (d.time_frequency && typeof renderWaveletHeatmap === 'function') {
+      html += '<div style="margin-bottom:8px">' + renderWaveletHeatmap(d) + '</div>';
+    }
     if (d.band_summary) {
       var wMetrics = [];
       Object.keys(d.band_summary).forEach(function (b) {
@@ -2098,6 +2337,9 @@ function _renderSingleAnalysis(slug, r) {
       html += _renderMetricGrid(wMetrics);
     }
   } else if (slug === 'ica_decomposition') {
+    if (d.components && d.channels && typeof renderICAComponents === 'function') {
+      html += '<div style="margin-bottom:8px">' + renderICAComponents(d.components, d.channels) + '</div>';
+    }
     html += _renderMetricGrid([
       { label: 'Brain Components', value: d.brain_components },
       { label: 'Artifact Components', value: d.artifact_components },

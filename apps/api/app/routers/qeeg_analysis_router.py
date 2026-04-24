@@ -8,8 +8,9 @@ from __future__ import annotations
 import html as html_mod
 import json
 import logging
+import math
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, UploadFile
@@ -1285,4 +1286,578 @@ def export_report_html(
         headers={
             "Content-Disposition": f'attachment; filename="qeeg_report_{short_id}.html"',
         },
+    )
+
+
+# ── Longitudinal Trending ────────────────────────────────────────────────────
+
+# Metrics where a *decrease* in value indicates clinical improvement.
+_LOWER_IS_BETTER: set[str] = {"theta_beta_ratio", "delta_alpha_ratio"}
+
+# All other tracked metrics: an *increase* is considered improvement.
+_TRACKED_METRICS: list[str] = [
+    "theta_beta_ratio",
+    "delta_alpha_ratio",
+    "alpha_peak_frequency",
+    "frontal_asymmetry",
+    "entropy",
+    "small_world_index",
+    "iapf",
+    "spectral_edge_frequency",
+]
+
+# Demo patient-ID prefixes that trigger synthetic data instead of a DB query.
+_DEMO_ID_PREFIXES = ("demo-", "demo_", "mock-", "mock_")
+
+
+def _is_demo_id(value: str) -> bool:
+    """Return True when *value* looks like a demo / mock identifier."""
+    lower = value.lower()
+    return any(lower.startswith(p) for p in _DEMO_ID_PREFIXES) or lower in {
+        "demo", "mock", "test",
+    }
+
+
+class LongitudinalRequest(BaseModel):
+    patient_id: str
+    metric: str = "all"  # or specific: "theta_beta_ratio", "alpha_peak", etc.
+
+
+class LongitudinalDataPoint(BaseModel):
+    date: str
+    value: float
+    session_id: str
+
+
+class MetricTrend(BaseModel):
+    metric: str
+    data_points: list[LongitudinalDataPoint]
+    trend_direction: str  # "improving", "stable", "declining"
+    slope: float
+    num_sessions: int
+
+
+class LongitudinalResponse(BaseModel):
+    patient_id: str
+    total_sessions: int
+    date_range: Optional[dict] = None  # {start, end}
+    metrics: list[MetricTrend]
+    demo_mode: bool = False
+
+
+def _linear_slope(values: list[float]) -> float:
+    """Compute least-squares linear regression slope over an index axis."""
+    n = len(values)
+    if n < 2:
+        return 0.0
+    x_mean = (n - 1) / 2.0
+    y_mean = sum(values) / n
+    num = sum((i - x_mean) * (v - y_mean) for i, v in enumerate(values))
+    den = sum((i - x_mean) ** 2 for i in range(n))
+    if den == 0:
+        return 0.0
+    return num / den
+
+
+def _classify_trend(metric: str, slope: float) -> str:
+    """Classify trend as improving / stable / declining using clinical direction."""
+    threshold = 0.01  # slopes within +/- threshold are considered stable
+    if abs(slope) < threshold:
+        return "stable"
+    if metric in _LOWER_IS_BETTER:
+        return "improving" if slope < 0 else "declining"
+    # For all other metrics, higher is better.
+    return "improving" if slope > 0 else "declining"
+
+
+def _extract_metric_value(analysis_row: QEEGAnalysis, metric: str) -> Optional[float]:
+    """Pull a single metric value from band_powers / advanced_analyses JSON."""
+    # Try band_powers first (derived_ratios, global_summary)
+    if analysis_row.band_powers_json:
+        bp = json.loads(analysis_row.band_powers_json)
+        ratios = bp.get("derived_ratios", {})
+        summary = bp.get("global_summary", {})
+        if metric in ratios:
+            return float(ratios[metric])
+        if metric in summary:
+            return float(summary[metric])
+
+    # Try advanced_analyses
+    if analysis_row.advanced_analyses_json:
+        adv = json.loads(analysis_row.advanced_analyses_json)
+        results = adv.get("results", {})
+        for _key, block in results.items():
+            if isinstance(block, dict):
+                if metric in block:
+                    val = block[metric]
+                    if isinstance(val, (int, float)):
+                        return float(val)
+                # Check nested "value" key
+                inner = block.get("value")
+                if isinstance(inner, dict) and metric in inner:
+                    val = inner[metric]
+                    if isinstance(val, (int, float)):
+                        return float(val)
+
+    return None
+
+
+def _generate_demo_longitudinal(patient_id: str, metric_filter: str) -> LongitudinalResponse:
+    """Return synthetic longitudinal data for demo / preview purposes."""
+    import random
+
+    random.seed(hash(patient_id) % 2**32)
+    num_sessions = 5
+    base_date = datetime.now(timezone.utc) - timedelta(days=120)
+
+    demo_baselines: dict[str, float] = {
+        "theta_beta_ratio": 3.8,
+        "delta_alpha_ratio": 2.1,
+        "alpha_peak_frequency": 9.5,
+        "frontal_asymmetry": -0.12,
+        "entropy": 1.45,
+        "small_world_index": 1.8,
+        "iapf": 10.0,
+        "spectral_edge_frequency": 22.0,
+    }
+
+    metrics_to_use = _TRACKED_METRICS
+    if metric_filter != "all" and metric_filter in demo_baselines:
+        metrics_to_use = [metric_filter]
+
+    trends: list[MetricTrend] = []
+    first_date = base_date.strftime("%Y-%m-%d")
+    last_date = (base_date + timedelta(days=30 * (num_sessions - 1))).strftime("%Y-%m-%d")
+
+    for m in metrics_to_use:
+        base = demo_baselines.get(m, 1.0)
+        # Simulate gradual improvement
+        direction = -1 if m in _LOWER_IS_BETTER else 1
+        step = abs(base) * 0.04 * direction
+        points: list[LongitudinalDataPoint] = []
+        values: list[float] = []
+        for i in range(num_sessions):
+            val = round(base + step * i + random.uniform(-0.05, 0.05), 4)
+            values.append(val)
+            dt = (base_date + timedelta(days=30 * i)).strftime("%Y-%m-%d")
+            points.append(LongitudinalDataPoint(
+                date=dt,
+                value=val,
+                session_id=f"demo-session-{i + 1}",
+            ))
+        slope = _linear_slope(values)
+        trends.append(MetricTrend(
+            metric=m,
+            data_points=points,
+            trend_direction=_classify_trend(m, slope),
+            slope=round(slope, 6),
+            num_sessions=num_sessions,
+        ))
+
+    return LongitudinalResponse(
+        patient_id=patient_id,
+        total_sessions=num_sessions,
+        date_range={"start": first_date, "end": last_date},
+        metrics=trends,
+        demo_mode=True,
+    )
+
+
+@router.post("/longitudinal", response_model=LongitudinalResponse)
+def longitudinal_trending(
+    body: LongitudinalRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> LongitudinalResponse:
+    """Compute metric trends over time for a patient with 3+ completed analyses.
+
+    For each tracked metric, returns an array of {date, value, session_id}
+    data-points together with a linear regression slope and a clinical trend
+    classification (improving / stable / declining).
+    """
+    require_minimum_role(actor, "clinician")
+
+    # ── Demo mode fallback ────────────────────────────────────────────────
+    if _is_demo_id(body.patient_id):
+        return _generate_demo_longitudinal(body.patient_id, body.metric)
+
+    # ── Query completed analyses ──────────────────────────────────────────
+    analyses = (
+        db.query(QEEGAnalysis)
+        .filter_by(patient_id=body.patient_id, analysis_status="completed")
+        .order_by(QEEGAnalysis.created_at)
+        .all()
+    )
+
+    if len(analyses) < 3:
+        raise ApiServiceError(
+            code="insufficient_data",
+            message="Minimum 3 completed analyses required for longitudinal trending",
+            status_code=400,
+        )
+
+    # ── Determine which metrics to report ─────────────────────────────────
+    metrics_to_report = _TRACKED_METRICS
+    if body.metric != "all":
+        if body.metric not in _TRACKED_METRICS:
+            raise ApiServiceError(
+                code="invalid_metric",
+                message=f"Unknown metric '{body.metric}'. Valid options: {', '.join(_TRACKED_METRICS)}",
+                status_code=422,
+            )
+        metrics_to_report = [body.metric]
+
+    # ── Extract data points for each metric ───────────────────────────────
+    trends: list[MetricTrend] = []
+    for m in metrics_to_report:
+        points: list[LongitudinalDataPoint] = []
+        values: list[float] = []
+        for a in analyses:
+            val = _extract_metric_value(a, m)
+            if val is None:
+                continue
+            values.append(val)
+            dt = a.recording_date or (a.analyzed_at.strftime("%Y-%m-%d") if a.analyzed_at else a.created_at.strftime("%Y-%m-%d"))
+            points.append(LongitudinalDataPoint(date=dt, value=val, session_id=a.id))
+
+        if len(points) < 2:
+            # Not enough data for this metric — skip it.
+            continue
+
+        slope = _linear_slope(values)
+        trends.append(MetricTrend(
+            metric=m,
+            data_points=points,
+            trend_direction=_classify_trend(m, slope),
+            slope=round(slope, 6),
+            num_sessions=len(points),
+        ))
+
+    # ── Compute date range ────────────────────────────────────────────────
+    first_date = analyses[0].recording_date or (
+        analyses[0].created_at.strftime("%Y-%m-%d") if analyses[0].created_at else None
+    )
+    last_date = analyses[-1].recording_date or (
+        analyses[-1].created_at.strftime("%Y-%m-%d") if analyses[-1].created_at else None
+    )
+
+    return LongitudinalResponse(
+        patient_id=body.patient_id,
+        total_sessions=len(analyses),
+        date_range={"start": first_date, "end": last_date} if first_date and last_date else None,
+        metrics=trends,
+        demo_mode=False,
+    )
+
+
+# ── Assessment Correlation ───────────────────────────────────────────────────
+
+class AssessmentScore(BaseModel):
+    date: str
+    value: float
+
+
+class AssessmentInput(BaseModel):
+    name: str
+    scores: list[AssessmentScore]
+
+
+class AssessmentCorrelationRequest(BaseModel):
+    assessments: list[AssessmentInput]
+
+
+class MetricCorrelation(BaseModel):
+    metric: str
+    r: float
+    p_value: float
+    direction: str  # "positive", "negative", "none"
+    interpretation: str
+
+
+class AssessmentCorrelationResult(BaseModel):
+    assessment_name: str
+    n_matched: int
+    correlations: list[MetricCorrelation]
+
+
+class AssessmentCorrelationResponse(BaseModel):
+    analysis_id: str
+    patient_id: str
+    results: list[AssessmentCorrelationResult]
+    demo_mode: bool = False
+
+
+def _pearson_r(x: list[float], y: list[float]) -> tuple[float, float]:
+    """Compute Pearson r and approximate two-tailed p-value.
+
+    Uses scipy when available; falls back to a manual implementation with
+    a t-distribution approximation for the p-value.
+    """
+    n = len(x)
+    if n < 3:
+        return 0.0, 1.0
+
+    try:
+        from scipy.stats import pearsonr  # type: ignore[import-untyped]
+        r, p = pearsonr(x, y)
+        if math.isnan(r):
+            return 0.0, 1.0
+        return float(r), float(p)
+    except ImportError:
+        pass
+
+    # Manual Pearson
+    x_mean = sum(x) / n
+    y_mean = sum(y) / n
+    num = sum((xi - x_mean) * (yi - y_mean) for xi, yi in zip(x, y))
+    den_x = math.sqrt(sum((xi - x_mean) ** 2 for xi in x))
+    den_y = math.sqrt(sum((yi - y_mean) ** 2 for yi in y))
+    if den_x == 0 or den_y == 0:
+        return 0.0, 1.0
+    r = num / (den_x * den_y)
+    r = max(-1.0, min(1.0, r))  # clamp for floating-point edge cases
+
+    # Approximate p-value via t-distribution (two-tailed)
+    if abs(r) >= 1.0:
+        p = 0.0
+    else:
+        t_stat = r * math.sqrt((n - 2) / (1 - r * r))
+        # Rough two-tailed p from |t| using a large-sample normal approximation
+        # (adequate for trend display; not intended for publication-grade stats)
+        try:
+            from scipy.stats import t as t_dist  # type: ignore[import-untyped]
+            p = float(2 * t_dist.sf(abs(t_stat), n - 2))
+        except ImportError:
+            # Fallback: very rough approximation
+            p = 2.0 * math.exp(-0.717 * abs(t_stat) - 0.416 * t_stat * t_stat)
+            p = max(0.0, min(1.0, p))
+
+    return r, p
+
+
+def _parse_date(date_str: str) -> Optional[datetime]:
+    """Best-effort ISO date parsing."""
+    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%SZ"):
+        try:
+            return datetime.strptime(date_str, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _nearest_analysis_value(
+    assessment_date: datetime,
+    analyses_sorted: list[QEEGAnalysis],
+    metric: str,
+    max_days: int = 14,
+) -> Optional[float]:
+    """Find the nearest analysis within *max_days* and extract *metric*."""
+    best: Optional[QEEGAnalysis] = None
+    best_delta = timedelta(days=max_days + 1)
+    for a in analyses_sorted:
+        a_date_str = a.recording_date or (a.analyzed_at.strftime("%Y-%m-%d") if a.analyzed_at else None)
+        if not a_date_str:
+            continue
+        a_date = _parse_date(a_date_str)
+        if a_date is None:
+            continue
+        delta = abs(assessment_date - a_date)
+        if delta < best_delta:
+            best_delta = delta
+            best = a
+    if best is None or best_delta > timedelta(days=max_days):
+        return None
+    return _extract_metric_value(best, metric)
+
+
+# ── Clinical interpretation templates ─────────────────────────────────────────
+
+_INTERPRETATION_MAP: dict[tuple[str, str], str] = {
+    # PHQ-9 (depression)
+    ("PHQ-9", "alpha_peak_frequency"): (
+        "PHQ-9 scores show {direction} correlation with alpha peak frequency "
+        "(r={r:.2f}), suggesting depression severity may track with altered "
+        "alpha rhythm."
+    ),
+    ("PHQ-9", "frontal_asymmetry"): (
+        "PHQ-9 scores show {direction} correlation with frontal asymmetry "
+        "(r={r:.2f}), consistent with the frontal alpha asymmetry model of "
+        "depression."
+    ),
+    ("PHQ-9", "theta_beta_ratio"): (
+        "PHQ-9 scores show {direction} correlation with theta/beta ratio "
+        "(r={r:.2f}), suggesting comorbid attentional changes may accompany "
+        "depression severity."
+    ),
+    # GAD-7 (anxiety)
+    ("GAD-7", "theta_beta_ratio"): (
+        "GAD-7 scores show {direction} correlation with theta/beta ratio "
+        "(r={r:.2f}), which may reflect anxiety-related cortical arousal changes."
+    ),
+    ("GAD-7", "spectral_edge_frequency"): (
+        "GAD-7 scores show {direction} correlation with spectral edge frequency "
+        "(r={r:.2f}), potentially indicating high-frequency EEG shifts under anxiety."
+    ),
+    # PSQI (sleep quality — higher = worse)
+    ("PSQI", "delta_alpha_ratio"): (
+        "PSQI scores show {direction} correlation with delta/alpha ratio "
+        "(r={r:.2f}), suggesting poorer sleep quality tracks with increased "
+        "slow-wave intrusion in the waking EEG."
+    ),
+    ("PSQI", "entropy"): (
+        "PSQI scores show {direction} correlation with signal entropy "
+        "(r={r:.2f}), potentially reflecting reduced cortical complexity "
+        "associated with sleep disruption."
+    ),
+}
+
+
+def _build_interpretation(assessment_name: str, metric: str, r: float, direction: str) -> str:
+    """Return a clinical interpretation string, using a template if available."""
+    key = (assessment_name.upper(), metric)
+    template = _INTERPRETATION_MAP.get(key)
+    if template:
+        return template.format(direction=direction, r=r)
+
+    # Generic fallback
+    strength = "strong" if abs(r) >= 0.7 else "moderate" if abs(r) >= 0.4 else "weak"
+    return (
+        f"{assessment_name} scores show a {strength} {direction} correlation with "
+        f"{metric.replace('_', ' ')} (r={r:.2f})."
+    )
+
+
+def _generate_demo_assessment_correlation(
+    analysis_id: str,
+    assessments: list[AssessmentInput],
+) -> AssessmentCorrelationResponse:
+    """Return synthetic correlation data for demo / preview purposes."""
+    import random
+
+    random.seed(hash(analysis_id) % 2**32)
+
+    results: list[AssessmentCorrelationResult] = []
+    for asmt in assessments:
+        correlations: list[MetricCorrelation] = []
+        n_matched = max(len(asmt.scores), 3)
+        for m in _TRACKED_METRICS:
+            r_val = round(random.uniform(-0.85, 0.85), 4)
+            p_val = round(random.uniform(0.001, 0.15), 4)
+            direction = "positive" if r_val > 0.1 else "negative" if r_val < -0.1 else "none"
+            correlations.append(MetricCorrelation(
+                metric=m,
+                r=r_val,
+                p_value=p_val,
+                direction=direction,
+                interpretation=_build_interpretation(asmt.name, m, r_val, direction),
+            ))
+        results.append(AssessmentCorrelationResult(
+            assessment_name=asmt.name,
+            n_matched=n_matched,
+            correlations=correlations,
+        ))
+
+    return AssessmentCorrelationResponse(
+        analysis_id=analysis_id,
+        patient_id="demo-patient",
+        results=results,
+        demo_mode=True,
+    )
+
+
+@router.post("/{analysis_id}/assessment-correlation", response_model=AssessmentCorrelationResponse)
+def assessment_correlation(
+    analysis_id: str,
+    body: AssessmentCorrelationRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AssessmentCorrelationResponse:
+    """Correlate qEEG metrics with clinical assessment scores.
+
+    For each assessment supplied in the request body, computes Pearson
+    correlation between the assessment time-series and the nearest qEEG
+    session metrics.  Returns correlation coefficient, p-value, direction,
+    and a clinical interpretation string.
+    """
+    require_minimum_role(actor, "clinician")
+
+    # ── Demo mode fallback ────────────────────────────────────────────────
+    if _is_demo_id(analysis_id):
+        return _generate_demo_assessment_correlation(analysis_id, body.assessments)
+
+    # ── Load anchor analysis ──────────────────────────────────────────────
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    # ── Retrieve all completed analyses for the patient ───────────────────
+    all_analyses = (
+        db.query(QEEGAnalysis)
+        .filter_by(patient_id=analysis.patient_id, analysis_status="completed")
+        .order_by(QEEGAnalysis.created_at)
+        .all()
+    )
+
+    if not body.assessments:
+        raise ApiServiceError(
+            code="no_assessments",
+            message="At least one assessment with scores is required",
+            status_code=422,
+        )
+
+    # ── Compute correlations ──────────────────────────────────────────────
+    results: list[AssessmentCorrelationResult] = []
+
+    for asmt in body.assessments:
+        if not asmt.scores:
+            continue
+
+        correlations: list[MetricCorrelation] = []
+        for m in _TRACKED_METRICS:
+            qeeg_values: list[float] = []
+            asmt_values: list[float] = []
+
+            for score_entry in asmt.scores:
+                asmt_date = _parse_date(score_entry.date)
+                if asmt_date is None:
+                    continue
+                qeeg_val = _nearest_analysis_value(asmt_date, all_analyses, m)
+                if qeeg_val is not None:
+                    qeeg_values.append(qeeg_val)
+                    asmt_values.append(score_entry.value)
+
+            if len(qeeg_values) < 3:
+                # Not enough matched pairs for meaningful correlation
+                continue
+
+            r_val, p_val = _pearson_r(asmt_values, qeeg_values)
+            r_val = round(r_val, 4)
+            p_val = round(p_val, 4)
+
+            if r_val > 0.1:
+                direction = "positive"
+            elif r_val < -0.1:
+                direction = "negative"
+            else:
+                direction = "none"
+
+            correlations.append(MetricCorrelation(
+                metric=m,
+                r=r_val,
+                p_value=p_val,
+                direction=direction,
+                interpretation=_build_interpretation(asmt.name, m, r_val, direction),
+            ))
+
+        results.append(AssessmentCorrelationResult(
+            assessment_name=asmt.name,
+            n_matched=len(correlations),
+            correlations=correlations,
+        ))
+
+    return AssessmentCorrelationResponse(
+        analysis_id=analysis_id,
+        patient_id=analysis.patient_id,
+        results=results,
+        demo_mode=False,
     )

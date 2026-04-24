@@ -997,6 +997,10 @@ export const api = {
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/quality-check`, { method: 'POST' }),
   getQEEGReportPDF: (analysisId, reportId) =>
     `/api/v1/qeeg-analysis/${analysisId}/reports/${reportId}/pdf`,
+  getQEEGLongitudinalTrend: (patientId, metric) =>
+    apiFetch('/api/v1/qeeg-analysis/longitudinal', { method: 'POST', body: JSON.stringify({ patient_id: patientId, metric }) }),
+  getQEEGAssessmentCorrelation: (analysisId, assessments) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/assessment-correlation`, { method: 'POST', body: JSON.stringify({ assessments }) }),
 
   // ── Patient Portal (self-service for patient-role users) ─────────────────
   patientPortalMe: () => apiFetch('/api/v1/patient-portal/me'),
