@@ -1072,6 +1072,8 @@ export const api = {
   // frontend falls back gracefully when the endpoint is absent.
   listPatientMRIAnalyses: (patientId) =>
     apiFetch(`/api/v1/mri/patients/${encodeURIComponent(patientId)}/analyses`),
+  getFusionRecommendation: (patientId) =>
+    apiFetch(`/api/v1/fusion/recommend/${encodeURIComponent(patientId)}`, { method: 'POST' }),
 
   // ── Patient Portal (self-service for patient-role users) ─────────────────
   patientPortalMe: () => apiFetch('/api/v1/patient-portal/me'),

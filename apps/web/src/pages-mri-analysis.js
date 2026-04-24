@@ -27,6 +27,7 @@ var _medragCache   = null;
 var _jobStatus     = null;       // { stage, state } snapshot
 var _jobPollTimer  = null;
 var _selectedCondition = 'mdd';
+var _fusionSummary = null;
 // Populated by pgMRIAnalysis() and re-read by the compare modal's submit
 // handler so we don't refetch on every click.
 var _patientAnalysesCache = { patientId: null, rows: [] };
@@ -65,6 +66,55 @@ function card(title, body, extra) {
   return '<div class="ds-card">'
     + (title ? '<div class="ds-card__header"><h3>' + esc(title) + '</h3>' + (extra || '') + '</div>' : '')
     + '<div class="ds-card__body">' + body + '</div></div>';
+}
+
+function _demoFusionSummary(patientId) {
+  return {
+    patient_id: patientId || 'demo-patient',
+    qeeg_analysis_id: null,
+    mri_analysis_id: DEMO_MRI_REPORT.analysis_id,
+    recommendations: ['MRI targeting is available. Add qEEG biomarkers to create a higher-confidence dual-modality plan.'],
+    summary: 'Partial fusion available from one modality only. Add qEEG data to strengthen target confidence.',
+    confidence: 0.4,
+    generated_at: new Date().toISOString(),
+  };
+}
+
+async function _fetchFusionSummary(patientId) {
+  if (!patientId) return null;
+  if (_isDemoMode()) return _demoFusionSummary(patientId);
+  try {
+    return await api.getFusionRecommendation(patientId);
+  } catch (_) {
+    return null;
+  }
+}
+
+export function renderFusionSummaryCard(fusion, patientId) {
+  if (!patientId && !fusion) {
+    return card('Fusion summary',
+      '<div style="color:var(--text-secondary);font-size:13px">Run or load an MRI analysis to assemble a fusion summary.</div>');
+  }
+  if (!fusion) {
+    return card('Fusion summary',
+      '<div style="color:var(--text-secondary);font-size:13px">Fusion summary unavailable right now. Existing MRI targeting remains available.</div>');
+  }
+  var recs = Array.isArray(fusion.recommendations) ? fusion.recommendations : [];
+  var tags = [];
+  if (fusion.qeeg_analysis_id) tags.push('qEEG ready');
+  if (fusion.mri_analysis_id) tags.push('MRI ready');
+  if (fusion.confidence != null) tags.push('confidence ' + Math.round(Number(fusion.confidence || 0) * 100) + '%');
+  return card('Fusion summary',
+    '<div style="font-size:13px;color:var(--text-primary);line-height:1.55">' + esc(fusion.summary || '') + '</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">' + tags.map(function (item) {
+      return '<span class="ds-mri-mod-pill">' + esc(item) + '</span>';
+    }).join('') + '</div>'
+    + (recs.length
+      ? '<ul style="margin:10px 0 0 18px;padding:0;color:var(--text-secondary);font-size:12.5px;line-height:1.5">'
+        + recs.map(function (item) { return '<li>' + esc(item) + '</li>'; }).join('')
+        + '</ul>'
+      : '')
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -973,7 +1023,8 @@ export function renderFullView(state) {
     right = card('Results',
       emptyState('&#x1F9E0;',
         'No analysis loaded',
-        'Upload a session and click Run analysis to compute MNI stim targets.'));
+        'Upload a session and click Run analysis to compute MNI stim targets.'))
+      + renderFusionSummaryCard(state.fusion || null, state.patientId || null);
   } else {
     // Amber "radiology review advised" banner sits above everything else
     // in the right column — safety-first surfacing per AI_UPGRADES §P0 #5.
@@ -981,6 +1032,7 @@ export function renderFullView(state) {
       + renderPatientQCHeader(report)
       + renderMRIQCChips(report)
       + renderBrainAgeCard(report)
+      + renderFusionSummaryCard(state.fusion || null, report && report.patient && report.patient.patient_id)
       + renderTargetsPanel(report)
       + renderSliceViewer(report)
       + renderGlassBrain(report)
@@ -1267,6 +1319,7 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
   // "Compare ←→" button when >= 2 exist. Demo mode synthesises two rows.
   var patientAnalyses = [];
   var pid = _patientMeta && _patientMeta.patient_id;
+  _fusionSummary = await _fetchFusionSummary(pid || (_report && _report.patient && _report.patient.patient_id));
   if (pid && !_isDemoMode()) {
     try {
       var res2 = await api.listPatientMRIAnalyses(pid);
@@ -1289,6 +1342,8 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
       report: _report,
       status: _jobStatus,
       medrag: medrag,
+      fusion: _fusionSummary,
+      patientId: pid || (_report && _report.patient && _report.patient.patient_id) || null,
       patientAnalyses: patientAnalyses,
     });
     _wireUploader(navigate);

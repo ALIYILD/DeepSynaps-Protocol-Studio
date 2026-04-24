@@ -59,6 +59,56 @@ function badge(text, color) {
     + (color || 'var(--blue)') + '20;color:' + (color || 'var(--blue)') + '">' + esc(text) + '</span>';
 }
 
+function _demoFusionSummary(patientId) {
+  return {
+    patient_id: patientId || 'demo-patient',
+    qeeg_analysis_id: 'demo',
+    mri_analysis_id: null,
+    recommendations: ['qEEG data is available. Add MRI targeting to upgrade this into a dual-modality recommendation.'],
+    summary: 'Partial fusion available from one modality only. Add MRI data to strengthen target confidence.',
+    confidence: 0.4,
+    generated_at: new Date().toISOString(),
+  };
+}
+
+async function _fetchFusionSummary(patientId) {
+  if (!patientId) return null;
+  if (_isDemoMode()) return _demoFusionSummary(patientId);
+  try {
+    return await api.getFusionRecommendation(patientId);
+  } catch (_) {
+    return null;
+  }
+}
+
+export function renderFusionSummaryCard(fusion, patientId) {
+  if (!patientId && !fusion) {
+    return card('Fusion summary',
+      '<div style="color:var(--text-secondary);font-size:13px">Select a patient analysis to assemble a fusion summary.</div>');
+  }
+  if (!fusion) {
+    return card('Fusion summary',
+      '<div style="color:var(--text-secondary);font-size:13px">Fusion summary unavailable right now. Existing qEEG results remain usable.</div>');
+  }
+  var recs = Array.isArray(fusion.recommendations) ? fusion.recommendations : [];
+  var meta = [];
+  if (fusion.qeeg_analysis_id) meta.push('qEEG ready');
+  if (fusion.mri_analysis_id) meta.push('MRI ready');
+  if (fusion.confidence != null) meta.push('confidence ' + Math.round(Number(fusion.confidence || 0) * 100) + '%');
+  var recHtml = recs.length
+    ? '<ul style="margin:10px 0 0 18px;padding:0;color:var(--text-secondary);font-size:12.5px;line-height:1.5">'
+        + recs.map(function (item) { return '<li>' + esc(item) + '</li>'; }).join('')
+      + '</ul>'
+    : '<div style="margin-top:10px;color:var(--text-tertiary);font-size:12px">No recommendations yet.</div>';
+  return card('Fusion summary',
+    '<div style="font-size:13px;color:var(--text-primary);line-height:1.55">' + esc(fusion.summary || '') + '</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">' + meta.map(function (item) {
+      return badge(item, 'var(--teal)');
+    }).join('') + '</div>'
+    + recHtml
+  );
+}
+
 const BAND_COLORS = {
   delta: '#42a5f5', theta: '#7e57c2', alpha: '#66bb6a',
   beta: '#ffa726', high_beta: '#ef5350', gamma: '#ec407a',
@@ -2176,6 +2226,7 @@ let _patient = null;
 let _medHistory = null;
 let _analyses = [];
 let _collapsedSections = { medications: true, neurological: true, lifestyle: true };
+let _fusionSummary = null;
 
 function renderTabBar(activeTab) {
   return '<div class="ch-tab-bar" style="margin-bottom:20px">' +
@@ -2640,6 +2691,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         data = await api.getQEEGAnalysis(analysisId);
       }
       _currentAnalysis = data;
+      _fusionSummary = await _fetchFusionSummary(data && data.patient_id);
 
       // If pending — show manual trigger
       if (data.analysis_status === 'pending') {
@@ -2882,6 +2934,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
 
       // ── Advanced Analyses Section ───────────────────────────────────────
       html += _renderAdvancedAnalyses(data, analysisId);
+      html += renderFusionSummaryCard(_fusionSummary, data && data.patient_id);
 
       if (analysisId === 'demo' && _isDemoMode()) {
         html = _demoBanner() + html;
