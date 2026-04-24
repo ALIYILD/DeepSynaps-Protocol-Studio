@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, Form, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -61,6 +61,7 @@ class AnalysisOut(BaseModel):
     analysis_error: Optional[str] = None
     band_powers: Optional[dict] = None
     artifact_rejection: Optional[dict] = None
+    advanced_analyses: Optional[dict] = None
     analyzed_at: Optional[str] = None
     created_at: str
 
@@ -84,6 +85,7 @@ class AnalysisOut(BaseModel):
             analysis_error=r.analysis_error,
             band_powers=json.loads(r.band_powers_json) if r.band_powers_json else None,
             artifact_rejection=json.loads(r.artifact_rejection_json) if r.artifact_rejection_json else None,
+            advanced_analyses=json.loads(r.advanced_analyses_json) if r.advanced_analyses_json else None,
             analyzed_at=r.analyzed_at.isoformat() if r.analyzed_at else None,
             created_at=r.created_at.isoformat() if r.created_at else "",
         )
@@ -353,6 +355,92 @@ async def analyze_edf(
         analysis.analysis_error = str(exc)[:500]
         db.commit()
         return AnalysisOut.from_record(analysis)
+
+
+# ── Run Advanced Analyses ────────────────────────────────────────────────────
+
+@router.post("/{analysis_id}/run-advanced", response_model=AnalysisOut)
+async def run_advanced_analyses_endpoint(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AnalysisOut:
+    """Run all 25 advanced analyses on a completed qEEG analysis.
+
+    Requires the basic spectral analysis to be completed first.
+    Results are stored in the advanced_analyses_json column.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    if analysis.analysis_status != "completed" or not analysis.band_powers_json:
+        raise ApiServiceError(
+            code="analysis_not_ready",
+            message="Basic spectral analysis must be completed before running advanced analyses",
+            status_code=400,
+        )
+
+    try:
+        # Load file
+        settings = get_settings()
+        from app.services import media_storage
+
+        file_bytes = await media_storage.read_upload(analysis.file_ref, settings)
+
+        # Parse EDF
+        from app.services.edf_parser import parse_edf_file, extract_eeg_channels
+
+        parse_result = parse_edf_file(file_bytes, analysis.original_filename or "recording.edf")
+        if not parse_result["success"]:
+            raise ApiServiceError(
+                code="parse_failed",
+                message=f"EDF re-parse failed: {parse_result.get('error', 'unknown')}",
+                status_code=500,
+            )
+
+        raw = parse_result["raw"]
+        channel_map = parse_result["channel_map"]
+        raw_eeg = extract_eeg_channels(raw, channel_map)
+
+        # Apply artifact rejection (same as basic analysis)
+        from app.services.spectral_analysis import apply_artifact_rejection
+
+        cleaned_raw, _ = apply_artifact_rejection(raw_eeg)
+
+        # Load existing band powers
+        band_powers = json.loads(analysis.band_powers_json)
+
+        # Run advanced analyses
+        from app.services.analyses import run_advanced_analyses
+
+        advanced_result = run_advanced_analyses(cleaned_raw, band_powers)
+
+        # Store results
+        analysis.advanced_analyses_json = json.dumps(advanced_result)
+        db.commit()
+        db.refresh(analysis)
+
+        _log.info(
+            "Advanced analyses completed for %s: %d/%d ok in %.1fs",
+            analysis_id,
+            advanced_result["meta"]["completed"],
+            advanced_result["meta"]["total"],
+            advanced_result["meta"]["duration_sec"],
+        )
+        return AnalysisOut.from_record(analysis)
+
+    except ApiServiceError:
+        raise
+    except Exception as exc:
+        _log.exception("Advanced analyses failed for %s", analysis_id)
+        raise ApiServiceError(
+            code="advanced_analysis_failed",
+            message=f"Advanced analyses failed: {str(exc)[:300]}",
+            status_code=500,
+        )
 
 
 # ── Get Analysis ─────────────────────────────────────────────────────────────

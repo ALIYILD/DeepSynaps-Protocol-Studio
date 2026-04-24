@@ -277,3 +277,264 @@ export function renderBrainMap10_20(options) {
   parts.push('</svg>');
   return parts.join('');
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// renderTopoHeatmap — Power-colored electrode heatmap for qEEG analysis
+//
+// bandPowers: { [channelName]: number } — absolute or relative power per site
+// options.band:      string — band name shown in legend (e.g. "alpha")
+// options.unit:      string — unit label (e.g. "uV^2" or "%")
+// options.size:      number — SVG width/height (default 360)
+// options.colorScale: 'warm'|'cool'|'diverging' (default 'warm')
+// ─────────────────────────────────────────────────────────────────────────────
+
+const HEATMAP_PALETTES = {
+  warm:      ['#0d1b2a', '#1b2838', '#2a4858', '#3a7ca5', '#56b870', '#d4e157', '#ffca28', '#ff7043', '#e53935'],
+  cool:      ['#0d1b2a', '#1a237e', '#283593', '#3949ab', '#42a5f5', '#4fc3f7', '#80deea', '#b2ebf2', '#e0f7fa'],
+  diverging: ['#2196f3', '#64b5f6', '#bbdefb', '#e0e0e0', '#ffcdd2', '#ef5350', '#c62828'],
+};
+
+function _interpolateColor(palette, t) {
+  const clamped = Math.max(0, Math.min(1, t));
+  const idx = clamped * (palette.length - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.min(lo + 1, palette.length - 1);
+  const frac = idx - lo;
+  const c1 = _hexToRgb(palette[lo]);
+  const c2 = _hexToRgb(palette[hi]);
+  const r = Math.round(c1[0] + (c2[0] - c1[0]) * frac);
+  const g = Math.round(c1[1] + (c2[1] - c1[1]) * frac);
+  const b = Math.round(c1[2] + (c2[2] - c1[2]) * frac);
+  return 'rgb(' + r + ',' + g + ',' + b + ')';
+}
+
+function _hexToRgb(hex) {
+  const v = parseInt(hex.slice(1), 16);
+  return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+}
+
+export function renderTopoHeatmap(bandPowers, options) {
+  const opts = options || {};
+  const band = opts.band || 'power';
+  const unit = opts.unit || '';
+  const size = Number.isFinite(opts.size) ? opts.size : 360;
+  const palette = HEATMAP_PALETTES[opts.colorScale] || HEATMAP_PALETTES.warm;
+
+  // Compute min/max for normalization
+  const values = [];
+  SITES_10_20.forEach(function (site) {
+    const v = bandPowers[site.id];
+    if (v !== undefined && v !== null && Number.isFinite(v)) values.push(v);
+  });
+  const vMin = values.length ? Math.min.apply(null, values) : 0;
+  const vMax = values.length ? Math.max.apply(null, values) : 1;
+  const range = vMax - vMin || 1;
+
+  const parts = [];
+  parts.push('<svg class="ds-topo-heatmap" viewBox="0 0 400 430" width="' + size + '" height="' + Math.round(size * 430 / 400) + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="qEEG topographic heatmap — ' + band + '">');
+
+  // Defs: radial gradients per electrode for smooth interpolation
+  parts.push('<defs><clipPath id="th-head-clip"><circle cx="200" cy="200" r="160"/></clipPath></defs>');
+
+  // Background head
+  parts.push('<circle cx="200" cy="200" r="160" fill="#0d1b2a" stroke="rgba(255,255,255,0.25)" stroke-width="2"/>');
+
+  // Radial gradient fills per electrode (clipped to head)
+  parts.push('<g clip-path="url(#th-head-clip)">');
+  SITES_10_20.forEach(function (site) {
+    const v = bandPowers[site.id];
+    if (v === undefined || v === null) return;
+    const t = (v - vMin) / range;
+    const color = _interpolateColor(palette, t);
+    const cx = 200 + site.x * 160;
+    const cy = 200 + site.y * 160;
+    parts.push('<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="60" fill="' + color + '" opacity="0.55"/>');
+  });
+  parts.push('</g>');
+
+  // Head outline
+  parts.push('<circle cx="200" cy="200" r="160" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="2"/>');
+
+  // Nose + ears
+  parts.push('<polygon points="200,28 188,48 212,48" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5" stroke-linejoin="round"/>');
+  parts.push('<ellipse cx="34" cy="200" rx="10" ry="24" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>');
+  parts.push('<ellipse cx="366" cy="200" rx="10" ry="24" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>');
+
+  // Electrode dots with value labels
+  SITES_10_20.forEach(function (site) {
+    const v = bandPowers[site.id];
+    const cx = 200 + site.x * 160;
+    const cy = 200 + site.y * 160;
+    const hasValue = v !== undefined && v !== null && Number.isFinite(v);
+    const t = hasValue ? (v - vMin) / range : 0;
+    const dotColor = hasValue ? _interpolateColor(palette, t) : 'rgba(30,40,60,0.8)';
+    const textVal = hasValue ? (v < 10 ? v.toFixed(2) : v.toFixed(1)) : '-';
+
+    parts.push('<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="14" fill="' + dotColor + '" stroke="rgba(255,255,255,0.6)" stroke-width="1.2"/>');
+    parts.push('<text x="' + cx.toFixed(1) + '" y="' + (cy - 2).toFixed(1) + '" text-anchor="middle" font-size="7" font-weight="600" fill="rgba(255,255,255,0.95)" font-family="system-ui,sans-serif">' + site.id + '</text>');
+    parts.push('<text x="' + cx.toFixed(1) + '" y="' + (cy + 8).toFixed(1) + '" text-anchor="middle" font-size="6.5" fill="rgba(255,255,255,0.7)" font-family="system-ui,sans-serif">' + textVal + '</text>');
+  });
+
+  // Color-bar legend below the head
+  const legendY = 380;
+  const legendW = 240;
+  const legendX = 80;
+  for (let i = 0; i < legendW; i++) {
+    const color = _interpolateColor(palette, i / legendW);
+    parts.push('<rect x="' + (legendX + i) + '" y="' + legendY + '" width="1.5" height="10" fill="' + color + '"/>');
+  }
+  parts.push('<rect x="' + legendX + '" y="' + legendY + '" width="' + legendW + '" height="10" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="0.5" rx="2"/>');
+  parts.push('<text x="' + legendX + '" y="' + (legendY + 22) + '" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + vMin.toFixed(1) + '</text>');
+  parts.push('<text x="' + (legendX + legendW) + '" y="' + (legendY + 22) + '" text-anchor="end" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + vMax.toFixed(1) + '</text>');
+  parts.push('<text x="200" y="' + (legendY + 22) + '" text-anchor="middle" font-size="9" font-weight="600" fill="rgba(255,255,255,0.8)" font-family="system-ui,sans-serif">' + band + (unit ? ' (' + unit + ')' : '') + '</text>');
+
+  parts.push('</svg>');
+  return parts.join('');
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// renderConnectivityMatrix — NxN color-coded coherence/connectivity grid
+//
+// matrix:       2D array [N][N] of values 0-1
+// channelNames: array of N channel name strings
+// options.band: string — band label (e.g. "alpha")
+// options.size: number — SVG width/height (default 400)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function renderConnectivityMatrix(matrix, channelNames, options) {
+  const opts = options || {};
+  const band = opts.band || 'coherence';
+  const n = channelNames.length;
+  if (n === 0 || !matrix || !matrix.length) return '<div>No data</div>';
+
+  const cellSize = Math.max(12, Math.min(28, Math.floor(320 / n)));
+  const labelSpace = 40;
+  const totalSize = labelSpace + n * cellSize;
+  const size = opts.size || Math.max(totalSize + 30, 300);
+
+  const palette = ['#0d1b2a', '#1a237e', '#283593', '#42a5f5', '#66bb6a', '#d4e157', '#ffca28', '#ff7043', '#e53935'];
+
+  function colorForValue(v) {
+    var clamped = Math.max(0, Math.min(1, v));
+    var idx = clamped * (palette.length - 1);
+    var lo = Math.floor(idx);
+    var hi = Math.min(lo + 1, palette.length - 1);
+    var frac = idx - lo;
+    var c1 = _hexToRgb(palette[lo]);
+    var c2 = _hexToRgb(palette[hi]);
+    var r = Math.round(c1[0] + (c2[0] - c1[0]) * frac);
+    var g = Math.round(c1[1] + (c2[1] - c1[1]) * frac);
+    var b = Math.round(c1[2] + (c2[2] - c1[2]) * frac);
+    return 'rgb(' + r + ',' + g + ',' + b + ')';
+  }
+
+  var parts = [];
+  parts.push('<svg class="ds-conn-matrix" viewBox="0 0 ' + (totalSize + 30) + ' ' + (totalSize + 50) + '" width="' + size + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Connectivity matrix — ' + band + '">');
+
+  // Column labels (rotated)
+  for (var c = 0; c < n; c++) {
+    var cx = labelSpace + c * cellSize + cellSize / 2;
+    parts.push('<text x="' + cx + '" y="' + (labelSpace - 4) + '" text-anchor="end" font-size="8" fill="rgba(255,255,255,0.7)" font-family="system-ui,sans-serif" transform="rotate(-45,' + cx + ',' + (labelSpace - 4) + ')">' + channelNames[c] + '</text>');
+  }
+
+  // Row labels + cells
+  for (var r = 0; r < n; r++) {
+    var ry = labelSpace + r * cellSize;
+    parts.push('<text x="' + (labelSpace - 4) + '" y="' + (ry + cellSize / 2 + 3) + '" text-anchor="end" font-size="8" fill="rgba(255,255,255,0.7)" font-family="system-ui,sans-serif">' + channelNames[r] + '</text>');
+
+    for (var col = 0; col < n; col++) {
+      var val = (matrix[r] && matrix[r][col] != null) ? matrix[r][col] : 0;
+      var cx2 = labelSpace + col * cellSize;
+      var color = colorForValue(val);
+      parts.push('<rect x="' + cx2 + '" y="' + ry + '" width="' + cellSize + '" height="' + cellSize + '" fill="' + color + '" stroke="rgba(0,0,0,0.3)" stroke-width="0.5"><title>' + channelNames[r] + '-' + channelNames[col] + ': ' + val.toFixed(2) + '</title></rect>');
+    }
+  }
+
+  // Color bar legend
+  var legendY2 = totalSize + 10;
+  var legendW2 = Math.min(200, totalSize - labelSpace);
+  var legendX2 = labelSpace;
+  for (var i = 0; i < legendW2; i++) {
+    parts.push('<rect x="' + (legendX2 + i) + '" y="' + legendY2 + '" width="1.5" height="8" fill="' + colorForValue(i / legendW2) + '"/>');
+  }
+  parts.push('<text x="' + legendX2 + '" y="' + (legendY2 + 18) + '" font-size="8" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">0</text>');
+  parts.push('<text x="' + (legendX2 + legendW2) + '" y="' + (legendY2 + 18) + '" text-anchor="end" font-size="8" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">1</text>');
+  parts.push('<text x="' + (legendX2 + legendW2 / 2) + '" y="' + (legendY2 + 18) + '" text-anchor="middle" font-size="8" font-weight="600" fill="rgba(255,255,255,0.8)" font-family="system-ui,sans-serif">' + band + '</text>');
+
+  parts.push('</svg>');
+  return parts.join('');
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// renderConnectivityBrainMap — brain map with colored lines for connectivity
+//
+// connections: array of {ch1, ch2, value} (value 0-1)
+// options.size:      number — SVG size (default 360)
+// options.threshold: number — min value to draw a line (default 0.3)
+// options.band:      string — band label
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Map backend channel names (T3/T4/T5/T6) to frontend SVG names (T7/T8/P7/P8)
+var _BACKEND_TO_SVG = { T3: 'T7', T4: 'T8', T5: 'P7', T6: 'P8' };
+
+function _mapChannel(ch) {
+  return _BACKEND_TO_SVG[ch] || ch;
+}
+
+export function renderConnectivityBrainMap(connections, options) {
+  var opts = options || {};
+  var size = Number.isFinite(opts.size) ? opts.size : 360;
+  var threshold = opts.threshold != null ? opts.threshold : 0.3;
+  var band = opts.band || 'connectivity';
+
+  var parts = [];
+  parts.push('<svg class="ds-conn-brain" viewBox="0 0 400 430" width="' + size + '" height="' + Math.round(size * 430 / 400) + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Connectivity brain map — ' + band + '">');
+
+  // Head circle
+  parts.push('<circle cx="200" cy="200" r="160" fill="#0d1b2a" stroke="rgba(255,255,255,0.25)" stroke-width="2"/>');
+  // Nose + ears
+  parts.push('<polygon points="200,28 188,48 212,48" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5" stroke-linejoin="round"/>');
+  parts.push('<ellipse cx="34" cy="200" rx="10" ry="24" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>');
+  parts.push('<ellipse cx="366" cy="200" rx="10" ry="24" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>');
+
+  // Build site lookup (use SVG names)
+  var siteMap = {};
+  SITES_10_20.forEach(function(s) { siteMap[s.id] = s; });
+
+  // Draw connections as lines with opacity/width proportional to value
+  if (connections && connections.length) {
+    connections.forEach(function(conn) {
+      if (conn.value < threshold) return;
+      var s1 = siteMap[_mapChannel(conn.ch1)];
+      var s2 = siteMap[_mapChannel(conn.ch2)];
+      if (!s1 || !s2) return;
+
+      var x1 = 200 + s1.x * 160, y1 = 200 + s1.y * 160;
+      var x2 = 200 + s2.x * 160, y2 = 200 + s2.y * 160;
+      var opacity = 0.2 + conn.value * 0.7;
+      var width = 1 + conn.value * 3;
+
+      // Color: blue (low) -> green (mid) -> red (high)
+      var hue = (1 - conn.value) * 200; // 200=blue, 100=green, 0=red
+      var color = 'hsl(' + hue + ',80%,55%)';
+
+      parts.push('<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '" stroke="' + color + '" stroke-width="' + width.toFixed(1) + '" opacity="' + opacity.toFixed(2) + '"><title>' + conn.ch1 + '-' + conn.ch2 + ': ' + conn.value.toFixed(2) + '</title></line>');
+    });
+  }
+
+  // Electrode dots
+  SITES_10_20.forEach(function(site) {
+    var cx = 200 + site.x * 160;
+    var cy = 200 + site.y * 160;
+    parts.push('<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="10" fill="rgba(20,30,50,0.85)" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>');
+    parts.push('<text x="' + cx.toFixed(1) + '" y="' + (cy + 3).toFixed(1) + '" text-anchor="middle" font-size="7" font-weight="600" fill="rgba(255,255,255,0.9)" font-family="system-ui,sans-serif">' + site.id + '</text>');
+  });
+
+  // Legend
+  parts.push('<text x="200" y="395" text-anchor="middle" font-size="10" font-weight="600" fill="rgba(255,255,255,0.7)" font-family="system-ui,sans-serif">' + band + ' (threshold > ' + threshold.toFixed(1) + ')</text>');
+
+  parts.push('</svg>');
+  return parts.join('');
+}

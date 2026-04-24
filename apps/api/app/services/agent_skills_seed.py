@@ -48,6 +48,7 @@ DEFAULT_AGENT_SKILLS: tuple[dict, ...] = (
     {"id": "export-data",        "cat": "reports",  "icon": "\U0001f4e6", "label": "Export Data",           "desc": "Export clinical data for research",               "prompt": "I need to export clinical data. Help me select the right data domains, de-identification method, and export format. Walk me through the process."},
     {"id": "clinic-stats",       "cat": "reports",  "icon": "\U0001f4ca", "label": "Clinic Statistics",     "desc": "View clinic performance metrics",                 "prompt": "Give me the key clinic statistics: patient volume, treatment completion rates, average improvement scores, revenue trends, and any KPIs that need attention."},
     {"id": "compare-protocols",  "cat": "reports",  "icon": "\U0001f52c", "label": "Compare Protocols",     "desc": "Compare protocol effectiveness",                  "prompt": "Help me compare treatment protocols across my patient cohort. Which protocols have the best response rates? Any patterns by condition or demographics?"},
+    {"id": "qeeg-interpret",     "cat": "clinical", "icon": "\U0001f4ca", "label": "qEEG Interpretation",   "desc": "Interpret qEEG analysis results and suggest protocols", "prompt": "I have a qEEG analysis for a patient. Help me interpret the band power distribution, derived ratios (theta/beta, frontal alpha asymmetry, alpha peak frequency), identify potential conditions, and suggest evidence-based neurofeedback protocols. Ask me which patient."},
 )
 
 

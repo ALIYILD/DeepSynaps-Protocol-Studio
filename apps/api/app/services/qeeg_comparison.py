@@ -6,9 +6,7 @@ changes with clinical assessment scores.
 """
 from __future__ import annotations
 
-import json
 import logging
-import math
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session

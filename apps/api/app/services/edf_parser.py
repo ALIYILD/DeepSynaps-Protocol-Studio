@@ -5,7 +5,6 @@ Gracefully degrades if MNE is not installed (returns structured error).
 """
 from __future__ import annotations
 
-import io
 import logging
 import tempfile
 from pathlib import Path
@@ -141,8 +140,6 @@ def extract_eeg_channels(raw: Any, channel_map: dict[str, str]) -> Any:
 
     Returns a new Raw object with renamed standard channels.
     """
-    import mne
-
     # Pick channels that map to standard 10-20
     picks = list(channel_map.keys())
     if not picks:
