@@ -25,7 +25,7 @@ function pubTopbar() {
   return `
     <div class="pub-topbar">
       <div class="pub-topbar-logo" onclick="window._navPublic('home')">
-        <div class="logo-icon" style="width:32px;height:32px;background:url('/deepsynaps-logo.svg') center/contain no-repeat;border-radius:50%"></div>
+        <div class="logo-icon" style="width:38px;height:38px;background:url('/deepsynaps-logo.png') center/cover;border-radius:50%"></div>
         <div>
           <div style="font-family:var(--font-display);font-size:14px;font-weight:700;color:var(--text-primary);letter-spacing:-0.3px">DeepSynaps</div>
           <div style="font-size:9px;color:var(--text-tertiary);letter-spacing:1px;text-transform:uppercase">Protocol Studio</div>
@@ -1893,7 +1893,7 @@ export function pgHome() {
     <!-- ─── Footer ─────────────────────────────────────────────────────────── -->
     <div class="pub-footer">
       <div class="pub-footer-logo">
-        <div class="logo-icon" style="width:24px;height:24px;background:url('/deepsynaps-logo.svg') center/contain no-repeat;border-radius:50%"></div>
+        <div class="logo-icon" style="width:30px;height:30px;background:url('/deepsynaps-logo.png') center/cover;border-radius:50%"></div>
         DeepSynaps Protocol Studio
       </div>
       <div class="pub-footer-links">
@@ -2228,7 +2228,7 @@ export function pgSignupProfessional() {
       <div class="pub-signup-card">
         <button class="pub-back-link" onclick="window._navPublic('home')">&#8592; Back to home</button>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
-          <div class="logo-icon" style="width:36px;height:36px;background:url('/deepsynaps-logo.svg') center/contain no-repeat;border-radius:50%"></div>
+          <div class="logo-icon" style="width:44px;height:44px;background:url('/deepsynaps-logo.png') center/cover;border-radius:50%"></div>
           <div>
             <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px">DeepSynaps Protocol Studio</div>
             <div style="font-size:11px;color:var(--teal);font-weight:600">Professional Registration</div>
@@ -2436,7 +2436,7 @@ export function pgSignupPatient() {
       <div class="pub-signup-card">
         <button class="pub-back-link" onclick="window._navPublic('home')">&#8592; Back to home</button>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
-          <div class="logo-icon" style="width:36px;height:36px;background:url('/deepsynaps-logo.svg') center/contain no-repeat;border-radius:50%"></div>
+          <div class="logo-icon" style="width:44px;height:44px;background:url('/deepsynaps-logo.png') center/cover;border-radius:50%"></div>
           <div>
             <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px">DeepSynaps Protocol Studio</div>
             <div style="font-size:11px;color:var(--blue);font-weight:600">Patient Portal Access</div>
