@@ -13,6 +13,16 @@ Per CONTRACT_V2 §7 the retrieval function NEVER emits PHI:
 * No patient names, MRNs, emails or exact DOBs.
 * When fewer than ``MIN_COHORT_SIZE = 5`` neighbours remain after
   filtering, the function collapses to an aggregate-only summary.
+
+Real-path integration
+---------------------
+When Agent M's ``app.services.pgvector_bridge`` module is available
+(``HAS_PGVECTOR_RUNTIME=True``) we delegate the similarity query to
+``pgvector_bridge.cosine_similar`` which issues the real
+``embedding <=> :q`` SQL against the native ``vector(200)`` column added
+in migration 041. Every row returned by the real path is passed through
+the PHI scrubber (:func:`_scrub`) — results from SQL are treated as
+untrusted.
 """
 from __future__ import annotations
 
@@ -39,8 +49,25 @@ except Exception:  # pragma: no cover - import guard
     HAS_PSYCOPG = False
 
 
+# Optional bridge supplied by Agent M. If it lands we use its helper for
+# the real SQL; otherwise the stub path is still reachable.
+try:  # pragma: no cover - import guard
+    from app.services.pgvector_bridge import (  # type: ignore
+        HAS_PGVECTOR_RUNTIME,
+        cosine_similar,
+    )
+except Exception:  # pragma: no cover - import guard
+    cosine_similar = None  # type: ignore[assignment]
+    HAS_PGVECTOR_RUNTIME = False
+
+
 MIN_COHORT_SIZE: int = 5
 """Privacy threshold below which we emit aggregate-only cohort stats."""
+
+_REAL_MIN_COHORT: int = 1
+"""Lower bound for the real pgvector path: at least this many rows must
+come back before we trust the SQL result. Tests monkeypatch to exercise
+the K<MIN_COHORT_SIZE privacy fallback on real rows."""
 
 
 # -------------------------------------------------------------------- api
@@ -91,12 +118,36 @@ def find_similar(
         )
         return _aggregate_only(embedding, k, filters, deterministic_seed)
 
-    # -- real path --
+    # -- real path (pgvector_bridge preferred) --
+    real_result = _pgvector_similar(
+        embedding, k=k, filters=filters, db_session=db_session
+    )
+    if real_result is not None and len(real_result) >= _REAL_MIN_COHORT:
+        # Privacy guard: if we got back fewer than MIN_COHORT_SIZE real
+        # rows, downgrade to aggregate-only even though k was >=5.
+        if len(real_result) < MIN_COHORT_SIZE:
+            log.info(
+                "similar_cases: real path returned %d rows (<%d) — "
+                "collapsing to aggregate-only.",
+                len(real_result), MIN_COHORT_SIZE,
+            )
+            return _aggregate_only(
+                embedding, len(real_result), filters, deterministic_seed
+            )
+        return real_result
+
+    # -- legacy real path (direct psycopg via session) — preserved for
+    # callers that pre-date pgvector_bridge --
     if db_session is not None and HAS_PGVECTOR and HAS_PSYCOPG:
         try:
             cases = _query_pgvector(db_session, embedding, k, filters)
             if cases:
-                return [_scrub(c) for c in cases]
+                scrubbed = [_scrub(c) for c in cases]
+                if len(scrubbed) < MIN_COHORT_SIZE:
+                    return _aggregate_only(
+                        embedding, len(scrubbed), filters, deterministic_seed
+                    )
+                return scrubbed
         except Exception as exc:
             log.warning(
                 "similar_cases pgvector query failed (%s); falling back.",
@@ -105,6 +156,102 @@ def find_similar(
 
     # -- stub path --
     return _stub_cases(embedding, k, filters, deterministic_seed)
+
+
+# -------------------------------------------------------------------- bridge path
+def _pgvector_similar(
+    embedding: list[float],
+    *,
+    k: int,
+    filters: dict[str, Any] | None,
+    db_session: Any | None,
+) -> list[dict[str, Any]] | None:
+    """Run the real pgvector query via :mod:`app.services.pgvector_bridge`.
+
+    Parameters
+    ----------
+    embedding : list of float
+        Query embedding (200-dim, matches the ``qeeg_analyses.embedding``
+        ``vector(200)`` column added in migration 041).
+    k : int
+        Target neighbour count. Passed through to the bridge helper.
+    filters : dict or None
+        Filter kwargs forwarded to the bridge (``age_range``, ``sex``,
+        ``condition``). The bridge is responsible for translating these
+        to SQL ``WHERE`` predicates.
+    db_session : Any or None
+        SQLAlchemy session. When ``None`` the bridge has nothing to
+        execute against, so we return ``None`` without trying.
+
+    Returns
+    -------
+    list of dict, or None
+        ``None`` when the bridge is unavailable (``HAS_PGVECTOR_RUNTIME``
+        is ``False``, ``cosine_similar`` is missing, or no session was
+        provided) OR when the bridge raised. Otherwise the list of
+        neighbour dicts with PHI scrubbed from every row.
+
+    Notes
+    -----
+    * The privacy guard (K<``MIN_COHORT_SIZE`` → aggregate-only) is
+      applied upstream in :func:`find_similar`; this helper returns the
+      raw (but scrubbed) row list so the caller can count it.
+    * SQL results are treated as untrusted — every row is passed through
+      :func:`_scrub` before it leaves this function.
+    """
+    if not HAS_PGVECTOR_RUNTIME or cosine_similar is None:
+        return None
+    if db_session is None:
+        return None
+
+    bridge_filters = dict(filters or {})
+    try:
+        raw = cosine_similar(
+            "qeeg_analyses",
+            "embedding",
+            embedding,
+            k=int(k),
+            filters=bridge_filters,
+            db_session=db_session,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("pgvector_bridge.cosine_similar failed (%s).", exc)
+        return None
+
+    if raw is None:
+        return None
+
+    # Normalise bridge rows → canonical similar-case schema, then scrub.
+    out: list[dict[str, Any]] = []
+    for row in raw:
+        if not isinstance(row, dict):
+            continue
+        dist = row.get("distance")
+        similarity = row.get("similarity_score")
+        if similarity is None and dist is not None:
+            try:
+                similarity = float(1.0 - float(dist))
+            except (TypeError, ValueError):
+                similarity = 0.0
+        case = {
+            "case_id": str(
+                row.get("case_id")
+                or row.get("analysis_id")
+                or row.get("id")
+                or ""
+            ),
+            "similarity_score": float(similarity or 0.0),
+            "age": row.get("age"),
+            "sex": row.get("sex"),
+            "flagged_conditions": list(row.get("flagged_conditions") or []),
+            "outcome": dict(row.get("outcome") or {
+                "responder": bool(row.get("responder") or False),
+                "response_delta": float(row.get("response_delta") or 0.0),
+            }),
+            "summary_deidentified": str(row.get("summary_deidentified") or ""),
+        }
+        out.append(_scrub(case))
+    return out
 
 
 # -------------------------------------------------------------------- real path

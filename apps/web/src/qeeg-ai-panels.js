@@ -762,6 +762,11 @@ export function mountCopilotWidget(containerId, analysisId) {
     body: el.querySelector('[data-role="body"]'),
     toggle: el.querySelector('.qeeg-ai-copilot__toggle'),
     minimised: false,
+    // Streaming bubble state — populated when an ``llm_delta`` arrives.
+    activeBubble: null,    // HTMLElement of the .qeeg-ai-copilot__text node
+    activeChip: null,      // HTMLElement of the "calling tool…" chip
+    activeBubbleText: '',  // Accumulated streamed text (plain).
+    activeComplete: false,
   };
 
   function setStatus(s, cls) {
@@ -771,9 +776,57 @@ export function mountCopilotWidget(containerId, analysisId) {
   }
 
   function appendBubble(author, text) {
-    if (!state.stream) return;
+    if (!state.stream) return null;
     state.stream.insertAdjacentHTML('beforeend', _copilotBubble(author, text));
     state.stream.scrollTop = state.stream.scrollHeight;
+    // Return the text node of the most-recently appended bubble so the
+    // caller can append streaming deltas directly.
+    var bubbles = state.stream.querySelectorAll('.qeeg-ai-copilot__bubble');
+    if (!bubbles.length) return null;
+    return bubbles[bubbles.length - 1].querySelector('.qeeg-ai-copilot__text');
+  }
+
+  function _ensureStreamingBubble() {
+    // Create-on-first-delta so we don't leave empty bubbles on error.
+    if (state.activeBubble && !state.activeComplete) return state.activeBubble;
+    state.activeBubble = appendBubble('copilot', '');
+    state.activeBubbleText = '';
+    state.activeComplete = false;
+    return state.activeBubble;
+  }
+
+  function _setToolChip(toolName) {
+    // Render a small grey chip above the active bubble. Replaces any
+    // existing chip for this turn.
+    _clearToolChip();
+    if (!state.stream || !toolName) return;
+    var chipHtml = '<div class="qeeg-ai-copilot__toolchip" data-role="toolchip">'
+      + '↗ calling tool: <code>' + esc(String(toolName)) + '</code>'
+      + '</div>';
+    state.stream.insertAdjacentHTML('beforeend', chipHtml);
+    var chips = state.stream.querySelectorAll('[data-role="toolchip"]');
+    state.activeChip = chips.length ? chips[chips.length - 1] : null;
+    state.stream.scrollTop = state.stream.scrollHeight;
+  }
+
+  function _clearToolChip() {
+    if (state.activeChip && state.activeChip.parentNode) {
+      state.activeChip.parentNode.removeChild(state.activeChip);
+    }
+    state.activeChip = null;
+  }
+
+  function _finalizeBubble(finalText) {
+    // Set bubble to the authoritative final text (server-sanitised).
+    var node = state.activeBubble || _ensureStreamingBubble();
+    if (node) {
+      node.textContent = finalText != null ? String(finalText) : state.activeBubbleText;
+    }
+    _clearToolChip();
+    state.activeComplete = true;
+    state.activeBubble = null;
+    state.activeBubbleText = '';
+    if (state.stream) state.stream.scrollTop = state.stream.scrollHeight;
   }
 
   // Welcome bubble.
@@ -801,13 +854,74 @@ export function mountCopilotWidget(containerId, analysisId) {
       state.ws.addEventListener('message', function (evt) {
         try {
           var msg = JSON.parse(evt.data);
-          if (msg && msg.type === 'refuse') {
+          if (!msg || typeof msg !== 'object') {
+            appendBubble('copilot', String(evt.data));
+            return;
+          }
+          // ── New streaming protocol (type: "llm_delta") ────────────
+          if (msg.type === 'llm_delta' && msg.chunk) {
+            var chunk = msg.chunk;
+            var ctype = chunk.type;
+            if (ctype === 'delta' && chunk.text) {
+              var node = _ensureStreamingBubble();
+              if (node) {
+                state.activeBubbleText += String(chunk.text);
+                node.textContent = state.activeBubbleText;
+                if (state.stream) state.stream.scrollTop = state.stream.scrollHeight;
+              }
+              return;
+            }
+            if (ctype === 'tool_use' && chunk.tool) {
+              _setToolChip(chunk.tool);
+              return;
+            }
+            if (ctype === 'tool_result') {
+              _clearToolChip();
+              return;
+            }
+            if (ctype === 'error' && chunk.text) {
+              _clearToolChip();
+              appendBubble('copilot', 'Error: ' + String(chunk.text));
+              state.activeBubble = null;
+              state.activeComplete = true;
+              return;
+            }
+            // ``final`` chunks are informational here — the server
+            // will follow with an authoritative ``reply`` event that
+            // finalises the bubble.
+            return;
+          }
+          // ── Legacy wire-format events ──────────────────────────────
+          if (msg.type === 'refusal' || msg.type === 'refuse') {
+            _clearToolChip();
+            state.activeBubble = null;
+            state.activeComplete = true;
             appendBubble('copilot',
-              (msg.text || 'I can\'t help with that — please consult your clinician.')
+              (msg.content || msg.text
+                || 'I can\'t help with that — please consult your clinician.')
               + ' This is research/wellness info — please consult your clinician for care decisions.');
             return;
           }
-          if (msg && msg.text) {
+          if (msg.type === 'reply') {
+            _finalizeBubble(msg.content != null ? msg.content : msg.text);
+            return;
+          }
+          if (msg.type === 'welcome') {
+            // Welcome already rendered; no-op.
+            return;
+          }
+          if (msg.type === 'pong') {
+            return;
+          }
+          if (msg.type === 'error') {
+            _clearToolChip();
+            appendBubble('copilot', 'Error: ' + String(msg.content || msg.text || 'unknown'));
+            state.activeBubble = null;
+            state.activeComplete = true;
+            return;
+          }
+          // Generic fallthrough — legacy payloads.
+          if (msg.text) {
             appendBubble('copilot', msg.text);
             return;
           }
@@ -845,7 +959,13 @@ export function mountCopilotWidget(containerId, analysisId) {
     }
     if (state.mode === 'online' && state.ws && state.ws.readyState === 1) {
       try {
-        state.ws.send(JSON.stringify({ type: 'user_message', text: text, analysis_id: analysisId }));
+        // Server ``qeeg_copilot_router`` expects ``{type:"message",content}``.
+        // Reset any pending streaming bubble so the next ``llm_delta``
+        // creates a fresh assistant bubble.
+        state.activeBubble = null;
+        state.activeComplete = true;
+        _clearToolChip();
+        state.ws.send(JSON.stringify({ type: 'message', content: text }));
       } catch (_) {
         appendBubble('copilot', _copilotOfflineReply(text));
       }

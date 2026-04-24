@@ -174,7 +174,21 @@ async def copilot_ws(
         "analysis_id": analysis_id,
         "recommendation": recommendation,
         "features": snapshot["features"],
+        "zscores": snapshot["zscores"],
+        "risk_scores": snapshot["risk_scores"],
     }
+
+    # Conversation history (used by :func:`real_llm_tool_dispatch`). Each
+    # entry is an Anthropic-shaped role/content dict; the OpenAI branch
+    # accepts the same shape via the tolerant ``_dispatch_openai`` loop.
+    session_history: list[dict[str, Any]] = []
+
+    # Determine whether the real streaming dispatch is available. When
+    # the scaffold is present we prefer it; a safety-net fallback to
+    # ``mock_llm_tool_dispatch`` is used if the coroutine crashes.
+    real_dispatch = (
+        getattr(copilot, "real_llm_tool_dispatch", None) if copilot else None
+    )
 
     # ── Message loop ─────────────────────────────────────────────────────
     try:
@@ -226,7 +240,66 @@ async def copilot_ws(
                 )
                 continue
 
-            # ── Tool dispatch (mock LLM) ────────────────────────────────
+            # ── Preferred path: real streaming dispatch ─────────────────
+            if real_dispatch is not None:
+                final_text = ""
+                final_tool: Any = None
+                streamed_ok = True
+                try:
+                    async for chunk in real_dispatch(
+                        content,
+                        dispatch_context,
+                        history=session_history,
+                    ):
+                        # Additive streaming frame. Clients that only
+                        # understand the legacy ``reply`` event simply
+                        # ignore ``llm_delta``.
+                        await websocket.send_json(
+                            {"type": "llm_delta", "chunk": chunk}
+                        )
+                        ctype = (chunk or {}).get("type")
+                        if ctype == "final":
+                            final_text = chunk.get("text", "") or ""
+                            final_tool = chunk.get("tool")
+                        elif ctype == "error":
+                            streamed_ok = False
+                            await websocket.send_json(
+                                {
+                                    "type": "error",
+                                    "content": chunk.get("text", "") or "",
+                                }
+                            )
+                except Exception as exc:  # pragma: no cover — crash-safe
+                    _log.exception("real_llm_tool_dispatch crashed")
+                    streamed_ok = False
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "content": f"{type(exc).__name__}: {exc}",
+                        }
+                    )
+
+                if streamed_ok and final_text:
+                    # Persist to history so follow-up turns see context.
+                    session_history.append(
+                        {"role": "user", "content": content}
+                    )
+                    session_history.append(
+                        {"role": "assistant", "content": final_text}
+                    )
+                    await websocket.send_json(
+                        {
+                            "type": "reply",
+                            "tool": final_tool,
+                            "content": final_text,
+                            "tool_result": None,
+                        }
+                    )
+                    continue
+                # streaming failed → fall through to mock dispatch as a
+                # safety net so the client always gets a ``reply`` frame.
+
+            # ── Fallback: mock LLM dispatch ─────────────────────────────
             try:
                 result = copilot.mock_llm_tool_dispatch(content, dispatch_context)
             except Exception as exc:  # pragma: no cover
@@ -239,11 +312,19 @@ async def copilot_ws(
                 )
                 continue
 
+            reply_text = result.get("reply", "") or ""
+            if reply_text:
+                session_history.append(
+                    {"role": "user", "content": content}
+                )
+                session_history.append(
+                    {"role": "assistant", "content": reply_text}
+                )
             await websocket.send_json(
                 {
                     "type": "reply",
                     "tool": result.get("tool"),
-                    "content": result.get("reply", ""),
+                    "content": reply_text,
                     "tool_result": result.get("result"),
                 }
             )

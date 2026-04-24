@@ -25992,6 +25992,17 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   font-weight: 700; font-size: 12px; cursor: pointer;
 }
 .qeeg-ai-copilot__send:hover { filter: brightness(1.1); }
+/* Tool-call chip rendered above the active bubble while the model is
+   invoking a tool. Cleared on ``tool_result``. */
+.qeeg-ai-copilot__toolchip {
+  align-self: flex-start; font-size: 10px; color: var(--text-tertiary);
+  background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 2px 8px; border-radius: 10px; margin: 2px 0;
+}
+.qeeg-ai-copilot__toolchip code {
+  background: rgba(255, 255, 255, 0.06); padding: 0 4px; border-radius: 4px;
+  color: var(--text-secondary);
+}
 @media (max-width: 520px) {
   .qeeg-ai-copilot { right: 8px; bottom: 8px; width: calc(100vw - 16px); }
 }

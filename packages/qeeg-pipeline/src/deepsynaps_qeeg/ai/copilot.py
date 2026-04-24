@@ -2,7 +2,7 @@
 
 Upgrade 10 in ``AI_UPGRADES.md`` / ``CONTRACT_V2.md`` §1.10. The WebSocket
 endpoint lives in ``apps/api/app/routers/qeeg_copilot_router.py``; this
-module ONLY exposes:
+module exposes:
 
 1. Four tool functions the endpoint can dispatch to:
    * :func:`tool_search_papers`
@@ -13,16 +13,23 @@ module ONLY exposes:
 3. A system-prompt template (:data:`SYSTEM_PROMPT_TEMPLATE`) with a
    :func:`render_system_prompt` helper that hydrates it from analysis
    payload + retrieval output.
+4. A deterministic mock dispatch (:func:`mock_llm_tool_dispatch`) used
+   for tests and offline demos.
+5. A real streaming tool-calling LLM dispatcher
+   (:func:`real_llm_tool_dispatch`) with Anthropic-primary / OpenAI
+   fallback / mock last-resort selection.
 
 The module is import-safe: it never raises at import time even if the
-sibling ``ai.medrag`` module is missing (retrieval is then stubbed).
+sibling ``ai.medrag`` module is missing (retrieval is then stubbed) or
+if the Anthropic/OpenAI SDKs are absent.
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
 import re
-from typing import Any, Iterable
+from typing import Any, AsyncIterator, Iterable, Literal
 
 log = logging.getLogger(__name__)
 
@@ -600,6 +607,755 @@ def mock_llm_tool_dispatch(user_message: str, context: dict[str, Any]) -> dict[s
     return {"tool": None, "result": None, "reply": f"tool result: {text[:200]}"}
 
 
+# ── Real LLM dispatch (streaming, tool-use) ─────────────────────────────────
+
+# Sanitiser rewrites banned vocabulary on every assistant-produced chunk
+# BEFORE the chunk is yielded to the caller. The replacements are
+# intentionally case-insensitive so "Diagnosis" and "diagnostic" are both
+# rewritten. Keep this list aligned with the prohibitions in
+# :data:`SYSTEM_PROMPT_TEMPLATE` and :mod:`packages/qeeg-pipeline/CLAUDE.md`.
+_BANNED_REPLACEMENTS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\btreatment\s+recommendation\b", re.IGNORECASE), "protocol suggestion"),
+    (re.compile(r"\btreatment\s+recommendations\b", re.IGNORECASE), "protocol suggestions"),
+    (re.compile(r"\bdiagnostic\b", re.IGNORECASE), "finding"),
+    (re.compile(r"\bdiagnosis\b", re.IGNORECASE), "finding"),
+    (re.compile(r"\bdiagnoses\b", re.IGNORECASE), "findings"),
+    (re.compile(r"\bdiagnosing\b", re.IGNORECASE), "noting"),
+    (re.compile(r"\bdiagnose\b", re.IGNORECASE), "note"),
+]
+
+
+def _sanitize_banned_words(text: str) -> str:
+    """Rewrite banned vocabulary (``diagnos*``, ``treatment recommendation``).
+
+    Parameters
+    ----------
+    text : str
+        LLM-produced chunk text.
+
+    Returns
+    -------
+    str
+        The same text with clinical-assertion vocabulary rewritten into
+        research-only synonyms. Unconditional and case-insensitive.
+    """
+    if not text:
+        return text
+    out = text
+    for pat, replacement in _BANNED_REPLACEMENTS:
+        out = pat.sub(replacement, out)
+    return out
+
+
+# ── Tool schema + backend selection ─────────────────────────────────────────
+
+
+def _tools_schema() -> list[dict[str, Any]]:
+    """Return Anthropic/OpenAI-compatible JSON schema for the 4 tools.
+
+    Returns
+    -------
+    list of dict
+        Each dict has ``name``, ``description``, and ``input_schema``
+        (JSON Schema). The schema shape matches Anthropic's tool-use
+        spec; the OpenAI branch wraps each entry as
+        ``{"type": "function", "function": {...}}`` at call time.
+    """
+    return [
+        {
+            "name": "tool_search_papers",
+            "description": (
+                "Search the DeepSynaps research literature database for "
+                "papers matching a free-text query. Returns a list of "
+                "citations with pmid/doi/title/year."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Free-text query, e.g. 'theta beta ratio ADHD'.",
+                    },
+                    "k": {
+                        "type": "integer",
+                        "description": "Maximum number of papers to return.",
+                        "default": 5,
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+        {
+            "name": "tool_explain_feature",
+            "description": (
+                "Return the feature-encyclopedia entry (definition, "
+                "clinical relevance, typical normal range) for a qEEG "
+                "feature."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "feature_name": {
+                        "type": "string",
+                        "description": (
+                            "Feature name, e.g. 'theta_beta_ratio' or "
+                            "'frontal_alpha_asymmetry'."
+                        ),
+                    },
+                },
+                "required": ["feature_name"],
+            },
+        },
+        {
+            "name": "tool_compare_to_norm",
+            "description": (
+                "Compare a feature value to the normative distribution, "
+                "returning centile, z-score, direction and magnitude."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "feature_name": {"type": "string"},
+                    "value": {"type": "number"},
+                    "age": {"type": ["integer", "null"]},
+                    "sex": {"type": ["string", "null"]},
+                },
+                "required": ["feature_name", "value"],
+            },
+        },
+        {
+            "name": "tool_get_recommendation_detail",
+            "description": (
+                "Drill into a single section of the current protocol "
+                "recommendation (modality/dose/session_plan/"
+                "contraindications/citations/alternatives/rationale)."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "section": {
+                        "type": "string",
+                        "description": "Section name, e.g. 'dose' or 'contraindications'.",
+                    },
+                },
+                "required": ["section"],
+            },
+        },
+    ]
+
+
+# Cached lazy singletons — avoid re-building the SDK client on every
+# WebSocket message.
+_ANTHROPIC_CLIENT_CACHE: Any = None
+_OPENAI_CLIENT_CACHE: Any = None
+_CLIENT_CACHE_SENTINEL: Any = object()
+
+
+def _get_anthropic_client() -> Any:
+    """Lazy singleton Anthropic ``AsyncAnthropic`` client or ``None``.
+
+    Returns
+    -------
+    anthropic.AsyncAnthropic or None
+        Returns ``None`` when the SDK is not installed OR
+        ``ANTHROPIC_API_KEY`` is not set in the environment.
+    """
+    global _ANTHROPIC_CLIENT_CACHE
+    if _ANTHROPIC_CLIENT_CACHE is _CLIENT_CACHE_SENTINEL:
+        return None
+    if _ANTHROPIC_CLIENT_CACHE is not None:
+        return _ANTHROPIC_CLIENT_CACHE
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        _ANTHROPIC_CLIENT_CACHE = _CLIENT_CACHE_SENTINEL
+        return None
+    try:
+        import anthropic as _anthropic  # type: ignore[import-not-found]
+    except Exception as exc:  # pragma: no cover - SDK absent
+        log.warning("Anthropic SDK unavailable: %s", exc)
+        _ANTHROPIC_CLIENT_CACHE = _CLIENT_CACHE_SENTINEL
+        return None
+    try:
+        _ANTHROPIC_CLIENT_CACHE = _anthropic.AsyncAnthropic(api_key=api_key)
+    except Exception as exc:  # pragma: no cover
+        log.warning("Anthropic client init failed: %s", exc)
+        _ANTHROPIC_CLIENT_CACHE = _CLIENT_CACHE_SENTINEL
+        return None
+    return _ANTHROPIC_CLIENT_CACHE
+
+
+def _get_openai_client() -> Any:
+    """Lazy singleton OpenAI ``AsyncOpenAI`` client or ``None``.
+
+    Returns
+    -------
+    openai.AsyncOpenAI or None
+        Returns ``None`` when the SDK is not installed OR no
+        ``OPENAI_API_KEY`` / ``GLM_API_KEY`` env var is present. When
+        ``LLM_BASE_URL`` is set (e.g. OpenRouter), it is threaded into
+        the client constructor so GLM-free works too.
+    """
+    global _OPENAI_CLIENT_CACHE
+    if _OPENAI_CLIENT_CACHE is _CLIENT_CACHE_SENTINEL:
+        return None
+    if _OPENAI_CLIENT_CACHE is not None:
+        return _OPENAI_CLIENT_CACHE
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("GLM_API_KEY")
+    if not api_key:
+        _OPENAI_CLIENT_CACHE = _CLIENT_CACHE_SENTINEL
+        return None
+    try:
+        from openai import AsyncOpenAI  # type: ignore[import-not-found]
+    except Exception as exc:  # pragma: no cover
+        log.warning("OpenAI SDK unavailable: %s", exc)
+        _OPENAI_CLIENT_CACHE = _CLIENT_CACHE_SENTINEL
+        return None
+    try:
+        base_url = os.getenv("LLM_BASE_URL")
+        if base_url:
+            _OPENAI_CLIENT_CACHE = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        else:
+            _OPENAI_CLIENT_CACHE = AsyncOpenAI(api_key=api_key)
+    except Exception as exc:  # pragma: no cover
+        log.warning("OpenAI client init failed: %s", exc)
+        _OPENAI_CLIENT_CACHE = _CLIENT_CACHE_SENTINEL
+        return None
+    return _OPENAI_CLIENT_CACHE
+
+
+def _reset_llm_client_caches() -> None:
+    """Reset the cached SDK clients. Test-only helper."""
+    global _ANTHROPIC_CLIENT_CACHE, _OPENAI_CLIENT_CACHE
+    _ANTHROPIC_CLIENT_CACHE = None
+    _OPENAI_CLIENT_CACHE = None
+
+
+def _select_backend(
+    *,
+    anthropic_client: Any = None,
+    openai_client: Any = None,
+) -> Literal["anthropic", "openai", "mock"]:
+    """Pick a backend using env override then SDK availability.
+
+    Selection order:
+
+    1. ``DEEPSYNAPS_LLM_BACKEND`` env var (``anthropic`` / ``openai`` /
+       ``mock``) — if the requested backend has a client available, use
+       it. Falls through to auto-selection otherwise.
+    2. Anthropic if a client is available.
+    3. OpenAI if a client is available.
+    4. ``mock`` as a last resort.
+
+    Parameters
+    ----------
+    anthropic_client : Any, optional
+        Explicitly passed-in client (used by the real-dispatcher's test
+        harness). When ``None``, falls back to the lazy singleton.
+    openai_client : Any, optional
+        Same as ``anthropic_client`` but for OpenAI.
+
+    Returns
+    -------
+    str
+        One of ``"anthropic"``, ``"openai"``, or ``"mock"``.
+    """
+    override = (os.getenv("DEEPSYNAPS_LLM_BACKEND") or "").strip().lower()
+    anth = anthropic_client if anthropic_client is not None else _get_anthropic_client()
+    oai = openai_client if openai_client is not None else _get_openai_client()
+    if override == "anthropic" and anth is not None:
+        return "anthropic"
+    if override == "openai" and oai is not None:
+        return "openai"
+    if override == "mock":
+        return "mock"
+    if anth is not None:
+        return "anthropic"
+    if oai is not None:
+        return "openai"
+    return "mock"
+
+
+# ── Tool execution helpers ──────────────────────────────────────────────────
+
+
+def _dispatch_tool_call(
+    tool_name: str,
+    tool_input: dict[str, Any],
+    context: dict[str, Any],
+) -> Any:
+    """Execute a named tool against the request context.
+
+    Parameters
+    ----------
+    tool_name : str
+        One of the 4 registered tool names.
+    tool_input : dict
+        Arguments from the model's tool-use block.
+    context : dict
+        Session context (``db``, ``recommendation``, ``age``, ``sex`` …).
+
+    Returns
+    -------
+    Any
+        The raw tool result (JSON-serialisable). Unknown tools return
+        an ``{"error": "..."}`` dict so the model can recover gracefully.
+    """
+    tool_input = tool_input or {}
+    try:
+        if tool_name == "tool_search_papers":
+            return tool_search_papers(
+                str(tool_input.get("query", "")),
+                k=int(tool_input.get("k", 5) or 5),
+                db_session=context.get("db"),
+            )
+        if tool_name == "tool_explain_feature":
+            return tool_explain_feature(str(tool_input.get("feature_name", "")))
+        if tool_name == "tool_compare_to_norm":
+            return tool_compare_to_norm(
+                str(tool_input.get("feature_name", "")),
+                float(tool_input.get("value", 0.0) or 0.0),
+                age=tool_input.get("age") or context.get("age"),
+                sex=tool_input.get("sex") or context.get("sex"),
+                db=context.get("db"),
+            )
+        if tool_name == "tool_get_recommendation_detail":
+            section = str(tool_input.get("section", ""))
+            rec = context.get("recommendation") or {}
+            return tool_get_recommendation_detail(section, rec)
+    except Exception as exc:  # pragma: no cover — defensive
+        log.warning("Tool %s failed: %s", tool_name, exc)
+        return {"error": f"{type(exc).__name__}: {exc}"}
+    return {"error": f"Unknown tool '{tool_name}'"}
+
+
+def _render_context_system_prompt(context: dict[str, Any]) -> str:
+    """Build a system prompt from the dispatch context via
+    :func:`render_system_prompt`.
+
+    Missing keys fall back to ``(none)``; the copilot router is
+    responsible for passing a rich context.
+    """
+    return render_system_prompt(
+        analysis_id=str(context.get("analysis_id") or "(unknown)"),
+        features=context.get("features"),
+        zscores=context.get("zscores"),
+        risk_scores=context.get("risk_scores"),
+        recommendation=context.get("recommendation"),
+        papers=context.get("papers") or [],
+    )
+
+
+# ── Anthropic streaming branch ──────────────────────────────────────────────
+
+
+async def _dispatch_anthropic(
+    user_message: str,
+    context: dict[str, Any],
+    *,
+    history: list[dict[str, Any]],
+    client: Any,
+) -> AsyncIterator[dict[str, Any]]:
+    """Stream via Anthropic ``messages.stream`` with tool-use loop.
+
+    Yields
+    ------
+    dict
+        Chunk dicts shaped as
+        ``{"type": "delta"|"tool_use"|"tool_result"|"final"|"error", ...}``.
+    """
+    model = os.getenv("DEEPSYNAPS_COPILOT_ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+    max_tokens = int(os.getenv("DEEPSYNAPS_COPILOT_MAX_TOKENS", "1024"))
+
+    system_prompt = _render_context_system_prompt(context)
+    # Build message history; assume ``history`` is already in anthropic
+    # format (role/content dicts). Append the new user turn.
+    messages: list[dict[str, Any]] = list(history or [])
+    messages.append({"role": "user", "content": user_message})
+
+    tools = _tools_schema()
+    accumulated_text: list[str] = []
+
+    # Bounded loop to prevent runaway tool calls.
+    for _ in range(4):
+        final_message: Any = None
+        try:
+            stream_ctx = client.messages.stream(
+                model=model,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                tools=tools,
+                messages=messages,
+            )
+        except Exception as exc:  # pragma: no cover — guarded at caller
+            yield {"type": "error", "text": f"{type(exc).__name__}: {exc}", "tool": None}
+            return
+
+        try:
+            async with stream_ctx as stream:
+                async for event in stream:
+                    etype = getattr(event, "type", None)
+                    if etype == "content_block_start":
+                        block = getattr(event, "content_block", None)
+                        if block is not None and getattr(block, "type", None) == "tool_use":
+                            yield {
+                                "type": "tool_use",
+                                "tool": getattr(block, "name", None),
+                                "text": "",
+                            }
+                    elif etype == "content_block_delta":
+                        delta = getattr(event, "delta", None)
+                        dtype = getattr(delta, "type", None) if delta else None
+                        if dtype == "text_delta":
+                            raw = getattr(delta, "text", "") or ""
+                            clean = _sanitize_banned_words(raw)
+                            if clean:
+                                accumulated_text.append(clean)
+                                yield {"type": "delta", "text": clean, "tool": None}
+                final_message = await stream.get_final_message()
+        except Exception as exc:
+            yield {"type": "error", "text": f"{type(exc).__name__}: {exc}", "tool": None}
+            return
+
+        # Inspect the final message for tool_use blocks we must service.
+        stop_reason = getattr(final_message, "stop_reason", None)
+        content_blocks = list(getattr(final_message, "content", []) or [])
+        tool_uses = [
+            b for b in content_blocks if getattr(b, "type", None) == "tool_use"
+        ]
+
+        if stop_reason == "tool_use" and tool_uses:
+            # Append assistant turn (the raw content blocks) + tool_result
+            # turn, then continue looping.
+            serialised_assistant: list[dict[str, Any]] = []
+            for b in content_blocks:
+                btype = getattr(b, "type", None)
+                if btype == "text":
+                    serialised_assistant.append(
+                        {"type": "text", "text": getattr(b, "text", "")}
+                    )
+                elif btype == "tool_use":
+                    serialised_assistant.append(
+                        {
+                            "type": "tool_use",
+                            "id": getattr(b, "id", ""),
+                            "name": getattr(b, "name", ""),
+                            "input": getattr(b, "input", {}) or {},
+                        }
+                    )
+            messages.append({"role": "assistant", "content": serialised_assistant})
+
+            tool_results: list[dict[str, Any]] = []
+            for b in tool_uses:
+                name = getattr(b, "name", "")
+                tool_in = getattr(b, "input", {}) or {}
+                result = _dispatch_tool_call(name, tool_in, context)
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": getattr(b, "id", ""),
+                        "content": json.dumps(result, default=str),
+                    }
+                )
+                yield {
+                    "type": "tool_result",
+                    "tool": name,
+                    "text": "",
+                }
+            messages.append({"role": "user", "content": tool_results})
+            continue
+
+        # End-turn: emit the final response.
+        final_text = _sanitize_banned_words("".join(accumulated_text))
+        yield {"type": "final", "text": final_text, "tool": None}
+        return
+
+    # Too many tool rounds — degrade gracefully.
+    yield {
+        "type": "final",
+        "text": _sanitize_banned_words("".join(accumulated_text))
+        or "(tool-use loop exceeded)",
+        "tool": None,
+    }
+
+
+# ── OpenAI streaming branch ─────────────────────────────────────────────────
+
+
+async def _dispatch_openai(
+    user_message: str,
+    context: dict[str, Any],
+    *,
+    history: list[dict[str, Any]],
+    client: Any,
+) -> AsyncIterator[dict[str, Any]]:
+    """Stream via OpenAI ``chat.completions.create`` with tool-calls.
+
+    The schema shape of Anthropic's ``input_schema`` matches OpenAI's
+    ``parameters`` so we can reuse :func:`_tools_schema` with a minimal
+    wrap.
+    """
+    model = os.getenv(
+        "DEEPSYNAPS_COPILOT_OPENAI_MODEL",
+        os.getenv("LLM_MODEL", "gpt-4o-mini"),
+    )
+    max_tokens = int(os.getenv("DEEPSYNAPS_COPILOT_MAX_TOKENS", "1024"))
+
+    system_prompt = _render_context_system_prompt(context)
+    messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+    for h in history or []:
+        messages.append(h)
+    messages.append({"role": "user", "content": user_message})
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": t["input_schema"],
+            },
+        }
+        for t in _tools_schema()
+    ]
+
+    accumulated_text: list[str] = []
+
+    for _ in range(4):
+        try:
+            resp = await client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tools=tools,
+                stream=True,
+                max_tokens=max_tokens,
+            )
+        except Exception as exc:
+            yield {"type": "error", "text": f"{type(exc).__name__}: {exc}", "tool": None}
+            return
+
+        assistant_text_parts: list[str] = []
+        tool_calls_buf: dict[int, dict[str, Any]] = {}
+        finish_reason: str | None = None
+
+        try:
+            async for chunk in resp:
+                choices = getattr(chunk, "choices", []) or []
+                if not choices:
+                    continue
+                choice = choices[0]
+                delta = getattr(choice, "delta", None)
+                fr = getattr(choice, "finish_reason", None)
+                if fr:
+                    finish_reason = fr
+                if delta is None:
+                    continue
+                text = getattr(delta, "content", None)
+                if text:
+                    clean = _sanitize_banned_words(text)
+                    if clean:
+                        assistant_text_parts.append(clean)
+                        accumulated_text.append(clean)
+                        yield {"type": "delta", "text": clean, "tool": None}
+                tcs = getattr(delta, "tool_calls", None) or []
+                for tc in tcs:
+                    idx = getattr(tc, "index", 0) or 0
+                    slot = tool_calls_buf.setdefault(
+                        idx, {"id": "", "name": "", "arguments": ""}
+                    )
+                    tc_id = getattr(tc, "id", None)
+                    if tc_id:
+                        slot["id"] = tc_id
+                    fn = getattr(tc, "function", None)
+                    if fn is not None:
+                        fn_name = getattr(fn, "name", None)
+                        if fn_name:
+                            slot["name"] = fn_name
+                        fn_args = getattr(fn, "arguments", None)
+                        if fn_args:
+                            slot["arguments"] += fn_args
+        except Exception as exc:
+            yield {"type": "error", "text": f"{type(exc).__name__}: {exc}", "tool": None}
+            return
+
+        if finish_reason == "tool_calls" and tool_calls_buf:
+            # Signal each tool_use to the client, service it, then loop.
+            ordered = [tool_calls_buf[i] for i in sorted(tool_calls_buf.keys())]
+            assistant_msg: dict[str, Any] = {
+                "role": "assistant",
+                "content": "".join(assistant_text_parts) or None,
+                "tool_calls": [
+                    {
+                        "id": tc["id"] or f"call_{i}",
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": tc["arguments"] or "{}",
+                        },
+                    }
+                    for i, tc in enumerate(ordered)
+                ],
+            }
+            messages.append(assistant_msg)
+            for i, tc in enumerate(ordered):
+                yield {"type": "tool_use", "tool": tc["name"], "text": ""}
+                try:
+                    parsed = json.loads(tc["arguments"] or "{}")
+                except (TypeError, ValueError):
+                    parsed = {}
+                result = _dispatch_tool_call(tc["name"], parsed, context)
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc["id"] or f"call_{i}",
+                        "content": json.dumps(result, default=str),
+                    }
+                )
+                yield {"type": "tool_result", "tool": tc["name"], "text": ""}
+            continue
+
+        final_text = _sanitize_banned_words("".join(accumulated_text))
+        yield {"type": "final", "text": final_text, "tool": None}
+        return
+
+    yield {
+        "type": "final",
+        "text": _sanitize_banned_words("".join(accumulated_text))
+        or "(tool-use loop exceeded)",
+        "tool": None,
+    }
+
+
+# ── Public real dispatch ────────────────────────────────────────────────────
+
+
+async def real_llm_tool_dispatch(
+    user_message: str,
+    context: dict[str, Any],
+    *,
+    history: list[dict[str, Any]] | None = None,
+    anthropic_client: Any = None,
+    openai_client: Any = None,
+    stream_chunk_callback: Any = None,
+) -> AsyncIterator[dict[str, Any]]:
+    """Stream a tool-calling LLM response for the qEEG copilot.
+
+    This is the production-facing async iterator. Each yielded chunk
+    has the shape ``{"type": ..., "text": str, "tool": str | None}``
+    where ``type`` is one of:
+
+    - ``delta`` — incremental assistant text (already sanitised).
+    - ``tool_use`` — the model has requested a tool call; ``tool`` is
+      the tool name.
+    - ``tool_result`` — the tool returned; the chip can be cleared.
+    - ``final`` — the full (sanitised) assistant reply text.
+    - ``error`` — backend failure; ``text`` carries the error message.
+
+    Parameters
+    ----------
+    user_message : str
+        The incoming user turn.
+    context : dict
+        Session context used by :func:`render_system_prompt` and the
+        tool dispatcher (``analysis_id``, ``features``, ``zscores``,
+        ``risk_scores``, ``recommendation``, ``db``, ``age``, ``sex``).
+    history : list of dict, optional
+        Prior assistant/user turns in the message format the underlying
+        SDK expects. Defaults to empty.
+    anthropic_client : Any, optional
+        Override the lazy singleton Anthropic client. Used by tests.
+    openai_client : Any, optional
+        Override the lazy singleton OpenAI client. Used by tests.
+    stream_chunk_callback : callable, optional
+        If provided, each chunk is passed to this callback in addition
+        to being yielded. Useful for side-channel logging.
+
+    Yields
+    ------
+    dict
+        Streaming chunks. The consumer should treat ``final`` as the
+        terminal event and stop reading.
+    """
+    history = list(history or [])
+
+    # Hard safety gate — short-circuit before any LLM call.
+    if is_unsafe_query(user_message):
+        chunk = {
+            "type": "final",
+            "text": "I can't provide medical advice — please consult your clinician.",
+            "tool": None,
+        }
+        if stream_chunk_callback is not None:
+            try:
+                stream_chunk_callback(chunk)
+            except Exception:  # pragma: no cover
+                pass
+        yield chunk
+        return
+
+    backend = _select_backend(
+        anthropic_client=anthropic_client,
+        openai_client=openai_client,
+    )
+    log.info("real_llm_tool_dispatch backend=%s", backend)
+
+    async def _forward(
+        gen: AsyncIterator[dict[str, Any]],
+    ) -> AsyncIterator[dict[str, Any]]:
+        async for c in gen:
+            if stream_chunk_callback is not None:
+                try:
+                    stream_chunk_callback(c)
+                except Exception:  # pragma: no cover
+                    pass
+            yield c
+
+    if backend == "anthropic":
+        client = anthropic_client if anthropic_client is not None else _get_anthropic_client()
+        async for c in _forward(
+            _dispatch_anthropic(user_message, context, history=history, client=client)
+        ):
+            yield c
+        return
+
+    if backend == "openai":
+        client = openai_client if openai_client is not None else _get_openai_client()
+        async for c in _forward(
+            _dispatch_openai(user_message, context, history=history, client=client)
+        ):
+            yield c
+        return
+
+    # ── Last-resort fallback: mock dispatch ─────────────────────────────
+    try:
+        result = mock_llm_tool_dispatch(user_message, context)
+    except Exception as exc:  # pragma: no cover
+        chunk = {
+            "type": "error",
+            "text": f"{type(exc).__name__}: {exc}",
+            "tool": None,
+        }
+        if stream_chunk_callback is not None:
+            try:
+                stream_chunk_callback(chunk)
+            except Exception:
+                pass
+        yield chunk
+        return
+
+    mock_text = f"<mock>{_sanitize_banned_words(result.get('reply', '') or '')}"
+    final_chunk = {
+        "type": "final",
+        "text": mock_text,
+        "tool": result.get("tool"),
+    }
+    if stream_chunk_callback is not None:
+        try:
+            stream_chunk_callback(final_chunk)
+        except Exception:  # pragma: no cover
+            pass
+    yield final_chunk
+
+
 __all__ = [
     "SAFETY_REFUSAL_PATTERNS",
     "REFUSAL_MESSAGE",
@@ -611,4 +1367,5 @@ __all__ = [
     "tool_get_recommendation_detail",
     "render_system_prompt",
     "mock_llm_tool_dispatch",
+    "real_llm_tool_dispatch",
 ]

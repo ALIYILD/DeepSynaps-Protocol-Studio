@@ -4,10 +4,44 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+
+
+# ── pgvector guarded import (migration 041) ──────────────────────────────────
+#
+# The pgvector Python package may not be installed in every environment
+# (notably the SQLite-backed test harness). We fall back to a Text column
+# when it is missing so the model still loads — the transitional
+# ``embedding_json`` TEXT column remains the canonical storage on SQLite.
+try:
+    from pgvector.sqlalchemy import Vector as _PgVector  # type: ignore[import-not-found]
+    _HAS_PGVECTOR = True
+except ImportError:  # pragma: no cover — exercised in the SQLite test env
+    _PgVector = None  # type: ignore[assignment]
+    _HAS_PGVECTOR = False
+
+
+def _embedding_column() -> Column:
+    """Build the native ``embedding`` sibling column for pgvector deployments.
+
+    Returns
+    -------
+    sqlalchemy.Column
+        A ``vector(200)`` column when the ``pgvector`` Python package is
+        installed; otherwise a nullable ``Text`` placeholder so the model
+        definition still loads under SQLite test envs.
+
+    Notes
+    -----
+    Used by :class:`QEEGAnalysis`, :class:`MriAnalysis`, and
+    :class:`KgEntity`. Populated by migration 041 on Postgres only.
+    """
+    if _HAS_PGVECTOR:
+        return Column(_PgVector(200), nullable=True)
+    return Column(Text(), nullable=True)
 
 
 class AuditEventRecord(Base):
@@ -1744,6 +1778,9 @@ class QEEGAnalysis(Base):
     # fit-centiles, explain, similar-cases, recommend-protocol). Legacy
     # pipelines ignore these columns.
     embedding_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    # Native pgvector sibling (migration 041). Falls back to Text() on SQLite /
+    # when pgvector is missing; populated on Postgres deployments only.
+    embedding = _embedding_column()
     brain_age_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     risk_scores_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     centiles_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
@@ -1772,6 +1809,8 @@ class KgEntity(Base):
     type: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     name: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     embedding_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    # Native pgvector sibling (migration 041). See ``QEEGAnalysis.embedding``.
+    embedding = _embedding_column()
 
 
 class KgHyperedge(Base):
@@ -1852,6 +1891,8 @@ class MriAnalysis(Base):
     qc_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     # 200-d cross-modal embedding as a JSON list of floats (pgvector-portable).
     embedding_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    # Native pgvector sibling (migration 041). See ``QEEGAnalysis.embedding``.
+    embedding = _embedding_column()
     pipeline_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     norm_db_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     # Job + state tracking.
