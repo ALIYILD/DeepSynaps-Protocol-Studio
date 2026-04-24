@@ -3256,6 +3256,9 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       html += _renderAdvancedAnalyses(data, analysisId);
       html += renderFusionSummaryCard(_fusionSummary, data && data.patient_id);
 
+      // ── Viz v2 Panels (MNE topomaps, connectivity chord, source 3D, animation)
+      html += '<div id="qeeg-viz-v2-mount" style="margin-top:24px"></div>';
+
       if (analysisId === 'demo' && _isDemoMode()) {
         html = _demoBanner() + html;
       }
@@ -3264,6 +3267,15 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       // Bind advanced analyses button
       setTimeout(function () {
         _bindBrainRingFrames();
+        // ── Mount Viz v2 panels (lazy-loaded) ─────────────────────────────
+        var vizMount = document.getElementById('qeeg-viz-v2-mount');
+        if (vizMount && analysisId) {
+          import('./pages-qeeg-viz.js').then(function (vizMod) {
+            vizMod.mountVizV2Panels(vizMount, analysisId);
+          }).catch(function (err) {
+            vizMount.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:8px;">Viz v2 not available: ' + esc(String(err.message || err)) + '</p>';
+          });
+        }
         var runBtn = document.getElementById('qeeg-run-advanced-btn');
         if (runBtn) {
           runBtn.addEventListener('click', async function () {

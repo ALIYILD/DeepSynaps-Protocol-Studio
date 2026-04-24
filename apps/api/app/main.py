@@ -101,6 +101,7 @@ from app.routers.data_privacy_router import router as data_privacy_router
 from app.routers.risk_stratification_router import router as risk_stratification_router
 from app.routers.qeeg_analysis_router import router as qeeg_analysis_router
 from app.routers.qeeg_copilot_router import router as qeeg_copilot_router
+from app.routers.qeeg_viz_router import router as qeeg_viz_router
 from app.routers.mri_analysis_router import router as mri_analysis_router
 from app.routers.admin_pgvector_router import router as admin_pgvector_router
 from app.routers.fusion_router import router as fusion_router
@@ -207,6 +208,7 @@ app.include_router(data_privacy_router)
 app.include_router(risk_stratification_router)
 app.include_router(qeeg_analysis_router)
 app.include_router(qeeg_copilot_router)
+app.include_router(qeeg_viz_router)
 app.include_router(mri_analysis_router)
 app.include_router(fusion_router)
 app.include_router(monitor_router)

@@ -26973,3 +26973,69 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   .monitor-hero { flex-direction:column; align-items:flex-start; }
   .monitor-kpi-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
+
+/* ── Pricing page (v2 — four-tier layout) ──────────────────────────────────── */
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+.pricing-card {
+  position: relative;
+  overflow: visible;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.pricing-card--featured {
+  border-color: var(--border-teal);
+  box-shadow: 0 0 40px rgba(0,212,188,0.12);
+}
+.pricing-most-popular {
+  position: absolute;
+  top: -11px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--teal);
+  color: #0a1628;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 12px;
+  border-radius: 10px;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  z-index: 1;
+}
+.pricing-cta:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.pricing-discount-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 14px;
+  border: 1px solid rgba(0,212,188,0.3);
+  border-radius: 999px;
+  background: rgba(0,212,188,0.06);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+/* Responsive: pricing grid */
+@media (min-width: 1024px) {
+  .pricing-card--featured {
+    transform: translateY(-4px) scale(1.02);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pricing-card--featured {
+    transform: none !important;
+  }
+}
+@media (max-width: 1023px) and (min-width: 768px) {
+  .pricing-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 767px) {
+  .pricing-grid { grid-template-columns: 1fr; }
+  .pricing-discount-chip { font-size: 10.5px; padding: 5px 10px; }
+}
