@@ -37,6 +37,9 @@ function _patientNav() {
     { id: 'patient-careteam',    label: 'Care Team',            icon: '👥', tone: 'rose',   group: 'main' },
     { id: 'patient-education',   label: 'Education Library',    icon: '📚', tone: 'violet', group: 'main' },
     { id: 'patient-marketplace', label: 'Marketplace',          icon: '🛒', tone: 'green',  group: 'main' },
+    { id: 'pt-billing',          label: 'Billing',              icon: '💳', tone: 'amber',  group: 'main' },
+    { id: 'pt-academy',          label: 'Academy',              icon: '🎓', tone: 'blue',   group: 'main' },
+    { id: 'pt-tickets',          label: 'Support',              icon: '🎫', tone: 'rose',   group: 'main' },
     { id: 'patient-profile',     label: 'Profile',              icon: '👤', tone: 'amber',  group: 'main' },
     { id: 'patient-settings',    label: 'Settings',             icon: '⚙',  tone: 'slate',  group: 'main' },
     // Optional
@@ -2006,7 +2009,7 @@ export async function pgPatientDashboard(user) {
       // Navigate to wellness page where the timer could live
       setTimeout(() => window._navPatient && window._navPatient('pt-wellness'), 600);
     } else if (kind === 'tdcs') {
-      window._navPatient && window._navPatient('patient-home-device');
+      window._navPatient && window._navPatient('patient-home-devices');
     } else {
       _hmShowToast('Reminder set');
     }
@@ -4327,7 +4330,7 @@ async function _pgPatientHomeworkImpl() {
     const task = _taskById.get(String(taskId));
     if (kind === 'tdcs') {
       _hwToast('Starting home tDCS prep\u2026');
-      setTimeout(() => window._navPatient && window._navPatient('patient-home-device'), 500);
+      setTimeout(() => window._navPatient && window._navPatient('patient-home-devices'), 500);
     } else if (kind === 'breathing') {
       _hwToast('Opening breathing guide\u2026');
       setTimeout(() => window._navPatient && window._navPatient('patient-education'), 500);
@@ -7393,7 +7396,7 @@ async function _pgPatientVirtualCareImpl() {
             ${threadList.length ? threadList.map(_threadItemHtml).join('') : '<div class="pth2-empty" style="padding:24px 16px"><div class="pth2-empty-title">No conversations yet</div><div class="pth2-empty-sub">Your care team will reach out soon.</div></div>'}
           </div>
           <div class="vc-threads-foot">
-            <button class="btn btn-ghost btn-sm" onclick="window._navPatient && window._navPatient('patient-care-team')"><svg width="12" height="12"><use href="#i-plus"/></svg>Start new conversation</button>
+            <button class="btn btn-ghost btn-sm" onclick="window._navPatient && window._navPatient('patient-careteam')"><svg width="12" height="12"><use href="#i-plus"/></svg>Start new conversation</button>
           </div>
         </aside>
 
@@ -11331,12 +11334,12 @@ export async function pgPatientWellness() {
 
   window._tasksAskAI = function(prompt) {
     if (typeof window._navPatient === 'function') {
-      window._navPatient('ai-agents');
-      // Give the page a moment to render then prefill the prompt
+      window._navPatient('patient-virtualcare');
+      // Give the page a moment to render then prefill the AI chat input
       setTimeout(function() {
-        const inp = document.getElementById('pt-ai-input') || document.querySelector('.pt-ai-input');
+        const inp = document.getElementById('vc-input') || document.getElementById('pt-ai-input') || document.querySelector('.pt-ai-input');
         if (inp) { inp.value = prompt; inp.focus(); }
-      }, 300);
+      }, 400);
     }
   };
 }
@@ -18177,7 +18180,12 @@ window._pgpSaSubmit = async function(key) {
 };
 
 window._pgpAskAssistant = function(promptText) {
-  if (window._navPatient) window._navPatient('ai-agents', { prompt: promptText });
+  if (window._navPatient) window._navPatient('patient-virtualcare');
+  // Give the page a moment to render then prefill the AI chat input
+  setTimeout(function() {
+    const inp = document.getElementById('vc-input');
+    if (inp) { inp.value = promptText || ''; inp.focus(); }
+  }, 400);
 };
 
 // ── Exported page entry point ─────────────────────────────────────────────────
@@ -19708,6 +19716,445 @@ export async function pgPatientCaregiver() {
 }
 
 // ── Help & Support ───────────────────────────────────────────────────────────
+
+// ── Patient Tickets / Support Requests ───────────────────────────────────────
+
+export async function pgPatientTickets() {
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+  el.innerHTML = spinner();
+
+  let tickets = [];
+  try {
+    const res = await Promise.race([
+      api.patientTickets ? api.patientTickets() : Promise.resolve([]),
+      new Promise((_, rej) => setTimeout(() => rej('timeout'), 3000))
+    ]);
+    if (Array.isArray(res)) tickets = res;
+  } catch (_e) {}
+
+  // Demo seed when API returns empty
+  if (!tickets.length) {
+    const now = new Date();
+    tickets = [
+      { id: 'TK-1001', title: 'Question about home device setup', category: 'question', status: 'resolved', priority: 'medium', created: new Date(now - 7 * 86400000).toISOString(), messages: [
+        { from: 'You', text: 'I am having trouble pairing the Synaps One device. The LED stays amber.', ts: new Date(now - 7 * 86400000).toISOString() },
+        { from: 'Support', text: 'Please try holding the reset button for 5 seconds, then attempt pairing again. Ensure Bluetooth is enabled on your phone.', ts: new Date(now - 6.5 * 86400000).toISOString() },
+        { from: 'You', text: 'That worked, thank you!', ts: new Date(now - 6 * 86400000).toISOString() },
+      ]},
+      { id: 'TK-1002', title: 'Side effect after session 8', category: 'question', status: 'open', priority: 'high', created: new Date(now - 2 * 86400000).toISOString(), messages: [
+        { from: 'You', text: 'I experienced a mild headache lasting about 2 hours after my last tDCS session. Is this normal?', ts: new Date(now - 2 * 86400000).toISOString() },
+        { from: 'Dr. Kolmar', text: 'Mild headaches can occur and typically resolve quickly. If they persist or worsen, please let us know immediately. We can adjust the protocol if needed.', ts: new Date(now - 1.5 * 86400000).toISOString() },
+      ]},
+      { id: 'TK-1003', title: 'Reschedule request for next week', category: 'other', status: 'in-progress', priority: 'low', created: new Date(now - 1 * 86400000).toISOString(), messages: [
+        { from: 'You', text: 'I will be travelling next Tuesday. Can we move my session to Wednesday or Thursday?', ts: new Date(now - 1 * 86400000).toISOString() },
+      ]},
+    ];
+  }
+
+  const catIcon = { question: '&#10067;', bug: '&#128027;', feature: '&#10024;', maintenance: '&#128295;', other: '&#128203;' };
+  const statusColor = { open: '#2dd4bf', 'in-progress': '#fbbf24', resolved: '#22c55e' };
+  const statusLabel = { open: 'Open', 'in-progress': 'In Progress', resolved: 'Resolved' };
+  const prioColor = { critical: '#ef4444', high: '#f59e0b', medium: '#60a5fa', low: '#94a3b8' };
+
+  let selectedId = tickets[0] ? tickets[0].id : null;
+
+  function _renderTickets() {
+    const sel = tickets.find(t => t.id === selectedId);
+    el.innerHTML = `
+      <div style="max-width:960px;margin:0 auto;padding:24px 16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <div>
+            <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 4px">Support Requests</h2>
+            <p style="font-size:12.5px;color:var(--text-secondary);margin:0">Track your questions and requests to the care team.</p>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="window._ptNewTicket()">+ New Request</button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:16px;min-height:400px" class="pt-tickets-grid">
+          <!-- Ticket list -->
+          <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column">
+            <div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap">
+              ${['all','open','in-progress','resolved'].map(s => `<button class="pt-tk-filter${(window._ptTicketFilter || 'all') === s ? ' active' : ''}" onclick="window._ptFilterTickets('${s}')" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:${(window._ptTicketFilter || 'all') === s ? 'rgba(45,212,191,0.15)' : 'transparent'};color:${(window._ptTicketFilter || 'all') === s ? '#2dd4bf' : 'var(--text-secondary)'};cursor:pointer">${s === 'all' ? 'All' : statusLabel[s] || s} <span style="opacity:0.6">${s === 'all' ? tickets.length : tickets.filter(t => t.status === s).length}</span></button>`).join('')}
+            </div>
+            <div style="flex:1;overflow-y:auto;max-height:420px">
+              ${tickets.filter(t => !window._ptTicketFilter || window._ptTicketFilter === 'all' || t.status === window._ptTicketFilter).map(t => `
+                <div onclick="window._ptSelectTicket('${t.id}')" style="padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer;background:${t.id === selectedId ? 'rgba(45,212,191,0.06)' : 'transparent'};transition:background 0.15s">
+                  <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+                    <span style="font-size:13px">${catIcon[t.category] || catIcon.other}</span>
+                    <span style="font-size:12.5px;font-weight:600;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.title}</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-tertiary)">
+                    <span>${t.id}</span>
+                    <span style="display:inline-block;padding:2px 7px;border-radius:4px;background:${statusColor[t.status] || '#64748b'}22;color:${statusColor[t.status] || '#64748b'};font-weight:600;font-size:10px">${statusLabel[t.status] || t.status}</span>
+                    <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${prioColor[t.priority] || '#94a3b8'}"></span>
+                    <span style="margin-left:auto">${new Date(t.created).toLocaleDateString()}</span>
+                  </div>
+                </div>`).join('')}
+            </div>
+          </div>
+
+          <!-- Detail pane -->
+          <div style="border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;overflow:hidden">
+            ${sel ? `
+              <div style="padding:14px 16px;border-bottom:1px solid var(--border)">
+                <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:4px">${sel.title}</div>
+                <div style="display:flex;gap:8px;font-size:11px;color:var(--text-tertiary);flex-wrap:wrap">
+                  <span>${sel.id}</span>
+                  <span style="display:inline-block;padding:2px 7px;border-radius:4px;background:${statusColor[sel.status] || '#64748b'}22;color:${statusColor[sel.status] || '#64748b'};font-weight:600">${statusLabel[sel.status] || sel.status}</span>
+                  <span>Priority: ${sel.priority}</span>
+                  <span>Created: ${new Date(sel.created).toLocaleDateString()}</span>
+                </div>
+              </div>
+              <div style="flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px;max-height:320px">
+                ${(sel.messages || []).map(m => `
+                  <div style="display:flex;flex-direction:column;${m.from === 'You' ? 'align-items:flex-end' : 'align-items:flex-start'}">
+                    <div style="max-width:80%;padding:10px 14px;border-radius:12px;background:${m.from === 'You' ? 'rgba(45,212,191,0.1)' : 'rgba(255,255,255,0.04)'};border:1px solid ${m.from === 'You' ? 'rgba(45,212,191,0.2)' : 'var(--border)'}">
+                      <div style="font-size:11px;font-weight:600;color:${m.from === 'You' ? '#2dd4bf' : 'var(--text-primary)'};margin-bottom:3px">${m.from}</div>
+                      <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.5">${m.text}</div>
+                    </div>
+                    <div style="font-size:10px;color:var(--text-tertiary);margin-top:3px;padding:0 4px">${new Date(m.ts).toLocaleString()}</div>
+                  </div>`).join('')}
+              </div>
+              ${sel.status !== 'resolved' ? `
+              <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px">
+                <input id="pt-tk-reply" type="text" placeholder="Add a message..." style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary,rgba(255,255,255,0.04));color:var(--text-primary);font-size:12.5px">
+                <button class="btn btn-primary btn-sm" onclick="window._ptReplyTicket()">Send</button>
+              </div>` : `
+              <div style="padding:12px 16px;border-top:1px solid var(--border);text-align:center;font-size:12px;color:var(--text-tertiary)">This request has been resolved.</div>`}
+            ` : `<div style="display:flex;align-items:center;justify-content:center;flex:1;color:var(--text-tertiary);font-size:13px">Select a request to view details</div>`}
+          </div>
+        </div>
+      </div>
+      <style>
+        @media (max-width: 700px) {
+          .pt-tickets-grid { grid-template-columns: 1fr !important; }
+        }
+      </style>`;
+  }
+
+  window._ptTicketFilter = 'all';
+  window._ptFilterTickets = function(s) { window._ptTicketFilter = s; _renderTickets(); };
+  window._ptSelectTicket = function(id) { selectedId = id; _renderTickets(); };
+  window._ptReplyTicket = function() {
+    const inp = document.getElementById('pt-tk-reply');
+    if (!inp || !inp.value.trim()) return;
+    const sel = tickets.find(t => t.id === selectedId);
+    if (!sel) return;
+    sel.messages.push({ from: 'You', text: inp.value.trim(), ts: new Date().toISOString() });
+    if (api.patientTicketReply) api.patientTicketReply(sel.id, inp.value.trim()).catch(() => {});
+    _renderTickets();
+    window._showNotifToast && window._showNotifToast({ title: 'Message sent', body: 'Your care team will respond soon.', severity: 'success' });
+  };
+  window._ptNewTicket = function() {
+    const modal = document.createElement('div');
+    modal.id = 'pt-tk-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5)';
+    modal.innerHTML = `
+      <div style="background:var(--bg-primary,#0f172a);border:1px solid var(--border);border-radius:14px;padding:24px;width:90%;max-width:420px">
+        <h3 style="font-size:15px;font-weight:700;color:var(--text-primary);margin:0 0 14px">New Support Request</h3>
+        <div style="margin-bottom:12px">
+          <label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:4px">Category</label>
+          <select id="pt-tk-cat" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary,rgba(255,255,255,0.04));color:var(--text-primary);font-size:12.5px">
+            <option value="question">Question</option>
+            <option value="other">General request</option>
+            <option value="bug">Technical issue</option>
+          </select>
+        </div>
+        <div style="margin-bottom:12px">
+          <label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:4px">Subject</label>
+          <input id="pt-tk-title" type="text" placeholder="Brief description..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary,rgba(255,255,255,0.04));color:var(--text-primary);font-size:12.5px;box-sizing:border-box">
+        </div>
+        <div style="margin-bottom:16px">
+          <label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:4px">Details</label>
+          <textarea id="pt-tk-body" rows="4" placeholder="Describe your question or request..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary,rgba(255,255,255,0.04));color:var(--text-primary);font-size:12.5px;resize:vertical;box-sizing:border-box"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('pt-tk-modal').remove()">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="window._ptSubmitTicket()">Submit</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  };
+  window._ptSubmitTicket = function() {
+    const title = (document.getElementById('pt-tk-title') || {}).value;
+    const body = (document.getElementById('pt-tk-body') || {}).value;
+    const cat = (document.getElementById('pt-tk-cat') || {}).value || 'question';
+    if (!title || !body) { window._showNotifToast && window._showNotifToast({ title: 'Missing info', body: 'Please fill in subject and details.', severity: 'error' }); return; }
+    const t = { id: 'TK-' + (1000 + tickets.length + 1), title: title, category: cat, status: 'open', priority: 'medium', created: new Date().toISOString(), messages: [{ from: 'You', text: body, ts: new Date().toISOString() }] };
+    tickets.unshift(t);
+    selectedId = t.id;
+    if (api.patientTicketCreate) api.patientTicketCreate({ title: title, body: body, category: cat }).catch(() => {});
+    const m = document.getElementById('pt-tk-modal');
+    if (m) m.remove();
+    _renderTickets();
+    window._showNotifToast && window._showNotifToast({ title: 'Request submitted', body: 'Your care team has been notified.', severity: 'success' });
+  };
+
+  _renderTickets();
+}
+
+// ── Patient Billing / Finance ────────────────────────────────────────────────
+
+export async function pgPatientBilling() {
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+  el.innerHTML = spinner();
+
+  let invoices = [], payments = [];
+  try {
+    const [inv, pay] = await Promise.all([
+      api.patientInvoices ? Promise.race([api.patientInvoices(), new Promise((_, r) => setTimeout(() => r('timeout'), 3000))]) : Promise.resolve([]),
+      api.patientPayments ? Promise.race([api.patientPayments(), new Promise((_, r) => setTimeout(() => r('timeout'), 3000))]) : Promise.resolve([]),
+    ]);
+    if (Array.isArray(inv)) invoices = inv;
+    if (Array.isArray(pay)) payments = pay;
+  } catch (_e) {}
+
+  // Demo seed
+  if (!invoices.length) {
+    const now = new Date();
+    invoices = [
+      { id: 'INV-2401', date: new Date(now - 45 * 86400000).toISOString(), description: 'tDCS Session Block (Sessions 1-10)', amount: 1200, currency: 'GBP', vat: 0, status: 'paid', due: new Date(now - 15 * 86400000).toISOString() },
+      { id: 'INV-2402', date: new Date(now - 14 * 86400000).toISOString(), description: 'qEEG Assessment & Report', amount: 350, currency: 'GBP', vat: 70, status: 'paid', due: new Date(now - 0 * 86400000).toISOString() },
+      { id: 'INV-2403', date: new Date(now - 3 * 86400000).toISOString(), description: 'tDCS Session Block (Sessions 11-20)', amount: 1200, currency: 'GBP', vat: 0, status: 'sent', due: new Date(now + 27 * 86400000).toISOString() },
+      { id: 'INV-2404', date: new Date(now - 1 * 86400000).toISOString(), description: 'Home Device Rental - Synaps One (Monthly)', amount: 75, currency: 'GBP', vat: 15, status: 'sent', due: new Date(now + 29 * 86400000).toISOString() },
+    ];
+    payments = [
+      { id: 'PAY-501', date: new Date(now - 30 * 86400000).toISOString(), amount: 1200, method: 'Card', ref: 'ch_3Qa...xYz', invoice: 'INV-2401' },
+      { id: 'PAY-502', date: new Date(now - 5 * 86400000).toISOString(), amount: 420, method: 'BACS', ref: 'BACS-9812', invoice: 'INV-2402' },
+    ];
+  }
+
+  const cur = { GBP: '\u00a3', USD: '$', EUR: '\u20ac' };
+  const fmt = (a, c) => (cur[c] || '\u00a3') + Number(a || 0).toFixed(2);
+  const totalOutstanding = invoices.filter(i => i.status !== 'paid').reduce((s, i) => s + (i.amount || 0) + (i.vat || 0), 0);
+  const totalPaid = payments.reduce((s, p) => s + (p.amount || 0), 0);
+  const statusColor = { paid: '#22c55e', sent: '#60a5fa', overdue: '#ef4444', draft: '#94a3b8' };
+  const statusLabel = { paid: 'Paid', sent: 'Unpaid', overdue: 'Overdue', draft: 'Draft' };
+
+  let tab = 'invoices';
+
+  function _renderBilling() {
+    el.innerHTML = `
+      <div style="max-width:800px;margin:0 auto;padding:24px 16px">
+        <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 4px">Billing &amp; Payments</h2>
+        <p style="font-size:12.5px;color:var(--text-secondary);margin:0 0 20px;line-height:1.5">View your invoices and payment history. Contact your clinic for billing questions.</p>
+
+        <!-- KPIs -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px">
+          <div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px">
+            <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:4px">Outstanding</div>
+            <div style="font-size:20px;font-weight:700;color:${totalOutstanding > 0 ? '#f59e0b' : '#22c55e'}">${fmt(totalOutstanding, 'GBP')}</div>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px">
+            <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:4px">Total Paid</div>
+            <div style="font-size:20px;font-weight:700;color:#22c55e">${fmt(totalPaid, 'GBP')}</div>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px">
+            <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:4px">Invoices</div>
+            <div style="font-size:20px;font-weight:700;color:var(--text-primary)">${invoices.length}</div>
+          </div>
+        </div>
+
+        <!-- Tabs -->
+        <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0">
+          ${['invoices','payments'].map(t => `<button onclick="window._ptBillingTab('${t}')" style="padding:8px 16px;font-size:12.5px;font-weight:600;border:none;background:transparent;color:${tab === t ? '#2dd4bf' : 'var(--text-secondary)'};cursor:pointer;border-bottom:2px solid ${tab === t ? '#2dd4bf' : 'transparent'};margin-bottom:-1px">${t === 'invoices' ? 'Invoices' : 'Payment History'}</button>`).join('')}
+        </div>
+
+        ${tab === 'invoices' ? `
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${invoices.length ? invoices.map(inv => {
+            const s = inv.status || 'sent';
+            const total = (inv.amount || 0) + (inv.vat || 0);
+            return `
+            <div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <div style="flex:1;min-width:180px">
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:2px">${inv.description}</div>
+                <div style="font-size:11px;color:var(--text-tertiary)">${inv.id} &middot; Issued ${new Date(inv.date).toLocaleDateString()} &middot; Due ${new Date(inv.due).toLocaleDateString()}</div>
+              </div>
+              <div style="text-align:right;min-width:100px">
+                <div style="font-size:15px;font-weight:700;color:var(--text-primary)">${fmt(total, inv.currency)}</div>
+                ${inv.vat ? `<div style="font-size:10px;color:var(--text-tertiary)">incl. ${fmt(inv.vat, inv.currency)} VAT</div>` : ''}
+              </div>
+              <span style="display:inline-block;padding:3px 10px;border-radius:6px;background:${statusColor[s] || '#64748b'}18;color:${statusColor[s] || '#64748b'};font-size:11px;font-weight:600;min-width:50px;text-align:center">${statusLabel[s] || s}</span>
+            </div>`;
+          }).join('') : '<div style="text-align:center;padding:32px;color:var(--text-tertiary);font-size:13px">No invoices yet.</div>'}
+        </div>` : `
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${payments.length ? payments.map(p => `
+            <div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <div style="width:36px;height:36px;border-radius:8px;background:rgba(34,197,94,0.1);color:#22c55e;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">&#10003;</div>
+              <div style="flex:1;min-width:160px">
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${fmt(p.amount, 'GBP')}</div>
+                <div style="font-size:11px;color:var(--text-tertiary)">${p.method} &middot; ${p.ref || ''} &middot; ${p.invoice || ''}</div>
+              </div>
+              <div style="font-size:11.5px;color:var(--text-tertiary)">${new Date(p.date).toLocaleDateString()}</div>
+            </div>`).join('') : '<div style="text-align:center;padding:32px;color:var(--text-tertiary);font-size:13px">No payments recorded yet.</div>'}
+        </div>`}
+
+        <div style="margin-top:24px;background:rgba(96,165,250,0.06);border:1px solid rgba(96,165,250,0.15);border-radius:10px;padding:14px 16px;font-size:12px;color:var(--text-secondary);line-height:1.5">
+          <strong style="color:var(--text-primary)">Need help with billing?</strong> Contact your clinic directly for payment plans, insurance queries, or invoice corrections.
+          <div style="margin-top:8px">
+            <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">Message your clinic</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  window._ptBillingTab = function(t) { tab = t; _renderBilling(); };
+  _renderBilling();
+}
+
+// ── Patient Academy / Learning Hub ───────────────────────────────────────────
+
+export async function pgPatientAcademy() {
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+
+  const categories = [
+    { id: 'all',          label: 'All',             icon: '&#128218;' },
+    { id: 'understanding', label: 'Understanding',   icon: '&#129504;' },
+    { id: 'self-care',    label: 'Self-Care',        icon: '&#128154;' },
+    { id: 'techniques',   label: 'Techniques',       icon: '&#127919;' },
+    { id: 'stories',      label: 'Patient Stories',  icon: '&#128172;' },
+    { id: 'webinars',     label: 'Webinars',         icon: '&#127908;' },
+    { id: 'courses',      label: 'Courses',          icon: '&#127891;' },
+  ];
+
+  const courses = [
+    { id: 'c1', title: 'Understanding Neuromodulation', subtitle: 'What happens during tDCS and why it helps', category: 'understanding', type: 'Article', duration: '8 min read', source: 'DeepSynaps Clinic', icon: '&#129504;', free: true,
+      description: 'A patient-friendly guide to how transcranial direct current stimulation works, what the electrodes do, and why consistency matters.' },
+    { id: 'c2', title: 'Sleep Hygiene for Better Outcomes', subtitle: 'Small changes that support your treatment', category: 'self-care', type: 'Guide', duration: '6 min read', source: 'NHS Better Health', icon: '&#128164;', free: true,
+      description: 'Evidence-based tips to improve your sleep quality, which can significantly impact how well your treatment works.' },
+    { id: 'c3', title: 'Breathing Exercises: 4-7-8 Technique', subtitle: 'A quick calming technique you can do anywhere', category: 'techniques', type: 'Video', duration: '4 min', source: 'YouTube', icon: '&#128692;', free: true,
+      description: 'Learn the 4-7-8 breathing technique recommended by your care team as part of your homework programme.' },
+    { id: 'c4', title: 'My tDCS Journey: 20 Sessions Later', subtitle: 'One patient shares their honest experience', category: 'stories', type: 'Article', duration: '12 min read', source: 'DeepSynaps Community', icon: '&#128172;', free: true,
+      description: 'A real patient describes what sessions felt like, how symptoms changed, and what surprised them about the process.' },
+    { id: 'c5', title: 'Managing Side Effects', subtitle: 'What to expect and when to speak up', category: 'understanding', type: 'Guide', duration: '5 min read', source: 'DeepSynaps Clinic', icon: '&#9888;', free: true,
+      description: 'Common side effects of neuromodulation treatments, which ones are normal, and when you should contact your care team.' },
+    { id: 'c6', title: 'Mindfulness for Depression', subtitle: 'Evidence-based practices that complement your protocol', category: 'techniques', type: 'Course', duration: '6 modules', source: 'FutureLearn', icon: '&#128992;', free: false,
+      description: 'A structured mindfulness course designed for people receiving treatment for depression. Integrates with your care plan.' },
+    { id: 'c7', title: 'Understanding Your qEEG Report', subtitle: 'What those brain waves actually mean for you', category: 'understanding', type: 'Video', duration: '18 min', source: 'DeepSynaps Clinic+', icon: '&#129504;', free: false,
+      description: 'A clinician walkthrough explaining what your qEEG report shows, written for patients, not clinicians.' },
+    { id: 'c8', title: 'Nutrition & Brain Health', subtitle: 'How diet impacts your neuromodulation outcomes', category: 'self-care', type: 'Article', duration: '10 min read', source: 'Mayo Clinic', icon: '&#129382;', free: true,
+      description: 'Research-backed dietary suggestions that may support brain health during your treatment course.' },
+    { id: 'c9', title: 'Patient Q&A: Common Concerns', subtitle: 'Answers to the most asked questions', category: 'stories', type: 'Webinar Recording', duration: '45 min', source: 'DeepSynaps Community', icon: '&#127908;', free: true,
+      description: 'A recorded Q&A session where patients asked clinicians their most pressing questions about neuromodulation.' },
+    { id: 'c10', title: 'Progressive Muscle Relaxation', subtitle: 'Reduce tension before and after sessions', category: 'techniques', type: 'Audio Guide', duration: '15 min', source: 'NHS Every Mind Matters', icon: '&#127925;', free: true,
+      description: 'A guided audio exercise to help you relax your body, especially useful before clinic sessions.' },
+    { id: 'c11', title: 'Home Device Safety Training', subtitle: 'Required before starting home therapy', category: 'courses', type: 'Interactive Course', duration: '3 modules', source: 'DeepSynaps Clinic', icon: '&#128268;', free: true,
+      description: 'Mandatory safety training covering device setup, electrode placement, emergency procedures, and session logging.' },
+    { id: 'c12', title: 'Building Resilience During Treatment', subtitle: 'A 4-week guided programme', category: 'courses', type: 'Course', duration: '4 weeks', source: 'DeepSynaps Academy', icon: '&#127891;', free: false,
+      description: 'A structured programme combining psychoeducation, journaling prompts, and behavioural exercises tailored to your treatment phase.' },
+  ];
+
+  let filter = 'all';
+  let search = '';
+  const completed = JSON.parse(localStorage.getItem('ds_pt_academy_completed') || '[]');
+
+  function _renderAcademy() {
+    const filtered = courses.filter(c => {
+      if (filter !== 'all' && c.category !== filter) return false;
+      if (search && !c.title.toLowerCase().includes(search.toLowerCase()) && !c.subtitle.toLowerCase().includes(search.toLowerCase())) return false;
+      return true;
+    });
+
+    el.innerHTML = `
+      <div style="max-width:860px;margin:0 auto;padding:24px 16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:8px">
+          <div>
+            <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 4px">Academy</h2>
+            <p style="font-size:12.5px;color:var(--text-secondary);margin:0">Courses, guides, and resources curated for your treatment journey.</p>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-tertiary)">
+            <span style="background:rgba(45,212,191,0.1);color:#2dd4bf;padding:3px 10px;border-radius:6px;font-weight:600">${completed.length} completed</span>
+            <span>${courses.length} resources</span>
+          </div>
+        </div>
+
+        <!-- Search -->
+        <div style="margin:16px 0 12px">
+          <input id="pt-acad-search" type="text" placeholder="Search courses and resources..." value="${search}" oninput="window._ptAcadSearch(this.value)"
+            style="width:100%;padding:9px 14px;border:1px solid var(--border);border-radius:10px;background:var(--bg-secondary,rgba(255,255,255,0.04));color:var(--text-primary);font-size:13px;box-sizing:border-box">
+        </div>
+
+        <!-- Category chips -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px">
+          ${categories.map(c => `<button onclick="window._ptAcadFilter('${c.id}')" style="display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:8px;border:1px solid ${filter === c.id ? 'rgba(45,212,191,0.3)' : 'var(--border)'};background:${filter === c.id ? 'rgba(45,212,191,0.1)' : 'transparent'};color:${filter === c.id ? '#2dd4bf' : 'var(--text-secondary)'};font-size:12px;font-weight:${filter === c.id ? '600' : '500'};cursor:pointer"><span>${c.icon}</span>${c.label}</button>`).join('')}
+        </div>
+
+        <!-- Course grid -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
+          ${filtered.length ? filtered.map(c => {
+            const done = completed.includes(c.id);
+            return `
+            <div style="border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:8px;transition:border-color 0.15s;cursor:pointer" onclick="window._ptAcadOpen('${c.id}')" onmouseover="this.style.borderColor='rgba(45,212,191,0.3)'" onmouseout="this.style.borderColor='var(--border)'">
+              <div style="display:flex;align-items:flex-start;gap:10px">
+                <div style="width:40px;height:40px;border-radius:10px;background:rgba(45,212,191,0.08);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${c.icon}</div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:2px;display:flex;align-items:center;gap:6px">${c.title}${done ? '<span style="color:#22c55e;font-size:11px">&#10003;</span>' : ''}</div>
+                  <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.4">${c.subtitle}</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:10.5px">
+                <span style="padding:2px 8px;border-radius:4px;background:rgba(96,165,250,0.1);color:#60a5fa">${c.type}</span>
+                <span style="padding:2px 8px;border-radius:4px;background:rgba(255,255,255,0.04);color:var(--text-tertiary)">${c.duration}</span>
+                <span style="padding:2px 8px;border-radius:4px;background:rgba(255,255,255,0.04);color:var(--text-tertiary)">${c.source}</span>
+                ${!c.free ? '<span style="padding:2px 8px;border-radius:4px;background:rgba(251,191,36,0.1);color:#fbbf24">Premium</span>' : ''}
+              </div>
+            </div>`;
+          }).join('') : '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text-tertiary);font-size:13px">No resources match your search.</div>'}
+        </div>
+      </div>`;
+  }
+
+  window._ptAcadFilter = function(f) { filter = f; _renderAcademy(); };
+  window._ptAcadSearch = function(q) { search = q; _renderAcademy(); };
+  window._ptAcadOpen = function(id) {
+    const c = courses.find(x => x.id === id);
+    if (!c) return;
+    const done = completed.includes(c.id);
+    const modal = document.createElement('div');
+    modal.id = 'pt-acad-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5)';
+    modal.innerHTML = `
+      <div style="background:var(--bg-primary,#0f172a);border:1px solid var(--border);border-radius:14px;padding:24px;width:90%;max-width:520px;max-height:80vh;overflow-y:auto">
+        <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px">
+          <div style="width:48px;height:48px;border-radius:12px;background:rgba(45,212,191,0.08);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">${c.icon}</div>
+          <div style="flex:1">
+            <div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:2px">${c.title}</div>
+            <div style="font-size:12px;color:var(--text-secondary)">${c.subtitle}</div>
+          </div>
+          <button onclick="document.getElementById('pt-acad-modal').remove()" style="background:transparent;border:none;color:var(--text-tertiary);cursor:pointer;font-size:16px;padding:4px">\u2715</button>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;font-size:10.5px">
+          <span style="padding:3px 10px;border-radius:5px;background:rgba(96,165,250,0.1);color:#60a5fa">${c.type}</span>
+          <span style="padding:3px 10px;border-radius:5px;background:rgba(255,255,255,0.04);color:var(--text-tertiary)">${c.duration}</span>
+          <span style="padding:3px 10px;border-radius:5px;background:rgba(255,255,255,0.04);color:var(--text-tertiary)">${c.source}</span>
+          ${!c.free ? '<span style="padding:3px 10px;border-radius:5px;background:rgba(251,191,36,0.1);color:#fbbf24">Premium</span>' : '<span style="padding:3px 10px;border-radius:5px;background:rgba(34,197,94,0.1);color:#22c55e">Free</span>'}
+        </div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">${c.description}</div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          ${done
+            ? '<span style="font-size:12px;color:#22c55e;font-weight:600;padding:7px 14px">&#10003; Completed</span>'
+            : `<button class="btn btn-ghost btn-sm" onclick="window._ptAcadComplete('${c.id}');document.getElementById('pt-acad-modal').remove()">Mark as completed</button>`}
+          <button class="btn btn-primary btn-sm" onclick="document.getElementById('pt-acad-modal').remove()">Close</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  };
+  window._ptAcadComplete = function(id) {
+    if (!completed.includes(id)) {
+      completed.push(id);
+      try { localStorage.setItem('ds_pt_academy_completed', JSON.stringify(completed)); } catch (_e) {}
+      window._showNotifToast && window._showNotifToast({ title: 'Resource completed', body: 'Great job keeping up with your learning!', severity: 'success' });
+    }
+    _renderAcademy();
+  };
+
+  _renderAcademy();
+}
 
 export async function pgPatientHelp() {
   const el = document.getElementById('patient-content');

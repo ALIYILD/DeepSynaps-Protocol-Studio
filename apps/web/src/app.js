@@ -1050,8 +1050,13 @@ async function renderPatientPage() {
     case 'pt-home-session-log':  await m.pgPatientHomeSessionLog();             break;
     case 'pt-adherence-events':  await m.pgPatientAdherenceEvents();            break;
     case 'pt-adherence-history': await m.pgPatientAdherenceHistory();           break;
+    case 'pt-home-device':       await m.pgPatientHomeDevice();                break;
     case 'pt-caregiver':         await m.pgPatientCaregiver();                  break;
     case 'pt-help':              await m.pgPatientHelp();                       break;
+    case 'ai-agents':            await m.pgPatientVirtualCare();                break;
+    case 'pt-tickets':           await m.pgPatientTickets();                    break;
+    case 'pt-billing':           await m.pgPatientBilling();                    break;
+    case 'pt-academy':           await m.pgPatientAcademy();                    break;
     default:                     await m.pgPatientDashboard(currentUser);
   }
 }
