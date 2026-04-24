@@ -10764,6 +10764,14 @@ export async function pgClinicAcademy(setTopbar, _currentUser) {
 
   const totalItems = SECTIONS.reduce((a, s) => a + s.items.length, 0);
 
+  /* ── Community education items (loaded async after render) ──────────── */
+  let communityItems = [];
+  try {
+    const resp = await api.marketplaceEducationBrowse();
+    communityItems = (resp && resp.items) || [];
+  } catch (_) { /* API offline / demo mode — gracefully degrade */ }
+  const communityCount = communityItems.length;
+
   const itemCard = (it) => `
     <a class="ac-card" href="${esc(it.href)}" target="_blank" rel="noopener noreferrer">
       <div class="ac-card-body">
@@ -10776,6 +10784,27 @@ export async function pgClinicAcademy(setTopbar, _currentUser) {
       </div>
       <div class="ac-card-chev" aria-hidden="true">↗</div>
     </a>`;
+
+  const communityCard = (it) => {
+    const priceStr = it.price ? (it.price_unit || 'GBP') + ' ' + Number(it.price).toFixed(2) : 'Free';
+    const kindLabel = it.kind === 'course' ? 'Course' : 'Education';
+    const kindColor = it.kind === 'course' ? '#8b5cf6' : '#10b981';
+    return `
+    <a class="ac-card ac-edu-card" href="${esc(it.external_url || '#')}" target="_blank" rel="noopener noreferrer">
+      <div class="ac-card-body">
+        <div class="ac-card-head">
+          <span class="ac-edu-badge" style="background:${kindColor}22;color:${kindColor};border:1px solid ${kindColor}44">${kindLabel}</span>
+          <h4 class="ac-card-name">${esc(it.name)}</h4>
+        </div>
+        <div class="ac-card-org">by ${esc(it.provider || 'Unknown')}</div>
+        <p class="ac-card-desc">${esc(it.description || '')}</p>
+      </div>
+      <div class="ac-edu-footer">
+        <span class="ac-edu-price">${esc(priceStr)}</span>
+        <span class="ac-card-chev">↗</span>
+      </div>
+    </a>`;
+  };
 
   const sectionHTML = (s) => `
     <section class="ac-section" id="ac-section-${esc(s.id)}">
@@ -10803,19 +10832,48 @@ export async function pgClinicAcademy(setTopbar, _currentUser) {
               <div class="ac-hero-stat-num">${s.items.length}</div>
               <div class="ac-hero-stat-lbl">${esc(s.label)}</div>
             </button>`).join('')}
+          <button type="button" class="ac-hero-stat" onclick="document.getElementById('ac-section-community').scrollIntoView({behavior:'smooth',block:'start'})">
+            <div class="ac-hero-stat-num">${communityCount}</div>
+            <div class="ac-hero-stat-lbl">Community</div>
+          </button>
         </div>
       </header>
 
       <nav class="ac-filter" role="tablist" aria-label="Filter academy by type">
-        <button class="ac-filter-chip active" data-ac-filter="all"            role="tab" aria-selected="true">All <span class="ac-filter-count">${totalItems}</span></button>
+        <button class="ac-filter-chip active" data-ac-filter="all"            role="tab" aria-selected="true">All <span class="ac-filter-count">${totalItems + communityCount}</span></button>
         ${SECTIONS.map(s => `
           <button class="ac-filter-chip" data-ac-filter="${esc(s.id)}" role="tab" aria-selected="false">${esc(s.label)} <span class="ac-filter-count">${s.items.length}</span></button>`).join('')}
+        <button class="ac-filter-chip" data-ac-filter="community" role="tab" aria-selected="false">Community Courses <span class="ac-filter-count">${communityCount}</span></button>
       </nav>
 
       ${SECTIONS.map(sectionHTML).join('')}
 
+      <section class="ac-section" id="ac-section-community">
+        <div class="ac-section-head">
+          <span class="pt-page-tile pt-nav-tile--green ac-section-ico" aria-hidden="true">🛒</span>
+          <div>
+            <h3 class="ac-section-title">Community Courses <span class="ac-section-count">${communityCount}</span></h3>
+            <p class="ac-section-sub">Courses, workshops, and education content created and sold by clinicians in the DeepSynaps community.</p>
+          </div>
+        </div>
+        <div class="ac-edu-cta">
+          <div class="ac-edu-cta-text">
+            <strong>Share your expertise</strong>
+            <span>Create and sell courses, workshops, or educational resources to the community.</span>
+          </div>
+          <div class="ac-edu-cta-btns">
+            <button class="ac-edu-btn ac-edu-btn--primary" onclick="window._acEduListNew()">+ Create Course</button>
+            <button class="ac-edu-btn ac-edu-btn--secondary" onclick="window._acEduMyCourses()">My Courses</button>
+          </div>
+        </div>
+        ${communityItems.length
+          ? '<div class="ac-grid">' + communityItems.map(communityCard).join('') + '</div>'
+          : '<div class="ac-edu-empty"><div class="ac-edu-empty-icon">🎓</div><h4>No community courses yet</h4><p>Be the first to share your expertise! Create a course or education resource and sell it to the DeepSynaps community.</p><button class="ac-edu-btn ac-edu-btn--primary" onclick="window._acEduListNew()">Create Your First Course</button></div>'
+        }
+      </section>
+
       <div class="ac-footnote">
-        Know a resource that belongs here? Tell your DeepSynaps account manager — the library is reviewed and updated quarterly.
+        Know a resource that belongs here? Tell your DeepSynaps account manager — the library is reviewed and updated quarterly. Or <a href="#" onclick="event.preventDefault();window._acEduListNew()" style="color:var(--teal);text-decoration:underline">list your own course</a> in the Community section above.
       </div>
     </div>
   `;
@@ -10836,9 +10894,179 @@ function _wireAcademy() {
       });
       root.querySelectorAll('.ac-section').forEach(sec => {
         const id = sec.id.replace('ac-section-', '');
-        sec.style.display = (f === 'all' || f === id) ? '' : 'none';
+        if (f === 'all') { sec.style.display = ''; }
+        else if (f === 'community') { sec.style.display = id === 'community' ? '' : 'none'; }
+        else { sec.style.display = (f === id) ? '' : 'none'; }
       });
     });
   });
 }
+
+/* ── Education Marketplace – Create / Edit listing ── */
+window._acEduListNew = (editItem) => {
+  const existing = document.getElementById('ac-edu-modal');
+  if (existing) { existing.remove(); return; }
+  const isEdit = !!editItem;
+  const modal = document.createElement('div');
+  modal.id = 'ac-edu-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px';
+  const kindOptions = ['course', 'education'].map(k => {
+    const labels = { course: 'Online Course', education: 'Education Resource' };
+    const sel = (isEdit && editItem.kind === k) ? ' selected' : (!isEdit && k === 'course' ? ' selected' : '');
+    return '<option value="' + k + '"' + sel + '>' + labels[k] + '</option>';
+  }).join('');
+  const currencyOptions = ['GBP', 'USD', 'EUR'].map(c => {
+    const sel = (isEdit && editItem.price_unit === c) ? ' selected' : (!isEdit && c === 'GBP' ? ' selected' : '');
+    return '<option value="' + c + '"' + sel + '>' + c + '</option>';
+  }).join('');
+  const toneOptions = ['teal', 'blue', 'violet', 'rose', 'amber', 'green'].map(t => {
+    const sel = (isEdit && editItem.tone === t) ? ' selected' : (!isEdit && t === 'teal' ? ' selected' : '');
+    return '<option value="' + t + '"' + sel + '>' + t.charAt(0).toUpperCase() + t.slice(1) + '</option>';
+  }).join('');
+  const iS = 'padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--navy-900,#0b1120);color:var(--text-primary);font-size:13px';
+  modal.innerHTML = `
+    <div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:540px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 16px 48px rgba(0,0,0,.5)">
+      <div style="padding:20px 24px 12px;display:flex;align-items:center;justify-content:space-between">
+        <h3 style="margin:0;font-size:17px;font-weight:600;color:var(--text-primary)">${isEdit ? 'Edit Course / Resource' : 'Create a Course or Education Resource'}</h3>
+        <button onclick="document.getElementById('ac-edu-modal').remove()" style="background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:20px;line-height:1">x</button>
+      </div>
+      <form id="ac-edu-form" style="padding:8px 24px 24px;display:flex;flex-direction:column;gap:12px">
+        <select name="kind" style="${iS}">${kindOptions}</select>
+        <input type="text" name="name" placeholder="Course / Resource Title" required maxlength="255" value="${isEdit ? esc(editItem.name) : ''}" style="${iS}">
+        <input type="text" name="provider" placeholder="Instructor / Clinic Name" required maxlength="255" value="${isEdit ? esc(editItem.provider) : ''}" style="${iS}">
+        <textarea name="description" placeholder="Description — what will students learn?" rows="3" maxlength="5000" style="${iS};resize:vertical">${isEdit ? esc(editItem.description || '') : ''}</textarea>
+        <div style="display:flex;gap:8px">
+          <input type="number" name="price" placeholder="Price (0 = Free)" step="0.01" min="0" value="${isEdit && editItem.price != null ? editItem.price : ''}" style="flex:1;${iS}">
+          <select name="price_unit" style="width:90px;${iS}">${currencyOptions}</select>
+        </div>
+        <input type="url" name="external_url" placeholder="Course URL (your website, platform link, etc.)" required maxlength="512" value="${isEdit ? esc(editItem.external_url || '') : ''}" style="${iS}">
+        <div style="font-size:11px;color:var(--text-tertiary)">Where students can enroll, purchase, or access the content.</div>
+        <input type="text" name="tags" placeholder="Tags (comma separated, e.g. TMS, Neurofeedback, CBT)" maxlength="300" value="${isEdit && editItem.tags ? esc(editItem.tags.join(', ')) : ''}" style="${iS}">
+        <div style="display:flex;gap:8px">
+          <input type="text" name="icon" placeholder="Icon emoji (e.g. &#127891;)" maxlength="10" value="${isEdit ? esc(editItem.icon || '') : ''}" style="width:120px;${iS}">
+          <select name="tone" style="flex:1;${iS}">${toneOptions}</select>
+        </div>
+        <button type="submit" style="padding:10px 16px;background:#10b981;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px">${isEdit ? 'Update Listing' : 'Publish Course'}</button>
+        <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">Your listing will be live immediately in the Academy Community Courses section.</div>
+      </form>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+  modal.querySelector('#ac-edu-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true; btn.textContent = isEdit ? 'Updating...' : 'Publishing...';
+    const fd = new FormData(e.target);
+    const payload = {
+      name: fd.get('name').trim(),
+      provider: fd.get('provider').trim(),
+      description: fd.get('description').trim(),
+      price: fd.get('price') ? parseFloat(fd.get('price')) : null,
+      price_unit: fd.get('price_unit'),
+      external_url: fd.get('external_url').trim(),
+      tags: fd.get('tags').split(',').map(t => t.trim()).filter(Boolean),
+      kind: fd.get('kind'),
+      icon: fd.get('icon').trim() || null,
+      tone: fd.get('tone'),
+    };
+    try {
+      if (isEdit) {
+        await api.marketplaceSellerUpdateItem(editItem.id, payload);
+      } else {
+        await api.marketplaceSellerCreateItem(payload);
+      }
+      modal.innerHTML = '<div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:420px;width:100%;padding:40px 32px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)"><div style="font-size:2.5rem;margin-bottom:12px">&#10003;</div><h3 style="color:var(--text-primary);margin:0 0 8px">' + (isEdit ? 'Listing Updated' : 'Course Published!') + '</h3><p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;line-height:1.5">Your ' + esc(payload.kind) + ' <strong>' + esc(payload.name) + '</strong> is now live in the Academy.</p><div style="display:flex;gap:8px;justify-content:center"><button onclick="window._acEduMyCourses();document.getElementById(\'ac-edu-modal\').remove()" style="padding:8px 20px;background:rgba(16,185,129,.15);color:#10b981;border:1px solid rgba(16,185,129,.25);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">View My Courses</button><button onclick="document.getElementById(\'ac-edu-modal\').remove();location.reload()" style="padding:8px 20px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer">Close</button></div></div>';
+    } catch (err) {
+      btn.disabled = false; btn.textContent = isEdit ? 'Update Listing' : 'Publish Course';
+      alert('Failed to ' + (isEdit ? 'update' : 'publish') + ': ' + (err.message || 'Please make sure you are logged in.'));
+    }
+  });
+};
+
+/* ── Education Marketplace – My Courses dashboard ── */
+window._acEduMyCourses = async () => {
+  const existing = document.getElementById('ac-edu-modal');
+  if (existing) { existing.remove(); }
+  const modal = document.createElement('div');
+  modal.id = 'ac-edu-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px';
+  modal.innerHTML = `
+    <div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:620px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 16px 48px rgba(0,0,0,.5)">
+      <div style="padding:20px 24px 12px;display:flex;align-items:center;justify-content:space-between">
+        <h3 style="margin:0;font-size:17px;font-weight:600;color:var(--text-primary)">My Courses &amp; Education</h3>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button onclick="window._acEduListNew();document.getElementById('ac-edu-modal').remove()" style="padding:6px 14px;background:#10b981;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">+ New Course</button>
+          <button onclick="document.getElementById('ac-edu-modal').remove()" style="background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:20px;line-height:1">x</button>
+        </div>
+      </div>
+      <div id="ac-edu-mycourses-content" style="padding:0 0 12px"><div style="padding:40px;text-align:center;color:var(--text-tertiary)">Loading...</div></div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+
+  const kindBadge = (k) => {
+    const colors = { education: '#10b981', course: '#8b5cf6' };
+    return '<span style="display:inline-block;background:' + (colors[k] || '#888') + '22;color:' + (colors[k] || '#888') + ';padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;text-transform:uppercase">' + esc(k) + '</span>';
+  };
+
+  try {
+    const data = await api.marketplaceSellerMyItems();
+    const items = ((data && data.items) || []).filter(it => it.kind === 'education' || it.kind === 'course');
+    const contentEl = document.getElementById('ac-edu-mycourses-content');
+    if (!contentEl) return;
+    if (items.length === 0) {
+      contentEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary)"><div style="font-size:2rem;margin-bottom:8px">&#127891;</div><p style="margin:0 0 16px">You have no courses or education resources yet.</p><button onclick="window._acEduListNew();document.getElementById(\'ac-edu-modal\').remove()" style="padding:8px 20px;background:#10b981;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Create Your First Course</button></div>';
+      return;
+    }
+    contentEl.innerHTML = items.map(it => {
+      const priceStr = it.price != null ? (it.price_unit === 'GBP' ? '\u00A3' : it.price_unit === 'EUR' ? '\u20AC' : '$') + it.price : 'Free';
+      return '<div style="padding:12px 24px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between;gap:12px">' +
+        '<div style="min-width:0;flex:1">' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">' +
+            '<span style="font-weight:500;color:var(--text-primary);font-size:13px">' + esc(it.name) + '</span>' +
+            kindBadge(it.kind) +
+          '</div>' +
+          '<div style="font-size:12px;color:var(--text-secondary)">' + esc(it.provider) + ' &middot; ' + priceStr + ' &middot; ' + (it.active ? '<span style="color:#34d399">Active</span>' : '<span style="color:#fb7185">Paused</span>') + '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;flex-shrink:0">' +
+          '<button class="ac-edu-ml-edit" data-idx="' + esc(it.id) + '" style="padding:4px 10px;font-size:12px;background:rgba(16,185,129,.12);color:#10b981;border:1px solid rgba(16,185,129,.2);border-radius:6px;cursor:pointer">Edit</button>' +
+          '<button class="ac-edu-ml-toggle" data-idx="' + esc(it.id) + '" data-active="' + (it.active ? '1' : '0') + '" style="padding:4px 10px;font-size:12px;background:rgba(255,255,255,.06);color:var(--text-secondary);border:1px solid var(--border);border-radius:6px;cursor:pointer">' + (it.active ? 'Pause' : 'Resume') + '</button>' +
+          '<button class="ac-edu-ml-delete" data-idx="' + esc(it.id) + '" style="padding:4px 10px;font-size:12px;background:rgba(251,113,133,.1);color:#fb7185;border:1px solid rgba(251,113,133,.2);border-radius:6px;cursor:pointer">Delete</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    contentEl.querySelectorAll('.ac-edu-ml-edit').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const it = items.find(x => x.id === btn.dataset.idx);
+        if (!it) return;
+        modal.remove();
+        window._acEduListNew(it);
+      });
+    });
+    contentEl.querySelectorAll('.ac-edu-ml-toggle').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const newActive = btn.dataset.active === '1' ? false : true;
+        try {
+          await api.marketplaceSellerUpdateItem(btn.dataset.idx, { active: newActive });
+          modal.remove();
+          window._acEduMyCourses();
+        } catch (err) { alert('Update failed: ' + (err.message || 'try again')); }
+      });
+    });
+    contentEl.querySelectorAll('.ac-edu-ml-delete').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Delete this listing? This cannot be undone.')) return;
+        try {
+          await api.marketplaceSellerDeleteItem(btn.dataset.idx);
+          modal.remove();
+          window._acEduMyCourses();
+        } catch (err) { alert('Delete failed: ' + (err.message || 'try again')); }
+      });
+    });
+  } catch (err) {
+    const contentEl = document.getElementById('ac-edu-mycourses-content');
+    if (contentEl) contentEl.innerHTML = '<div style="padding:40px;text-align:center;color:#fb7185">Failed to load courses. Please make sure you are logged in.</div>';
+  }
+};
 

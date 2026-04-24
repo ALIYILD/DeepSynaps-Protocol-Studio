@@ -1574,7 +1574,7 @@ class MarketplaceItem(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
-        CheckConstraint("kind IN ('product','service','device','software')", name='ck_marketplace_items_kind'),
+        CheckConstraint("kind IN ('product','service','device','software','education','course')", name='ck_marketplace_items_kind'),
     )
 
 
@@ -1701,6 +1701,7 @@ class QEEGAnalysis(Base):
     normative_deviations_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     artifact_rejection_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     analysis_params_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    advanced_analyses_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     analyzed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

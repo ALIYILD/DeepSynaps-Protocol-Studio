@@ -8765,8 +8765,8 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
     const modal = document.createElement('div');
     modal.id = 'mp-list-modal';
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px';
-    const kindOptions = ['product', 'service', 'device', 'software'].map(k => {
-      const labels = { product: 'Product', service: 'Service / Consultation', device: 'Device', software: 'Software' };
+    const kindOptions = ['product', 'service', 'device', 'software', 'education', 'course'].map(k => {
+      const labels = { product: 'Product', service: 'Service / Consultation', device: 'Device', software: 'Software', education: 'Education Resource', course: 'Online Course' };
       const sel = (isEdit && editItem.kind === k) ? ' selected' : (!isEdit && k === 'service' ? ' selected' : '');
       return '<option value="' + k + '"' + sel + '>' + labels[k] + '</option>';
     }).join('');
@@ -8863,7 +8863,7 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
     modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
 
     const kindBadge = (k) => {
-      const colors = { product: '#f59e0b', service: '#5dd9c4', device: '#6366f1', software: '#818cf8' };
+      const colors = { product: '#f59e0b', service: '#5dd9c4', device: '#6366f1', software: '#818cf8', education: '#10b981', course: '#8b5cf6' };
       return '<span style="display:inline-block;background:' + (colors[k] || '#888') + '22;color:' + (colors[k] || '#888') + ';padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;text-transform:uppercase">' + esc(k) + '</span>';
     };
 

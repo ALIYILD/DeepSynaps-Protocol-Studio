@@ -968,6 +968,30 @@ export const api = {
   updateQEEGRecord: (id, data) =>
     apiFetch(`/api/v1/qeeg-records/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
+  // ── qEEG Analysis Pipeline ──────────────────────────────────────────────
+  uploadQEEGAnalysis: (formData) =>
+    apiFetch('/api/v1/qeeg-analysis/upload', { method: 'POST', body: formData }),
+  analyzeQEEG: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/analyze`, { method: 'POST' }),
+  getQEEGAnalysis: (id) =>
+    apiFetch(`/api/v1/qeeg-analysis/${id}`),
+  listPatientQEEGAnalyses: (patientId) =>
+    apiFetch(`/api/v1/qeeg-analysis/patient/${patientId}`),
+  generateQEEGAIReport: (analysisId, body = {}) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/ai-report`, { method: 'POST', body: JSON.stringify(body) }),
+  listQEEGAnalysisReports: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/reports`),
+  amendQEEGReport: (reportId, body) =>
+    apiFetch(`/api/v1/qeeg-analysis/reports/${reportId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  createQEEGComparison: (body) =>
+    apiFetch('/api/v1/qeeg-analysis/compare', { method: 'POST', body: JSON.stringify(body) }),
+  getQEEGComparison: (id) =>
+    apiFetch(`/api/v1/qeeg-analysis/compare/${id}`),
+  correlateQEEGWithAssessments: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/correlate`, { method: 'POST' }),
+  runAdvancedQEEGAnalyses: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/run-advanced`, { method: 'POST' }),
+
   // ── Patient Portal (self-service for patient-role users) ─────────────────
   patientPortalMe: () => apiFetch('/api/v1/patient-portal/me'),
   patientPortalCourses: () => apiFetch('/api/v1/patient-portal/courses'),
@@ -1079,6 +1103,8 @@ export const api = {
     apiFetch(`/api/v1/marketplace/seller/items/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   marketplaceSellerDeleteItem: (id) =>
     apiFetch(`/api/v1/marketplace/seller/items/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  marketplaceEducationBrowse: (params = {}) =>
+    apiFetch('/api/v1/marketplace/seller/browse?' + new URLSearchParams({ kind: 'education,course', ...params })),
 
   // ── Virtual Care ──────────────────────────────────────────────────────────
   virtualCareCreateSession: (data) =>

@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, Path, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -57,7 +57,7 @@ class UpdateListingRequest(BaseModel):
     active: Optional[bool] = None
 
 
-_VALID_KINDS = frozenset({"product", "service", "device", "software"})
+_VALID_KINDS = frozenset({"product", "service", "device", "software", "education", "course"})
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────────
@@ -248,3 +248,25 @@ def delete_listing(
     item.active = False
     item.updated_at = datetime.now(timezone.utc)
     db.commit()
+
+
+@router.get("/browse")
+def browse_listings(
+    kind: Optional[str] = Query(None, max_length=20),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """Browse all active seller listings, optionally filtered by kind.
+
+    This is a public-read endpoint (no auth required) so the Academy page
+    can display community education listings without patient-portal auth.
+    """
+    q = db.query(MarketplaceItem).filter(
+        MarketplaceItem.active.is_(True),
+        MarketplaceItem.source == "seller_listed",
+    )
+    if kind:
+        kinds = [k.strip() for k in kind.split(",") if k.strip()]
+        if kinds:
+            q = q.filter(MarketplaceItem.kind.in_(kinds))
+    items = q.order_by(MarketplaceItem.created_at.desc()).limit(100).all()
+    return {"items": [_item_to_dict(i) for i in items]}
