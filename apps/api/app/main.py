@@ -102,6 +102,8 @@ from app.routers.risk_stratification_router import router as risk_stratification
 from app.routers.qeeg_analysis_router import router as qeeg_analysis_router
 from app.routers.qeeg_copilot_router import router as qeeg_copilot_router
 from app.routers.mri_analysis_router import router as mri_analysis_router
+from app.routers.fusion_router import router as fusion_router
+from app.routers.patient_timeline_router import router as patient_timeline_router
 from app.routers.admin_pgvector_router import router as admin_pgvector_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
@@ -206,6 +208,8 @@ app.include_router(risk_stratification_router)
 app.include_router(qeeg_analysis_router)
 app.include_router(qeeg_copilot_router)
 app.include_router(mri_analysis_router)
+app.include_router(fusion_router)
+app.include_router(patient_timeline_router)
 app.include_router(admin_pgvector_router)
 
 app.state.limiter = limiter

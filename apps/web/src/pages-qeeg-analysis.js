@@ -20,8 +20,87 @@ import {
   renderSimilarCases,
   renderProtocolRecommendationCard,
   renderLongitudinalSparklines,
+  renderFusionCard,
   mountCopilotWidget,
 } from './qeeg-ai-panels.js';
+
+// ── Demo fusion payload (CONTRACT_V3 §1) ────────────────────────────────────
+// Used when the user is in demo mode — short-circuits the backend call and
+// returns a realistic FusionRecommendation envelope with two merged targets.
+export var DEMO_FUSION_RESULT = {
+  patient_id: 'demo',
+  qeeg_analysis_id: 'demo-qeeg-001',
+  mri_analysis_id: 'demo-mri-001',
+  modalities_used: ['qeeg', 'mri'],
+  generated_at: new Date().toISOString(),
+  recommendations: [
+    {
+      primary_modality: 'rtms_10hz',
+      target_region: 'L_DLPFC',
+      region_code: 'dlpfc_l',
+      dose: { sessions: 30, intensity: '120% RMT', duration_min: 37, frequency: '5x/week' },
+      session_plan: {
+        induction: { sessions: 10, notes: 'S phase: daily 10 Hz rTMS to induce plasticity.' },
+        consolidation: { sessions: 10, notes: 'O-Z phase: taper cadence to 3x/week.' },
+        maintenance: { sessions: 10, notes: 'O phase: clinician-gated 1-2x/week boosters.' },
+      },
+      contraindications: ['seizure history', 'ferromagnetic implants near coil'],
+      expected_response_window_weeks: [4, 8],
+      citations: [
+        { n: 1, doi: '10.1176/appi.ajp.2021.20101429', title: 'Accelerated iTBS (Stanford)',
+          url: 'https://doi.org/10.1176/appi.ajp.2021.20101429' },
+        { n: 2, doi: '10.1016/j.biopsych.2012.04.028', title: 'DLPFC sgACC anticorrelation',
+          url: 'https://doi.org/10.1016/j.biopsych.2012.04.028' },
+      ],
+      confidence: 'high',
+      alternative_protocols: [],
+      rationale: 'qEEG frontal alpha asymmetry (F3/F4) converges with MRI-derived personalised sgACC anticorrelation target in left DLPFC.',
+      qeeg_support: [
+        { biomarker: 'frontal_alpha_asymmetry_F3_F4', value: 0.35, z: 1.9, weight: 0.35 },
+        { biomarker: 'spectral.bands.theta:Fz', value: 2.3, z: 2.1, weight: 0.30 },
+      ],
+      mri_support: [
+        { biomarker: 'sgACC_DLPFC_anticorrelation', value: -0.37, z: -2.6, weight: 0.40 },
+        { biomarker: 'cortical_thickness_mm:acc_l', value: 2.65, z: -2.4, weight: 0.30 },
+      ],
+      fusion_boost: 1.4,
+      agreement_score: 0.84,
+      conflicts: [],
+    },
+    {
+      primary_modality: 'tps',
+      target_region: 'bilateral_hippocampus',
+      region_code: 'hippocampus',
+      dose: { sessions: 6, intensity: '0.2 mJ/mm²', duration_min: 30, frequency: '2x/week' },
+      session_plan: {
+        induction: { sessions: 2, notes: 'S phase: initial TPS series; monitor tolerability.' },
+        consolidation: { sessions: 2, notes: 'O-Z phase: pair with cognitive loading.' },
+        maintenance: { sessions: 2, notes: 'O phase: clinician-gated maintenance.' },
+      },
+      contraindications: ['recent hemorrhage', 'implanted metal near target'],
+      expected_response_window_weeks: [4, 8],
+      citations: [
+        { n: 1, doi: '10.1002/alz.12094', title: 'TPS in Alzheimer-type cognitive decline',
+          url: 'https://doi.org/10.1002/alz.12094' },
+      ],
+      confidence: 'moderate',
+      alternative_protocols: [],
+      rationale: 'MRI-flagged hippocampal and amygdala atrophy; qEEG reduced PAF supports a cognitive-decline-like phenotype.',
+      qeeg_support: [
+        { biomarker: 'reduced_peak_alpha_freq', value: 8.6, z: -1.8, weight: 0.25 },
+      ],
+      mri_support: [
+        { biomarker: 'subcortical_volume_mm3:hippocampus_l', value: 3400, z: -1.1, weight: 0.25 },
+        { biomarker: 'subcortical_volume_mm3:amygdala_l', value: 1420, z: -2.1, weight: 0.35 },
+      ],
+      fusion_boost: 1.25,
+      agreement_score: 0.62,
+      conflicts: [],
+    },
+  ],
+  summary: 'Fusion across qeeg + mri: top protocol consideration is rtms_10hz → L_DLPFC (×1.40). Alternatives: tps → bilateral_hippocampus (×1.25). Convergent biomarker support across modalities is research/wellness evidence only; clinician judgement required.',
+  disclaimer: 'Decision-support tool. Not a medical device. Multi-modal convergent findings are research/wellness indicators only.',
+};
 
 // Feature flag for the Contract V2 AI upgrade panels + buttons. Defaults to
 // on; ops can disable without a redeploy by setting

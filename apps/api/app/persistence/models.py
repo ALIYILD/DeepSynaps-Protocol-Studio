@@ -1959,6 +1959,43 @@ class MriUpload(Base):
     )
 
 
+class Annotation(Base):
+    """Clinician pin-to-finding annotation (CONTRACT_V3 §3, migration 042).
+
+    A freeform note authored by a clinician and attached to a specific
+    location within a qEEG or MRI analysis — e.g. a stim target card, a
+    z-score cell, an ROI, or a free-text section. Used to convey
+    disagreement, follow-up items, clarifications, or patient-facing
+    notes. Soft-delete only (``deleted_at``).
+
+    Notes
+    -----
+    Tags are stored as a JSON-encoded ``Text`` blob so the SQLite test
+    env can round-trip them without a JSONB column type.
+    """
+
+    __tablename__ = "annotations"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    analysis_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    analysis_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    author_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    author_name: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    target_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_ref: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    text: Mapped[str] = mapped_column(Text(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    resolved: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    resolved_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    tags_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+
+
 class RiskStratificationResult(Base):
     """Per-patient, per-category traffic-light risk level (upserted on compute)."""
     __tablename__ = "risk_stratification_results"
