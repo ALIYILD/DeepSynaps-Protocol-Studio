@@ -1603,72 +1603,95 @@ class MarketplaceOrder(Base):
     )
 
 
+# ── Virtual Care Models ──────────────────────────────────────────────────────
+
+
 class VirtualCareSession(Base):
-    """A virtual care session (video/voice call) between patient and clinician."""
+    """Video/voice telehealth sessions between patient and clinician."""
     __tablename__ = "virtual_care_sessions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
+    clinician_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    appointment_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     session_type: Mapped[str] = mapped_column(String(20), nullable=False, default="video")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="scheduled")
-    appointment_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
-    room_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    room_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    duration_seconds: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    transcript_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    ai_summary: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         CheckConstraint("session_type IN ('video','voice')", name='ck_vc_session_type'),
-        CheckConstraint("status IN ('scheduled','in_progress','completed','cancelled')", name='ck_vc_session_status'),
+        CheckConstraint("status IN ('scheduled','active','ended','cancelled')", name='ck_vc_session_status'),
     )
 
 
 class BiometricsSnapshot(Base):
-    """Biometric data captured during a virtual care session."""
+    """Real-time biometrics captured during a virtual care session."""
     __tablename__ = "biometrics_snapshots"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     session_id: Mapped[str] = mapped_column(String(36), ForeignKey("virtual_care_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
     patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
-    source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    source: Mapped[str] = mapped_column(String(50), nullable=False, default="wearable")
     heart_rate_bpm: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     hrv_ms: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
     spo2_pct: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
     blood_pressure_sys: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     blood_pressure_dia: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     stress_score: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    sleep_hours_last_night: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    steps_today: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     recorded_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class VoiceAnalysis(Base):
-    """AI voice analysis results from a virtual care session."""
-    __tablename__ = "voice_analyses"
+    """Voice sentiment and acoustic analysis from virtual care sessions."""
+    __tablename__ = "voice_analysis"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     session_id: Mapped[str] = mapped_column(String(36), ForeignKey("virtual_care_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
     patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
-    segment_start_sec: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
-    segment_end_sec: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
-    sentiment: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    stress_level: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
-    energy_level: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    segment_start_sec: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
+    segment_end_sec: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
+    sentiment: Mapped[str] = mapped_column(String(20), nullable=False, default="neutral")
+    stress_level: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
+    energy_level: Mapped[int] = mapped_column(Integer(), nullable=False, default=50)
     speech_pace_wpm: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     mood_tags_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    ai_insights: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        CheckConstraint("sentiment IN ('positive','neutral','negative','distressed')", name='ck_voice_sentiment'),
+    )
 
 
 class VideoAnalysis(Base):
-    """AI video analysis results from a virtual care session."""
-    __tablename__ = "video_analyses"
+    """Video engagement and facial expression analysis from virtual care sessions."""
+    __tablename__ = "video_analysis"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     session_id: Mapped[str] = mapped_column(String(36), ForeignKey("virtual_care_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
     patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
-    segment_start_sec: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
-    segment_end_sec: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
-    engagement_score: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
-    facial_expression: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    eye_contact_pct: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    segment_start_sec: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
+    segment_end_sec: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
+    engagement_score: Mapped[int] = mapped_column(Integer(), nullable=False, default=50)
+    facial_expression: Mapped[str] = mapped_column(String(20), nullable=False, default="neutral")
+    eye_contact_pct: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     posture_score: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     attention_flags_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    ai_insights: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        CheckConstraint("facial_expression IN ('happy','neutral','sad','anxious','frustrated')", name='ck_video_expression'),
+    )
 
 
 # ── Risk Stratification Models ────────────────────────────────────────────────

@@ -5045,14 +5045,64 @@ async function _pgPatientAssessmentsImpl() {
 
       <!-- DUE NOW -->
       <div class="as-panel" id="as-panel-due">
-        <div class="as-daily">
+        <div class="as-daily" id="as-daily-card">
           <div class="as-daily-left">
-            <div class="as-daily-badge">Daily check-in · 30s</div>
-            <div class="as-daily-q">How has your mood been today, overall?</div>
-            <div class="as-daily-sub">Takes less than 30 seconds.${streak > 0 ? ' Streak: <strong style="color:var(--teal)">' + streak + ' day' + (streak === 1 ? '' : 's') + '</strong> — keep it going.' : ''}</div>
+            <div class="as-daily-badge">Daily Wellness Check-in · 60s</div>
+            <div class="as-daily-q" id="as-daily-q-text">How are you feeling today?</div>
+            <div class="as-daily-sub" id="as-daily-sub-text">Tap an icon for each question.${streak > 0 ? ' Streak: <strong style="color:var(--teal)">' + streak + ' day' + (streak === 1 ? '' : 's') + '</strong> 🔥' : ''}</div>
           </div>
-          <div class="as-daily-scale" id="as-daily-scale">
-            ${[{v:1,f:'😣',l:'Very low'},{v:2,f:'😕',l:'Low'},{v:3,f:'😐',l:'OK'},{v:4,f:'🙂',l:'Good'},{v:5,f:'😊',l:'Great'}].map(m => `<button data-v="${m.v}" class="as-mood" onclick="window._asDailyPick && window._asDailyPick(${m.v})"><span class="f">${m.f}</span><span class="l">${m.l}</span></button>`).join('')}
+          <div id="as-daily-widget">
+            <!-- Step 1: Mood -->
+            <div class="as-daily-step" data-step="mood">
+              <div class="as-daily-step-lbl">😊 Mood</div>
+              <div class="as-daily-scale">
+                ${[{v:1,f:'😣',l:'Very low',c:'#ef4444'},{v:2,f:'😕',l:'Low',c:'#f59e0b'},{v:3,f:'😐',l:'OK',c:'#9ca3af'},{v:4,f:'🙂',l:'Good',c:'#4a9eff'},{v:5,f:'😊',l:'Great',c:'#22c55e'}].map(m => `<button data-v="${m.v}" data-dim="mood" class="as-mood as-daily-btn" onclick="window._asDailyPick && window._asDailyPick('mood',${m.v})" style="--mood-color:${m.c}"><span class="f">${m.f}</span><span class="l">${m.l}</span></button>`).join('')}
+              </div>
+            </div>
+            <!-- Step 2: Energy -->
+            <div class="as-daily-step" data-step="energy" style="display:none">
+              <div class="as-daily-step-lbl">⚡ Energy</div>
+              <div class="as-daily-scale">
+                ${[{v:1,f:'🔋',l:'Drained',c:'#ef4444'},{v:2,f:'😴',l:'Low',c:'#f59e0b'},{v:3,f:'😐',l:'OK',c:'#9ca3af'},{v:4,f:'💪',l:'Good',c:'#4a9eff'},{v:5,f:'🚀',l:'Energized',c:'#22c55e'}].map(m => `<button data-v="${m.v}" data-dim="energy" class="as-mood as-daily-btn" onclick="window._asDailyPick && window._asDailyPick('energy',${m.v})" style="--mood-color:${m.c}"><span class="f">${m.f}</span><span class="l">${m.l}</span></button>`).join('')}
+              </div>
+            </div>
+            <!-- Step 3: Sleep -->
+            <div class="as-daily-step" data-step="sleep" style="display:none">
+              <div class="as-daily-step-lbl">🌙 Sleep quality last night</div>
+              <div class="as-daily-scale">
+                ${[{v:1,f:'😫',l:'Terrible',c:'#ef4444'},{v:2,f:'😔',l:'Poor',c:'#f59e0b'},{v:3,f:'😐',l:'OK',c:'#9ca3af'},{v:4,f:'😌',l:'Good',c:'#4a9eff'},{v:5,f:'😴',l:'Great',c:'#22c55e'}].map(m => `<button data-v="${m.v}" data-dim="sleep" class="as-mood as-daily-btn" onclick="window._asDailyPick && window._asDailyPick('sleep',${m.v})" style="--mood-color:${m.c}"><span class="f">${m.f}</span><span class="l">${m.l}</span></button>`).join('')}
+              </div>
+            </div>
+            <!-- Step 4: Anxiety -->
+            <div class="as-daily-step" data-step="anxiety" style="display:none">
+              <div class="as-daily-step-lbl">😰 Anxiety level today</div>
+              <div class="as-daily-scale">
+                ${[{v:1,f:'😌',l:'None',c:'#22c55e'},{v:2,f:'🙂',l:'Mild',c:'#4a9eff'},{v:3,f:'😐',l:'Moderate',c:'#9ca3af'},{v:4,f:'😰',l:'High',c:'#f59e0b'},{v:5,f:'😱',l:'Severe',c:'#ef4444'}].map(m => `<button data-v="${m.v}" data-dim="anxiety" class="as-mood as-daily-btn" onclick="window._asDailyPick && window._asDailyPick('anxiety',${m.v})" style="--mood-color:${m.c}"><span class="f">${m.f}</span><span class="l">${m.l}</span></button>`).join('')}
+              </div>
+            </div>
+            <!-- Step 5: Stress -->
+            <div class="as-daily-step" data-step="stress" style="display:none">
+              <div class="as-daily-step-lbl">🧠 Stress level today</div>
+              <div class="as-daily-scale">
+                ${[{v:1,f:'🧘',l:'Calm',c:'#22c55e'},{v:2,f:'😌',l:'Low',c:'#4a9eff'},{v:3,f:'😐',l:'Moderate',c:'#9ca3af'},{v:4,f:'😤',l:'High',c:'#f59e0b'},{v:5,f:'🤯',l:'Overwhelmed',c:'#ef4444'}].map(m => `<button data-v="${m.v}" data-dim="stress" class="as-mood as-daily-btn" onclick="window._asDailyPick && window._asDailyPick('stress',${m.v})" style="--mood-color:${m.c}"><span class="f">${m.f}</span><span class="l">${m.l}</span></button>`).join('')}
+              </div>
+            </div>
+            <!-- Summary -->
+            <div class="as-daily-summary" id="as-daily-summary" style="display:none">
+              <div class="as-daily-summary-hd">
+                <div class="as-daily-summary-ico">✅</div>
+                <div>
+                  <div class="as-daily-summary-title">Check-in complete</div>
+                  <div class="as-daily-summary-sub">Your care team will see this update.</div>
+                </div>
+              </div>
+              <div class="as-daily-summary-grid" id="as-daily-summary-grid"></div>
+              <div class="as-daily-summary-spark" id="as-daily-summary-spark"></div>
+            </div>
+          </div>
+          <!-- Progress dots -->
+          <div class="as-daily-progress" id="as-daily-progress">
+            <span class="dot on" data-i="0"></span><span class="dot" data-i="1"></span><span class="dot" data-i="2"></span><span class="dot" data-i="3"></span><span class="dot" data-i="4"></span>
           </div>
         </div>
 
@@ -5168,12 +5218,110 @@ async function _pgPatientAssessmentsImpl() {
     document.querySelectorAll('#as-tabs button[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   };
 
-  window._asDailyPick = async function(v) {
-    document.querySelectorAll('#as-daily-scale .as-mood').forEach(b => b.classList.toggle('on', Number(b.dataset.v) === v));
+  const _dailySteps = ['mood','energy','sleep','anxiety','stress'];
+  window._asDailyState = {};
+  window._asDailyPick = async function(dim, v) {
+    window._asDailyState[dim] = v;
+    // Highlight selected button
+    document.querySelectorAll(`.as-daily-btn[data-dim="${dim}"]`).forEach(b => b.classList.toggle('on', Number(b.dataset.v) === v));
+    const idx = _dailySteps.indexOf(dim);
+    // Update progress dots
+    document.querySelectorAll('#as-daily-progress .dot').forEach((d, i) => d.classList.toggle('on', i <= idx));
+    // Small delay then advance
+    setTimeout(async () => {
+      const curStep = document.querySelector(`.as-daily-step[data-step="${dim}"]`);
+      if (curStep) curStep.style.display = 'none';
+      if (idx + 1 < _dailySteps.length) {
+        const nextStep = document.querySelector(`.as-daily-step[data-step="${_dailySteps[idx + 1]}"]`);
+        if (nextStep) nextStep.style.display = 'block';
+        const qText = document.getElementById('as-daily-q-text');
+        const labels = { mood:'How are you feeling today?', energy:'How is your energy level?', sleep:'How did you sleep last night?', anxiety:'How anxious do you feel?', stress:'How stressed do you feel?' };
+        if (qText) qText.textContent = labels[_dailySteps[idx + 1]] || 'How are you feeling?';
+      } else {
+        // All done — show summary
+        await _asDailyShowSummary();
+      }
+    }, 350);
+  };
+
+  async function _asDailyShowSummary() {
+    const s = window._asDailyState;
+    const dims = [
+      { key:'mood',    label:'Mood',    icon:'😊', reverse:false },
+      { key:'energy',  label:'Energy',  icon:'⚡', reverse:false },
+      { key:'sleep',   label:'Sleep',   icon:'🌙', reverse:false },
+      { key:'anxiety', label:'Anxiety', icon:'😰', reverse:true },
+      { key:'stress',  label:'Stress',  icon:'🧠', reverse:true },
+    ];
+    const summaryGrid = document.getElementById('as-daily-summary-grid');
+    if (summaryGrid) {
+      summaryGrid.innerHTML = dims.map(d => {
+        const val = s[d.key] || 3;
+        const pct = d.reverse ? (val / 5) * 100 : (val / 5) * 100;
+        const color = val <= 2 ? '#22c55e' : val === 3 ? '#9ca3af' : val === 4 ? '#f59e0b' : '#ef4444';
+        const barColor = d.reverse ? (val <= 2 ? '#22c55e' : val === 3 ? '#9ca3af' : '#ef4444') : (val >= 4 ? '#22c55e' : val === 3 ? '#9ca3af' : '#ef4444');
+        return `
+          <div class="as-daily-sum-item">
+            <div class="as-daily-sum-icon">${d.icon}</div>
+            <div class="as-daily-sum-info">
+              <div class="as-daily-sum-label">${d.label}</div>
+              <div class="as-daily-sum-bar"><div style="width:${pct}%;background:${barColor}"></div></div>
+            </div>
+            <div class="as-daily-sum-val" style="color:${color}">${val}/5</div>
+          </div>`;
+      }).join('');
+    }
+    // Build sparkline from last 7 days
+    const sparkEl = document.getElementById('as-daily-summary-spark');
+    if (sparkEl) {
+      const days = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+        try { days.push(JSON.parse(localStorage.getItem('ds_checkin_' + d) || '{}')); } catch { days.push({}); }
+      }
+      const avgScores = days.map(d => {
+        const vals = [d.mood, d.energy, d.sleep, d.anxiety, d.stress].filter(x => x != null);
+        if (!vals.length) return null;
+        return vals.reduce((a, b) => a + b, 0) / vals.length;
+      });
+      const valid = avgScores.filter(x => x != null);
+      const minV = valid.length ? Math.min(...valid) : 1;
+      const maxV = valid.length ? Math.max(...valid) : 5;
+      const range = Math.max(0.1, maxV - minV);
+      const points = avgScores.map((v, i) => {
+        if (v == null) return '';
+        const x = (i / 6) * 140;
+        const y = 30 - ((v - minV) / range) * 24;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).filter(Boolean);
+      const pathD = points.length > 1 ? 'M' + points.join(' L') : '';
+      const lastV = valid.length ? valid[valid.length - 1] : null;
+      sparkEl.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+          <div style="font-size:11px;color:var(--text-tertiary)">7-day wellness trend</div>
+          <svg viewBox="0 0 140 36" style="width:100px;height:26px;flex:1">
+            ${pathD ? `<path d="${pathD}" fill="none" stroke="#00d4bc" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>` : ''}
+            ${lastV != null ? `<circle cx="${140}" cy="${30 - ((lastV - minV) / range) * 24}" r="2.5" fill="#00d4bc"/>` : ''}
+          </svg>
+          <div style="font-size:11px;font-weight:600;color:var(--teal)">${lastV != null ? lastV.toFixed(1) : '--'}</div>
+        </div>`;
+    }
+    // Hide steps, show summary
+    document.querySelectorAll('.as-daily-step').forEach(s => s.style.display = 'none');
+    const summary = document.getElementById('as-daily-summary');
+    if (summary) summary.style.display = 'block';
+    const prog = document.getElementById('as-daily-progress');
+    if (prog) prog.style.display = 'none';
+    const qText = document.getElementById('as-daily-q-text');
+    if (qText) qText.textContent = 'All done — great job!';
+    const subText = document.getElementById('as-daily-sub-text');
+    if (subText) subText.textContent = 'Your care team will see this update.';
+
+    // Save to localStorage
     try {
       const iso = todayIso;
       const prev = JSON.parse(localStorage.getItem('ds_checkin_' + iso) || '{}');
-      prev.mood = v * 2;
+      Object.assign(prev, s);
       localStorage.setItem('ds_checkin_' + iso, JSON.stringify(prev));
       localStorage.setItem('ds_last_checkin', iso);
       const yest = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
@@ -5182,10 +5330,27 @@ async function _pgPatientAssessmentsImpl() {
       localStorage.setItem('ds_wellness_streak', String(prevDay === yest ? cur + 1 : Math.max(cur, 1)));
       localStorage.setItem('ds_last_checkin_prev', iso);
     } catch (_e) {}
+    // Submit to backend
     if (!_isDemo && uid && api.submitAssessment) {
-      try { await api.submitAssessment(uid, { type: 'daily_checkin', mood: v * 2, date: new Date().toISOString() }); } catch (_e) {}
+      try {
+        await api.submitAssessment(uid, { type: 'daily_checkin', mood: s.mood, energy: s.energy, sleep: s.sleep, anxiety: s.anxiety, stress: s.stress, date: new Date().toISOString() });
+      } catch (_e) {}
     }
-    _toast('Check-in saved');
+    _toast('Check-in saved · 5/5');
+  }
+
+  window._asDailyReset = function() {
+    window._asDailyState = {};
+    document.querySelectorAll('.as-daily-step').forEach((s, i) => s.style.display = i === 0 ? 'block' : 'none');
+    document.querySelectorAll('.as-daily-btn').forEach(b => b.classList.remove('on'));
+    const summary = document.getElementById('as-daily-summary');
+    if (summary) summary.style.display = 'none';
+    const prog = document.getElementById('as-daily-progress');
+    if (prog) { prog.style.display = 'flex'; prog.querySelectorAll('.dot').forEach((d, i) => d.classList.toggle('on', i === 0)); }
+    const qText = document.getElementById('as-daily-q-text');
+    if (qText) qText.textContent = 'How are you feeling today?';
+    const subText = document.getElementById('as-daily-sub-text');
+    if (subText) subText.textContent = 'Tap an icon for each question.';
   };
 
   window._asStart = function(slug) {
@@ -6853,6 +7018,32 @@ async function _pgPatientVirtualCareImpl() {
     bio.sleepAvg = 7.0; bio.hrvAvg = 41; bio.rhrAvg = 62; bio.stepsAvg = 6412;
   }
 
+  // Fetch connected devices for the rail panel (non-blocking).
+  window._vcDevices = [];
+  (async () => {
+    try {
+      const devs = await api.patientPortalWearables();
+      if (Array.isArray(devs) && devs.length) {
+        window._vcDevices = devs;
+      } else if (_isDemo) {
+        window._vcDevices = [
+          { source: 'apple_health', display_name: 'Apple Watch Series 9', status: 'active', last_sync_at: new Date().toISOString() },
+          { source: 'oura', display_name: 'Oura Ring Gen 3', status: 'syncing', last_sync_at: new Date(Date.now() - 86400000).toISOString() },
+        ];
+      }
+      const panel = document.getElementById('vc-devices-panel');
+      if (panel) {
+        panel.innerHTML = window._vcDevices.length ? window._vcDevices.map(d => `
+          <div class="vc-device-row" style="display:flex;align-items:center;gap:8px;font-size:12px">
+            <span style="width:7px;height:7px;border-radius:50%;background:${d.status === 'active' ? '#22c55e' : d.status === 'syncing' ? '#f59e0b' : '#9ca3af'};display:inline-block;flex-shrink:0"></span>
+            <span style="flex:1;color:var(--text-primary)">${esc(d.display_name || d.source || 'Device')}</span>
+            <span style="color:var(--text-tertiary);font-size:11px">${d.last_sync_at ? new Date(d.last_sync_at).toLocaleDateString(loc, {month:'short', day:'numeric'}) : 'Never'}</span>
+          </div>
+        `).join('') : `<div style="font-size:12px;color:var(--text-tertiary)">No devices connected. <a href="#" onclick="window._navPatient && window._navPatient('patient-wearables');return false" style="color:var(--accent)">Connect one &rarr;</a></div>`;
+      }
+    } catch (_e) {}
+  })();
+
   // Next in-clinic session from real sessions.
   const nextSession = sessions
     .filter(s => s.scheduled_at && new Date(s.scheduled_at).getTime() > Date.now())
@@ -6939,7 +7130,25 @@ async function _pgPatientVirtualCareImpl() {
             </div>
           </div>
         </div>`;
-      if (m.kind === 'biometrics') return `
+      if (m.kind === 'biometrics') {
+        const stressScore = (bio.hrvAvg != null && bio.rhrAvg != null)
+          ? Math.min(100, Math.max(0, Math.round((1 - bio.hrvAvg / 80) * 50 + ((bio.rhrAvg - 50) / 50) * 50)))
+          : null;
+        const anxietyScore = (bio.hrvAvg != null && bio.rhrAvg != null)
+          ? Math.min(100, Math.max(0, Math.round((1 - bio.hrvAvg / 70) * 60 + ((bio.rhrAvg - 55) / 45) * 40)))
+          : null;
+        const _bioBar = (label, val, max, color) => {
+          const pct = val != null ? Math.min(100, (val / max) * 100) : 0;
+          const txt = val != null ? (label === 'Sleep' ? val.toFixed(1) + 'h' : label === 'Steps' ? (val / 1000).toFixed(1) + 'k' : Math.round(val) + (label === 'HRV' ? ' ms' : ' bpm')) : '\u2014';
+          return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="width:60px;font-size:11px;color:var(--text-tertiary)">${label}</span><div style="flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,0.05);overflow:hidden"><div style="width:${pct}%;height:100%;background:${color};border-radius:3px;transition:width .6s ease"></div></div><span style="width:50px;text-align:right;font-size:12px;font-weight:600;color:${color}">${txt}</span></div>`;
+        };
+        const _levelBar = (label, score, colorFn) => {
+          if (score == null) return '';
+          const color = colorFn(score);
+          const txt = score < 30 ? 'Low' : score < 55 ? 'Mild' : score < 75 ? 'Moderate' : 'High';
+          return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="width:60px;font-size:11px;color:var(--text-tertiary)">${label}</span><div style="flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,0.05);overflow:hidden"><div style="width:${score}%;height:100%;background:${color};border-radius:3px;transition:width .6s ease"></div></div><span style="width:50px;text-align:right;font-size:12px;font-weight:600;color:${color}">${txt}</span></div>`;
+        };
+        return `
         <div class="vc-msg me">
           <div class="vc-msg-stack">
             <div class="vc-msg-hd"><span class="vc-msg-name">You</span><span class="vc-msg-time">${esc(_fullTime(m.at))}</span></div>
@@ -6948,20 +7157,21 @@ async function _pgPatientVirtualCareImpl() {
                 <div class="vc-card-ico"><svg width="16" height="16"><use href="#i-heart"/></svg></div>
                 <div style="flex:1;min-width:0">
                   <div class="vc-card-hd-title">Biometric data \u00b7 shared</div>
-                  <div class="vc-card-hd-sub">Last 7 days</div>
+                  <div class="vc-card-hd-sub">Last 7 days \u00b7 stress & anxiety derived from HRV + HR</div>
                 </div>
               </div>
               <div class="vc-card-body">
-                <div class="vc-biom-grid">
-                  <div class="vc-biom-item" style="--cell-accent:#9b7fff"><span class="lbl">Sleep \u00b7 avg</span><span class="val">${bio.sleepAvg != null ? bio.sleepAvg.toFixed(1) + 'h' : '\u2014'}</span></div>
-                  <div class="vc-biom-item" style="--cell-accent:#ff8ab3"><span class="lbl">HRV</span><span class="val">${bio.hrvAvg != null ? Math.round(bio.hrvAvg) + ' ms' : '\u2014'}</span></div>
-                  <div class="vc-biom-item" style="--cell-accent:#4a9eff"><span class="lbl">Resting HR</span><span class="val">${bio.rhrAvg != null ? Math.round(bio.rhrAvg) + ' bpm' : '\u2014'}</span></div>
-                  <div class="vc-biom-item" style="--cell-accent:#4ade80"><span class="lbl">Steps \u00b7 avg</span><span class="val">${bio.stepsAvg != null ? (bio.stepsAvg / 1000).toFixed(1) + 'k' : '\u2014'}</span></div>
-                </div>
+                ${_bioBar('Sleep', bio.sleepAvg, 9, '#9b7fff')}
+                ${_bioBar('HRV', bio.hrvAvg, 80, '#ff8ab3')}
+                ${_bioBar('RHR', bio.rhrAvg, 140, '#4a9eff')}
+                ${_bioBar('Steps', bio.stepsAvg, 10000, '#4ade80')}
+                ${_levelBar('Stress', stressScore, s => s < 30 ? '#22c55e' : s < 55 ? '#4a9eff' : s < 75 ? '#f59e0b' : '#ef4444')}
+                ${_levelBar('Anxiety', anxietyScore, s => s < 30 ? '#22c55e' : s < 55 ? '#4a9eff' : s < 75 ? '#f59e0b' : '#ef4444')}
               </div>
             </div>
           </div>
         </div>`;
+      }
       return `
         <div class="vc-msg me">
           <div class="vc-msg-stack">
@@ -7197,6 +7407,42 @@ async function _pgPatientVirtualCareImpl() {
               <div class="vc-rail-k"><div class="vc-rail-k-lbl">HRV \u00b7 7d</div><div class="vc-rail-k-val">${bio.hrvAvg != null ? Math.round(bio.hrvAvg) + 'ms' : '\u2014'}</div></div>
               <div class="vc-rail-k"><div class="vc-rail-k-lbl">RHR</div><div class="vc-rail-k-val">${bio.rhrAvg != null ? Math.round(bio.rhrAvg) + 'bpm' : '\u2014'}</div></div>
               <div class="vc-rail-k"><div class="vc-rail-k-lbl">Steps</div><div class="vc-rail-k-val">${bio.stepsAvg != null ? (bio.stepsAvg / 1000).toFixed(1) + 'k' : '\u2014'}</div></div>
+            </div>
+            <!-- Visual biometric wellness bars -->
+            <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
+              ${(function() {
+                const sleepPct = bio.sleepAvg != null ? Math.min(100, (bio.sleepAvg / 9) * 100) : 0;
+                const hrvPct = bio.hrvAvg != null ? Math.min(100, (bio.hrvAvg / 80) * 100) : 0;
+                const rhrPct = bio.rhrAvg != null ? Math.max(0, 100 - ((bio.rhrAvg - 50) / 50) * 100) : 0;
+                const stepsPct = bio.stepsAvg != null ? Math.min(100, (bio.stepsAvg / 10000) * 100) : 0;
+                const stressScore = (bio.hrvAvg != null && bio.rhrAvg != null)
+                  ? Math.min(100, Math.max(0, Math.round((1 - bio.hrvAvg / 80) * 50 + ((bio.rhrAvg - 50) / 50) * 50)))
+                  : null;
+                const anxietyScore = (bio.hrvAvg != null && bio.rhrAvg != null)
+                  ? Math.min(100, Math.max(0, Math.round((1 - bio.hrvAvg / 70) * 60 + ((bio.rhrAvg - 55) / 45) * 40)))
+                  : null;
+                const _bar = (label, pct, color) => `<div style="display:flex;align-items:center;gap:8px;font-size:11px"><span style="width:40px;color:var(--text-tertiary);font-size:10px;text-transform:uppercase;letter-spacing:0.4px">${label}</span><div style="flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,0.05);overflow:hidden"><div style="width:${pct.toFixed(0)}%;height:100%;background:${color};border-radius:3px;transition:width .6s ease"></div></div><span style="width:28px;text-align:right;font-family:var(--font-mono);font-size:10px;color:${color}">${pct.toFixed(0)}%</span></div>`;
+                const _level = (label, score) => {
+                  if (score == null) return '';
+                  const color = score < 30 ? '#22c55e' : score < 55 ? '#4a9eff' : score < 75 ? '#f59e0b' : '#ef4444';
+                  const txt = score < 30 ? 'Low' : score < 55 ? 'Mild' : score < 75 ? 'Moderate' : 'High';
+                  return `<div style="display:flex;align-items:center;gap:8px;font-size:11px"><span style="width:40px;color:var(--text-tertiary);font-size:10px;text-transform:uppercase;letter-spacing:0.4px">${label}</span><div style="flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,0.05);overflow:hidden"><div style="width:${score}%;height:100%;background:${color};border-radius:3px;transition:width .6s ease"></div></div><span style="width:28px;text-align:right;font-family:var(--font-mono);font-size:10px;color:${color}">${txt}</span></div>`;
+                };
+                return _bar('Sleep', sleepPct, '#9b7fff') + _bar('HRV', hrvPct, '#ff8ab3') + _bar('RHR', rhrPct, '#4a9eff') + _bar('Steps', stepsPct, '#4ade80') + _level('Stress', stressScore) + _level('Anxiety', anxietyScore);
+              })()}
+            </div>
+          </div>
+
+          <div class="vc-rail-section">
+            <div class="vc-rail-lbl">Connected devices</div>
+            <div id="vc-devices-panel" style="display:flex;flex-direction:column;gap:8px">
+              ${(window._vcDevices || []).length ? (window._vcDevices || []).map(d => `
+                <div class="vc-device-row" style="display:flex;align-items:center;gap:8px;font-size:12px">
+                  <span style="width:7px;height:7px;border-radius:50%;background:${d.status === 'active' ? '#22c55e' : d.status === 'syncing' ? '#f59e0b' : '#9ca3af'};display:inline-block;flex-shrink:0"></span>
+                  <span style="flex:1;color:var(--text-primary)">${esc(d.display_name || d.source || 'Device')}</span>
+                  <span style="color:var(--text-tertiary);font-size:11px">${d.last_sync_at ? new Date(d.last_sync_at).toLocaleDateString(loc, {month:'short', day:'numeric'}) : 'Never'}</span>
+                </div>
+              `).join('') : `<div style="font-size:12px;color:var(--text-tertiary)">No devices connected. <a href="#" onclick="window._navPatient && window._navPatient('patient-wearables');return false" style="color:var(--accent)">Connect one &rarr;</a></div>`}
             </div>
           </div>
 
@@ -7635,7 +7881,12 @@ async function _pgPatientVirtualCareImpl() {
   try { if (sessionStorage.getItem('ds_vc_crisis_dismiss')) { const c = document.getElementById('vc-crisis'); if (c) c.classList.add('hidden'); } } catch (_e) {}
 
   // ── Jitsi video/voice calls ──────────────────────────────────────────────
-  window._vcCall = function(mode) {
+  window._vcActiveSessionId = null;
+  window._vcBioTimer = null;
+  window._vcVoiceTimer = null;
+  window._vcBioHistory = [];
+
+  window._vcCall = async function(mode) {
     const thread = threads[activeId];
     const clinicianName = thread ? thread.name : 'Care team';
     const pid = currentUser?.patient_id || currentUser?.id || 'patient';
@@ -7646,6 +7897,15 @@ async function _pgPatientVirtualCareImpl() {
       + '&config.startWithAudioMuted=false'
       + '&config.disableDeepLinking=true'
       + '&userInfo.displayName=' + encodeURIComponent(currentUser?.display_name || currentUser?.name || 'Patient');
+
+    // Create backend session for analysis tracking.
+    try {
+      const sess = await api.virtualCareCreateSession({ session_type: mode, room_name: room });
+      window._vcActiveSessionId = sess?.session?.id || null;
+      if (window._vcActiveSessionId) {
+        await api.virtualCareStartSession(window._vcActiveSessionId);
+      }
+    } catch (_e) {}
 
     const existing = document.getElementById('vc-jitsi-modal');
     if (existing) existing.remove();
@@ -7664,14 +7924,112 @@ async function _pgPatientVirtualCareImpl() {
         <div style="position:absolute;top:12px;left:12px;z-index:10;background:rgba(0,0,0,.5);padding:6px 12px;border-radius:99px;color:#fff;font-size:12px">
           ${mode === 'video' ? 'Video' : 'Voice'} call &middot; ${esc(clinicianName)}
         </div>
+        <!-- Live biometrics overlay -->
+        <div id="vc-live-bio" style="position:absolute;top:12px;right:12px;z-index:10;background:rgba(0,0,0,.6);padding:12px 14px;border-radius:10px;color:#fff;font-size:11px;display:flex;flex-direction:column;gap:8px;min-width:160px;backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.08)">
+          <div style="font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px;opacity:.7;margin-bottom:2px">Live biometrics</div>
+          <div style="display:flex;align-items:center;gap:8px"><span style="width:28px">HR</span><div style="flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden"><div id="vc-bio-hr-bar" style="width:0%;height:100%;background:#ff8ab3;border-radius:2px;transition:width .4s ease"></div></div><span id="vc-bio-hr" style="width:36px;text-align:right;font-weight:700;color:#ff8ab3;font-size:11px">--</span></div>
+          <div style="display:flex;align-items:center;gap:8px"><span style="width:28px">HRV</span><div style="flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden"><div id="vc-bio-hrv-bar" style="width:0%;height:100%;background:#4a9eff;border-radius:2px;transition:width .4s ease"></div></div><span id="vc-bio-hrv" style="width:36px;text-align:right;font-weight:700;color:#4a9eff;font-size:11px">--</span></div>
+          <div style="display:flex;align-items:center;gap:8px"><span style="width:28px">SpO₂</span><div style="flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden"><div id="vc-bio-spo2-bar" style="width:0%;height:100%;background:#4ade80;border-radius:2px;transition:width .4s ease"></div></div><span id="vc-bio-spo2" style="width:36px;text-align:right;font-weight:700;color:#4ade80;font-size:11px">--</span></div>
+          <div style="display:flex;align-items:center;gap:8px"><span style="width:28px">Strs</span><div style="flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden"><div id="vc-bio-stress-bar" style="width:0%;height:100%;background:#fbbf24;border-radius:2px;transition:width .4s ease"></div></div><span id="vc-bio-stress" style="width:36px;text-align:right;font-weight:700;color:#fbbf24;font-size:11px">--</span></div>
+          <div style="display:flex;align-items:center;gap:8px"><span style="width:28px">Anx</span><div style="flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden"><div id="vc-bio-anxiety-bar" style="width:0%;height:100%;background:#f59e0b;border-radius:2px;transition:width .4s ease"></div></div><span id="vc-bio-anxiety" style="width:36px;text-align:right;font-weight:700;color:#f59e0b;font-size:11px">--</span></div>
+        </div>
+        <!-- Voice sentiment overlay -->
+        <div id="vc-live-sentiment" style="position:absolute;bottom:56px;right:12px;z-index:10;background:rgba(0,0,0,.55);padding:8px 12px;border-radius:99px;color:#fff;font-size:12px;display:none;align-items:center;gap:6px;backdrop-filter:blur(4px)">
+          <span id="vc-sentiment-dot" style="width:8px;height:8px;border-radius:50%;background:#9ca3af;display:inline-block"></span>
+          <span id="vc-sentiment-lbl">Neutral</span>
+        </div>
       </div>`;
     document.body.appendChild(modal);
     window._vcCallStartTime = Date.now();
+    window._vcBioHistory = [];
+
+    // Start simulated live biometrics polling.
+    window._vcBioTimer = setInterval(() => {
+      const elapsed = window._vcCallStartTime ? Math.round((Date.now() - window._vcCallStartTime) / 1000) : 0;
+      const baseHR = bio.rhrAvg || 62;
+      const hr = Math.max(50, Math.min(140, Math.round(baseHR + 8 + Math.sin(elapsed * 0.05) * 6 + (Math.random() - 0.5) * 4)));
+      const hrv = Math.max(20, Math.min(80, Math.round((bio.hrvAvg || 41) + Math.sin(elapsed * 0.03) * 5 + (Math.random() - 0.5) * 3)));
+      const spo2 = Math.max(94, Math.min(100, Math.round(98 + (Math.random() - 0.5) * 1.5)));
+      const stress = Math.max(0, Math.min(100, Math.round(30 + Math.sin(elapsed * 0.02) * 15 + (Math.random() - 0.5) * 8)));
+      const anxiety = Math.min(100, Math.max(0, Math.round((1 - hrv / 70) * 60 + ((hr - 55) / 45) * 40)));
+      const hrEl = document.getElementById('vc-bio-hr');
+      const hrvEl = document.getElementById('vc-bio-hrv');
+      const spo2El = document.getElementById('vc-bio-spo2');
+      const stressEl = document.getElementById('vc-bio-stress');
+      const anxietyEl = document.getElementById('vc-bio-anxiety');
+      const hrBar = document.getElementById('vc-bio-hr-bar');
+      const hrvBar = document.getElementById('vc-bio-hrv-bar');
+      const spo2Bar = document.getElementById('vc-bio-spo2-bar');
+      const stressBar = document.getElementById('vc-bio-stress-bar');
+      const anxietyBar = document.getElementById('vc-bio-anxiety-bar');
+      if (hrEl) hrEl.textContent = hr + ' bpm';
+      if (hrvEl) hrvEl.textContent = hrv + ' ms';
+      if (spo2El) spo2El.textContent = spo2 + '%';
+      if (stressEl) stressEl.textContent = stress + '/100';
+      if (anxietyEl) anxietyEl.textContent = anxiety + '/100';
+      if (hrBar) hrBar.style.width = Math.min(100, ((hr - 40) / 100) * 100).toFixed(0) + '%';
+      if (hrvBar) hrvBar.style.width = Math.min(100, (hrv / 80) * 100).toFixed(0) + '%';
+      if (spo2Bar) spo2Bar.style.width = Math.min(100, ((spo2 - 90) / 10) * 100).toFixed(0) + '%';
+      if (stressBar) stressBar.style.width = stress + '%';
+      if (anxietyBar) { anxietyBar.style.width = anxiety + '%'; anxietyBar.style.background = anxiety < 30 ? '#22c55e' : anxiety < 55 ? '#4a9eff' : anxiety < 75 ? '#f59e0b' : '#ef4444'; }
+      window._vcBioHistory.push({ hr, hrv, spo2, stress, anxiety, t: elapsed });
+      // Submit snapshot to backend every 30s if session exists.
+      if (window._vcActiveSessionId && elapsed % 30 === 0) {
+        api.virtualCareSubmitBiometrics(window._vcActiveSessionId, {
+          source: 'wearable', heart_rate_bpm: hr, hrv_ms: hrv, spo2_pct: spo2, stress_score: stress,
+        }).catch(() => {});
+      }
+    }, 3000);
+
+    // Start simulated voice sentiment.
+    window._vcVoiceTimer = setInterval(() => {
+      const sentiments = ['positive', 'neutral', 'neutral', 'negative', 'distressed'];
+      const weights = [0.25, 0.40, 0.40, 0.10, 0.05];
+      let r = Math.random();
+      let idx = 0;
+      for (let i = 0; i < weights.length; i++) { r -= weights[i]; if (r <= 0) { idx = i; break; } }
+      const sentiment = sentiments[idx];
+      const colors = { positive: '#22c55e', neutral: '#9ca3af', negative: '#f59e0b', distressed: '#ef4444' };
+      const labels = { positive: 'Positive', neutral: 'Neutral', negative: 'Concern', distressed: 'Distressed' };
+      const wrap = document.getElementById('vc-live-sentiment');
+      const dot = document.getElementById('vc-sentiment-dot');
+      const lbl = document.getElementById('vc-sentiment-lbl');
+      if (wrap) wrap.style.display = 'flex';
+      if (dot) dot.style.background = colors[sentiment];
+      if (lbl) lbl.textContent = labels[sentiment];
+      // Submit to backend if session exists.
+      if (window._vcActiveSessionId) {
+        const elapsed = window._vcCallStartTime ? Math.round((Date.now() - window._vcCallStartTime) / 1000) : 0;
+        api.virtualCareSubmitVoiceAnalysis(window._vcActiveSessionId, {
+          segment_start_sec: Math.max(0, elapsed - 10), segment_end_sec: elapsed,
+          sentiment, stress_level: sentiment === 'distressed' ? 75 : sentiment === 'negative' ? 45 : sentiment === 'positive' ? 15 : 30,
+          energy_level: sentiment === 'positive' ? 75 : 50,
+        }).catch(() => {});
+      }
+    }, 12000);
   };
-  window._vcHangup = function() {
+  window._vcHangup = async function() {
     const modal = document.getElementById('vc-jitsi-modal');
     if (modal) modal.remove();
+    if (window._vcBioTimer) { clearInterval(window._vcBioTimer); window._vcBioTimer = null; }
+    if (window._vcVoiceTimer) { clearInterval(window._vcVoiceTimer); window._vcVoiceTimer = null; }
     const duration = window._vcCallStartTime ? Math.round((Date.now() - window._vcCallStartTime) / 1000) : 0;
+    // End backend session.
+    if (window._vcActiveSessionId) {
+      try { await api.virtualCareEndSession(window._vcActiveSessionId); } catch (_e) {}
+      try {
+        const analysis = await api.virtualCareGetAnalysis(window._vcActiveSessionId);
+        if (analysis?.voice_summary || analysis?.video_summary) {
+          const vs = analysis.voice_summary;
+          const txt = vs ? `Voice avg stress ${vs.avg_stress}/100` : 'Session analyzed';
+          _showToast('Call ended · ' + txt);
+          window._vcCallStartTime = null;
+          window._vcActiveSessionId = null;
+          return;
+        }
+      } catch (_e) {}
+      window._vcActiveSessionId = null;
+    }
     if (duration > 0) {
       const mm = String(Math.floor(duration / 60)).padStart(2, '0');
       const ss = String(duration % 60).padStart(2, '0');

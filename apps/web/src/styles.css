@@ -23589,6 +23589,32 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 .as-mood:hover .f, .as-mood.on .f { filter: none; }
 .as-mood .l { font-size: 10px; color: var(--text-tertiary, rgba(255,255,255,0.5)); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
 
+/* Enhanced daily check-in */
+.as-daily-step { animation: asFadeIn 0.3s ease-out; }
+.as-daily-step-lbl { font-family: 'Outfit', var(--font-display, sans-serif); font-size: 16px; font-weight: 500; color: #fff; margin-bottom: 10px; text-align: center; }
+.as-daily-btn { min-width: 72px; padding: 12px 14px; border-color: rgba(255,255,255,0.06); }
+.as-daily-btn.on { background: var(--mood-color, var(--teal, #00d4bc)); border-color: var(--mood-color, var(--teal, #00d4bc)); box-shadow: 0 6px 20px rgba(0,0,0,0.3); }
+.as-daily-btn.on .l { color: rgba(4,18,28,0.85); }
+.as-daily-progress { display: flex; justify-content: center; gap: 6px; margin-top: 14px; }
+.as-daily-progress .dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,0.12); transition: all 0.2s; }
+.as-daily-progress .dot.on { background: var(--teal, #00d4bc); transform: scale(1.2); }
+
+.as-daily-summary { animation: asFadeIn 0.4s ease-out; padding: 4px 2px; }
+.as-daily-summary-hd { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.as-daily-summary-ico { font-size: 24px; }
+.as-daily-summary-title { font-family: 'Outfit', var(--font-display, sans-serif); font-size: 16px; font-weight: 600; color: #fff; }
+.as-daily-summary-sub { font-size: 11px; color: var(--text-tertiary, rgba(255,255,255,0.5)); }
+.as-daily-summary-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
+.as-daily-sum-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: rgba(255,255,255,0.02); border: 1px solid var(--border, rgba(255,255,255,0.06)); border-radius: 8px; }
+.as-daily-sum-icon { font-size: 18px; width: 24px; text-align: center; }
+.as-daily-sum-info { flex: 1; min-width: 0; }
+.as-daily-sum-label { font-size: 10px; color: var(--text-tertiary, rgba(255,255,255,0.5)); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 4px; }
+.as-daily-sum-bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,0.06); overflow: hidden; }
+.as-daily-sum-bar > div { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+.as-daily-sum-val { font-family: 'JetBrains Mono', var(--font-mono, monospace); font-size: 12px; font-weight: 600; min-width: 28px; text-align: right; }
+
+@keyframes asFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
 .as-due-lbl { display: flex; align-items: center; justify-content: space-between; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-tertiary, rgba(255,255,255,0.5)); font-weight: 600; margin: 26px 4px 12px; }
 .as-due-lbl-right { color: var(--text-secondary, rgba(255,255,255,0.65)); font-family: 'JetBrains Mono', var(--font-mono, monospace); font-size: 10.5px; text-transform: none; letter-spacing: 0; }
 

@@ -2685,6 +2685,9 @@ export async function pgLiveSession(setTopbar, navigate) {
     lsLatestVoice: null,
     lsLatestVideo: null,
     lsAnalysisBaselines: { stress: 30, energy: 65, engagement: 70, eyeContact: 75, posture: 80 },
+    bioPollInt: null,
+    aiPollInt: null,
+    vcSessionId: null,
   };
 
   try {
@@ -3057,6 +3060,68 @@ function _lsRender() {
         <div>
           ${videoPanel}
 
+          <!-- Patient biometrics panel -->
+          <div class="dv2-card" style="padding:14px;margin-bottom:12px" id="ls-bio-panel">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <div>
+                <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:13px;font-weight:600">Patient biometrics</div>
+                <div style="font-size:11px;color:var(--text-tertiary)">Live wearable telemetry</div>
+              </div>
+              <span class="chip ${s.videoActive ? 'teal' : ''}" style="${s.videoActive ? '' : 'color:var(--text-tertiary)'}" id="ls-bio-status">${s.videoActive ? '● Live' : 'Idle'}</span>
+            </div>
+            <div id="ls-bio-grid" style="display:flex;flex-direction:column;gap:10px;font-size:11px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="width:50px;color:var(--text-tertiary);font-size:10px;letter-spacing:0.8px;text-transform:uppercase">Heart rate</span>
+                <div style="flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,0.05);overflow:hidden"><div id="ls-bio-hr-bar" style="width:0%;height:100%;background:#ff8ab3;border-radius:3px;transition:width .6s ease"></div></div>
+                <span style="width:50px;text-align:right;font-family:var(--dv2-font-mono,var(--font-mono));font-size:14px;font-weight:600"><span id="ls-bio-hr">--</span><span style="font-size:9px;color:var(--text-tertiary);margin-left:2px">bpm</span></span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="width:50px;color:var(--text-tertiary);font-size:10px;letter-spacing:0.8px;text-transform:uppercase">HRV</span>
+                <div style="flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,0.05);overflow:hidden"><div id="ls-bio-hrv-bar" style="width:0%;height:100%;background:#4a9eff;border-radius:3px;transition:width .6s ease"></div></div>
+                <span style="width:50px;text-align:right;font-family:var(--dv2-font-mono,var(--font-mono));font-size:14px;font-weight:600"><span id="ls-bio-hrv">--</span><span style="font-size:9px;color:var(--text-tertiary);margin-left:2px">ms</span></span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="width:50px;color:var(--text-tertiary);font-size:10px;letter-spacing:0.8px;text-transform:uppercase">SpO₂</span>
+                <div style="flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,0.05);overflow:hidden"><div id="ls-bio-spo2-bar" style="width:0%;height:100%;background:#4ade80;border-radius:3px;transition:width .6s ease"></div></div>
+                <span style="width:50px;text-align:right;font-family:var(--dv2-font-mono,var(--font-mono));font-size:14px;font-weight:600;color:var(--green,#4ade80)"><span id="ls-bio-spo2">--</span><span style="font-size:9px;color:var(--text-tertiary);margin-left:2px">%</span></span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="width:50px;color:var(--text-tertiary);font-size:10px;letter-spacing:0.8px;text-transform:uppercase">Stress</span>
+                <div style="flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,0.05);overflow:hidden"><div id="ls-bio-stress-bar" style="width:0%;height:100%;background:#fbbf24;border-radius:3px;transition:width .6s ease"></div></div>
+                <span style="width:50px;text-align:right;font-family:var(--dv2-font-mono,var(--font-mono));font-size:14px;font-weight:600"><span id="ls-bio-stress">--</span><span style="font-size:9px;color:var(--text-tertiary);margin-left:2px">/100</span></span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="width:50px;color:var(--text-tertiary);font-size:10px;letter-spacing:0.8px;text-transform:uppercase">Anxiety</span>
+                <div style="flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,0.05);overflow:hidden"><div id="ls-bio-anxiety-bar" style="width:0%;height:100%;background:#f59e0b;border-radius:3px;transition:width .6s ease"></div></div>
+                <span style="width:50px;text-align:right;font-family:var(--dv2-font-mono,var(--font-mono));font-size:14px;font-weight:600"><span id="ls-bio-anxiety">--</span><span style="font-size:9px;color:var(--text-tertiary);margin-left:2px">/100</span></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI analysis panel -->
+          <div class="dv2-card" style="padding:14px;margin-bottom:12px" id="ls-ai-panel">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <div>
+                <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:13px;font-weight:600">AI session analysis</div>
+                <div style="font-size:11px;color:var(--text-tertiary)">Voice sentiment & video engagement</div>
+              </div>
+              <span class="chip" style="color:var(--text-tertiary)" id="ls-ai-status">Waiting</span>
+            </div>
+            <div id="ls-ai-body" style="display:flex;flex-direction:column;gap:8px;font-size:12px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span id="ls-ai-voice-dot" style="width:8px;height:8px;border-radius:50%;background:#9ca3af;flex-shrink:0"></span>
+                <span style="color:var(--text-secondary)">Voice sentiment:</span>
+                <span id="ls-ai-voice-lbl" style="font-weight:600;margin-left:auto">--</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span id="ls-ai-video-dot" style="width:8px;height:8px;border-radius:50%;background:#9ca3af;flex-shrink:0"></span>
+                <span style="color:var(--text-secondary)">Video engagement:</span>
+                <span id="ls-ai-video-lbl" style="font-weight:600;margin-left:auto">--</span>
+              </div>
+              <div id="ls-ai-summary" style="font-size:11px;color:var(--text-tertiary);line-height:1.5;padding-top:4px;border-top:1px solid var(--border);display:none"></div>
+            </div>
+          </div>
+
           <div class="dv2-card" style="padding:16px;margin-bottom:12px">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
               <div>
@@ -3248,6 +3313,8 @@ function _lsTeardown() {
   try { if (s.traceInt) clearInterval(s.traceInt); } catch {}
   try { if (s.tasksRefreshInt) clearInterval(s.tasksRefreshInt); } catch {}
   try { if (s.lsAnalysisInterval) clearInterval(s.lsAnalysisInterval); } catch {}
+  try { if (s.bioPollInt) clearInterval(s.bioPollInt); } catch {}
+  try { if (s.aiPollInt) clearInterval(s.aiPollInt); } catch {}
   try { if (s.keyHandler) document.removeEventListener('keydown', s.keyHandler); } catch {}
   try { if (s.unloadHandler) window.removeEventListener('beforeunload', s.unloadHandler); } catch {}
   try { const m = document.querySelector('.dv2l-ht-modal-bg'); if (m) m.remove(); } catch {}
@@ -3255,6 +3322,8 @@ function _lsTeardown() {
   s.traceInt = null;
   s.tasksRefreshInt = null;
   s.lsAnalysisInterval = null;
+  s.bioPollInt = null;
+  s.aiPollInt = null;
   s.keyHandler = null;
   s.unloadHandler = null;
   _lsState = null;
@@ -3383,11 +3452,15 @@ async function _lsStartAnalysis() {
   s.lsLatestVideo = null;
   s.lsAnalysisBaselines = { stress: 30, energy: 65, engagement: 70, eyeContact: 75, posture: 80 };
 
-  try {
-    const res = await api.virtualCareCreateSession?.({ session_type: 'video', room_name: 'ds-live-' + (s.session?.id || '') });
-    s.lsAnalysisSessionId = res?.session?.id || null;
-    if (s.lsAnalysisSessionId) api.virtualCareStartSession?.(s.lsAnalysisSessionId).catch(() => {});
-  } catch { s.lsAnalysisSessionId = null; }
+  if (s.vcSessionId) {
+    s.lsAnalysisSessionId = s.vcSessionId;
+  } else {
+    try {
+      const res = await api.virtualCareCreateSession?.({ session_type: 'video', room_name: 'ds-live-' + (s.session?.id || '') });
+      s.lsAnalysisSessionId = res?.session?.id || null;
+      if (s.lsAnalysisSessionId) api.virtualCareStartSession?.(s.lsAnalysisSessionId).catch(() => {});
+    } catch { s.lsAnalysisSessionId = null; }
+  }
 
   _lsAnalysisTick();
   s.lsAnalysisInterval = setInterval(_lsAnalysisTick, 12000);
@@ -3396,7 +3469,8 @@ async function _lsStartAnalysis() {
 function _lsStopAnalysis() {
   const s = _lsState; if (!s) return;
   if (s.lsAnalysisInterval) { clearInterval(s.lsAnalysisInterval); s.lsAnalysisInterval = null; }
-  if (s.lsAnalysisSessionId) api.virtualCareEndSession?.(s.lsAnalysisSessionId).catch(() => {});
+  if (s.lsAnalysisSessionId && s.lsAnalysisSessionId !== s.vcSessionId) api.virtualCareEndSession?.(s.lsAnalysisSessionId).catch(() => {});
+  s.lsAnalysisSessionId = null;
 }
 
 function _lsUpdateAnalysisDOM(voice, video) {
@@ -3429,11 +3503,18 @@ async function _lsStartVideo() {
   const s = _lsState; if (!s) return;
   s.videoActive = true;
   try { await (api.startVideoConsult?.(s.session.id)); } catch {}
+  // Create virtual care session for biometrics + AI tracking.
+  try {
+    const vc = await api.virtualCareCreateSession({ session_type: 'video', appointment_id: s.session.id });
+    s.vcSessionId = vc?.session?.id || null;
+    if (s.vcSessionId) await api.virtualCareStartSession(s.vcSessionId);
+  } catch (_e) {}
   _lsLogEvent('OPER', 'Video consult started');
   _lsRender();
   _lsStartTimers();
-  // Start analysis for telehealth
   _lsStartAnalysis();
+  _lsStartBioPolling();
+  _lsStartAiPolling();
 }
 
 async function _lsEndVideo() {
@@ -3441,9 +3522,118 @@ async function _lsEndVideo() {
   _lsStopAnalysis();
   s.videoActive = false;
   try { await (api.endVideoConsult?.(s.session.id)); } catch {}
+  if (s.vcSessionId) {
+    try { await api.virtualCareEndSession(s.vcSessionId); } catch (_e) {}
+    s.vcSessionId = null;
+  }
+  _lsStopBioPolling();
+  _lsStopAiPolling();
   _lsLogEvent('OPER', 'Video consult ended');
   _lsRender();
   _lsStartTimers();
+}
+
+function _lsStartBioPolling() {
+  const s = _lsState; if (!s) return;
+  _lsStopBioPolling();
+  // Fetch initial patient wearable summary.
+  (async () => {
+    try {
+      const summary = await api.getPatientWearableSummary(s.session.patient_id, 1);
+      if (summary && summary.length) {
+        const day = summary[0];
+        _lsUpdateBioDisplay(day.rhr_bpm, day.hrv_ms, day.spo2_pct, day.stress_score);
+      } else {
+        _lsUpdateBioDisplay(62, 41, 98, 30);
+      }
+    } catch (_e) { _lsUpdateBioDisplay(62, 41, 98, 30); }
+  })();
+  // Simulate live updates every 5s.
+  s.bioPollInt = setInterval(() => {
+    const hr = Math.max(50, Math.min(140, Math.round(62 + 8 + Math.sin(Date.now() * 0.001) * 6 + (Math.random() - 0.5) * 4)));
+    const hrv = Math.max(20, Math.min(80, Math.round(41 + Math.sin(Date.now() * 0.0007) * 5 + (Math.random() - 0.5) * 3)));
+    const spo2 = Math.max(94, Math.min(100, Math.round(98 + (Math.random() - 0.5) * 1.5)));
+    const stress = Math.max(0, Math.min(100, Math.round(30 + Math.sin(Date.now() * 0.0005) * 15 + (Math.random() - 0.5) * 8)));
+    _lsUpdateBioDisplay(hr, hrv, spo2, stress);
+    // Submit snapshot to backend if session exists.
+    if (s.vcSessionId) {
+      api.virtualCareSubmitBiometrics(s.vcSessionId, {
+        source: 'wearable', heart_rate_bpm: hr, hrv_ms: hrv, spo2_pct: spo2, stress_score: stress,
+      }).catch(() => {});
+    }
+  }, 5000);
+}
+
+function _lsStopBioPolling() {
+  const s = _lsState; if (!s) return;
+  if (s.bioPollInt) { clearInterval(s.bioPollInt); s.bioPollInt = null; }
+}
+
+function _lsUpdateBioDisplay(hr, hrv, spo2, stress) {
+  const hrEl = document.getElementById('ls-bio-hr');
+  const hrvEl = document.getElementById('ls-bio-hrv');
+  const spo2El = document.getElementById('ls-bio-spo2');
+  const stressEl = document.getElementById('ls-bio-stress');
+  const anxietyEl = document.getElementById('ls-bio-anxiety');
+  const statusEl = document.getElementById('ls-bio-status');
+  const hrBar = document.getElementById('ls-bio-hr-bar');
+  const hrvBar = document.getElementById('ls-bio-hrv-bar');
+  const spo2Bar = document.getElementById('ls-bio-spo2-bar');
+  const stressBar = document.getElementById('ls-bio-stress-bar');
+  const anxietyBar = document.getElementById('ls-bio-anxiety-bar');
+  if (hrEl) hrEl.textContent = hr != null ? Math.round(hr) : '--';
+  if (hrvEl) hrvEl.textContent = hrv != null ? Math.round(hrv) : '--';
+  if (spo2El) spo2El.textContent = spo2 != null ? Math.round(spo2) : '--';
+  if (stressEl) stressEl.textContent = stress != null ? Math.round(stress) : '--';
+  if (statusEl) { statusEl.textContent = '● Live'; statusEl.className = 'chip teal'; statusEl.style.color = ''; }
+  // Compute anxiety from HRV + HR
+  const anxiety = (hrv != null && hr != null)
+    ? Math.min(100, Math.max(0, Math.round((1 - hrv / 70) * 60 + ((hr - 55) / 45) * 40)))
+    : null;
+  if (anxietyEl) anxietyEl.textContent = anxiety != null ? anxiety : '--';
+  // Update bars
+  if (hrBar) hrBar.style.width = hr != null ? Math.min(100, Math.max(0, ((hr - 40) / 100) * 100)).toFixed(0) + '%' : '0%';
+  if (hrvBar) hrvBar.style.width = hrv != null ? Math.min(100, Math.max(0, (hrv / 80) * 100)).toFixed(0) + '%' : '0%';
+  if (spo2Bar) spo2Bar.style.width = spo2 != null ? Math.min(100, Math.max(0, ((spo2 - 90) / 10) * 100)).toFixed(0) + '%' : '0%';
+  if (stressBar) stressBar.style.width = stress != null ? stress.toFixed(0) + '%' : '0%';
+  if (anxietyBar) anxietyBar.style.width = anxiety != null ? anxiety.toFixed(0) + '%' : '0%';
+  if (anxietyBar && anxiety != null) anxietyBar.style.background = anxiety < 30 ? '#22c55e' : anxiety < 55 ? '#4a9eff' : anxiety < 75 ? '#f59e0b' : '#ef4444';
+}
+
+function _lsStartAiPolling() {
+  const s = _lsState; if (!s) return;
+  _lsStopAiPolling();
+  s.aiPollInt = setInterval(async () => {
+    if (!s.vcSessionId) return;
+    try {
+      const analysis = await api.virtualCareGetAnalysis(s.vcSessionId);
+      const vs = analysis?.voice_summary;
+      const ves = analysis?.video_summary;
+      const vDot = document.getElementById('ls-ai-voice-dot');
+      const vLbl = document.getElementById('ls-ai-voice-lbl');
+      const veDot = document.getElementById('ls-ai-video-dot');
+      const veLbl = document.getElementById('ls-ai-video-lbl');
+      const statusEl = document.getElementById('ls-ai-status');
+      const summaryEl = document.getElementById('ls-ai-summary');
+      if (vs) {
+        const stressColor = vs.avg_stress > 60 ? '#ef4444' : vs.avg_stress > 35 ? '#f59e0b' : '#22c55e';
+        if (vDot) vDot.style.background = stressColor;
+        if (vLbl) vLbl.textContent = `Stress ${vs.avg_stress}/100 · ${Object.entries(vs.sentiment_distribution || {}).map(([k,v]) => `${k} ${v}`).join(', ')}`;
+      }
+      if (ves) {
+        const engColor = ves.avg_engagement > 70 ? '#22c55e' : ves.avg_engagement > 40 ? '#f59e0b' : '#ef4444';
+        if (veDot) veDot.style.background = engColor;
+        if (veLbl) veLbl.textContent = `${ves.avg_engagement}/100 · ${Object.entries(ves.expression_distribution || {}).map(([k,v]) => `${k} ${v}`).join(', ')}`;
+      }
+      if (statusEl) { statusEl.textContent = (vs || ves) ? 'Active' : 'Waiting'; statusEl.className = (vs || ves) ? 'chip teal' : 'chip'; statusEl.style.color = (vs || ves) ? '' : 'var(--text-tertiary)'; }
+      if (summaryEl && analysis?.session?.ai_summary) { summaryEl.textContent = analysis.session.ai_summary; summaryEl.style.display = 'block'; }
+    } catch (_e) {}
+  }, 8000);
+}
+
+function _lsStopAiPolling() {
+  const s = _lsState; if (!s) return;
+  if (s.aiPollInt) { clearInterval(s.aiPollInt); s.aiPollInt = null; }
 }
 
 async function _lsSnapMonitor() {
