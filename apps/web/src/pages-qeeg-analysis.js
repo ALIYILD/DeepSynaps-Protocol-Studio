@@ -2618,14 +2618,15 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   // TAB 2: ANALYSIS
   // ══════════════════════════════════════════════════════════════════════════
   if (tab === 'analysis') {
+    // In demo mode, auto-select the sample analysis so the populated page
+    // loads immediately instead of an empty state — the reviewer on the
+    // Netlify preview has no real patients to pick from.
+    if (!window._qeegSelectedId && _isDemoMode()) {
+      window._qeegSelectedId = 'demo';
+    }
     const analysisId = window._qeegSelectedId;
     if (!analysisId) {
-      var analysisEmptyHtml = emptyState('&#x1F4CA;', 'No Analysis Selected', 'Select an analysis from the Patient & Upload tab to view results.', 'Go to Patient & Upload', "window._qeegTab='patient';window._nav('qeeg-analysis')");
-      if (_isDemoMode()) {
-        analysisEmptyHtml += '<div style="text-align:center;margin-top:-8px;padding-bottom:16px">'
-          + '<button class="btn btn-outline btn-sm" onclick="window._qeegSelectedId=\'demo\';window._nav(\'qeeg-analysis\')">View Sample Analysis</button></div>';
-      }
-      tabEl.innerHTML = analysisEmptyHtml;
+      tabEl.innerHTML = emptyState('&#x1F4CA;', 'No Analysis Selected', 'Select an analysis from the Patient & Upload tab to view results.', 'Go to Patient & Upload', "window._qeegTab='patient';window._nav('qeeg-analysis')");
       return;
     }
 
@@ -3010,14 +3011,13 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   // TAB 3: AI REPORT
   // ══════════════════════════════════════════════════════════════════════════
   if (tab === 'report') {
+    // Same demo auto-select as the Analysis tab — no real patients on the preview.
+    if (!window._qeegSelectedId && _isDemoMode()) {
+      window._qeegSelectedId = 'demo';
+    }
     const analysisId = window._qeegSelectedId;
     if (!analysisId) {
-      var reportEmptyHtml = emptyState('&#x1F4DD;', 'No Analysis Selected', 'Select an analysis first to generate an AI report.', 'Go to Patient & Upload', "window._qeegTab='patient';window._nav('qeeg-analysis')");
-      if (_isDemoMode()) {
-        reportEmptyHtml += '<div style="text-align:center;margin-top:-8px;padding-bottom:16px">'
-          + '<button class="btn btn-outline btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">View Sample Report</button></div>';
-      }
-      tabEl.innerHTML = reportEmptyHtml;
+      tabEl.innerHTML = emptyState('&#x1F4DD;', 'No Analysis Selected', 'Select an analysis first to generate an AI report.', 'Go to Patient & Upload', "window._qeegTab='patient';window._nav('qeeg-analysis')");
       return;
     }
 
