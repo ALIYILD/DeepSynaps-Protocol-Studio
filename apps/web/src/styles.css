@@ -26536,17 +26536,137 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 .ds-atlas-efield-bar { flex: 1; height: 10px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.08); }
 .ds-atlas-efield-label { font-size: 10px; color: var(--text-tertiary); white-space: nowrap; }
 
-/* Glass-brain SVG container */
+/* MRI focus viewer — real axial T1 with stim targets, zoom + pan. */
 .ds-mri-glass-wrap {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  gap: 8px;
 }
-.ds-mri-glass {
+.ds-mri-glass-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.ds-mri-glass-btn {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  color: var(--text-primary, #f5f6f8);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.ds-mri-glass-btn:hover {
+  background: var(--surface-3, rgba(255, 255, 255, 0.08));
+  border-color: var(--border-strong, rgba(255, 255, 255, 0.22));
+}
+.ds-mri-glass-btn:focus-visible {
+  outline: 2px solid var(--focus-ring, #6aa9ff);
+  outline-offset: 1px;
+}
+.ds-mri-glass-btn--reset {
+  width: auto;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.ds-mri-glass-zoom-level {
+  min-width: 48px;
+  text-align: center;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--text-secondary, #c9cdd4);
+}
+.ds-mri-glass-stage {
+  position: relative;
   width: 100%;
-  max-width: 240px;
-  height: auto;
-  display: block;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+  cursor: zoom-in;
+  touch-action: none;
+  user-select: none;
+  outline: none;
+}
+.ds-mri-glass-stage:focus-visible {
+  box-shadow: 0 0 0 2px var(--focus-ring, #6aa9ff);
+}
+.ds-mri-glass-stage.is-zoomed { cursor: grab; }
+.ds-mri-glass-stage.is-panning { cursor: grabbing; }
+.ds-mri-glass-pan {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 50%;
+  transition: transform 60ms linear;
+  will-change: transform;
+}
+.ds-mri-glass-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  filter: contrast(1.05) brightness(1.02);
+}
+.ds-mri-glass-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.ds-mri-glass-dot {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ds-mri-glass-dot__core {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--dot-color, #fff);
+  box-shadow: 0 0 0 1.5px #fff, 0 0 8px rgba(0, 0, 0, 0.6);
+  flex: none;
+}
+.ds-mri-glass-dot__label {
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.ds-mri-glass-stage.is-zoomed .ds-mri-glass-dot__label,
+.ds-mri-glass-dot:hover .ds-mri-glass-dot__label {
+  opacity: 1;
+}
+.ds-mri-glass-dot[data-pulse="1"] .ds-mri-glass-dot__core {
+  animation: ds-mri-glass-pulse 1.6s ease-in-out infinite;
+}
+@keyframes ds-mri-glass-pulse {
+  0%, 100% { box-shadow: 0 0 0 1.5px #fff, 0 0 8px rgba(0, 0, 0, 0.6); transform: scale(1); }
+  50%      { box-shadow: 0 0 0 1.5px #fff, 0 0 14px rgba(255, 80, 140, 0.7); transform: scale(1.25); }
+}
+.ds-mri-glass-caption {
+  font-size: 11px;
+  color: var(--text-tertiary, #8a8f99);
+  text-align: center;
 }
 
 /* Patient + QC header */

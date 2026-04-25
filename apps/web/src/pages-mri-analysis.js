@@ -1536,44 +1536,61 @@ export function renderBrainAtlasViewer(report) {
 // Keep old name as alias for backwards compatibility with tests
 export var renderSliceViewer = renderBrainAtlasViewer;
 
-// ── Right column: glass-brain summary ──────────────────────────────────────
+// ── Right column: MRI focus viewer (real axial MRI, zoom + pan) ────────────
+// Replaces the older SVG silhouette. Mirrors the focus-in/-out behaviour of
+// Neurolight TPS planning view: real T1 axial slice with overlaid stim
+// targets, scroll-wheel + button zoom, click-drag pan.
 export function renderGlassBrain(report) {
   var targets = (report && Array.isArray(report.stim_targets)) ? report.stim_targets : [];
-  // Simple brain-outline path (approximate MNI axial silhouette).
-  var outline =
-    '<path d="M100,20 C160,20 195,60 195,110 C195,150 170,185 140,185 '
-    + 'L125,200 L115,215 L100,225 L85,215 L75,200 L60,185 '
-    + 'C30,185 5,150 5,110 C5,60 40,20 100,20 Z" '
-    + 'fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>';
-  // Project MNI (x,y) to 2D: MNI x in [-90, 90] → svg x in [10, 190]; MNI y in [-120, 80] → svg y in [215, 15].
-  function mniTo2D(xyz) {
+  // Project MNI (x,y) to percent-of-image coords on the axial template.
+  // MNI x in [-90, 90] maps roughly to 5%–95% across; MNI y in [-120, 80]
+  // maps to ~95%–5% top→bottom (anterior up).
+  function mniToPct(xyz) {
     if (!Array.isArray(xyz) || xyz.length < 2) return null;
     var mx = Number(xyz[0]);
     var my = Number(xyz[1]);
     if (!isFinite(mx) || !isFinite(my)) return null;
-    var sx = 100 + (mx / 90) * 85;
-    var sy = 115 - (my / 120) * 100;
-    return { x: sx, y: sy };
+    var xPct = 50 + (mx / 90) * 45;
+    var yPct = 50 - (my / 120) * 45;
+    return { x: xPct, y: yPct };
   }
   var dotsHtml = '';
   targets.forEach(function (t) {
-    var p = mniTo2D(t.mni_xyz);
+    var p = mniToPct(t.mni_xyz);
     if (!p) return;
     var col = _targetDotColor(t);
-    var pulse = String(t.method || '').endsWith('_personalised')
-      ? '<animate attributeName="r" values="6;9;6" dur="1.6s" repeatCount="indefinite"/>'
-      : '';
-    dotsHtml += '<g class="ds-mri-glass-dot" data-tid="' + esc(t.target_id || '') + '">'
-      + '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="6" '
-      + 'fill="' + col + '" stroke="#fff" stroke-width="1" opacity="0.92">' + pulse + '</circle>'
-      + '<title>' + esc((t.region_name || t.target_id || '') + ' · MNI [' + (t.mni_xyz || []).join(', ') + ']') + '</title>'
-      + '</g>';
+    var isPulse = String(t.method || '').endsWith('_personalised') ? '1' : '0';
+    var label = esc(t.region_name || t.target_id || '');
+    var coords = (t.mni_xyz || []).join(', ');
+    var tooltip = esc((t.region_name || t.target_id || '') + ' · MNI [' + coords + ']');
+    dotsHtml += '<div class="ds-mri-glass-dot" data-tid="' + esc(t.target_id || '')
+      + '" data-pulse="' + isPulse + '"'
+      + ' style="left:' + p.x.toFixed(2) + '%;top:' + p.y.toFixed(2) + '%;--dot-color:' + col + '"'
+      + ' title="' + tooltip + '">'
+      + '<span class="ds-mri-glass-dot__core"></span>'
+      + '<span class="ds-mri-glass-dot__label">' + label + '</span>'
+      + '</div>';
   });
-  var svg = '<svg class="ds-mri-glass" viewBox="0 0 200 240" width="100%" preserveAspectRatio="xMidYMid meet">'
-    + outline + dotsHtml + '</svg>';
-  var caption = '<div style="font-size:11px;color:var(--text-tertiary);text-align:center;margin-top:4px">'
-    + 'Targets projected onto MNI glass-brain view (axial).</div>';
-  return card('Glass-brain summary', '<div class="ds-mri-glass-wrap">' + svg + caption + '</div>');
+
+  var toolbar = '<div class="ds-mri-glass-toolbar" role="toolbar" aria-label="MRI viewer zoom">'
+    + '<button class="ds-mri-glass-btn" id="ds-mri-glass-zoom-out" aria-label="Zoom out" type="button">&minus;</button>'
+    + '<span class="ds-mri-glass-zoom-level" id="ds-mri-glass-zoom-level" aria-live="polite">1.0&times;</span>'
+    + '<button class="ds-mri-glass-btn" id="ds-mri-glass-zoom-in" aria-label="Zoom in" type="button">+</button>'
+    + '<button class="ds-mri-glass-btn ds-mri-glass-btn--reset" id="ds-mri-glass-zoom-reset" aria-label="Reset view" type="button" title="Reset zoom &amp; pan">Reset</button>'
+    + '</div>';
+
+  var stage = '<div class="ds-mri-glass-stage" id="ds-mri-glass-stage" tabindex="0" aria-label="Axial MRI with stim targets — drag to pan, scroll or pinch to zoom">'
+    + '<div class="ds-mri-glass-pan" id="ds-mri-glass-pan">'
+    + '<img class="ds-mri-glass-img" src="/images/brain-atlas/axial.png" alt="Axial T1 MRI template" draggable="false">'
+    + '<div class="ds-mri-glass-overlay">' + dotsHtml + '</div>'
+    + '</div>'
+    + '</div>';
+
+  var caption = '<div class="ds-mri-glass-caption">'
+    + 'Real T1 axial slice with stim targets overlaid. Scroll or use +/&minus; to zoom, drag to pan.'
+    + '</div>';
+
+  return card('MRI target view', '<div class="ds-mri-glass-wrap">' + toolbar + stage + caption + '</div>');
 }
 
 // ── Right column: MedRAG literature panel ──────────────────────────────────
@@ -2027,6 +2044,117 @@ export function renderFullView(state) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Event wiring
 // ─────────────────────────────────────────────────────────────────────────────
+// Zoom + pan controller for the MRI focus viewer (axial slice w/ targets).
+// Scale is clamped to [1.0, 6.0]; translate is in fractional units of stage
+// size so the panned image always covers the stage at the current scale.
+function _wireMRIFocusViewer() {
+  var stage = document.getElementById('ds-mri-glass-stage');
+  var pan = document.getElementById('ds-mri-glass-pan');
+  var levelEl = document.getElementById('ds-mri-glass-zoom-level');
+  var btnIn = document.getElementById('ds-mri-glass-zoom-in');
+  var btnOut = document.getElementById('ds-mri-glass-zoom-out');
+  var btnReset = document.getElementById('ds-mri-glass-zoom-reset');
+  if (!stage || !pan) return;
+
+  var MIN_SCALE = 1.0;
+  var MAX_SCALE = 6.0;
+  var state = { scale: 1.0, tx: 0, ty: 0 };
+
+  function clampPan() {
+    // Image fills stage at scale 1; at scale s the pan range is ±((s-1)/2)
+    // of stage size on each axis, expressed as fractional translate input.
+    var max = (state.scale - 1) / 2;
+    if (state.tx > max) state.tx = max;
+    if (state.tx < -max) state.tx = -max;
+    if (state.ty > max) state.ty = max;
+    if (state.ty < -max) state.ty = -max;
+  }
+  function apply() {
+    clampPan();
+    // Translate uses % of pan element's own size (which equals stage at scale 1).
+    pan.style.transform = 'translate(' + (state.tx * 100).toFixed(2) + '%,'
+      + (state.ty * 100).toFixed(2) + '%) scale(' + state.scale.toFixed(3) + ')';
+    if (levelEl) levelEl.textContent = state.scale.toFixed(1) + '×';
+    stage.classList.toggle('is-zoomed', state.scale > 1.001);
+  }
+  function setScale(next, anchor) {
+    next = Math.max(MIN_SCALE, Math.min(MAX_SCALE, next));
+    if (anchor && state.scale !== next) {
+      // Zoom toward the cursor: keep the anchor point under the same screen
+      // pixel. anchor.x/y are 0..1 within stage; tx/ty are in frac-of-stage.
+      var prevScale = state.scale;
+      var ax = anchor.x - 0.5;
+      var ay = anchor.y - 0.5;
+      state.tx = ax + (state.tx - ax) * (next / prevScale);
+      state.ty = ay + (state.ty - ay) * (next / prevScale);
+    }
+    state.scale = next;
+    apply();
+  }
+
+  if (btnIn) btnIn.addEventListener('click', function () { setScale(state.scale * 1.4); });
+  if (btnOut) btnOut.addEventListener('click', function () { setScale(state.scale / 1.4); });
+  if (btnReset) btnReset.addEventListener('click', function () {
+    state.scale = 1.0; state.tx = 0; state.ty = 0; apply();
+  });
+
+  stage.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    var rect = stage.getBoundingClientRect();
+    var anchor = {
+      x: (e.clientX - rect.left) / rect.width,
+      y: (e.clientY - rect.top) / rect.height,
+    };
+    var factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    setScale(state.scale * factor, anchor);
+  }, { passive: false });
+
+  // Drag-to-pan. Skip when at scale 1 (nothing to pan).
+  var drag = null;
+  stage.addEventListener('pointerdown', function (e) {
+    if (state.scale <= 1.001) return;
+    if (e.button !== undefined && e.button !== 0) return;
+    drag = {
+      startX: e.clientX,
+      startY: e.clientY,
+      tx0: state.tx,
+      ty0: state.ty,
+      width: stage.clientWidth || 1,
+      height: stage.clientHeight || 1,
+    };
+    stage.setPointerCapture(e.pointerId);
+    stage.classList.add('is-panning');
+  });
+  stage.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    var dx = (e.clientX - drag.startX) / drag.width;
+    var dy = (e.clientY - drag.startY) / drag.height;
+    state.tx = drag.tx0 + dx;
+    state.ty = drag.ty0 + dy;
+    apply();
+  });
+  function endDrag(e) {
+    if (!drag) return;
+    drag = null;
+    stage.classList.remove('is-panning');
+    if (e && e.pointerId !== undefined && stage.releasePointerCapture) {
+      try { stage.releasePointerCapture(e.pointerId); } catch (_) { /* noop */ }
+    }
+  }
+  stage.addEventListener('pointerup', endDrag);
+  stage.addEventListener('pointercancel', endDrag);
+  stage.addEventListener('pointerleave', endDrag);
+
+  // Keyboard zoom for accessibility.
+  stage.addEventListener('keydown', function (e) {
+    if (e.key === '+' || e.key === '=') { e.preventDefault(); setScale(state.scale * 1.4); }
+    else if (e.key === '-' || e.key === '_') { e.preventDefault(); setScale(state.scale / 1.4); }
+    else if (e.key === '0') { e.preventDefault(); state.scale = 1.0; state.tx = 0; state.ty = 0; apply(); }
+  });
+
+  apply();
+}
+
 function _wireUploader(navigate) {
   var dz = document.getElementById('ds-mri-dropzone');
   var input = document.getElementById('ds-mri-file');
@@ -2270,6 +2398,7 @@ function _registerPageCleanup() {
 
 function _wireRightColumn(navigate) {
   _bindMRIAnnotationButtons();
+  _wireMRIFocusViewer();
 
   // ── Brain Atlas Viewer toolbar buttons ──────────────────────────────────
   var clearBtn = document.getElementById('ds-atlas-clear-custom');
