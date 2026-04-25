@@ -16,6 +16,7 @@ import { SCALE_REGISTRY } from './registries/scale-assessment-registry.js';
 import { ASSESS_REGISTRY } from './registries/assess-instruments-registry.js';
 import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition } from './protocols-data.js';
+import { DEMO_PATIENT_ROSTER } from './patient-dashboard-helpers.js';
 
 function shortMrn(p) {
   if (p?.mrn) return String(p.mrn);
@@ -270,6 +271,25 @@ export async function pgPatientHub(setTopbar, navigate) {
       }
     }
 
+    // Demo mode: seed summary with plausible demo KPIs when API returns empty
+    {
+      const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+      if (_demoOk && _currentSummary && (_currentSummary.total === 0 || !_currentSummary.total)) {
+        const n = DEMO_PATIENT_ROSTER.length;
+        const activeN = DEMO_PATIENT_ROSTER.filter(p => p.status === 'active').length;
+        _currentSummary.total = n;
+        _currentSummary.status_counts = { all: n, active: activeN, intake: 0, discharging: 0, on_hold: 0, archived: 0, pending: n - activeN };
+        _currentSummary.kpis = {
+          active_courses: activeN, active_courses_delta_7d: 1,
+          phq_delta_avg: -6.2, phq_delta_n: 3,
+          responder_rate_pct: 64, responder_n: 3,
+          homework_adherence_pct: 78, homework_adherence_n: activeN,
+          follow_up_count: 1, follow_up_overdue_7d: 0,
+          discharged_this_quarter: 0,
+        };
+      }
+    }
+
     async function fetchList() {
       const s = window._phState;
       const params = {
@@ -286,6 +306,11 @@ export async function pgPatientHub(setTopbar, navigate) {
         _currentList = await api.listPatients(params);
       } catch (err) {
         _currentList = { items: [], total: 0 };
+      }
+      // Demo mode: seed with demo roster when API returns empty
+      const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+      if (_demoOk && (!_currentList?.items?.length)) {
+        _currentList = { items: [...DEMO_PATIENT_ROSTER], total: DEMO_PATIENT_ROSTER.length };
       }
     }
 
