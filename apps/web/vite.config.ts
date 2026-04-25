@@ -1,19 +1,23 @@
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
 
 export default defineConfig({
-  plugins: [react()],
   base: './',
-  assetsInclude: ['**/*.wasm'],
-  worker: {
-    format: 'es',
-  },
   build: {
     // Raised from 500: pages-clinical (18 258 lines) and pages-knowledge
     // are single source files — they cannot be split further by manualChunks
     // alone without source-level extraction. Suppress non-actionable warnings.
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
+      // @cornerstonejs/* are optional heavy deps for the MRI 3-D viewer.
+      // When not installed the dynamic import in pages-mri-analysis.js
+      // catches the failure and falls back to NiiVue.
+      external: [
+        '@cornerstonejs/core',
+        '@cornerstonejs/tools',
+        '@cornerstonejs/nifti-volume-loader',
+        '@cornerstonejs/streaming-image-volume-loader',
+        '@icr/polyseg-wasm',
+      ],
       output: {
         manualChunks(id) {
           // --- Shared runtime utilities (api, auth, helpers, i18n) ---
