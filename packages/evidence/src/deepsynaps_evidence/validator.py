@@ -6,27 +6,22 @@ search, fabrication checks, evidence scoring, and audit logging.
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
-from typing import Optional
 
 from sqlalchemy.orm import Session
 
 from deepsynaps_evidence.schemas import (
     Citation,
     Claim,
-    ConfidenceLabel,
     ValidationIssue,
     ValidationRequest,
     ValidationResult,
 )
 from deepsynaps_evidence.scoring import (
-    EVIDENCE_LEVEL_SCORE,
     assign_confidence,
     assign_grade,
     evidence_level_to_score,
-    score_citation,
 )
 
 _log = logging.getLogger(__name__)
@@ -214,17 +209,11 @@ def validate_claims(
 
         # 6. Score and grade
         if citations:
-            scores = []
-            for cit in citations:
-                if cit.evidence_grade:
-                    cit_score = score_citation(cit.relevance_score, cit.evidence_grade)
-                else:
-                    # Assign grade from paper metadata
+            # Assign grade where missing
+            for idx, cit in enumerate(citations):
+                if not cit.evidence_grade:
                     cit_grade = assign_grade(None, None)
-                    cit = cit.model_copy(update={"evidence_grade": cit_grade})
-                    cit_score = score_citation(cit.relevance_score, cit_grade)
-
-                scores.append(evidence_level_to_score(None))  # placeholder level
+                    citations[idx] = cit.model_copy(update={"evidence_grade": cit_grade})
 
             # If we found papers with evidence_level, use those
             paper_scores = []

@@ -11,9 +11,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Optional
 
-from sqlalchemy import select, text, func, or_
+from sqlalchemy import select, or_
 from sqlalchemy.orm import Session
 
 from deepsynaps_evidence.schemas import Citation
@@ -117,12 +116,6 @@ def find_similar(
     except ImportError:
         _log.debug("pgvector_bridge not available")
         return []
-
-    # Build filters dict
-    filters: dict = {}
-    if evidence_levels:
-        # pgvector_bridge only supports equality filters; we'll post-filter
-        pass
 
     import asyncio
     try:
