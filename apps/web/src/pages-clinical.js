@@ -45,6 +45,8 @@ import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVI
 import {
   DEMO_PATIENT,
   DEMO_CLINICIAN_DASHBOARD,
+  DEMO_PATIENT_ROSTER,
+  demoPtFromRoster,
   sparklineSVG,
   groupOutcomesByTemplate,
   outcomeGoalMarker,
@@ -1994,24 +1996,37 @@ export async function pgPatients(setTopbar, navigate) {
   el.innerHTML = spinner();
 
   let items = [], conditions = [], modalities = [], allCourses = [];
+  const _t = (p, ms = 6000) => Promise.race([p, new Promise(r => setTimeout(() => r(null), ms))]);
   try {
     const [patientsRes, condRes, modRes, coursesRes] = await Promise.all([
-      api.listPatients().catch(() => null),
-      api.conditions().catch(() => null),
-      api.modalities().catch(() => null),
-      (api.listCourses ? api.listCourses({}) : Promise.resolve(null)).catch(() => null),
+      _t(api.listPatients().catch(() => null)),
+      _t(api.conditions().catch(() => null)),
+      _t(api.modalities().catch(() => null)),
+      _t((api.listCourses ? api.listCourses({}) : Promise.resolve(null)).catch(() => null)),
     ]);
     items      = patientsRes?.items || [];
     conditions = condRes?.items     || [];
     modalities = modRes?.items      || [];
     allCourses = coursesRes?.items  || [];
-    if (!patientsRes) {
-      el.innerHTML = `<div class="notice notice-warn">Could not load patients.</div>`;
-      return;
+    if (!patientsRes && items.length === 0) {
+      // Offline demo fallback — seed with demo roster when API is unreachable
+      const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+      if (_demoOk) {
+        items = [...DEMO_PATIENT_ROSTER];
+      } else {
+        el.innerHTML = `<div class="notice notice-warn">Could not load patients.</div>`;
+        return;
+      }
     }
   } catch (e) {
-    el.innerHTML = `<div class="notice notice-warn">Could not load patients: ${e.message}</div>`;
-    return;
+    // Offline demo fallback on network error
+    const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+    if (_demoOk) {
+      items = [...DEMO_PATIENT_ROSTER];
+    } else {
+      el.innerHTML = `<div class="notice notice-warn">Could not load patients: ${e.message}</div>`;
+      return;
+    }
   }
 
   // ── Detect demo-seeded patients (server prefixes notes with "[DEMO]" and
@@ -3098,16 +3113,29 @@ export async function pgProfile(setTopbar, navigate) {
   el.innerHTML = spinner();
 
   let pt = null, sessions = [], courses = [], riskProfile = null;
+  const _timeout = (p, ms = 6000) => Promise.race([p, new Promise(r => setTimeout(() => r(null), ms))]);
   try {
     [pt, sessions, courses, riskProfile] = await Promise.all([
-      api.getPatient(id),
-      api.listSessions(id).then(r => r?.items || []).catch(() => []),
-      api.listCourses({ patient_id: id }).then(r => r?.items || []).catch(() => []),
-      api.getPatientRiskProfile(id).catch(() => null),
+      _timeout(api.getPatient(id)),
+      _timeout(api.listSessions(id).then(r => r?.items || []).catch(() => [])),
+      _timeout(api.listCourses({ patient_id: id }).then(r => r?.items || []).catch(() => [])),
+      _timeout(api.getPatientRiskProfile(id).catch(() => null)),
     ]);
+    if (Array.isArray(sessions) === false) sessions = [];
+    if (Array.isArray(courses) === false) courses = [];
   } catch {}
 
-  if (!pt) { el.innerHTML = `<div class="notice notice-warn">Could not load patient.</div>`; return; }
+  // Offline demo fallback — construct patient from local roster when API is down
+  if (!pt) {
+    const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+    const _isDemoId = String(id).startsWith('demo-') || String(id).startsWith('P-DEMO-') || DEMO_PATIENT_ROSTER.some(p => p.id === id);
+    if (_demoOk && _isDemoId) {
+      pt = demoPtFromRoster(id);
+    } else {
+      el.innerHTML = `<div class="notice notice-warn">Could not load patient.</div>`;
+      return;
+    }
+  }
   const isDemoPatient = !!(pt.demo_seed || (pt.notes || '').startsWith('[DEMO]'));
 
   // ── Demo data seeding for the dashboard overview ────────────────────────────

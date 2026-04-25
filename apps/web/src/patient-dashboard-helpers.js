@@ -1080,4 +1080,119 @@ export const DEMO_CLINICIAN_DASHBOARD = Object.freeze({
     ],
     generated_at: _CD.isoAgo(1),
   }),
-})
+});
+
+// ── Offline Demo Patient Roster ─────────────────────────────────────────────
+// Used by pgPatients when the API is unreachable and VITE_ENABLE_DEMO=1.
+const _now = Date.now();
+const _isoDay = (daysAgo) => new Date(_now - daysAgo * 86400000).toISOString().slice(0, 10);
+
+export const DEMO_PATIENT_ROSTER = Object.freeze([
+  Object.freeze({
+    id: 'demo-pt-samantha-li',
+    first_name: 'Samantha', last_name: 'Li',
+    dob: '1992-03-14', gender: 'Female',
+    primary_condition: 'Major Depressive Disorder',
+    primary_modality: 'tDCS',
+    status: 'active',
+    consent_signed: true,
+    demo_seed: true,
+    notes: '[DEMO] Sample patient — Depression / tDCS',
+    next_session: _isoDay(-2),
+    created_at: _isoDay(90),
+  }),
+  Object.freeze({
+    id: 'demo-pt-marcus-chen',
+    first_name: 'Marcus', last_name: 'Chen',
+    dob: '1985-07-22', gender: 'Male',
+    primary_condition: 'Generalized Anxiety Disorder',
+    primary_modality: 'rTMS',
+    status: 'active',
+    consent_signed: true,
+    demo_seed: true,
+    notes: '[DEMO] Sample patient — Anxiety / rTMS',
+    next_session: _isoDay(-1),
+    created_at: _isoDay(60),
+  }),
+  Object.freeze({
+    id: 'demo-pt-elena-vasquez',
+    first_name: 'Elena', last_name: 'Vasquez',
+    dob: '1978-11-05', gender: 'Female',
+    primary_condition: 'Chronic Pain (Fibromyalgia)',
+    primary_modality: 'tFUS',
+    status: 'active',
+    consent_signed: true,
+    demo_seed: true,
+    notes: '[DEMO] Sample patient — Chronic Pain / tFUS',
+    next_session: _isoDay(-3),
+    created_at: _isoDay(45),
+  }),
+  Object.freeze({
+    id: 'demo-pt-james-okonkwo',
+    first_name: 'James', last_name: 'Okonkwo',
+    dob: '1999-01-30', gender: 'Male',
+    primary_condition: 'ADHD',
+    primary_modality: 'Neurofeedback',
+    status: 'pending',
+    consent_signed: false,
+    demo_seed: true,
+    notes: '[DEMO] Sample patient — ADHD / Neurofeedback',
+    created_at: _isoDay(10),
+  }),
+  Object.freeze({
+    id: 'demo-pt-aisha-rahman',
+    first_name: 'Aisha', last_name: 'Rahman',
+    dob: '1988-09-18', gender: 'Female',
+    primary_condition: 'PTSD',
+    primary_modality: 'TPS',
+    status: 'active',
+    consent_signed: true,
+    demo_seed: true,
+    notes: '[DEMO] Sample patient — PTSD / TPS',
+    next_session: _isoDay(0),
+    created_at: _isoDay(75),
+  }),
+]);
+
+// Lookup for dashboard's P-DEMO-* IDs (from pgDash demo fallback)
+const _DASH_DEMO_MAP = {
+  'P-DEMO-1': { first_name: 'Samantha', last_name: 'Li',       dob: '1985-03-12', primary_condition: 'Major Depressive Disorder', primary_modality: 'tDCS' },
+  'P-DEMO-2': { first_name: 'Marcus',   last_name: 'Reilly',   dob: '1978-07-22', primary_condition: 'Anxious Depression', primary_modality: 'rTMS-iTBS' },
+  'P-DEMO-3': { first_name: 'Priya',    last_name: 'Nambiar',  dob: '1990-11-04', primary_condition: 'Generalized Anxiety', primary_modality: 'tACS' },
+  'P-DEMO-4': { first_name: 'Jamal',    last_name: 'Thompson', dob: '2011-05-30', primary_condition: 'ADHD (Pediatric)', primary_modality: 'Neurofeedback' },
+  'P-DEMO-5': { first_name: 'Elena',    last_name: 'Okafor',   dob: '1992-08-19', primary_condition: 'ADHD (Adult)', primary_modality: 'Intake' },
+  'P-DEMO-6': { first_name: 'Terence',  last_name: 'Wu',       dob: '1980-02-14', primary_condition: 'PTSD', primary_modality: 'tDCS' },
+};
+
+/**
+ * Build a full patient object for pgProfile from a roster entry.
+ * Fills in any fields the profile renderer expects.
+ */
+export function demoPtFromRoster(id) {
+  const entry = DEMO_PATIENT_ROSTER.find(p => p.id === id);
+  if (entry) return { ...entry };
+
+  // Handle dashboard's P-DEMO-* IDs
+  const dashEntry = _DASH_DEMO_MAP[id];
+  if (dashEntry) {
+    return {
+      id, ...dashEntry, gender: 'Unknown', status: 'active',
+      consent_signed: true, demo_seed: true, notes: '[DEMO] Sample patient',
+    };
+  }
+
+  // Final fallback — canonical DEMO_PATIENT shape
+  return {
+    id: id || 'demo-pt-samantha-li',
+    first_name: DEMO_PATIENT.profile.first_name,
+    last_name: DEMO_PATIENT.profile.last_name,
+    dob: '1992-03-14',
+    gender: 'Female',
+    primary_condition: DEMO_PATIENT.profile.condition,
+    primary_modality: DEMO_PATIENT.profile.modality,
+    status: 'active',
+    consent_signed: true,
+    demo_seed: true,
+    notes: '[DEMO] Sample patient',
+  };
+}
