@@ -1018,6 +1018,162 @@ export function renderELoretaROIPanel(analysis) {
   return card('eLORETA ROI Power' + method, innerHtml);
 }
 
+// ── §4.3b Source ROIs on real MRI (zoomable focus viewer) ──────────────────
+// Approximate Desikan-Killiany ROI centroids in MNI mm. Right hemisphere
+// uses positive x; left flips sign at lookup time. These are coarse
+// references used only to position dots on the atlas template — not for
+// neuronavigation.
+var DK_ROI_MNI = {
+  superiorfrontal:           [22,  28,  50],
+  rostralmiddlefrontal:      [36,  50,  18],
+  caudalmiddlefrontal:       [38,  16,  46],
+  lateralorbitofrontal:      [28,  32, -16],
+  medialorbitofrontal:       [ 6,  44, -16],
+  parsopercularis:           [50,  16,  16],
+  parstriangularis:          [50,  30,  10],
+  parsorbitalis:             [44,  36, -10],
+  precentral:                [38, -10,  50],
+  postcentral:               [44, -22,  50],
+  paracentral:               [ 8, -28,  56],
+  superiorparietal:          [22, -60,  60],
+  inferiorparietal:          [46, -56,  42],
+  supramarginal:             [54, -38,  34],
+  precuneus:                 [10, -56,  44],
+  superiortemporal:          [58, -16,   4],
+  middletemporal:            [58, -32,  -8],
+  inferiortemporal:          [54, -36, -22],
+  bankssts:                  [54, -42,   6],
+  fusiform:                  [38, -50, -22],
+  parahippocampal:           [24, -28, -18],
+  entorhinal:                [24,  -8, -32],
+  temporalpole:              [38,  10, -34],
+  transversetemporal:        [46, -22,  10],
+  lateraloccipital:          [38, -78,   0],
+  cuneus:                    [10, -82,  18],
+  pericalcarine:             [12, -78,   8],
+  lingual:                   [16, -70,  -6],
+  rostralanteriorcingulate:  [ 6,  36,  12],
+  caudalanteriorcingulate:   [ 6,  16,  28],
+  posteriorcingulate:        [ 6, -42,  32],
+  isthmuscingulate:          [ 8, -46,  20],
+  insula:                    [38,   4,   0],
+};
+function _dkLookup(roiKey) {
+  // roiKey looks like "lh.superiorfrontal" or "rh.precuneus".
+  var parts = String(roiKey || '').split('.');
+  if (parts.length !== 2) return null;
+  var hemi = parts[0].toLowerCase();
+  var label = parts[1].toLowerCase();
+  var mni = DK_ROI_MNI[label];
+  if (!mni) return null;
+  var x = (hemi === 'lh') ? -mni[0] : mni[0];
+  return { mni: [x, mni[1], mni[2]], hemi: hemi, label: label };
+}
+export function renderQEEGSourceMRI(analysis) {
+  if (!analysis || !analysis.source_roi) return '';
+  var src = analysis.source_roi;
+  var bandMap = src.bands || src;
+  var bandNames = Object.keys(bandMap).filter(function (k) {
+    return bandMap[k] && typeof bandMap[k] === 'object' && !Array.isArray(bandMap[k]);
+  });
+  if (!bandNames.length) return '';
+
+  var defaultBand = bandNames.indexOf('alpha') >= 0 ? 'alpha' : bandNames[0];
+  var TOP_N = 8;
+
+  // Pre-compute per-band top-N dot data so plane/band switching can re-position
+  // without recomputing rankings.
+  var bandData = {};
+  bandNames.forEach(function (band) {
+    var rois = bandMap[band] || {};
+    var rows = [];
+    Object.keys(rois).forEach(function (key) {
+      var lk = _dkLookup(key);
+      if (!lk) return;
+      var v = Number(rois[key]);
+      if (!isFinite(v)) return;
+      rows.push({ key: key, value: v, abs: Math.abs(v), mni: lk.mni, hemi: lk.hemi, label: lk.label });
+    });
+    rows.sort(function (a, b) { return b.abs - a.abs; });
+    bandData[band] = rows.slice(0, TOP_N);
+  });
+
+  var bandColor = BAND_COLORS[defaultBand] || '#56b870';
+  var maxAbs = bandData[defaultBand].reduce(function (m, r) {
+    return r.abs > m ? r.abs : m;
+  }, 0) || 1;
+
+  var dotsHtml = bandData[defaultBand].map(function (r, i) {
+    var size = 8 + Math.round((r.abs / maxAbs) * 8); // 8–16 px
+    var labelTxt = r.hemi.toUpperCase() + ' ' + r.label;
+    var tooltip = labelTxt + ' · ' + r.value.toFixed(3) + ' · MNI [' + r.mni.join(', ') + ']';
+    return '<div class="ds-mri-glass-dot" data-tid="' + esc(r.key) + '"'
+      + ' data-pulse="' + (i < 2 ? '1' : '0') + '"'
+      + ' data-mni-x="' + r.mni[0] + '" data-mni-y="' + r.mni[1] + '" data-mni-z="' + r.mni[2] + '"'
+      + ' data-rank="' + i + '"'
+      + ' style="--dot-color:' + bandColor + ';--dot-size:' + size + 'px"'
+      + ' title="' + esc(tooltip) + '">'
+      + '<span class="ds-mri-glass-dot__core"></span>'
+      + '<span class="ds-mri-glass-dot__label">' + esc(labelTxt) + '</span>'
+      + '</div>';
+  }).join('');
+
+  var bandTabs = '<div class="ds-mri-glass-bands" role="tablist" aria-label="Frequency band">'
+    + bandNames.map(function (b) {
+      var on = b === defaultBand;
+      return '<button type="button" class="ds-mri-glass-band' + (on ? ' is-active' : '') + '"'
+        + ' role="tab" aria-selected="' + (on ? 'true' : 'false') + '"'
+        + ' data-band="' + esc(b) + '"'
+        + ' style="--band-color:' + (BAND_COLORS[b] || '#56b870') + '">'
+        + esc(b) + '</button>';
+    }).join('')
+    + '</div>';
+
+  var planes = [
+    { id: 'axial',    label: 'Axial' },
+    { id: 'coronal',  label: 'Coronal' },
+    { id: 'sagittal', label: 'Sagittal' },
+  ];
+  var planeTabs = '<div class="ds-mri-glass-planes" role="tablist" aria-label="MRI plane">'
+    + planes.map(function (p, i) {
+      var on = i === 0;
+      return '<button type="button" class="ds-mri-glass-plane' + (on ? ' is-active' : '') + '"'
+        + ' role="tab" aria-selected="' + (on ? 'true' : 'false') + '"'
+        + ' data-plane="' + p.id + '">' + esc(p.label) + '</button>';
+    }).join('')
+    + '</div>';
+
+  var toolbar = '<div class="ds-mri-glass-toolbar" role="toolbar" aria-label="MRI viewer zoom">'
+    + '<button class="ds-mri-glass-btn" id="ds-qeeg-mri-zoom-out" aria-label="Zoom out" type="button">&minus;</button>'
+    + '<span class="ds-mri-glass-zoom-level" id="ds-qeeg-mri-zoom-level" aria-live="polite">1.0&times;</span>'
+    + '<button class="ds-mri-glass-btn" id="ds-qeeg-mri-zoom-in" aria-label="Zoom in" type="button">+</button>'
+    + '<button class="ds-mri-glass-btn ds-mri-glass-btn--reset" id="ds-qeeg-mri-zoom-reset" aria-label="Reset view" type="button" title="Reset zoom &amp; pan">Reset</button>'
+    + '</div>';
+
+  var stage = '<div class="ds-mri-glass-stage" id="ds-qeeg-mri-stage" tabindex="0" data-plane="axial" aria-label="MRI slice with eLORETA source ROIs — drag to pan, scroll or pinch to zoom">'
+    + '<div class="ds-mri-glass-pan" id="ds-qeeg-mri-pan">'
+    + '<img class="ds-mri-glass-img" id="ds-qeeg-mri-img" src="/images/brain-atlas/axial.png" alt="Axial T1 MRI template" draggable="false">'
+    + '<div class="ds-mri-glass-overlay" id="ds-qeeg-mri-overlay">' + dotsHtml + '</div>'
+    + '</div>'
+    + '</div>';
+
+  var caption = '<div class="ds-mri-glass-caption">'
+    + 'Top ' + TOP_N + ' source-localized ROIs projected to MNI atlas. '
+    + 'Dot size = power; pulsing = strongest 2. Scroll to zoom, drag to pan.'
+    + '</div>';
+
+  // Stash per-band data on the wrapper so the wire function can access without
+  // closures (re-render-safe).
+  var dataPayload = encodeURIComponent(JSON.stringify(bandData));
+
+  return card(
+    'Source ROIs on MRI',
+    '<div class="ds-mri-glass-wrap" id="ds-qeeg-mri-wrap" data-band="' + esc(defaultBand) + '"'
+      + ' data-bandpayload="' + dataPayload + '">'
+      + bandTabs + planeTabs + toolbar + stage + caption + '</div>'
+  );
+}
+
 // ── §4.4 Normative z-score heatmap ──────────────────────────────────────────
 export function renderNormativeZScoreHeatmap(analysis) {
   if (!analysis || !analysis.normative_zscores) return '';
@@ -1226,6 +1382,201 @@ function _brainRingFrameMarkup(payload) {
     + renderConnectivityChordLite(payload.nodes, payload.edges, { title: payload.band + ' connectivity chord', size: 320, threshold: payload.threshold })
     + '</div>'
     + '</div>';
+}
+
+// ── Source-on-MRI viewer wiring (zoom, pan, plane + band toggles) ──────────
+function _wireQEEGSourceMRI() {
+  if (typeof document === 'undefined') return;
+  var wrap = document.getElementById('ds-qeeg-mri-wrap');
+  var stage = document.getElementById('ds-qeeg-mri-stage');
+  var pan = document.getElementById('ds-qeeg-mri-pan');
+  var img = document.getElementById('ds-qeeg-mri-img');
+  var overlay = document.getElementById('ds-qeeg-mri-overlay');
+  var levelEl = document.getElementById('ds-qeeg-mri-zoom-level');
+  var btnIn = document.getElementById('ds-qeeg-mri-zoom-in');
+  var btnOut = document.getElementById('ds-qeeg-mri-zoom-out');
+  var btnReset = document.getElementById('ds-qeeg-mri-zoom-reset');
+  if (!wrap || !stage || !pan || !overlay) return;
+
+  var bandData = {};
+  try {
+    bandData = JSON.parse(decodeURIComponent(wrap.getAttribute('data-bandpayload') || '{}'));
+  } catch (_e) { bandData = {}; }
+
+  var MIN_SCALE = 1.0, MAX_SCALE = 6.0;
+  var state = { scale: 1.0, tx: 0, ty: 0, plane: 'axial', band: wrap.getAttribute('data-band') || '' };
+
+  function projectDot(plane, mx, my, mz) {
+    if (plane === 'axial') {
+      if (!isFinite(mx) || !isFinite(my)) return null;
+      return { x: 50 + (mx / 90) * 45, y: 50 - (my / 120) * 45 };
+    }
+    if (plane === 'coronal') {
+      if (!isFinite(mx) || !isFinite(mz)) return null;
+      return { x: 50 + (mx / 90) * 45, y: 50 - (mz / 75) * 45 };
+    }
+    if (plane === 'sagittal') {
+      if (!isFinite(my) || !isFinite(mz)) return null;
+      return { x: 50 + (my / 120) * 45, y: 50 - (mz / 75) * 45 };
+    }
+    return null;
+  }
+  function repositionDots() {
+    var dots = overlay.querySelectorAll('.ds-mri-glass-dot');
+    dots.forEach(function (d) {
+      var mx = parseFloat(d.getAttribute('data-mni-x'));
+      var my = parseFloat(d.getAttribute('data-mni-y'));
+      var mz = parseFloat(d.getAttribute('data-mni-z'));
+      var p = projectDot(state.plane, mx, my, mz);
+      if (!p) { d.style.display = 'none'; return; }
+      d.style.display = '';
+      d.style.left = p.x.toFixed(2) + '%';
+      d.style.top = p.y.toFixed(2) + '%';
+    });
+  }
+  function rebuildDotsForBand(band) {
+    var rows = bandData[band] || [];
+    var color = (typeof BAND_COLORS !== 'undefined' && BAND_COLORS[band]) || '#56b870';
+    var maxAbs = rows.reduce(function (m, r) { return r.abs > m ? r.abs : m; }, 0) || 1;
+    var html = rows.map(function (r, i) {
+      var size = 8 + Math.round((r.abs / maxAbs) * 8);
+      var labelTxt = r.hemi.toUpperCase() + ' ' + r.label;
+      var tooltip = labelTxt + ' · ' + Number(r.value).toFixed(3) + ' · MNI [' + r.mni.join(', ') + ']';
+      return '<div class="ds-mri-glass-dot" data-tid="' + esc(r.key) + '"'
+        + ' data-pulse="' + (i < 2 ? '1' : '0') + '"'
+        + ' data-mni-x="' + r.mni[0] + '" data-mni-y="' + r.mni[1] + '" data-mni-z="' + r.mni[2] + '"'
+        + ' data-rank="' + i + '"'
+        + ' style="--dot-color:' + color + ';--dot-size:' + size + 'px"'
+        + ' title="' + esc(tooltip) + '">'
+        + '<span class="ds-mri-glass-dot__core"></span>'
+        + '<span class="ds-mri-glass-dot__label">' + esc(labelTxt) + '</span>'
+        + '</div>';
+    }).join('');
+    overlay.innerHTML = html;
+    repositionDots();
+  }
+  function clampPan() {
+    var max = (state.scale - 1) / 2;
+    if (state.tx > max) state.tx = max;
+    if (state.tx < -max) state.tx = -max;
+    if (state.ty > max) state.ty = max;
+    if (state.ty < -max) state.ty = -max;
+  }
+  function apply() {
+    clampPan();
+    pan.style.transform = 'translate(' + (state.tx * 100).toFixed(2) + '%,'
+      + (state.ty * 100).toFixed(2) + '%) scale(' + state.scale.toFixed(3) + ')';
+    if (levelEl) levelEl.textContent = state.scale.toFixed(1) + '×';
+    stage.classList.toggle('is-zoomed', state.scale > 1.001);
+  }
+  function setScale(next, anchor) {
+    next = Math.max(MIN_SCALE, Math.min(MAX_SCALE, next));
+    if (anchor && state.scale !== next) {
+      var prev = state.scale;
+      var ax = anchor.x - 0.5;
+      var ay = anchor.y - 0.5;
+      state.tx = ax + (state.tx - ax) * (next / prev);
+      state.ty = ay + (state.ty - ay) * (next / prev);
+    }
+    state.scale = next;
+    apply();
+  }
+  function setPlane(plane) {
+    if (plane === state.plane) return;
+    state.plane = plane;
+    if (img) {
+      img.src = '/images/brain-atlas/' + plane + '.png';
+      img.alt = plane.charAt(0).toUpperCase() + plane.slice(1) + ' T1 MRI template';
+    }
+    stage.setAttribute('data-plane', plane);
+    state.scale = 1.0; state.tx = 0; state.ty = 0;
+    repositionDots();
+    apply();
+  }
+  function setBand(band) {
+    if (band === state.band) return;
+    state.band = band;
+    wrap.setAttribute('data-band', band);
+    rebuildDotsForBand(band);
+  }
+
+  if (btnIn) btnIn.addEventListener('click', function () { setScale(state.scale * 1.4); });
+  if (btnOut) btnOut.addEventListener('click', function () { setScale(state.scale / 1.4); });
+  if (btnReset) btnReset.addEventListener('click', function () {
+    state.scale = 1.0; state.tx = 0; state.ty = 0; apply();
+  });
+
+  stage.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    var rect = stage.getBoundingClientRect();
+    var anchor = { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
+    var factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    setScale(state.scale * factor, anchor);
+  }, { passive: false });
+
+  var drag = null;
+  stage.addEventListener('pointerdown', function (e) {
+    if (state.scale <= 1.001) return;
+    if (e.button !== undefined && e.button !== 0) return;
+    drag = {
+      startX: e.clientX, startY: e.clientY,
+      tx0: state.tx, ty0: state.ty,
+      width: stage.clientWidth || 1, height: stage.clientHeight || 1,
+    };
+    stage.setPointerCapture(e.pointerId);
+    stage.classList.add('is-panning');
+  });
+  stage.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    state.tx = drag.tx0 + (e.clientX - drag.startX) / drag.width;
+    state.ty = drag.ty0 + (e.clientY - drag.startY) / drag.height;
+    apply();
+  });
+  function endDrag(e) {
+    if (!drag) return;
+    drag = null;
+    stage.classList.remove('is-panning');
+    if (e && e.pointerId !== undefined && stage.releasePointerCapture) {
+      try { stage.releasePointerCapture(e.pointerId); } catch (_) { /* noop */ }
+    }
+  }
+  stage.addEventListener('pointerup', endDrag);
+  stage.addEventListener('pointercancel', endDrag);
+  stage.addEventListener('pointerleave', endDrag);
+
+  stage.addEventListener('keydown', function (e) {
+    if (e.key === '+' || e.key === '=') { e.preventDefault(); setScale(state.scale * 1.4); }
+    else if (e.key === '-' || e.key === '_') { e.preventDefault(); setScale(state.scale / 1.4); }
+    else if (e.key === '0') { e.preventDefault(); state.scale = 1.0; state.tx = 0; state.ty = 0; apply(); }
+  });
+
+  wrap.querySelectorAll('.ds-mri-glass-plane').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var p = btn.getAttribute('data-plane');
+      if (!p) return;
+      wrap.querySelectorAll('.ds-mri-glass-plane').forEach(function (b) {
+        var on = b === btn;
+        b.classList.toggle('is-active', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      setPlane(p);
+    });
+  });
+  wrap.querySelectorAll('.ds-mri-glass-band').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var b = btn.getAttribute('data-band');
+      if (!b) return;
+      wrap.querySelectorAll('.ds-mri-glass-band').forEach(function (bb) {
+        var on = bb === btn;
+        bb.classList.toggle('is-active', on);
+        bb.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      setBand(b);
+    });
+  });
+
+  repositionDots();
+  apply();
 }
 
 function _bindBrainRingFrames() {
@@ -1455,6 +1806,7 @@ export function renderMNEPipelineSections(analysis) {
     renderPipelineQualityStrip(analysis),
     renderSpecParamPanel(analysis),
     renderELoretaROIPanel(analysis),
+    renderQEEGSourceMRI(analysis),
     renderNormativeTopomapGrid(analysis),
     renderNormativeZScoreHeatmap(analysis),
     renderConnectivityClinicViz(analysis),
@@ -3945,6 +4297,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       // Bind advanced analyses button
       setTimeout(function () {
         _bindBrainRingFrames();
+        _wireQEEGSourceMRI();
         // ── Mount Viz v2 panels (lazy-loaded) ─────────────────────────────
         var vizMount = document.getElementById('qeeg-viz-v2-mount');
         if (vizMount && analysisId) {

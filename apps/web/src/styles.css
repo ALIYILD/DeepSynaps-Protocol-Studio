@@ -26664,12 +26664,45 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   gap: 4px;
 }
 .ds-mri-glass-dot__core {
-  width: 11px;
-  height: 11px;
+  width: var(--dot-size, 11px);
+  height: var(--dot-size, 11px);
   border-radius: 50%;
   background: var(--dot-color, #fff);
   box-shadow: 0 0 0 1.5px #fff, 0 0 8px rgba(0, 0, 0, 0.6);
   flex: none;
+}
+/* Band selector (qEEG source-on-MRI panel) — same shape as plane selector. */
+.ds-mri-glass-bands {
+  display: flex;
+  flex-wrap: wrap;
+  align-self: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.10));
+}
+.ds-mri-glass-band {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary, #c9cdd4);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  text-transform: capitalize;
+  padding: 5px 11px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.ds-mri-glass-band:hover { color: var(--text-primary, #f5f6f8); }
+.ds-mri-glass-band.is-active {
+  background: var(--band-color, var(--surface-4, rgba(255, 255, 255, 0.14)));
+  color: #0d0f12;
+}
+.ds-mri-glass-band:focus-visible {
+  outline: 2px solid var(--focus-ring, #6aa9ff);
+  outline-offset: 1px;
 }
 .ds-mri-glass-dot__label {
   font-size: 10px;
