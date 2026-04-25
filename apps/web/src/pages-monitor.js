@@ -104,6 +104,19 @@ function demoIntegrations() {
     // ── Billing / Insurance
     { id: 'availity',          display_name: 'Availity',                   kind: 'billing',        auth_method: 'api_key' },
     { id: 'change_healthcare', display_name: 'Change Healthcare',          kind: 'billing',        auth_method: 'api_key' },
+    // ── Software Integrations
+    { id: 'notion',            display_name: 'Notion',                     kind: 'software',       auth_method: 'api_key' },
+    { id: 'slack_health',      display_name: 'Slack Health',               kind: 'software',       auth_method: 'oauth2' },
+    { id: 'ms_teams',          display_name: 'Microsoft Teams',            kind: 'software',       auth_method: 'oauth2' },
+    { id: 'google_workspace',  display_name: 'Google Workspace',           kind: 'software',       auth_method: 'oauth2' },
+    { id: 'zapier',            display_name: 'Zapier',                     kind: 'software',       auth_method: 'oauth2' },
+    // ── Smart Home & Wellness
+    { id: 'philips_hue',       display_name: 'Philips Hue',               kind: 'smart_home',     auth_method: 'oauth2' },
+    { id: 'nest_google_home',  display_name: 'Nest / Google Home',         kind: 'smart_home',     auth_method: 'oauth2' },
+    { id: 'amazon_alexa',      display_name: 'Amazon Alexa',               kind: 'smart_home',     auth_method: 'oauth2' },
+    { id: 'dyson_pure',        display_name: 'Dyson Pure (Air Quality)',   kind: 'smart_home',     auth_method: 'api_key' },
+    { id: 'eight_sleep',       display_name: 'Eight Sleep',                kind: 'smart_home',     auth_method: 'oauth2' },
+    { id: 'sleepscore',        display_name: 'SleepScore',                 kind: 'smart_home',     auth_method: 'api_key' },
   ];
   const groups = {};
   catalog.forEach(c => { groups[c.kind] = groups[c.kind] || []; groups[c.kind].push({ ...c }); });
@@ -140,6 +153,12 @@ function demoIntegrations() {
     { id: 'zoom_health',     connector_id: 'zoom_health',     display_name: 'Zoom Health (HIPAA)',        kind: 'telehealth',    auth_method: 'oauth2',        status: 'healthy', last_sync_at: new Date(now - 7200000).toISOString(),   patient_count: 10, last_error: null },
     // Billing
     { id: 'availity',        connector_id: 'availity',        display_name: 'Availity',                   kind: 'billing',       auth_method: 'api_key',       status: 'healthy', last_sync_at: new Date(now - 21600000).toISOString(),  patient_count: 12, last_error: null },
+    // Software
+    { id: 'slack_health',    connector_id: 'slack_health',    display_name: 'Slack Health',               kind: 'software',      auth_method: 'oauth2',        status: 'healthy', last_sync_at: new Date(now - 3600000).toISOString(),   patient_count: 8,  last_error: null },
+    { id: 'google_workspace', connector_id: 'google_workspace', display_name: 'Google Workspace',         kind: 'software',      auth_method: 'oauth2',        status: 'healthy', last_sync_at: new Date(now - 5400000).toISOString(),   patient_count: 10, last_error: null },
+    // Smart Home
+    { id: 'eight_sleep',     connector_id: 'eight_sleep',     display_name: 'Eight Sleep',                kind: 'smart_home',    auth_method: 'oauth2',        status: 'healthy', last_sync_at: new Date(now - 14400000).toISOString(),  patient_count: 3,  last_error: null },
+    { id: 'philips_hue',     connector_id: 'philips_hue',     display_name: 'Philips Hue',               kind: 'smart_home',    auth_method: 'oauth2',        status: 'degraded', last_sync_at: new Date(now - 86400000).toISOString(), patient_count: 2,  last_error: 'Bridge firmware update required for API v2 support' },
   ];
   return { catalog, groups, configured };
 }
@@ -158,6 +177,8 @@ function demoDq() {
     ],
   };
 }
+
+/* ── Helpers ───────────────────────────────────────────────────────────────── */
 
 function esc(v) {
   return String(v == null ? '' : v)
@@ -183,7 +204,7 @@ function canWriteIntegrations() {
 function fmtAgo(v) {
   if (!v) return 'never';
   const ms = Date.now() - new Date(v).getTime();
-  if (!Number.isFinite(ms)) return '—';
+  if (!Number.isFinite(ms)) return '\u2014';
   if (ms < 60000) return 'just now';
   if (ms < 3600000) return `${Math.floor(ms / 60000)}m ago`;
   if (ms < 86400000) return `${Math.floor(ms / 3600000)}h ago`;
@@ -191,11 +212,11 @@ function fmtAgo(v) {
 }
 
 function fmtNum(v) {
-  return v == null || Number.isNaN(Number(v)) ? '—' : Number(v).toLocaleString();
+  return v == null || Number.isNaN(Number(v)) ? '\u2014' : Number(v).toLocaleString();
 }
 
 function fmtPct(v) {
-  return v == null || Number.isNaN(Number(v)) ? '—' : `${Math.round(Number(v))}%`;
+  return v == null || Number.isNaN(Number(v)) ? '\u2014' : `${Math.round(Number(v))}%`;
 }
 
 function tone(v) {
@@ -205,11 +226,42 @@ function tone(v) {
   return 'green';
 }
 
+/* ── Category metadata ─────────────────────────────────────────────────────── */
+
+const CATEGORY_META = {
+  wearable:      { icon: '\u231A', label: 'Wearables & Biometrics',  order: 1  },
+  home_device:   { icon: '\uD83E\uDDE0', label: 'Home Neuromodulation',    order: 2  },
+  brain_monitor: { icon: '\uD83D\uDCE1', label: 'Brain Monitors / EEG',    order: 3  },
+  ehr:           { icon: '\uD83C\uDFE5', label: 'EHR / EMR Systems',       order: 4  },
+  prom:          { icon: '\uD83D\uDCCB', label: 'Patient Outcomes',        order: 5  },
+  telehealth:    { icon: '\uD83D\uDCF9', label: 'Telehealth',              order: 6  },
+  lab:           { icon: '\uD83D\uDD2C', label: 'Lab / Diagnostics',       order: 7  },
+  pharmacy:      { icon: '\uD83D\uDC8A', label: 'Pharmacy',                order: 8  },
+  messaging:     { icon: '\uD83D\uDCAC', label: 'Messaging',               order: 9  },
+  billing:       { icon: '\uD83D\uDCB0', label: 'Billing / Insurance',     order: 10 },
+  software:      { icon: '\uD83D\uDDA5\uFE0F', label: 'Software Integrations',   order: 11 },
+  smart_home:    { icon: '\uD83C\uDFE0', label: 'Smart Home & Wellness',   order: 12 },
+};
+
+const _KIND_LABELS = {
+  ehr: 'EHR / EMR', wearable: 'Wearable / Biometrics', home_device: 'Home-Use Devices',
+  brain_monitor: 'Brain Monitoring / EEG', prom: 'Patient-Reported Outcomes',
+  messaging: 'Messaging', lab: 'Lab / Diagnostics', pharmacy: 'Pharmacy',
+  telehealth: 'Telehealth', billing: 'Billing / Insurance',
+  software: 'Software Integrations', smart_home: 'Smart Home & Wellness',
+};
+function _kindLabel(kind) { return _KIND_LABELS[kind] || kind.replace(/_/g, ' '); }
+
+/* ── State ─────────────────────────────────────────────────────────────────── */
+
 function state() {
   if (!window[STATE_KEY]) {
-    const storedTab = localStorage.getItem(TAB_KEY);
+    var storedTab = localStorage.getItem(TAB_KEY);
+    if (storedTab === 'integrations') storedTab = 'control-center';
+    var validTabs = new Set(['control-center', 'live', 'dq']);
     window[STATE_KEY] = {
-      tab: storedTab === 'integrations' && canSeeIntegrations() ? 'integrations' : 'live',
+      tab: validTabs.has(storedTab) ? storedTab : 'control-center',
+      expandedCategory: null,
       live: null,
       integrations: null,
       dq: null,
@@ -219,6 +271,8 @@ function state() {
   }
   return window[STATE_KEY];
 }
+
+/* ── Live tab renderers (unchanged) ────────────────────────────────────────── */
 
 function openPatient(patientId, reasonText) {
   if (!patientId) return;
@@ -253,7 +307,7 @@ function renderLive(live) {
     <section class="monitor-panel">
       <div class="monitor-panel-head"><h3>Caseload grid</h3><span>${rows.length} active rows</span></div>
       ${rows.length ? `<div class="monitor-table-wrap"><table class="monitor-table"><thead>
-        <tr><th>Patient</th><th>Tier</th><th>Drivers</th><th>HRV</th><th>Sleep</th><th>PROM Δ</th><th>Adherence</th><th>Last signal</th></tr>
+        <tr><th>Patient</th><th>Tier</th><th>Drivers</th><th>HRV</th><th>Sleep</th><th>PROM \u0394</th><th>Adherence</th><th>Last signal</th></tr>
       </thead><tbody>
         ${rows.map((row) => `<tr onclick="window._monitorOpenPatient('${esc(row.patient_id)}', '${esc((row.risk_drivers || []).join(', '))}')">
           <td><div class="monitor-patient-name">${esc(row.display_name)}</div><div class="monitor-muted">${esc(row.patient_id)}</div></td>
@@ -276,43 +330,7 @@ function renderLive(live) {
     </section>`;
 }
 
-const _KIND_LABELS = {
-  ehr: 'EHR / EMR', wearable: 'Wearable / Biometrics', home_device: 'Home-Use Devices',
-  brain_monitor: 'Brain Monitoring / EEG', prom: 'Patient-Reported Outcomes',
-  messaging: 'Messaging', lab: 'Lab / Diagnostics', pharmacy: 'Pharmacy',
-  telehealth: 'Telehealth', billing: 'Billing / Insurance',
-};
-function _kindLabel(kind) { return _KIND_LABELS[kind] || kind.replace(/_/g, ' '); }
-
-function renderIntegrations(data) {
-  const groups = Object.entries(data?.groups || {});
-  const configured = new Map((data?.configured || []).map((item) => [item.connector_id, item]));
-  const writable = canWriteIntegrations();
-  return `<section class="monitor-panel">
-    <div class="monitor-panel-head"><h3>Integrations</h3><span>${configured.size} configured</span></div>
-    ${groups.map(([kind, items]) => `<div class="monitor-integration-group">
-      <div class="monitor-group-title">${esc(_kindLabel(kind))}</div>
-      <div class="monitor-card-grid">
-        ${(items || []).map((item) => {
-          const active = configured.get(item.id);
-          const targetId = active?.id || item.id;
-          return `<article class="monitor-integration-card">
-            <div class="monitor-integration-head"><strong>${esc(item.display_name)}</strong><span class="monitor-badge monitor-badge--${tone(active?.status || 'green')}">${esc(active?.status || 'disconnected')}</span></div>
-            <div class="monitor-muted">${esc(item.auth_method || 'managed')} · ${(active?.patient_count ?? 0)} patients</div>
-            <div class="monitor-muted">${active?.last_sync_at ? `Last sync ${esc(fmtAgo(active.last_sync_at))}` : 'Not yet connected'}</div>
-            ${active?.last_error ? `<div class="monitor-inline-error">${esc(active.last_error)}</div>` : ''}
-            <div class="monitor-inline-actions">
-              ${active
-                ? `<button class="btn btn-sm" onclick="window._monitorSyncIntegration('${esc(targetId)}')">Sync</button>
-                   <button class="btn btn-sm" ${writable ? `onclick="window._monitorDisconnectIntegration('${esc(targetId)}')"` : 'disabled'}>Disconnect</button>`
-                : `<button class="btn btn-sm btn-primary" ${writable ? `onclick="window._monitorConnectIntegration('${esc(item.id)}')"` : 'disabled'}>Connect</button>`}
-            </div>
-          </article>`;
-        }).join('')}
-      </div>
-    </div>`).join('')}
-  </section>`;
-}
+/* ── Data quality renderer (unchanged) ─────────────────────────────────────── */
 
 function renderDq(dq) {
   const issues = Array.isArray(dq?.issues) ? dq.issues : [];
@@ -327,30 +345,161 @@ function renderDq(dq) {
   </section>`;
 }
 
+/* ── Control Center: compute category stats ────────────────────────────────── */
+
+function computeCategoryStats(data) {
+  var catalog = Array.isArray(data?.catalog) ? data.catalog : [];
+  var configured = Array.isArray(data?.configured) ? data.configured : [];
+  var configuredMap = new Map(configured.map(function (c) { return [c.connector_id, c]; }));
+
+  var kinds = {};
+  catalog.forEach(function (c) {
+    if (!kinds[c.kind]) kinds[c.kind] = { total: 0, connected: 0, healthy: 0, degraded: 0, error: 0 };
+    kinds[c.kind].total++;
+    var active = configuredMap.get(c.id);
+    if (active) {
+      kinds[c.kind].connected++;
+      if (active.status === 'healthy') kinds[c.kind].healthy++;
+      else if (active.status === 'degraded') kinds[c.kind].degraded++;
+      else if (active.status === 'error') kinds[c.kind].error++;
+      else kinds[c.kind].healthy++;
+    }
+  });
+
+  Object.keys(kinds).forEach(function (k) {
+    var s = kinds[k];
+    if (s.connected === 0) s.health = 'none';
+    else if (s.error > 0) s.health = 'error';
+    else if (s.degraded > 0) s.health = 'degraded';
+    else s.health = 'healthy';
+  });
+
+  return kinds;
+}
+
+/* ── Control Center: KPI summary strip ─────────────────────────────────────── */
+
+function renderDevicesKpis(data) {
+  var stats = computeCategoryStats(data);
+  var totalConnected = 0, totalHealthy = 0, totalDegraded = 0, totalError = 0;
+  Object.values(stats).forEach(function (s) {
+    totalConnected += s.connected;
+    totalHealthy += s.healthy;
+    totalDegraded += s.degraded;
+    totalError += s.error;
+  });
+  var cards = [
+    ['Connected', totalConnected, 'teal'],
+    ['Healthy', totalHealthy, 'green'],
+    ['Degraded', totalDegraded, 'orange'],
+    ['Errors', totalError, 'red'],
+  ];
+  return `<section class="devices-kpi-strip">${cards.map(function (c) {
+    return `<article class="monitor-kpi-card monitor-kpi-card--${c[2]}">
+      <div class="monitor-kpi-label">${esc(c[0])}</div>
+      <div class="monitor-kpi-value">${esc(c[1])}</div>
+    </article>`;
+  }).join('')}</section>`;
+}
+
+/* ── Control Center: category tiles grid ───────────────────────────────────── */
+
+function renderCategoryTiles(data) {
+  var stats = computeCategoryStats(data);
+  var sortedKinds = Object.keys(CATEGORY_META).sort(function (a, b) {
+    return (CATEGORY_META[a].order || 99) - (CATEGORY_META[b].order || 99);
+  });
+
+  return `<section class="devices-tile-grid">${sortedKinds.map(function (kind) {
+    var meta = CATEGORY_META[kind];
+    var s = stats[kind] || { total: 0, connected: 0, healthy: 0, degraded: 0, error: 0, health: 'none' };
+    var healthLabel = s.health === 'healthy' ? 'All healthy' :
+                      s.health === 'degraded' ? 'Some issues' :
+                      s.health === 'error' ? 'Has errors' : 'Not connected';
+    return `<article class="devices-category-tile" onclick="window._devicesExpandCategory('${esc(kind)}')">
+      <div class="devices-tile-icon">${meta.icon}</div>
+      <div class="devices-tile-label">${esc(meta.label)}</div>
+      <div class="devices-tile-stat">${s.connected} / ${s.total} connected</div>
+      <div class="devices-tile-health">
+        <span class="devices-health-dot devices-health-dot--${s.health}"></span>
+        <span>${esc(healthLabel)}</span>
+      </div>
+    </article>`;
+  }).join('')}</section>`;
+}
+
+/* ── Control Center: expanded category view ────────────────────────────────── */
+
+function renderExpandedCategory(kind, data) {
+  var meta = CATEGORY_META[kind] || { icon: '\u2699\uFE0F', label: _kindLabel(kind) };
+  var items = (data?.groups || {})[kind] || [];
+  var configuredMap = new Map((data?.configured || []).map(function (c) { return [c.connector_id, c]; }));
+  var writable = canWriteIntegrations();
+
+  return `<section class="monitor-panel">
+    <div class="devices-category-header">
+      <button class="devices-back-btn" onclick="window._devicesCollapseCategory()">\u2190 All categories</button>
+      <span class="devices-tile-icon" style="font-size:24px;margin:0">${meta.icon}</span>
+      <h3 style="margin:0">${esc(meta.label)}</h3>
+      <span class="monitor-muted" style="margin-left:auto">${items.length} available</span>
+    </div>
+    <div class="monitor-card-grid">
+      ${items.map(function (item) {
+        var active = configuredMap.get(item.id);
+        var targetId = active?.id || item.id;
+        return `<article class="monitor-integration-card">
+          <div class="monitor-integration-head"><strong>${esc(item.display_name)}</strong><span class="monitor-badge monitor-badge--${tone(active?.status || 'green')}">${esc(active?.status || 'disconnected')}</span></div>
+          <div class="monitor-muted">${esc(item.auth_method || 'managed')} \u00B7 ${(active?.patient_count ?? 0)} patients</div>
+          <div class="monitor-muted">${active?.last_sync_at ? `Last sync ${esc(fmtAgo(active.last_sync_at))}` : 'Not yet connected'}</div>
+          ${active?.last_error ? `<div class="monitor-inline-error">${esc(active.last_error)}</div>` : ''}
+          <div class="monitor-inline-actions">
+            ${active
+              ? `<button class="btn btn-sm" onclick="window._monitorSyncIntegration('${esc(targetId)}')">Sync</button>
+                 <button class="btn btn-sm" ${writable ? `onclick="window._monitorDisconnectIntegration('${esc(targetId)}')"` : 'disabled'}>Disconnect</button>`
+              : `<button class="btn btn-sm btn-primary" ${writable ? `onclick="window._monitorConnectIntegration('${esc(item.id)}')"` : 'disabled'}>Connect</button>`}
+          </div>
+        </article>`;
+      }).join('')}
+    </div>
+  </section>`;
+}
+
+/* ── Main render ───────────────────────────────────────────────────────────── */
+
 function render() {
   const s = state();
   const live = s.live || { kpis: {}, crises: [], caseload: [] };
-  const integrations = s.integrations || { groups: {}, configured: [] };
+  const integrations = s.integrations || { catalog: [], groups: {}, configured: [] };
   const dq = s.dq || { issues: [] };
   const el = document.getElementById('content');
   if (!el) return;
+
+  var tabBody = '';
+  if (s.tab === 'live') {
+    tabBody = renderKpis(live) + `<div class="monitor-main-grid"><div class="monitor-main-col">${renderLive(live)}</div></div>`;
+  } else if (s.tab === 'dq') {
+    tabBody = `<div class="monitor-main-grid"><div class="monitor-main-col">${renderDq(dq)}</div></div>`;
+  } else {
+    tabBody = renderDevicesKpis(integrations) +
+      `<div class="monitor-main-grid"><div class="monitor-main-col">${
+        s.expandedCategory ? renderExpandedCategory(s.expandedCategory, integrations) : renderCategoryTiles(integrations)
+      }</div></div>`;
+  }
+
   el.innerHTML = `<div class="monitor-shell">
     <div class="monitor-hero">
-      <div><div class="monitor-kicker">Between-session triage</div><h1>Monitor</h1><p>One page for live caseload risk, connected data pipes, and clinic device health.</p></div>
+      <div><div class="monitor-kicker">Device management &amp; integrations</div><h1>Devices</h1><p>Central hub for all connected devices, integrations, and data sources.</p></div>
       <div class="monitor-tabs" role="tablist">
-        <button class="monitor-tab ${s.tab === 'live' ? 'is-active' : ''}" onclick="window._monitorSetTab('live')">Live</button>
-        ${canSeeIntegrations() ? `<button class="monitor-tab ${s.tab === 'integrations' ? 'is-active' : ''}" onclick="window._monitorSetTab('integrations')">Integrations</button>` : ''}
+        <button class="monitor-tab ${s.tab === 'control-center' ? 'is-active' : ''}" onclick="window._monitorSetTab('control-center')">Control Center</button>
+        <button class="monitor-tab ${s.tab === 'live' ? 'is-active' : ''}" onclick="window._monitorSetTab('live')">Live Monitoring</button>
+        <button class="monitor-tab ${s.tab === 'dq' ? 'is-active' : ''}" onclick="window._monitorSetTab('dq')">Data Quality</button>
       </div>
     </div>
-    ${renderKpis(live)}
-    <div class="monitor-main-grid">
-      <div class="monitor-main-col">
-        ${s.tab === 'integrations' ? renderIntegrations(integrations) : renderLive(live)}
-        ${renderDq(dq)}
-      </div>
-    </div>
+    ${tabBody}
   </div>`;
 }
+
+/* ── Data loaders ──────────────────────────────────────────────────────────── */
 
 async function loadLive() {
   const s = state();
@@ -364,7 +513,6 @@ async function loadLive() {
 
 async function loadIntegrations() {
   const s = state();
-  if (!canSeeIntegrations()) return;
   try {
     const data = await api.monitorIntegrations();
     if (data && data.groups) { s.integrations = data; }
@@ -408,18 +556,45 @@ function connectLiveStream() {
   } catch {}
 }
 
+/* ── Page entry ────────────────────────────────────────────────────────────── */
+
 export async function pgMonitor(setTopbar) {
-  setTopbar('Monitor', '<span class="monitor-topbar-pill">Live + Integrations</span>');
+  setTopbar('Devices', '<span class="monitor-topbar-pill">Control Center</span>');
   const s = state();
+
+  // Apply preset from route redirects
+  if (window._devicesPresetTab) {
+    s.tab = window._devicesPresetTab;
+    delete window._devicesPresetTab;
+  }
+  if (window._devicesPresetCategory) {
+    s.expandedCategory = window._devicesPresetCategory;
+    s.tab = 'control-center';
+    delete window._devicesPresetCategory;
+  }
+
   render();
-  await Promise.all([loadLive(), loadDq(), s.tab === 'integrations' ? loadIntegrations() : Promise.resolve()]);
+  await Promise.all([loadLive(), loadIntegrations(), loadDq()]);
   connectLiveStream();
+
   window._monitorSetTab = function (tab) {
-    s.tab = tab === 'integrations' && canSeeIntegrations() ? 'integrations' : 'live';
+    var validTabs = new Set(['control-center', 'live', 'dq']);
+    s.tab = validTabs.has(tab) ? tab : 'control-center';
+    s.expandedCategory = null;
     localStorage.setItem(TAB_KEY, s.tab);
     render();
-    if (s.tab === 'integrations') void loadIntegrations();
   };
+
+  window._devicesExpandCategory = function (kind) {
+    s.expandedCategory = kind;
+    render();
+  };
+
+  window._devicesCollapseCategory = function () {
+    s.expandedCategory = null;
+    render();
+  };
+
   window._monitorOpenPatient = openPatient;
   window._monitorConnectIntegration = function (connectorId) { (async function () { try { await api.monitorConnectIntegration(connectorId, {}); } catch {} await loadIntegrations(); })(); };
   window._monitorSyncIntegration = function (integrationId) { (async function () { try { await api.monitorSyncIntegration(integrationId); } catch {} await loadIntegrations(); })(); };

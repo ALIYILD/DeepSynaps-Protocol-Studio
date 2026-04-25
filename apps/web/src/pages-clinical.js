@@ -42,6 +42,15 @@ import {
 } from './personalization-explainability.js';
 import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getTopConditionsByPaperCount } from './evidence-dataset.js';
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES } from './protocols-data.js';
+import {
+  DEMO_PATIENT,
+  DEMO_CLINICIAN_DASHBOARD,
+  sparklineSVG,
+  groupOutcomesByTemplate,
+  outcomeGoalMarker,
+  computeCountdown,
+  phaseLabel,
+} from './patient-dashboard-helpers.js';
 
 if (import.meta.env?.DEV) {
   const { errors } = validateScaleRegistryAgainstAssess(ASSESS_REGISTRY);
@@ -2343,7 +2352,7 @@ export async function pgPatients(setTopbar, navigate) {
     const primaryBtn = (p.sessions_today || 0) > 0
       ? '<button class="pat-act-btn pat-act-btn--primary" onclick="event.stopPropagation();window._patStartSession(\'' + p.id + '\')">' + 'Start Session</button>'
       : '<button class="pat-act-btn pat-act-btn--primary" onclick="event.stopPropagation();window.openPatient(\'' + p.id + '\')">' + 'Open Chart</button>';
-    return '<div class="pat-roster-card" data-id="' + p.id + '" data-status="' + p.status + '" data-attention="' + (att ? att.type : 'ok') + '" onclick="window._patSelectPatient(\'' + p.id + '\')">' 
+    return '<div class="pat-roster-card" data-id="' + p.id + '" data-status="' + p.status + '" data-attention="' + (att ? att.type : 'ok') + '" onclick="window.openPatient(\'' + p.id + '\')">' 
       + '<div class="pat-card-left">'
       +   '<div class="pat-card-avatar">'
       +     '<span class="pat-status-dot" style="background:' + statusColor + '"></span>'
@@ -3083,7 +3092,7 @@ export async function pgProfile(setTopbar, navigate) {
   if (!id) { navigate('patients'); return; }
 
   // Always reset to the overview tab on each patient profile load
-  ptab = 'courses';
+  ptab = 'overview';
 
   const el = document.getElementById('content');
   el.innerHTML = spinner();
@@ -3100,6 +3109,17 @@ export async function pgProfile(setTopbar, navigate) {
 
   if (!pt) { el.innerHTML = `<div class="notice notice-warn">Could not load patient.</div>`; return; }
   const isDemoPatient = !!(pt.demo_seed || (pt.notes || '').startsWith('[DEMO]'));
+
+  // ── Demo data seeding for the dashboard overview ────────────────────────────
+  let demoOutcomes = [], demoWearable = null, demoNotes = [], demoAssessments = [], demoAiAnalysis = null;
+  if (isDemoPatient) {
+    if (sessions.length === 0) sessions = [...DEMO_CLINICIAN_DASHBOARD.sessions];
+    demoOutcomes = DEMO_PATIENT.outcomes;
+    demoWearable = DEMO_CLINICIAN_DASHBOARD.wearable7d;
+    demoNotes = DEMO_CLINICIAN_DASHBOARD.clinicalNotes;
+    demoAssessments = DEMO_CLINICIAN_DASHBOARD.assessments;
+    demoAiAnalysis = DEMO_CLINICIAN_DASHBOARD.aiAnalysis;
+  }
 
   const name = `${pt.first_name} ${pt.last_name}`;
   const done = sessions.filter(s => s.status === 'completed').length;
@@ -3154,7 +3174,7 @@ export async function pgProfile(setTopbar, navigate) {
   <div class="tab-bar">
     ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'brain-twin', 'assessments', 'notes', 'phenotype', 'consent', 'monitoring', 'home-therapy'].map(t => {
       const labels = {
-        'overview':     'Overview',
+        'overview':     'Dashboard',
         'courses':      'Treatment Courses',
         'sessions':     'Sessions',
         'outcomes':     'Outcomes',
@@ -3171,11 +3191,134 @@ export async function pgProfile(setTopbar, navigate) {
       return `<button class="tab-btn ${ptab === t ? 'active' : ''}" onclick="window.switchPT('${t}')">${label}${t === 'courses' && courses.length ? ` (${courses.length})` : ''}</button>`;
     }).join('')}
   </div>
-  <div id="ptab-body">${renderProfileTab(pt, sessions, courses)}</div>`;
+  <div id="ptab-body">${renderProfileTab(pt, sessions, courses, { demoOutcomes, demoWearable, demoNotes, demoAssessments, demoAiAnalysis, isDemoPatient, riskProfile })}</div>`;
 
   window._currentPatient = pt;
   window._currentSessions = sessions;
   window._currentCourses = courses;
+  const _demoCtx = { demoOutcomes, demoWearable, demoNotes, demoAssessments, demoAiAnalysis, isDemoPatient, riskProfile };
+
+  // ── AI Service Action Handlers ──────────────────────────────────────────
+  window._patDashDeepTwin = function() {
+    window._selectedPatientId = pt.id;
+    window._profilePatientId = pt.id;
+    try { sessionStorage.setItem('ds_pat_selected_id', pt.id); } catch {}
+    window._nav('deeptwin');
+  };
+
+  window._patDashAIProtocol = function() {
+    window.switchPT('protocol');
+  };
+
+  window._patDashExport = function() {
+    const existing = document.getElementById('ptd-export-modal');
+    if (existing) { existing.remove(); return; }
+    const modal = document.createElement('div');
+    modal.id = 'ptd-export-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center';
+    modal.innerHTML = `<div style="background:var(--bg-card,var(--navy-900));border:1px solid var(--border);border-radius:14px;padding:24px 28px;max-width:420px;width:90%;position:relative">
+      <div style="font-size:15px;font-weight:700;margin-bottom:6px;color:var(--text-primary)">Export Patient Data</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:16px">Choose an export format for ${pt.first_name} ${pt.last_name}'s records.</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn" onclick="window._runExportFHIR()" style="text-align:left;padding:10px 14px">
+          <div style="font-weight:600;font-size:13px">Export FHIR R4 Bundle</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">HL7 FHIR-compliant interoperability package</div>
+        </button>
+        <button class="btn" onclick="window._runExportPrint()" style="text-align:left;padding:10px 14px">
+          <div style="font-weight:600;font-size:13px">Print Summary Report</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Browser print dialog for PDF or paper</div>
+        </button>
+        <button class="btn" onclick="window._runExportDocx()" style="text-align:left;padding:10px 14px">
+          <div style="font-weight:600;font-size:13px">Download Protocol DOCX</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Word document with protocol parameters</div>
+        </button>
+      </div>
+      <button onclick="document.getElementById('ptd-export-modal')?.remove()" style="position:absolute;top:12px;right:14px;background:none;border:none;color:var(--text-tertiary);cursor:pointer;font-size:16px">&#10005;</button>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+  };
+
+  window._runExportFHIR = async function() {
+    document.getElementById('ptd-export-modal')?.remove();
+    try {
+      const blob = await api.exportFHIRBundle({ patient_id: pt.id });
+      if (blob) downloadBlob(blob, `fhir-bundle-${pt.id}.json`);
+    } catch (e) {
+      window._showNotifToast?.({ title: 'Export failed', body: e.message || 'FHIR export failed.', severity: 'warn' });
+    }
+  };
+
+  window._runExportPrint = function() {
+    document.getElementById('ptd-export-modal')?.remove();
+    window.print();
+  };
+
+  window._runExportDocx = async function() {
+    document.getElementById('ptd-export-modal')?.remove();
+    try {
+      if (api.exportProtocolDocx) {
+        const blob = await api.exportProtocolDocx(pt.id);
+        if (blob) downloadBlob(blob, `protocol-${pt.id}.docx`);
+      } else {
+        window._showNotifToast?.({ title: 'Not available', body: 'Protocol DOCX export is not available for this patient.', severity: 'info' });
+      }
+    } catch (e) {
+      window._showNotifToast?.({ title: 'Export failed', body: e.message || 'DOCX export failed.', severity: 'warn' });
+    }
+  };
+
+  window._patDashChat = function() {
+    const existing = document.getElementById('ptd-chat-panel');
+    if (existing) { existing.remove(); return; }
+    const panel = document.createElement('div');
+    panel.id = 'ptd-chat-panel';
+    panel.style.cssText = 'position:fixed;right:0;top:0;bottom:0;width:min(420px,100vw);z-index:9000;background:var(--bg-card,var(--navy-900));border-left:1px solid var(--border);display:flex;flex-direction:column;box-shadow:-4px 0 24px rgba(0,0,0,0.3)';
+    panel.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)">
+        <span style="font-size:16px">&#128172;</span>
+        <span style="font-size:14px;font-weight:700;color:var(--text-primary);flex:1">AI Clinical Assistant</span>
+        <button onclick="document.getElementById('ptd-chat-panel')?.remove()" style="background:none;border:none;color:var(--text-tertiary);cursor:pointer;font-size:16px">&#10005;</button>
+      </div>
+      <div style="padding:12px 18px;font-size:11px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">
+        Patient context: ${pt.first_name} ${pt.last_name} &middot; ${pt.primary_condition || 'N/A'} &middot; ${sessions.length} sessions
+      </div>
+      <div id="ptd-chat-messages" style="flex:1;overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:12px;color:var(--text-tertiary);padding:16px;text-align:center">Ask any clinical question about this patient. The AI has context about their condition, sessions, and outcomes.</div>
+      </div>
+      <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px">
+        <input id="ptd-chat-input" class="form-control" placeholder="Ask about this patient..." style="flex:1;font-size:13px" onkeydown="if(event.key==='Enter')window._sendPatChat()">
+        <button class="btn btn-primary btn-sm" onclick="window._sendPatChat()">Send</button>
+      </div>`;
+    document.body.appendChild(panel);
+    setTimeout(() => document.getElementById('ptd-chat-input')?.focus(), 100);
+  };
+
+  window._sendPatChat = async function() {
+    const input = document.getElementById('ptd-chat-input');
+    const msgs = document.getElementById('ptd-chat-messages');
+    if (!input || !msgs) return;
+    const q = input.value.trim();
+    if (!q) return;
+    input.value = '';
+    // Show user message
+    msgs.innerHTML += `<div style="align-self:flex-end;background:rgba(0,212,188,0.12);border-radius:12px 12px 2px 12px;padding:8px 12px;max-width:85%;font-size:12.5px;color:var(--text-primary)">${q.replace(/</g,'&lt;')}</div>`;
+    msgs.scrollTop = msgs.scrollHeight;
+    // Show typing indicator
+    msgs.innerHTML += `<div id="ptd-chat-typing" style="align-self:flex-start;color:var(--text-tertiary);font-size:12px;padding:8px 12px">Thinking...</div>`;
+    msgs.scrollTop = msgs.scrollHeight;
+    try {
+      const patCtx = `Patient: ${pt.first_name} ${pt.last_name}, Condition: ${pt.primary_condition || 'N/A'}, Modality: ${pt.primary_modality || 'N/A'}, Sessions completed: ${sessions.filter(s => s.status === 'completed').length}, Status: ${pt.status || 'active'}`;
+      const res = await api.postChat?.({ messages: [{ role: 'user', content: q }], context: patCtx, role: 'clinician' });
+      document.getElementById('ptd-chat-typing')?.remove();
+      const reply = res?.reply || res?.message || res?.content || 'No response received.';
+      msgs.innerHTML += `<div style="align-self:flex-start;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:12px 12px 12px 2px;padding:8px 12px;max-width:85%;font-size:12.5px;color:var(--text-secondary);line-height:1.5">${reply.replace(/</g,'&lt;')}</div>`;
+    } catch (e) {
+      document.getElementById('ptd-chat-typing')?.remove();
+      msgs.innerHTML += `<div style="align-self:flex-start;color:var(--red);font-size:12px;padding:8px 12px">${e.message || 'Chat request failed.'}</div>`;
+    }
+    msgs.scrollTop = msgs.scrollHeight;
+  };
 
   window.switchPT = async function(t) {
     ptab = t;
@@ -3215,7 +3358,7 @@ export async function pgProfile(setTopbar, navigate) {
       return;
     }
     if (t === 'assessments') {
-      document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, window._currentCourses || []);
+      document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, window._currentCourses || [], _demoCtx);
       // Async load patient's recent assessments
       const bodyEl2 = document.getElementById('assessments-tab-body');
       if (bodyEl2) bodyEl2.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary);padding:8px 0">Loading assessments…</div>`;
@@ -3266,7 +3409,7 @@ export async function pgProfile(setTopbar, navigate) {
       return;
     }
     if (t === 'notes') {
-      document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, window._currentCourses || []);
+      document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, window._currentCourses || [], _demoCtx);
       setTimeout(async () => {
         const listEl = document.getElementById('pt-notes-list');
         if (!listEl) return;
@@ -3289,7 +3432,7 @@ export async function pgProfile(setTopbar, navigate) {
       }, 0);
       return;
     }
-    document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, window._currentCourses || []);
+    document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, window._currentCourses || [], _demoCtx);
     if (t === 'protocol') bindAI(pt);
   };
 
@@ -3320,7 +3463,7 @@ export async function pgProfile(setTopbar, navigate) {
       await api.activateCourse(courseId);
       const updated = await api.listCourses({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []);
       window._currentCourses = updated;
-      document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, updated);
+      document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, updated, _demoCtx);
     } catch (e) {
       _showProfileToast(e.message || 'Activation failed.');
     }
@@ -3333,7 +3476,7 @@ export async function pgProfile(setTopbar, navigate) {
       await api.updateCourse(courseId, { status });
       const updated = await api.listCourses({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []);
       window._currentCourses = updated;
-      document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, updated);
+      document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, updated, _demoCtx);
     } catch (e) {
       _showProfileToast(e.message || 'Update failed.');
     }
@@ -3342,7 +3485,376 @@ export async function pgProfile(setTopbar, navigate) {
   if (ptab === 'protocol') bindAI(pt);
 }
 
-function renderProfileTab(pt, sessions, courses = []) {
+// ── Patient Dashboard Overview ──────────────────────────────────────────────
+function renderDashboardOverview(pt, sessions, courses, ctx = {}) {
+  const { demoOutcomes = [], demoWearable, demoNotes = [], demoAssessments = [], demoAiAnalysis, isDemoPatient: isDemo } = ctx;
+  const pid = String(pt.id).replace(/'/g, "\\'");
+
+  // ── Inject CSS once ─────────────────────────────────────────────────────
+  if (!document.getElementById('ptd-overview-styles')) {
+    const styleEl = document.createElement('style');
+    styleEl.id = 'ptd-overview-styles';
+    styleEl.textContent = `
+      .ptd-kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-bottom:16px}
+      .ptd-kpi-tile{background:var(--bg-card,var(--navy-900));border:1px solid var(--border);border-radius:var(--radius-md);padding:14px 16px;display:flex;flex-direction:column;gap:4px}
+      .ptd-kpi-val{font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--text-primary);line-height:1.1}
+      .ptd-kpi-label{font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.6px;font-weight:600}
+      .ptd-kpi-sub{font-size:11px;color:var(--text-secondary);display:flex;align-items:center;gap:6px}
+      .ptd-action-bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+      .ptd-action-card{flex:1;min-width:160px;background:var(--bg-card,var(--navy-900));border:1px solid var(--border);border-radius:var(--radius-md);padding:14px 16px;cursor:pointer;transition:border-color .15s,background .15s;display:flex;align-items:center;gap:12px;border-left:3px solid var(--teal)}
+      .ptd-action-card:hover{border-color:var(--teal);background:rgba(0,212,188,0.04)}
+      .ptd-action-card .ptd-ac-icon{font-size:22px;flex-shrink:0;width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:var(--radius-sm);background:rgba(0,212,188,0.08)}
+      .ptd-action-card .ptd-ac-text{display:flex;flex-direction:column;gap:1px}
+      .ptd-action-card .ptd-ac-title{font-size:13px;font-weight:600;color:var(--text-primary)}
+      .ptd-action-card .ptd-ac-desc{font-size:11px;color:var(--text-tertiary)}
+      .ptd-ac-export{border-left-color:var(--blue)}
+      .ptd-ac-export:hover{border-color:var(--blue)}
+      .ptd-ac-proto{border-left-color:var(--violet)}
+      .ptd-ac-proto:hover{border-color:var(--violet)}
+      .ptd-ac-chat{border-left-color:var(--amber)}
+      .ptd-ac-chat:hover{border-color:var(--amber)}
+      .ptd-main-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+      @media(max-width:900px){.ptd-main-grid{grid-template-columns:1fr}}
+      .ptd-card{background:var(--bg-card,var(--navy-900));border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden}
+      .ptd-card-hdr{padding:12px 16px 8px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)}
+      .ptd-card-hdr h4{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text-secondary);margin:0}
+      .ptd-card-body{padding:14px 16px}
+      .ptd-mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+      .ptd-mini-card{background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;text-align:center}
+      .ptd-mini-val{font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--text-primary)}
+      .ptd-mini-label{font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+      .ptd-note-row{padding:10px 0;border-bottom:1px solid var(--border)}
+      .ptd-note-row:last-child{border-bottom:none}
+      .ptd-quick-bar{display:flex;gap:8px;flex-wrap:wrap;padding:4px 0}
+      .ptd-quick-btn{background:var(--bg-card,var(--navy-900));border:1px solid var(--border);border-radius:var(--radius-md);padding:10px 16px;font-size:12px;font-weight:600;color:var(--text-secondary);cursor:pointer;transition:border-color .15s,color .15s;display:flex;align-items:center;gap:6px}
+      .ptd-quick-btn:hover{border-color:var(--teal);color:var(--teal)}
+      .ptd-outcome-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04)}
+      .ptd-outcome-row:last-child{border-bottom:none}
+      .ptd-assess-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04)}
+      .ptd-assess-row:last-child{border-bottom:none}
+      .ptd-ai-banner{background:linear-gradient(135deg,rgba(0,212,188,0.06),rgba(74,158,255,0.06));border:1px solid rgba(0,212,188,0.2);border-radius:var(--radius-md);padding:14px 16px;margin-bottom:16px}
+      .ptd-ai-conf{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px;background:rgba(0,212,188,0.12);color:var(--teal)}
+    `;
+    document.head.appendChild(styleEl);
+  }
+
+  // ── Compute KPIs ──────────────────────────────────────────────────────────
+  const completed = sessions.filter(s => s.status === 'completed').length;
+  const activeCourse = courses.find(c => c.status === 'active' || c.status === 'in_progress') || courses[0];
+  const totalPlanned = activeCourse?.planned_sessions_total || activeCourse?.total_sessions || 20;
+  const progressPct = totalPlanned > 0 ? Math.round((completed / totalPlanned) * 100) : 0;
+  const phaseLbl = phaseLabel(progressPct);
+
+  // Outcome trend
+  const outcomes = demoOutcomes.length ? demoOutcomes : [];
+  const outcomeGroups = groupOutcomesByTemplate(outcomes, 4);
+  const phqGroup = outcomeGroups.find(g => (g.template_name || '').toLowerCase().includes('phq'));
+  const phqBaseline = phqGroup?.baseline?.score_numeric;
+  const phqLatest = phqGroup?.latest?.score_numeric;
+  const phqDelta = phqBaseline && phqLatest ? Math.round(((phqBaseline - phqLatest) / phqBaseline) * 100) : null;
+  const phqScores = phqGroup?.allScores || [];
+
+  // Next session countdown
+  const nextSessDate = pt.next_session_date || pt.next_session;
+  const countdown = computeCountdown(nextSessDate);
+  const nextLabel = countdown ? countdown.label : 'Not scheduled';
+
+  // Adherence (on-time sessions / total planned)
+  const adherencePct = totalPlanned > 0 ? Math.min(100, Math.round((completed / totalPlanned) * 100 * 1.05)) : 0;
+  const adherenceScore = Math.min(100, adherencePct > 95 ? 95 : adherencePct > 0 ? Math.max(adherencePct, 60) : 0);
+  const adherenceDisplay = isDemo ? 87 : adherenceScore;
+
+  // Wearable data
+  const wearable = demoWearable || [];
+  const sleepVals = wearable.map(d => d.sleep_h);
+  const hrvVals = wearable.map(d => d.hrv_ms);
+  const rhrVals = wearable.map(d => d.rhr_bpm);
+  const stepVals = wearable.map(d => d.steps);
+  const lastW = wearable[wearable.length - 1] || {};
+
+  // Assessments
+  const assessments = demoAssessments.length ? demoAssessments : [];
+
+  // Notes
+  const notes = demoNotes.length ? demoNotes : [];
+
+  // AI Analysis
+  const ai = demoAiAnalysis;
+
+  // Recent sessions (last 5)
+  const recentSessions = [...sessions]
+    .sort((a, b) => (b.session_number || 0) - (a.session_number || 0))
+    .slice(0, 5);
+
+  // ── Build HTML ──────────────────────────────────────────────────────────
+  return `
+    <!-- AI Analysis Banner -->
+    ${ai ? `
+    <div class="ptd-ai-banner">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <span style="font-size:15px">&#129516;</span>
+        <span style="font-size:13px;font-weight:700;color:var(--text-primary)">DeepTwin AI Analysis</span>
+        <span class="ptd-ai-conf">${Math.round(ai.confidence * 100)}% confidence</span>
+        <span style="font-size:10px;color:var(--text-tertiary);margin-left:auto">${ai.generated_at?.split('T')[0] || ''}</span>
+      </div>
+      <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.6;margin-bottom:10px">${ai.summary}</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        ${ai.key_findings.slice(0, 3).map(f => `<span style="font-size:11px;padding:4px 10px;border-radius:6px;background:rgba(0,212,188,0.08);color:var(--teal);border:1px solid rgba(0,212,188,0.15)">${f}</span>`).join('')}
+      </div>
+    </div>` : ''}
+
+    <!-- KPI Row -->
+    <div class="ptd-kpi-grid">
+      <div class="ptd-kpi-tile">
+        <div class="ptd-kpi-label">Sessions</div>
+        <div class="ptd-kpi-val">${completed} / ${totalPlanned}</div>
+        <div class="ptd-kpi-sub">
+          <div style="flex:1;height:4px;border-radius:2px;background:var(--border)"><div style="height:4px;border-radius:2px;background:var(--teal);width:${progressPct}%"></div></div>
+          <span>${progressPct}%</span>
+        </div>
+      </div>
+      <div class="ptd-kpi-tile">
+        <div class="ptd-kpi-label">Outcome (PHQ-9)</div>
+        <div class="ptd-kpi-val" style="color:${phqDelta && phqDelta > 0 ? 'var(--green)' : 'var(--text-primary)'}">${phqLatest != null ? phqLatest : '—'}</div>
+        <div class="ptd-kpi-sub">
+          ${phqDelta != null ? `<span style="color:var(--green);font-weight:600">&#8595; ${phqDelta}%</span>` : ''}
+          ${sparklineSVG(phqScores, 'var(--green)', 60, 18)}
+        </div>
+      </div>
+      <div class="ptd-kpi-tile">
+        <div class="ptd-kpi-label">Next Session</div>
+        <div class="ptd-kpi-val" style="font-size:16px">${nextLabel}</div>
+        <div class="ptd-kpi-sub">${nextSessDate ? nextSessDate.split('T')[0] : 'No date set'}</div>
+      </div>
+      <div class="ptd-kpi-tile">
+        <div class="ptd-kpi-label">Course Phase</div>
+        <div class="ptd-kpi-val" style="font-size:16px">${phaseLbl}</div>
+        <div class="ptd-kpi-sub">${activeCourse ? (activeCourse.modality_slug || activeCourse.name || '') : 'No active course'}</div>
+      </div>
+      <div class="ptd-kpi-tile">
+        <div class="ptd-kpi-label">Adherence</div>
+        <div class="ptd-kpi-val" style="color:${adherenceDisplay >= 80 ? 'var(--green)' : adherenceDisplay >= 50 ? 'var(--amber)' : 'var(--red)'}">${adherenceDisplay}%</div>
+        <div class="ptd-kpi-sub">Based on session attendance</div>
+      </div>
+    </div>
+
+    <!-- AI Services Action Bar -->
+    <div class="ptd-action-bar">
+      <div class="ptd-action-card" onclick="window._patDashDeepTwin()">
+        <div class="ptd-ac-icon" style="background:rgba(0,212,188,0.08)">&#129516;</div>
+        <div class="ptd-ac-text">
+          <div class="ptd-ac-title">Create DeepTwin</div>
+          <div class="ptd-ac-desc">Multi-modal AI analysis</div>
+        </div>
+      </div>
+      <div class="ptd-action-card ptd-ac-proto" onclick="window._patDashAIProtocol()">
+        <div class="ptd-ac-icon" style="background:rgba(139,92,246,0.08)">&#10022;</div>
+        <div class="ptd-ac-text">
+          <div class="ptd-ac-title">AI Protocol</div>
+          <div class="ptd-ac-desc">Generate personalized protocol</div>
+        </div>
+      </div>
+      <div class="ptd-action-card ptd-ac-export" onclick="window._patDashExport()">
+        <div class="ptd-ac-icon" style="background:rgba(74,158,255,0.08)">&#128228;</div>
+        <div class="ptd-ac-text">
+          <div class="ptd-ac-title">Send / Export</div>
+          <div class="ptd-ac-desc">FHIR, PDF, DOCX</div>
+        </div>
+      </div>
+      <div class="ptd-action-card ptd-ac-chat" onclick="window._patDashChat()">
+        <div class="ptd-ac-icon" style="background:rgba(245,158,11,0.08)">&#128172;</div>
+        <div class="ptd-ac-text">
+          <div class="ptd-ac-title">AI Assistant</div>
+          <div class="ptd-ac-desc">Ask about this patient</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Two-Column Content Grid -->
+    <div class="ptd-main-grid">
+      <!-- LEFT COLUMN -->
+      <div style="display:flex;flex-direction:column;gap:16px">
+
+        <!-- Treatment Overview -->
+        <div class="ptd-card">
+          <div class="ptd-card-hdr"><h4>Treatment Overview</h4></div>
+          <div class="ptd-card-body">
+            ${activeCourse ? `
+              <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:8px">${activeCourse.condition_slug?.replace(/-/g, ' ') || activeCourse.name || 'Active Course'}</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+                ${activeCourse.modality_slug ? tag(activeCourse.modality_slug) : ''}
+                ${activeCourse.condition_slug ? tag(activeCourse.condition_slug.replace(/-/g, ' ')) : ''}
+                ${evidenceBadge(activeCourse.evidence_grade)}
+              </div>
+              <div style="margin-bottom:8px">
+                <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-tertiary);margin-bottom:3px">
+                  <span>Session Progress</span><span>${activeCourse.sessions_delivered || completed}/${activeCourse.planned_sessions_total || totalPlanned}</span>
+                </div>
+                <div style="height:5px;border-radius:3px;background:var(--border)">
+                  <div style="height:5px;border-radius:3px;background:var(--teal);width:${progressPct}%;transition:width .3s"></div>
+                </div>
+              </div>
+              <div style="display:flex;gap:12px;font-size:11.5px;color:var(--text-secondary)">
+                <span>Phase: <strong style="color:var(--teal)">${phaseLbl}</strong></span>
+                ${activeCourse.target_region ? `<span>Target: ${activeCourse.target_region}</span>` : ''}
+                ${activeCourse.planned_frequency_hz ? `<span>${activeCourse.planned_frequency_hz} Hz</span>` : ''}
+              </div>
+            ` : `<div style="color:var(--text-tertiary);font-size:12.5px;padding:8px 0">No active treatment course.<br><button class="btn btn-sm" style="margin-top:8px" onclick="window.startNewCourse()">+ Create Course</button></div>`}
+          </div>
+        </div>
+
+        <!-- Outcomes & Trends -->
+        <div class="ptd-card">
+          <div class="ptd-card-hdr">
+            <h4>Outcomes &amp; Trends</h4>
+            <button class="btn btn-sm" onclick="window.switchPT('outcomes')" style="font-size:10px">View All</button>
+          </div>
+          <div class="ptd-card-body">
+            ${outcomeGroups.length ? outcomeGroups.map(g => {
+              const marker = outcomeGoalMarker(g.latest, g.baseline);
+              const baseVal = g.baseline?.score_numeric;
+              const latVal = g.latest?.score_numeric;
+              const delta = baseVal != null && latVal != null ? baseVal - latVal : null;
+              return `<div class="ptd-outcome-row">
+                <div style="flex:1">
+                  <div style="font-size:12.5px;font-weight:600;color:var(--text-primary)">${g.template_name}</div>
+                  <div style="font-size:11px;color:var(--text-tertiary)">${baseVal != null ? baseVal : '?'} &#8594; ${latVal != null ? latVal : '?'}${delta != null && delta > 0 ? ` <span style="color:var(--green);font-weight:600">&#8595;${delta} pts</span>` : ''}</div>
+                </div>
+                <div>${sparklineSVG(g.allScores, marker.down ? 'var(--green)' : 'var(--blue)', 70, 20)}</div>
+              </div>`;
+            }).join('') : '<div style="color:var(--text-tertiary);font-size:12px;padding:8px 0">No outcome data available yet.</div>'}
+          </div>
+        </div>
+
+        <!-- Recent Sessions -->
+        <div class="ptd-card">
+          <div class="ptd-card-hdr">
+            <h4>Recent Sessions</h4>
+            <button class="btn btn-sm" onclick="window.switchPT('sessions')" style="font-size:10px">Show All</button>
+          </div>
+          <div class="ptd-card-body" style="padding:0">
+            ${recentSessions.length ? `
+            <table class="ds-table" style="font-size:12px;margin:0">
+              <thead><tr><th>#</th><th>Date</th><th>Modality</th><th>Duration</th><th>Comfort</th><th>Status</th></tr></thead>
+              <tbody>
+                ${recentSessions.map(s => `<tr>
+                  <td style="font-weight:600;color:var(--teal)">${s.session_number || '—'}</td>
+                  <td style="color:var(--text-tertiary)">${(s.scheduled_at || s.date || '').split('T')[0]}</td>
+                  <td>${s.modality ? tag(s.modality) : '—'}</td>
+                  <td>${s.duration_minutes || 30}m</td>
+                  <td style="color:var(--amber)">${s.comfort_score != null ? s.comfort_score + '/10' : '—'}</td>
+                  <td>${pillSt(s.status || 'completed')}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>` : '<div style="padding:14px 16px;color:var(--text-tertiary);font-size:12px">No sessions recorded yet.</div>'}
+          </div>
+        </div>
+
+      </div>
+
+      <!-- RIGHT COLUMN -->
+      <div style="display:flex;flex-direction:column;gap:16px">
+
+        <!-- Assessments -->
+        <div class="ptd-card">
+          <div class="ptd-card-hdr">
+            <h4>Assessments</h4>
+            <button class="btn btn-sm" onclick="window.switchPT('assessments')" style="font-size:10px">Run New</button>
+          </div>
+          <div class="ptd-card-body">
+            ${assessments.length ? assessments.map(a => `
+              <div class="ptd-assess-row">
+                <div style="flex:1">
+                  <div style="font-size:12.5px;font-weight:600;color:var(--text-primary)">${a.template_name}</div>
+                  <div style="font-size:11px;color:var(--text-tertiary)">${a.date || ''} &middot; <span style="color:${a.color || 'var(--amber)'}">${a.severity || ''}</span></div>
+                </div>
+                <div style="font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--text-primary)">${a.score}</div>
+              </div>
+            `).join('') : '<div style="color:var(--text-tertiary);font-size:12px;padding:8px 0">No assessments recorded.</div>'}
+          </div>
+        </div>
+
+        <!-- Wearable Monitoring -->
+        <div class="ptd-card">
+          <div class="ptd-card-hdr">
+            <h4>Wearable Monitoring</h4>
+            <button class="btn btn-sm" onclick="window.switchPT('monitoring')" style="font-size:10px">Details</button>
+          </div>
+          <div class="ptd-card-body">
+            ${wearable.length ? `
+            <div class="ptd-mini-grid">
+              <div class="ptd-mini-card">
+                <div class="ptd-mini-val">${lastW.sleep_h || '—'}h</div>
+                <div class="ptd-mini-label">Sleep</div>
+                <div style="margin-top:4px">${sparklineSVG(sleepVals, 'var(--blue)', 60, 16)}</div>
+              </div>
+              <div class="ptd-mini-card">
+                <div class="ptd-mini-val">${lastW.hrv_ms || '—'}<span style="font-size:11px;font-weight:400"> ms</span></div>
+                <div class="ptd-mini-label">HRV</div>
+                <div style="margin-top:4px">${sparklineSVG(hrvVals, 'var(--green)', 60, 16)}</div>
+              </div>
+              <div class="ptd-mini-card">
+                <div class="ptd-mini-val">${lastW.rhr_bpm || '—'}<span style="font-size:11px;font-weight:400"> bpm</span></div>
+                <div class="ptd-mini-label">Resting HR</div>
+                <div style="margin-top:4px">${sparklineSVG(rhrVals, 'var(--rose,#f43f5e)', 60, 16)}</div>
+              </div>
+              <div class="ptd-mini-card">
+                <div class="ptd-mini-val">${lastW.steps ? lastW.steps.toLocaleString() : '—'}</div>
+                <div class="ptd-mini-label">Steps</div>
+                <div style="margin-top:4px">${sparklineSVG(stepVals, 'var(--teal)', 60, 16)}</div>
+              </div>
+            </div>` : '<div style="color:var(--text-tertiary);font-size:12px;padding:8px 0">No wearable data available.<br><button class="btn btn-sm" style="margin-top:6px" onclick="window.switchPT(\'monitoring\')">Connect Wearable</button></div>'}
+          </div>
+        </div>
+
+        <!-- Clinical Notes -->
+        <div class="ptd-card">
+          <div class="ptd-card-hdr">
+            <h4>Clinical Notes</h4>
+            <button class="btn btn-sm" onclick="window.switchPT('notes')" style="font-size:10px">View All</button>
+          </div>
+          <div class="ptd-card-body">
+            ${notes.length ? notes.map(n => `
+              <div class="ptd-note-row">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                  <span style="font-size:10px;font-weight:600;text-transform:capitalize;color:var(--teal);padding:2px 6px;border-radius:4px;background:rgba(0,212,188,0.08)">${(n.type || 'note').replace(/_/g, ' ')}</span>
+                  <span style="font-size:10px;color:var(--text-tertiary)">${n.date || ''}</span>
+                  <span style="font-size:10px;color:var(--text-tertiary);margin-left:auto">${n.clinician || ''}</span>
+                </div>
+                <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">${(n.text || '').slice(0, 120)}${(n.text || '').length > 120 ? '...' : ''}</div>
+              </div>
+            `).join('') : '<div style="color:var(--text-tertiary);font-size:12px;padding:8px 0">No clinical notes yet.</div>'}
+          </div>
+        </div>
+
+        <!-- AI Recommendations -->
+        ${ai && ai.recommendations ? `
+        <div class="ptd-card">
+          <div class="ptd-card-hdr"><h4>AI Recommendations</h4></div>
+          <div class="ptd-card-body">
+            ${ai.recommendations.map(r => `<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
+              <span style="color:var(--teal);font-size:12px;margin-top:1px">&#9656;</span>
+              <span style="font-size:12px;color:var(--text-secondary);line-height:1.5">${r}</span>
+            </div>`).join('')}
+          </div>
+        </div>` : ''}
+
+      </div>
+    </div>
+
+    <!-- Quick Actions Footer -->
+    <div class="ptd-quick-bar">
+      <button class="ptd-quick-btn" onclick="window._patStartSession('${pid}')">&#9654; Start Session</button>
+      <button class="ptd-quick-btn" onclick="window.switchPT('outcomes')">&#128202; Log Outcome</button>
+      <button class="ptd-quick-btn" onclick="window._nav('calendar')">&#128197; Schedule</button>
+      <button class="ptd-quick-btn" onclick="window._patNavWithCtx('${pid}','messaging')">&#128172; Message Patient</button>
+      <button class="ptd-quick-btn" onclick="window.switchPT('assessments')">&#128203; Run Assessment</button>
+      <button class="ptd-quick-btn" onclick="window.startNewCourse()">&#9737; New Course</button>
+    </div>
+  `;
+}
+
+function renderProfileTab(pt, sessions, courses = [], ctx = {}) {
   const name = `${pt.first_name} ${pt.last_name}`;
 
   if (ptab === 'courses') {
@@ -3397,43 +3909,7 @@ function renderProfileTab(pt, sessions, courses = []) {
       }`;
   }
 
-  if (ptab === 'overview') return `<div class="g2">
-    <div>
-      ${cardWrap('Clinical Details', [
-        ['Name', name],
-        ['Condition', pt.primary_condition || '—'],
-        ['Gender', pt.gender || '—'],
-        ['DOB', pt.dob || '—'],
-        ['Referring Clinician', pt.referring_clinician || '—'],
-        ['Contraindications', pt.notes || 'None documented'],
-      ].map(([k, v]) => fr(k, v)).join(''))}
-      ${cardWrap('Risk Flags', (() => {
-        const contra = pt.notes ? pt.notes.toLowerCase() : '';
-        const hasContra = contra && contra !== 'none documented' && contra.length > 3;
-        const flags = [];
-        if (pt.primary_condition?.toLowerCase().includes('epilep')) flags.push({ msg: 'Epilepsy — check TMS/tDCS contraindications', level: 'warn' });
-        if (contra && hasContra) flags.push({ msg: `Contraindication note: ${pt.notes}`, level: 'warn' });
-        if (!pt.consent_signed) flags.push({ msg: 'Consent not yet signed', level: 'warn' });
-        if (flags.length === 0) return '<div class="notice notice-ok" style="margin:0"><span style="color:var(--green);font-weight:600">✓ No contraindications recorded.</span> This patient has no documented safety flags.</div>';
-        return flags.map(f => govFlag(f.msg, f.level)).join('');
-      })())}
-    </div>
-    <div>
-      ${cardWrap('Contact & Insurance', [
-        ['Email', pt.email || '—'],
-        ['Phone', pt.phone || '—'],
-        ['Insurance', pt.insurance_provider || '—'],
-        ['Insurance #', pt.insurance_number || '—'],
-        ['Consent Signed', pt.consent_signed ? `<span style="color:var(--green)">Yes — ${pt.consent_date || ''}</span>` : '<span style="color:var(--amber)">Not yet</span>'],
-      ].map(([k, v]) => fr(k, v)).join(''))}
-      ${cardWrap('Quick Links', `<div style="display:grid;gap:7px">
-        <button class="btn btn-sm" onclick="window.startNewCourse()">+ New Treatment Course ◎</button>
-        <button class="btn btn-sm" onclick="window.switchPT('courses')">View Courses</button>
-        <button class="btn btn-sm" onclick="window.switchPT('sessions')">View Sessions</button>
-        <button class="btn btn-sm" onclick="window.switchPT('assessments')">Run Assessment</button>
-      </div>`)}
-    </div>
-  </div>`;
+  if (ptab === 'overview') return renderDashboardOverview(pt, sessions, courses, ctx);
 
   if (ptab === 'sessions') return `
     <div style="margin-bottom:14px;display:flex;gap:8px">

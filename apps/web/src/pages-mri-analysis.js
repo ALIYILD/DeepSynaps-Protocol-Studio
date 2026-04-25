@@ -51,6 +51,7 @@ var _patientAnalysesCache = { patientId: null, rows: [] };
 // ── Brain Atlas Viewer state ────────────────────────────────────────────────
 var _customTargets = [];
 var _atlasLabelsVisible = true;
+var _atlasEfieldVisible = true;
 var _atlasAnimFrame = null;
 
 // ── Modality color map (shared by glass-brain + atlas viewer) ───────────────
@@ -94,6 +95,44 @@ function _targetDotColor(target) {
   if (String(target.method || '').endsWith('_personalised')) return PERSONALISED_DOT_COLOR;
   if (target.is_custom) return MODALITY_DOT_COLOR.custom;
   return MODALITY_DOT_COLOR[String(target.modality || '').toLowerCase()] || '#60a5fa';
+}
+
+// ── E-field heatmap helpers ─────────────────────────────────────────────────
+var _EFIELD_DEFAULT_SIGMA_MM = 15;
+var _EFIELD_MAX_ALPHA = 0.7;
+
+function _efieldHexToRgb(hex) {
+  var n = parseInt(hex.replace('#', ''), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function _pixelsPerMm(plane, cw, ch) {
+  // MNI ranges per plane axis:
+  // axial:    x=180mm (cw), y=216mm (ch)
+  // coronal:  x=180mm (cw), y=180mm (ch, z-range [-72,108])
+  // sagittal: x=216mm (cw, y-range [-126,90]), y=180mm (ch, z-range)
+  if (plane === 'axial')    return (cw / 180 + ch / 216) / 2;
+  if (plane === 'coronal')  return (cw / 180 + ch / 180) / 2;
+  if (plane === 'sagittal') return (cw / 216 + ch / 180) / 2;
+  return cw / 180;
+}
+
+function _computeTargetSigmaPx(target, pxPerMm) {
+  var sigmaMm = _EFIELD_DEFAULT_SIGMA_MM;
+  if (target.efield_dose && target.efield_dose.focality_50pct_volume_cm3 > 0) {
+    // Approximate sphere radius from volume: V = 4/3 pi r^3 => r = cbrt(3V / 4pi)
+    // Volume is in cm^3, convert radius to mm (*10)
+    var vol = target.efield_dose.focality_50pct_volume_cm3;
+    sigmaMm = Math.cbrt(3 * vol / (4 * Math.PI)) * 10;
+  }
+  return sigmaMm * pxPerMm;
+}
+
+function _efieldOutOfPlaneDistance(mni_xyz, plane) {
+  if (plane === 'axial')    return Math.abs(Number(mni_xyz[2]) - _ATLAS_CUT.axial);
+  if (plane === 'coronal')  return Math.abs(Number(mni_xyz[1]) - _ATLAS_CUT.coronal);
+  if (plane === 'sagittal') return Math.abs(Number(mni_xyz[0]) - _ATLAS_CUT.sagittal);
+  return _ATLAS_SLAB;
 }
 
 // ── Feature flag ────────────────────────────────────────────────────────────
@@ -510,6 +549,120 @@ function _mountBrainAtlasViewer(report) {
   });
 }
 
+// ── E-field Gaussian heatmap renderer ───────────────────────────────────────
+function _drawEfieldHeatmap(ctx, plane, cw, ch, targets) {
+  // Filter to targets visible on this plane
+  var visible = [];
+  for (var i = 0; i < targets.length; i++) {
+    var t = targets[i];
+    if (!Array.isArray(t.mni_xyz) || t.mni_xyz.length < 3) continue;
+    if (!_targetVisibleOnPlane(t.mni_xyz, plane)) continue;
+    visible.push(t);
+  }
+  if (!visible.length) return;
+
+  // Half-resolution for performance (Gaussian blur hides 2x upscale)
+  var hw = Math.ceil(cw / 2);
+  var hh = Math.ceil(ch / 2);
+  if (hw < 4 || hh < 4) return;
+
+  var tmpCanvas;
+  try {
+    if (typeof OffscreenCanvas !== 'undefined') {
+      tmpCanvas = new OffscreenCanvas(hw, hh);
+    } else {
+      tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = hw;
+      tmpCanvas.height = hh;
+    }
+  } catch (_) { return; }
+
+  var tmpCtx = tmpCanvas.getContext('2d');
+  if (!tmpCtx) return;
+  var imgData = tmpCtx.createImageData(hw, hh);
+  var data = imgData.data;
+
+  var pxPerMm = _pixelsPerMm(plane, cw, ch);
+  var halfPxPerMm = pxPerMm / 2; // for half-res coordinates
+
+  // Precompute per-target data
+  var tData = [];
+  for (var ti = 0; ti < visible.length; ti++) {
+    var tgt = visible[ti];
+    var p = mniToPixel(tgt.mni_xyz, plane, cw, ch);
+    var col = _targetDotColor(tgt);
+    var rgb = _efieldHexToRgb(col);
+    var sigmaPx = _computeTargetSigmaPx(tgt, halfPxPerMm);
+    var sigma2x2 = 2 * sigmaPx * sigmaPx;
+    var maxR2 = (3 * sigmaPx) * (3 * sigmaPx); // 3-sigma cutoff
+
+    // Peak alpha from efield_dose or default
+    var peakAlpha = 0.55;
+    if (tgt.efield_dose && tgt.efield_dose.v_per_m_at_target > 0 && tgt.efield_dose.peak_v_per_m > 0) {
+      peakAlpha = Math.min(_EFIELD_MAX_ALPHA, Math.max(0.3, tgt.efield_dose.v_per_m_at_target / tgt.efield_dose.peak_v_per_m));
+    }
+    // Custom targets get lower alpha
+    if (tgt.is_custom) peakAlpha = 0.35;
+
+    // Out-of-plane attenuation: closer to slice = brighter
+    var ood = _efieldOutOfPlaneDistance(tgt.mni_xyz, plane);
+    var planeAtten = 1 - (ood / _ATLAS_SLAB);
+    if (planeAtten < 0.1) planeAtten = 0.1;
+    peakAlpha *= planeAtten;
+
+    tData.push({
+      cx: p.x / 2, // half-res center
+      cy: p.y / 2,
+      rgb: rgb,
+      sigma2x2: sigma2x2,
+      maxR2: maxR2,
+      peakAlpha: peakAlpha,
+    });
+  }
+
+  // Per-pixel Gaussian sum
+  for (var py = 0; py < hh; py++) {
+    for (var px = 0; px < hw; px++) {
+      var rAcc = 0, gAcc = 0, bAcc = 0, aMax = 0;
+
+      for (var k = 0; k < tData.length; k++) {
+        var td = tData[k];
+        var dx = px - td.cx;
+        var dy = py - td.cy;
+        var dist2 = dx * dx + dy * dy;
+        if (dist2 > td.maxR2) continue;
+
+        var g = Math.exp(-dist2 / td.sigma2x2);
+        var alpha = g * td.peakAlpha;
+
+        rAcc += td.rgb[0] * alpha;
+        gAcc += td.rgb[1] * alpha;
+        bAcc += td.rgb[2] * alpha;
+        if (alpha > aMax) aMax = alpha;
+      }
+
+      if (aMax > 0.005) {
+        var idx = (py * hw + px) * 4;
+        // Premultiplied -> straight alpha conversion
+        var invA = 1 / aMax;
+        data[idx]     = Math.min(255, Math.round(rAcc * invA));
+        data[idx + 1] = Math.min(255, Math.round(gAcc * invA));
+        data[idx + 2] = Math.min(255, Math.round(bAcc * invA));
+        data[idx + 3] = Math.min(255, Math.round(aMax * 255));
+      }
+    }
+  }
+
+  tmpCtx.putImageData(imgData, 0, 0);
+
+  // Draw upscaled onto main canvas (bilinear interpolation smooths it)
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(tmpCanvas, 0, 0, cw, ch);
+  ctx.restore();
+}
+
 function _drawAtlasTargets(report, canvases, images) {
   if (_atlasAnimFrame) { cancelAnimationFrame(_atlasAnimFrame); _atlasAnimFrame = null; }
 
@@ -535,6 +688,11 @@ function _drawAtlasTargets(report, canvases, images) {
     var dpr = window.devicePixelRatio || 1;
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, cw, ch);
+
+    // Draw e-field heatmap overlay (behind crosshairs + dots)
+    if (_atlasEfieldVisible && allTargets.length > 0) {
+      _drawEfieldHeatmap(ctx, plane, cw, ch, allTargets);
+    }
 
     // Draw crosshairs at center
     ctx.strokeStyle = 'rgba(255,255,255,0.12)';
@@ -1330,6 +1488,7 @@ export function renderBrainAtlasViewer(report) {
     + '<button class="btn btn-sm" id="ds-atlas-clear-custom"' + (_customTargets.length ? '' : ' disabled') + '>Clear custom targets</button>'
     + '<button class="btn btn-sm" id="ds-atlas-export">Export to protocol</button>'
     + '<button class="btn btn-sm" id="ds-atlas-toggle-labels">' + (_atlasLabelsVisible ? 'Hide labels' : 'Show labels') + '</button>'
+    + '<button class="btn btn-sm" id="ds-atlas-toggle-efield">' + (_atlasEfieldVisible ? 'Hide E-field' : 'Show E-field') + '</button>'
     + '<span class="ds-atlas-hint">Click any slice to place a custom target</span>'
     + '</div>';
 
@@ -1351,8 +1510,24 @@ export function renderBrainAtlasViewer(report) {
 
   var disclaimer = '<div class="ds-atlas-disclaimer">Approximate MNI projection for planning visualization only. Not a substitute for neuronavigation.</div>';
 
+  // E-field intensity color-bar legend (only when efield_dose data exists)
+  var hasEfield = targets.some(function (t) { return t.efield_dose && t.efield_dose.peak_v_per_m > 0; });
+  var efieldLegendHtml = '';
+  if (hasEfield) {
+    var maxVm = 0;
+    targets.forEach(function (t) {
+      if (t.efield_dose && t.efield_dose.peak_v_per_m > maxVm) maxVm = t.efield_dose.peak_v_per_m;
+    });
+    efieldLegendHtml = '<div class="ds-atlas-efield-legend">'
+      + '<span class="ds-atlas-efield-label">0</span>'
+      + '<div class="ds-atlas-efield-bar" style="background:linear-gradient(to right, rgba(245,158,11,0), rgba(245,158,11,0.35), rgba(245,158,11,0.7), #f59e0b)"></div>'
+      + '<span class="ds-atlas-efield-label">' + esc(String(Math.round(maxVm))) + ' V/m</span>'
+      + '<span class="ds-atlas-efield-label" style="margin-left:4px;opacity:0.6">E-field intensity</span>'
+      + '</div>';
+  }
+
   var body = '<div class="ds-atlas-viewer">'
-    + header + grid + actions + customListHtml + disclaimer
+    + header + grid + efieldLegendHtml + actions + customListHtml + disclaimer
     + '</div>';
 
   return card('Brain Atlas Viewer', body);
@@ -2122,6 +2297,12 @@ function _wireRightColumn(navigate) {
     toggleBtn.textContent = _atlasLabelsVisible ? 'Hide labels' : 'Show labels';
     _drawAtlasTargets(_report, _getAtlasCanvases(), _getAtlasImages());
   });
+  var efieldBtn = document.getElementById('ds-atlas-toggle-efield');
+  if (efieldBtn) efieldBtn.addEventListener('click', function () {
+    _atlasEfieldVisible = !_atlasEfieldVisible;
+    efieldBtn.textContent = _atlasEfieldVisible ? 'Hide E-field' : 'Show E-field';
+    _drawAtlasTargets(_report, _getAtlasCanvases(), _getAtlasImages());
+  });
 
   document.querySelectorAll('.ds-mri-open-viewer-json').forEach(function (btn) {
     btn.addEventListener('click', async function () {
@@ -2468,4 +2649,9 @@ export var _INTERNALS = {
   pixelToMni:        pixelToMni,
   getCustomTargets:  function () { return _customTargets; },
   setCustomTargets:  function (t) { _customTargets = t; },
+  _drawEfieldHeatmap: _drawEfieldHeatmap,
+  _pixelsPerMm:       _pixelsPerMm,
+  _computeTargetSigmaPx: _computeTargetSigmaPx,
+  getEfieldVisible:   function () { return _atlasEfieldVisible; },
+  setEfieldVisible:   function (v) { _atlasEfieldVisible = v; },
 };

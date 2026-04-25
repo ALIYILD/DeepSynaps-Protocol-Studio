@@ -464,7 +464,7 @@ const NAV = [
   { id: 'assessments-v2',     label: 'Assessments',       icon: '◉' },
   { id: 'patients-v2',        label: 'Patients',          icon: '👥' },
   { id: 'deeptwin',           label: 'Deeptwin',          icon: 'BT', ai: true },
-  { id: 'monitor',            label: 'Monitor',           icon: '📡' },
+  { id: 'monitor',            label: 'Devices',           icon: '🔌' },
   { id: 'mri-analysis',       label: 'MRI Analyzer',      icon: '🧠', ai: true },
 
   // ── PROTOCOL ─────────────────────────────────────────────────────────────────
@@ -847,7 +847,7 @@ function loadingDone() {
 
 // ── Page id → human-readable title map (for screen-reader announcements) ──────
 const PAGE_TITLES = {
-  dashboard: 'Dashboard', patients: 'Patients', profile: 'Profile',
+  dashboard: 'Dashboard', patients: 'Patients', profile: 'Profile', monitor: 'Devices',
   courses: 'Treatment Courses', 'course-detail': 'Course Detail',
   'session-execution': 'Session Execution', 'review-queue': 'Clinical Review & Approvals',
   'protocol-wizard': 'Protocol Intelligence', 'protocols-registry': 'Protocol Registry',
@@ -1294,8 +1294,7 @@ async function renderPage() {
       break;
     }
     case 'devices': {
-      const m = await loadKnowledge();
-      await m.pgDevices(setTopbar);
+      navigate('monitor');
       break;
     }
     case 'brainregions': {
@@ -1319,7 +1318,7 @@ async function renderPage() {
       break;
     }
     case 'quality-assurance': { const m = await loadKnowledge(); await m.pgQualityAssurance(setTopbar); break; }
-    case 'device-management': { const m = await loadKnowledge(); await m.pgDeviceManagement(setTopbar); break; }
+    case 'device-management': { navigate('monitor'); break; }
     case 'clinical-trials': { const m = await loadKnowledge(); await m.pgClinicalTrials(setTopbar); break; }
     case 'trial-enrollment': { const { pgTrialEnrollment } = await loadKnowledge(); await pgTrialEnrollment(setTopbar); break; }
     case 'staff-scheduling': { const m = await loadKnowledge(); await m.pgStaffScheduling(setTopbar); break; }
@@ -1355,8 +1354,8 @@ async function renderPage() {
       break;
     }
     case 'telehealth-recorder': { const m = await loadPractice(); await m.pgTelehealthRecorder(setTopbar); break; }
-    case 'monitoring': { window._monitorHubTab = 'monitoring'; window._nav('monitor-hub'); break; }
-    case 'wearables':  { window._monitorHubTab = 'monitoring'; window._nav('monitor-hub'); break; }
+    case 'monitoring': { window._devicesPresetTab = 'live'; navigate('monitor'); break; }
+    case 'wearables':  { window._devicesPresetTab = 'control-center'; window._devicesPresetCategory = 'wearable'; navigate('monitor'); break; }
     case 'library-hub':    { window._resEvidenceTab = 'search'; window._nav('research-evidence'); break; }
     case 'monitor-hub':    { const { pgMonitorHub }    = await loadClinicalHubs(); await pgMonitorHub(setTopbar, navigate);    break; }
     case 'virtual-care-hub':{ const { pgVirtualCareHub } = await loadClinicalHubs(); await pgVirtualCareHub(setTopbar, navigate); break; }
@@ -1473,7 +1472,7 @@ async function renderPage() {
     case 'condition-packages':   { window._resEvidenceTab = 'conditions'; window._nav('research-evidence'); break; }
     case 'condition-package':   { const { pgConditionPackage }     = await loadKnowledge(); await pgConditionPackage(setTopbar, navigate);  break; }
     case 'notes-dictation': { window._monitorHubTab = 'notes'; window._nav('monitor-hub'); break; }
-    case 'wearable-integration': { const m = await loadPractice(); await m.pgWearableIntegration(setTopbar); break; }
+    case 'wearable-integration': { window._devicesPresetTab = 'control-center'; window._devicesPresetCategory = 'wearable'; navigate('monitor'); break; }
     // ── Registries ─────────────────────────────────────────────────────────
     case 'reg-conditions':     { window._resEvidenceTab = 'conditions'; window._nav('research-evidence'); break; }
     case 'reg-assessments':    { window._clinicalHubTab = 'registry'; window._nav('assessments'); break; }

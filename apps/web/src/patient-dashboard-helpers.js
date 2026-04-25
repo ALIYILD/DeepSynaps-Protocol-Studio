@@ -987,3 +987,97 @@ export function demoSelfAssessmentSeed(now = Date.now()) {
     },
   ];
 }
+
+// ── Clinician-Side Patient Dashboard Helpers ─────────────────────────────────
+
+/**
+ * Inline SVG sparkline from an array of numbers.
+ * Returns an `<svg>` string that can be embedded directly in template literals.
+ * @param {number[]} values
+ * @param {string} [color='var(--teal)']
+ * @param {number} [width=80]
+ * @param {number} [height=24]
+ */
+export function sparklineSVG(values, color = 'var(--teal)', width = 80, height = 24) {
+  if (!Array.isArray(values) || values.length < 2) return '';
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const pad = 2;
+  const points = values.map((v, i) => {
+    const x = pad + (i / (values.length - 1)) * (width - pad * 2);
+    const y = pad + (1 - (v - min) / range) * (height - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="display:inline-block;vertical-align:middle"><polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+/**
+ * Clinician-facing demo dashboard data for demo patients.
+ * Used when isDemoPatient is true and API returns empty arrays.
+ * Dates are computed relative to now so the demo is always fresh.
+ */
+function _clinicianDemoDates() {
+  const ONE_DAY = 86400000;
+  const now = Date.now();
+  const daysAgo = n => new Date(now - n * ONE_DAY).toISOString().split('T')[0];
+  const isoAgo = n => new Date(now - n * ONE_DAY).toISOString();
+  const isoAhead = n => new Date(now + n * ONE_DAY).toISOString();
+  return { daysAgo, isoAgo, isoAhead, now };
+}
+
+const _CD = _clinicianDemoDates();
+
+export const DEMO_CLINICIAN_DASHBOARD = Object.freeze({
+  sessions: Object.freeze([
+    { id: 'demo-s-1',  session_number: 1,  scheduled_at: _CD.isoAgo(42), status: 'completed', modality: 'tDCS', duration_minutes: 30, comfort_score: 7, impedance_kohms: 5.2 },
+    { id: 'demo-s-2',  session_number: 2,  scheduled_at: _CD.isoAgo(39), status: 'completed', modality: 'tDCS', duration_minutes: 30, comfort_score: 7, impedance_kohms: 5.0 },
+    { id: 'demo-s-3',  session_number: 3,  scheduled_at: _CD.isoAgo(35), status: 'completed', modality: 'tDCS', duration_minutes: 30, comfort_score: 8, impedance_kohms: 4.8 },
+    { id: 'demo-s-4',  session_number: 4,  scheduled_at: _CD.isoAgo(32), status: 'completed', modality: 'tDCS', duration_minutes: 30, comfort_score: 8, impedance_kohms: 4.9 },
+    { id: 'demo-s-5',  session_number: 5,  scheduled_at: _CD.isoAgo(28), status: 'completed', modality: 'tDCS', duration_minutes: 30, comfort_score: 8, impedance_kohms: 4.7 },
+    { id: 'demo-s-6',  session_number: 6,  scheduled_at: _CD.isoAgo(25), status: 'completed', modality: 'tDCS', duration_minutes: 30, comfort_score: 9, impedance_kohms: 4.6 },
+    { id: 'demo-s-7',  session_number: 7,  scheduled_at: _CD.isoAgo(21), status: 'completed', modality: 'tDCS', duration_minutes: 30, comfort_score: 8, impedance_kohms: 4.8 },
+    { id: 'demo-s-8',  session_number: 8,  scheduled_at: _CD.isoAgo(18), status: 'completed', modality: 'tDCS', duration_minutes: 30, comfort_score: 7, impedance_kohms: 5.1 },
+    { id: 'demo-s-9',  session_number: 9,  scheduled_at: _CD.isoAgo(14), status: 'completed', modality: 'tDCS', duration_minutes: 30, comfort_score: 8, impedance_kohms: 4.5 },
+    { id: 'demo-s-10', session_number: 10, scheduled_at: _CD.isoAgo(11), status: 'completed', modality: 'tDCS', duration_minutes: 30, comfort_score: 9, impedance_kohms: 4.4 },
+    { id: 'demo-s-11', session_number: 11, scheduled_at: _CD.isoAgo(7),  status: 'completed', modality: 'tDCS', duration_minutes: 30, comfort_score: 7, impedance_kohms: 4.6 },
+    { id: 'demo-s-12', session_number: 12, scheduled_at: _CD.isoAgo(4),  status: 'completed', modality: 'tDCS', duration_minutes: 30, comfort_score: 8, impedance_kohms: 4.3 },
+  ]),
+  assessments: Object.freeze([
+    { template_name: 'PHQ-9', score: 14, severity: 'Moderate',           color: 'var(--amber)', date: _CD.daysAgo(2) },
+    { template_name: 'GAD-7', score: 10, severity: 'Moderate',           color: 'var(--amber)', date: _CD.daysAgo(3) },
+    { template_name: 'ISI',   score: 12, severity: 'Clinical Insomnia',  color: 'var(--amber)', date: _CD.daysAgo(7) },
+    { template_name: 'PSQI',  score: 8,  severity: 'Poor Sleep Quality', color: 'var(--amber)', date: _CD.daysAgo(7) },
+  ]),
+  clinicalNotes: Object.freeze([
+    { type: 'session_note',    date: _CD.daysAgo(4),  text: 'Patient tolerated session 12 well. No adverse effects reported. Electrode placement Left DLPFC, 2mA for 30 min. Impedance stable at 4.3 kohm.', clinician: 'Dr. Amelia Kolmar' },
+    { type: 'progress_note',   date: _CD.daysAgo(7),  text: 'PHQ-9 dropped from 17 to 15 since last review. Patient reports improved morning motivation and reduced anhedonia. Sleep quality still variable.', clinician: 'Dr. Amelia Kolmar' },
+    { type: 'clinical_update', date: _CD.daysAgo(14), text: 'Discussed sleep hygiene strategies. Wearable data shows HRV trending upward. Recommend continuing current tDCS protocol with reassessment at session 15.', clinician: 'Raquel Ortiz, NP' },
+  ]),
+  wearable7d: Object.freeze([
+    { date: _CD.daysAgo(6), sleep_h: 6.2, hrv_ms: 42, rhr_bpm: 66, steps: 6500 },
+    { date: _CD.daysAgo(5), sleep_h: 7.0, hrv_ms: 44, rhr_bpm: 64, steps: 7200 },
+    { date: _CD.daysAgo(4), sleep_h: 6.8, hrv_ms: 45, rhr_bpm: 63, steps: 8100 },
+    { date: _CD.daysAgo(3), sleep_h: 7.5, hrv_ms: 47, rhr_bpm: 62, steps: 7800 },
+    { date: _CD.daysAgo(2), sleep_h: 7.1, hrv_ms: 46, rhr_bpm: 63, steps: 7400 },
+    { date: _CD.daysAgo(1), sleep_h: 7.4, hrv_ms: 48, rhr_bpm: 62, steps: 7800 },
+    { date: _CD.daysAgo(0), sleep_h: 7.2, hrv_ms: 49, rhr_bpm: 61, steps: 5200 },
+  ]),
+  aiAnalysis: Object.freeze({
+    summary: 'Multi-modal analysis indicates positive treatment response. PHQ-9 shows 36% reduction over 6 weeks (22 to 14). HRV trending upward, suggesting autonomic regulation improvement. Current tDCS protocol aligned with evidence-based parameters.',
+    confidence: 0.82,
+    key_findings: [
+      'Consistent PHQ-9 improvement: 22 -> 14 (36% reduction)',
+      'HRV trending upward: +16% over 4 weeks (42 -> 49 ms)',
+      'Sleep duration stable at 7.0h average (within normal range)',
+      'Session comfort ratings consistently high (mean 7.9/10)',
+    ],
+    recommendations: [
+      'Continue current tDCS protocol (Left DLPFC, 2mA, 30 min)',
+      'Consider adding CBT homework module for residual symptoms',
+      'Schedule comprehensive 4-week outcome review at session 16',
+      'Monitor sleep variability - consider sleep hygiene intervention',
+    ],
+    generated_at: _CD.isoAgo(1),
+  }),
+})
