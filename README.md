@@ -1,4 +1,4 @@
-# DeepSynaps Studio
+a# DeepSynaps Studio
 
 Clinical neuromodulation knowledge and document platform for professional users. The current MVP is deterministic, registry-driven, and backed by an imported 201-record clinical database.
 
