@@ -4,6 +4,10 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   base: './',
+  assetsInclude: ['**/*.wasm'],
+  worker: {
+    format: 'es',
+  },
   build: {
     // Raised from 500: pages-clinical (18 258 lines) and pages-knowledge
     // are single source files — they cannot be split further by manualChunks
