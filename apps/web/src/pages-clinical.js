@@ -57,6 +57,12 @@ import {
   barChartSVG,
   eegWaveformSVG,
   correlationHTML,
+  ANALYTICS_DEMO,
+  stackedBarSVG,
+  areaChartSVG,
+  donutSVG,
+  hBarChartHTML,
+  severityBandSVG,
 } from './patient-dashboard-helpers.js';
 
 if (import.meta.env?.DEV) {
@@ -3213,7 +3219,7 @@ export async function pgProfile(setTopbar, navigate) {
   </div>
 
   <div class="tab-bar">
-    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'brain-twin', 'assessments', 'patient-dash', 'notes', 'phenotype', 'consent', 'monitoring', 'home-therapy'].map(t => {
+    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'brain-twin', 'assessments', 'analytics', 'patient-dash', 'notes', 'phenotype', 'consent', 'monitoring', 'home-therapy'].map(t => {
       const labels = {
         'overview':     'Dashboard',
         'courses':      'Treatment Courses',
@@ -3222,6 +3228,7 @@ export async function pgProfile(setTopbar, navigate) {
         'protocol':     'AI Protocol',
         'brain-twin':   'Deeptwin',
         'assessments':  'Assessments',
+        'analytics':    'Analytics',
         'patient-dash': 'Patient Dash',
         'notes':        'Clinical Notes',
         'phenotype':    'Phenotype',
@@ -4481,6 +4488,442 @@ function renderPatientDash(pt, sessions, courses, ctx = {}) {
   </div>`;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Patient Analytics Dashboard — Premium Clinical Analytics
+// ═══════════════════════════════════════════════════════════════════════════════
+function renderPatientAnalytics(pt, sessions, courses, ctx = {}) {
+  const { isDemoPatient: isDemo } = ctx;
+  const A = ANALYTICS_DEMO;
+  const pid = String(pt.id).replace(/'/g, "\\'");
+  const name = (pt.first_name || '') + ' ' + (pt.last_name || '');
+  const age = pt.dob ? Math.floor((Date.now() - new Date(pt.dob).getTime()) / 31557600000) : '—';
+
+  // Inject analytics CSS once
+  if (!document.getElementById('pa-analytics-css')) {
+    const s = document.createElement('style');
+    s.id = 'pa-analytics-css';
+    s.textContent = `
+      .pa{font-family:var(--font-mono);color:var(--text-primary)}
+      .pa-hdr{display:flex;align-items:center;gap:16px;padding:14px 18px;background:linear-gradient(135deg,rgba(0,212,188,0.04),rgba(74,158,255,0.04));border:1px solid var(--border);border-radius:var(--radius-md);margin-bottom:14px;flex-wrap:wrap}
+      .pa-hdr-name{font-size:16px;font-weight:700;color:var(--text-primary);font-family:var(--font-display)}
+      .pa-hdr-meta{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--text-secondary)}
+      .pa-hdr-badge{font-size:10px;padding:3px 8px;border-radius:6px;font-weight:600}
+      .pa-kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:14px}
+      .pa-kpi{background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:var(--radius-md);padding:12px 14px;display:flex;flex-direction:column;gap:3px;position:relative}
+      .pa-kpi-lbl{font-size:9px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.7px;font-weight:600}
+      .pa-kpi-val{font-size:20px;font-weight:700;font-family:var(--font-display);line-height:1.1}
+      .pa-kpi-sub{font-size:10px;color:var(--text-tertiary)}
+      .pa-filters{display:flex;gap:8px;flex-wrap:wrap;padding:10px 14px;background:rgba(0,0,0,0.15);border:1px solid var(--border);border-radius:var(--radius-md);margin-bottom:14px;align-items:center}
+      .pa-filter-sel{background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:11px;color:var(--text-secondary);font-family:var(--font-mono);cursor:pointer;appearance:none;-webkit-appearance:none}
+      .pa-filter-sel:focus{border-color:var(--teal);outline:none}
+      .pa-section{margin-bottom:14px}
+      .pa-section-hdr{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+      .pa-section-hdr h3{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--text-secondary);margin:0}
+      .pa-section-hdr .pa-badge{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:600}
+      .pa-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+      @media(max-width:900px){.pa-grid{grid-template-columns:1fr}}
+      .pa-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+      @media(max-width:1100px){.pa-grid-3{grid-template-columns:1fr 1fr}}
+      @media(max-width:700px){.pa-grid-3{grid-template-columns:1fr}}
+      .pa-card{background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden}
+      .pa-card-hdr{padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+      .pa-card-hdr h4{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--text-tertiary);margin:0}
+      .pa-card-hdr .pa-tag{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:600;margin-left:auto}
+      .pa-card-body{padding:12px 14px}
+      .pa-ai-box{background:linear-gradient(135deg,rgba(0,212,188,0.05),rgba(74,158,255,0.05));border:1px solid rgba(0,212,188,0.2);border-radius:var(--radius-md);padding:16px;margin-bottom:14px}
+      .pa-ai-item{font-size:12px;color:var(--text-secondary);line-height:1.6;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03)}
+      .pa-ai-item:last-child{border-bottom:none}
+      .pa-corr-warn{font-size:10px;color:var(--text-tertiary);font-style:italic;padding:8px 0;border-top:1px solid rgba(255,255,255,0.04);margin-top:8px}
+      .pa-event-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:11px}
+      .pa-event-row:last-child{border-bottom:none}
+    `;
+    document.head.appendChild(s);
+  }
+
+  const k = A.kpis;
+  const sm = A.summary;
+
+  // ── Filter state ──
+  window._paFilterRange = window._paFilterRange || 'all';
+  window._paFilterCategory = window._paFilterCategory || 'all';
+  window._paApplyFilter = function() {
+    window._paFilterRange = document.getElementById('pa-f-range')?.value || 'all';
+    window._paFilterCategory = document.getElementById('pa-f-cat')?.value || 'all';
+    // Re-render tab
+    const body = document.getElementById('ptab-body');
+    if (body) body.innerHTML = renderPatientAnalytics(pt, sessions, courses, ctx);
+  };
+
+  const _kpiColor = (val, threshGood, threshWarn, invert) => {
+    if (invert) return val <= threshGood ? 'var(--green)' : val <= threshWarn ? 'var(--amber)' : 'var(--red,#f43f5e)';
+    return val >= threshGood ? 'var(--green)' : val >= threshWarn ? 'var(--amber)' : 'var(--red,#f43f5e)';
+  };
+
+  // PHQ-9 severity bands
+  const phqBands = [{range:5,color:'rgba(34,197,94,0.6)'},{range:5,color:'rgba(245,158,11,0.5)'},{range:5,color:'rgba(245,158,11,0.7)'},{range:5,color:'rgba(239,68,68,0.5)'},{range:7,color:'rgba(239,68,68,0.7)'}];
+
+  return `<div class="pa">
+  <!-- ═══ 1) HEADER ═══ -->
+  <div class="pa-hdr">
+    <div>
+      <div class="pa-hdr-name">${name}</div>
+      <div class="pa-hdr-meta">
+        <span>Age: ${age}</span>
+        <span>${pt.primary_condition || '—'}</span>
+        <span>${sm.protocol}</span>
+        <span>Last visit: ${sm.last_visit}</span>
+        <span>${sm.clinician}</span>
+      </div>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="pa-hdr-badge" style="background:rgba(0,212,188,0.1);color:var(--teal)">Data: ${sm.data_completeness}%</span>
+      <span class="pa-hdr-badge" style="background:${sm.risk_flag === 'Low' ? 'rgba(34,197,94,0.1)' : 'rgba(245,158,11,0.1)'};color:${sm.risk_flag === 'Low' ? 'var(--green)' : 'var(--amber)'}">Risk: ${sm.risk_flag}</span>
+      <span class="pa-hdr-badge" style="background:rgba(74,158,255,0.1);color:var(--blue)">Improvement: ${sm.improvement_score}%</span>
+      ${isDemo ? '<span class="pa-hdr-badge" style="background:rgba(245,158,11,0.1);color:var(--amber);border:1px solid rgba(245,158,11,0.2)">DEMO</span>' : ''}
+    </div>
+  </div>
+
+  <!-- ═══ 2) KPI CARDS ═══ -->
+  <div class="pa-kpi-grid">
+    <div class="pa-kpi"><div class="pa-kpi-lbl">Adherence</div><div class="pa-kpi-val" style="color:${_kpiColor(k.adherence,80,60,false)}">${k.adherence}%</div><div class="pa-kpi-sub">${donutSVG(k.adherence, _kpiColor(k.adherence,80,60,false), {size:32})}</div></div>
+    <div class="pa-kpi"><div class="pa-kpi-lbl">Symptom Improvement</div><div class="pa-kpi-val" style="color:var(--green)">${k.symptom_improvement}%</div><div class="pa-kpi-sub">PHQ-9 reduction</div></div>
+    <div class="pa-kpi"><div class="pa-kpi-lbl">Sessions</div><div class="pa-kpi-val" style="color:var(--teal)">${k.sessions_completed}</div><div class="pa-kpi-sub">completed</div></div>
+    <div class="pa-kpi"><div class="pa-kpi-lbl">Missed</div><div class="pa-kpi-val" style="color:${k.missed_sessions > 2 ? 'var(--red,#f43f5e)' : 'var(--amber)'}">${k.missed_sessions}</div><div class="pa-kpi-sub">sessions</div></div>
+    <div class="pa-kpi"><div class="pa-kpi-lbl">Sleep Avg</div><div class="pa-kpi-val" style="color:var(--blue)">${k.sleep_avg}h</div><div class="pa-kpi-sub">last 30d</div></div>
+    <div class="pa-kpi"><div class="pa-kpi-lbl">HRV Avg</div><div class="pa-kpi-val" style="color:var(--teal)">${k.hrv_avg} ms</div><div class="pa-kpi-sub">last 30d</div></div>
+    <div class="pa-kpi"><div class="pa-kpi-lbl">Stress Avg</div><div class="pa-kpi-val" style="color:${_kpiColor(k.stress_avg,30,50,true)}">${k.stress_avg}</div><div class="pa-kpi-sub">lower is better</div></div>
+    <div class="pa-kpi"><div class="pa-kpi-lbl">Assessment</div><div class="pa-kpi-val" style="color:var(--green)">${k.assessment_change > 0 ? '+' : ''}${k.assessment_change}</div><div class="pa-kpi-sub">PHQ-9 change</div></div>
+    <div class="pa-kpi"><div class="pa-kpi-lbl">Tasks</div><div class="pa-kpi-val" style="color:${_kpiColor(k.task_completion,70,50,false)}">${k.task_completion}%</div><div class="pa-kpi-sub">completion rate</div></div>
+    <div class="pa-kpi"><div class="pa-kpi-lbl">Safety Alerts</div><div class="pa-kpi-val" style="color:${k.safety_alerts === 0 ? 'var(--green)' : 'var(--amber)'}">${k.safety_alerts}</div><div class="pa-kpi-sub">active</div></div>
+  </div>
+
+  <!-- ═══ 3) FILTERS ═══ -->
+  <div class="pa-filters">
+    <span style="font-size:10px;color:var(--text-tertiary);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Filters</span>
+    <select id="pa-f-range" class="pa-filter-sel" onchange="window._paApplyFilter()">
+      <option value="all" ${window._paFilterRange === 'all' ? 'selected' : ''}>All Time</option>
+      <option value="7d" ${window._paFilterRange === '7d' ? 'selected' : ''}>Last 7 Days</option>
+      <option value="30d" ${window._paFilterRange === '30d' ? 'selected' : ''}>Last 30 Days</option>
+      <option value="90d" ${window._paFilterRange === '90d' ? 'selected' : ''}>Last 90 Days</option>
+    </select>
+    <select id="pa-f-cat" class="pa-filter-sel" onchange="window._paApplyFilter()">
+      <option value="all" ${window._paFilterCategory === 'all' ? 'selected' : ''}>All Categories</option>
+      <option value="symptoms">Symptoms</option>
+      <option value="biometrics">Biometrics</option>
+      <option value="eeg">EEG / qEEG</option>
+      <option value="treatment">Treatment</option>
+      <option value="tasks">Tasks</option>
+    </select>
+    <button class="btn btn-sm" style="font-size:10px" onclick="window.switchPT('patient-dash')">Open DeepTwin Terminal</button>
+    <button class="btn btn-sm" style="font-size:10px" onclick="window._patDashExport && window._patDashExport()">Export Report</button>
+  </div>
+
+  <!-- ═══ 4) OVERVIEW CHARTS ═══ -->
+  <div class="pa-section">
+    <div class="pa-section-hdr"><h3>Overview</h3><span class="pa-badge" style="background:rgba(0,212,188,0.1);color:var(--teal)">TRENDS</span></div>
+    <div class="pa-grid">
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Symptom Trends (12 wk)</h4></div>
+        <div class="pa-card-body">
+          ${multiLineChartSVG(
+            [A.symptoms.phq9, A.symptoms.gad7, A.symptoms.isi, A.symptoms.psqi],
+            A.symptoms.weeks.map(d => d.slice(5)),
+            ['var(--green)','var(--blue)','var(--amber)','var(--violet)'],
+            ['PHQ-9','GAD-7','ISI','PSQI'],
+            {h:170}
+          )}
+        </div>
+      </div>
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Adherence & Wellness</h4></div>
+        <div class="pa-card-body">
+          <div style="display:flex;gap:16px;align-items:center;margin-bottom:12px">
+            ${donutSVG(k.adherence, 'var(--teal)', {size:64})}
+            ${donutSVG(100 - (k.stress_avg), 'var(--blue)', {size:64, label: (100-k.stress_avg)+'%'})}
+            ${donutSVG(k.task_completion, 'var(--violet)', {size:64})}
+            <div style="display:flex;flex-direction:column;gap:4px;font-size:10px;color:var(--text-tertiary)">
+              <span style="color:var(--teal)">Adherence ${k.adherence}%</span>
+              <span style="color:var(--blue)">Wellness ${100-k.stress_avg}%</span>
+              <span style="color:var(--violet)">Tasks ${k.task_completion}%</span>
+            </div>
+          </div>
+          ${areaChartSVG(A.biometrics.stress.map(v=>100-v), A.biometrics.dates.map(d=>d.slice(5)), 'var(--teal)', {h:100, yMin:0, yMax:100})}
+          <div style="font-size:9px;color:var(--text-tertiary);margin-top:4px;text-align:center">Combined Wellness Score (30d)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 5) ASSESSMENT ANALYTICS ═══ -->
+  <div class="pa-section">
+    <div class="pa-section-hdr"><h3>Assessment Analytics</h3><span class="pa-badge" style="background:rgba(74,158,255,0.1);color:var(--blue)">OUTCOMES</span></div>
+    <div class="pa-grid">
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Scores Over Time</h4></div>
+        <div class="pa-card-body">
+          ${A.assessments.map(a =>
+            '<div style="margin-bottom:12px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:11px;font-weight:600;color:var(--text-primary)">' + a.name + '</span><span style="font-size:10px;color:' + a.bandColor + ';padding:1px 6px;border-radius:4px;background:' + a.bandColor.replace('var(','rgba(').replace(')',',0.1)') + '">' + a.band + '</span><span style="font-size:10px;color:var(--text-tertiary);margin-left:auto">' + a.baseline + ' → ' + a.latest + '</span></div>' +
+            areaChartSVG(a.scores, a.dates.map(d => d.slice(5)), a.bandColor, {h:60}) +
+            '</div>'
+          ).join('')}
+        </div>
+      </div>
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Baseline vs Latest</h4></div>
+        <div class="pa-card-body">
+          ${A.assessments.map(a => {
+            const changePct = Math.round(((a.baseline - a.latest) / a.baseline) * 100);
+            return '<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span style="color:var(--text-secondary)">' + a.name + '</span><span style="color:var(--green);font-weight:600">-' + changePct + '%</span></div>' +
+              '<div style="display:flex;gap:4px;align-items:center"><div style="flex:1;height:8px;border-radius:4px;background:rgba(255,255,255,0.06);position:relative;overflow:hidden"><div style="position:absolute;left:0;top:0;height:8px;border-radius:4px;background:rgba(239,68,68,0.4);width:' + Math.round((a.baseline/27)*100) + '%"></div><div style="position:absolute;left:0;top:0;height:8px;border-radius:4px;background:var(--green);width:' + Math.round((a.latest/27)*100) + '%"></div></div></div>' +
+              '<div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-tertiary);margin-top:2px"><span>Baseline: ' + a.baseline + '</span><span>Latest: ' + a.latest + '</span></div></div>';
+          }).join('')}
+          <div style="margin-top:12px;font-size:10px;color:var(--text-tertiary)">Severity Band (PHQ-9): ${severityBandSVG(A.assessments[0].latest, 27, phqBands, {w:180})}<div style="display:flex;gap:8px;font-size:8px;margin-top:2px"><span style="color:rgba(34,197,94,0.8)">Minimal</span><span style="color:rgba(245,158,11,0.8)">Mild</span><span style="color:rgba(245,158,11,0.9)">Moderate</span><span style="color:rgba(239,68,68,0.8)">Mod-Severe</span><span style="color:rgba(239,68,68,0.9)">Severe</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 6) TREATMENT ANALYTICS ═══ -->
+  <div class="pa-section">
+    <div class="pa-section-hdr"><h3>Treatment Analytics</h3><span class="pa-badge" style="background:rgba(139,92,246,0.1);color:var(--violet)">SESSIONS</span></div>
+    <div class="pa-grid">
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Sessions by Week</h4></div>
+        <div class="pa-card-body">
+          ${stackedBarSVG(
+            [A.treatment.completed, A.treatment.missed, A.treatment.cancelled],
+            A.treatment.weekLabels,
+            ['var(--teal)','var(--red,#f43f5e)','var(--amber)'],
+            ['Completed','Missed','Cancelled'],
+            {h:130}
+          )}
+        </div>
+      </div>
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Treatment Response</h4></div>
+        <div class="pa-card-body">
+          <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:6px">PHQ-9 Change After Each Session</div>
+          ${areaChartSVG(A.treatment.responseAfterSession, A.assessments[0].dates.map((_,i) => 'S'+(i+1)), 'var(--green)', {h:100})}
+          <div style="margin-top:10px;font-size:10px;color:var(--text-tertiary)">Modality Breakdown</div>
+          ${A.treatment.modalities.map(m =>
+            '<div style="display:flex;align-items:center;gap:8px;margin-top:4px"><span style="font-size:10px;color:var(--text-secondary);width:80px">' + m.name + '</span><div style="flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,0.06)"><div style="height:6px;border-radius:3px;background:' + m.color + ';width:' + m.pct + '%"></div></div><span style="font-size:10px;color:var(--text-tertiary);width:30px;text-align:right">' + m.pct + '%</span></div>'
+          ).join('')}
+          ${A.treatment.protocolChanges.length ? '<div style="margin-top:10px;font-size:10px;color:var(--text-tertiary)">Protocol Changes</div>' + A.treatment.protocolChanges.map(pc => '<div style="font-size:10px;color:var(--amber);padding:3px 0">Week ' + pc.week + ': ' + pc.note + '</div>').join('') : ''}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 7) BIOMETRICS ANALYTICS ═══ -->
+  <div class="pa-section">
+    <div class="pa-section-hdr"><h3>Biometrics Analytics</h3><span class="pa-badge" style="background:rgba(74,158,255,0.1);color:var(--blue)">30 DAYS</span></div>
+    <div class="pa-grid-3">
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Sleep</h4></div>
+        <div class="pa-card-body">
+          <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:4px">Duration (hours)</div>
+          ${areaChartSVG(A.biometrics.sleep_duration, A.biometrics.dates.map(d=>d.slice(8)), 'var(--blue)', {h:80})}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;margin-bottom:4px">Quality Score</div>
+          ${areaChartSVG(A.biometrics.sleep_quality, A.biometrics.dates.map(d=>d.slice(8)), 'var(--violet)', {h:80})}
+        </div>
+      </div>
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Cardiac</h4></div>
+        <div class="pa-card-body">
+          <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:4px">HRV (ms)</div>
+          ${areaChartSVG(A.biometrics.hrv, A.biometrics.dates.map(d=>d.slice(8)), 'var(--teal)', {h:80})}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;margin-bottom:4px">Resting HR (bpm)</div>
+          ${areaChartSVG(A.biometrics.rhr, A.biometrics.dates.map(d=>d.slice(8)), 'var(--rose,#f43f5e)', {h:80})}
+        </div>
+      </div>
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Activity & Stress</h4></div>
+        <div class="pa-card-body">
+          <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:4px">Stress Level</div>
+          ${areaChartSVG(A.biometrics.stress, A.biometrics.dates.map(d=>d.slice(8)), 'var(--amber)', {h:80})}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;margin-bottom:4px">Steps</div>
+          ${barChartSVG(A.biometrics.steps, A.biometrics.dates.map(d=>d.slice(8)), 'var(--green)', {h:80})}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 8) EEG / qEEG ANALYTICS ═══ -->
+  <div class="pa-section">
+    <div class="pa-section-hdr"><h3>EEG / qEEG Analytics</h3><span class="pa-badge" style="background:rgba(139,92,246,0.1);color:var(--violet)">NEURO</span></div>
+    <div class="pa-grid">
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Power Band Trends</h4></div>
+        <div class="pa-card-body">
+          ${multiLineChartSVG(
+            [A.eeg.alpha, A.eeg.beta, A.eeg.theta],
+            A.eeg.labels,
+            ['var(--teal)','var(--blue)','var(--violet)'],
+            ['Alpha','Beta','Theta'],
+            {h:150}
+          )}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;margin-bottom:4px">Alpha/Beta Ratio (higher = better for depression)</div>
+          ${areaChartSVG(A.eeg.alpha_beta_ratio, A.eeg.labels, 'var(--teal)', {h:70})}
+        </div>
+      </div>
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Connectivity</h4></div>
+        <div class="pa-card-body">
+          <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:4px">Alpha Asymmetry (FAA)</div>
+          ${multiLineChartSVG([A.eeg.asymmetry], A.eeg.labels, ['var(--teal)'], ['FAA'], {h:80})}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;margin-bottom:4px">Coherence</div>
+          ${areaChartSVG(A.eeg.coherence, A.eeg.labels, 'var(--blue)', {h:80})}
+          <div style="margin-top:10px;font-size:10px;color:var(--text-tertiary)">Region Summary</div>
+          ${A.eeg.regions.map(r =>
+            '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:10px"><span style="color:var(--text-secondary);flex:1;font-weight:600">' + r.name + '</span><span style="color:var(--text-tertiary)">a:' + r.alpha + '</span><span style="color:var(--text-tertiary)">b:' + r.beta + '</span><span style="color:var(--text-tertiary)">t:' + r.theta + '</span><span style="color:' + (r.status === 'improved' ? 'var(--green)' : 'var(--text-tertiary)') + ';font-weight:600">' + r.status + '</span></div>'
+          ).join('')}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 9) TASKS & ENGAGEMENT ═══ -->
+  <div class="pa-section">
+    <div class="pa-section-hdr"><h3>Tasks & Engagement</h3><span class="pa-badge" style="background:rgba(245,158,11,0.1);color:var(--amber)">ENGAGEMENT</span></div>
+    <div class="pa-grid">
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Task Completion Trend</h4></div>
+        <div class="pa-card-body">
+          ${stackedBarSVG(
+            [A.tasks.completed, A.tasks.assigned.map((v,i) => v - A.tasks.completed[i])],
+            A.tasks.weekLabels,
+            ['var(--teal)','rgba(255,255,255,0.08)'],
+            ['Completed','Remaining'],
+            {h:120}
+          )}
+          <div style="display:flex;gap:16px;margin-top:10px;align-items:center">
+            <div style="text-align:center">${donutSVG(k.task_completion, 'var(--teal)', {size:48})}<div style="font-size:9px;color:var(--text-tertiary);margin-top:2px">Overall</div></div>
+            <div style="flex:1;font-size:10px;color:var(--text-secondary)">
+              <div>Current streak: <span style="color:var(--teal);font-weight:600">${A.tasks.streak_current} days</span></div>
+              <div>Best streak: <span style="color:var(--blue);font-weight:600">${A.tasks.streak_best} days</span></div>
+              <div>Missed rate: <span style="color:var(--amber);font-weight:600">${A.tasks.missed_rate_pct}%</span></div>
+            </div>
+            <div style="display:flex;gap:2px">${A.tasks.engagement_7d.map(e => '<div style="width:10px;height:10px;border-radius:2px;background:' + (e ? 'var(--teal)' : 'rgba(255,255,255,0.08)') + '"></div>').join('')}<div style="font-size:8px;color:var(--text-tertiary);margin-left:4px">7d</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Category Breakdown</h4></div>
+        <div class="pa-card-body">
+          ${hBarChartHTML(A.tasks.categories.map(c => ({...c, color: c.done/c.total >= 0.8 ? 'var(--teal)' : c.done/c.total >= 0.5 ? 'var(--amber)' : 'var(--red,#f43f5e)'})))}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 10) SAFETY ANALYTICS ═══ -->
+  <div class="pa-section">
+    <div class="pa-section-hdr"><h3>Safety Analytics</h3><span class="pa-badge" style="background:rgba(239,68,68,0.1);color:var(--red,#f43f5e)">SAFETY</span></div>
+    <div class="pa-grid">
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Adverse Events & Alerts</h4></div>
+        <div class="pa-card-body">
+          ${A.safety.adverse_events.length ? A.safety.adverse_events.map(e =>
+            '<div class="pa-event-row"><span style="color:var(--text-tertiary);width:70px">' + e.date + '</span><span style="color:var(--text-secondary);flex:1">' + e.type + '</span><span style="font-size:10px;padding:1px 6px;border-radius:4px;background:' + (e.severity === 'mild' ? 'rgba(245,158,11,0.1);color:var(--amber)' : 'rgba(239,68,68,0.1);color:var(--red,#f43f5e)') + '">' + e.severity + '</span><span style="font-size:10px;color:' + (e.resolved ? 'var(--green)' : 'var(--amber)') + '">' + (e.resolved ? 'Resolved' : 'Active') + '</span></div>'
+          ).join('') : '<div style="font-size:11px;color:var(--text-tertiary);padding:8px 0">No adverse events recorded.</div>'}
+          <div style="margin-top:10px;font-size:10px;color:var(--text-tertiary)">Worsening Alerts</div>
+          ${A.safety.worsening_alerts.map(w =>
+            '<div class="pa-event-row"><span style="color:var(--text-tertiary);width:70px">' + w.date + '</span><span style="color:var(--amber);font-weight:600;width:40px">' + w.metric + '</span><span style="color:var(--text-secondary);flex:1">' + w.note + '</span></div>'
+          ).join('')}
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:8px">Missed appointments: <span style="color:var(--amber);font-weight:600">${A.safety.missed_appointments}</span></div>
+        </div>
+      </div>
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Protocol Tolerance</h4></div>
+        <div class="pa-card-body">
+          ${A.safety.tolerance.map(t => {
+            const color = t.status === 'good' ? 'var(--green)' : t.status === 'monitor' ? 'var(--amber)' : 'var(--red,#f43f5e)';
+            return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04)"><span style="font-size:11px;color:var(--text-secondary);flex:1">' + t.metric + '</span><span style="font-size:13px;font-weight:700;color:' + color + ';font-family:var(--font-display)">' + (t.avg || t.count || '—') + '</span><span style="font-size:9px;padding:2px 6px;border-radius:4px;background:' + color.replace('var(','rgba(').replace(')',',0.1)') + ';color:' + color + ';font-weight:600;text-transform:uppercase">' + t.status + '</span></div>';
+          }).join('')}
+          ${A.safety.deterioration.length === 0 ? '<div style="font-size:11px;color:var(--green);padding:10px 0;display:flex;align-items:center;gap:6px"><span style="font-size:14px">&#10003;</span> No symptom deterioration indicators detected.</div>' : ''}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 11) CORRELATIONS ═══ -->
+  <div class="pa-section">
+    <div class="pa-section-hdr"><h3>Correlation Snapshots</h3><span class="pa-badge" style="background:rgba(0,212,188,0.1);color:var(--teal)">ANALYSIS</span></div>
+    <div class="pa-grid">
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Variable Associations</h4></div>
+        <div class="pa-card-body">
+          ${correlationHTML(A.correlations)}
+          <div class="pa-corr-warn">Note: Correlation does not imply causation. These associations require clinical interpretation and should not be used as the sole basis for treatment decisions.</div>
+        </div>
+      </div>
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Key Insights</h4></div>
+        <div class="pa-card-body">
+          ${A.correlations.map(c =>
+            '<div style="padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.03);font-size:11px"><span style="color:var(--text-secondary)">' + c.insight + '</span> <span style="font-size:10px;color:var(--text-tertiary)">(r=' + (c.r > 0 ? '+' : '') + c.r.toFixed(2) + ')</span></div>'
+          ).join('')}
+          <div style="margin-top:12px">
+            <button class="btn btn-sm" style="font-size:10px" onclick="window.switchPT('patient-dash')">Explore in DeepTwin Terminal</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 12) AI ANALYTICS SUMMARY ═══ -->
+  <div class="pa-section">
+    <div class="pa-section-hdr"><h3>AI Analytics Summary</h3><span class="pa-badge" style="background:rgba(0,212,188,0.1);color:var(--teal)">AI-GENERATED</span><span style="font-size:10px;color:var(--text-tertiary);margin-left:auto">${A.aiInsights.generated_at} | ${Math.round(A.aiInsights.confidence*100)}% confidence</span></div>
+    <div class="pa-ai-box">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <span style="font-size:14px">&#129516;</span>
+        <span style="font-size:13px;font-weight:700;color:var(--text-primary)">Clinical Analytics Insights</span>
+        <span style="font-size:9px;padding:2px 8px;border-radius:999px;background:rgba(0,212,188,0.1);color:var(--teal);font-weight:600">${Math.round(A.aiInsights.confidence*100)}% conf</span>
+      </div>
+
+      <div style="margin-bottom:12px">
+        <div style="font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Key Improvements</div>
+        ${A.aiInsights.improvements.map(i => '<div class="pa-ai-item"><span style="color:var(--green);margin-right:6px">&#9650;</span>' + i + '</div>').join('')}
+      </div>
+
+      <div style="margin-bottom:12px">
+        <div style="font-size:10px;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Areas of Concern</div>
+        ${A.aiInsights.worsening.map(w => '<div class="pa-ai-item"><span style="color:var(--amber);margin-right:6px">&#9660;</span>' + w + '</div>').join('')}
+      </div>
+
+      <div style="margin-bottom:12px">
+        <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Adherence Notes</div>
+        ${A.aiInsights.adherence_notes.map(a => '<div class="pa-ai-item"><span style="color:var(--blue);margin-right:6px">&#8226;</span>' + a + '</div>').join('')}
+      </div>
+
+      <div style="margin-bottom:12px">
+        <div style="font-size:10px;font-weight:700;color:var(--violet);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Anomalies</div>
+        ${A.aiInsights.anomalies.map(a => '<div class="pa-ai-item"><span style="color:var(--violet);margin-right:6px">&#9733;</span>' + a + '</div>').join('')}
+      </div>
+
+      <div>
+        <div style="font-size:10px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Requires Clinician Review</div>
+        ${A.aiInsights.review_areas.map(r => '<div class="pa-ai-item"><span style="color:var(--text-secondary);margin-right:6px">&#10147;</span>' + r + '</div>').join('')}
+      </div>
+
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(0,212,188,0.15);font-size:10px;color:var(--text-tertiary);font-style:italic">
+        This summary uses cautious language ("suggests", "appears", "associated with") and is intended to support — not replace — clinical judgement. All insights require clinician review before acting.
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ FOOTER ═══ -->
+  <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(0,0,0,0.1);border:1px solid var(--border);border-radius:var(--radius-md);flex-wrap:wrap">
+    <span style="font-size:9px;color:var(--text-tertiary);font-weight:600;text-transform:uppercase;letter-spacing:.7px">Patient Analytics</span>
+    <span style="font-size:10px;color:var(--text-tertiary)">${name}</span>
+    <span style="font-size:10px;color:var(--text-tertiary)">${sm.protocol}</span>
+    <span style="font-size:10px;color:var(--text-tertiary);margin-left:auto">Data completeness: ${sm.data_completeness}%</span>
+    <button class="btn btn-sm" style="font-size:10px" onclick="window.switchPT('patient-dash')">DeepTwin Terminal</button>
+    <button class="btn btn-sm" style="font-size:10px" onclick="window._patDashExport && window._patDashExport()">Generate Report</button>
+  </div>
+</div>`;
+}
+
 function renderProfileTab(pt, sessions, courses = [], ctx = {}) {
   const name = `${pt.first_name} ${pt.last_name}`;
 
@@ -4544,6 +4987,8 @@ function renderProfileTab(pt, sessions, courses = [], ctx = {}) {
   }
 
   if (ptab === 'patient-dash') return renderPatientDash(pt, sessions, courses, ctx);
+
+  if (ptab === 'analytics') return renderPatientAnalytics(pt, sessions, courses, ctx);
 
   if (ptab === 'sessions') return `
     <div style="margin-bottom:14px;display:flex;gap:8px">

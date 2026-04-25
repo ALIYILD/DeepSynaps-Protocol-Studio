@@ -1318,3 +1318,252 @@ export function correlationHTML(correlations) {
   return correlations.map(c=>{const abs=Math.abs(c.r);const hue=c.r>0?'160':'0';const bg='hsla('+hue+','+Math.round(abs*100)+'%,50%,'+(abs*0.25).toFixed(2)+')';const border='hsla('+hue+','+Math.round(abs*100)+'%,50%,'+(abs*0.4).toFixed(2)+')';const tc=c.r>0?'var(--green)':'var(--red,#f43f5e)';
   return '<div style="display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:6px;background:'+bg+';border:1px solid '+border+';margin-bottom:3px"><span style="font-size:10px;color:var(--text-secondary);flex:1;font-family:var(--font-mono)">'+c.a+' ~ '+c.b+'</span><span style="font-size:12px;font-weight:700;color:'+tc+';font-family:var(--font-display)">'+(c.r>0?'+':'')+c.r.toFixed(2)+'</span><div style="width:40px;height:5px;border-radius:3px;background:rgba(255,255,255,0.06)"><div style="width:'+Math.round(abs*100)+'%;height:5px;border-radius:3px;background:'+tc+'"></div></div></div>';}).join('');
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Patient Analytics Dashboard — Demo Data + Chart Helpers
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function _analyticsDates() {
+  const D = 86400000, now = Date.now();
+  const d = n => new Date(now - n * D).toISOString().split('T')[0];
+  const w = n => new Date(now - n * 7 * D).toISOString().split('T')[0];
+  return { d, w, now };
+}
+const _AD = _analyticsDates();
+
+export const ANALYTICS_DEMO = Object.freeze({
+  // ── Summary ──
+  summary: Object.freeze({
+    data_completeness: 84,
+    risk_flag: 'Low',
+    improvement_score: 72,
+    last_visit: _AD.d(3),
+    clinician: 'Dr. Amelia Kolmar',
+    protocol: 'tDCS — Left DLPFC 2mA',
+  }),
+  // ── KPIs ──
+  kpis: Object.freeze({
+    adherence: 87, symptom_improvement: 36, sessions_completed: 12,
+    missed_sessions: 2, sleep_avg: 7.1, hrv_avg: 48,
+    stress_avg: 32, assessment_change: -6.2, task_completion: 78,
+    safety_alerts: 1,
+  }),
+  // ── Symptoms (12 weeks) ──
+  symptoms: Object.freeze({
+    weeks: Array.from({length:12},(_,i)=>_AD.w(11-i)),
+    phq9:   [22,21,20,19,18,17,16,15,15,14,14,13],
+    gad7:   [15,14,14,13,13,12,11,11,10,10,10,9],
+    isi:    [18,17,16,15,14,14,13,13,12,12,12,11],
+    psqi:   [12,11,11,10,10,10,9,9,8,8,8,8],
+    stress: [68,65,62,58,55,52,48,45,42,40,38,35],
+  }),
+  // ── Assessments ──
+  assessments: Object.freeze([
+    {name:'PHQ-9',baseline:22,latest:13,scores:[22,21,20,19,18,17,16,15,15,14,14,13],dates:Array.from({length:12},(_,i)=>_AD.w(11-i)),band:'Moderate',bandColor:'var(--amber)'},
+    {name:'GAD-7',baseline:15,latest:9,scores:[15,14,14,13,13,12,11,11,10,10,10,9],dates:Array.from({length:12},(_,i)=>_AD.w(11-i)),band:'Mild',bandColor:'var(--green)'},
+    {name:'ISI',baseline:18,latest:11,scores:[18,17,16,15,14,14,13,13,12,12,12,11],dates:Array.from({length:12},(_,i)=>_AD.w(11-i)),band:'Subthreshold',bandColor:'var(--teal)'},
+    {name:'PSQI',baseline:12,latest:8,scores:[12,11,11,10,10,10,9,9,8,8,8,8],dates:Array.from({length:12},(_,i)=>_AD.w(11-i)),band:'Poor',bandColor:'var(--amber)'},
+  ]),
+  // ── Treatment sessions ──
+  treatment: Object.freeze({
+    weekLabels: Array.from({length:8},(_,i)=>'Wk '+(i+1)),
+    completed:  [2,2,2,2,1,2,1,2],
+    missed:     [0,0,0,1,0,0,1,0],
+    cancelled:  [0,0,1,0,0,0,0,0],
+    modalities: [{name:'tDCS',pct:85,color:'var(--teal)'},{name:'CBT',pct:10,color:'var(--blue)'},{name:'Mindfulness',pct:5,color:'var(--violet)'}],
+    responseAfterSession: [0,-1,-2,-2,-3,-3,-4,-4,-5,-5,-6,-6],
+    protocolChanges: [{week:4,note:'Increased to 2mA'},{week:8,note:'Added CBT homework'}],
+  }),
+  // ── Biometrics (30 days) ──
+  biometrics: Object.freeze({
+    dates: Array.from({length:30},(_,i)=>_AD.d(29-i)),
+    sleep_duration: [5.8,6.2,6.0,6.5,6.3,6.8,6.5,7.0,6.8,7.2,7.0,7.1,6.9,7.3,7.0,7.4,7.1,7.2,6.8,7.5,7.2,7.4,7.3,7.5,7.1,7.0,7.2,7.4,7.3,7.2],
+    sleep_quality:  [45,48,46,52,50,55,52,58,55,60,58,59,56,62,58,64,60,61,57,65,62,64,63,65,61,60,62,64,63,63],
+    hrv: [38,40,39,42,41,43,42,44,43,45,44,46,45,47,46,48,47,48,46,49,48,50,49,51,50,48,49,51,50,52],
+    rhr: [72,71,72,70,71,69,70,68,69,67,68,66,67,65,66,64,65,64,66,63,64,62,63,62,63,64,63,62,61,60],
+    stress: [68,65,63,60,58,55,53,50,48,46,44,42,40,38,36,35,34,33,32,31,30,29,28,28,27,27,26,26,25,25],
+    steps: [4200,5100,4800,5500,6200,5800,6500,7000,6800,7200,7500,7100,6900,7800,7200,7600,7400,7100,6800,8000,7800,7500,7200,8200,7900,7600,7800,8100,7900,7800],
+  }),
+  // ── EEG (per session) ──
+  eeg: Object.freeze({
+    labels: ['S1','S2','S3','S4','S5','S6','S7','S8','S9','S10','S11','S12'],
+    alpha: [8.2,7.8,9.1,8.5,10.2,9.8,10.5,11.0,10.8,11.3,11.5,12.0],
+    beta:  [15.3,14.8,15.0,14.5,13.8,13.2,12.8,12.5,12.8,12.2,12.0,11.5],
+    theta: [5.2,5.5,5.0,4.8,4.5,4.3,4.2,4.0,4.1,3.9,3.8,3.6],
+    alpha_beta_ratio: [0.54,0.53,0.61,0.59,0.74,0.74,0.82,0.88,0.84,0.93,0.96,1.04],
+    asymmetry: [-0.15,-0.12,-0.10,-0.08,-0.05,-0.03,-0.01,0.02,0.01,0.04,0.05,0.07],
+    coherence: [0.42,0.45,0.48,0.50,0.52,0.55,0.57,0.60,0.58,0.62,0.63,0.65],
+    regions: [{name:'Left DLPFC',alpha:12.0,beta:11.5,theta:3.6,status:'improved'},{name:'Right DLPFC',alpha:10.8,beta:12.2,theta:4.1,status:'stable'},{name:'Frontal',alpha:11.2,beta:11.8,theta:3.8,status:'improved'},{name:'Parietal',alpha:9.5,beta:13.0,theta:4.5,status:'stable'}],
+  }),
+  // ── Tasks & Engagement ──
+  tasks: Object.freeze({
+    weekLabels: Array.from({length:8},(_,i)=>'Wk '+(i+1)),
+    completed: [5,6,5,7,6,8,7,8],
+    assigned:  [7,7,7,8,8,8,8,9],
+    categories: [{name:'Breathwork',done:18,total:22},{name:'Mood Logs',done:24,total:28},{name:'Reading',done:8,total:16},{name:'Check-ins',done:20,total:24},{name:'Exercise',done:12,total:20}],
+    streak_current: 6,
+    streak_best: 11,
+    engagement_7d: [true,true,false,true,true,true,true],
+    missed_rate_pct: 22,
+  }),
+  // ── Safety ──
+  safety: Object.freeze({
+    adverse_events: [{date:_AD.d(18),type:'Skin irritation',severity:'mild',resolved:true},{date:_AD.d(5),type:'Headache post-session',severity:'mild',resolved:true}],
+    missed_appointments: 2,
+    worsening_alerts: [{date:_AD.d(12),metric:'ISI',note:'Score increased by 2 points'},{date:_AD.d(25),metric:'Sleep',note:'3 consecutive nights < 6h'}],
+    tolerance: [{metric:'Comfort Score',avg:8.1,status:'good'},{metric:'Impedance',avg:4.6,status:'good'},{metric:'Side Effects',count:2,status:'monitor'}],
+    deterioration: [],
+  }),
+  // ── Correlations ──
+  correlations: Object.freeze([
+    {a:'Sleep Duration',b:'PHQ-9',r:-0.68,insight:'Better sleep associated with lower depression scores'},
+    {a:'HRV',b:'GAD-7',r:-0.62,insight:'Higher HRV associated with lower anxiety'},
+    {a:'Adherence',b:'PHQ-9 Change',r:-0.71,insight:'Higher adherence associated with greater symptom reduction'},
+    {a:'Sessions',b:'PHQ-9 Improvement',r:0.65,insight:'More sessions associated with greater improvement'},
+    {a:'Stress',b:'Sleep Quality',r:-0.58,insight:'Higher stress associated with poorer sleep quality'},
+    {a:'Steps',b:'Mood',r:0.45,insight:'More physical activity associated with better mood'},
+    {a:'Alpha Power',b:'PHQ-9',r:-0.64,insight:'Increased alpha power associated with lower depression'},
+    {a:'Task Completion',b:'Engagement',r:0.72,insight:'Higher task completion associated with better engagement'},
+  ]),
+  // ── AI Insights ──
+  aiInsights: Object.freeze({
+    generated_at: _AD.d(0),
+    confidence: 0.81,
+    improvements: [
+      'PHQ-9 score appears to show a consistent downward trend (22 to 13, ~41% reduction), suggesting positive treatment response.',
+      'HRV has shown an upward trend over 30 days (38 to 52 ms), which is associated with improved autonomic regulation.',
+      'Sleep duration has stabilised around 7.1-7.4 hours, which appears to be within a healthy range.',
+    ],
+    worsening: [
+      'ISI score showed a temporary increase around week 6, which may warrant monitoring of sleep-specific interventions.',
+    ],
+    adherence_notes: [
+      '2 missed sessions in 14 planned (87% adherence). Missed sessions appear concentrated in weeks 5 and 7.',
+      'Home task completion is at 78%, with reading assignments showing the lowest completion rate (50%).',
+    ],
+    anomalies: [
+      'A possible sleep quality dip was observed around day 19-21, coinciding with a reported headache post-session.',
+    ],
+    review_areas: [
+      'Reading task adherence requires clinician review — consider simplifying materials or adjusting task load.',
+      'The ISI score plateau suggests possible benefit from a targeted sleep intervention.',
+      'Consider scheduling a comprehensive assessment review at session 15.',
+    ],
+  }),
+});
+
+// ── Additional Chart Helpers for Analytics Dashboard ──────────────────────────
+
+/** Stacked bar chart SVG */
+export function stackedBarSVG(series, labels, colors, names, opts = {}) {
+  const w = opts.w || 420, h = opts.h || 140;
+  const pad = {top:20,right:12,bottom:28,left:36};
+  const cw = w-pad.left-pad.right, ch = h-pad.top-pad.bottom;
+  const n = labels.length; if (!n) return '';
+  const totals = labels.map((_, i) => series.reduce((s, sr) => s + (sr[i] || 0), 0));
+  const maxV = Math.max(...totals, 1);
+  const barW = Math.max(8, (cw / n) * 0.6);
+  const gap = (cw - barW * n) / (n + 1);
+  let bars = '';
+  for (let i = 0; i < n; i++) {
+    let cumH = 0;
+    const bx = pad.left + gap + i * (barW + gap);
+    for (let si = series.length - 1; si >= 0; si--) {
+      const v = series[si][i] || 0;
+      const bh = (v / maxV) * ch;
+      const by = pad.top + ch - cumH - bh;
+      bars += '<rect x="' + bx.toFixed(1) + '" y="' + by.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + Math.max(0, bh).toFixed(1) + '" rx="2" fill="' + (colors[si] || 'var(--teal)') + '" opacity="0.85"/>';
+      cumH += bh;
+    }
+    if (labels[i]) bars += '<text x="' + (bx + barW / 2).toFixed(1) + '" y="' + (h - 6) + '" fill="rgba(255,255,255,0.3)" font-size="8" text-anchor="middle" font-family="var(--font-mono)">' + labels[i] + '</text>';
+  }
+  // Y axis
+  let ya = '';
+  for (let i = 0; i <= 3; i++) {
+    const gy = pad.top + (i / 3) * ch;
+    const val = maxV - (i / 3) * maxV;
+    ya += '<text x="' + (pad.left - 4) + '" y="' + (gy + 3).toFixed(1) + '" fill="rgba(255,255,255,0.3)" font-size="8" text-anchor="end" font-family="var(--font-mono)">' + Math.round(val) + '</text>';
+    ya += '<line x1="' + pad.left + '" y1="' + gy.toFixed(1) + '" x2="' + (w - pad.right) + '" y2="' + gy.toFixed(1) + '" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>';
+  }
+  // Legend
+  let leg = '';
+  for (let si = 0; si < names.length; si++) {
+    const lx = pad.left + si * 90;
+    leg += '<rect x="' + lx + '" y="3" width="8" height="8" rx="2" fill="' + (colors[si] || 'var(--teal)') + '"/>';
+    leg += '<text x="' + (lx + 12) + '" y="10" fill="rgba(255,255,255,0.5)" font-size="9" font-family="var(--font-mono)">' + names[si] + '</text>';
+  }
+  return '<svg width="100%" viewBox="0 0 ' + w + ' ' + h + '" style="display:block">' + ya + bars + leg + '</svg>';
+}
+
+/** Area chart SVG (filled line chart) */
+export function areaChartSVG(values, labels, color = 'var(--teal)', opts = {}) {
+  const w = opts.w || 420, h = opts.h || 120;
+  const pad = {top:12,right:12,bottom:24,left:36};
+  const cw = w-pad.left-pad.right, ch = h-pad.top-pad.bottom;
+  const n = values.length; if (n < 2) return '';
+  const minV = opts.yMin != null ? opts.yMin : Math.min(...values);
+  const maxV = opts.yMax != null ? opts.yMax : Math.max(...values);
+  const yr = maxV - minV || 1;
+  const x = i => pad.left + (i / (n - 1)) * cw;
+  const y = v => pad.top + (1 - (v - minV) / yr) * ch;
+  const pts = values.map((v, i) => x(i).toFixed(1) + ',' + y(v).toFixed(1)).join(' ');
+  const baseY = (pad.top + ch).toFixed(1);
+  const firstX = x(0).toFixed(1), lastX = x(n - 1).toFixed(1);
+  // Grid
+  let g = '';
+  for (let i = 0; i <= 3; i++) {
+    const gy = pad.top + (i / 3) * ch;
+    const val = maxV - (i / 3) * yr;
+    g += '<line x1="' + pad.left + '" y1="' + gy.toFixed(1) + '" x2="' + (w - pad.right) + '" y2="' + gy.toFixed(1) + '" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>';
+    g += '<text x="' + (pad.left - 4) + '" y="' + (gy + 3).toFixed(1) + '" fill="rgba(255,255,255,0.3)" font-size="8" text-anchor="end" font-family="var(--font-mono)">' + (Number.isInteger(val) ? val : val.toFixed(1)) + '</text>';
+  }
+  const st = Math.max(1, Math.floor(n / 6));
+  let xl = '';
+  for (let i = 0; i < n; i += st) {
+    xl += '<text x="' + x(i).toFixed(1) + '" y="' + (h - 5) + '" fill="rgba(255,255,255,0.25)" font-size="7" text-anchor="middle" font-family="var(--font-mono)">' + (labels[i] || '') + '</text>';
+  }
+  return '<svg width="100%" viewBox="0 0 ' + w + ' ' + h + '" style="display:block">' + g + xl +
+    '<polygon points="' + firstX + ',' + baseY + ' ' + pts + ' ' + lastX + ',' + baseY + '" fill="' + color + '" opacity="0.12"/>' +
+    '<polyline points="' + pts + '" fill="none" stroke="' + color + '" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '</svg>';
+}
+
+/** Donut / ring gauge SVG */
+export function donutSVG(pct, color = 'var(--teal)', opts = {}) {
+  const sz = opts.size || 64;
+  const r = (sz - 8) / 2, cx = sz / 2, cy = sz / 2;
+  const circ = 2 * Math.PI * r;
+  const dash = (Math.min(100, Math.max(0, pct)) / 100) * circ;
+  const label = opts.label || (Math.round(pct) + '%');
+  return '<svg width="' + sz + '" height="' + sz + '" viewBox="0 0 ' + sz + ' ' + sz + '" style="display:block">' +
+    '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="5"/>' +
+    '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + color + '" stroke-width="5" stroke-dasharray="' + dash.toFixed(1) + ' ' + circ.toFixed(1) + '" stroke-linecap="round" transform="rotate(-90 ' + cx + ' ' + cy + ')"/>' +
+    '<text x="' + cx + '" y="' + (cy + 4) + '" fill="' + color + '" font-size="' + (sz > 50 ? 14 : 11) + '" font-weight="700" text-anchor="middle" font-family="var(--font-display)">' + label + '</text></svg>';
+}
+
+/** Horizontal bar chart (for categories) */
+export function hBarChartHTML(items, opts = {}) {
+  const maxVal = Math.max(...items.map(i => i.value || i.total || 1), 1);
+  return items.map(it => {
+    const pct = Math.round(((it.done != null ? it.done : it.value) / (it.total || maxVal)) * 100);
+    const color = it.color || 'var(--teal)';
+    return '<div style="margin-bottom:6px"><div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:2px"><span style="color:var(--text-secondary)">' + (it.name || it.label) + '</span><span style="color:var(--text-tertiary)">' + (it.done != null ? it.done + '/' + it.total : it.value) + ' (' + pct + '%)</span></div><div style="height:6px;border-radius:3px;background:rgba(255,255,255,0.06)"><div style="height:6px;border-radius:3px;background:' + color + ';width:' + pct + '%;transition:width .3s"></div></div></div>';
+  }).join('');
+}
+
+/** Severity band indicator strip */
+export function severityBandSVG(score, maxScore, bands, opts = {}) {
+  const w = opts.w || 200, h = 20;
+  const pad = 2;
+  const bw = w - pad * 2;
+  let rects = '';
+  let cumPct = 0;
+  for (const b of bands) {
+    const segW = (b.range / maxScore) * bw;
+    rects += '<rect x="' + (pad + cumPct).toFixed(1) + '" y="4" width="' + segW.toFixed(1) + '" height="12" rx="2" fill="' + b.color + '" opacity="0.25"/>';
+    cumPct += segW;
+  }
+  const markerX = pad + (Math.min(score, maxScore) / maxScore) * bw;
+  rects += '<line x1="' + markerX.toFixed(1) + '" y1="2" x2="' + markerX.toFixed(1) + '" y2="18" stroke="var(--text-primary)" stroke-width="2" stroke-linecap="round"/>';
+  return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" style="display:inline-block;vertical-align:middle">' + rects + '</svg>';
+}
