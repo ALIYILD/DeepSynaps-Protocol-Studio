@@ -1595,9 +1595,7 @@ window._renderPresence = renderPresence;
 let _presenceInterval = null;
 function startPresenceHeartbeat() {
   // Skip in demo mode
-  const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
-  const token = api.getToken();
-  if (_demoOk && token && token.endsWith('-demo-token')) return;
+  if (import.meta.env?.VITE_ENABLE_DEMO === '1') return;
   clearInterval(_presenceInterval);
   _presenceInterval = setInterval(() => {
     if (currentPage && api.getToken()) {
@@ -1822,10 +1820,9 @@ let _sseRetryTimer = null;
 
 function connectSSE() {
   // Skip SSE in demo mode — backend may be unreachable and retries cause noise
-  const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+  if (import.meta.env?.VITE_ENABLE_DEMO === '1') return;
   const token = api.getToken();
   if (!token) return;
-  if (_demoOk && token.endsWith('-demo-token')) return;
 
   // Tear down any stale connection before opening a new one
   if (window._sseSource) {
@@ -2156,9 +2153,8 @@ window._bootApp = bootApp;
 // ── Backend health check ──────────────────────────────────────────────────────
 async function checkBackendHealth() {
   // Suppress banner in demo mode — backend being unreachable is expected
-  const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
-  const token = api.getToken();
-  if (_demoOk && token && token.endsWith('-demo-token')) {
+  const _demoOk = import.meta.env?.VITE_ENABLE_DEMO === '1';
+  if (_demoOk) {
     document.getElementById('backend-banner')?.remove();
     return;
   }
