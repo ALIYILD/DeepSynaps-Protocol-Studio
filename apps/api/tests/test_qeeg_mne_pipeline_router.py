@@ -172,12 +172,17 @@ def test_analyze_mne_success_persists_all_contract_columns(
 
     assert payload["analysis_status"] == "processing:mne_pipeline"
     assert payload["analysis_error"] is None
+    assert payload["execution_mode"] == "background"
+    assert payload["queue_job_id"] is None
 
     db = SessionLocal()
     try:
         row = db.query(QEEGAnalysis).filter_by(id=analysis_row).first()
         assert row is not None
         assert row.analysis_status == "completed"
+        params = json.loads(row.analysis_params_json)
+        assert params["execution_mode"] == "background"
+        assert params["job_id"] is None
         assert row.aperiodic_json is not None
         assert row.peak_alpha_freq_json is not None
         assert row.connectivity_json is not None
@@ -215,6 +220,8 @@ def test_analyze_mne_pipeline_failure_marks_row_failed(
     payload = resp.json()
     assert payload["analysis_status"] == "processing:mne_pipeline"
     assert payload["analysis_error"] is None
+    assert payload["execution_mode"] == "background"
+    assert payload["queue_job_id"] is None
 
     db = SessionLocal()
     try:
@@ -222,6 +229,52 @@ def test_analyze_mne_pipeline_failure_marks_row_failed(
         assert row is not None
         assert row.analysis_status == "failed"
         assert row.analysis_error == "pipeline dependency missing"
+        params = json.loads(row.analysis_params_json)
+        assert params["execution_mode"] == "background"
+        assert params["job_id"] is None
+    finally:
+        db.close()
+
+
+def test_analyze_mne_prefers_celery_enqueue_when_available(
+    client: TestClient,
+    auth_headers: dict,
+    analysis_row: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    queued_job_id = "celery-job-123"
+
+    monkeypatch.setattr(
+        "apps.worker.app.jobs.run_mne_pipeline_job.delay",
+        lambda analysis_id: (calls.append(analysis_id), type("QueuedJob", (), {"id": queued_job_id})())[1],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "app.services.qeeg_pipeline_job.run_mne_pipeline_job_sync",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("background fallback should not run")),
+    )
+
+    resp = client.post(
+        f"/api/v1/qeeg-analysis/{analysis_row}/analyze-mne",
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["analysis_status"] == "processing:mne_pipeline"
+    assert payload["execution_mode"] == "celery"
+    assert payload["queue_job_id"] == queued_job_id
+    assert calls == [analysis_row]
+
+    db = SessionLocal()
+    try:
+        row = db.query(QEEGAnalysis).filter_by(id=analysis_row).first()
+        assert row is not None
+        assert row.analysis_status == "processing:mne_pipeline"
+        assert row.analyzed_at is None
+        params = json.loads(row.analysis_params_json)
+        assert params["execution_mode"] == "celery"
+        assert params["job_id"] == queued_job_id
     finally:
         db.close()
 

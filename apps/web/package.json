@@ -17,6 +17,15 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.44.0",
+    "@vitejs/plugin-react": "^4.7.0",
     "vite": "^7.0.4"
+  },
+  "dependencies": {
+    "@cornerstonejs/core": "^2.0.0",
+    "@cornerstonejs/nifti-volume-loader": "^1.0.0",
+    "@cornerstonejs/tools": "^2.0.0",
+    "plotly.js-dist-min": "^2.35.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   }
 }

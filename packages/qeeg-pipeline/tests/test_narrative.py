@@ -70,7 +70,7 @@ def test_safety_rejects_hallucinated_citations():
     from deepsynaps_qeeg.narrative.safety import check_citations
 
     ok, reason = check_citations(
-        text_markdown="This is a claim. [C999]",
+        text_markdown="This is a claim [C999].",
         allowed_citation_ids={"C1"},
     )
     assert ok is False

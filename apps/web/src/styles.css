@@ -194,6 +194,41 @@ img, video, canvas, svg { max-width: 100%; height: auto; }
 pre, code { max-width: 100%; }
 * { min-width: 0; }
 
+/* ── MRI Analyzer: Cornerstone3D viewer shell ─────────────────────────────── */
+.ds-mri-cs3d {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+}
+.ds-mri-cs3d__toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.ds-mri-cs3d__hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-left: auto;
+}
+.ds-mri-cs3d__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 900px) {
+  .ds-mri-cs3d__grid { grid-template-columns: 1fr; }
+  .ds-mri-cs3d__hint { margin-left: 0; }
+}
+.ds-mri-cs3d__vp {
+  height: 260px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(0,0,0,0.28);
+  overflow: hidden;
+}
+
 /* Prevent accidental horizontal scroll while keeping table escape hatch */
 #content, #patient-content { overflow-x: hidden; }
 @media (max-width: 640px) {

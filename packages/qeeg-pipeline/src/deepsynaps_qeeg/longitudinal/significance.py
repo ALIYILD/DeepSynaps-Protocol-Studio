@@ -56,8 +56,8 @@ def rci_for_comparison(comp: ComparisonResult, *, threshold: float = 1.96) -> RC
 
     Notes
     -----
-    We use \(RCI = \Delta / \sqrt{2\sigma^2}\) with a bundled variance estimate
-    \(\sigma^2\). When z-score deltas are available, \(\sigma^2=1\).
+    We use: RCI = Δ / sqrt(2σ²) with a bundled variance estimate σ².
+    When z-score deltas are available, σ²=1.
     """
     flags: list[RCIFlag] = []
 

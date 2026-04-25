@@ -1,6 +1,8 @@
 import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 
 export default defineConfig({
+  plugins: [react()],
   base: './',
   build: {
     // Raised from 500: pages-clinical (18 258 lines) and pages-knowledge

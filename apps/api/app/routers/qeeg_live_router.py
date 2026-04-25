@@ -78,9 +78,43 @@ async def _stream_frames(
         win_iter = source.windows()
     else:
         if not edf_path:
-            raise ApiServiceError(code="missing_edf_path", message="edf_path is required for mock source.", status_code=400)
-        source = MockSource(edf_path=edf_path, realtime=False)
-        win_iter = source.windows()
+            # In test environments we allow a synthetic mock source so WS smoke
+            # tests don't require a real EDF fixture on disk.
+            if os.getenv("DEEPSYNAPS_APP_ENV") == "test":
+                import numpy as np
+
+                from deepsynaps_qeeg.streaming.lsl_source import Window  # type: ignore
+
+                sfreq = 250.0
+                ch_names = [
+                    "Fp1", "Fp2", "F7", "F3", "Fz", "F4", "F8",
+                    "T7", "C3", "Cz", "C4", "T8",
+                    "P7", "P3", "Pz", "P4", "P8",
+                    "O1", "O2",
+                ]
+                n_ch = len(ch_names)
+                win_n = int(round(sfreq * 1.0))
+                hop_n = int(round(sfreq * 0.25))
+                t = np.arange(win_n) / sfreq
+                rng = np.random.default_rng(123)
+                # Pre-generate a buffer of 10 seconds for deterministic streaming.
+                total_n = int(round(sfreq * 10.0))
+                data = rng.standard_normal((n_ch, total_n)) * 1e-6
+                data += (2.0e-6) * np.sin(2 * np.pi * 10.0 * np.arange(total_n) / sfreq)
+
+                async def _synthetic():
+                    i = 0
+                    while i + win_n <= total_n:
+                        yield Window(data=data[:, i : i + win_n].copy(), sfreq=sfreq, ch_names=list(ch_names), t0_unix=None)
+                        i += hop_n
+                        await asyncio.sleep(0.0)
+
+                win_iter = _synthetic()
+            else:
+                raise ApiServiceError(code="missing_edf_path", message="edf_path is required for mock source.", status_code=400)
+        else:
+            source = MockSource(edf_path=edf_path, realtime=False)
+            win_iter = source.windows()
 
     rolling: RollingFeatures | None = None
     seq = 0
@@ -118,7 +152,11 @@ async def qeeg_live_sse(
     age: int | None = Query(default=None, ge=0, le=120),
     sex: str | None = Query(default=None),
     line_freq_hz: float = Query(default=50.0, ge=45.0, le=65.0),
+    token: str | None = Query(default=None),
 ) -> StreamingResponse:
+    # EventSource cannot set Authorization headers; accept token= as a fallback.
+    if token and (not getattr(actor, "token_id", None)):
+        actor = get_authenticated_actor(authorization=f"Bearer {token}")
     _gate(actor)
 
     async def sse_gen() -> AsyncIterator[str]:

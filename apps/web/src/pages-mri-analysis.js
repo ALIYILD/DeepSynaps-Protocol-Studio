@@ -16,6 +16,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { api, downloadBlob } from './api.js';
 import { emptyState, showToast } from './helpers.js';
+import { mountCornerstoneMPR } from './mri-viewer-cs3d.js';
 
 const FUSION_API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const FUSION_TOKEN_KEY = 'ds_access_token';
@@ -382,6 +383,27 @@ export async function mountNiiVue(el, opts) {
   }
 }
 
+async function mountBestMRIViewer(host, opts) {
+  // Prefer Cornerstone3D MPR (tools + clinical-grade interaction),
+  // fall back to NiiVue, then iframe overlay.
+  try {
+    var payload = null;
+    if (opts && opts.analysisId && api.getMRIViewerPayload) {
+      try { payload = await api.getMRIViewerPayload(opts.analysisId); } catch (_) { payload = null; }
+    }
+    var vols = _viewerVolumeCandidates(opts && opts.report, payload);
+    var baseUrl = (vols && vols[0] && vols[0].url) ? vols[0].url : null;
+    if (baseUrl) {
+      var ok = await mountCornerstoneMPR(host, {
+        analysisId: opts.analysisId,
+        baseVolumeUrl: baseUrl,
+      });
+      if (ok) return true;
+    }
+  } catch (_) {}
+  return mountNiiVue(host, opts);
+}
+
 function _mountInlineMRIViewer(report) {
   var host = document.getElementById('ds-mri-progressive-viewer');
   if (!host) return;
@@ -389,7 +411,7 @@ function _mountInlineMRIViewer(report) {
   var target0 = report && Array.isArray(report.stim_targets) && report.stim_targets[0]
     ? report.stim_targets[0]
     : null;
-  mountNiiVue(host, {
+  mountBestMRIViewer(host, {
     analysisId: report && report.analysis_id,
     patientId: report && report.patient && report.patient.patient_id,
     targetId: target0 && target0.target_id,
@@ -1625,6 +1647,10 @@ function _registerPageCleanup() {
   window._pageCleanup = async function (_ctx) {
     if (_jobPollTimer) { clearInterval(_jobPollTimer); _jobPollTimer = null; }
     if (_jobWatchAbort) { try { _jobWatchAbort.abort(); } catch (_) {} _jobWatchAbort = null; }
+    try {
+      var host = document.getElementById('ds-mri-progressive-viewer');
+      if (host && typeof host._dsDisposeCornerstone === 'function') host._dsDisposeCornerstone();
+    } catch (_) {}
   };
 }
 

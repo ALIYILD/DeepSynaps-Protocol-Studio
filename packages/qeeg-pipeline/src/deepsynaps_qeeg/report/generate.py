@@ -40,6 +40,8 @@ HTML_TEMPLATE = """\
   .note { font-size: 11px; color: #66718a; }
   .roi-table th, .roi-table td { font-size: 11px; }
   .refs li { font-size: 11px; color: #3b4a63; margin-bottom: 4px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
+  .card { border: 1px solid #e0e4eb; border-radius: 10px; padding: 10px; background: #fff; }
 </style>
 </head>
 <body>
@@ -120,6 +122,40 @@ HTML_TEMPLATE = """\
   </table>
   {% else %}
     <p class="note">Source localization unavailable or skipped by quality guard.</p>
+  {% endif %}
+
+  {% if longitudinal and (longitudinal.change_topomaps or longitudinal.trend_lines) %}
+  <h2>Longitudinal Change</h2>
+  <p class="note">
+    Within-patient change vs previous session (if available). Change maps use a fixed diverging scale of ±2 z.
+  </p>
+  {% if longitudinal.prev_session_id %}
+    <p class="note">Compared to previous session: <strong>{{ longitudinal.prev_session_id }}</strong></p>
+  {% endif %}
+
+  {% if longitudinal.change_topomaps %}
+  <h3>Change topomaps (Δz, curr − prev)</h3>
+  <div class="grid">
+    {% for band, img in longitudinal.change_topomaps.items() %}
+      <figure class="card" style="display:inline-block;">
+        <img class="band-img" src="{{ img }}" alt="change {{ band }}" />
+        <figcaption style="text-align:center;">{{ band }}</figcaption>
+      </figure>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if longitudinal.trend_lines %}
+  <h3>Trend (≥3 sessions)</h3>
+  <div class="grid">
+    {% for key, img in longitudinal.trend_lines.items() %}
+      <figure class="card" style="display:inline-block;">
+        <img class="band-img" src="{{ img }}" alt="trend {{ key }}" />
+        <figcaption style="text-align:center;">{{ key }}</figcaption>
+      </figure>
+    {% endfor %}
+  </div>
+  {% endif %}
   {% endif %}
 
   {% if narrative %}
@@ -224,6 +260,7 @@ def build(
         "graph": (result.features or {}).get("graph", {}) or {},
         "method": (result.features or {}).get("source", {}).get("method"),
         "source_roi_table": (result.features or {}).get("source", {}).get("roi_table") or [],
+        "longitudinal": (getattr(result, "longitudinal", None) or {}) if result is not None else {},
         "narrative": narrative_html,
         "references": narrative_refs,
     }

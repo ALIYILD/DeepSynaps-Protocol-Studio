@@ -142,6 +142,8 @@ class AnalysisOut(BaseModel):
     longitudinal: Optional[dict] = None
     session_number: Optional[int] = None
     days_from_baseline: Optional[int] = None
+    execution_mode: Optional[str] = None
+    queue_job_id: Optional[str] = None
     analyzed_at: Optional[str] = None
     created_at: str
 
@@ -156,6 +158,8 @@ class AnalysisOut(BaseModel):
             flagged_list = [str(x) for x in flagged_raw]
         else:
             flagged_list = None
+        params = _maybe_json_loads(getattr(r, "analysis_params_json", None))
+        queue_meta = params if isinstance(params, dict) else {}
 
         return cls(
             id=r.id,
@@ -201,6 +205,8 @@ class AnalysisOut(BaseModel):
             longitudinal=_maybe_json_loads(getattr(r, "longitudinal_json", None)),
             session_number=getattr(r, "session_number", None),
             days_from_baseline=getattr(r, "days_from_baseline", None),
+            execution_mode=queue_meta.get("execution_mode"),
+            queue_job_id=queue_meta.get("job_id"),
             analyzed_at=r.analyzed_at.isoformat() if r.analyzed_at else None,
             created_at=r.created_at.isoformat() if r.created_at else "",
         )
@@ -758,10 +764,11 @@ async def analyze_edf_mne(
 
     analysis.analysis_status = "processing:mne_pipeline"
     analysis.analysis_error = None
-    db.commit()
+    queue_meta: dict[str, object] = {}
 
     try:
         from app.services.qeeg_pipeline_job import run_mne_pipeline_job_sync
+        from apps.worker.app.jobs import run_mne_pipeline_job
     except Exception as exc:
         _log.exception("MNE pipeline job import failed for %s", analysis_id)
         analysis.analysis_status = "failed"
@@ -770,7 +777,32 @@ async def analyze_edf_mne(
         db.refresh(analysis)
         return AnalysisOut.from_record(analysis)
 
-    background_tasks.add_task(run_mne_pipeline_job_sync, analysis_id)
+    if hasattr(run_mne_pipeline_job, "delay"):
+        try:
+            queued = run_mne_pipeline_job.delay(analysis_id)
+            queue_meta = {
+                "execution_mode": "celery",
+                "job_id": getattr(queued, "id", None),
+            }
+        except Exception as exc:
+            _log.warning("Celery enqueue failed for %s, falling back to background task: %s", analysis_id, exc)
+            queue_meta = {
+                "execution_mode": "background",
+                "job_id": None,
+            }
+            background_tasks.add_task(run_mne_pipeline_job_sync, analysis_id)
+    else:
+        queue_meta = {
+            "execution_mode": "background",
+            "job_id": None,
+        }
+        background_tasks.add_task(run_mne_pipeline_job_sync, analysis_id)
+
+    existing_params = _maybe_json_loads(analysis.analysis_params_json)
+    params_dict = existing_params if isinstance(existing_params, dict) else {}
+    params_dict.update(queue_meta)
+    analysis.analysis_params_json = json.dumps(params_dict)
+    db.commit()
     db.refresh(analysis)
     return AnalysisOut.from_record(analysis)
 
@@ -1183,6 +1215,8 @@ class StatusResponse(BaseModel):
     completed_analyses: int
     total_analyses: int
     error: Optional[str] = None
+    execution_mode: Optional[str] = None
+    queue_job_id: Optional[str] = None
     analyzed_at: Optional[str] = None
 
 
@@ -1219,6 +1253,9 @@ def _analysis_status_payload(analysis: QEEGAnalysis) -> StatusResponse:
     elif raw_status == "failed":
         progress_pct = 0
 
+    params = _maybe_json_loads(getattr(analysis, "analysis_params_json", None))
+    queue_meta = params if isinstance(params, dict) else {}
+
     return StatusResponse(
         status=raw_status.split(":")[0],
         step=step,
@@ -1226,6 +1263,8 @@ def _analysis_status_payload(analysis: QEEGAnalysis) -> StatusResponse:
         completed_analyses=completed_adv,
         total_analyses=total_adv,
         error=analysis.analysis_error,
+        execution_mode=queue_meta.get("execution_mode"),
+        queue_job_id=queue_meta.get("job_id"),
         analyzed_at=analysis.analyzed_at.isoformat() if analysis.analyzed_at else None,
     )
 

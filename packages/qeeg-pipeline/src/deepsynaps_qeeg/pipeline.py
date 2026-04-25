@@ -35,6 +35,7 @@ class PipelineResult:
 
     features: dict[str, Any] = field(default_factory=dict)
     zscores: dict[str, Any] = field(default_factory=dict)
+    embeddings: dict[str, Any] = field(default_factory=dict)
     flagged_conditions: list[str] = field(default_factory=list)
     quality: dict[str, Any] = field(default_factory=dict)
     source_estimates: dict[str, "mne.SourceEstimate"] = field(default_factory=dict)
@@ -56,6 +57,7 @@ def run_full_pipeline(
     epoch_len: float = EPOCH_LENGTH_SEC,
     overlap: float = EPOCH_OVERLAP,
     do_source_localization: bool = True,
+    compute_embeddings: bool = False,
     do_report: bool = False,
     out_dir: str | Path | None = None,
 ) -> PipelineResult:
@@ -133,6 +135,30 @@ def run_full_pipeline(
         return result
 
     ch_names = list(epochs.ch_names)
+
+    # --- Stage 3b — foundation-model embeddings (optional) ---
+    if compute_embeddings:
+        try:
+            import numpy as np
+
+            from .embeddings import get_embedder
+
+            # Default: compute both allowlisted embedders. Consumers can ignore ones they don't need.
+            labram = get_embedder("labram-base")
+            eegpt = get_embedder("eegpt-base")
+            result.embeddings = {
+                "labram-base": labram.embed_recording(raw_clean),
+                "eegpt-base": eegpt.embed_recording(raw_clean),
+            }
+
+            if out_dir is not None:
+                outp = Path(out_dir)
+                outp.mkdir(parents=True, exist_ok=True)
+                np.savez_compressed(outp / "embeddings.npz", **result.embeddings)
+        except Exception as exc:
+            log.warning("Embedding stage failed (%s)", exc)
+            result.quality["stage_errors"]["embeddings"] = str(exc)
+            result.embeddings = {}
 
     # --- Stage 4 — features ---
     features: dict[str, Any] = {}
