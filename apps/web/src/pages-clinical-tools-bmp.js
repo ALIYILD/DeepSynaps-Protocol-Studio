@@ -1408,6 +1408,9 @@ export async function pgBrainMapPlanner(setTopbar) {
       + '<div class="bm-legend-item"><span class="bm-legend-swatch" style="background:#4a9eff;opacity:0.6"></span>Alternate</div>'
       + '<div class="bm-legend-item"><span class="bm-legend-swatch" style="background:rgba(148,163,184,0.3)"></span>Inactive</div>'
     + '</div>'
+    + '<div id="bmp-mri-host" class="bmp-mri-host">'
+      + (bmpState.mriOverlay ? _buildBMPFocusViewer() : '')
+    + '</div>'
     + '</div>'
     + '<aside class="bm-right" id="bm-right">' + _buildParamsPanel() + '</aside>'
     + '</div>'
@@ -1615,6 +1618,11 @@ export async function pgBrainMapPlanner(setTopbar) {
           l.querySelector('.bm-toggle-pill').classList.toggle('on', bmpState.labelMode !== 'minimal');
           _persist();
           _updateMap();
+        } else if (k === 'mri-overlay') {
+          bmpState.mriOverlay = !bmpState.mriOverlay;
+          l.querySelector('.bm-toggle-pill').classList.toggle('on', bmpState.mriOverlay);
+          _persist();
+          _renderBMPFocusViewer();
         }
       });
     });
@@ -1626,6 +1634,9 @@ export async function pgBrainMapPlanner(setTopbar) {
   _wireAtlas();
   _wireTabs();
   _wireCanvasToolbar();
+  // MRI focus viewer — only wire when the toggle is on (host was rendered
+  // with the viewer's HTML). When off, host is empty and wiring is a no-op.
+  if (bmpState.mriOverlay) _wireBMPFocusViewer();
 
   // New top-bar button handlers. When a patient context is present, the
   // Import button will fall back to loading the most-recent backend planner
@@ -2001,6 +2012,7 @@ export async function pgBrainMapPlanner(setTopbar) {
     if (key !== 'q' && key !== 'cond' && key !== 'ev' && key !== 'site') return;
     _bmpProtoFilter[key] = String(value == null ? '' : value);
     _renderProtoSelect();
+    if (bmpState.mriOverlay) _renderBMPFocusViewer();
   };
 
   window._bmpSetModality = function(m) {
