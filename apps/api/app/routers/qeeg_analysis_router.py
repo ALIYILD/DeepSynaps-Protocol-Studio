@@ -7,6 +7,7 @@ import html as html_mod
 import json
 import logging
 import math
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -860,6 +861,54 @@ def get_analysis(
 
     _gate_patient_access(actor, analysis.patient_id, db)
     return AnalysisOut.from_record(analysis)
+
+
+@router.get("/{analysis_id}/brain.json")
+def get_analysis_brain_payload(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """Return a compact 3D brain surface payload for the qEEG web viewer."""
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    if analysis.analysis_status != "completed":
+        raise ApiServiceError(code="analysis_not_ready", message="Analysis not completed", status_code=400)
+
+    source_raw = getattr(analysis, "source_roi_json", None)
+    if not source_raw:
+        raise ApiServiceError(
+            code="source_unavailable",
+            message="Source localization output unavailable for this analysis",
+            status_code=404,
+        )
+    try:
+        source_payload = json.loads(source_raw)
+    except (TypeError, ValueError):
+        raise ApiServiceError(code="source_unavailable", message="Malformed source payload", status_code=500)
+
+    roi_band_power = (source_payload or {}).get("roi_band_power") if isinstance(source_payload, dict) else None
+    if not isinstance(roi_band_power, dict) or not roi_band_power:
+        raise ApiServiceError(
+            code="source_unavailable",
+            message="Source localization payload missing roi_band_power",
+            status_code=404,
+        )
+
+    try:
+        from deepsynaps_qeeg.viz.web_payload import build_brain_payload
+    except Exception as exc:
+        raise ApiServiceError(
+            code="qeeg_web_viewer_unavailable",
+            message=f"Web viewer payload builder unavailable: {str(exc)[:200]}",
+            status_code=503,
+        )
+
+    subjects_dir = os.getenv("MNE_SUBJECTS_DIR") or None
+    return build_brain_payload(roi_band_power, subjects_dir=subjects_dir, subject="fsaverage")
 
 
 # ── List Analyses for Patient ────────────────────────────────────────────────
