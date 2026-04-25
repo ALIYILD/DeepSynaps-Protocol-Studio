@@ -27,6 +27,13 @@ cd "$REPO_ROOT"
 NETLIFY_SITE_ID="13baea11-07e8-4ab3-9c25-af1f045c845b"
 API_BASE_URL="https://deepsynaps-studio.fly.dev"
 
+netlify_cmd="netlify"
+if command -v netlify.cmd >/dev/null 2>&1; then
+  # Prefer the Windows Netlify CLI when available (avoids WSL shims that may not
+  # have `node` on PATH).
+  netlify_cmd="netlify.cmd"
+fi
+
 want_api=0
 want_web=1
 case "${1:-}" in
@@ -44,13 +51,13 @@ if [ "$want_web" = 1 ]; then
     VITE_ENABLE_DEMO=1 VITE_API_BASE_URL="$API_BASE_URL" npx vite build
   )
 
-  if ! command -v netlify >/dev/null 2>&1; then
+  if ! command -v "$netlify_cmd" >/dev/null 2>&1; then
     echo "✗ netlify CLI not on PATH. Install: npm i -g netlify-cli" >&2
     exit 1
   fi
 
   echo "▶ Deploying dist/ to Netlify site $NETLIFY_SITE_ID"
-  netlify deploy --dir apps/web/dist --prod --site "$NETLIFY_SITE_ID"
+  "$netlify_cmd" deploy --dir apps/web/dist --prod --site "$NETLIFY_SITE_ID"
   echo "✓ Web live: https://deepsynaps-studio-preview.netlify.app"
 fi
 
