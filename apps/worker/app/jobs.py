@@ -20,6 +20,13 @@ def enqueue_render_job(job: RenderJob) -> dict[str, str]:
 
 
 try:
+    from app.deeptwin_simulation import DeeptwinSimulationJob, run_deeptwin_simulation
+except Exception:  # pragma: no cover
+    DeeptwinSimulationJob = None  # type: ignore[assignment]
+    run_deeptwin_simulation = None  # type: ignore[assignment]
+
+
+try:
     from celery import Celery  # type: ignore[import-not-found]
 
     celery_app: Any = Celery(
@@ -53,9 +60,18 @@ def run_mne_pipeline_job(analysis_id: str) -> dict[str, Any]:
     return run_mne_pipeline_job_sync(analysis_id)
 
 
+@celery_app.task(name="deepsynaps.deeptwin.simulate", bind=False)
+def deeptwin_simulation_job(payload: dict[str, Any]) -> dict[str, Any]:
+    if DeeptwinSimulationJob is None or run_deeptwin_simulation is None:  # pragma: no cover
+        return {"status": "failed", "error": "deeptwin simulation job unavailable"}
+    job = DeeptwinSimulationJob.model_validate(payload)
+    return run_deeptwin_simulation(job)
+
+
 __all__ = [
     "RenderJob",
     "enqueue_render_job",
     "run_mne_pipeline_job",
+    "deeptwin_simulation_job",
     "celery_app",
 ]

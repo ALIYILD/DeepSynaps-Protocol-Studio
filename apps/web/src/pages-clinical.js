@@ -3152,13 +3152,14 @@ export async function pgProfile(setTopbar, navigate) {
   </div>
 
   <div class="tab-bar">
-    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'assessments', 'notes', 'phenotype', 'consent', 'monitoring', 'home-therapy'].map(t => {
+    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'deeptwin', 'assessments', 'notes', 'phenotype', 'consent', 'monitoring', 'home-therapy'].map(t => {
       const labels = {
         'overview':     'Overview',
         'courses':      'Treatment Courses',
         'sessions':     'Sessions',
         'outcomes':     'Outcomes',
         'protocol':     'AI Protocol',
+        'deeptwin':     'Deeptwin',
         'assessments':  'Assessments',
         'notes':        'Clinical Notes',
         'phenotype':    'Phenotype',
@@ -3182,6 +3183,13 @@ export async function pgProfile(setTopbar, navigate) {
       const onclickAttr = b.getAttribute('onclick') || '';
       b.classList.toggle('active', onclickAttr.includes(`'${t}'`));
     });
+    if (t === 'deeptwin') {
+      window._selectedPatientId = pt.id;
+      window._profilePatientId = pt.id;
+      try { sessionStorage.setItem('ds_pat_selected_id', pt.id); } catch {}
+      window._nav('deeptwin');
+      return;
+    }
     if (t === 'phenotype') {
       document.getElementById('ptab-body').innerHTML = spinner();
       const [assigns, phenos] = await Promise.all([
