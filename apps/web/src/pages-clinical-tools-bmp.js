@@ -905,6 +905,7 @@ export async function pgBrainMapPlanner(setTopbar) {
         wrap.innerHTML = _buildCanvasPanels();
         _attachSVGEvents(document.getElementById('bmp-svg-container'));
       }
+      if (bmpState.mriOverlay) _renderBMPFocusViewer();
       return;
     }
     const ctr = document.getElementById('bmp-svg-container');
@@ -918,6 +919,9 @@ export async function pgBrainMapPlanner(setTopbar) {
       const regLabel = _regionLabel(bmpState.region) || (bmpState.selectedSite || 'no region');
       lbl.innerHTML = 'ACTIVE \u00b7 <strong>' + _esc(patientLabel) + '</strong> \u00b7 ' + _esc(regLabel);
     }
+    // When the MRI overlay is on, re-derive matched-protocol dots so the
+    // viewer reflects the latest filter / active protocol.
+    if (bmpState.mriOverlay) _renderBMPFocusViewer();
   }
   function _updateRight() {
     const right = document.getElementById('bm-right');
@@ -1361,6 +1365,9 @@ export async function pgBrainMapPlanner(setTopbar) {
       + '<label class="bm-toggle-row" data-toggle="labels">'
       + '<span class="bm-toggle-pill ' + (bmpState.labelMode !== 'minimal' ? 'on' : '') + '"><span></span></span>'
       + 'Atlas labels</label>'
+      + '<label class="bm-toggle-row" data-toggle="mri-overlay" title="Show matched-protocol targets on a real T1 slice">'
+      + '<span class="bm-toggle-pill ' + (bmpState.mriOverlay ? 'on' : '') + '"><span></span></span>'
+      + 'MRI overlay</label>'
       + '<div class="bm-map-ctrl" style="margin-left:8px">'
       + '<span class="bmp-map-ctrl-lbl">Find</span>'
       + '<input id="bmp-site-search" class="bmp-map-search" placeholder="F3, Cz, Pz" />'
