@@ -1955,9 +1955,13 @@ export function renderBiomarkerGauges(conditions, options) {
 
 export function renderBrodmannTable(areas, options) {
   var opts = options || {};
-  var width = opts.width || 600;
+  var width = opts.width || 900;
 
   if (!areas || !areas.length) return '<div>No Brodmann area data</div>';
+
+  // Check if any area has clinical_relevance data
+  var hasClinRel = areas.some(function (a) { return a.clinical_relevance && a.clinical_relevance.length > 0; });
+  var hasFunctions = areas.some(function (a) { return a.functions && a.functions.length > 0; });
 
   // Table layout
   var mL = 10;
@@ -1965,11 +1969,21 @@ export function renderBrodmannTable(areas, options) {
   var rowH = 28;
   var headerH = 30;
   var tableW = width - mL * 2;
-  var totalH = mT + headerH + areas.length * rowH + 10;
 
-  // Column widths (proportional)
-  var colWidths = [0.22, 0.22, 0.16, 0.18, 0.22]; // area, name, z-score, status, channels
-  var colLabels = ['Area', 'Name', 'Z-Score', 'Status', 'Channels'];
+  // Column widths (proportional) — expand based on available data
+  var colWidths, colLabels;
+  if (hasFunctions && hasClinRel) {
+    colWidths = [0.13, 0.13, 0.09, 0.10, 0.11, 0.22, 0.22];
+    colLabels = ['Area', 'Name', 'Z-Score', 'Status', 'Channels', 'Functions', 'Clinical Relevance'];
+  } else if (hasFunctions) {
+    colWidths = [0.15, 0.15, 0.10, 0.12, 0.13, 0.35];
+    colLabels = ['Area', 'Name', 'Z-Score', 'Status', 'Channels', 'Functions'];
+  } else {
+    colWidths = [0.22, 0.22, 0.16, 0.18, 0.22];
+    colLabels = ['Area', 'Name', 'Z-Score', 'Status', 'Channels'];
+  }
+
+  var totalH = mT + headerH + areas.length * rowH + 10;
 
   function colX(colIdx) {
     var x = mL;
@@ -1986,6 +2000,12 @@ export function renderBrodmannTable(areas, options) {
   // Escape helper for text content
   function esc(str) {
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // Truncate long text to fit column width
+  function truncate(str, maxChars) {
+    if (!str || str.length <= maxChars) return str || '';
+    return str.substring(0, maxChars - 1) + '\u2026';
   }
 
   var parts = [];
@@ -2057,7 +2077,7 @@ export function renderBrodmannTable(areas, options) {
     var status = row.status || '';
     var statusColor = '#66bb6a';
     if (status === 'borderline') statusColor = '#ffa726';
-    if (status === 'abnormal' || status === 'significant') statusColor = '#ef5350';
+    if (status === 'abnormal' || status === 'significant' || status === 'mild_increase') statusColor = '#ef5350';
 
     var statusX = colX(3) + 8;
     var statusBadgeW = Math.max(40, status.length * 5.5 + 12);
@@ -2067,6 +2087,20 @@ export function renderBrodmannTable(areas, options) {
     // Column 4: Channels
     var chText = Array.isArray(row.channels) ? row.channels.join(', ') : '';
     parts.push('<text x="' + (colX(4) + 8) + '" y="' + textY + '" font-size="8" fill="rgba(255,255,255,0.65)" font-family="system-ui,sans-serif">' + esc(chText) + '</text>');
+
+    // Column 5: Functions (if present)
+    if (hasFunctions) {
+      var funcText = Array.isArray(row.functions) ? row.functions.join(', ') : (row.functions || '');
+      var maxFuncChars = hasClinRel ? 35 : 55;
+      parts.push('<text x="' + (colX(5) + 8) + '" y="' + textY + '" font-size="7" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + esc(truncate(funcText, maxFuncChars)) + '</text>');
+    }
+
+    // Column 6: Clinical Relevance (if present)
+    if (hasFunctions && hasClinRel) {
+      var clinText = row.clinical_relevance || '';
+      var clinColor = clinText ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.25)';
+      parts.push('<text x="' + (colX(6) + 8) + '" y="' + textY + '" font-size="7" fill="' + clinColor + '" font-family="system-ui,sans-serif">' + esc(truncate(clinText, 35) || '\u2014') + '</text>');
+    }
   });
 
   // Table outer border

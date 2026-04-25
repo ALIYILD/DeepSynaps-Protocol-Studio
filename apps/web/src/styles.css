@@ -26535,6 +26535,8 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 .ds-atlas-efield-legend { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
 .ds-atlas-efield-bar { flex: 1; height: 10px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.08); }
 .ds-atlas-efield-label { font-size: 10px; color: var(--text-tertiary); white-space: nowrap; }
+.ds-coming-soon { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; text-transform: uppercase; background: rgba(255, 193, 7, 0.15); color: #ffc107; letter-spacing: 0.5px; }
+.ds-metric-subtitle { font-size: 11px; color: var(--text-tertiary); font-style: italic; margin-top: 2px; margin-bottom: 8px; }
 
 /* MRI focus viewer — real T1 (axial/coronal/sagittal) with stim targets, zoom + pan. */
 .ds-mri-glass-wrap {
@@ -27572,3 +27574,66 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   .pricing-grid { grid-template-columns: 1fr; }
   .pricing-discount-chip { font-size: 10.5px; padding: 5px 10px; }
 }
+
+/* ── Device Dashboard ──────────────────────────────────────────────────────── */
+.dd-shell { display:flex; flex-direction:column; gap:20px; padding:24px; max-width:1400px; margin:0 auto; }
+.dd-topbar { display:flex; align-items:center; gap:12px; }
+.dd-back-btn { background:none; border:1px solid var(--border); color:var(--text-secondary); padding:6px 14px; border-radius:8px; cursor:pointer; font-size:13px; transition:all .15s; }
+.dd-back-btn:hover { background:rgba(255,255,255,0.05); color:var(--text-primary); }
+
+.dd-conn-header { display:flex; align-items:center; gap:16px; padding:20px; border-radius:14px; border:1px solid var(--border); background:rgba(255,255,255,0.02); }
+.dd-conn-icon { font-size:36px; }
+.dd-conn-info { flex:1; }
+.dd-conn-name { margin:0; font-size:22px; font-weight:700; color:var(--text-primary); }
+.dd-conn-meta { display:flex; align-items:center; gap:12px; margin-top:4px; flex-wrap:wrap; }
+.dd-conn-actions { display:flex; align-items:center; gap:10px; }
+
+.dd-range-select { background:rgba(255,255,255,0.06); border:1px solid var(--border); color:var(--text-primary); padding:6px 10px; border-radius:8px; font-size:13px; cursor:pointer; }
+.dd-range-select option { background:#0f172a; color:#e2e8f0; }
+
+.dd-badge { display:inline-block; padding:2px 10px; border-radius:20px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+.dd-badge--ok { background:rgba(16,185,129,.15); color:#34d399; }
+.dd-badge--warn { background:rgba(245,158,11,.15); color:#fbbf24; }
+.dd-badge--error { background:rgba(239,68,68,.15); color:#f87171; }
+
+.dd-muted { font-size:12px; color:var(--text-tertiary); }
+
+.dd-kpi-grid { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:12px; }
+.dd-kpi-tile { border-radius:14px; border:1px solid var(--border); padding:16px; background:rgba(255,255,255,0.025); display:flex; flex-direction:column; gap:6px; }
+.dd-kpi-label { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-tertiary); }
+.dd-kpi-value { font-size:28px; font-weight:800; letter-spacing:-.04em; }
+.dd-kpi-unit { font-size:13px; font-weight:500; opacity:.6; margin-left:4px; }
+.dd-kpi-spark { margin-top:4px; overflow:hidden; }
+
+.dd-sparkline { width:100%; height:32px; display:block; }
+.dd-spark-empty { font-size:11px; color:var(--text-tertiary); text-align:center; padding:8px 0; }
+.dd-spark-label { font-size:10px; color:var(--text-tertiary); display:block; text-align:right; }
+
+.dd-charts-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:16px; }
+.dd-chart-card { border-radius:14px; border:1px solid var(--border); padding:18px; background:rgba(255,255,255,0.02); }
+.dd-chart-title { margin:0 0 12px; font-size:14px; font-weight:600; color:var(--text-secondary); }
+.dd-chart-body { overflow-x:auto; min-height:120px; }
+.dd-chart-empty { font-size:12px; color:var(--text-tertiary); text-align:center; padding:40px 0; }
+.dd-linechart { width:100%; height:160px; display:block; }
+.dd-barchart { width:100%; height:140px; display:block; }
+.dd-chart-legend { display:flex; gap:14px; margin-top:10px; flex-wrap:wrap; }
+.dd-legend-item { display:flex; align-items:center; gap:5px; font-size:11px; color:var(--text-tertiary); }
+.dd-legend-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+
+.dd-section { margin-top:4px; }
+.dd-section-title { font-size:15px; font-weight:600; color:var(--text-secondary); margin:0 0 12px; }
+
+.dd-table-wrap { overflow-x:auto; border-radius:12px; border:1px solid var(--border); }
+.dd-table { width:100%; border-collapse:collapse; font-size:13px; }
+.dd-table thead { background:rgba(255,255,255,0.03); }
+.dd-table th { padding:10px 14px; text-align:left; font-weight:600; color:var(--text-secondary); font-size:11px; text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid var(--border); }
+.dd-table td { padding:9px 14px; border-bottom:1px solid rgba(255,255,255,0.04); color:var(--text-primary); }
+.dd-table tbody tr:hover { background:rgba(255,255,255,0.02); }
+
+.dd-loading { text-align:center; padding:60px 0; color:var(--text-tertiary); font-size:15px; }
+.dd-error { text-align:center; padding:60px 0; }
+.dd-error h3 { color:var(--text-primary); margin:0 0 8px; }
+.dd-error p { color:var(--text-tertiary); margin:0 0 16px; }
+
+@media (max-width:1100px) { .dd-kpi-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (max-width:640px)  { .dd-kpi-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .dd-conn-header { flex-direction:column; align-items:flex-start; } .dd-conn-actions { width:100%; } }

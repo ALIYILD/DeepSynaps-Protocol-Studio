@@ -392,6 +392,7 @@ function _getSuggestedComparisonSessions(currentAnalysis, analyses) {
 function _renderWorkspaceRatioRail(ratios) {
   var ratioCards = [
     { key: 'theta_beta_ratio', label: 'TBR', ref: 'Attention' },
+    { key: 'theta_alpha_ratio', label: 'TAR', ref: 'Cortical slowing' },
     { key: 'delta_alpha_ratio', label: 'D/A', ref: 'Slowing' },
     { key: 'alpha_peak_frequency_hz', label: 'PAF', ref: 'Hz' },
     { key: 'frontal_alpha_asymmetry', label: 'FAA', ref: 'Asymmetry' },
@@ -704,7 +705,14 @@ export function renderFusionSummaryCard(fusion, patientId) {
 
 const BAND_COLORS = {
   delta: '#42a5f5', theta: '#7e57c2', alpha: '#66bb6a',
+  smr: '#26c6da', low_beta: '#ff8a65',
   beta: '#ffa726', high_beta: '#ef5350', gamma: '#ec407a',
+};
+
+var SUB_BAND_RANGES = {
+  delta: '1-4 Hz', theta: '4-8 Hz', alpha: '8-12 Hz',
+  smr: '12-15 Hz', low_beta: '13-20 Hz',
+  beta: '13-30 Hz', high_beta: '20-30 Hz', gamma: '30-50 Hz',
 };
 
 var _qeegAnnotationDrawerLoadedFor = null;
@@ -2074,6 +2082,11 @@ function _renderComprehensiveReport(report, analysis) {
   if (connDetail || disconnResult || cohResult) {
     var connHtml = '';
 
+    // Metric-type subtitle for coherence section
+    if (cohResult && cohResult.status === 'ok') {
+      connHtml += '<div class="ds-metric-subtitle">Coherence — Frequency-domain linear coupling</div>';
+    }
+
     if (connDetail) {
       // Disconnected channels
       if (connDetail.disconnected_channels) {
@@ -2154,7 +2167,8 @@ function _renderComprehensiveReport(report, analysis) {
 
     // PLI / wPLI summary
     if (pliResult && pliResult.status === 'ok' && pliResult.data) {
-      connHtml += '<div style="margin-top:8px;display:flex;gap:16px;flex-wrap:wrap">';
+      connHtml += '<div class="ds-metric-subtitle" style="margin-top:12px">wPLI — Phase-based non-linear coupling (weighted Phase Lag Index)</div>';
+      connHtml += '<div style="margin-top:4px;display:flex;gap:16px;flex-wrap:wrap">';
       connHtml += '<div style="font-size:12px;color:var(--text-secondary)"><strong>Mean Alpha PLI:</strong> '
         + (pliResult.data.mean_pli != null ? pliResult.data.mean_pli.toFixed(3) : '-') + '</div>';
       if (wpliResult && wpliResult.status === 'ok' && wpliResult.data && wpliResult.data.bands) {
@@ -2165,6 +2179,20 @@ function _renderComprehensiveReport(report, analysis) {
       }
       connHtml += '</div>';
     }
+
+    // Planned connectivity metrics (Coming Soon)
+    connHtml += '<div style="margin-top:16px;padding:12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.08)">'
+      + '<div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Planned Connectivity Metrics</div>'
+      + '<div style="display:flex;gap:10px;flex-wrap:wrap">'
+      + '<div style="font-size:11px;color:var(--text-tertiary)">dwPLI <span class="ds-coming-soon">Coming Soon</span>'
+      + '<div style="font-size:10px;margin-top:2px">Debiased wPLI — volume-conduction corrected phase coupling</div></div>'
+      + '<div style="font-size:11px;color:var(--text-tertiary)">PLV <span class="ds-coming-soon">Coming Soon</span>'
+      + '<div style="font-size:10px;margin-top:2px">Phase Locking Value — instantaneous phase synchrony</div></div>'
+      + '<div style="font-size:11px;color:var(--text-tertiary)">PDC <span class="ds-coming-soon">Coming Soon</span>'
+      + '<div style="font-size:10px;margin-top:2px">Partial Directed Coherence — directed causal influence</div></div>'
+      + '<div style="font-size:11px;color:var(--text-tertiary)">DTF <span class="ds-coming-soon">Coming Soon</span>'
+      + '<div style="font-size:10px;margin-top:2px">Directed Transfer Function — information flow direction</div></div>'
+      + '</div></div>';
 
     if (connHtml) {
       html += card('Brain Connectivity Summary', connHtml);
@@ -2183,6 +2211,16 @@ function _renderComprehensiveReport(report, analysis) {
     qeegRows += '<tr><td style="font-weight:600;color:var(--text-secondary)">Theta/Beta Ratio (TBR)</td>'
       + '<td>' + tbrVal.toFixed(2) + ' ' + badge(tbrLabel, tbrColor) + '</td>'
       + '<td style="font-size:12px;color:var(--text-tertiary)">Inattention index: ' + esc(inattentionIdx) + ' | Clinical threshold: 4.5</td></tr>';
+  }
+
+  // TAR — Theta/Alpha Ratio
+  if (ratios.theta_alpha_ratio != null) {
+    var tarVal = ratios.theta_alpha_ratio;
+    var tarColor = tarVal > 2.0 ? 'var(--red)' : tarVal > 1.5 ? 'var(--amber)' : 'var(--green)';
+    var tarLabel = tarVal > 2.0 ? 'Elevated' : tarVal > 1.5 ? 'Borderline' : 'Normal';
+    qeegRows += '<tr><td style="font-weight:600;color:var(--text-secondary)">Theta/Alpha Ratio (TAR)</td>'
+      + '<td>' + tarVal.toFixed(2) + ' ' + badge(tarLabel, tarColor) + '</td>'
+      + '<td style="font-size:12px;color:var(--text-tertiary)">Cortical slowing indicator | Clinical threshold: 2.0</td></tr>';
   }
 
   // IAPF with regional breakdown
@@ -2549,6 +2587,8 @@ function _buildDemoBandPowers() {
     delta:     [30,29,28,25,22,25,28,26,22,20,22,25,22,18,16,18,22,15,15],
     theta:     [18,17,15,18,22,17,15,14,16,20,15,14,12,13,14,13,12,11,11],
     alpha:     [15,16,13,18,16,19,14,18,25,22,26,19,28,35,38,36,29,42,41],
+    smr:       [ 5, 5, 4, 6, 5, 6, 4, 6, 8, 7, 8, 6, 9,10,11,10, 8,12,11],
+    low_beta:  [12,13,13,12,11,12,13,13,11,10,11,12,10, 9, 8, 9,10, 8, 9],
     beta:      [20,21,22,20,19,20,22,21,19,18,19,21,18,17,16,17,18,16,17],
     high_beta: [10,10,13,12,13,12,13,13,12,13,12,13,12,10,10,10,12,10,10],
     gamma:     [7, 7, 9, 7, 8, 7, 8, 8, 6, 7, 6, 8, 8, 7, 6, 6, 7, 6, 6],
@@ -2581,6 +2621,7 @@ var DEMO_QEEG_ANALYSIS = {
     bands: _buildDemoBandPowers(),
     derived_ratios: {
       theta_beta_ratio: 3.82,
+      theta_alpha_ratio: 1.15,
       delta_alpha_ratio: 1.41,
       alpha_peak_frequency_hz: 9.24,
       frontal_alpha_asymmetry: 0.18,
@@ -2589,14 +2630,14 @@ var DEMO_QEEG_ANALYSIS = {
   artifact_rejection: { epochs_total: 300, epochs_kept: 278, flat_channels: [] },
   normative_deviations: (function () {
     var nd = {}, zs = {
-      Fp1:[1.2,0.8,-0.3,0.5,0.9,0.6], Fp2:[1.1,0.6,-0.4,0.6,1.0,0.5], F7:[0.8,0.3,-0.2,0.7,1.3,1.1],
-      F3:[0.4,1.1,0.2,0.3,0.8,0.4], Fz:[-0.2,2.1,-0.5,-0.1,0.9,0.6], F4:[0.4,0.9,0.5,0.3,0.7,0.3],
-      F8:[0.7,0.2,-0.3,0.8,1.2,0.9], T3:[0.3,-0.1,0.1,0.5,1.1,0.7], C3:[-0.3,0.6,0.8,0.1,0.5,0.1],
-      Cz:[-0.5,1.8,0.3,-0.1,0.8,0.4], C4:[-0.3,0.4,1.0,0.1,0.4,0.0], T4:[0.3,-0.2,0.0,0.6,1.1,0.8],
-      T5:[-0.2,-0.5,1.5,0.2,0.8,0.7], P3:[-0.8,-0.2,2.2,0.0,0.2,-0.1], Pz:[-1.0,-0.1,2.5,-0.2,0.1,-0.3],
-      P4:[-0.7,-0.3,2.3,-0.1,0.1,-0.1], T6:[-0.2,-0.4,1.4,0.2,0.8,0.6], O1:[-1.2,-0.6,2.8,0.0,-0.2,-0.4],
-      O2:[-1.2,-0.5,2.7,-0.1,-0.2,-0.3],
-    }; var bands = ['delta','theta','alpha','beta','high_beta','gamma'];
+      Fp1:[1.2,0.8,-0.3,-0.1,0.4,0.5,0.9,0.6], Fp2:[1.1,0.6,-0.4,-0.2,0.5,0.6,1.0,0.5], F7:[0.8,0.3,-0.2,0.0,0.6,0.7,1.3,1.1],
+      F3:[0.4,1.1,0.2,0.3,0.2,0.3,0.8,0.4], Fz:[-0.2,2.1,-0.5,-0.3,0.0,-0.1,0.9,0.6], F4:[0.4,0.9,0.5,0.4,0.2,0.3,0.7,0.3],
+      F8:[0.7,0.2,-0.3,-0.1,0.7,0.8,1.2,0.9], T3:[0.3,-0.1,0.1,0.2,0.4,0.5,1.1,0.7], C3:[-0.3,0.6,0.8,0.9,0.1,0.1,0.5,0.1],
+      Cz:[-0.5,1.8,0.3,0.4,-0.1,-0.1,0.8,0.4], C4:[-0.3,0.4,1.0,0.8,0.1,0.1,0.4,0.0], T4:[0.3,-0.2,0.0,0.1,0.5,0.6,1.1,0.8],
+      T5:[-0.2,-0.5,1.5,1.1,0.1,0.2,0.8,0.7], P3:[-0.8,-0.2,2.2,1.5,0.0,0.0,0.2,-0.1], Pz:[-1.0,-0.1,2.5,1.7,-0.1,-0.2,0.1,-0.3],
+      P4:[-0.7,-0.3,2.3,1.4,-0.1,-0.1,0.1,-0.1], T6:[-0.2,-0.4,1.4,1.0,0.1,0.2,0.8,0.6], O1:[-1.2,-0.6,2.8,1.8,-0.1,0.0,-0.2,-0.4],
+      O2:[-1.2,-0.5,2.7,1.7,-0.1,-0.1,-0.2,-0.3],
+    }; var bands = ['delta','theta','alpha','smr','low_beta','beta','high_beta','gamma'];
     Object.keys(zs).forEach(function (ch) { nd[ch] = {}; bands.forEach(function (b, i) { nd[ch][b] = zs[ch][i]; }); });
     return nd;
   })(),
@@ -2631,14 +2672,14 @@ var DEMO_QEEG_ANALYSIS = {
       full_asymmetry_matrix: { status: 'ok', label: 'Full Asymmetry Matrix', category: 'asymmetry', duration_ms: 620,
         summary: 'Left frontal alpha asymmetry (FAA 0.18) notable; other pairs within normal range.',
         data: { pairs: {
-          'Fp1-Fp2': { delta: 0.06, theta: -0.05, alpha: -0.08, beta: 0.07, high_beta: -0.04, gamma: 0.03 },
-          'F3-F4':   { delta: -0.05, theta: 0.08, alpha: 0.18, beta: -0.03, high_beta: 0.02, gamma: 0.01 },
-          'C3-C4':   { delta: -0.02, theta: -0.04, alpha: 0.06, beta: 0.03, high_beta: -0.01, gamma: 0.02 },
-          'P3-P4':   { delta: 0.03, theta: 0.01, alpha: -0.04, beta: -0.02, high_beta: 0.01, gamma: -0.01 },
-          'O1-O2':   { delta: 0.01, theta: -0.02, alpha: 0.03, beta: -0.01, high_beta: 0.02, gamma: 0.01 },
-          'T3-T4':   { delta: -0.08, theta: 0.05, alpha: -0.11, beta: 0.06, high_beta: -0.03, gamma: 0.02 },
-          'T5-T6':   { delta: 0.04, theta: -0.03, alpha: 0.07, beta: -0.04, high_beta: 0.02, gamma: -0.01 },
-          'F7-F8':   { delta: -0.03, theta: 0.02, alpha: 0.05, beta: -0.06, high_beta: 0.03, gamma: -0.02 },
+          'Fp1-Fp2': { delta: 0.06, theta: -0.05, alpha: -0.08, smr: -0.06, low_beta: 0.05, beta: 0.07, high_beta: -0.04, gamma: 0.03 },
+          'F3-F4':   { delta: -0.05, theta: 0.08, alpha: 0.18, smr: 0.12, low_beta: -0.02, beta: -0.03, high_beta: 0.02, gamma: 0.01 },
+          'C3-C4':   { delta: -0.02, theta: -0.04, alpha: 0.06, smr: 0.04, low_beta: 0.02, beta: 0.03, high_beta: -0.01, gamma: 0.02 },
+          'P3-P4':   { delta: 0.03, theta: 0.01, alpha: -0.04, smr: -0.03, low_beta: -0.01, beta: -0.02, high_beta: 0.01, gamma: -0.01 },
+          'O1-O2':   { delta: 0.01, theta: -0.02, alpha: 0.03, smr: 0.02, low_beta: -0.01, beta: -0.01, high_beta: 0.02, gamma: 0.01 },
+          'T3-T4':   { delta: -0.08, theta: 0.05, alpha: -0.11, smr: -0.07, low_beta: 0.04, beta: 0.06, high_beta: -0.03, gamma: 0.02 },
+          'T5-T6':   { delta: 0.04, theta: -0.03, alpha: 0.07, smr: 0.05, low_beta: -0.03, beta: -0.04, high_beta: 0.02, gamma: -0.01 },
+          'F7-F8':   { delta: -0.03, theta: 0.02, alpha: 0.05, smr: 0.03, low_beta: -0.04, beta: -0.06, high_beta: 0.03, gamma: -0.02 },
         } } },
       frontal_alpha_dominance: { status: 'ok', label: 'Frontal Alpha Dominance', category: 'asymmetry', duration_ms: 310,
         summary: 'Left frontal dominance; FAA 0.18 suggesting relative right hypoactivation.',
@@ -3432,6 +3473,7 @@ var DEMO_QEEG_COMPARISON = {
   improvement_summary: { improved: 8, unchanged: 7, worsened: 2 },
   ratio_changes: {
     theta_beta_ratio: { baseline: 3.82, followup: 3.34 },
+    theta_alpha_ratio: { baseline: 1.15, followup: 1.02 },
     delta_alpha_ratio: { baseline: 1.41, followup: 1.28 },
     alpha_peak_frequency_hz: { baseline: 9.24, followup: 9.52 },
     frontal_alpha_asymmetry: { baseline: 0.18, followup: 0.09 },
@@ -4132,6 +4174,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       if (ratios && Object.keys(ratios).length) {
         const ratioCards = [
           { key: 'theta_beta_ratio', label: 'Theta/Beta Ratio', ref: '> 4.5 elevated (ADHD marker)', color: 'var(--violet)' },
+          { key: 'theta_alpha_ratio', label: 'Theta/Alpha Ratio', ref: '> 2.0 elevated (cortical slowing)', color: 'var(--purple, #7e57c2)' },
           { key: 'delta_alpha_ratio', label: 'Delta/Alpha Ratio', ref: '> 2.0 elevated (TBI marker)', color: 'var(--blue)' },
           { key: 'alpha_peak_frequency_hz', label: 'Alpha Peak (Hz)', ref: '8-12 Hz normal, < 8 Hz slowing', color: 'var(--teal)' },
           { key: 'frontal_alpha_asymmetry', label: 'Frontal Asymmetry', ref: '|FAA| > 0.2 significant', color: 'var(--amber)' },
@@ -4965,6 +5008,7 @@ function renderComparison(comp) {
     var ratioHtml = '<div class="ch-kpi-strip" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">';
     var ratioLabels = {
       theta_beta_ratio: 'Theta/Beta',
+      theta_alpha_ratio: 'Theta/Alpha',
       delta_alpha_ratio: 'Delta/Alpha',
       alpha_peak_frequency_hz: 'Alpha Peak (Hz)',
       frontal_alpha_asymmetry: 'Frontal Asym.',

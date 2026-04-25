@@ -55,9 +55,9 @@ var _atlasEfieldVisible = true;
 var _atlasAnimFrame = null;
 
 // ── Modality color map (shared by glass-brain + atlas viewer) ───────────────
+// MRI-based stimulation only: TPS, tFUS (techniques requiring MRI-guided targeting)
 var MODALITY_DOT_COLOR = {
-  rtms: '#f59e0b', tps: '#c026d3', tfus: '#06b6d4',
-  tdcs: '#22c55e', tacs: '#eab308', custom: '#94a3b8',
+  tps: '#c026d3', tfus: '#06b6d4', custom: '#94a3b8',
 };
 var PERSONALISED_DOT_COLOR = '#f43f5e';
 
@@ -996,16 +996,16 @@ export var DEMO_MRI_REPORT = {
 
   stim_targets: [
     {
-      target_id: "rTMS_MDD_personalised_sgACC",
-      modality: "rtms",
+      target_id: "TPS_MDD_personalised_sgACC",
+      modality: "tps",
       condition: "mdd",
-      region_name: "Left DLPFC — patient-specific sgACC anticorrelation",
+      region_name: "Left DLPFC \u2014 patient-specific sgACC anticorrelation",
       region_code: "dlpfc_l",
       mni_xyz: [-41.0, 43.0, 28.0],
       patient_xyz: null,
       method: "sgACC_anticorrelation_personalised",
       method_reference_dois: ["10.1016/j.biopsych.2012.04.028", "10.1176/appi.ajp.2021.20101429"],
-      suggested_parameters: { protocol: "iTBS", sessions: 30, pulses_per_session: 600, intensity_pct_rmt: 120.0, frequency_hz: 50.0 },
+      suggested_parameters: { protocol: "TPS", sessions: 12, pulses_per_session: 6000, energy_level_mj: 0.2, frequency_hz: 4.0 },
       supporting_paper_ids_from_medrag: [1821, 34422, 51907],
       confidence: "high",
       efield_dose: {
@@ -1013,10 +1013,10 @@ export var DEMO_MRI_REPORT = {
         v_per_m_at_target: 92.4,
         peak_v_per_m: 138.1,
         focality_50pct_volume_cm3: 4.6,
-        iso_contour_mesh_s3: "artefacts/efield_rTMS_MDD_personalised_sgACC/subject_TMS_1-0001_Magstim_70mm_Fig8_scalar.msh",
-        e_field_png_s3: "overlays/efield_rTMS_MDD_personalised_sgACC.png",
-        coil_optimised: true,
-        optimised_coil_pos: { centre_x: -48.3, centre_y: 40.1, centre_z: 34.2, direction_deg: 45.0 },
+        iso_contour_mesh_s3: "artefacts/efield_TPS_MDD_personalised_sgACC/subject_TPS_pulse_scalar.msh",
+        e_field_png_s3: "overlays/efield_TPS_MDD_personalised_sgACC.png",
+        coil_optimised: false,
+        optimised_coil_pos: null,
         solver: "simnibs_fem",
         runtime_sec: 182.4,
         error_message: null,
@@ -1024,15 +1024,15 @@ export var DEMO_MRI_REPORT = {
       disclaimer: "Reference target coordinates derived from peer-reviewed literature. Not a substitute for clinician judgment. For neuronavigation planning only.",
     },
     {
-      target_id: "rTMS_MDD_F3_Beam",
-      modality: "rtms",
+      target_id: "TPS_MDD_DLPFC_group",
+      modality: "tps",
       condition: "mdd",
-      region_name: "Left DLPFC — F3 Beam group target",
+      region_name: "Left DLPFC \u2014 group-level TPS target",
       region_code: "dlpfc_l",
       mni_xyz: [-37, 26, 49],
-      method: "F3_Beam_projection",
-      method_reference_dois: ["10.1016/j.brs.2009.03.005"],
-      suggested_parameters: { protocol: "iTBS", sessions: 30, pulses_per_session: 600, intensity_pct_rmt: 120.0, frequency_hz: 50.0 },
+      method: "TPS_DLPFC_Beisteiner",
+      method_reference_dois: ["10.1002/advs.201902583"],
+      suggested_parameters: { protocol: "TPS", sessions: 12, pulses_per_session: 6000, energy_level_mj: 0.2, frequency_hz: 4.0 },
       supporting_paper_ids_from_medrag: [],
       confidence: "medium",
       disclaimer: "Reference target coordinates derived from peer-reviewed literature. Not a substitute for clinician judgment. For neuronavigation planning only.",
@@ -1064,9 +1064,9 @@ export var DEMO_MRI_REPORT = {
   },
 
   overlays: {
-    rTMS_MDD_personalised_sgACC: "overlays/rTMS_MDD_personalised_sgACC_interactive.html",
-    rTMS_MDD_F3_Beam:             "overlays/rTMS_MDD_F3_Beam_interactive.html",
-    tFUS_TRD_SCC:                 "overlays/tFUS_TRD_SCC_interactive.html",
+    TPS_MDD_personalised_sgACC: "overlays/TPS_MDD_personalised_sgACC_interactive.html",
+    TPS_MDD_DLPFC_group:        "overlays/TPS_MDD_DLPFC_group_interactive.html",
+    tFUS_TRD_SCC:                "overlays/tFUS_TRD_SCC_interactive.html",
   },
 
   report_pdf_s3:  null,
@@ -1102,13 +1102,10 @@ var PIPELINE_STAGES = [
   { id: 'targeting',  label: 'Targeting' },
 ];
 
-// Modality → badge class map (per DASHBOARD_PAGE_SPEC.md §Color mapping).
+// Modality → badge class map — MRI-based stimulation techniques only.
 var MODALITY_CLASS = {
-  rtms: 'ds-mri-badge-rtms',
   tps:  'ds-mri-badge-tps',
   tfus: 'ds-mri-badge-tfus',
-  tdcs: 'ds-mri-badge-tdcs',
-  tacs: 'ds-mri-badge-tacs',
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1446,12 +1443,10 @@ export function renderBrainAtlasViewer(report) {
   var planes = ['axial', 'coronal', 'sagittal'];
   var planeLabels = { axial: 'Axial (z=30)', coronal: 'Coronal (y=30)', sagittal: 'Sagittal (x=0)' };
 
-  // Legend items
+  // Legend items — MRI-based stimulation only
   var legendItems = [
-    { color: MODALITY_DOT_COLOR.rtms, label: 'rTMS' },
     { color: MODALITY_DOT_COLOR.tps, label: 'TPS' },
     { color: MODALITY_DOT_COLOR.tfus, label: 'tFUS' },
-    { color: MODALITY_DOT_COLOR.tdcs, label: 'tDCS' },
     { color: PERSONALISED_DOT_COLOR, label: 'Personalised' },
     { color: MODALITY_DOT_COLOR.custom, label: 'Custom' },
   ];
