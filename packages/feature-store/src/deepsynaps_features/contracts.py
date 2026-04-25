@@ -1,9 +1,37 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Literal, Mapping, MutableMapping, Optional
+from typing import Any, Literal, Mapping, MutableMapping, Optional, TypedDict
 
 from pydantic import BaseModel, Field
+
+class FeatureRowEnvelope(TypedDict, total=False):
+    """
+    Minimal metadata envelope required by FEATURE_STORE.md.
+
+    The online store is allowed to store a compact JSON value that includes:
+    - scalar features and small structured fields
+    - artifact pointers (URIs), hashes, and provenance
+    """
+
+    tenant_id: str
+    patient_id: str
+    event_id: str
+    occurred_at: str  # ISO8601
+    recorded_at: str  # ISO8601
+    trace_id: str
+    consent_version: str
+    de_identified: bool
+    schema_version: str
+    feature_view: str
+    feature_key: str
+    time_bucket: str
+    values: dict[str, Any]
+
+def isoformat(dt: datetime) -> str:
+    # Keep this tiny and deterministic; always UTC with "Z" if tz-aware.
+    s = dt.isoformat()
+    return s.replace("+00:00", "Z")
 
 
 def utc_now() -> datetime:

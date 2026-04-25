@@ -1,13 +1,10 @@
-"""
-DeepSynaps Layer 2 Feature Store package.
-
-This is scaffolding: definitions/transforms/workers/serve modules implement the
-contracts used by streaming ingestion and model/encoder feature retrieval.
-"""
-
 from __future__ import annotations
 
-__all__ = ["__version__"]
+"""DeepSynaps Layer 2 Feature Store package (contracts + retrieval)."""
 
 __version__ = "0.1.0"
+
+from .serve import fetch_patient_features
+
+__all__ = ["__version__", "fetch_patient_features"]
 
