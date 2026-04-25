@@ -819,7 +819,8 @@ function _brainRingFrameMarkup(payload) {
 function _bindBrainRingFrames() {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
   if (!window.__dsBrainRingMessageBound) {
-    window.addEventListener('message', function (event) {
+    // In unit tests `window` may be a stub without addEventListener.
+    if (typeof window.addEventListener === 'function') window.addEventListener('message', function (event) {
       var data = event && event.data ? event.data : null;
       if (!data || (data.type !== 'brainring/ready' && data.type !== 'brainring/rendered')) return;
       var frames = document.querySelectorAll('iframe[data-brainring-frame="1"]');
@@ -1766,7 +1767,9 @@ const TAB_META = {
 
 // ── Demo Mode ────────────────────────────────────────────────────────────────
 function _isDemoMode() {
-  return import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1';
+  // `import.meta.env` is injected by Vite in the browser build, but unit tests
+  // run under plain Node where `import.meta.env` is undefined.
+  return Boolean(import.meta?.env?.DEV) || import.meta?.env?.VITE_ENABLE_DEMO === '1';
 }
 
 function _demoBanner() {
