@@ -21466,6 +21466,21 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   --_tile-glow: rgba(148,163,184,0.10);
 }
 
+/* ── Patient sidebar collapsible sections ── */
+#patient-sidebar .nav-section-header {
+  padding: 12px 14px 4px;
+}
+#patient-sidebar .nav-section-group + .nav-section-group {
+  border-top: 1px solid rgba(255,255,255,0.04);
+  margin-top: 2px;
+  padding-top: 2px;
+}
+#patient-sidebar .nav-section-group:first-child {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
 /* Bottom nav (mobile) — smaller tile, same tones */
 .pt-bottom-nav-tile {
   display: inline-flex; align-items: center; justify-content: center;
@@ -21548,6 +21563,7 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 @media (prefers-color-scheme: light) {
   .pt-nav-item.active { background: rgba(0,212,188,0.10); }
   .pt-nav-item:hover  { background: rgba(15,23,42,0.04); }
+  #patient-sidebar .nav-section-group + .nav-section-group { border-top-color: rgba(0,0,0,0.06); }
 }
 
 /* ── pl-* · Design #07 Patients List — Responder chip ────────────────────── */

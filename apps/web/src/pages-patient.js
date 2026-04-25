@@ -69,37 +69,127 @@ function _patientBottomNav() {
   ];
 }
 
+// ── Patient nav collapse state ─────────────────────────────────────────────
+const _ptNavCollapsed = (() => {
+  try {
+    const v = localStorage.getItem('ds_pt_nav_collapsed_sections');
+    return v ? JSON.parse(v) : {};
+  } catch { return {}; }
+})();
+function _savePtNavCollapsed() {
+  try { localStorage.setItem('ds_pt_nav_collapsed_sections', JSON.stringify(_ptNavCollapsed)); } catch {}
+}
+// Seed default-collapsed state from nav definition
+_patientNav().forEach(n => {
+  if (n.section && n.collapsed && n.sectionId && _ptNavCollapsed[n.sectionId] === undefined)
+    _ptNavCollapsed[n.sectionId] = true;
+});
+
+window._togglePtNavSection = function(sectionId) {
+  if (!sectionId) return;
+  _ptNavCollapsed[sectionId] = !_ptNavCollapsed[sectionId];
+  _savePtNavCollapsed();
+  const cur = window._currentPatientPage || 'patient-portal';
+  renderPatientNav(cur);
+};
+
 export function renderPatientNav(currentPage) {
+  window._currentPatientPage = currentPage;
   const _ptNavList = document.getElementById('patient-nav-list');
   if (_ptNavList) {
     const navItems = _patientNav();
-    const mainItems = navItems.filter(n => n.group === 'main');
-    const optionalItems = navItems.filter(n => n.group === 'optional');
-    const bottomItems = navItems.filter(n => n.group === 'bottom');
+
+    // Build sections: group items under their section headers
+    const sections = [];
+    let currentSection = null;
+    const optionalItems = [];
+    const bottomItems = [];
+
+    navItems.forEach(n => {
+      if (n.section) {
+        currentSection = { entry: n, items: [] };
+        sections.push(currentSection);
+      } else if (n.group === 'optional') {
+        optionalItems.push(n);
+      } else if (n.group === 'bottom') {
+        bottomItems.push(n);
+      } else {
+        if (!currentSection) {
+          currentSection = { entry: null, items: [] };
+          sections.push(currentSection);
+        }
+        currentSection.items.push(n);
+      }
+    });
 
     const renderItem = n => {
       const badge = n.badge ? `<span class="nav-badge">${n.badge}</span>` : '';
       const tone = n.tone || 'teal';
-      return `<div class="nav-item pt-nav-item ${currentPage === n.id ? 'active' : ''}" onclick="window._navPatient('${n.id}')">
+      return `<div class="nav-item pt-nav-item ${currentPage === n.id ? 'active' : ''}" onclick="window._navPatient('${n.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window._navPatient('${n.id}')}" role="menuitem" tabindex="0" aria-current="${currentPage === n.id ? 'page' : 'false'}">
         <span class="pt-nav-tile pt-nav-tile--${tone}" aria-hidden="true">${n.icon}</span>
         <span class="pt-nav-label">${n.label}</span>${badge}
       </div>`;
     };
 
-    let html = mainItems.map(renderItem).join('');
+    const html = [];
+
+    sections.forEach(sec => {
+      const entry = sec.entry;
+      const sectionId = entry?.sectionId || null;
+      const hasActivePage = sec.items.some(n => n.id === currentPage);
+
+      let isCollapsed = false;
+      if (sectionId) {
+        if (hasActivePage) {
+          if (_ptNavCollapsed[sectionId] === true) {
+            _ptNavCollapsed[sectionId] = false;
+            _savePtNavCollapsed();
+          }
+          isCollapsed = false;
+        } else {
+          isCollapsed = !!_ptNavCollapsed[sectionId];
+        }
+      }
+
+      const collapsedClass = isCollapsed ? ' nav-section-group--collapsed' : '';
+      html.push(`<div class="nav-section-group${collapsedClass}" data-section="${sectionId || ''}">`);
+
+      if (entry) {
+        const label = entry.section;
+        if (sectionId) {
+          html.push(`<div class="nav-section-header" onclick="window._togglePtNavSection('${sectionId}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window._togglePtNavSection('${sectionId}')}" role="button" tabindex="0" aria-expanded="${!isCollapsed}" aria-controls="pt-nav-sec-${sectionId}">
+            <span class="nav-section-label">${label}</span>
+            <span class="nav-section-chevron" aria-hidden="true">&#8250;</span>
+          </div>`);
+        } else {
+          html.push(`<div class="nav-section-header nav-section-header--static">
+            <span class="nav-section-label">${label}</span>
+          </div>`);
+        }
+      }
+
+      const itemsHtml = sec.items.map(renderItem).join('');
+      if (sectionId) {
+        html.push(`<div class="nav-section-items" id="pt-nav-sec-${sectionId}">${itemsHtml}</div>`);
+      } else {
+        html.push(itemsHtml);
+      }
+
+      html.push(`</div>`);
+    });
 
     if (optionalItems.length) {
-      html += `<div class="nav-section-divider" style="margin:6px 12px;border-top:1px solid rgba(255,255,255,0.06)"></div>`;
-      html += optionalItems.map(renderItem).join('');
+      html.push(`<div class="nav-section-divider" style="margin:6px 12px;border-top:1px solid rgba(255,255,255,0.06)"></div>`);
+      html.push(optionalItems.map(renderItem).join(''));
     }
 
     if (bottomItems.length) {
-      html += `<div style="flex:1"></div>`; // push to bottom
-      html += `<div class="nav-section-divider" style="margin:6px 12px;border-top:1px solid rgba(255,255,255,0.06)"></div>`;
-      html += bottomItems.map(renderItem).join('');
+      html.push(`<div style="flex:1"></div>`);
+      html.push(`<div class="nav-section-divider" style="margin:6px 12px;border-top:1px solid rgba(255,255,255,0.06)"></div>`);
+      html.push(bottomItems.map(renderItem).join(''));
     }
 
-    _ptNavList.innerHTML = html;
+    _ptNavList.innerHTML = html.join('');
     _ptNavList.style.display = 'flex';
     _ptNavList.style.flexDirection = 'column';
   }
