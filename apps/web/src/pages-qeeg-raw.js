@@ -18,6 +18,9 @@
 import { api } from './api.js';
 import { emptyState, showToast } from './helpers.js';
 import { EEGSignalRenderer } from './eeg-signal-renderer.js';
+import { EEGSpectralPanel } from './eeg-spectral-panel.js';
+import { EEGEventEditor, EEGMeasurementTool, EEGExporter, EEGUndoManager } from './eeg-tools.js';
+import { EEGMontageEditor, EEGChannelManager, EEGRecordingInfo } from './eeg-montage-editor.js';
 
 function esc(v) {
   if (v == null) return '';
@@ -111,6 +114,17 @@ function _initState() {
       hasUnsavedChanges: false,
       icaExpanded: false,
       cursorInfo: null,
+      // v2 features
+      interactionMode: 'select',
+      spectralMode: 'psd',
+      spectralVisible: false,
+      eventEditor: new EEGEventEditor(),
+      measurementTool: new EEGMeasurementTool(),
+      undoManager: new EEGUndoManager(),
+      channelManager: null,
+      montageEditor: null,
+      recordingInfo: new EEGRecordingInfo(),
+      measurePointCount: 0,
     };
   }
   return window._qeegRawState;
@@ -190,32 +204,93 @@ export async function renderRawDataTab(tabEl, analysisId, patientId) {
   renderer.setBadSegments(state.badSegments);
   renderer.setMontage(state.montage);
 
-  // Wire callbacks
+  // ── Initialize v2 modules ──────────────────────────────────────────────
+  var chNames = (state.channelInfo.channels || []).map(function (c) { return c.name || c; });
+  state.channelManager = new EEGChannelManager(chNames);
+  state.montageEditor = new EEGMontageEditor(chNames);
+  state.recordingInfo.setMetadata(state.channelInfo);
+
+  // Initialize spectral panel
+  var spectralWrap = document.getElementById('eeg-spectral-wrap');
+  var spectralPanel = null;
+  if (spectralWrap) {
+    spectralPanel = new EEGSpectralPanel(spectralWrap);
+    EEGSpectralPanel.createTabBar(spectralWrap, spectralPanel);
+  }
+
+  // Pass measurement tool reference to renderer
+  renderer.setMeasurementTool(state.measurementTool);
+
+  // Compute initial channel quality
+  // (will be updated after first signal load)
+
+  // ── Wire callbacks ─────────────────────────────────────────────────────
   renderer.onChannelClick = function (chName) {
     var idx = state.badChannels.indexOf(chName);
-    if (idx >= 0) state.badChannels.splice(idx, 1);
+    var wasBad = idx >= 0;
+    if (wasBad) state.badChannels.splice(idx, 1);
     else state.badChannels.push(chName);
     state.hasUnsavedChanges = true;
+    // Undo support
+    state.undoManager.push({
+      type: wasBad ? 'remove_bad_channel' : 'add_bad_channel',
+      data: chName,
+      undo: function () {
+        if (wasBad) { state.badChannels.push(chName); }
+        else { var i = state.badChannels.indexOf(chName); if (i >= 0) state.badChannels.splice(i, 1); }
+        renderer.setChannelStates(state.badChannels);
+        _updateChannelList(state);
+        _updateSaveIndicator(state);
+      },
+      redo: function () {
+        if (wasBad) { var i = state.badChannels.indexOf(chName); if (i >= 0) state.badChannels.splice(i, 1); }
+        else { state.badChannels.push(chName); }
+        renderer.setChannelStates(state.badChannels);
+        _updateChannelList(state);
+        _updateSaveIndicator(state);
+      },
+    });
     _updateChannelList(state);
     _updateSaveIndicator(state);
+    _updateUndoButtons(state);
   };
 
   renderer.onSegmentSelect = function (startSec, endSec) {
-    state.badSegments.push({
+    var seg = {
       start_sec: Math.round(startSec * 100) / 100,
       end_sec: Math.round(endSec * 100) / 100,
       description: 'BAD_user',
-    });
+    };
+    state.badSegments.push(seg);
     state.hasUnsavedChanges = true;
     renderer.setBadSegments(state.badSegments);
+    // Undo support
+    state.undoManager.push({
+      type: 'add_bad_segment',
+      data: seg,
+      undo: function () {
+        var i = state.badSegments.indexOf(seg);
+        if (i >= 0) state.badSegments.splice(i, 1);
+        renderer.setBadSegments(state.badSegments);
+        _updateSegmentsList(state);
+        _updateSaveIndicator(state);
+      },
+      redo: function () {
+        state.badSegments.push(seg);
+        renderer.setBadSegments(state.badSegments);
+        _updateSegmentsList(state);
+        _updateSaveIndicator(state);
+      },
+    });
     _updateSegmentsList(state);
     _updateSaveIndicator(state);
+    _updateUndoButtons(state);
     showToast('Segment marked: ' + startSec.toFixed(1) + 's \u2013 ' + endSec.toFixed(1) + 's', 'info');
   };
 
   renderer.onTimeNavigate = function (newTStart) {
     state.tStart = newTStart;
-    _loadSignalWindow(analysisId, state, renderer);
+    _loadSignalWindow(analysisId, state, renderer, spectralPanel);
     _updatePageCounter(state);
   };
 
@@ -224,12 +299,43 @@ export async function renderRawDataTab(tabEl, analysisId, patientId) {
     _updateCursorReadout(info);
   };
 
-  // Wire toolbar + keyboard
-  _wireToolbar(analysisId, state, renderer);
-  _wireKeyboard(analysisId, state, renderer, tabEl);
+  // Measurement mode callback
+  renderer.onMeasurementPoint = function (timeSec, ampUV, chName) {
+    state.measurePointCount++;
+    var ptNum = ((state.measurePointCount - 1) % 2) + 1;
+    state.measurementTool.setPoint(ptNum, timeSec, ampUV, chName);
+    renderer.render();
+    var m = state.measurementTool.getMeasurement();
+    if (m) {
+      _updateMeasurementReadout(m);
+    }
+  };
+
+  // Event placement callback
+  renderer.onEventPlace = function (timeSec) {
+    var picker = document.getElementById('eeg-event-type-sel');
+    var eventTypeIdx = picker ? parseInt(picker.value, 10) : 0;
+    var evtType = EEGEventEditor.EVENT_TYPES[eventTypeIdx] || EEGEventEditor.EVENT_TYPES[0];
+    var evt = state.eventEditor.addEvent(timeSec, evtType.label, evtType.color);
+    renderer.setEventMarkers(state.eventEditor.getEvents());
+    _updateEventList(state);
+    state.undoManager.push({
+      type: 'add_event',
+      data: evt,
+      undo: function () { state.eventEditor.removeEvent(evt.id); renderer.setEventMarkers(state.eventEditor.getEvents()); _updateEventList(state); },
+      redo: function () { state.eventEditor.addEvent(timeSec, evtType.label, evtType.color); renderer.setEventMarkers(state.eventEditor.getEvents()); _updateEventList(state); },
+    });
+    _updateUndoButtons(state);
+    showToast('Event: ' + evtType.label + ' at ' + timeSec.toFixed(2) + 's', 'info');
+  };
+
+  // Wire toolbar + keyboard + v2 tools
+  _wireToolbar(analysisId, state, renderer, spectralPanel);
+  _wireKeyboard(analysisId, state, renderer, tabEl, spectralPanel);
+  _wireV2Tools(analysisId, state, renderer, spectralPanel);
 
   // Load initial data
-  await _loadSignalWindow(analysisId, state, renderer);
+  await _loadSignalWindow(analysisId, state, renderer, spectralPanel);
   _updatePageCounter(state);
 }
 
@@ -277,6 +383,7 @@ function _buildLayout(state, isDemo) {
     + '<option value="bipolar_long"' + (state.montage === 'bipolar_long' ? ' selected' : '') + '>Bipolar (Longitudinal)</option>'
     + '<option value="bipolar_trans"' + (state.montage === 'bipolar_trans' ? ' selected' : '') + '>Bipolar (Transverse)</option>'
     + '<option value="average"' + (state.montage === 'average' ? ' selected' : '') + '>Average Reference</option>'
+    + '<option value="laplacian"' + (state.montage === 'laplacian' ? ' selected' : '') + '>Laplacian</option>'
     + '</select>'
     + '</div>';
 
@@ -335,6 +442,40 @@ function _buildLayout(state, isDemo) {
     + '<option value="overlay"' + (state.view === 'overlay' ? ' selected' : '') + '>Overlay</option>'
     + '</select></div>';
 
+  // Separator
+  html += '<div class="eeg-tb__sep"></div>';
+
+  // Tool mode selector (v2)
+  html += '<div class="eeg-tb__group">'
+    + '<label class="eeg-tb__label">Tool</label>'
+    + '<select id="eeg-tool-sel" class="eeg-tb__select eeg-tb__select--narrow">'
+    + '<option value="select"' + (state.interactionMode === 'select' ? ' selected' : '') + '>Select</option>'
+    + '<option value="measure"' + (state.interactionMode === 'measure' ? ' selected' : '') + '>Measure</option>'
+    + '<option value="event"' + (state.interactionMode === 'event' ? ' selected' : '') + '>Event</option>'
+    + '</select></div>';
+
+  // Event type picker (shown when tool=event)
+  html += '<div class="eeg-tb__group" id="eeg-event-picker-wrap" style="display:' + (state.interactionMode === 'event' ? 'flex' : 'none') + '">'
+    + '<select id="eeg-event-type-sel" class="eeg-tb__select eeg-tb__select--narrow">';
+  var evtTypes = EEGEventEditor.EVENT_TYPES;
+  for (var eti = 0; eti < evtTypes.length; eti++) {
+    html += '<option value="' + eti + '">' + esc(evtTypes[eti].label) + '</option>';
+  }
+  html += '</select></div>';
+
+  // Separator
+  html += '<div class="eeg-tb__sep"></div>';
+
+  // Undo / Redo (v2)
+  html += '<div class="eeg-tb__group">'
+    + '<button class="eeg-tb__nav-btn" id="eeg-undo-btn" title="Undo (Ctrl+Z)" disabled>'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 105.08-11.37L1 10"/></svg>'
+    + '</button>'
+    + '<button class="eeg-tb__nav-btn" id="eeg-redo-btn" title="Redo (Ctrl+Y)" disabled>'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-5.08-11.37L23 10"/></svg>'
+    + '</button>'
+    + '</div>';
+
   // Spacer
   html += '<div class="eeg-tb__spacer"></div>';
 
@@ -357,6 +498,12 @@ function _buildLayout(state, isDemo) {
 
   // Actions
   html += '<div class="eeg-tb__group">'
+    + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-export-btn" title="Export (CSV/PNG)">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
+    + ' Export</button>'
+    + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-spectral-toggle" title="Toggle Spectral Panel">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>'
+    + ' Spectral</button>'
     + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-save-btn" title="Save cleaning config">'
     + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>'
     + ' Save</button>'
@@ -367,18 +514,34 @@ function _buildLayout(state, isDemo) {
 
   html += '</div>'; // toolbar
 
+  // ── Measurement readout bar (v2)
+  html += '<div class="eeg-viewer__measure-bar" id="eeg-measure-bar" style="display:none">'
+    + '<span class="eeg-measure__label">Measurement:</span>'
+    + '<span id="eeg-measure-dt">\u0394t: ---</span>'
+    + '<span id="eeg-measure-damp">\u0394amp: ---</span>'
+    + '<span id="eeg-measure-freq">Freq: ---</span>'
+    + '<button class="eeg-measure__clear" id="eeg-measure-clear">Clear</button>'
+    + '</div>';
+
   // ── Main content area
   html += '<div class="eeg-viewer__body">';
 
-  // Canvas
+  // Canvas + spectral panel stack
+  html += '<div class="eeg-viewer__main-stack">';
   html += '<div class="eeg-viewer__canvas-wrap">'
     + '<canvas id="qeeg-raw-canvas"></canvas>'
     + '</div>';
 
+  // Spectral panel (v2 - hidden by default)
+  html += '<div class="eeg-viewer__spectral-wrap" id="eeg-spectral-wrap" style="display:' + (state.spectralVisible ? 'block' : 'none') + '"></div>';
+  html += '</div>'; // main-stack
+
   // Right sidebar
   html += '<div class="eeg-viewer__sidebar" id="eeg-sidebar">';
+  html += _buildRecordingInfoSection(state);
   html += _buildChannelSection(state);
   html += _buildSegmentsSection(state);
+  html += _buildEventsSection(state);
   html += _buildICASection(state);
   html += '</div>';
 
@@ -386,7 +549,7 @@ function _buildLayout(state, isDemo) {
 
   // ── Status bar
   html += '<div class="eeg-viewer__statusbar">'
-    + '<span>Scroll: navigate \u00B7 Ctrl+Scroll: zoom \u00B7 Click label: toggle bad \u00B7 Drag: annotate segment</span>'
+    + '<span>Scroll: navigate \u00B7 Ctrl+Scroll: zoom \u00B7 Click label: toggle bad \u00B7 Drag: annotate \u00B7 Ctrl+Z/Y: undo/redo</span>'
     + '<span id="eeg-save-indicator"></span>'
     + '</div>';
 
@@ -511,9 +674,41 @@ function _renderICAGrid(state) {
   return '<div class="eeg-sb__ica-grid">' + items + '</div>';
 }
 
+// ── v2 section builders ─────────────────────────────────────────────────────
+
+function _buildRecordingInfoSection(state) {
+  var info = state.channelInfo || {};
+  return '<div class="eeg-sb__section">'
+    + '<div class="eeg-sb__title">Recording Info</div>'
+    + '<div class="eeg-sb__rec-info">'
+    + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">Channels</span><span class="eeg-sb__rec-val">' + (info.n_channels || 0) + '</span></div>'
+    + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">Sfreq</span><span class="eeg-sb__rec-val">' + (info.sfreq || 0) + ' Hz</span></div>'
+    + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">Duration</span><span class="eeg-sb__rec-val">' + _formatDuration(info.duration_sec || 0) + '</span></div>'
+    + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">Samples</span><span class="eeg-sb__rec-val">' + (info.n_samples || 0).toLocaleString() + '</span></div>'
+    + '</div></div>';
+}
+
+function _buildEventsSection(state) {
+  var events = state.eventEditor ? state.eventEditor.getEvents() : [];
+  var items = events.map(function (evt, idx) {
+    return '<div class="eeg-sb__evt-item">'
+      + '<span class="eeg-sb__evt-dot" style="background:' + (evt.color || '#4caf50') + '"></span>'
+      + '<span class="eeg-sb__evt-time">' + evt.time.toFixed(2) + 's</span>'
+      + '<span class="eeg-sb__evt-label">' + esc(evt.label) + '</span>'
+      + '<button class="eeg-sb__evt-remove" data-evt-id="' + evt.id + '">\u00D7</button>'
+      + '</div>';
+  }).join('');
+
+  return '<div class="eeg-sb__section">'
+    + '<div class="eeg-sb__title">Events <span class="eeg-sb__count">' + events.length + '</span></div>'
+    + '<div class="eeg-sb__evt-list" id="eeg-events">'
+    + (items || '<div class="eeg-sb__hint">Set tool to Event, click waveform to mark</div>')
+    + '</div></div>';
+}
+
 // ── Data loading ────────────────────────────────────────────────────────────
 
-async function _loadSignalWindow(analysisId, state, renderer) {
+async function _loadSignalWindow(analysisId, state, renderer, spectralPanel) {
   var isDemo = _isDemoMode() && analysisId === 'demo';
   try {
     if (isDemo) {
@@ -524,26 +719,38 @@ async function _loadSignalWindow(analysisId, state, renderer) {
         renderer.setOverlayData(demoData.data);
         renderer.setData(cleanedDemo.channels, cleanedDemo.data, cleanedDemo.sfreq, cleanedDemo.t_start, cleanedDemo.annotations, cleanedDemo.total_duration_sec);
       } else { renderer.clearOverlay(); }
+      // Feed spectral panel
+      if (spectralPanel) spectralPanel.setData(demoData.channels, demoData.data, demoData.sfreq, demoData.t_start);
+      // Compute channel quality
+      _computeChannelQuality(state, demoData.channels, demoData.data, demoData.sfreq, renderer);
       return;
     }
 
     var params = { tStart: state.tStart, windowSec: state.windowSec, maxPoints: 2500 };
+    var _lastChannels = null, _lastData = null, _lastSfreq = 250, _lastTStart = 0;
 
     if (state.view === 'raw' || state.view === 'overlay') {
       var rawData = await api.getQEEGRawSignal(analysisId, params);
       renderer.setData(rawData.channels, rawData.data, rawData.sfreq, rawData.t_start, rawData.annotations, rawData.total_duration_sec);
+      _lastChannels = rawData.channels; _lastData = rawData.data; _lastSfreq = rawData.sfreq; _lastTStart = rawData.t_start;
       if (state.view === 'overlay') {
         try {
           var cleanedData = await api.getQEEGCleanedSignal(analysisId, params);
           renderer.setOverlayData(rawData.data);
           renderer.setData(cleanedData.channels, cleanedData.data, cleanedData.sfreq, cleanedData.t_start, cleanedData.annotations, cleanedData.total_duration_sec);
+          _lastChannels = cleanedData.channels; _lastData = cleanedData.data; _lastSfreq = cleanedData.sfreq; _lastTStart = cleanedData.t_start;
         } catch (_) { renderer.clearOverlay(); }
       } else { renderer.clearOverlay(); }
     } else if (state.view === 'cleaned') {
       var cleaned = await api.getQEEGCleanedSignal(analysisId, params);
       renderer.setData(cleaned.channels, cleaned.data, cleaned.sfreq, cleaned.t_start, cleaned.annotations, cleaned.total_duration_sec);
+      _lastChannels = cleaned.channels; _lastData = cleaned.data; _lastSfreq = cleaned.sfreq; _lastTStart = cleaned.t_start;
       renderer.clearOverlay();
     }
+    // Feed spectral panel
+    if (spectralPanel && _lastChannels) spectralPanel.setData(_lastChannels, _lastData, _lastSfreq, _lastTStart);
+    // Compute channel quality
+    if (_lastChannels) _computeChannelQuality(state, _lastChannels, _lastData, _lastSfreq, renderer);
   } catch (err) {
     showToast('Signal load failed: ' + (err.message || err), 'error');
   }
@@ -551,9 +758,9 @@ async function _loadSignalWindow(analysisId, state, renderer) {
 
 // ── Toolbar wiring ──────────────────────────────────────────────────────────
 
-function _wireToolbar(analysisId, state, renderer) {
+function _wireToolbar(analysisId, state, renderer, spectralPanel) {
   var isDemo = _isDemoMode() && analysisId === 'demo';
-  var MONTAGE_LABELS = { referential: 'Referential', bipolar_long: 'Bipolar (Long)', bipolar_trans: 'Bipolar (Trans)', average: 'Average Ref' };
+  var MONTAGE_LABELS = { referential: 'Referential', bipolar_long: 'Bipolar (Long)', bipolar_trans: 'Bipolar (Trans)', average: 'Average Ref', laplacian: 'Laplacian' };
 
   // Montage
   var montageSel = document.getElementById('eeg-montage-sel');
@@ -562,7 +769,7 @@ function _wireToolbar(analysisId, state, renderer) {
     renderer.setMontage(state.montage);
     var lbl = document.getElementById('eeg-info-montage');
     if (lbl) lbl.textContent = MONTAGE_LABELS[state.montage] || state.montage;
-    _loadSignalWindow(analysisId, state, renderer);
+    _loadSignalWindow(analysisId, state, renderer, spectralPanel);
   };
 
   // Sensitivity
@@ -576,7 +783,7 @@ function _wireToolbar(analysisId, state, renderer) {
   var tbSel = document.getElementById('eeg-timebase-sel');
   if (tbSel) tbSel.onchange = function () {
     state.windowSec = parseInt(tbSel.value, 10);
-    _loadSignalWindow(analysisId, state, renderer);
+    _loadSignalWindow(analysisId, state, renderer, spectralPanel);
     _updatePageCounter(state);
   };
 
@@ -584,7 +791,7 @@ function _wireToolbar(analysisId, state, renderer) {
   var viewSel = document.getElementById('eeg-view-sel');
   if (viewSel) viewSel.onchange = function () {
     state.view = viewSel.value;
-    _loadSignalWindow(analysisId, state, renderer);
+    _loadSignalWindow(analysisId, state, renderer, spectralPanel);
   };
 
   // Filters
@@ -598,7 +805,7 @@ function _wireToolbar(analysisId, state, renderer) {
   // Navigation buttons
   function _navTo(tStart) {
     state.tStart = tStart;
-    _loadSignalWindow(analysisId, state, renderer);
+    _loadSignalWindow(analysisId, state, renderer, spectralPanel);
     _updatePageCounter(state);
   }
   var dur = (state.channelInfo || {}).duration_sec || 0;
@@ -705,11 +912,11 @@ function _wireToolbar(analysisId, state, renderer) {
 
 // ── Keyboard shortcuts ──────────────────────────────────────────────────────
 
-function _wireKeyboard(analysisId, state, renderer, tabEl) {
+function _wireKeyboard(analysisId, state, renderer, tabEl, spectralPanel) {
   var dur = (state.channelInfo || {}).duration_sec || 0;
   function _navTo(tStart) {
     state.tStart = tStart;
-    _loadSignalWindow(analysisId, state, renderer);
+    _loadSignalWindow(analysisId, state, renderer, spectralPanel);
     _updatePageCounter(state);
   }
 
@@ -754,6 +961,12 @@ function _wireKeyboard(analysisId, state, renderer, tabEl) {
         e.preventDefault();
         _navTo(Math.max(0, dur - state.windowSec));
         break;
+      case 'z':
+        if (e.ctrlKey || e.metaKey) { e.preventDefault(); state.undoManager.undo(); _updateUndoButtons(state); }
+        break;
+      case 'y':
+        if (e.ctrlKey || e.metaKey) { e.preventDefault(); state.undoManager.redo(); _updateUndoButtons(state); }
+        break;
     }
   };
 
@@ -787,6 +1000,75 @@ function _wireICAButtons(state) {
     if (content) content.innerHTML = _renderICAGrid(state);
     _wireICAButtons(state);
     _updateSaveIndicator(state);
+  });
+}
+
+// ── V2 tools wiring ─────────────────────────────────────────────────────────
+
+function _wireV2Tools(analysisId, state, renderer, spectralPanel) {
+  // Tool mode selector
+  var toolSel = document.getElementById('eeg-tool-sel');
+  if (toolSel) toolSel.onchange = function () {
+    state.interactionMode = toolSel.value;
+    renderer.setInteractionMode(toolSel.value);
+    var evtPicker = document.getElementById('eeg-event-picker-wrap');
+    if (evtPicker) evtPicker.style.display = toolSel.value === 'event' ? 'flex' : 'none';
+    var measureBar = document.getElementById('eeg-measure-bar');
+    if (measureBar) measureBar.style.display = toolSel.value === 'measure' ? 'flex' : 'none';
+    if (toolSel.value !== 'measure') {
+      state.measurementTool.clear();
+      state.measurePointCount = 0;
+      renderer.render();
+    }
+  };
+
+  // Undo/Redo buttons
+  var undoBtn = document.getElementById('eeg-undo-btn');
+  var redoBtn = document.getElementById('eeg-redo-btn');
+  if (undoBtn) undoBtn.onclick = function () { state.undoManager.undo(); _updateUndoButtons(state); };
+  if (redoBtn) redoBtn.onclick = function () { state.undoManager.redo(); _updateUndoButtons(state); };
+
+  // Export button
+  var exportBtn = document.getElementById('eeg-export-btn');
+  if (exportBtn) exportBtn.onclick = function () {
+    var canvas = document.getElementById('qeeg-raw-canvas');
+    if (!canvas) return;
+    EEGExporter.exportPNG(canvas, 'eeg-raw-view.png');
+    showToast('PNG exported', 'success');
+  };
+
+  // Spectral toggle
+  var spectralBtn = document.getElementById('eeg-spectral-toggle');
+  if (spectralBtn) spectralBtn.onclick = function () {
+    state.spectralVisible = !state.spectralVisible;
+    var wrap = document.getElementById('eeg-spectral-wrap');
+    if (wrap) wrap.style.display = state.spectralVisible ? 'block' : 'none';
+    spectralBtn.classList.toggle('eeg-tb__action-btn--active', state.spectralVisible);
+  };
+
+  // Measurement clear button
+  var measureClear = document.getElementById('eeg-measure-clear');
+  if (measureClear) measureClear.onclick = function () {
+    state.measurementTool.clear();
+    state.measurePointCount = 0;
+    renderer.render();
+    var dtEl = document.getElementById('eeg-measure-dt');
+    var dAmpEl = document.getElementById('eeg-measure-damp');
+    var freqEl = document.getElementById('eeg-measure-freq');
+    if (dtEl) dtEl.textContent = '\u0394t: ---';
+    if (dAmpEl) dAmpEl.textContent = '\u0394amp: ---';
+    if (freqEl) freqEl.textContent = 'Freq: ---';
+  };
+
+  // Event list delete buttons (delegated)
+  var evtList = document.getElementById('eeg-events');
+  if (evtList) evtList.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-evt-id]');
+    if (!btn) return;
+    var evtId = btn.dataset.evtId;
+    state.eventEditor.removeEvent(evtId);
+    renderer.setEventMarkers(state.eventEditor.getEvents());
+    _updateEventList(state);
   });
 }
 
@@ -848,6 +1130,54 @@ function _updateSaveIndicator(state) {
   if (!el) return;
   el.textContent = state.hasUnsavedChanges ? 'Unsaved changes' : '';
   el.style.color = state.hasUnsavedChanges ? 'var(--amber, #f59e0b)' : '';
+}
+
+function _updateUndoButtons(state) {
+  var undoBtn = document.getElementById('eeg-undo-btn');
+  var redoBtn = document.getElementById('eeg-redo-btn');
+  if (undoBtn) undoBtn.disabled = !state.undoManager.canUndo();
+  if (redoBtn) redoBtn.disabled = !state.undoManager.canRedo();
+}
+
+function _updateMeasurementReadout(m) {
+  var bar = document.getElementById('eeg-measure-bar');
+  if (bar) bar.style.display = 'flex';
+  var dtEl = document.getElementById('eeg-measure-dt');
+  var dAmpEl = document.getElementById('eeg-measure-damp');
+  var freqEl = document.getElementById('eeg-measure-freq');
+  if (dtEl) dtEl.textContent = '\u0394t: ' + (m.deltaTime != null ? m.deltaTime.toFixed(3) + 's' : '---');
+  if (dAmpEl) dAmpEl.textContent = '\u0394amp: ' + (m.deltaAmplitude != null ? m.deltaAmplitude.toFixed(1) + ' \u00B5V' : '---');
+  if (freqEl) freqEl.textContent = 'Freq: ' + (m.frequency != null ? m.frequency.toFixed(1) + ' Hz' : '---');
+}
+
+function _updateEventList(state) {
+  var el = document.getElementById('eeg-events');
+  if (!el) return;
+  var events = state.eventEditor ? state.eventEditor.getEvents() : [];
+  if (!events.length) {
+    el.innerHTML = '<div class="eeg-sb__hint">Set tool to Event, click waveform to mark</div>';
+    return;
+  }
+  el.innerHTML = events.map(function (evt) {
+    return '<div class="eeg-sb__evt-item">'
+      + '<span class="eeg-sb__evt-dot" style="background:' + (evt.color || '#4caf50') + '"></span>'
+      + '<span class="eeg-sb__evt-time">' + evt.time.toFixed(2) + 's</span>'
+      + '<span class="eeg-sb__evt-label">' + esc(evt.label) + '</span>'
+      + '<button class="eeg-sb__evt-remove" data-evt-id="' + evt.id + '">\u00D7</button>'
+      + '</div>';
+  }).join('');
+}
+
+function _computeChannelQuality(state, channels, data, sfreq, renderer) {
+  if (!state.channelManager || !channels || !data) return;
+  var qualityMap = {};
+  for (var i = 0; i < channels.length; i++) {
+    if (data[i]) {
+      var q = state.channelManager.computeQuality(channels[i], data[i], sfreq);
+      qualityMap[channels[i]] = q;
+    }
+  }
+  renderer.setChannelQuality(qualityMap);
 }
 
 // ── CSS injection ───────────────────────────────────────────────────────────
@@ -947,6 +1277,37 @@ function _injectCSS() {
 
 /* Status bar */
 .eeg-viewer__statusbar { display:flex; align-items:center; justify-content:space-between; padding:4px 12px; font-size:10px; color:#475569; background:rgba(255,255,255,0.015); border-top:1px solid rgba(255,255,255,0.06); }
+
+/* Main stack (canvas + spectral) */
+.eeg-viewer__main-stack { display:flex; flex-direction:column; flex:1; min-width:0; overflow:hidden; }
+.eeg-viewer__spectral-wrap { height:260px; min-height:180px; border-top:1px solid rgba(255,255,255,0.06); background:#0a0f1a; overflow:hidden; }
+
+/* Measurement bar */
+.eeg-viewer__measure-bar { display:flex; align-items:center; gap:14px; padding:4px 12px; background:rgba(0,212,188,0.04); border-bottom:1px solid rgba(0,212,188,0.12); font-size:11px; font-family:'JetBrains Mono','SF Mono',monospace; color:#00d4bc; }
+.eeg-measure__label { font-weight:600; font-size:9px; text-transform:uppercase; letter-spacing:.04em; color:#64748b; }
+.eeg-measure__clear { margin-left:auto; background:none; border:1px solid rgba(255,255,255,0.1); border-radius:4px; color:#94a3b8; font-size:10px; padding:2px 8px; cursor:pointer; }
+.eeg-measure__clear:hover { color:#ef5350; border-color:rgba(239,83,80,0.3); }
+
+/* Active toolbar button */
+.eeg-tb__action-btn--active { background:rgba(0,212,188,0.15) !important; border-color:rgba(0,212,188,0.4) !important; color:#00d4bc !important; }
+
+/* Recording info sidebar */
+.eeg-sb__rec-info { font-size:11px; }
+.eeg-sb__rec-row { display:flex; justify-content:space-between; padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.03); }
+.eeg-sb__rec-label { color:#64748b; font-size:10px; }
+.eeg-sb__rec-val { color:#cbd5e1; font-family:'JetBrains Mono','SF Mono',monospace; font-size:10px; font-weight:500; }
+
+/* Events sidebar */
+.eeg-sb__evt-list { max-height:160px; overflow-y:auto; }
+.eeg-sb__evt-item { display:flex; align-items:center; gap:5px; padding:3px 0; font-size:11px; border-bottom:1px solid rgba(255,255,255,0.03); }
+.eeg-sb__evt-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+.eeg-sb__evt-time { font-family:'JetBrains Mono','SF Mono',monospace; font-size:10px; color:#94a3b8; min-width:48px; }
+.eeg-sb__evt-label { font-size:10px; color:#cbd5e1; flex:1; }
+.eeg-sb__evt-remove { background:none; border:none; color:#64748b; cursor:pointer; font-size:14px; padding:0 2px; line-height:1; }
+.eeg-sb__evt-remove:hover { color:#ef5350; }
+
+/* Disabled nav buttons */
+.eeg-tb__nav-btn:disabled { opacity:0.35; cursor:not-allowed; pointer-events:none; }
 
 @media (max-width: 900px) {
   .eeg-viewer__sidebar { width:180px; }

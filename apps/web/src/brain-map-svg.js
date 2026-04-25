@@ -1916,7 +1916,8 @@ export function renderBiomarkerGauges(conditions, options) {
       var angle = Math.PI * fraction;  // 0 to PI for 0% to 100%
       var endX = cx - r * Math.cos(angle);
       var endY = cy - r * Math.sin(angle);
-      var largeArc = fraction > 0.5 ? 1 : 0;
+      // Arc spans at most 180deg (PI), so large-arc-flag is always 0
+      var largeArc = 0;
       parts.push('<path d="M' + bgStartX.toFixed(1) + ',' + bgStartY.toFixed(1) + ' A' + r + ',' + r + ' 0 ' + largeArc + ',1 ' + endX.toFixed(1) + ',' + endY.toFixed(1) + '" fill="none" stroke="' + arcColor + '" stroke-width="8" stroke-linecap="round" opacity="0.85"/>');
     }
 
@@ -1929,10 +1930,12 @@ export function renderBiomarkerGauges(conditions, options) {
 
     // Relevance badge below name
     if (cond.relevance) {
+      var rel = cond.relevance.toLowerCase();
       var relColor = '#66bb6a'; // default green
-      if (cond.relevance === 'Limited') relColor = '#78909c';
-      if (cond.relevance === 'Moderate') relColor = '#ffa726';
-      if (cond.relevance === 'High' || cond.relevance === 'Significant') relColor = '#ef5350';
+      if (rel.indexOf('limited') >= 0 || rel.indexOf('minimal') >= 0) relColor = '#78909c';
+      if (rel.indexOf('mild') >= 0) relColor = '#a1887f';
+      if (rel.indexOf('moderate') >= 0) relColor = '#ffa726';
+      if (rel.indexOf('high') >= 0 || rel.indexOf('significant') >= 0 || rel.indexOf('strong') >= 0) relColor = '#ef5350';
 
       var badgeY = nameY + 14;
       var badgeW = cond.relevance.length * 5.5 + 12;
