@@ -8,7 +8,7 @@ from typing import Any, Dict, Iterable, Optional
 from redis import Redis
 
 from .contracts import FeatureEnvelope, FeatureSetName, utc_now
-from .streaming.workers import redis_key
+from .streaming.keys import redis_key
 
 
 def _redis_url() -> str:
@@ -44,17 +44,28 @@ def fetch_patient_features(tenant_id: str, patient_id: str, feature_set: Feature
     r = _get_redis()
     features_out: Dict[str, Any] = {}
     occurred_at_max: Optional[datetime] = None
+    groups_meta: Dict[str, Any] = {}
 
     for group in _groups_for(feature_set):
         key = redis_key(tenant_id, patient_id, group)
-        blob = r.hget(key, "features")
-        occurred_at_s = r.hget(key, "occurred_at")
-        if blob:
+        raw_map = r.hgetall(key)
+        group_features: Dict[str, Any] = {}
+        meta: Dict[str, Any] = {}
+
+        for k, v in raw_map.items():
+            if k.startswith("__meta:"):
+                meta[k.replace("__meta:", "", 1)] = v
+                continue
+            # best-effort decode of JSON scalar/list/dict; fallback to string
             try:
-                features_out[group] = json.loads(blob)
+                group_features[k] = json.loads(v)
             except Exception:
-                features_out[group] = {"_raw": blob}
-        dt = _parse_dt(occurred_at_s)
+                group_features[k] = v
+
+        features_out[group] = group_features
+        groups_meta[group] = meta
+
+        dt = _parse_dt(meta.get("max_occurred_at"))
         if dt and (occurred_at_max is None or dt > occurred_at_max):
             occurred_at_max = dt
 
@@ -65,7 +76,7 @@ def fetch_patient_features(tenant_id: str, patient_id: str, feature_set: Feature
         generated_at=utc_now(),
         occurred_at=occurred_at_max,
         features=features_out,
-        metadata={"redis_url": _redis_url()},
+        metadata={"redis_url": _redis_url(), "groups": groups_meta},
     )
     return envelope.model_dump()
 

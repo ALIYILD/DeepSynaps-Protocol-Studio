@@ -109,6 +109,49 @@ def attach_feature_store_metadata(payload: dict[str, Any], fs_metadata: dict[str
     return merged
 
 
+class RedisFeatureStoreClient:
+    """Feature store client backed by `packages/feature-store`.
+
+    This is intentionally a thin adapter so app code can depend on a stable
+    interface while the feature-store package owns Redis keying, metadata
+    envelopes, and feature-set expansion logic.
+    """
+
+    def __init__(self) -> None:
+        # Import lazily so apps/api can boot even if the package isn't installed
+        # in older deployments. In that case, build_feature_store_client will
+        # fall back to NullFeatureStoreClient.
+        from deepsynaps_features.serve import fetch_patient_features  # type: ignore
+
+        self._fetch_patient_features = fetch_patient_features
+
+    def fetch_patient_features(self, tenant_id: str, patient_id: str, feature_set: str) -> FeatureFetchResult:
+        envelope = self._fetch_patient_features(tenant_id=tenant_id, patient_id=patient_id, feature_set=feature_set)
+        # `deepsynaps_features.serve.fetch_patient_features` returns a JSON-serializable
+        # Pydantic dump (FeatureEnvelope). Keep `metadata` opaque but stable.
+        if not isinstance(envelope, dict):
+            return FeatureFetchResult(features={}, metadata={"provider": "redis", "empty": True, "empty_reason": "bad_envelope"})
+
+        # Prefer the package’s envelope shape. If missing, degrade gracefully to empty.
+        features = envelope.get("features")
+        metadata = dict(envelope.get("metadata") or {})
+        metadata.update(
+            {
+                "provider": "redis",
+                "tenant_id": tenant_id,
+                "patient_id": patient_id,
+                "feature_set": feature_set,
+                "retrieved_at": _now_iso(),
+                "envelope": {k: v for k, v in envelope.items() if k != "features"},
+            }
+        )
+
+        return FeatureFetchResult(
+            features=features if isinstance(features, dict) else {},
+            metadata=metadata,
+        )
+
+
 def build_feature_store_client(settings: AppSettings) -> FeatureStoreClient:
     """Factory for the configured Layer 2 client.
 
@@ -119,7 +162,9 @@ def build_feature_store_client(settings: AppSettings) -> FeatureStoreClient:
     if settings.feature_store_backend == "in_memory":
         return InMemoryFeatureStoreClient()
     if settings.feature_store_backend == "feast":
-        # Placeholder: Layers 3–4 depend on FeatureStoreClient only.
-        return NullFeatureStoreClient()
+        try:
+            return RedisFeatureStoreClient()
+        except Exception:  # pragma: no cover
+            return NullFeatureStoreClient()
     return NullFeatureStoreClient()
 

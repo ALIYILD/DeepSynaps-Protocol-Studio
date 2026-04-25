@@ -9,6 +9,7 @@ import faust
 from redis.asyncio import Redis
 
 from deepsynaps_features.transforms import assessment, qeeg, therapy, wearable
+from deepsynaps_features.streaming.keys import redis_key
 
 
 def _redis_url() -> str:
@@ -19,11 +20,6 @@ def _kafka_brokers() -> str:
     return os.getenv("DEEPSYNAPS_FEATURES_KAFKA_BROKERS", os.getenv("KAFKA_BROKERS", "kafka://localhost:9092"))
 
 
-def redis_key(tenant_id: str, patient_id: str, group: str) -> str:
-    # Tenant isolation is enforced via the key namespace.
-    return f"deepsynaps:features:{tenant_id}:patient:{patient_id}:{group}"
-
-
 async def write_online_features(r: Redis, tenant_id: str, patient_id: str, group: str, features: Mapping[str, Any]) -> None:
     key = redis_key(tenant_id, patient_id, group)
     occurred_at = features.get("occurred_at")
@@ -32,13 +28,36 @@ async def write_online_features(r: Redis, tenant_id: str, patient_id: str, group
     else:
         occurred_at_s = str(occurred_at) if occurred_at is not None else ""
 
-    await r.hset(
-        key,
-        mapping={
-            "features": json.dumps(dict(features), default=str),
-            "occurred_at": occurred_at_s,
-        },
+    # Write a HASH with one field per feature plus reserved metadata keys.
+    # This matches the Layer 2 contract in FEATURE_STORE.md.
+    #
+    # Reserved fields:
+    # - __meta:max_occurred_at
+    # - __meta:materialized_at
+    # - __meta:transform_version
+    # - __meta:source_event_schema
+    materialized_at_s = datetime.utcnow().isoformat()
+    mapping: dict[str, str] = {}
+    for k, v in dict(features).items():
+        if k in {"tenant_id", "patient_id", "occurred_at"}:
+            continue
+        if v is None:
+            continue
+        mapping[k] = json.dumps(v) if isinstance(v, (dict, list)) else str(v)
+
+    mapping["__meta:max_occurred_at"] = occurred_at_s
+    mapping["__meta:materialized_at"] = materialized_at_s
+    mapping["__meta:transform_version"] = os.getenv(
+        f"DEEPSYNAPS_FEATURES_TRANSFORM_VERSION_{group.upper()}",
+        f"{group}@v1",
     )
+    mapping["__meta:source_event_schema"] = os.getenv(
+        f"DEEPSYNAPS_FEATURES_EVENT_SCHEMA_{group.upper()}",
+        f"deepsynaps.events.{group}",
+    )
+
+    if mapping:
+        await r.hset(key, mapping=mapping)
 
 
 # Faust application wiring (Layer 2 streaming workers).

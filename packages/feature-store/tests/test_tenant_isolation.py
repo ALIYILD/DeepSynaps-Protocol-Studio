@@ -13,8 +13,8 @@ class _FakeRedis:
     def hset(self, key: str, mapping: dict[str, str]) -> None:
         self._h.setdefault(key, {}).update(mapping)
 
-    def hget(self, key: str, field: str):
-        return self._h.get(key, {}).get(field)
+    def hgetall(self, key: str) -> dict[str, str]:
+        return dict(self._h.get(key, {}))
 
 
 def test_tenant_isolation_keys_do_not_collide(monkeypatch) -> None:
@@ -29,8 +29,26 @@ def test_tenant_isolation_keys_do_not_collide(monkeypatch) -> None:
     k2 = redis_key("tenant_b", "patient_1", "qeeg")
     assert k1 != k2
 
-    r.hset(k1, {"features": json.dumps({"alpha_power": 1.0}), "occurred_at": "2026-01-01T00:00:00+00:00"})
-    r.hset(k2, {"features": json.dumps({"alpha_power": 2.0}), "occurred_at": "2026-01-01T00:00:00+00:00"})
+    r.hset(
+        k1,
+        {
+            "alpha_power": "1.0",
+            "__meta:max_occurred_at": "2026-01-01T00:00:00+00:00",
+            "__meta:materialized_at": "2026-01-01T00:00:01+00:00",
+            "__meta:transform_version": "qeeg@v1",
+            "__meta:source_event_schema": "deepsynaps.qeeg.features.v1",
+        },
+    )
+    r.hset(
+        k2,
+        {
+            "alpha_power": "2.0",
+            "__meta:max_occurred_at": "2026-01-01T00:00:00+00:00",
+            "__meta:materialized_at": "2026-01-01T00:00:01+00:00",
+            "__meta:transform_version": "qeeg@v1",
+            "__meta:source_event_schema": "deepsynaps.qeeg.features.v1",
+        },
+    )
 
     monkeypatch.setattr("deepsynaps_features.serve._get_redis", lambda: r)
 
