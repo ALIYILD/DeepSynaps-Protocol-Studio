@@ -25,10 +25,10 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# Clinical colour maps
-_CMAP_POWER = "YlOrRd"        # absolute power: warm palette
-_CMAP_ZSCORE = "RdBu_r"       # z-scores: diverging, red = high / blue = low
-_CMAP_RELATIVE = "viridis"    # relative power: perceptually uniform
+# Style locks: only {viridis, cividis, RdBu_r} in user-facing surfaces.
+_CMAP_POWER = "viridis"
+_CMAP_ZSCORE = "RdBu_r"       # diverging, red = high / blue = low
+_CMAP_RELATIVE = "viridis"
 
 _DPI = 150
 _FIG_SIZE = (3.5, 3.5)
@@ -155,13 +155,13 @@ def render_zscore_topomap(
     ch_names: list[str],
     *,
     band: str = "",
-    threshold: float = 1.96,
+    threshold: float = 2.0,
     **kwargs: Any,
 ) -> bytes:
     """Convenience wrapper for z-score topomaps with clinical thresholds.
 
     Applies symmetric colour mapping centred at zero, with contour lines
-    at the 95% significance boundary (|z| = 1.96).
+    at the significance boundary (|z| = 2.0).
     """
     title = kwargs.pop("title", f"{band.title()} z-score" if band else "z-score")
     return render_topomap(

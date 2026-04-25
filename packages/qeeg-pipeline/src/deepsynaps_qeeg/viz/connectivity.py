@@ -26,9 +26,9 @@ from .. import FREQ_BANDS
 
 log = logging.getLogger(__name__)
 
-# Default colour maps
-_CMAP_COH = "magma"         # coherence: 0→1
-_CMAP_WPLI = "RdBu_r"       # wPLI: diverging
+# Style locks: only {viridis, cividis, RdBu_r} in user-facing surfaces.
+_CMAP_COH = "viridis"        # coherence: 0→1
+_CMAP_WPLI = "RdBu_r"        # wPLI: diverging
 _CMAP_GENERIC = "viridis"
 
 _DPI = 150
@@ -245,7 +245,7 @@ def export_plotly_payload(
     labels: list[str],
     *,
     title: str = "Connectivity",
-    cmap: str = "RdBu",
+    cmap: str = "RdBu_r",
     symmetric: bool = True,
 ) -> dict[str, Any]:
     """Export the matrix as a Plotly heatmap trace for browser rendering.
