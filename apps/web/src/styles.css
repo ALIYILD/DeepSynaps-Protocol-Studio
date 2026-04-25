@@ -26732,6 +26732,20 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   text-align: center;
 }
 
+/* Brain Map Planner — MRI focus viewer scoped tweaks. The planner already
+   has dense canvas + side panels above, so the MRI stage is capped a bit
+   smaller than the MRI-analysis page default. */
+.bmp-mri-host {
+  margin: 12px 16px 0;
+}
+.bmp-mri-host:empty {
+  margin: 0;
+}
+.ds-bmp-mri-wrap .ds-mri-glass-stage {
+  max-width: 520px;
+  margin: 0 auto;
+}
+
 /* Patient + QC header */
 .ds-mri-pt-header {
   display: flex;
