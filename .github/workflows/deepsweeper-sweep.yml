@@ -65,6 +65,27 @@ jobs:
           cache: npm
           cache-dependency-path: tools/deepsweeper/package-lock.json
 
+      - name: Check required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::Missing Actions secret DEEPSWEEPER_GITHUB_TOKEN"
+            missing=1
+          fi
+
+          if [[ "${{ github.event.inputs.apply_existing || 'false' }}" != "true" && -z "${OPENAI_API_KEY:-}" ]]; then
+            echo "::error::Missing Actions secret DEEPSWEEPER_OPENAI_API_KEY"
+            missing=1
+          fi
+
+          if [[ "${missing}" -ne 0 ]]; then
+            echo "Required secrets are not available to the workflow." >&2
+            exit 1
+          fi
+
       - name: Install DeepSweeper dependencies
         working-directory: tools/deepsweeper
         run: npm ci
