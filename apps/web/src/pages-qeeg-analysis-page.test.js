@@ -21,6 +21,13 @@ if (typeof globalThis.localStorage === 'undefined') {
     removeItem() {},
   };
 }
+if (typeof globalThis.sessionStorage === 'undefined') {
+  globalThis.sessionStorage = {
+    getItem() { return null; },
+    setItem() {},
+    removeItem() {},
+  };
+}
 if (typeof globalThis.window.open !== 'function') {
   globalThis.window.open = function () {};
 }
@@ -113,10 +120,41 @@ function installPageGlobals() {
   globalThis.window._qeegSelectedId = null;
   globalThis.window._qeegComparisonId = null;
   globalThis.window._qeegTab = 'patient';
+  globalThis.window._selectedPatientId = null;
+  globalThis.window._profilePatientId = null;
   globalThis.window._nav = function () {};
   globalThis.window.DEEPSYNAPS_ENABLE_AI_UPGRADES = false;
   globalThis.window.DEEPSYNAPS_ENABLE_MNE = true;
 }
+
+test('patient tab inherits active app patient context when qEEG scope is unset', async () => {
+  const dom = installFakeDom();
+  installPageGlobals();
+  globalThis.window._qeegPatientId = undefined;
+  globalThis.window._qeegTab = 'patient';
+  globalThis.window._selectedPatientId = 'patient-ctx';
+
+  const patient = {
+    id: 'patient-ctx',
+    first_name: 'Grace',
+    last_name: 'Hopper',
+    primary_condition: 'Attention',
+    dob: '1985-12-09',
+    gender: 'F',
+  };
+
+  await withStubbedApi({
+    listPatients: async () => [patient],
+    getPatient: async () => patient,
+    getPatientMedicalHistory: async () => ({ sections: {} }),
+    listPatientQEEGAnalyses: async () => ({ items: [] }),
+  }, async () => {
+    await pgQEEGAnalysis(function () {}, function () {});
+  });
+
+  assert.equal(globalThis.window._qeegPatientId, 'patient-ctx');
+  assert.ok(dom.get('qeeg-upload-col'), 'upload column should render for inherited patient context');
+});
 
 test('patient tab renders broader upload copy and analyzer stack card', async () => {
   const dom = installFakeDom();

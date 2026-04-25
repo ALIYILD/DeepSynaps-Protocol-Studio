@@ -61,6 +61,19 @@ function formatSupportedUploadTypes() {
   return '.edf, .bdf, .vhdr (BrainVision header), .set';
 }
 
+function _getContextPatientIdForQEEG() {
+  try {
+    return window._selectedPatientId
+      || window._profilePatientId
+      || sessionStorage.getItem('ds_pat_selected_id')
+      || '';
+  } catch (_) {
+    return (typeof window !== 'undefined' && window)
+      ? (window._selectedPatientId || window._profilePatientId || '')
+      : '';
+  }
+}
+
 export function _getQEEGReportPdfUrl(report, analysis) {
   if (report && (report.report_pdf_url || report.pdf_url)) {
     return report.report_pdf_url || report.pdf_url;
@@ -3092,7 +3105,12 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   }
 
   // Load patient data if selected
-  const patientId = window._qeegPatientId || null;
+  const patientId = window._qeegPatientId === undefined
+    ? (_getContextPatientIdForQEEG() || null)
+    : (window._qeegPatientId || null);
+  if (window._qeegPatientId === undefined && patientId) {
+    window._qeegPatientId = patientId;
+  }
   if (patientId && (!_patient || _patient.id !== patientId)) {
     try {
       const [p, mh, aResp] = await Promise.all([
@@ -3114,6 +3132,9 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   // Register global handlers
   window._qeegSelectPatient = async function (pid) {
     window._qeegPatientId = pid;
+    window._selectedPatientId = pid;
+    window._profilePatientId = pid;
+    try { sessionStorage.setItem('ds_pat_selected_id', pid); } catch (_) {}
     window._qeegSelectedId = null;
     window._qeegSelectedReportId = null;
     window._qeegComparisonId = null;
