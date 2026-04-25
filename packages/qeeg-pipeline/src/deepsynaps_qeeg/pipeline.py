@@ -118,8 +118,6 @@ def run_full_pipeline(
 
     # --- Stage 1b — apply user overrides (interactive cleaning) ---
     if user_overrides:
-        import mne as _mne
-
         if user_overrides.get("bad_channels"):
             raw.info["bads"] = list(user_overrides["bad_channels"])
             log.info("User overrides: marked %d bad channels", len(raw.info["bads"]))

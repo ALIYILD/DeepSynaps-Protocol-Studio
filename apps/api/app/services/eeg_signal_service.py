@@ -181,7 +181,6 @@ def load_cleaned_for_analysis(analysis_id: str, db: Any) -> Any:
 
     # Try ICA artifact removal
     try:
-        from deepsynaps_qeeg import artifacts  # type: ignore[import-not-found]
         # We need to run ICA on the cleaned raw but without epoching
         # Replicate the ICA fitting from artifacts module
         ica_data = _fit_ica_on_raw(raw_clean)
@@ -570,7 +569,7 @@ def run_custom_pipeline_sync(analysis_id: str) -> dict[str, Any]:
     Reads the ``cleaning_config_json`` from the DB row and passes it as
     ``user_overrides`` to the pipeline.
     """
-    from app.services.qeeg_pipeline import HAS_MNE_PIPELINE, run_pipeline_safe
+    from app.services.qeeg_pipeline import run_pipeline_safe
 
     session = SessionLocal()
     tmp_path: str | None = None
