@@ -2747,9 +2747,26 @@ def recommend_protocol_endpoint(
 
     try:
         from app.services import qeeg_ai_bridge
+        from app.services.feature_store_client import (
+            attach_feature_store_metadata,
+            build_feature_store_client,
+        )
+        from app.settings import get_settings
 
         features = _load_features_for_ai(analysis)
         risk_scores = _maybe_json_loads(analysis.risk_scores_json) or {}
+
+        # Layer 2 integration point: fetch feature-store lineage metadata and
+        # persist it alongside model outputs. This is intentionally a minimal
+        # abstraction (no Feast details leak past FeatureStoreClient).
+        settings = get_settings()
+        tenant_id = settings.feature_store_default_tenant_id
+        fs_client = build_feature_store_client(settings)
+        fs_result = fs_client.fetch_patient_features(
+            tenant_id=tenant_id,
+            patient_id=analysis.patient_id,
+            feature_set="qeeg_recommend_protocol_v1",
+        )
 
         # Gather supporting papers for the recommender (best-effort).
         papers_env = qeeg_ai_bridge.run_retrieve_papers_safe(
@@ -2769,7 +2786,8 @@ def recommend_protocol_endpoint(
             db_session=db,
         )
         if envelope.get("success") and isinstance(envelope.get("data"), dict):
-            analysis.protocol_recommendation_json = json.dumps(envelope["data"])
+            persisted = attach_feature_store_metadata(envelope["data"], fs_result.metadata)
+            analysis.protocol_recommendation_json = json.dumps(persisted)
             db.commit()
             db.refresh(analysis)
     except Exception as exc:  # pragma: no cover

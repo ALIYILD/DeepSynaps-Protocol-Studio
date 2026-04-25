@@ -1,0 +1,10 @@
+project: deepsynaps_feature_store
+registry: data/registry.db
+provider: local
+
+online_store:
+  type: redis
+  connection_string: ${DEEPSYNAPS_FEATURES_REDIS_URL}
+
+entity_key_serialization_version: 2
+

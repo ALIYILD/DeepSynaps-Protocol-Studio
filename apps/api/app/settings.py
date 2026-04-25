@@ -130,6 +130,13 @@ class AppSettings(BaseModel):
     # Transcription
     whisper_provider: str = Field(default="openai")
 
+    # Brain Twin Layer 2 (Feature Store) — intentionally minimal abstraction.
+    # Layers 3–4 should depend on the FeatureStoreClient interface and opaque
+    # metadata blobs, not Feast specifics.
+    feature_store_backend: Literal["disabled", "in_memory", "feast"] = "disabled"
+    feature_store_default_tenant_id: str = Field(default="default")
+    feature_store_registry_url: str = Field(default="")
+
     @field_validator("database_url")
     @classmethod
     def validate_database_url(cls, value: str) -> str:
@@ -279,6 +286,10 @@ def load_settings() -> AppSettings:
                 "media_signed_url_ttl_seconds": int(os.getenv("MEDIA_SIGNED_URL_TTL_SECONDS", "3600")),
                 # Transcription
                 "whisper_provider": os.getenv("WHISPER_PROVIDER", "openai"),
+                # Feature store (Layer 2)
+                "feature_store_backend": os.getenv("DEEPSYNAPS_FEATURE_STORE_BACKEND", "disabled"),
+                "feature_store_default_tenant_id": os.getenv("DEEPSYNAPS_FEATURE_STORE_DEFAULT_TENANT_ID", "default"),
+                "feature_store_registry_url": os.getenv("DEEPSYNAPS_FEATURE_STORE_REGISTRY_URL", ""),
             }
         )
     except ValidationError as exc:
