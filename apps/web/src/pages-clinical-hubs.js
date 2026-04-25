@@ -6529,10 +6529,12 @@ export async function pgReportsHubNew(setTopbar, navigate) {
   const tab = window._reportsHubTab || 'generate';
   window._reportsHubTab = tab;
   const TAB_META = {
-    generate:  { label: 'Generate',        color: 'var(--teal)'   },
-    recent:    { label: 'Recent Reports',   color: 'var(--blue)'   },
-    analytics: { label: 'Analytics',       color: 'var(--violet)' },
-    export:    { label: 'Export',          color: 'var(--amber)'  },
+    generate:   { label: 'Generate',         color: 'var(--teal)'   },
+    combined:   { label: 'Combined Report',  color: 'var(--green)'  },
+    insights:   { label: 'Health Insights',  color: 'var(--violet)' },
+    recent:     { label: 'Recent Reports',   color: 'var(--blue)'   },
+    analytics:  { label: 'Analytics',        color: 'var(--violet)' },
+    export:     { label: 'Export',           color: 'var(--amber)'  },
   };
   const el = document.getElementById('content');
   function tabBar() {
@@ -6544,17 +6546,57 @@ export async function pgReportsHubNew(setTopbar, navigate) {
   setTopbar('Reports', '<span class="ph-ai-badge">AI</span>');
 
   const REPORT_TYPES = [
-    { id:'R1', name:'Initial Assessment Report',    cat:'Intake',    auto:true,  fields:18, desc:'Full intake assessment including clinical history, contraindications, baseline scores.' },
-    { id:'R2', name:'Session Progress Note',        cat:'Session',   auto:true,  fields:12, desc:'Per-session clinical note with tolerance, adverse events, and progress markers.' },
-    { id:'R3', name:'Mid-Course Review',            cat:'Review',    auto:false, fields:22, desc:'Comprehensive mid-course review comparing baseline to current outcomes.' },
-    { id:'R4', name:'Treatment Outcome Report',     cat:'Discharge', auto:true,  fields:28, desc:'Full discharge report with outcome data, responder classification, follow-up plan.' },
-    { id:'R5', name:'Adverse Event Report',         cat:'Safety',    auto:false, fields:15, desc:'Structured AE report for safety monitoring and regulatory compliance.' },
-    { id:'R6', name:'GP/Referrer Summary Letter',   cat:'Referral',  auto:true,  fields:14, desc:'Concise summary letter for GP or referrer with treatment details and outcomes.' },
-    { id:'R7', name:'Insurance/Funding Report',     cat:'Admin',     auto:false, fields:20, desc:'Structured report for insurance pre-authorisation or funding applications.' },
-    { id:'R8', name:'qEEG Interpretation Report',   cat:'Diagnostics',auto:false,fields:16, desc:'Clinical qEEG interpretation with protocol recommendations.' },
-    { id:'R9', name:'Home Program Adherence Report',cat:'Follow-up', auto:true,  fields:10, desc:'Task completion rates, adherence trends, and patient engagement metrics.' },
-    { id:'R10',name:'Monthly Outcomes Summary',     cat:'Analytics', auto:true,  fields:25, desc:'Clinic-wide monthly outcomes dashboard with responder rates and trends.' },
+    { id:'R1', name:'Initial Assessment Report',       cat:'Intake',       auto:true,  fields:18, desc:'Full intake assessment including clinical history, contraindications, baseline scores.', sources:['patients','assessments'] },
+    { id:'R2', name:'Session Progress Note',           cat:'Session',      auto:true,  fields:12, desc:'Per-session clinical note with tolerance, adverse events, and progress markers.', sources:['sessions','courses'] },
+    { id:'R3', name:'Mid-Course Review',               cat:'Review',       auto:false, fields:22, desc:'Comprehensive mid-course review comparing baseline to current outcomes.', sources:['courses','outcomes'] },
+    { id:'R4', name:'Treatment Outcome Report',        cat:'Discharge',    auto:true,  fields:28, desc:'Full discharge report with outcome data, responder classification, follow-up plan.', sources:['courses','outcomes','patients'] },
+    { id:'R5', name:'Adverse Event Report',            cat:'Safety',       auto:false, fields:15, desc:'Structured AE report for safety monitoring and regulatory compliance.', sources:['sessions','patients'] },
+    { id:'R6', name:'GP/Referrer Summary Letter',      cat:'Referral',     auto:true,  fields:14, desc:'Concise summary letter for GP or referrer with treatment details and outcomes.', sources:['patients','courses','outcomes'] },
+    { id:'R7', name:'Insurance/Funding Report',        cat:'Admin',        auto:false, fields:20, desc:'Structured report for insurance pre-authorisation or funding applications.', sources:['courses','outcomes','finance'] },
+    { id:'R8', name:'qEEG Interpretation Report',      cat:'Diagnostics',  auto:false, fields:16, desc:'Clinical qEEG interpretation with protocol recommendations.', sources:['qeeg','protocols'] },
+    { id:'R9', name:'Home Program Adherence Report',   cat:'Follow-up',    auto:true,  fields:10, desc:'Task completion rates, adherence trends, and patient engagement metrics.', sources:['sessions','outcomes'] },
+    { id:'R10',name:'Monthly Outcomes Summary',        cat:'Analytics',    auto:true,  fields:25, desc:'Clinic-wide monthly outcomes dashboard with responder rates and trends.', sources:['outcomes','courses','patients'] },
+    { id:'R11',name:'Health Correlation Report',       cat:'Health',       auto:false, fields:30, desc:'Cross-domain health correlation analysis: outcomes vs sessions, wearable vs treatment response, biomarker trends.', sources:['outcomes','sessions','wearables','courses','assessments'] },
+    { id:'R12',name:'Predictive Health Outlook',       cat:'Health',       auto:false, fields:24, desc:'AI-powered prediction of treatment response based on historical outcomes, session data, and biomarkers.', sources:['outcomes','courses','sessions','patients','assessments'] },
+    { id:'R13',name:'Business Performance Report',     cat:'Business',     auto:true,  fields:20, desc:'Clinic business KPIs: revenue, patient volume, course completion rates, utilisation.', sources:['finance','courses','patients','sessions'] },
+    { id:'R14',name:'Patient Population Report',       cat:'Business',     auto:true,  fields:18, desc:'Demographics, condition distribution, referral sources, retention rates.', sources:['patients','courses'] },
+    { id:'R15',name:'Protocol Efficacy Report',        cat:'Health',       auto:false, fields:22, desc:'Per-protocol responder rates, mean outcome deltas, session tolerance, and evidence alignment.', sources:['protocols','outcomes','courses','sessions'] },
+    { id:'R16',name:'Wearable Health Summary',         cat:'Health',       auto:true,  fields:14, desc:'Wearable-derived health metrics: sleep, HRV, activity, and correlation with clinical outcomes.', sources:['wearables','outcomes','patients'] },
+    { id:'R17',name:'Comprehensive Combined Report',   cat:'Combined',     auto:false, fields:40, desc:'Full cross-domain report combining clinical, financial, and operational data with AI insights.', sources:['patients','courses','outcomes','sessions','finance','protocols','assessments','wearables'] },
   ];
+
+  // ── Data source registry ─────────────────────────────────────────────────
+  const DATA_SOURCES = {
+    patients:    { label:'Patients',          icon:'\uD83D\uDC65', page:'patients-v2',    fetch:()=>api.listPatients().catch(()=>({items:[]})) },
+    courses:     { label:'Treatment Courses', icon:'\uD83D\uDCCB', page:'courses',         fetch:()=>(api.listCourses?api.listCourses({}):Promise.resolve({items:[]})).catch(()=>({items:[]})) },
+    outcomes:    { label:'Outcome Scores',    icon:'\uD83D\uDCCA', page:'outcomes',        fetch:()=>api.listOutcomes().catch(()=>({items:[]})) },
+    sessions:    { label:'Sessions',          icon:'\uD83D\uDD52', page:'schedule-v2',     fetch:()=>(api.listSessions?api.listSessions({}):Promise.resolve({items:[]})).catch(()=>({items:[]})) },
+    protocols:   { label:'Protocols',         icon:'\uD83E\uDDE0', page:'protocol-studio', fetch:()=>api.protocols().catch(()=>({items:[]})) },
+    assessments: { label:'Assessments',       icon:'\uD83D\uDCDD', page:'assessments-v2',  fetch:()=>(api.listAssessments?api.listAssessments():Promise.resolve({items:[]})).catch(()=>({items:[]})) },
+    finance:     { label:'Finance',           icon:'\uD83D\uDCB0', page:'finance-v2',      fetch:()=>(api.finance?.summary?api.finance.summary():Promise.resolve(null)).catch(()=>null) },
+    wearables:   { label:'Wearable Data',     icon:'\u231A',       page:'monitor',          fetch:()=>(api.getClinicAlertSummary?api.getClinicAlertSummary():Promise.resolve(null)).catch(()=>null) },
+    qeeg:        { label:'qEEG Records',      icon:'\uD83C\uDF0A', page:'qeeg-analysis',   fetch:()=>(api.listQEEGRecords?api.listQEEGRecords():Promise.resolve({items:[]})).catch(()=>({items:[]})) },
+    aggregate:   { label:'Outcome Aggregates',icon:'\uD83D\uDCC8', page:'reports-hub',     fetch:()=>(api.aggregateOutcomes?api.aggregateOutcomes():Promise.resolve({})).catch(()=>({})) },
+  };
+  async function _fetchSources(keys) {
+    const r = {};
+    await Promise.allSettled(keys.map(async k => { const s=DATA_SOURCES[k]; if(!s) return; try { const d=await s.fetch(); r[k]=d?.items||d||[]; } catch { r[k]=[]; } }));
+    return r;
+  }
+  function _dataToText(data) {
+    const p = [];
+    if (data.patients?.length)    p.push('PATIENTS ('+data.patients.length+'):\n'+data.patients.slice(0,20).map(x=>'  - '+((x.first_name||'')+' '+(x.last_name||'')).trim()+' | ID:'+x.id+' | DOB:'+(x.date_of_birth||'?')+' | Condition:'+(x.primary_condition||x.condition_slug||'N/A')).join('\n'));
+    if (data.courses?.length)     p.push('COURSES ('+data.courses.length+'):\n'+data.courses.slice(0,20).map(x=>'  - '+x.id+' | Patient:'+x.patient_id+' | '+x.condition_slug+' | '+x.modality_slug+' | Status:'+x.status+' | Sessions:'+(x.sessions_delivered||0)+'/'+(x.planned_sessions_total||'?')).join('\n'));
+    if (data.outcomes?.length)    p.push('OUTCOMES ('+data.outcomes.length+'):\n'+data.outcomes.slice(0,30).map(x=>'  - Patient:'+x.patient_id+' | Scale:'+(x.template_id||x.scale||'?')+' | Score:'+(x.score_numeric!=null?x.score_numeric:'?')+' | Point:'+(x.measurement_point||'?')+' | Date:'+(x.administered_at||'?')).join('\n'));
+    if (data.sessions?.length)    p.push('SESSIONS ('+data.sessions.length+'):\n'+data.sessions.slice(0,20).map(x=>'  - '+x.id+' | Patient:'+x.patient_id+' | Date:'+(x.session_date||x.date||'?')+' | Status:'+(x.status||'?')+' | Dur:'+(x.duration_minutes||'?')+'min').join('\n'));
+    if (data.protocols?.length)   p.push('PROTOCOLS ('+data.protocols.length+'):\n'+data.protocols.slice(0,15).map(x=>'  - '+(x.name||x.title||'?')+' | Condition:'+(x.condition_slug||'?')+' | Evidence:'+(x.evidence_level||'?')).join('\n'));
+    if (data.assessments?.length) p.push('ASSESSMENTS ('+data.assessments.length+'):\n'+data.assessments.slice(0,20).map(x=>'  - Patient:'+x.patient_id+' | Form:'+(x.form_key||x.template_id||'?')+' | Score:'+(x.total_score!=null?x.total_score:'?')+' | Date:'+(x.administered_at||x.created_at||'?')).join('\n'));
+    if (data.finance && !Array.isArray(data.finance)) p.push('FINANCE: Revenue:'+((data.finance).revenue_paid||0)+' | Outstanding:'+((data.finance).outstanding||0)+' | Overdue:'+((data.finance).overdue||0));
+    if (data.wearables)           p.push('WEARABLE DATA:\n  '+JSON.stringify(Array.isArray(data.wearables)?data.wearables.slice(0,5):data.wearables).slice(0,500));
+    if (data.qeeg?.length)        p.push('qEEG ('+data.qeeg.length+'):\n'+data.qeeg.slice(0,10).map(x=>'  - Record:'+x.id+' | Patient:'+x.patient_id+' | Date:'+(x.recorded_at||x.created_at||'?')).join('\n'));
+    if (data.aggregate && !Array.isArray(data.aggregate)) { const a=data.aggregate; p.push('AGGREGATES: Responder:'+((a.responder_rate_pct!=null?a.responder_rate_pct+'%':'N/A'))+' | PHQ9 Drop:'+(a.avg_phq9_drop!=null?a.avg_phq9_drop:'N/A')+' | Completion:'+(a.assessment_completion_pct!=null?a.assessment_completion_pct+'%':'N/A')); }
+    return p.join('\n\n');
+  }
 
   const _rKey = 'ds_reports_v1';
   const loadReports = () => { try { return JSON.parse(localStorage.getItem(_rKey)||'[]'); } catch { return []; } };
@@ -6606,45 +6648,48 @@ export async function pgReportsHubNew(setTopbar, navigate) {
       ]);
       patients=pR?.items||[]; courses=cR?.items||[];
     } catch {}
-    const patOpts = patients.map(p=>'<option value="'+p.id+'">'+ ((p.first_name||'')+' '+(p.last_name||'')).trim() +'</option>').join('') || '<option>Demo Patient A</option>';
+    const patOpts = '<option value="all">All Patients (Clinic-wide)</option>' + (patients.map(p=>'<option value="'+p.id+'">'+ ((p.first_name||'')+' '+(p.last_name||'')).trim() +'</option>').join('') || '<option>Demo Patient A</option>');
     const cats = ['All',...new Set(REPORT_TYPES.map(r=>r.cat))];
     const filtCat = window._repGenCat||'All';
+    const filtTypes = REPORT_TYPES.filter(r=>filtCat==='All'||r.cat===filtCat);
+    const selType = filtTypes[0] || REPORT_TYPES[0];
 
     main = `
       <div class="ch-two-col">
         <div class="ch-card">
           <div class="ch-card-hd"><span class="ch-card-title">Report Generator</span><span class="ph-ai-badge">AI</span></div>
           <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
-            <div class="ch-form-group"><label class="ch-label">Patient</label><select id="rep-patient" class="ch-select ch-select--full">${patOpts}</select></div>
+            <div class="ch-form-group"><label class="ch-label">Patient / Scope</label><select id="rep-patient" class="ch-select ch-select--full">${patOpts}</select></div>
             <div class="ch-form-group"><label class="ch-label">Report Type</label>
               <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
                 ${cats.map(c=>'<button class="reg-domain-pill'+(c===filtCat?' active':'')+'" onclick="window._repGenCat=\''+c+'\';window._nav(\'reports-hub\')">'+c+'</button>').join('')}
               </div>
-              <select id="rep-type" class="ch-select ch-select--full">
-                ${REPORT_TYPES.filter(r=>filtCat==='All'||r.cat===filtCat).map(r=>'<option value="'+r.id+'">'+r.name+'</option>').join('')}
+              <select id="rep-type" class="ch-select ch-select--full" onchange="window._repUpdateDesc()">
+                ${filtTypes.map(r=>'<option value="'+r.id+'">'+r.name+'</option>').join('')}
               </select>
             </div>
-            <div id="rep-desc" style="font-size:11.5px;color:var(--text-tertiary);line-height:1.5;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px">${REPORT_TYPES[0].desc}</div>
+            <div id="rep-desc" style="font-size:11.5px;color:var(--text-tertiary);line-height:1.5;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px">${selType.desc}</div>
+            <div id="rep-sources-display" style="display:flex;gap:6px;flex-wrap:wrap">${(selType.sources||[]).map(s=>{const src=DATA_SOURCES[s];return src?'<span style="font-size:10.5px;padding:3px 8px;border-radius:10px;background:rgba(94,234,212,0.08);color:var(--teal);border:1px solid rgba(94,234,212,0.2)">'+src.icon+' '+src.label+'</span>':'';}).join('')}</div>
             <div class="ch-form-group"><label class="ch-label">Additional Context (optional)</label><textarea id="rep-context" class="ch-textarea" rows="3" placeholder="Any specific details to include in the report…"></textarea></div>
-            <div style="display:flex;gap:8px">
-              <button class="btn btn-primary" onclick="window._genReport()">✦ Generate Report</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-primary" onclick="window._genReport()">Generate Report</button>
+              <button class="ch-btn-sm" onclick="window._genReport(true)">Generate with Live Data</button>
             </div>
+            <div id="rep-loading" style="display:none;padding:8px;text-align:center;color:var(--text-tertiary);font-size:12px">Fetching data from dashboard sources and generating report...</div>
           </div>
           <div id="rep-output" style="display:none;padding:0 16px 16px">
             <div style="font-size:11.5px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Generated Report</div>
-            <div id="rep-content" class="ch-textarea" style="min-height:160px;padding:12px;font-size:12.5px;line-height:1.75;white-space:pre-wrap;max-height:320px;overflow-y:auto"></div>
-            <div style="display:flex;gap:8px;margin-top:10px">
+            <div id="rep-content" class="ch-textarea" style="min-height:160px;padding:12px;font-size:12.5px;line-height:1.75;white-space:pre-wrap;max-height:420px;overflow-y:auto"></div>
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
               <button class="ch-btn-sm ch-btn-teal" onclick="window._saveReport()">Save to Records</button>
+              <button class="ch-btn-sm" onclick="navigator.clipboard?.writeText(document.getElementById('rep-content')?.textContent||'');window._dsToast?.({title:'Copied',body:'Report copied to clipboard.',severity:'success'})">Copy</button>
               <button class="ch-btn-sm" onclick="window.print()">Print</button>
             </div>
           </div>
         </div>
         <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Report Templates</span></div>
-          ${REPORT_TYPES.filter(r=>filtCat==='All'||r.cat===filtCat).map(r=>
-            '<div class="book-row"><div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+r.cat+' · '+r.fields+' fields'+(r.auto?' · Auto-gen':'')+'</div></div>'+
-            '<div class="book-actions"><button class="ch-btn-sm ch-btn-teal" onclick="document.getElementById(\'rep-type\').value=\''+r.id+'\';document.getElementById(\'rep-desc\').textContent=\''+r.desc+'\'">Use</button></div></div>'
-          ).join('')}
+          <div class="ch-card-hd"><span class="ch-card-title">Report Templates</span><span style="font-size:11px;color:var(--text-tertiary)">${filtTypes.length} types</span></div>
+          ${filtTypes.map(r=>{const srcB=(r.sources||[]).map(s=>{const src=DATA_SOURCES[s];return src?src.icon:'';}).join(' ');return '<div class="book-row"><div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+r.cat+' \u00B7 '+r.fields+' fields'+(r.auto?' \u00B7 Auto-gen':'')+' \u00B7 Sources: '+srcB+'</div></div>'+'<div class="book-actions"><button class="ch-btn-sm ch-btn-teal" onclick="document.getElementById(\'rep-type\').value=\''+r.id+'\';window._repUpdateDesc()">Use</button></div></div>';}).join('')}
         </div>
       </div>`;
 
@@ -6904,6 +6949,9 @@ export async function pgReportsHubNew(setTopbar, navigate) {
               <select id="rep-exp-source" class="ch-select ch-select--full">
                 <option value="outcomes">Outcome scores (per-patient)</option>
                 <option value="courses">Treatment courses</option>
+                <option value="sessions">Clinical sessions</option>
+                <option value="patients">Patient demographics</option>
+                <option value="assessments">Assessment records</option>
                 <option value="reports">Saved reports (local)</option>
               </select>
             </div>
@@ -6934,6 +6982,9 @@ export async function pgReportsHubNew(setTopbar, navigate) {
           <div style="padding:14px 16px;font-size:12.5px;color:var(--text-secondary);line-height:1.65">
             <p style="margin:0 0 10px"><strong style="color:var(--text-primary)">Outcome scores</strong> — one row per recorded assessment (patient id, template, score, date, measurement point). Source: <code style="font-size:11px;padding:1px 5px;background:rgba(255,255,255,0.05);border-radius:4px">/api/v1/outcomes</code>.</p>
             <p style="margin:0 0 10px"><strong style="color:var(--text-primary)">Treatment courses</strong> — one row per course (patient id, condition, modality, status, progress). Source: <code style="font-size:11px;padding:1px 5px;background:rgba(255,255,255,0.05);border-radius:4px">/api/v1/treatment-courses</code>.</p>
+            <p style="margin:0 0 10px"><strong style="color:var(--text-primary)">Clinical sessions</strong> — one row per session (patient, course, date, duration, status). Source: <code style="font-size:11px;padding:1px 5px;background:rgba(255,255,255,0.05);border-radius:4px">/api/v1/sessions</code>.</p>
+            <p style="margin:0 0 10px"><strong style="color:var(--text-primary)">Patient demographics</strong> — one row per patient (name, DOB, contact, condition). Source: <code style="font-size:11px;padding:1px 5px;background:rgba(255,255,255,0.05);border-radius:4px">/api/v1/patients</code>.</p>
+            <p style="margin:0 0 10px"><strong style="color:var(--text-primary)">Assessment records</strong> — one row per assessment (patient, form, score, date). Source: <code style="font-size:11px;padding:1px 5px;background:rgba(255,255,255,0.05);border-radius:4px">/api/v1/assessments</code>.</p>
             <p style="margin:0"><strong style="color:var(--text-primary)">Saved reports</strong> — reports you have generated and saved locally in this browser.</p>
           </div>
         </div>
@@ -6976,6 +7027,37 @@ export async function pgReportsHubNew(setTopbar, navigate) {
               return true;
             })
             .map(c => header.map(k => c[k] == null ? '' : String(c[k])));
+        } else if (source === 'sessions') {
+          const res = api.listSessions ? await api.listSessions({}) : {items:[]};
+          const items = res?.items || res || [];
+          header = ['id', 'patient_id', 'course_id', 'session_date', 'status', 'duration_minutes', 'clinician_id', 'created_at'];
+          rows = items
+            .filter(s => {
+              const d = (s.session_date||s.date) ? new Date(s.session_date||s.date) : null;
+              if (!d) return true;
+              if (fromD && d < fromD) return false;
+              if (toD   && d > toD)   return false;
+              return true;
+            })
+            .map(s => header.map(k => s[k] == null ? '' : String(s[k])));
+        } else if (source === 'patients') {
+          const res = await api.listPatients();
+          const items = res?.items || res || [];
+          header = ['id', 'first_name', 'last_name', 'date_of_birth', 'email', 'primary_condition', 'created_at'];
+          rows = items.map(p => header.map(k => p[k] == null ? '' : String(p[k])));
+        } else if (source === 'assessments') {
+          const res = api.listAssessments ? await api.listAssessments() : {items:[]};
+          const items = res?.items || res || [];
+          header = ['id', 'patient_id', 'form_key', 'total_score', 'administered_at', 'clinician_id', 'created_at'];
+          rows = items
+            .filter(a => {
+              const d = (a.administered_at||a.created_at) ? new Date(a.administered_at||a.created_at) : null;
+              if (!d) return true;
+              if (fromD && d < fromD) return false;
+              if (toD   && d > toD)   return false;
+              return true;
+            })
+            .map(a => header.map(k => a[k] == null ? '' : String(a[k])));
         } else {
           header = ['id', 'name', 'patient', 'type', 'date', 'status'];
           rows = loadReports()

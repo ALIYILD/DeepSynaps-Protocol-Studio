@@ -1,0 +1,19 @@
+{
+  "counts": {
+    "assessments": 42,
+    "conditions": 52,
+    "devices": 19,
+    "evidence_levels": 4,
+    "governance_rules": 12,
+    "modalities": 12,
+    "personalization_rules": 3,
+    "phenotypes": 30,
+    "protocols": 59,
+    "sources": 30
+  },
+  "created_at": "2026-04-25T12:37:41.552209+00:00",
+  "snapshot_id": "clinical-9cb873916633",
+  "source_hash": "9cb87391663360968f297b5829a652f0de751d3303d6e4541a4962b911373085",
+  "source_root": "C:\\Users\\yildi\\OneDrive\\Desktop\\deepsynaps studio\\DeepSynaps-Protocol-Studio\\data\\imports\\clinical-database",
+  "total_records": 263
+}

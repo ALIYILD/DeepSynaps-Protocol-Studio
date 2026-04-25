@@ -16,7 +16,17 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { api, downloadBlob } from './api.js';
 import { emptyState, showToast } from './helpers.js';
-import { mountCornerstoneMPR } from './mri-viewer-cs3d.js';
+// Cornerstone3D viewer is loaded dynamically — the @cornerstonejs/* packages
+// are optional and may not be installed.  When absent the build still succeeds
+// and the MRI page falls back to the NiiVue viewer.
+let _cs3dModule = null;
+async function _loadCornerstoneMPR() {
+  if (_cs3dModule) return _cs3dModule.mountCornerstoneMPR;
+  try {
+    _cs3dModule = await import('./mri-viewer-cs3d.js');
+    return _cs3dModule.mountCornerstoneMPR;
+  } catch { return null; }
+}
 
 const FUSION_API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const FUSION_TOKEN_KEY = 'ds_access_token';
@@ -394,11 +404,14 @@ async function mountBestMRIViewer(host, opts) {
     var vols = _viewerVolumeCandidates(opts && opts.report, payload);
     var baseUrl = (vols && vols[0] && vols[0].url) ? vols[0].url : null;
     if (baseUrl) {
-      var ok = await mountCornerstoneMPR(host, {
-        analysisId: opts.analysisId,
-        baseVolumeUrl: baseUrl,
-      });
-      if (ok) return true;
+      var mountCornerstoneMPR = await _loadCornerstoneMPR();
+      if (mountCornerstoneMPR) {
+        var ok = await mountCornerstoneMPR(host, {
+          analysisId: opts.analysisId,
+          baseVolumeUrl: baseUrl,
+        });
+        if (ok) return true;
+      }
     }
   } catch (_) {}
   return mountNiiVue(host, opts);
