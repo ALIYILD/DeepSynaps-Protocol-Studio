@@ -687,7 +687,10 @@ window.demoLogin = async function(token) {
 
   // Try real demo-login endpoint first (works in all environments)
   try {
-    const res = await api.demoLogin(token);
+    const res = await Promise.race([
+      api.demoLogin(token),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000)),
+    ]);
     if (res?.access_token) {
       api.setToken(res.access_token);
       if (res.refresh_token) api.setRefreshToken(res.refresh_token);

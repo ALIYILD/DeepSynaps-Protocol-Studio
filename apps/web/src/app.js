@@ -2200,7 +2200,11 @@ async function init() {
     return;
   }
   try {
-    const user = await api.me();
+    // Timeout after 5s — if the API is unreachable, fall through to demo mode
+    const user = await Promise.race([
+      api.me(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+    ]);
     if (!user || !user.role) { api.clearToken(); navigatePublic('home'); return; }
     setCurrentUser(user);
     if (user.role === 'patient') {
