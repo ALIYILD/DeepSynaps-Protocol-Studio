@@ -1,10 +1,10 @@
 # DeepSweeper
 
 This directory is a vendored DeepSweeper kit inside the DeepSynaps Studio repo.
-The provided source kit did not include the upstream `src/deepsweeper.ts` core,
-so this copy includes a minimal local CLI for `list-repos`, `verify-audit`, and
-`status`, while leaving the upstream-dependent sweep/apply commands as explicit
-stubs.
+It now includes the imported upstream `clawsweeper` core, adapted for
+DeepSynaps-specific guardrails, multi-repo config, audit logging, and
+repo-scoped artifact directories under `items/<owner__repo>/` and
+`closed/<owner__repo>/`.
 
 Conservative maintainer bot for DeepSynaps Studio repositories. Forks [openclaw/clawsweeper](https://github.com/openclaw/clawsweeper) and adds a regulated-component guardrail, audit-log integration, and multi-repo sweep.
 
@@ -82,12 +82,14 @@ npm ci
 npm run build
 npm test
 npm run verify-audit                  # validates audit-log.ndjson chain
+npm run list-repos                    # prints configured repo matrix
+npm run status -- --repo deepsynaps/studio
+```
 
 To inspect the vendored status:
 
 ```bash
 npm run status
-```
 ```
 
 To configure for your repos:

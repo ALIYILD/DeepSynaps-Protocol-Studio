@@ -15,14 +15,27 @@ import {
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { emitAuditRecord, verifyChain } from "./audit.js";
+import { evaluateRegulated, enforceRegulatedGuardrail, loadRegulatedConfig } from "./regulated.js";
+import { loadTargetConfig, selectRepos, type TargetRepo } from "./repos.js";
+
 type ItemKind = "issue" | "pull_request";
 type DecisionKind = "close" | "keep_open";
 type CloseReason =
   | "implemented_on_main"
   | "cannot_reproduce"
-  | "clawhub"
+  | "studio_marketplace"
   | "incoherent"
   | "stale_insufficient_info"
+  | "none";
+type KeepOpenReason =
+  | "regulated_component"
+  | "real_bug"
+  | "plausible_feature"
+  | "salvageable_unclear"
+  | "stale_pr_useful_work"
+  | "evidence_insufficient"
+  | "maintainer_authored"
   | "none";
 type Confidence = "high" | "medium" | "low";
 type ActionTaken =
@@ -103,10 +116,13 @@ interface Evidence {
 interface Decision {
   decision: DecisionKind;
   closeReason: CloseReason;
+  keepOpenReason: KeepOpenReason;
   confidence: Confidence;
   summary: string;
   evidence: Evidence[];
   risks: string[];
+  regulatedComponentTouched: boolean;
+  regulatedComponentPaths: string[];
   fixedRelease?: string | null;
   fixedSha?: string | null;
   closeComment: string;
@@ -212,10 +228,15 @@ interface ReconcileResult {
 }
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const TARGET_REPO = "openclaw/openclaw";
-const REPORT_REPO = "openclaw/clawsweeper";
-const CLAWHUB_URL = "https://clawhub.ai/";
-const DOCS_URL = "https://docs.openclaw.ai";
+const TARGET_CONFIG = loadTargetConfig(ROOT);
+const REGULATED_CONFIG = loadRegulatedConfig(ROOT);
+let CURRENT_REPO: TargetRepo | null = TARGET_CONFIG.repos[0] ?? null;
+let TARGET_REPO =
+  CURRENT_REPO ? `${CURRENT_REPO.owner}/${CURRENT_REPO.name}` : "deepsynaps/studio";
+const REPORT_REPO = `${TARGET_CONFIG.reportRepo.owner}/${TARGET_CONFIG.reportRepo.name}`;
+const MARKETPLACE_URL = TARGET_CONFIG.marketplaceUrl;
+const DOCS_URL = TARGET_CONFIG.docsUrl;
+const SCOPE_ANCHOR = TARGET_CONFIG.scopeAnchor;
 const FRESH_DAYS = 7;
 const DAILY_REVIEW_DAYS = 1;
 const WEEKLY_REVIEW_DAYS = 7;
@@ -230,7 +251,7 @@ const REVIEW_POLICY_VERSION = "2026-04-24-policy-v1";
 const ALLOWED_REASONS = new Set<CloseReason>([
   "implemented_on_main",
   "cannot_reproduce",
-  "clawhub",
+  "studio_marketplace",
   "incoherent",
   "stale_insufficient_info",
 ]);
@@ -270,6 +291,41 @@ function boolArg(value: string | boolean | string[] | undefined): boolean {
   if (typeof value === "boolean") return value;
   if (typeof value !== "string") return false;
   return value === "1" || value === "true" || value === "yes";
+}
+
+function currentRepo(): TargetRepo {
+  if (!CURRENT_REPO) {
+    throw new Error("No target repo configured.");
+  }
+  return CURRENT_REPO;
+}
+
+function setCurrentRepo(repo: TargetRepo): void {
+  CURRENT_REPO = repo;
+  TARGET_REPO = `${repo.owner}/${repo.name}`;
+}
+
+function resolveTargetRepo(args: Args): TargetRepo {
+  const filter = stringArg(args.repo ?? args.target_repo, "");
+  const matches = selectRepos(TARGET_CONFIG, filter || undefined);
+  if (matches.length === 0) {
+    throw new Error(
+      `No target repo matched ${filter ? `"${filter}"` : "the default selection"} in config/target-repos.yaml.`,
+    );
+  }
+  return matches[0]!;
+}
+
+function repoDirName(repo = currentRepo()): string {
+  return `${repo.owner}__${repo.name}`.replace(/[^A-Za-z0-9_.-]/g, "_");
+}
+
+function repoItemsDir(repo = currentRepo()): string {
+  return join(ROOT, "items", repoDirName(repo));
+}
+
+function repoClosedDir(repo = currentRepo()): string {
+  return join(ROOT, "closed", repoDirName(repo));
 }
 
 function run(
@@ -457,7 +513,7 @@ function reviewPolicyHash(options: {
       reasoningEffort: options.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
       serviceTier: options.serviceTier ?? DEFAULT_SERVICE_TIER,
       prompt: readFileSync(join(ROOT, "prompts", "review-item.md"), "utf8"),
-      schema: readFileSync(join(ROOT, "schema", "clawsweeper-decision.schema.json"), "utf8"),
+      schema: readFileSync(join(ROOT, "schema", "deepsweeper-decision.schema.json"), "utf8"),
     }),
   ).slice(0, 16);
 }
@@ -1035,6 +1091,100 @@ function collectItemContext(item: Item): ItemContext {
   return context;
 }
 
+function contextIssueBody(context: ItemContext): string {
+  const body = asRecord(context.issue).body;
+  return typeof body === "string" ? body : "";
+}
+
+function contextCommentBodies(context: ItemContext): string[] {
+  const values = [...context.comments, ...(context.pullReviewComments ?? [])];
+  return values
+    .map((entry) => {
+      const body = asRecord(entry).body;
+      return typeof body === "string" ? body : "";
+    })
+    .filter(Boolean);
+}
+
+function contextChangedFiles(context: ItemContext): string[] {
+  return (context.pullFiles ?? [])
+    .map((entry) => {
+      const filename = asRecord(entry).filename;
+      return typeof filename === "string" ? filename : "";
+    })
+    .filter(Boolean);
+}
+
+function normalizeDecision(decision: Decision): Decision {
+  return {
+    ...decision,
+    keepOpenReason:
+      decision.keepOpenReason ?? (decision.decision === "keep_open" ? "evidence_insufficient" : "none"),
+    regulatedComponentTouched: decision.regulatedComponentTouched ?? false,
+    regulatedComponentPaths: decision.regulatedComponentPaths ?? [],
+    fixedRelease: decision.fixedRelease ?? null,
+    fixedSha: decision.fixedSha ?? null,
+  };
+}
+
+function applyDeepSweeperGuardrails(item: Item, context: ItemContext, decision: Decision): Decision {
+  const normalized = normalizeDecision(decision);
+  const regulated = evaluateRegulated(
+    {
+      title: item.title,
+      body: contextIssueBody(context),
+      changedFiles: contextChangedFiles(context),
+      commentTexts: contextCommentBodies(context),
+    },
+    REGULATED_CONFIG,
+  );
+  const enforced = enforceRegulatedGuardrail(normalized, regulated);
+  const repo = currentRepo();
+  const withRegulatedFields: Decision = {
+    ...enforced,
+    regulatedComponentTouched: regulated.isRegulated,
+    regulatedComponentPaths: regulated.matchedPaths,
+    keepOpenReason: regulated.isRegulated
+      ? "regulated_component"
+      : enforced.decision === "close"
+        ? "none"
+        : normalized.keepOpenReason,
+  };
+  if (!repo.applyClosures && withRegulatedFields.decision === "close") {
+    return {
+      ...withRegulatedFields,
+      decision: "keep_open",
+      closeReason: "none",
+      closeComment: "",
+      keepOpenReason: "evidence_insufficient",
+      summary: `Auto-close disabled for ${TARGET_REPO}; human review required. ${withRegulatedFields.summary}`,
+    };
+  }
+  return withRegulatedFields;
+}
+
+function emitDecisionAudit(item: Item, decision: Decision, snapshotHash: string): void {
+  emitAuditRecord({
+    rootDir: ROOT,
+    actor: "deepsweeper-bot",
+    eventType: decision.decision === "close" ? "deepsweeper.close" : "deepsweeper.keep_open",
+    payload: {
+      repo: TARGET_REPO,
+      item_number: item.number,
+      item_kind: item.kind,
+      decision: decision.decision,
+      close_reason: decision.closeReason,
+      keep_open_reason: decision.keepOpenReason,
+      confidence: decision.confidence,
+      regulated_component_touched: decision.regulatedComponentTouched,
+      regulated_component_paths: decision.regulatedComponentPaths,
+      fixed_release: decision.fixedRelease,
+      fixed_sha: decision.fixedSha,
+      snapshot_hash: snapshotHash,
+    },
+  });
+}
+
 function gitInfo(openclawDir: string): GitInfo {
   run("git", ["fetch", "origin", "main", "--depth=50"], { cwd: openclawDir });
   const mainSha = run("git", ["rev-parse", "origin/main"], { cwd: openclawDir });
@@ -1081,6 +1231,8 @@ function promptFor(item: Item, context: ItemContext, git: GitInfo): string {
 - Updated at: ${item.updatedAt}
 - Current main SHA: ${git.mainSha}
 - Latest release: ${git.latestRelease?.tagName ?? "unknown"} (${git.latestRelease?.sha ?? "unknown sha"})
+- Regulated paths: ${JSON.stringify(REGULATED_CONFIG.paths)}
+- Regulated keywords: ${JSON.stringify(REGULATED_CONFIG.keywords)}
 
 ## GitHub Context
 
@@ -1111,6 +1263,7 @@ function codexFailureDecision(status: number | null, stderr: string, stdout = ""
   return {
     decision: "keep_open",
     closeReason: "none",
+    keepOpenReason: "evidence_insufficient",
     confidence: "low",
     summary: `Codex review failed: ${reason}${status === null ? "" : ` (exit ${status})`}.`,
     evidence: [
@@ -1119,6 +1272,8 @@ function codexFailureDecision(status: number | null, stderr: string, stdout = ""
       { label: "codex stdout", detail: trimMiddle(stdout || "No stdout.", 2000) },
     ],
     risks: ["No close action taken because the review did not complete."],
+    regulatedComponentTouched: false,
+    regulatedComponentPaths: [],
     fixedRelease: null,
     fixedSha: null,
     closeComment: "",
@@ -1130,6 +1285,7 @@ function codexEnv(): NodeJS.ProcessEnv {
   delete env.GH_TOKEN;
   delete env.GITHUB_TOKEN;
   delete env.OPENCLAW_GH_TOKEN;
+  delete env.DEEPSWEEPER_GITHUB_TOKEN;
   env.GIT_OPTIONAL_LOCKS = "0";
   return env;
 }
@@ -1191,7 +1347,7 @@ function runCodex(options: {
       "-C",
       options.openclawDir,
       "--output-schema",
-      join(ROOT, "schema", "clawsweeper-decision.schema.json"),
+      join(ROOT, "schema", "deepsweeper-decision.schema.json"),
       "--output-last-message",
       outputPath,
       "-",
@@ -1259,8 +1415,8 @@ function closeReasonText(reason: CloseReason): string {
       return "already implemented on main";
     case "cannot_reproduce":
       return "cannot reproduce on current main";
-    case "clawhub":
-      return "belongs on ClawHub";
+    case "studio_marketplace":
+      return "belongs on Studio Marketplace";
     case "incoherent":
       return "not actionable";
     case "stale_insufficient_info":
@@ -1295,7 +1451,7 @@ function itemUrl(number: number, kind: ItemKind = "issue"): string {
 }
 
 function reportFileUrl(number: number): string {
-  return reportUrl(`/blob/main/items/${number}.md`);
+  return reportUrl(`/blob/main/items/${repoDirName()}/${number}.md`);
 }
 
 function githubPath(path: string): string {
@@ -1421,7 +1577,7 @@ function sentence(value: string): string {
 
 function isLinkableSourceRef(file: string): boolean {
   if (file.includes("/")) return true;
-  return ["AGENTS.md", "CHANGELOG.md", "README.md", "VISION.md"].includes(file);
+  return ["AGENTS.md", "CHANGELOG.md", "README.md", basename(SCOPE_ANCHOR)].includes(file);
 }
 
 function linkInlineSourceRefs(value: string, sha?: string | null): string {
@@ -1432,8 +1588,7 @@ function linkInlineSourceRefs(value: string, sha?: string | null): string {
       const { file, line } = splitFileAndLine(ref);
       if (!isLinkableSourceRef(file)) return match;
       const docsUrl = docsPageUrl(file);
-      const url =
-        docsUrl ?? (file === "VISION.md" && !line ? latestFileUrl(file) : fileUrl(file, sha, line));
+      const url = docsUrl ?? fileUrl(file, sha, line);
       return markdownLink(`\`${ref}\``, url);
     },
   );
@@ -1445,10 +1600,11 @@ function linkPrimaryEvidenceFile(value: string, evidence: Evidence): string {
   if (docsUrl && !value.includes(docsUrl)) {
     return `${value} Public docs: ${markdownLink(`\`${evidence.file}\``, docsUrl)}.`;
   }
-  if (evidence.file !== "VISION.md" || value.includes("VISION.md")) return value;
-  const link = markdownLink("`VISION.md`", latestFileUrl(evidence.file));
+  if (evidence.file !== basename(SCOPE_ANCHOR) || value.includes(basename(SCOPE_ANCHOR)))
+    return value;
+  const link = markdownLink(`\`${basename(SCOPE_ANCHOR)}\``, latestFileUrl(evidence.file));
   const linked = value
-    .replace(/\b(?:the project vision|project vision|the vision|VISION)\b/i, link)
+    .replace(/\b(?:the project scope|project scope|the scope|scope|vision)\b/i, link)
     .replace(/^Current main says\b/, `${link} says`)
     .replace(/^The roadmap guardrails explicitly list\b/, `${link} guardrails explicitly list`);
   return linked === value ? `${link}: ${value}` : linked;
@@ -1482,17 +1638,17 @@ function closeEvidenceLine(evidence: Evidence): string {
 function closeIntro(reason: CloseReason): string {
   switch (reason) {
     case "implemented_on_main":
-      return "Closing this as implemented after Codex review.";
+      return "Closing this as implemented after DeepSweeper review.";
     case "cannot_reproduce":
-      return "Closing this as not reproducible on current `main` after Codex review.";
-    case "clawhub":
-      return `Closing this as better suited for ${markdownLink("ClawHub", CLAWHUB_URL)}/community plugin work after Codex review.`;
+      return "Closing this as not reproducible on current `main` after DeepSweeper review.";
+    case "studio_marketplace":
+      return `Closing this as better suited for ${markdownLink("Studio Marketplace", MARKETPLACE_URL)} plugin/skill work after DeepSweeper review.`;
     case "incoherent":
-      return "Closing this as not actionable after Codex review.";
+      return "Closing this as not actionable after DeepSweeper review.";
     case "stale_insufficient_info":
-      return "Closing this as stale with insufficient information after Codex review.";
+      return "Closing this as stale with insufficient information after DeepSweeper review.";
     case "none":
-      return "Closing this after Codex review.";
+      return "Closing this after DeepSweeper review.";
   }
 }
 
@@ -1500,7 +1656,7 @@ function closeOutro(reason: CloseReason): string {
   switch (reason) {
     case "implemented_on_main":
       return "So I’m closing this as already implemented rather than keeping a duplicate issue open.";
-    case "clawhub":
+    case "studio_marketplace":
       return "So I’m closing this as a scope-fit item for the plugin/community path rather than keeping it open as an OpenClaw core request.";
     default:
       return "";
@@ -1591,7 +1747,8 @@ function canClose(decision: Decision): boolean {
   return (
     decision.decision === "close" &&
     decision.confidence === "high" &&
-    ALLOWED_REASONS.has(decision.closeReason)
+    ALLOWED_REASONS.has(decision.closeReason) &&
+    !decision.regulatedComponentTouched
   );
 }
 
@@ -1712,6 +1869,7 @@ number: ${options.item.number}
 type: ${options.item.kind}
 title: ${JSON.stringify(options.item.title)}
 url: ${options.item.url}
+target_repo: ${TARGET_REPO}
 state_at_review: open
 item_created_at: ${options.item.createdAt}
 item_updated_at: ${options.item.updatedAt}
@@ -1732,6 +1890,9 @@ item_snapshot_hash: ${options.snapshotHash}
 close_comment_sha256: ${options.action.closeComment ? sha256(options.action.closeComment) : "none"}
 decision: ${options.decision.decision}
 close_reason: ${options.decision.closeReason}
+keep_open_reason: ${options.decision.keepOpenReason}
+regulated_component_touched: ${options.decision.regulatedComponentTouched}
+regulated_component_paths: ${JSON.stringify(options.decision.regulatedComponentPaths)}
 confidence: ${options.decision.confidence}
 action_taken: ${options.action.actionTaken}
 ---
@@ -1796,7 +1957,8 @@ ${options.action.closeComment ? options.action.closeComment : "_No close comment
 }
 
 function planCommand(args: Args): void {
-  const itemsDir = resolve(stringArg(args.items_dir, join(ROOT, "items")));
+  setCurrentRepo(resolveTargetRepo(args));
+  const itemsDir = resolve(stringArg(args.items_dir, repoItemsDir()));
   const batchSize = numberArg(args.batch_size, 5);
   const maxPages = numberArg(args.max_pages, 250);
   const shardCount = numberArg(args.shard_count, 40);
@@ -1831,9 +1993,10 @@ function planCommand(args: Args): void {
 }
 
 function reviewCommand(args: Args): void {
-  const openclawDir = resolve(stringArg(args.openclaw_dir, "../openclaw"));
+  setCurrentRepo(resolveTargetRepo(args));
+  const openclawDir = resolve(stringArg(args.target_dir ?? args.openclaw_dir, "../openclaw"));
   const artifactDir = resolve(stringArg(args.artifact_dir, "artifacts/reviews"));
-  const itemsDir = resolve(stringArg(args.items_dir, join(ROOT, "items")));
+  const itemsDir = resolve(stringArg(args.items_dir, repoItemsDir()));
   const batchSize = numberArg(args.batch_size, 5);
   const maxPages = numberArg(args.max_pages, 250);
   const model = stringArg(args.codex_model, DEFAULT_CODEX_MODEL);
@@ -1902,6 +2065,8 @@ function reviewCommand(args: Args): void {
         "Per-item Codex failure; continuing with the rest of the shard.",
       );
     }
+    decision = applyDeepSweeperGuardrails(item, context, decision);
+    emitDecisionAudit(item, decision, snapshotHash);
     const action = maybeApplyClose({ item, decision, git, applyClosures });
     writeFileSync(
       join(artifactDir, `${item.number}.md`),
@@ -1928,8 +2093,9 @@ function reviewCommand(args: Args): void {
 }
 
 function applyDecisionsCommand(args: Args): void {
-  const itemsDir = resolve(stringArg(args.items_dir, join(ROOT, "items")));
-  const closedDir = resolve(stringArg(args.closed_dir, join(ROOT, "closed")));
+  setCurrentRepo(resolveTargetRepo(args));
+  const itemsDir = resolve(stringArg(args.items_dir, repoItemsDir()));
+  const closedDir = resolve(stringArg(args.closed_dir, repoClosedDir()));
   const limit = numberArg(args.limit, 20);
   const processedLimit = numberArg(args.processed_limit, Math.max(limit * 2, 50));
   const minAgeDays = numberArg(args.min_age_days, 0);
@@ -1981,6 +2147,8 @@ function applyDecisionsCommand(args: Args): void {
     const storedUpdatedAt = frontMatterValue(markdown, "item_updated_at");
     const storedAuthorAssociation = frontMatterValue(markdown, "author_association");
     const storedKind = frontMatterValue(markdown, "type") as ItemKind | undefined;
+    const storedRegulatedTouched =
+      frontMatterValue(markdown, "regulated_component_touched") === "true";
     const archiveClosed = (nextMarkdown: string): void => {
       ensureDir(closedDir);
       writeFileSync(path, nextMarkdown, "utf8");
@@ -1991,6 +2159,14 @@ function applyDecisionsCommand(args: Args): void {
         number,
         action: "kept_open",
         reason: "review lacks verified local checkout access",
+      });
+      continue;
+    }
+    if (storedRegulatedTouched) {
+      results.push({
+        number,
+        action: "kept_open",
+        reason: "regulated component touched",
       });
       continue;
     }
@@ -2156,9 +2332,10 @@ function applyDecisionsCommand(args: Args): void {
 }
 
 function applyArtifactsCommand(args: Args): void {
+  setCurrentRepo(resolveTargetRepo(args));
   const artifactDir = resolve(stringArg(args.artifact_dir, "artifacts"));
-  const itemsDir = resolve(stringArg(args.items_dir, join(ROOT, "items")));
-  const closedDir = resolve(stringArg(args.closed_dir, join(ROOT, "closed")));
+  const itemsDir = resolve(stringArg(args.items_dir, repoItemsDir()));
+  const closedDir = resolve(stringArg(args.closed_dir, repoClosedDir()));
   const skipReconcile = boolArg(args.skip_reconcile);
   ensureDir(itemsDir);
   ensureDir(closedDir);
@@ -2266,8 +2443,9 @@ function reconcileFolders(options: {
 }
 
 function reconcileCommand(args: Args): void {
-  const itemsDir = resolve(stringArg(args.items_dir, join(ROOT, "items")));
-  const closedDir = resolve(stringArg(args.closed_dir, join(ROOT, "closed")));
+  setCurrentRepo(resolveTargetRepo(args));
+  const itemsDir = resolve(stringArg(args.items_dir, repoItemsDir()));
+  const closedDir = resolve(stringArg(args.closed_dir, repoClosedDir()));
   const maxPages = numberArg(args.max_pages, 250);
   const dryRun = boolArg(args.dry_run);
   const result = reconcileFolders({ itemsDir, closedDir, maxPages, dryRun });
@@ -2296,7 +2474,7 @@ function cadenceBucketForReview(
 
 function dashboardStats(
   itemsDir: string,
-  closedDir = join(ROOT, "closed"),
+  closedDir = repoClosedDir(),
 ): {
   open: OpenItemCounts;
   fresh: number;
@@ -2408,7 +2586,7 @@ function dashboardStats(
   };
 }
 
-function updateDashboard(itemsDir = join(ROOT, "items"), closedDir = join(ROOT, "closed")): void {
+function updateDashboard(itemsDir = repoItemsDir(), closedDir = repoClosedDir()): void {
   const readmePath = join(ROOT, "README.md");
   const readme = readFileSync(readmePath, "utf8");
   const stats = dashboardStats(itemsDir, closedDir);
@@ -2466,6 +2644,7 @@ ${recent}`;
 }
 
 function statusCommand(args: Args): void {
+  setCurrentRepo(resolveTargetRepo(args));
   const readmePath = join(ROOT, "README.md");
   const readme = readFileSync(readmePath, "utf8");
   const state = stringArg(args.state, "Working");
@@ -2479,8 +2658,33 @@ function statusCommand(args: Args): void {
   writeFileSync(readmePath, updated, "utf8");
 }
 
+function listReposCommand(): void {
+  console.log(
+    JSON.stringify(
+      TARGET_CONFIG.repos.map((repo) => ({
+        repo: `${repo.owner}/${repo.name}`,
+        description: repo.description,
+        apply_closures: repo.applyClosures,
+        apply_limit: repo.applyLimit,
+        apply_min_age_days: repo.applyMinAgeDays,
+      })),
+      null,
+      2,
+    ),
+  );
+}
+
+function verifyAuditCommand(args: Args): void {
+  const logPath = resolve(stringArg(args.log_file, join(ROOT, "audit-log.ndjson")));
+  const result = verifyChain(logPath);
+  if (!result.ok) {
+    throw new Error(`Audit chain verification failed at record ${result.brokenAt ?? "unknown"}.`);
+  }
+  console.log(`Audit chain OK: ${logPath}`);
+}
+
 function checkCommand(): void {
-  JSON.parse(readFileSync(join(ROOT, "schema", "clawsweeper-decision.schema.json"), "utf8"));
+  JSON.parse(readFileSync(join(ROOT, "schema", "deepsweeper-decision.schema.json"), "utf8"));
   if (!existsSync(join(ROOT, ".github", "workflows", "sweep.yml")))
     throw new Error("Missing workflow");
   console.log("ok");
@@ -2488,17 +2692,20 @@ function checkCommand(): void {
 
 const args = parseArgs(process.argv.slice(2));
 const command = args._[0] ?? "review";
-if (command === "plan") planCommand(args);
+if (command === "list-repos") listReposCommand();
+else if (command === "plan") planCommand(args);
 else if (command === "review") reviewCommand(args);
 else if (command === "apply-artifacts") applyArtifactsCommand(args);
 else if (command === "apply-decisions") applyDecisionsCommand(args);
 else if (command === "reconcile") reconcileCommand(args);
 else if (command === "dashboard")
+  (setCurrentRepo(resolveTargetRepo(args)),
   updateDashboard(
-    resolve(stringArg(args.items_dir, join(ROOT, "items"))),
-    resolve(stringArg(args.closed_dir, join(ROOT, "closed"))),
-  );
+    resolve(stringArg(args.items_dir, repoItemsDir())),
+    resolve(stringArg(args.closed_dir, repoClosedDir())),
+  ));
 else if (command === "status") statusCommand(args);
+else if (command === "verify-audit") verifyAuditCommand(args);
 else if (command === "check") checkCommand();
 else {
   console.error(`Unknown command: ${command}`);
