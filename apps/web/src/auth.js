@@ -102,7 +102,7 @@ function _showSessionExpiredNotice() {
 }
 
 window._handleSessionExpired = function() {
-  const intended = location.hash.replace('#', '') || 'dashboard';
+  const intended = new URL(location.href).searchParams.get('page') || 'dashboard';
   if (intended !== 'login' && intended !== 'home') {
     sessionStorage.setItem('ds_intended_destination', intended);
   }
@@ -729,7 +729,7 @@ window.submitLogin = async function() {
   const email = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
   const errEl = document.getElementById('login-error');
-  const btn = document.querySelector('#login-form .btn-primary');
+  const btn = document.querySelector('#login-form .dv2-auth-submit');
   errEl.style.display = 'none';
   errEl.style.color = 'var(--red)';
   if (!email || !password) { errEl.textContent = 'Email and password required.'; errEl.style.display = ''; return; }
@@ -772,7 +772,7 @@ window.submitRegister = async function() {
   const email = document.getElementById('reg-email').value.trim();
   const password = document.getElementById('reg-password').value;
   const errEl = document.getElementById('reg-error');
-  const btn = document.querySelector('#register-form .btn-primary');
+  const btn = document.querySelector('#register-form .dv2-auth-submit');
   errEl.style.display = 'none';
   if (!name || !email || !password) { errEl.textContent = 'All fields required.'; errEl.style.display = ''; return; }
   if (password.length < 8) { errEl.textContent = 'Password must be at least 8 characters.'; errEl.style.display = ''; return; }

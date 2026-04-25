@@ -6565,37 +6565,88 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     { id:'R17',name:'Comprehensive Combined Report',   cat:'Combined',     auto:false, fields:40, desc:'Full cross-domain report combining clinical, financial, and operational data with AI insights.', sources:['patients','courses','outcomes','sessions','finance','protocols','assessments','wearables'] },
   ];
 
-  // ── Data source registry ─────────────────────────────────────────────────
+  // ── Data source registry — each dashboard page's data accessor ──
   const DATA_SOURCES = {
-    patients:    { label:'Patients',          icon:'\uD83D\uDC65', page:'patients-v2',    fetch:()=>api.listPatients().catch(()=>({items:[]})) },
-    courses:     { label:'Treatment Courses', icon:'\uD83D\uDCCB', page:'courses',         fetch:()=>(api.listCourses?api.listCourses({}):Promise.resolve({items:[]})).catch(()=>({items:[]})) },
-    outcomes:    { label:'Outcome Scores',    icon:'\uD83D\uDCCA', page:'outcomes',        fetch:()=>api.listOutcomes().catch(()=>({items:[]})) },
-    sessions:    { label:'Sessions',          icon:'\uD83D\uDD52', page:'schedule-v2',     fetch:()=>(api.listSessions?api.listSessions({}):Promise.resolve({items:[]})).catch(()=>({items:[]})) },
-    protocols:   { label:'Protocols',         icon:'\uD83E\uDDE0', page:'protocol-studio', fetch:()=>api.protocols().catch(()=>({items:[]})) },
-    assessments: { label:'Assessments',       icon:'\uD83D\uDCDD', page:'assessments-v2',  fetch:()=>(api.listAssessments?api.listAssessments():Promise.resolve({items:[]})).catch(()=>({items:[]})) },
-    finance:     { label:'Finance',           icon:'\uD83D\uDCB0', page:'finance-v2',      fetch:()=>(api.finance?.summary?api.finance.summary():Promise.resolve(null)).catch(()=>null) },
-    wearables:   { label:'Wearable Data',     icon:'\u231A',       page:'monitor',          fetch:()=>(api.getClinicAlertSummary?api.getClinicAlertSummary():Promise.resolve(null)).catch(()=>null) },
-    qeeg:        { label:'qEEG Records',      icon:'\uD83C\uDF0A', page:'qeeg-analysis',   fetch:()=>(api.listQEEGRecords?api.listQEEGRecords():Promise.resolve({items:[]})).catch(()=>({items:[]})) },
-    aggregate:   { label:'Outcome Aggregates',icon:'\uD83D\uDCC8', page:'reports-hub',     fetch:()=>(api.aggregateOutcomes?api.aggregateOutcomes():Promise.resolve({})).catch(()=>({})) },
+    patients:    { label: 'Patients',           icon: '\uD83D\uDC65', page: 'patients-v2',     fetch: () => api.listPatients().catch(()=>({items:[]})) },
+    courses:     { label: 'Treatment Courses',  icon: '\uD83D\uDCCB', page: 'courses',          fetch: () => (api.listCourses?api.listCourses({}):Promise.resolve({items:[]})).catch(()=>({items:[]})) },
+    outcomes:    { label: 'Outcome Scores',     icon: '\uD83D\uDCCA', page: 'outcomes',         fetch: () => api.listOutcomes().catch(()=>({items:[]})) },
+    sessions:    { label: 'Sessions',           icon: '\uD83D\uDD52', page: 'schedule-v2',      fetch: () => (api.listSessions?api.listSessions({}):Promise.resolve({items:[]})).catch(()=>({items:[]})) },
+    protocols:   { label: 'Protocols',          icon: '\uD83E\uDDE0', page: 'protocol-studio',  fetch: () => api.protocols().catch(()=>({items:[]})) },
+    assessments: { label: 'Assessments',        icon: '\uD83D\uDCDD', page: 'assessments-v2',   fetch: () => (api.listAssessments?api.listAssessments():Promise.resolve({items:[]})).catch(()=>({items:[]})) },
+    finance:     { label: 'Finance',            icon: '\uD83D\uDCB0', page: 'finance-v2',       fetch: () => (api.finance?.summary?api.finance.summary():Promise.resolve(null)).catch(()=>null) },
+    wearables:   { label: 'Wearable Data',      icon: '\u231A',       page: 'monitor',           fetch: () => (api.getClinicAlertSummary?api.getClinicAlertSummary():Promise.resolve(null)).catch(()=>null) },
+    qeeg:        { label: 'qEEG Records',       icon: '\uD83C\uDF0A', page: 'qeeg-analysis',    fetch: () => (api.listQEEGRecords?api.listQEEGRecords():Promise.resolve({items:[]})).catch(()=>({items:[]})) },
+    aggregate:   { label: 'Outcome Aggregates', icon: '\uD83D\uDCC8', page: 'reports-hub',      fetch: () => (api.aggregateOutcomes?api.aggregateOutcomes():Promise.resolve({})).catch(()=>({})) },
   };
-  async function _fetchSources(keys) {
-    const r = {};
-    await Promise.allSettled(keys.map(async k => { const s=DATA_SOURCES[k]; if(!s) return; try { const d=await s.fetch(); r[k]=d?.items||d||[]; } catch { r[k]=[]; } }));
-    return r;
+
+  // Helper: fetch data from multiple sources
+  async function fetchSourcesData(sourceKeys) {
+    const results = {};
+    const fetchers = sourceKeys.map(async key => {
+      const src = DATA_SOURCES[key];
+      if (!src) return;
+      try {
+        const res = await src.fetch();
+        results[key] = res?.items || res || [];
+      } catch { results[key] = []; }
+    });
+    await Promise.allSettled(fetchers);
+    return results;
   }
-  function _dataToText(data) {
-    const p = [];
-    if (data.patients?.length)    p.push('PATIENTS ('+data.patients.length+'):\n'+data.patients.slice(0,20).map(x=>'  - '+((x.first_name||'')+' '+(x.last_name||'')).trim()+' | ID:'+x.id+' | DOB:'+(x.date_of_birth||'?')+' | Condition:'+(x.primary_condition||x.condition_slug||'N/A')).join('\n'));
-    if (data.courses?.length)     p.push('COURSES ('+data.courses.length+'):\n'+data.courses.slice(0,20).map(x=>'  - '+x.id+' | Patient:'+x.patient_id+' | '+x.condition_slug+' | '+x.modality_slug+' | Status:'+x.status+' | Sessions:'+(x.sessions_delivered||0)+'/'+(x.planned_sessions_total||'?')).join('\n'));
-    if (data.outcomes?.length)    p.push('OUTCOMES ('+data.outcomes.length+'):\n'+data.outcomes.slice(0,30).map(x=>'  - Patient:'+x.patient_id+' | Scale:'+(x.template_id||x.scale||'?')+' | Score:'+(x.score_numeric!=null?x.score_numeric:'?')+' | Point:'+(x.measurement_point||'?')+' | Date:'+(x.administered_at||'?')).join('\n'));
-    if (data.sessions?.length)    p.push('SESSIONS ('+data.sessions.length+'):\n'+data.sessions.slice(0,20).map(x=>'  - '+x.id+' | Patient:'+x.patient_id+' | Date:'+(x.session_date||x.date||'?')+' | Status:'+(x.status||'?')+' | Dur:'+(x.duration_minutes||'?')+'min').join('\n'));
-    if (data.protocols?.length)   p.push('PROTOCOLS ('+data.protocols.length+'):\n'+data.protocols.slice(0,15).map(x=>'  - '+(x.name||x.title||'?')+' | Condition:'+(x.condition_slug||'?')+' | Evidence:'+(x.evidence_level||'?')).join('\n'));
-    if (data.assessments?.length) p.push('ASSESSMENTS ('+data.assessments.length+'):\n'+data.assessments.slice(0,20).map(x=>'  - Patient:'+x.patient_id+' | Form:'+(x.form_key||x.template_id||'?')+' | Score:'+(x.total_score!=null?x.total_score:'?')+' | Date:'+(x.administered_at||x.created_at||'?')).join('\n'));
-    if (data.finance && !Array.isArray(data.finance)) p.push('FINANCE: Revenue:'+((data.finance).revenue_paid||0)+' | Outstanding:'+((data.finance).outstanding||0)+' | Overdue:'+((data.finance).overdue||0));
-    if (data.wearables)           p.push('WEARABLE DATA:\n  '+JSON.stringify(Array.isArray(data.wearables)?data.wearables.slice(0,5):data.wearables).slice(0,500));
-    if (data.qeeg?.length)        p.push('qEEG ('+data.qeeg.length+'):\n'+data.qeeg.slice(0,10).map(x=>'  - Record:'+x.id+' | Patient:'+x.patient_id+' | Date:'+(x.recorded_at||x.created_at||'?')).join('\n'));
-    if (data.aggregate && !Array.isArray(data.aggregate)) { const a=data.aggregate; p.push('AGGREGATES: Responder:'+((a.responder_rate_pct!=null?a.responder_rate_pct+'%':'N/A'))+' | PHQ9 Drop:'+(a.avg_phq9_drop!=null?a.avg_phq9_drop:'N/A')+' | Completion:'+(a.assessment_completion_pct!=null?a.assessment_completion_pct+'%':'N/A')); }
-    return p.join('\n\n');
+
+  // Helper: summarise fetched data into a text block for AI prompts
+  function summariseDataForAI(data) {
+    const parts = [];
+    if (data.patients && Array.isArray(data.patients)) {
+      parts.push('PATIENTS (' + data.patients.length + '):\n' + data.patients.slice(0,20).map(p =>
+        '  - ' + ((p.first_name||'')+' '+(p.last_name||'')).trim() + ' | ID:' + (p.id||'?') + ' | DOB:' + (p.date_of_birth||'?') + ' | Condition:' + (p.primary_condition||p.condition_slug||'N/A')
+      ).join('\n'));
+    }
+    if (data.courses && Array.isArray(data.courses)) {
+      parts.push('TREATMENT COURSES (' + data.courses.length + '):\n' + data.courses.slice(0,20).map(c =>
+        '  - Course:' + (c.id||'?') + ' | Patient:' + (c.patient_id||'?') + ' | Condition:' + (c.condition_slug||'?') + ' | Modality:' + (c.modality_slug||'?') + ' | Status:' + (c.status||'?') + ' | Sessions:' + (c.sessions_delivered||0) + '/' + (c.planned_sessions_total||'?')
+      ).join('\n'));
+    }
+    if (data.outcomes && Array.isArray(data.outcomes)) {
+      parts.push('OUTCOME SCORES (' + data.outcomes.length + '):\n' + data.outcomes.slice(0,30).map(o =>
+        '  - Patient:' + (o.patient_id||'?') + ' | Scale:' + (o.template_id||o.scale||'?') + ' | Score:' + (o.score_numeric!=null?o.score_numeric:'?') + ' | Point:' + (o.measurement_point||'?') + ' | Date:' + (o.administered_at||'?')
+      ).join('\n'));
+    }
+    if (data.sessions && Array.isArray(data.sessions)) {
+      parts.push('SESSIONS (' + data.sessions.length + '):\n' + data.sessions.slice(0,20).map(s =>
+        '  - Session:' + (s.id||'?') + ' | Patient:' + (s.patient_id||'?') + ' | Date:' + (s.session_date||s.date||'?') + ' | Status:' + (s.status||'?') + ' | Duration:' + (s.duration_minutes||'?') + 'min'
+      ).join('\n'));
+    }
+    if (data.protocols && Array.isArray(data.protocols)) {
+      parts.push('PROTOCOLS (' + data.protocols.length + '):\n' + data.protocols.slice(0,15).map(p =>
+        '  - ' + (p.name||p.title||'?') + ' | Condition:' + (p.condition_slug||'?') + ' | Modality:' + (p.modality_slug||'?') + ' | Evidence:' + (p.evidence_level||'?')
+      ).join('\n'));
+    }
+    if (data.assessments && Array.isArray(data.assessments)) {
+      parts.push('ASSESSMENTS (' + data.assessments.length + '):\n' + data.assessments.slice(0,20).map(a =>
+        '  - Patient:' + (a.patient_id||'?') + ' | Form:' + (a.form_key||a.template_id||'?') + ' | Score:' + (a.total_score!=null?a.total_score:'?') + ' | Date:' + (a.administered_at||a.created_at||'?')
+      ).join('\n'));
+    }
+    if (data.finance && typeof data.finance === 'object' && !Array.isArray(data.finance)) {
+      parts.push('FINANCE SUMMARY:\n  Revenue Paid: ' + (data.finance.revenue_paid||0) + ' | Outstanding: ' + (data.finance.outstanding||0) + ' | Overdue: ' + (data.finance.overdue||0));
+    }
+    if (data.wearables && typeof data.wearables === 'object') {
+      const w = Array.isArray(data.wearables) ? data.wearables : [data.wearables];
+      parts.push('WEARABLE DATA:\n' + w.slice(0,10).map(d => '  - ' + JSON.stringify(d).slice(0,200)).join('\n'));
+    }
+    if (data.qeeg && Array.isArray(data.qeeg)) {
+      parts.push('qEEG RECORDS (' + data.qeeg.length + '):\n' + data.qeeg.slice(0,10).map(q =>
+        '  - Record:' + (q.id||'?') + ' | Patient:' + (q.patient_id||'?') + ' | Date:' + (q.recorded_at||q.created_at||'?')
+      ).join('\n'));
+    }
+    if (data.aggregate && typeof data.aggregate === 'object' && !Array.isArray(data.aggregate)) {
+      const a = data.aggregate;
+      parts.push('OUTCOME AGGREGATES:\n  Responder Rate: ' + (a.responder_rate_pct!=null?a.responder_rate_pct+'%':'N/A') +
+        ' | Mean PHQ-9 Drop: ' + (a.avg_phq9_drop!=null?a.avg_phq9_drop:'N/A') +
+        ' | Assessment Completion: ' + (a.assessment_completion_pct!=null?a.assessment_completion_pct+'%':'N/A') +
+        ' | Overdue: ' + (a.assessments_overdue_count!=null?a.assessments_overdue_count:'N/A'));
+    }
+    return parts.join('\n\n');
   }
 
   const _rKey = 'ds_reports_v1';
@@ -6669,47 +6720,100 @@ export async function pgReportsHubNew(setTopbar, navigate) {
               </select>
             </div>
             <div id="rep-desc" style="font-size:11.5px;color:var(--text-tertiary);line-height:1.5;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px">${selType.desc}</div>
-            <div id="rep-sources-display" style="display:flex;gap:6px;flex-wrap:wrap">${(selType.sources||[]).map(s=>{const src=DATA_SOURCES[s];return src?'<span style="font-size:10.5px;padding:3px 8px;border-radius:10px;background:rgba(94,234,212,0.08);color:var(--teal);border:1px solid rgba(94,234,212,0.2)">'+src.icon+' '+src.label+'</span>':'';}).join('')}</div>
+            <div id="rep-sources-display" style="display:flex;gap:6px;flex-wrap:wrap">
+              ${(selType.sources||[]).map(s => {
+                const src = DATA_SOURCES[s];
+                return src ? '<span style="font-size:10.5px;padding:3px 8px;border-radius:10px;background:rgba(94,234,212,0.08);color:var(--teal);border:1px solid rgba(94,234,212,0.2)">' + src.icon + ' ' + src.label + '</span>' : '';
+              }).join('')}
+            </div>
             <div class="ch-form-group"><label class="ch-label">Additional Context (optional)</label><textarea id="rep-context" class="ch-textarea" rows="3" placeholder="Any specific details to include in the report…"></textarea></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn btn-primary" onclick="window._genReport()">Generate Report</button>
-              <button class="ch-btn-sm" onclick="window._genReport(true)">Generate with Live Data</button>
+              <button class="btn btn-primary" onclick="window._genReport()">✦ Generate Report</button>
+              <button class="ch-btn-sm" onclick="window._genReport(true)">✦ Generate with Live Data</button>
             </div>
-            <div id="rep-loading" style="display:none;padding:8px;text-align:center;color:var(--text-tertiary);font-size:12px">Fetching data from dashboard sources and generating report...</div>
+            <div id="rep-loading" style="display:none;padding:8px;text-align:center;color:var(--text-tertiary);font-size:12px"><span class="spinner-sm"></span> Fetching data from dashboard sources and generating report...</div>
           </div>
           <div id="rep-output" style="display:none;padding:0 16px 16px">
             <div style="font-size:11.5px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Generated Report</div>
             <div id="rep-content" class="ch-textarea" style="min-height:160px;padding:12px;font-size:12.5px;line-height:1.75;white-space:pre-wrap;max-height:420px;overflow-y:auto"></div>
             <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
               <button class="ch-btn-sm ch-btn-teal" onclick="window._saveReport()">Save to Records</button>
-              <button class="ch-btn-sm" onclick="navigator.clipboard?.writeText(document.getElementById('rep-content')?.textContent||'');window._dsToast?.({title:'Copied',body:'Report copied to clipboard.',severity:'success'})">Copy</button>
+              <button class="ch-btn-sm" onclick="window._copyReport()">Copy to Clipboard</button>
               <button class="ch-btn-sm" onclick="window.print()">Print</button>
             </div>
           </div>
         </div>
         <div class="ch-card">
           <div class="ch-card-hd"><span class="ch-card-title">Report Templates</span><span style="font-size:11px;color:var(--text-tertiary)">${filtTypes.length} types</span></div>
-          ${filtTypes.map(r=>{const srcB=(r.sources||[]).map(s=>{const src=DATA_SOURCES[s];return src?src.icon:'';}).join(' ');return '<div class="book-row"><div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+r.cat+' \u00B7 '+r.fields+' fields'+(r.auto?' \u00B7 Auto-gen':'')+' \u00B7 Sources: '+srcB+'</div></div>'+'<div class="book-actions"><button class="ch-btn-sm ch-btn-teal" onclick="document.getElementById(\'rep-type\').value=\''+r.id+'\';window._repUpdateDesc()">Use</button></div></div>';}).join('')}
+          ${filtTypes.map(r => {
+            const srcBadges = (r.sources||[]).map(s => { const src = DATA_SOURCES[s]; return src ? src.icon : ''; }).join(' ');
+            return '<div class="book-row"><div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+r.cat+' \u00B7 '+r.fields+' fields'+(r.auto?' \u00B7 Auto-gen':'')+' \u00B7 Sources: '+srcBadges+'</div></div>'+
+            '<div class="book-actions"><button class="ch-btn-sm ch-btn-teal" onclick="document.getElementById(\'rep-type\').value=\''+r.id+'\';window._repUpdateDesc()">Use</button></div></div>';
+          }).join('')}
         </div>
       </div>`;
 
-    window._genReport = async () => {
+    window._repUpdateDesc = () => {
+      const typeEl = document.getElementById('rep-type');
+      const typeData = REPORT_TYPES.find(r=>r.id===typeEl?.value)||REPORT_TYPES[0];
+      const descEl = document.getElementById('rep-desc');
+      const srcEl = document.getElementById('rep-sources-display');
+      if (descEl) descEl.textContent = typeData.desc;
+      if (srcEl) {
+        srcEl.innerHTML = (typeData.sources||[]).map(s => {
+          const src = DATA_SOURCES[s];
+          return src ? '<span style="font-size:10.5px;padding:3px 8px;border-radius:10px;background:rgba(94,234,212,0.08);color:var(--teal);border:1px solid rgba(94,234,212,0.2)">' + src.icon + ' ' + src.label + '</span>' : '';
+        }).join('');
+      }
+    };
+
+    window._copyReport = () => {
+      const content = document.getElementById('rep-content')?.textContent||'';
+      navigator.clipboard?.writeText(content).then(() => {
+        window._dsToast?.({title:'Copied',body:'Report copied to clipboard.',severity:'success'});
+      }).catch(() => {
+        window._dsToast?.({title:'Copy failed',body:'Could not copy to clipboard.',severity:'warn'});
+      });
+    };
+
+    window._genReport = async (withLiveData = false) => {
       const patEl = document.getElementById('rep-patient');
       const typeEl = document.getElementById('rep-type');
       const context = document.getElementById('rep-context')?.value||'';
       const patName = patEl?.options[patEl?.selectedIndex]?.text||'Patient';
+      const patId = patEl?.value||'all';
       const typeName = typeEl?.options[typeEl?.selectedIndex]?.text||'Report';
       const typeData = REPORT_TYPES.find(r=>r.id===typeEl?.value)||REPORT_TYPES[0];
       const out = document.getElementById('rep-output');
       const content = document.getElementById('rep-content');
+      const loadingEl = document.getElementById('rep-loading');
       if (out) out.style.display='';
+      if (content) content.textContent='';
+
+      let dataContext = '';
+      if (withLiveData && typeData.sources) {
+        if (loadingEl) loadingEl.style.display='';
+        try {
+          const data = await fetchSourcesData(typeData.sources);
+          dataContext = summariseDataForAI(data);
+        } catch { dataContext = ''; }
+        if (loadingEl) loadingEl.style.display='none';
+      }
+
       if (content) content.textContent='✦ Generating '+typeName+'…';
+      const scope = patId === 'all' ? 'clinic-wide (all patients)' : 'patient ' + patName;
+      const prompt = 'Generate a professional ' + typeName + ' for ' + scope + '. Use standard medical/clinical report format with clear sections, headers, and structured data presentation. ' + typeData.desc +
+        (dataContext ? '\n\nHere is the LIVE DATA from the dashboard to base this report on:\n\n' + dataContext : '') +
+        (context ? '\n\nAdditional context from clinician: ' + context : '') +
+        '\n\nIMPORTANT: Structure the report with clear section headers. Include data-driven observations. If health data is provided, note any correlations between metrics (e.g., outcome scores vs session count, assessment trends). If financial data is provided, include business performance metrics. Always end with recommendations and next steps.';
+
       try {
-        const res = await api.chatClinician([{role:'user',content:'Generate a professional clinical '+typeName+' for patient '+patName+'. Use standard medical report format with clear sections. '+typeData.desc+' Additional context: '+context}],{});
-        if (content) content.textContent = res?.message||res?.content||'REPORT: '+typeName+'\nPatient: '+patName+'\nDate: '+new Date().toLocaleDateString()+'\n\nReport generated successfully. Please review and amend as needed before finalising.';
-        window._lastReport = { type:typeName, patient:patName, content:content?.textContent||'' };
+        const res = await api.chatClinician([{role:'user',content:prompt}],{});
+        if (content) content.textContent = res?.message||res?.content||'REPORT: '+typeName+'\nScope: '+scope+'\nDate: '+new Date().toLocaleDateString()+'\n\nReport generated successfully. Please review and amend as needed before finalising.';
+        window._lastReport = { type:typeName, patient:patName, content:content?.textContent||'', sources: typeData.sources||[] };
       } catch {
-        if (content) content.textContent = typeName+'\nPatient: '+patName+'\nDate: '+new Date().toLocaleDateString()+'\n\nClinical report for '+patName+'.\n\n[Report content — edit as required]';
+        if (content) content.textContent = typeName+'\nScope: '+scope+'\nDate: '+new Date().toLocaleDateString()+'\n\nReport for '+scope+'.\n\n[Report content — edit as required]';
+        window._lastReport = { type:typeName, patient:patName, content:content?.textContent||'', sources: typeData.sources||[] };
       }
     };
     window._saveReport = async () => {
@@ -6746,6 +6850,382 @@ export async function pgReportsHubNew(setTopbar, navigate) {
       rpts.unshift(local);
       saveReports(rpts);
       window._dsToast?.({title:'Saved',body:'Report saved to records.',severity:'success'});
+      window._reportsHubTab='recent'; window._nav('reports-hub');
+    };
+  }
+  // ── Combined Report Tab ──────────────────────────────────────────────────
+  else if (tab === 'combined') {
+    let patients = [];
+    try { const pR = await api.listPatients().catch(()=>({items:[]})); patients = pR?.items||[]; } catch {}
+    const patOpts = '<option value="all">All Patients (Clinic-wide)</option>' + patients.map(p=>'<option value="'+p.id+'">'+ ((p.first_name||'')+' '+(p.last_name||'')).trim() +'</option>').join('');
+
+    const sourceKeys = Object.keys(DATA_SOURCES);
+    const selectedSources = window._combSources || ['patients','courses','outcomes','sessions','finance'];
+
+    main = `
+      <div class="ch-two-col">
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Combined Report Builder</span><span class="ph-ai-badge">AI</span></div>
+          <div style="padding:14px 16px;display:flex;flex-direction:column;gap:12px">
+            <div class="ch-form-group"><label class="ch-label">Scope</label><select id="comb-patient" class="ch-select ch-select--full">${patOpts}</select></div>
+            <div class="ch-form-group">
+              <label class="ch-label">Data Sources to Include</label>
+              <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:6px">
+                ${sourceKeys.map(key => {
+                  const src = DATA_SOURCES[key];
+                  const checked = selectedSources.includes(key);
+                  return '<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;border:1px solid '+(checked?'rgba(94,234,212,0.3)':'var(--border)')+';background:'+(checked?'rgba(94,234,212,0.05)':'transparent')+';cursor:pointer;font-size:12px;color:var(--text-primary);transition:all 0.15s">' +
+                    '<input type="checkbox" value="'+key+'" class="comb-src-check" '+(checked?'checked':'')+' style="accent-color:var(--teal)"> ' +
+                    src.icon + ' ' + src.label +
+                    '</label>';
+                }).join('')}
+              </div>
+            </div>
+            <div class="ch-form-group">
+              <label class="ch-label">Report Focus</label>
+              <select id="comb-focus" class="ch-select ch-select--full">
+                <option value="comprehensive">Comprehensive Overview (all domains)</option>
+                <option value="health">Health & Clinical Focus</option>
+                <option value="business">Business & Operations Focus</option>
+                <option value="outcomes">Treatment Outcomes Focus</option>
+                <option value="compliance">Compliance & Safety Focus</option>
+              </select>
+            </div>
+            <div class="ch-form-group"><label class="ch-label">Custom Instructions (optional)</label><textarea id="comb-context" class="ch-textarea" rows="2" placeholder="E.g. focus on depression outcomes, compare Q1 vs Q2, highlight at-risk patients…"></textarea></div>
+            <button class="btn btn-primary" onclick="window._genCombinedReport()">✦ Build Combined Report</button>
+            <div id="comb-loading" style="display:none;padding:8px;text-align:center;color:var(--text-tertiary);font-size:12px"><span class="spinner-sm"></span> Collecting data from all selected sources...</div>
+          </div>
+          <div id="comb-output" style="display:none;padding:0 16px 16px">
+            <div style="font-size:11.5px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Combined Report</div>
+            <div id="comb-content" class="ch-textarea" style="min-height:200px;padding:12px;font-size:12.5px;line-height:1.75;white-space:pre-wrap;max-height:500px;overflow-y:auto"></div>
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+              <button class="ch-btn-sm ch-btn-teal" onclick="window._saveCombinedReport()">Save to Records</button>
+              <button class="ch-btn-sm" onclick="navigator.clipboard?.writeText(document.getElementById('comb-content')?.textContent||'');window._dsToast?.({title:'Copied',severity:'success'})">Copy</button>
+              <button class="ch-btn-sm" onclick="window.print()">Print</button>
+            </div>
+          </div>
+        </div>
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">How Combined Reports Work</span></div>
+          <div style="padding:14px 16px;font-size:12.5px;color:var(--text-secondary);line-height:1.65">
+            <p style="margin:0 0 10px"><strong style="color:var(--text-primary)">1. Select data sources</strong> — Choose which dashboard pages to pull data from. Each source provides real-time data from the system.</p>
+            <p style="margin:0 0 10px"><strong style="color:var(--text-primary)">2. Choose your focus</strong> — Select a report focus to prioritise certain aspects of the analysis.</p>
+            <p style="margin:0 0 10px"><strong style="color:var(--text-primary)">3. AI synthesis</strong> — The AI engine aggregates all selected data, identifies cross-domain correlations, and produces a unified narrative report.</p>
+            <p style="margin:0"><strong style="color:var(--text-primary)">4. Actionable insights</strong> — Each report includes findings, trends, risk flags, and recommendations drawn from the combined dataset.</p>
+          </div>
+          <div style="padding:0 16px 14px">
+            <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Available Dashboard Sources</div>
+            ${sourceKeys.map(key => {
+              const src = DATA_SOURCES[key];
+              return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px">' +
+                '<span style="width:20px;text-align:center">' + src.icon + '</span>' +
+                '<span style="color:var(--text-primary);font-weight:500">' + src.label + '</span>' +
+                '<span style="margin-left:auto;font-size:10.5px;color:var(--teal);cursor:pointer" onclick="window._nav(\'' + src.page + '\')">Open page</span>' +
+                '</div>';
+            }).join('')}
+          </div>
+        </div>
+      </div>`;
+
+    window._genCombinedReport = async () => {
+      const checks = document.querySelectorAll('.comb-src-check:checked');
+      const sources = Array.from(checks).map(c => c.value);
+      window._combSources = sources;
+      if (!sources.length) { window._dsToast?.({title:'No sources',body:'Select at least one data source.',severity:'warn'}); return; }
+      const patEl = document.getElementById('comb-patient');
+      const patName = patEl?.options[patEl?.selectedIndex]?.text||'All Patients';
+      const focus = document.getElementById('comb-focus')?.value||'comprehensive';
+      const context = document.getElementById('comb-context')?.value||'';
+      const loadingEl = document.getElementById('comb-loading');
+      const out = document.getElementById('comb-output');
+      const content = document.getElementById('comb-content');
+      if (loadingEl) loadingEl.style.display='';
+      if (out) out.style.display='none';
+
+      let data = {};
+      try { data = await fetchSourcesData(sources); } catch {}
+      if (loadingEl) loadingEl.style.display='none';
+
+      const dataSummary = summariseDataForAI(data);
+      if (out) out.style.display='';
+      if (content) content.textContent='✦ Analysing data and generating combined report…';
+
+      const focusInstructions = {
+        comprehensive: 'Provide a comprehensive overview covering clinical outcomes, operational metrics, financial performance, and patient population analysis.',
+        health: 'Focus primarily on clinical and health data: treatment outcomes, assessment scores, adverse events, protocol efficacy, wearable health metrics, and biomarker trends. Include correlation analysis between different health metrics.',
+        business: 'Focus on business performance: patient volume, revenue, course completion rates, clinic utilisation, referral sources, and financial trends.',
+        outcomes: 'Focus on treatment outcomes: responder rates, score improvements, per-protocol efficacy, dose-response relationships, and predictive indicators.',
+        compliance: 'Focus on safety and compliance: adverse events, governance flags, protocol adherence, assessment completion rates, overdue reviews, and regulatory metrics.',
+      };
+
+      const prompt = 'Generate a professional COMBINED REPORT for scope: ' + patName + '.\n\n' +
+        'REPORT FOCUS: ' + (focusInstructions[focus]||focusInstructions.comprehensive) + '\n\n' +
+        'DATA FROM DASHBOARD SOURCES:\n\n' + dataSummary + '\n\n' +
+        (context ? 'CUSTOM INSTRUCTIONS: ' + context + '\n\n' : '') +
+        'REPORT STRUCTURE REQUIREMENTS:\n' +
+        '1. Executive Summary (2-3 key findings)\n' +
+        '2. Data Overview (what sources were analysed, data completeness)\n' +
+        '3. Key Findings by domain\n' +
+        '4. Cross-Domain Correlations (identify relationships between data from different sources)\n' +
+        '5. Risk Flags & Alerts\n' +
+        '6. Trends & Patterns\n' +
+        '7. Recommendations & Action Items\n\n' +
+        'Use clinical/professional language. Be data-driven. Highlight actionable insights.';
+
+      try {
+        const res = await api.chatClinician([{role:'user',content:prompt}],{});
+        if (content) content.textContent = res?.message||res?.content||'Combined Report generated. Review and amend as needed.';
+        window._lastReport = { type:'Combined Report ('+focus+')', patient:patName, content:content?.textContent||'', sources };
+      } catch {
+        if (content) content.textContent = 'COMBINED REPORT\nScope: '+patName+'\nFocus: '+focus+'\nDate: '+new Date().toLocaleDateString()+'\nSources: '+sources.join(', ')+'\n\nData collected from '+sources.length+' sources.\n\n[AI generation unavailable — raw data summary below]\n\n'+dataSummary;
+        window._lastReport = { type:'Combined Report ('+focus+')', patient:patName, content:content?.textContent||'', sources };
+      }
+    };
+
+    window._saveCombinedReport = async () => {
+      if (!window._lastReport) return;
+      const lr = window._lastReport;
+      const today = new Date().toISOString().slice(0,10);
+      const local = { id:'RPT-'+Date.now(), name:lr.type+' \u2014 '+lr.patient, patient:lr.patient, type:lr.type, date:today, status:'generated', content:lr.content };
+      try {
+        const patId = document.getElementById('comb-patient')?.value||null;
+        const saved = api.createReport ? await api.createReport({ patient_id:patId==='all'?null:patId, type:lr.type, title:local.name, content:lr.content, report_date:today, status:'generated' }) : null;
+        if (saved && saved.id) local.id = saved.id;
+      } catch {}
+      const rpts = loadReports(); rpts.unshift(local); saveReports(rpts);
+      window._dsToast?.({title:'Saved',body:'Combined report saved.',severity:'success'});
+      window._reportsHubTab='recent'; window._nav('reports-hub');
+    };
+  }
+  // ── Health Insights Tab — Correlation & Prediction Analysis ──────────────
+  else if (tab === 'insights') {
+    let patients = [];
+    try { const pR = await api.listPatients().catch(()=>({items:[]})); patients = pR?.items||[]; } catch {}
+    const patOpts = '<option value="all">All Patients (Clinic-wide)</option>' + patients.map(p=>'<option value="'+p.id+'">'+ ((p.first_name||'')+' '+(p.last_name||'')).trim() +'</option>').join('');
+
+    // Pre-fetch health data for dashboard display
+    let outcomes = [], courses = [], sessions = [], assessments = [], aggregate = {};
+    try {
+      const [oR, cR, sR, aR, agR] = await Promise.allSettled([
+        api.listOutcomes().catch(()=>({items:[]})),
+        (api.listCourses?api.listCourses({}):Promise.resolve({items:[]})).catch(()=>({items:[]})),
+        (api.listSessions?api.listSessions({}):Promise.resolve({items:[]})).catch(()=>({items:[]})),
+        (api.listAssessments?api.listAssessments():Promise.resolve({items:[]})).catch(()=>({items:[]})),
+        (api.aggregateOutcomes?api.aggregateOutcomes():Promise.resolve({})).catch(()=>({})),
+      ]);
+      outcomes = (oR.status==='fulfilled'?(oR.value?.items||oR.value||[]):[]);
+      courses = (cR.status==='fulfilled'?(cR.value?.items||cR.value||[]):[]);
+      sessions = (sR.status==='fulfilled'?(sR.value?.items||sR.value||[]):[]);
+      assessments = (aR.status==='fulfilled'?(aR.value?.items||aR.value||[]):[]);
+      aggregate = (agR.status==='fulfilled'?(agR.value||{}):{});
+    } catch {}
+
+    // Compute local correlation stats
+    const activeCourses = courses.filter(c=>c.status==='active');
+    const completedCourses = courses.filter(c=>c.status==='completed');
+    const respRate = aggregate.responder_rate_pct!=null ? Math.round(aggregate.responder_rate_pct)+'%' : '\u2014';
+    const phqDrop = aggregate.avg_phq9_drop!=null ? (aggregate.avg_phq9_drop>0?'\u2212':'+')+Math.abs(Math.round(aggregate.avg_phq9_drop*10)/10) : '\u2014';
+
+    // Per-patient outcome trends (for correlation display)
+    const patientOutcomes = {};
+    outcomes.forEach(o => {
+      const pid = o.patient_id||'unknown';
+      if (!patientOutcomes[pid]) patientOutcomes[pid] = [];
+      patientOutcomes[pid].push({ score:o.score_numeric, date:o.administered_at, scale:o.template_id||o.scale });
+    });
+    const patientSessions = {};
+    sessions.forEach(s => {
+      const pid = s.patient_id||'unknown';
+      patientSessions[pid] = (patientSessions[pid]||0)+1;
+    });
+
+    // Identify patients with enough data for correlation
+    const correlationCandidates = Object.entries(patientOutcomes)
+      .filter(([pid, oArr]) => oArr.length >= 2 && patientSessions[pid])
+      .map(([pid, oArr]) => {
+        const sorted = oArr.sort((a,b) => String(a.date||'').localeCompare(String(b.date||'')));
+        const first = sorted[0]?.score, last = sorted[sorted.length-1]?.score;
+        const delta = (first!=null&&last!=null) ? last-first : null;
+        return { pid, sessions:patientSessions[pid]||0, firstScore:first, lastScore:last, delta, measurements:sorted.length };
+      })
+      .filter(c => c.delta!=null);
+
+    // Simple correlation: session count vs outcome delta
+    let corrText = 'Insufficient data for correlation analysis.';
+    if (correlationCandidates.length >= 3) {
+      const n = correlationCandidates.length;
+      const sx = correlationCandidates.reduce((s,c)=>s+c.sessions,0);
+      const sy = correlationCandidates.reduce((s,c)=>s+c.delta,0);
+      const sxx = correlationCandidates.reduce((s,c)=>s+c.sessions*c.sessions,0);
+      const syy = correlationCandidates.reduce((s,c)=>s+c.delta*c.delta,0);
+      const sxy = correlationCandidates.reduce((s,c)=>s+c.sessions*c.delta,0);
+      const num = n*sxy - sx*sy;
+      const den = Math.sqrt((n*sxx-sx*sx)*(n*syy-sy*sy));
+      const r = den > 0 ? num/den : 0;
+      const rRound = Math.round(r*100)/100;
+      const strength = Math.abs(rRound) > 0.7 ? 'strong' : Math.abs(rRound) > 0.4 ? 'moderate' : 'weak';
+      const direction = rRound < 0 ? 'negative (more sessions \u2192 greater score reduction = improvement)' : 'positive';
+      corrText = 'Pearson r = ' + rRound + ' (' + strength + ' ' + direction + ' correlation between session count and outcome score change across ' + n + ' patients)';
+    }
+
+    // Condition distribution
+    const condCounts = {};
+    courses.forEach(c => { const k=(c.condition_slug||'').toLowerCase(); if(k) condCounts[k]=(condCounts[k]||0)+1; });
+    const condRows = Object.entries(condCounts).sort((a,b)=>b[1]-a[1]).slice(0,6);
+
+    // Prediction indicators
+    const avgSessionsCompleted = completedCourses.length ? Math.round(completedCourses.reduce((s,c)=>s+(c.sessions_delivered||0),0)/completedCourses.length) : 0;
+
+    main = `
+      <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${respRate}</div><div class="ch-kpi-label">Responder Rate</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${phqDrop}</div><div class="ch-kpi-label">Mean PHQ-9 \u0394</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${outcomes.length}</div><div class="ch-kpi-label">Outcome Records</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--violet)"><div class="ch-kpi-val">${correlationCandidates.length}</div><div class="ch-kpi-label">Patients w/ Trend Data</div></div>
+      </div>
+      <div class="ch-two-col">
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Correlation Analysis</span><span class="ph-ai-badge">AI</span></div>
+          <div style="padding:14px 16px">
+            <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.6;margin-bottom:12px">
+              <div style="font-weight:600;color:var(--text-primary);margin-bottom:4px">Sessions vs Outcome Change</div>
+              <div style="padding:10px 12px;background:rgba(94,234,212,0.05);border:1px solid rgba(94,234,212,0.15);border-radius:8px;font-size:12px">${corrText}</div>
+            </div>
+            ${correlationCandidates.length ? `
+            <div style="font-weight:600;color:var(--text-primary);font-size:12px;margin-bottom:8px">Patient Outcome Trajectories (top 10)</div>
+            ${correlationCandidates.slice(0,10).map(c => {
+              const improved = c.delta < 0;
+              const color = improved ? 'var(--green)' : c.delta > 0 ? 'var(--red)' : 'var(--text-tertiary)';
+              const arrow = improved ? '\u2193' : c.delta > 0 ? '\u2191' : '\u2192';
+              const pName = patients.find(p=>p.id===c.pid);
+              const label = pName ? ((pName.first_name||'')+' '+(pName.last_name||'')).trim() : c.pid;
+              return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px">' +
+                '<div style="flex:1;min-width:0;color:var(--text-primary);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + label + '</div>' +
+                '<div style="color:var(--text-tertiary)">' + c.sessions + ' sessions</div>' +
+                '<div style="color:var(--text-tertiary)">' + c.measurements + ' scores</div>' +
+                '<div style="font-weight:700;color:' + color + '">' + arrow + ' ' + (c.delta>0?'+':'') + c.delta + '</div>' +
+                '</div>';
+            }).join('')}` : '<div class="ch-empty">Record more outcome scores to see correlation data.</div>'}
+            <div style="margin-top:14px">
+              <div style="font-weight:600;color:var(--text-primary);font-size:12px;margin-bottom:6px">Condition Distribution</div>
+              ${condRows.length ? condRows.map(([slug,n]) => {
+                const pct = courses.length ? Math.round(n/courses.length*100) : 0;
+                return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;font-size:12px">' +
+                  '<div style="flex:1;color:var(--text-primary)">' + slug.replace(/-/g,' ').replace(/\\b\\w/g,s=>s.toUpperCase()) + '</div>' +
+                  '<div class="ch-prog-wrap" style="min-width:100px"><div class="ch-prog-bar" style="width:80px"><div class="ch-prog-fill" style="width:'+pct+'%"></div></div><span class="ch-prog-pct" style="color:var(--teal);font-weight:700">'+pct+'%</span></div>' +
+                  '</div>';
+              }).join('') : '<div class="ch-empty">No course condition data yet.</div>'}
+            </div>
+          </div>
+        </div>
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Predictive Analysis</span><span class="ph-ai-badge">AI</span></div>
+          <div style="padding:14px 16px">
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <div style="padding:12px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,0.02)">
+                <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-tertiary);margin-bottom:4px">Average Sessions to Complete</div>
+                <div style="font-size:22px;font-weight:700;color:var(--teal)">${avgSessionsCompleted || '\u2014'}</div>
+              </div>
+              <div style="padding:12px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,0.02)">
+                <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-tertiary);margin-bottom:4px">Active at Risk (below expected trajectory)</div>
+                <div style="font-size:22px;font-weight:700;color:var(--amber)">${activeCourses.filter(c => (c.sessions_delivered||0) > (avgSessionsCompleted * 0.7) && c.status==='active').length || 0}</div>
+              </div>
+              <div style="padding:12px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,0.02)">
+                <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-tertiary);margin-bottom:4px">Assessment Completion</div>
+                <div style="font-size:22px;font-weight:700;color:${(aggregate.assessment_completion_pct||0) >= 80 ? 'var(--green)' : 'var(--amber)'}">${aggregate.assessment_completion_pct!=null ? Math.round(aggregate.assessment_completion_pct)+'%' : '\u2014'}</div>
+              </div>
+            </div>
+            <div style="margin-top:14px">
+              <label class="ch-label">AI-Powered Prediction & Correlation Report</label>
+              <select id="ins-patient" class="ch-select ch-select--full" style="margin:6px 0">${patOpts}</select>
+              <button class="btn btn-primary" style="width:100%" onclick="window._genInsightsReport()">✦ Generate Health Insights Report</button>
+              <div id="ins-loading" style="display:none;padding:8px;text-align:center;color:var(--text-tertiary);font-size:12px"><span class="spinner-sm"></span> Analysing health data for correlations and predictions...</div>
+            </div>
+          </div>
+          <div id="ins-output" style="display:none;padding:0 16px 16px">
+            <div style="font-size:11.5px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Health Insights Report</div>
+            <div id="ins-content" class="ch-textarea" style="min-height:180px;padding:12px;font-size:12.5px;line-height:1.75;white-space:pre-wrap;max-height:400px;overflow-y:auto"></div>
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+              <button class="ch-btn-sm ch-btn-teal" onclick="window._saveInsightsReport()">Save</button>
+              <button class="ch-btn-sm" onclick="navigator.clipboard?.writeText(document.getElementById('ins-content')?.textContent||'');window._dsToast?.({title:'Copied',severity:'success'})">Copy</button>
+              <button class="ch-btn-sm" onclick="window.print()">Print</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+
+    window._genInsightsReport = async () => {
+      const patEl = document.getElementById('ins-patient');
+      const patName = patEl?.options[patEl?.selectedIndex]?.text||'All Patients';
+      const patId = patEl?.value||'all';
+      const loadingEl = document.getElementById('ins-loading');
+      const out = document.getElementById('ins-output');
+      const content = document.getElementById('ins-content');
+      if (loadingEl) loadingEl.style.display='';
+
+      // Fetch comprehensive health data
+      const healthSources = ['patients','courses','outcomes','sessions','assessments','wearables','aggregate'];
+      let data = {};
+      try { data = await fetchSourcesData(healthSources); } catch {}
+      if (loadingEl) loadingEl.style.display='none';
+      if (out) out.style.display='';
+      if (content) content.textContent='✦ Analysing health data…';
+
+      const dataSummary = summariseDataForAI(data);
+      const corrInfo = corrText;
+
+      const prompt = 'Generate a comprehensive HEALTH INSIGHTS REPORT with correlation and prediction analysis for: ' + patName + '.\n\n' +
+        'LIVE CLINICAL DATA:\n\n' + dataSummary + '\n\n' +
+        'LOCAL CORRELATION DATA:\n' + corrInfo + '\n\n' +
+        'REQUIRED ANALYSIS SECTIONS:\n' +
+        '1. EXECUTIVE SUMMARY: Key health findings in 3-5 bullet points.\n' +
+        '2. CORRELATION ANALYSIS:\n' +
+        '   - Treatment sessions vs outcome score changes (dose-response relationship)\n' +
+        '   - Assessment scores at different measurement points (baseline, mid, end)\n' +
+        '   - Condition-specific response rates\n' +
+        '   - Session frequency vs treatment adherence\n' +
+        '   - Any wearable metrics vs clinical outcomes correlations\n' +
+        '3. PREDICTION ANALYSIS:\n' +
+        '   - Predicted treatment response based on early-session data\n' +
+        '   - Risk stratification: which patients are likely non-responders\n' +
+        '   - Optimal session count prediction per condition\n' +
+        '   - Expected outcome trajectories based on current trends\n' +
+        '4. TREND ANALYSIS:\n' +
+        '   - Longitudinal outcome trends\n' +
+        '   - Seasonal or temporal patterns\n' +
+        '   - Population-level health metric changes\n' +
+        '5. RISK FLAGS:\n' +
+        '   - Patients showing deterioration\n' +
+        '   - Overdue assessments impacting data quality\n' +
+        '   - Anomalous patterns requiring clinical review\n' +
+        '6. RECOMMENDATIONS:\n' +
+        '   - Data-driven protocol adjustments\n' +
+        '   - Patients needing intervention\n' +
+        '   - Data collection improvements needed\n\n' +
+        'Use statistical language where appropriate. Be specific with numbers. Flag confidence levels for predictions (high/medium/low based on data availability).';
+
+      try {
+        const res = await api.chatClinician([{role:'user',content:prompt}],{});
+        if (content) content.textContent = res?.message||res?.content||'Health Insights Report generated.';
+        window._lastReport = { type:'Health Insights Report', patient:patName, content:content?.textContent||'', sources:healthSources };
+      } catch {
+        if (content) content.textContent = 'HEALTH INSIGHTS REPORT\nScope: '+patName+'\nDate: '+new Date().toLocaleDateString()+'\n\n--- CORRELATION ANALYSIS ---\n'+corrInfo+'\n\n--- DATA SUMMARY ---\n'+dataSummary+'\n\n[AI analysis unavailable — raw data provided above for manual review]';
+        window._lastReport = { type:'Health Insights Report', patient:patName, content:content?.textContent||'', sources:healthSources };
+      }
+    };
+
+    window._saveInsightsReport = async () => {
+      if (!window._lastReport) return;
+      const lr = window._lastReport;
+      const today = new Date().toISOString().slice(0,10);
+      const local = { id:'RPT-'+Date.now(), name:lr.type+' \u2014 '+lr.patient, patient:lr.patient, type:lr.type, date:today, status:'generated', content:lr.content };
+      try {
+        const patId = document.getElementById('ins-patient')?.value||null;
+        const saved = api.createReport ? await api.createReport({ patient_id:patId==='all'?null:patId, type:lr.type, title:local.name, content:lr.content, report_date:today, status:'generated' }) : null;
+        if (saved && saved.id) local.id = saved.id;
+      } catch {}
+      const rpts = loadReports(); rpts.unshift(local); saveReports(rpts);
+      window._dsToast?.({title:'Saved',body:'Health insights report saved.',severity:'success'});
       window._reportsHubTab='recent'; window._nav('reports-hub');
     };
   }
@@ -6949,9 +7429,6 @@ export async function pgReportsHubNew(setTopbar, navigate) {
               <select id="rep-exp-source" class="ch-select ch-select--full">
                 <option value="outcomes">Outcome scores (per-patient)</option>
                 <option value="courses">Treatment courses</option>
-                <option value="sessions">Clinical sessions</option>
-                <option value="patients">Patient demographics</option>
-                <option value="assessments">Assessment records</option>
                 <option value="reports">Saved reports (local)</option>
               </select>
             </div>
@@ -6982,9 +7459,6 @@ export async function pgReportsHubNew(setTopbar, navigate) {
           <div style="padding:14px 16px;font-size:12.5px;color:var(--text-secondary);line-height:1.65">
             <p style="margin:0 0 10px"><strong style="color:var(--text-primary)">Outcome scores</strong> — one row per recorded assessment (patient id, template, score, date, measurement point). Source: <code style="font-size:11px;padding:1px 5px;background:rgba(255,255,255,0.05);border-radius:4px">/api/v1/outcomes</code>.</p>
             <p style="margin:0 0 10px"><strong style="color:var(--text-primary)">Treatment courses</strong> — one row per course (patient id, condition, modality, status, progress). Source: <code style="font-size:11px;padding:1px 5px;background:rgba(255,255,255,0.05);border-radius:4px">/api/v1/treatment-courses</code>.</p>
-            <p style="margin:0 0 10px"><strong style="color:var(--text-primary)">Clinical sessions</strong> — one row per session (patient, course, date, duration, status). Source: <code style="font-size:11px;padding:1px 5px;background:rgba(255,255,255,0.05);border-radius:4px">/api/v1/sessions</code>.</p>
-            <p style="margin:0 0 10px"><strong style="color:var(--text-primary)">Patient demographics</strong> — one row per patient (name, DOB, contact, condition). Source: <code style="font-size:11px;padding:1px 5px;background:rgba(255,255,255,0.05);border-radius:4px">/api/v1/patients</code>.</p>
-            <p style="margin:0 0 10px"><strong style="color:var(--text-primary)">Assessment records</strong> — one row per assessment (patient, form, score, date). Source: <code style="font-size:11px;padding:1px 5px;background:rgba(255,255,255,0.05);border-radius:4px">/api/v1/assessments</code>.</p>
             <p style="margin:0"><strong style="color:var(--text-primary)">Saved reports</strong> — reports you have generated and saved locally in this browser.</p>
           </div>
         </div>
@@ -7027,37 +7501,6 @@ export async function pgReportsHubNew(setTopbar, navigate) {
               return true;
             })
             .map(c => header.map(k => c[k] == null ? '' : String(c[k])));
-        } else if (source === 'sessions') {
-          const res = api.listSessions ? await api.listSessions({}) : {items:[]};
-          const items = res?.items || res || [];
-          header = ['id', 'patient_id', 'course_id', 'session_date', 'status', 'duration_minutes', 'clinician_id', 'created_at'];
-          rows = items
-            .filter(s => {
-              const d = (s.session_date||s.date) ? new Date(s.session_date||s.date) : null;
-              if (!d) return true;
-              if (fromD && d < fromD) return false;
-              if (toD   && d > toD)   return false;
-              return true;
-            })
-            .map(s => header.map(k => s[k] == null ? '' : String(s[k])));
-        } else if (source === 'patients') {
-          const res = await api.listPatients();
-          const items = res?.items || res || [];
-          header = ['id', 'first_name', 'last_name', 'date_of_birth', 'email', 'primary_condition', 'created_at'];
-          rows = items.map(p => header.map(k => p[k] == null ? '' : String(p[k])));
-        } else if (source === 'assessments') {
-          const res = api.listAssessments ? await api.listAssessments() : {items:[]};
-          const items = res?.items || res || [];
-          header = ['id', 'patient_id', 'form_key', 'total_score', 'administered_at', 'clinician_id', 'created_at'];
-          rows = items
-            .filter(a => {
-              const d = (a.administered_at||a.created_at) ? new Date(a.administered_at||a.created_at) : null;
-              if (!d) return true;
-              if (fromD && d < fromD) return false;
-              if (toD   && d > toD)   return false;
-              return true;
-            })
-            .map(a => header.map(k => a[k] == null ? '' : String(a[k])));
         } else {
           header = ['id', 'name', 'patient', 'type', 'date', 'status'];
           rows = loadReports()

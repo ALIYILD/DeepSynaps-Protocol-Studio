@@ -24,14 +24,16 @@ function announce(message, urgent = false) {
 }
 window._announce = announce;
 
-// ── Session expiry handler (called by api.js _on401) ─────────────────────────
+// ── Session expiry handler ────────────────────────────────────────────────────
+// The primary handler is defined in auth.js (saves intended destination, shows
+// session-expired notice, and redirects after a short delay). We only add
+// supplementary cleanup here that auth.js doesn't handle.
+const _origSessionExpired = window._handleSessionExpired;
 window._handleSessionExpired = function() {
-  api.clearToken();
-  setCurrentUser(null);
   sessionStorage.removeItem('ds_pat_selected_id');
   sessionStorage.removeItem('ds_patient_roster');
-  navigatePublic('home');
-  announce('Your session has expired. Please sign in again.', true);
+  if (_origSessionExpired) _origSessionExpired();
+  else { api.clearToken(); setCurrentUser(null); navigatePublic('home'); }
 };
 
 // ── Accessibility: focus trap for modals ──────────────────────────────────────
@@ -629,13 +631,13 @@ function renderNav() {
         const name = ((p.first_name || '') + ' ' + (p.last_name || '')).trim();
         const cond = (p.condition_slug || p.primary_condition || '').replace(/-/g, ' ') || '';
         const ini  = ((p.first_name || '')[0] || '') + ((p.last_name || '')[0] || '');
-        return `<div onclick="window._navPtOpen('${p.id}')"
+        return `<div onclick="window._navPtOpen('${esc(p.id)}')"
           style="display:flex;align-items:center;gap:9px;padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.1s"
           onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background=''">
-          <div style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--teal),var(--blue));display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#000;flex-shrink:0;text-transform:uppercase">${ini}</div>
+          <div style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--teal),var(--blue));display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#000;flex-shrink:0;text-transform:uppercase">${esc(ini)}</div>
           <div style="min-width:0">
-            <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</div>
-            <div style="font-size:10.5px;color:var(--text-tertiary)">${cond}</div>
+            <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(name)}</div>
+            <div style="font-size:10.5px;color:var(--text-tertiary)">${esc(cond)}</div>
           </div>
         </div>`;
       }).join('');
@@ -907,17 +909,6 @@ const PAGE_TITLES = {
 
 // ── Navigate ──────────────────────────────────────────────────────────────────
 async function navigate(id, params = {}) {
-  // Best-effort page cleanup hook (pages can register async teardown).
-  // Prevents background timers/streams from leaking across navigation.
-  try {
-    if (typeof window._pageCleanup === 'function') {
-      await window._pageCleanup({ from: currentPage, to: id, params });
-    }
-  } catch (e) {
-    console.warn('[nav] page cleanup failed:', e);
-  } finally {
-    window._pageCleanup = null;
-  }
   // Apply any params before navigating so pages can read them
   if (params && typeof params === 'object') {
     if (params.id !== undefined) {
@@ -1465,7 +1456,6 @@ async function renderPage() {
     case 'clinical-hub':
     case 'assessments':      { const { pgClinicalHub } = await loadClinicalHubs(); await pgClinicalHub(setTopbar, navigate); break; }
     case 'documents':        { const { pgDocumentsHubNew } = await loadClinicalHubs(); await pgDocumentsHubNew(setTopbar, navigate); break; }
-    case 'brain-map-full':    { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar); break; }
     case 'prescriptions':        { window._patientHubTab = 'prescriptions'; window._nav('patients-hub'); break; }
     case 'prescriptions-full':   { const { pgPrescriptions } = await loadClinicalTools(); await pgPrescriptions(setTopbar); break; }
     case 'patient-protocol':    { const { pgPatientProtocolView }  = await loadClinicalTools(); await pgPatientProtocolView(setTopbar); break; }
