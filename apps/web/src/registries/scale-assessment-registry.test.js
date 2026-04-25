@@ -99,7 +99,9 @@ test('SCALE_REGISTRY aligns with ASSESS_REGISTRY (metadata vs inline UI)', () =>
 });
 
 test('every scale listed in COND_BUNDLES (pages-clinical) resolves in SCALE_REGISTRY', () => {
-  const src = fs.readFileSync(path.join(__dirname, '../pages-clinical-tools.js'), 'utf8');
+  // COND_BUNDLES now lives in the split-out pages-clinical-tools-assessments.js
+  // module after the clinical-tools bundle was code-split.
+  const src = fs.readFileSync(path.join(__dirname, '../pages-clinical-tools-assessments.js'), 'utf8');
   const tokens = extractCondHubBundleScaleTokensFromSource(src);
   assert.ok(tokens.length >= 35, 'expected phase-array tokens from COND_BUNDLES');
   for (const raw of tokens) {
@@ -109,7 +111,7 @@ test('every scale listed in COND_BUNDLES (pages-clinical) resolves in SCALE_REGI
 });
 
 test('every COND_BUNDLES scale has at least one https official_links entry', () => {
-  const src = fs.readFileSync(path.join(__dirname, '../pages-clinical-tools.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '../pages-clinical-tools-assessments.js'), 'utf8');
   const tokens = extractCondHubBundleScaleTokensFromSource(src);
   for (const raw of tokens) {
     const m = getScaleMeta(raw);

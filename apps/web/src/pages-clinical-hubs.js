@@ -1298,7 +1298,7 @@ export async function pgClinicalHub(setTopbar, navigate) {
 
   // ── ASSESSMENTS TAB — delegates to pgAssessmentsHub (feature-complete, API-wired) ──
   if (tab === 'assessments') {
-    const { pgAssessmentsHub } = await import('./pages-clinical-tools.js');
+    const { pgAssessmentsHub } = await import('./pages-clinical-tools-assessments.js');
     await pgAssessmentsHub(setTopbar);
     // Prepend the Clinical Hub tab bar so users can still switch to Outcomes/Scoring/Registry.
     const content = document.getElementById('content');

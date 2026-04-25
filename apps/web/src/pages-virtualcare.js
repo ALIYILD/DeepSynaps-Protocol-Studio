@@ -3951,7 +3951,7 @@ function _lsSetTab(tab) {
     if (htmContent) htmContent.id = 'content';
     (async () => {
       try {
-        const { pgHomePrograms } = await import('./pages-clinical-tools.js');
+        const { pgHomePrograms } = await import('./pages-clinical-tools-home.js');
         await pgHomePrograms(() => {}, null);
       } catch {
         const c = document.getElementById('content');

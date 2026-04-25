@@ -143,6 +143,10 @@ let _modProtocols  = null;
 let _modVirtualCare   = null;
 let _modConditions    = null;
 let _modClinicalTools = null;
+let _modClinicalToolsBmp        = null;
+let _modClinicalToolsAssess     = null;
+let _modClinicalToolsHome       = null;
+let _modClinicalToolsForms      = null;
 let _modClinicalHubs  = null;
 let _modDeeptwin      = null;
 let _modBrainTwin     = null;
@@ -151,6 +155,13 @@ async function loadPublic()     { return (_modPublic    ??= await import('./page
 async function loadPatient()    { return (_modPatient   ??= await import('./pages-patient.js')); }
 async function loadClinical()   { return (_modClinical  ??= await import('./pages-clinical.js')); }
 async function loadClinicalTools() { return (_modClinicalTools ??= await import('./pages-clinical-tools.js')); }
+// Heaviest sub-pages of clinical-tools live in their own chunks. Each has its
+// own loader so the parent chunk stays lean and these modules only ship when
+// the user actually navigates to them.
+async function loadClinicalToolsBmp()    { return (_modClinicalToolsBmp    ??= await import('./pages-clinical-tools-bmp.js')); }
+async function loadClinicalToolsAssess() { return (_modClinicalToolsAssess ??= await import('./pages-clinical-tools-assessments.js')); }
+async function loadClinicalToolsHome()   { return (_modClinicalToolsHome   ??= await import('./pages-clinical-tools-home.js')); }
+async function loadClinicalToolsForms()  { return (_modClinicalToolsForms  ??= await import('./pages-clinical-tools-forms.js')); }
 async function loadClinicalHubs()  { return (_modClinicalHubs  ??= await import('./pages-clinical-hubs.js')); }
 async function loadDeeptwin()   { return (_modDeeptwin  ??= await import('./pages-deeptwin.js')); }
 async function loadBrainTwin()  { return (_modBrainTwin ??= await import('./pages-brain-twin.js')); }
@@ -1224,7 +1235,7 @@ async function renderPage() {
     case 'protocols':       { window._protocolHubTab = 'browse';   window._nav('protocol-hub'); break; }
     case 'brain-map-planner':
     case 'brain-map-full':
-    case 'reg-protocols':   { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar); break; }
+    case 'reg-protocols':   { const { pgBrainMapPlanner } = await loadClinicalToolsBmp(); await pgBrainMapPlanner(setTopbar); break; }
     // protocols-registry routes to the real protocol search/registry browser,
     // not the brain-map planner. Previously this alias pointed at
     // pgBrainMapPlanner which mislabelled the surface.
@@ -1359,7 +1370,7 @@ async function renderPage() {
     case 'library-hub':    { window._resEvidenceTab = 'search'; window._nav('research-evidence'); break; }
     case 'monitor-hub':    { const { pgMonitorHub }    = await loadClinicalHubs(); await pgMonitorHub(setTopbar, navigate);    break; }
     case 'virtual-care-hub':{ const { pgVirtualCareHub } = await loadClinicalHubs(); await pgVirtualCareHub(setTopbar, navigate); break; }
-    case 'home-task-manager': { const m = await loadClinicalTools(); await m.pgHomePrograms(setTopbar, navigate); break; }
+    case 'home-task-manager': { const m = await loadClinicalToolsHome(); await m.pgHomePrograms(setTopbar, navigate); break; }
     case 'messaging': {
       window._vcUnifiedDefaultTab = 'messaging';
       const m = await loadVirtualCare();
@@ -1427,8 +1438,8 @@ async function renderPage() {
       break;
     }
     case 'consent-automation': { const { pgConsentAutomation } = await loadClinicalTools(); await pgConsentAutomation(setTopbar); break; }
-    case 'forms-builder': { const { pgFormsBuilder } = await loadClinicalTools(); await pgFormsBuilder(setTopbar); break; }
-    case 'med-interactions': { const { pgMedInteractionChecker } = await loadClinicalTools(); await pgMedInteractionChecker(setTopbar); break; }
+    case 'forms-builder': { const { pgFormsBuilder } = await loadClinicalToolsForms(); await pgFormsBuilder(setTopbar); break; }
+    case 'med-interactions': { const { pgMedInteractionChecker } = await loadClinicalToolsForms(); await pgMedInteractionChecker(setTopbar); break; }
     case 'admin': {
       const m = await loadPractice();
       await m.pgAdmin(setTopbar, currentUser);
@@ -1489,7 +1500,7 @@ async function renderPage() {
     case 'deeptwin':           { const m = await loadDeeptwin(); await m.pgDeeptwin(setTopbar, navigate); break; }
     case 'monitor':            { const m = await loadMonitor(); await m.pgMonitor(setTopbar, navigate); break; }
     case 'protocol-studio':    { const m = await loadClinicalHubs(); await m.pgProtocolHub(setTopbar, navigate); break; }
-    case 'brainmap-v2':        { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar, navigate); break; }
+    case 'brainmap-v2':        { const { pgBrainMapPlanner } = await loadClinicalToolsBmp(); await pgBrainMapPlanner(setTopbar, navigate); break; }
     case 'qeeg-analysis':      { const m = await loadQEEGAnalysis(); await m.pgQEEGAnalysis(setTopbar, navigate); break; }
     case 'mri-analysis':       { const m = await loadMRIAnalysis(); await m.pgMRIAnalysis(setTopbar, navigate); break; }
     case 'patient-timeline':   { const m = await loadPatientTimeline(); await m.pgPatientTimeline(setTopbar, navigate); break; }
@@ -1498,7 +1509,7 @@ async function renderPage() {
     case 'library-v2':         { window._resEvidenceTab = 'search'; window._nav('research-evidence'); break; }
     case 'live-session':       { window._vcUnifiedDefaultTab = 'dashboard'; const m = await loadVirtualCare(); await m.pgVirtualCare(setTopbar, navigate); break; }
     case 'live-session-monitor': { window._vcUnifiedDefaultTab = 'livesession'; const m = await loadVirtualCare(); await m.pgVirtualCare(setTopbar, navigate); break; }
-    case 'home-tasks-v2':      { const m = await loadClinicalTools(); await m.pgHomePrograms(setTopbar, navigate); break; }
+    case 'home-tasks-v2':      { const m = await loadClinicalToolsHome(); await m.pgHomePrograms(setTopbar, navigate); break; }
     case 'documents-v2':       { const m = await loadClinicalHubs(); await m.pgDocumentsHubNew(setTopbar, navigate); break; }
     case 'reports-v2':         { const m = await loadClinicalHubs(); await m.pgReportsHubNew(setTopbar, navigate); break; }
     case 'finance-v2':         { const m = await loadClinicalHubs(); await m.pgFinanceHub(setTopbar, navigate); break; }
