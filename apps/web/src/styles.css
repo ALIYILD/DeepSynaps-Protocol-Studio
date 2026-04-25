@@ -25639,6 +25639,8 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   .qeeg-coh-tabs { justify-content: center; }
   .qeeg-export-bar { flex-direction: column; gap: 6px; }
   .ds-topo-heatmap { max-width: 100%; height: auto; }
+  .ds-topo-heatmap-wrap { max-width: 100%; }
+  .ds-topo-heatmap-wrap img { max-width: 100%; height: auto; }
 }
 @media (max-width: 380px) {
   .qeeg-metric-grid { grid-template-columns: 1fr !important; }

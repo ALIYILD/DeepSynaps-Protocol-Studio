@@ -279,13 +279,18 @@ export function renderBrainMap10_20(options) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// renderTopoHeatmap — Power-colored electrode heatmap for qEEG analysis
+// renderTopoHeatmap — Publication-quality Canvas 2D topographic heatmap
+//
+// Uses Inverse Distance Weighting (IDW) interpolation to produce smooth,
+// continuous brain maps matching MNE/EEGLAB quality. Renders to an offscreen
+// canvas → data-URI <img>, overlaid with crisp SVG for head chrome and
+// electrode labels. Fully innerHTML-compatible (no post-render hooks).
 //
 // bandPowers: { [channelName]: number } — absolute or relative power per site
 // options.band:      string — band name shown in legend (e.g. "alpha")
 // options.unit:      string — unit label (e.g. "uV^2" or "%")
-// options.size:      number — SVG width/height (default 360)
-// options.colorScale: 'warm'|'cool'|'diverging' (default 'warm')
+// options.size:      number — rendered width in px (default 360)
+// options.colorScale: 'warm'|'cool'|'diverging'|'colorblind' (default 'warm')
 // ─────────────────────────────────────────────────────────────────────────────
 
 const HEATMAP_PALETTES = {
@@ -314,64 +319,259 @@ function _hexToRgb(hex) {
   return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
 }
 
-export function renderTopoHeatmap(bandPowers, options) {
-  const opts = options || {};
-  const band = opts.band || 'power';
-  const unit = opts.unit || '';
-  const size = Number.isFinite(opts.size) ? opts.size : 360;
-  const palette = HEATMAP_PALETTES[opts.colorScale] || HEATMAP_PALETTES.warm;
+// ── Palette LUT: precomputed 256-entry [r,g,b] tables for fast pixel fill ──
+var _paletteLUTCache = {};
+function _buildPaletteLUT(palette) {
+  var key = palette.join('|');
+  if (_paletteLUTCache[key]) return _paletteLUTCache[key];
+  var lut = new Uint8Array(256 * 3);
+  for (var i = 0; i < 256; i++) {
+    var t = i / 255;
+    var idx = t * (palette.length - 1);
+    var lo = Math.floor(idx);
+    var hi = Math.min(lo + 1, palette.length - 1);
+    var frac = idx - lo;
+    var c1 = _hexToRgb(palette[lo]);
+    var c2 = _hexToRgb(palette[hi]);
+    lut[i * 3]     = Math.round(c1[0] + (c2[0] - c1[0]) * frac);
+    lut[i * 3 + 1] = Math.round(c1[1] + (c2[1] - c1[1]) * frac);
+    lut[i * 3 + 2] = Math.round(c1[2] + (c2[2] - c1[2]) * frac);
+  }
+  _paletteLUTCache[key] = lut;
+  return lut;
+}
 
-  // Compute min/max for normalization
-  const values = [];
-  SITES_10_20.forEach(function (site) {
-    const v = bandPowers[site.id];
-    if (v !== undefined && v !== null && Number.isFinite(v)) values.push(v);
-  });
-  const vMin = values.length ? Math.min.apply(null, values) : 0;
-  const vMax = values.length ? Math.max.apply(null, values) : 1;
-  const range = vMax - vMin || 1;
+// ── IDW weight table: cached per resolution ─────────────────────────────────
+var _weightCache = {};
+function _buildWeightTable(res) {
+  if (_weightCache[res]) return _weightCache[res];
 
-  const parts = [];
-  parts.push('<svg class="ds-topo-heatmap" viewBox="0 0 400 430" width="' + size + '" height="' + Math.round(size * 430 / 400) + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="qEEG topographic heatmap — ' + band + '" tabindex="0">');
+  var cx = res / 2, cy = res / 2;
+  var hr = res * 0.4;  // head radius (matches 160/400 ratio)
+  var hr2 = hr * hr;
+  var minDist = hr * 0.05; // soften electrode peaks
+  var nElec = SITES_10_20.length;
 
-  // Defs: radial gradients per electrode for smooth interpolation
-  parts.push('<defs><clipPath id="th-head-clip"><circle cx="200" cy="200" r="160"/></clipPath></defs>');
+  // Precompute electrode pixel positions
+  var ex = new Float32Array(nElec);
+  var ey = new Float32Array(nElec);
+  for (var e = 0; e < nElec; e++) {
+    ex[e] = cx + SITES_10_20[e].x * hr;
+    ey[e] = cy + SITES_10_20[e].y * hr;
+  }
 
-  // Background head
-  parts.push('<circle cx="200" cy="200" r="160" fill="#0d1b2a" stroke="rgba(255,255,255,0.25)" stroke-width="2"/>');
+  // Count pixels inside head circle
+  var maskList = [];
+  for (var py = 0; py < res; py++) {
+    for (var px = 0; px < res; px++) {
+      var dx = px - cx, dy = py - cy;
+      if (dx * dx + dy * dy <= hr2) {
+        maskList.push(py * res + px);
+      }
+    }
+  }
 
-  // Radial gradient fills per electrode (clipped to head)
-  parts.push('<g clip-path="url(#th-head-clip)">');
-  SITES_10_20.forEach(function (site) {
-    const v = bandPowers[site.id];
-    if (v === undefined || v === null) return;
-    const t = (v - vMin) / range;
-    const color = _interpolateColor(palette, t);
-    const cx = 200 + site.x * 160;
-    const cy = 200 + site.y * 160;
-    parts.push('<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="60" fill="' + color + '" opacity="0.55"/>');
-  });
-  parts.push('</g>');
+  var maskLen = maskList.length;
+  var mask = new Uint32Array(maskLen);
+  var weights = new Float32Array(maskLen * nElec);
+
+  for (var m = 0; m < maskLen; m++) {
+    mask[m] = maskList[m];
+    var pixIdx = maskList[m];
+    var ppx = pixIdx % res;
+    var ppy = (pixIdx - ppx) / res;
+    var wSum = 0;
+    for (var ei = 0; ei < nElec; ei++) {
+      var ddx = ppx - ex[ei], ddy = ppy - ey[ei];
+      var dist = Math.sqrt(ddx * ddx + ddy * ddy);
+      if (dist < minDist) dist = minDist;
+      var w = 1 / (dist * dist);
+      weights[m * nElec + ei] = w;
+      wSum += w;
+    }
+    // Normalize
+    if (wSum > 0) {
+      var invSum = 1 / wSum;
+      for (var ni = 0; ni < nElec; ni++) {
+        weights[m * nElec + ni] *= invSum;
+      }
+    }
+  }
+
+  var table = { mask: mask, weights: weights, maskLen: maskLen, nElec: nElec, res: res };
+  _weightCache[res] = table;
+  return table;
+}
+
+// ── Canvas heatmap renderer → data-URI string ──────────────────────────────
+function _renderHeatmapToDataUri(canvasRes, electrodeValues, paletteLUT, bgColor) {
+  var canvas;
+  try {
+    if (typeof OffscreenCanvas !== 'undefined') {
+      canvas = new OffscreenCanvas(canvasRes, canvasRes);
+    } else {
+      canvas = document.createElement('canvas');
+      canvas.width = canvasRes;
+      canvas.height = canvasRes;
+    }
+  } catch (_e) {
+    return null; // fallback to SVG
+  }
+  var ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  var imgData = ctx.createImageData(canvasRes, canvasRes);
+  var data = imgData.data;
+
+  // Fill background (dark, matching theme)
+  var bgR = bgColor[0], bgG = bgColor[1], bgB = bgColor[2];
+  for (var i = 0; i < data.length; i += 4) {
+    data[i] = bgR; data[i + 1] = bgG; data[i + 2] = bgB; data[i + 3] = 0; // transparent outside
+  }
+
+  var table = _buildWeightTable(canvasRes);
+  var mask = table.mask, weights = table.weights, maskLen = table.maskLen, nElec = table.nElec;
+
+  for (var m = 0; m < maskLen; m++) {
+    var pixIdx = mask[m];
+    var wOff = m * nElec;
+    var val = 0, wUsed = 0;
+    for (var ei = 0; ei < nElec; ei++) {
+      var ev = electrodeValues[ei];
+      if (ev !== ev) continue; // NaN check
+      var w = weights[wOff + ei];
+      val += w * ev;
+      wUsed += w;
+    }
+    if (wUsed > 0) {
+      val /= wUsed;
+    }
+    // Clamp to [0,1] and look up color
+    var ti = Math.round(Math.max(0, Math.min(1, val)) * 255);
+    var off = pixIdx * 4;
+    data[off]     = paletteLUT[ti * 3];
+    data[off + 1] = paletteLUT[ti * 3 + 1];
+    data[off + 2] = paletteLUT[ti * 3 + 2];
+    data[off + 3] = 255;
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+
+  // Convert to data-URI
+  try {
+    if (canvas.convertToBlob) {
+      // OffscreenCanvas — use toDataURL workaround via temporary canvas
+      var tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = canvasRes;
+      tmpCanvas.height = canvasRes;
+      var tmpCtx = tmpCanvas.getContext('2d');
+      tmpCtx.drawImage(canvas, 0, 0);
+      return tmpCanvas.toDataURL('image/png');
+    }
+    return canvas.toDataURL('image/png');
+  } catch (_e2) {
+    return null;
+  }
+}
+
+// ── Electrode overlay SVG (vector, crisp at any zoom) ──────────────────────
+function _buildElectrodeOverlaySvg(bandPowers, vMin, range, palette, unit, size) {
+  var parts = [];
+  parts.push('<svg viewBox="0 0 400 400" width="' + size + '" height="' + size + '" xmlns="http://www.w3.org/2000/svg" style="position:absolute;top:0;left:0;pointer-events:none" aria-hidden="true">');
 
   // Head outline
   parts.push('<circle cx="200" cy="200" r="160" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="2"/>');
-
   // Nose + ears
   parts.push('<polygon points="200,28 188,48 212,48" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5" stroke-linejoin="round"/>');
   parts.push('<ellipse cx="34" cy="200" rx="10" ry="24" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>');
   parts.push('<ellipse cx="366" cy="200" rx="10" ry="24" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>');
 
-  // Electrode dots with value labels and tooltips
+  // Electrode dots with labels
   SITES_10_20.forEach(function (site) {
-    const v = bandPowers[site.id];
-    const cx = 200 + site.x * 160;
-    const cy = 200 + site.y * 160;
-    const hasValue = v !== undefined && v !== null && Number.isFinite(v);
-    const t = hasValue ? (v - vMin) / range : 0;
-    const dotColor = hasValue ? _interpolateColor(palette, t) : 'rgba(30,40,60,0.8)';
-    const textVal = hasValue ? (v < 10 ? v.toFixed(2) : v.toFixed(1)) : '-';
-    const tooltipText = site.id + ' (' + site.lobe + ')' + (hasValue ? ': ' + textVal + (unit ? ' ' + unit : '') : ': no data');
+    var v = bandPowers[site.id];
+    var cx = 200 + site.x * 160;
+    var cy = 200 + site.y * 160;
+    var hasValue = v !== undefined && v !== null && Number.isFinite(v);
+    var t = hasValue ? (v - vMin) / range : 0;
+    var dotColor = hasValue ? _interpolateColor(palette, t) : 'rgba(30,40,60,0.8)';
+    var textVal = hasValue ? (v < 10 ? v.toFixed(2) : v.toFixed(1)) : '-';
+    var tooltipText = site.id + ' (' + site.lobe + ')' + (hasValue ? ': ' + textVal + (unit ? ' ' + unit : '') : ': no data');
 
+    parts.push('<g class="ds-topo-electrode" style="pointer-events:auto">');
+    parts.push('<title>' + tooltipText + '</title>');
+    parts.push('<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="12" fill="' + dotColor + '" stroke="rgba(255,255,255,0.7)" stroke-width="1"/>');
+    parts.push('<text x="' + cx.toFixed(1) + '" y="' + (cy - 1.5).toFixed(1) + '" text-anchor="middle" font-size="6.5" font-weight="700" fill="rgba(255,255,255,0.95)" font-family="system-ui,sans-serif">' + site.id + '</text>');
+    parts.push('<text x="' + cx.toFixed(1) + '" y="' + (cy + 7).toFixed(1) + '" text-anchor="middle" font-size="6" fill="rgba(255,255,255,0.75)" font-family="system-ui,sans-serif">' + textVal + '</text>');
+    parts.push('</g>');
+  });
+
+  parts.push('</svg>');
+  return parts.join('');
+}
+
+// ── Color-bar legend SVG ──────────────────────────────────────────────────
+function _buildLegendSvg(palette, vMin, vMax, band, unit, size) {
+  var parts = [];
+  var legendW = 240, legendX = 80, legendY = 4;
+  var legendH = 30;
+  parts.push('<svg viewBox="0 0 400 ' + legendH + '" width="' + size + '" height="' + Math.round(size * legendH / 400) + '" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block">');
+  for (var i = 0; i < legendW; i++) {
+    var color = _interpolateColor(palette, i / legendW);
+    parts.push('<rect x="' + (legendX + i) + '" y="' + legendY + '" width="1.5" height="10" fill="' + color + '"/>');
+  }
+  parts.push('<rect x="' + legendX + '" y="' + legendY + '" width="' + legendW + '" height="10" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="0.5" rx="2"/>');
+  parts.push('<text x="' + legendX + '" y="' + (legendY + 22) + '" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + vMin.toFixed(1) + '</text>');
+  parts.push('<text x="' + (legendX + legendW) + '" y="' + (legendY + 22) + '" text-anchor="end" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + vMax.toFixed(1) + '</text>');
+  parts.push('<text x="200" y="' + (legendY + 22) + '" text-anchor="middle" font-size="9" font-weight="600" fill="rgba(255,255,255,0.8)" font-family="system-ui,sans-serif">' + band + (unit ? ' (' + unit + ')' : '') + '</text>');
+  parts.push('</svg>');
+  return parts.join('');
+}
+
+// ── SVG fallback (original dot-based renderer for non-canvas environments) ─
+function _renderTopoHeatmapSvgFallback(bandPowers, options) {
+  var opts = options || {};
+  var band = opts.band || 'power';
+  var unit = opts.unit || '';
+  var size = Number.isFinite(opts.size) ? opts.size : 360;
+  var palette = HEATMAP_PALETTES[opts.colorScale] || HEATMAP_PALETTES.warm;
+
+  var values = [];
+  SITES_10_20.forEach(function (site) {
+    var v = bandPowers[site.id];
+    if (v !== undefined && v !== null && Number.isFinite(v)) values.push(v);
+  });
+  var vMin = values.length ? Math.min.apply(null, values) : 0;
+  var vMax = values.length ? Math.max.apply(null, values) : 1;
+  var range = vMax - vMin || 1;
+
+  var parts = [];
+  parts.push('<svg class="ds-topo-heatmap" viewBox="0 0 400 430" width="' + size + '" height="' + Math.round(size * 430 / 400) + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="qEEG topographic heatmap — ' + band + '" tabindex="0">');
+  parts.push('<defs><clipPath id="th-head-clip"><circle cx="200" cy="200" r="160"/></clipPath></defs>');
+  parts.push('<circle cx="200" cy="200" r="160" fill="#0d1b2a" stroke="rgba(255,255,255,0.25)" stroke-width="2"/>');
+  parts.push('<g clip-path="url(#th-head-clip)">');
+  SITES_10_20.forEach(function (site) {
+    var v = bandPowers[site.id];
+    if (v === undefined || v === null) return;
+    var t = (v - vMin) / range;
+    var color = _interpolateColor(palette, t);
+    var cx = 200 + site.x * 160;
+    var cy = 200 + site.y * 160;
+    parts.push('<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="60" fill="' + color + '" opacity="0.55"/>');
+  });
+  parts.push('</g>');
+  parts.push('<circle cx="200" cy="200" r="160" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="2"/>');
+  parts.push('<polygon points="200,28 188,48 212,48" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5" stroke-linejoin="round"/>');
+  parts.push('<ellipse cx="34" cy="200" rx="10" ry="24" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>');
+  parts.push('<ellipse cx="366" cy="200" rx="10" ry="24" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>');
+  SITES_10_20.forEach(function (site) {
+    var v = bandPowers[site.id];
+    var cx = 200 + site.x * 160;
+    var cy = 200 + site.y * 160;
+    var hasValue = v !== undefined && v !== null && Number.isFinite(v);
+    var t = hasValue ? (v - vMin) / range : 0;
+    var dotColor = hasValue ? _interpolateColor(palette, t) : 'rgba(30,40,60,0.8)';
+    var textVal = hasValue ? (v < 10 ? v.toFixed(2) : v.toFixed(1)) : '-';
+    var tooltipText = site.id + ' (' + site.lobe + ')' + (hasValue ? ': ' + textVal + (unit ? ' ' + unit : '') : ': no data');
     parts.push('<g class="ds-topo-electrode">');
     parts.push('<title>' + tooltipText + '</title>');
     parts.push('<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="14" fill="' + dotColor + '" stroke="rgba(255,255,255,0.6)" stroke-width="1.2"/>');
@@ -379,22 +579,75 @@ export function renderTopoHeatmap(bandPowers, options) {
     parts.push('<text x="' + cx.toFixed(1) + '" y="' + (cy + 8).toFixed(1) + '" text-anchor="middle" font-size="6.5" fill="rgba(255,255,255,0.7)" font-family="system-ui,sans-serif">' + textVal + '</text>');
     parts.push('</g>');
   });
-
-  // Color-bar legend below the head
-  const legendY = 380;
-  const legendW = 240;
-  const legendX = 80;
-  for (let i = 0; i < legendW; i++) {
-    const color = _interpolateColor(palette, i / legendW);
+  var legendY = 380, legendW = 240, legendX = 80;
+  for (var i = 0; i < legendW; i++) {
+    var color = _interpolateColor(palette, i / legendW);
     parts.push('<rect x="' + (legendX + i) + '" y="' + legendY + '" width="1.5" height="10" fill="' + color + '"/>');
   }
   parts.push('<rect x="' + legendX + '" y="' + legendY + '" width="' + legendW + '" height="10" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="0.5" rx="2"/>');
   parts.push('<text x="' + legendX + '" y="' + (legendY + 22) + '" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + vMin.toFixed(1) + '</text>');
   parts.push('<text x="' + (legendX + legendW) + '" y="' + (legendY + 22) + '" text-anchor="end" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + vMax.toFixed(1) + '</text>');
   parts.push('<text x="200" y="' + (legendY + 22) + '" text-anchor="middle" font-size="9" font-weight="600" fill="rgba(255,255,255,0.8)" font-family="system-ui,sans-serif">' + band + (unit ? ' (' + unit + ')' : '') + '</text>');
-
   parts.push('</svg>');
   return parts.join('');
+}
+
+// ── Main export: Canvas IDW topomap with SVG overlay ────────────────────────
+export function renderTopoHeatmap(bandPowers, options) {
+  var opts = options || {};
+  var band = opts.band || 'power';
+  var unit = opts.unit || '';
+  var size = Number.isFinite(opts.size) ? opts.size : 360;
+  var palette = HEATMAP_PALETTES[opts.colorScale] || HEATMAP_PALETTES.warm;
+  var isDiverging = opts.colorScale === 'diverging';
+
+  // Collect values and compute normalization range
+  var values = [];
+  SITES_10_20.forEach(function (site) {
+    var v = bandPowers[site.id];
+    if (v !== undefined && v !== null && Number.isFinite(v)) values.push(v);
+  });
+  var vMin = values.length ? Math.min.apply(null, values) : 0;
+  var vMax = values.length ? Math.max.apply(null, values) : 1;
+
+  // For diverging palettes, center at zero
+  if (isDiverging) {
+    var absMax = Math.max(Math.abs(vMin), Math.abs(vMax), 0.001);
+    vMin = -absMax;
+    vMax = absMax;
+  }
+  var range = vMax - vMin || 1;
+
+  // Build normalized electrode values array (NaN for missing)
+  var electrodeValues = new Float32Array(SITES_10_20.length);
+  for (var i = 0; i < SITES_10_20.length; i++) {
+    var v = bandPowers[SITES_10_20[i].id];
+    if (v !== undefined && v !== null && Number.isFinite(v)) {
+      electrodeValues[i] = (v - vMin) / range;
+    } else {
+      electrodeValues[i] = NaN;
+    }
+  }
+
+  // Render the heatmap via Canvas
+  var canvasRes = size; // 1:1 for performance; adequate quality at 180-360px
+  var paletteLUT = _buildPaletteLUT(palette);
+  var bgColor = _hexToRgb(palette[0]);
+  var dataUri = _renderHeatmapToDataUri(canvasRes, electrodeValues, paletteLUT, bgColor);
+
+  // Fallback to SVG if canvas unavailable
+  if (!dataUri) {
+    return _renderTopoHeatmapSvgFallback(bandPowers, opts);
+  }
+
+  // Compose: Canvas <img> + SVG overlay + legend
+  var html = '<div class="ds-topo-heatmap-wrap" style="width:' + size + 'px;display:inline-block;position:relative">'
+    + '<img src="' + dataUri + '" width="' + size + '" height="' + size + '" alt="qEEG topographic heatmap — ' + band + '" style="display:block;border-radius:50%" />'
+    + _buildElectrodeOverlaySvg(bandPowers, vMin, range, palette, unit, size)
+    + _buildLegendSvg(palette, vMin, vMax, band, unit, size)
+    + '</div>';
+
+  return html;
 }
 
 
