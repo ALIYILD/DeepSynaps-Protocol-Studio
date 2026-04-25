@@ -10,7 +10,7 @@ Two consumers:
 2. The FastAPI lifespan startup hook calls `seed_default_agent_skills(session)`
    so test runs (which use `Base.metadata.create_all`, not alembic) and any
    environment whose schema was created without alembic still get the same
-   defaults. The seed is idempotent — it no-ops once the table has any rows.
+   defaults. The seed is idempotent — it inserts only missing defaults.
 """
 from __future__ import annotations
 
@@ -82,11 +82,19 @@ def default_agent_skill_rows() -> list[dict]:
 
 
 def seed_default_agent_skills(session: Session) -> int:
-    """Insert default rows when the table is empty. Returns rows inserted."""
-    existing = session.scalar(select(AgentSkill.id).limit(1))
-    if existing is not None:
-        return 0
+    """Insert any missing default rows. Returns rows inserted."""
+    existing_keys = {
+        (category_id, label)
+        for category_id, label in session.execute(
+            select(AgentSkill.category_id, AgentSkill.label)
+        ).all()
+    }
+    inserted = 0
     for row in default_agent_skill_rows():
+        key = (row["category_id"], row["label"])
+        if key in existing_keys:
+            continue
         session.add(AgentSkill(**row))
+        inserted += 1
     session.commit()
-    return len(DEFAULT_AGENT_SKILLS)
+    return inserted

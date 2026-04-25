@@ -7,8 +7,11 @@ lifespan startup, so each test starts with the seeded default rows.
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
+from app.persistence.models import AgentSkill
 from app.services.agent_skills_seed import DEFAULT_AGENT_SKILLS
+from app.services.agent_skills_seed import seed_default_agent_skills
 
 
 _DEFAULT_COUNT = len(DEFAULT_AGENT_SKILLS)
@@ -65,6 +68,22 @@ class TestAgentSkillsListVisibility:
         assert first["id"] in admin_ids
         assert first["id"] not in clinician_ids
         assert clinician_listing["total"] == _DEFAULT_COUNT - 1
+
+    def test_seed_backfills_missing_defaults(self, db_session) -> None:
+        record = db_session.scalar(
+            select(AgentSkill).where(AgentSkill.label == "Go-Live Lead")
+        )
+        assert record is not None
+        db_session.delete(record)
+        db_session.commit()
+
+        inserted = seed_default_agent_skills(db_session)
+        assert inserted >= 1
+
+        restored = db_session.scalar(
+            select(AgentSkill).where(AgentSkill.label == "Go-Live Lead")
+        )
+        assert restored is not None
 
 
 class TestAgentSkillsCrud:
