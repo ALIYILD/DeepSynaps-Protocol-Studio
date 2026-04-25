@@ -34,6 +34,11 @@ if command -v netlify.cmd >/dev/null 2>&1; then
   netlify_cmd="netlify.cmd"
 fi
 
+is_wsl=0
+if [ -r /proc/version ] && grep -qi microsoft /proc/version 2>/dev/null; then
+  is_wsl=1
+fi
+
 want_api=0
 want_web=1
 case "${1:-}" in
@@ -57,7 +62,11 @@ if [ "$want_web" = 1 ]; then
   fi
 
   echo "▶ Deploying dist/ to Netlify site $NETLIFY_SITE_ID"
-  "$netlify_cmd" deploy --dir apps/web/dist --prod --site "$NETLIFY_SITE_ID"
+  if [ "$is_wsl" = 1 ] && [ "$netlify_cmd" = "netlify.cmd" ] && command -v powershell.exe >/dev/null 2>&1; then
+    powershell.exe -NoProfile -Command "netlify deploy --dir apps/web/dist --prod --site $NETLIFY_SITE_ID"
+  else
+    "$netlify_cmd" deploy --dir apps/web/dist --prod --site "$NETLIFY_SITE_ID"
+  fi
   echo "✓ Web live: https://deepsynaps-studio-preview.netlify.app"
 fi
 
