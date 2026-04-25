@@ -44,6 +44,7 @@ RUN pip install --no-cache-dir \
     -e ./packages/condition-registry \
     -e ./packages/modality-registry \
     -e ./packages/device-registry \
+    -e ./packages/qa \
     -e ./packages/safety-engine \
     -e ./packages/generation-engine \
     -e ./packages/render-engine \
