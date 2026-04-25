@@ -246,6 +246,7 @@ test('analysis tab surfaces toolchain overview and staged workflow actions', asy
   assert.match(dom.content.innerHTML, /Decision-support only/);
   assert.match(tab.innerHTML, /Analysis Overview/);
   assert.match(tab.innerHTML, /Analysis Workspace/);
+  assert.match(tab.innerHTML, /Advanced Visualization Workspace/);
   assert.match(tab.innerHTML, /Clinical review workflow/);
   assert.match(tab.innerHTML, /Interactive analyzer surface/);
   assert.match(tab.innerHTML, /Session summary/);
@@ -322,6 +323,7 @@ test('report tab renders report actions and preserves any PDF viewer side panel 
   assert.match(tab.innerHTML, /Print Report/);
   assert.match(tab.innerHTML, /Download PDF/);
   assert.match(tab.innerHTML, /Frontal theta remains elevated/);
+  assert.match(tab.innerHTML, /qEEG report context/);
 
   const hasPdfViewer = /<(iframe|object|embed)\b/i.test(tab.innerHTML) || /application\/pdf/i.test(tab.innerHTML);
   if (hasPdfViewer) {
@@ -393,6 +395,7 @@ test('compare tab preselects oldest baseline and newest follow-up', async () => 
 
   const tab = dom.get('qeeg-tab-content');
   assert.ok(tab, 'compare tab should be rendered');
+  assert.match(tab.innerHTML, /qEEG comparison setup/);
   assert.match(tab.innerHTML, /Suggested comparison/);
   assert.match(tab.innerHTML, /early\.edf/);
   assert.match(tab.innerHTML, /late\.edf/);
