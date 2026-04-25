@@ -22,7 +22,7 @@ import torch
 
 from .conformal.wrapper import ConformalWrapper
 from .config import Settings
-from .foundation.labram import load_backbone, to_tensor
+from .foundation.labram import load_backbone, to_tensor_padded
 from .tabular.features import extract_features
 from .tabular.projector import TabularProjector
 
@@ -112,7 +112,8 @@ class QEEGEncoder:
 
         # Foundation path
         if self.backbone is not None:
-            tensor = to_tensor(eeg, device=self._device)
+            target_channels = int(getattr(self.backbone, "in_channels", eeg.shape[0]))
+            tensor = to_tensor_padded(eeg, device=self._device, target_channels=target_channels)
             with torch.no_grad():
                 foundation = self.backbone.encode(tensor).cpu().numpy().squeeze(0)
         else:

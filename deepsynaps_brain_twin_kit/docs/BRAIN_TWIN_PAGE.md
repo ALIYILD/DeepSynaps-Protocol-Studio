@@ -72,12 +72,9 @@ Enforcement:
 - Frontend also includes route guards and UI-level feature hiding for least-privilege behavior.
 
 ### Audit and navigation breadcrumbs
-- Clinician page breadcrumbs:
-  - Patients → Patient Profile → Brain Twin
-- Admin page breadcrumbs:
-  - Settings (or Admin) → Learning Loop
-
-Audit events required for page views are specified in the **Permissions & audit** section.
+- Clinician breadcrumbs: Patients → Patient Profile → Brain Twin
+- Admin breadcrumbs: Settings (or Admin) → Learning Loop
+- Audit events for page views are specified in **Permissions & audit**.
 
 ---
 
@@ -90,24 +87,25 @@ Audit events required for page views are specified in the **Permissions & audit*
 │ Patient Profile ▸ Brain Twin                                                                                 │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ [PatientIdentityStrip: Name • MRN • DOB • Sex • Patient ID]   [ConsentBadge]   Last updated: 2026-04-25 12:34 │
-│ Modality presence: [qEEG raw ✓] [qEEG features ✓] [MRI structural ✓] [fMRI ·] [Wearables ✓] [In-clinic ✓]     │
-│                  [Home therapy ·] [Video ·] [Audio ·] [Assessments ✓] [EHR text ✓]                           │
+│ Modality presence: [qEEG raw: fresh] [qEEG features: stale] [MRI structural: fresh] [fMRI: missing]           │
+│                  [Wearables: fresh] [In-clinic: fresh] [Home therapy: missing] [Video: missing]              │
+│                  [Audio: missing] [Assessments: fresh] [EHR text: stale]                                      │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │  LEFT RAIL (260px)               │  CENTER (flex)                                              │ RIGHT (320px) │
 │                                  │                                                             │               │
 │  ModalityPresenceGrid (11)       │  EmbeddingBrainViewer (NiiVue)                               │ FeedbackRail  │
 │  ┌─────────────────────────────┐ │  ┌─────────────────────────────────────────────────────────┐ │ ┌───────────┐ │
-│  │ qEEG raw        fresh   ✓    │ │  │ Glass brain + patient embedding projection              │ │ │ AI Block  │ │
-│  │ qEEG features   stale   ⚠    │ │  │ - viridis only for heatmaps                            │ │ │ ACR Ctrl  │ │
-│  │ MRI structural  fresh   ✓    │ │  │ - no diagnostic claims                                 │ │ │ Reasons   │ │
-│  │ fMRI            missing ·    │ │  │ - hover: region label + unit                            │ │ │ Corrections│ │
-│  │ wearables       fresh   ✓    │ │  └─────────────────────────────────────────────────────────┘ │ └───────────┘ │
-│  │ in-clinic       fresh   ✓    │ │                                                             │               │
-│  │ home therapy    missing ·    │ │  TrajectoryTimeline (Plotly, multi-track)                  │ ClinicianNotes│
-│  │ video           missing ·    │ │  ┌─────────────────────────────────────────────────────────┐ │ ┌───────────┐ │
-│  │ audio           missing ·    │ │  │ symptom severity (units)                                │ │ │ Notes     │ │
-│  │ assessments     fresh   ✓    │ │  │ biomarkers (units)                                      │ │ └───────────┘ │
-│  │ EHR text        stale   ⚠    │ │  │ interventions markers                                   │ Next-session  │
+│  │ qEEG raw        fresh        │ │  │ Glass brain + patient embedding projection              │ │ │ AI Block  │ │
+│  │ qEEG features   stale        │ │  │ - viridis only for heatmaps                            │ │ │ ACR Ctrl  │ │
+│  │ MRI structural  fresh        │ │  │ - no diagnostic claims                                 │ │ │ Reasons   │ │
+│  │ fMRI            missing      │ │  │ - hover: region label + unit                           │ │ │ Corrections│ │
+│  │ wearables       fresh        │ │  └─────────────────────────────────────────────────────────┘ │ └───────────┘ │
+│  │ in-clinic       fresh        │ │                                                             │               │
+│  │ home therapy    missing      │ │  TrajectoryTimeline (Plotly, multi-track)                  │ ClinicianNotes│
+│  │ video           missing      │ │  ┌─────────────────────────────────────────────────────────┐ │ ┌───────────┐ │
+│  │ audio           missing      │ │  │ symptom severity (units)                                │ │ │ Notes     │ │
+│  │ assessments     fresh        │ │  │ biomarkers (units)                                      │ │ └───────────┘ │
+│  │ EHR text        stale        │ │  │ interventions markers                                   │ Next-session  │
 │  └─────────────────────────────┘ │  │ AI predictions + conformal bands                         │ plan suggestion│
 │                                  │  │ drift/low confidence banners                             │ (advisory)    │
 │  DriftAlertList                  │  └─────────────────────────────────────────────────────────┘ │               │
@@ -117,13 +115,13 @@ Audit events required for page views are specified in the **Permissions & audit*
 │  Last AI run                     │  │ TaskHeadSection: Symptom trajectory summary              │ - Q2           │
 │  - run_id / model_version        │  │ TaskHeadSection: Intervention response hypotheses        │ - Q3           │
 │  - as_of timestamp               │  │ TaskHeadSection: Risk flags (decision-support only)      │               │
-│  - coverage / confidence         │  │ RAGCitation chips (EEG-MedRAG)                            │               │
+│  - coverage / confidence         │  │ RAGCitation chips (EEG-MedRAG)                           │               │
 │                                  │  └─────────────────────────────────────────────────────────┘ │               │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 Notes:
-- Wireframe uses symbols for quick scanning, but the UI must not rely on glyphs alone; status labels are required for accessibility.
+- Wireframes use plain-text status labels; UI must also include accessible names and not rely on color alone.
 - The embedding visualization uses NiiVue as already used in the qEEG viewer. Timeline uses Plotly as used elsewhere.
 
 ### Header bar specification
@@ -160,12 +158,7 @@ Purpose:
 - This list is patient-scoped (local drift or outlier detection) plus global model-under-review flags.
 
 Items:
-- Each alert shows:
-  - Drift detector: ADWIN, PSI, or other (per `LEARNING_LOOP.md`)
-  - Feature group: EEG, wearables, narrative, imaging, interventions
-  - Severity: low / medium / high
-  - Detected at timestamp
-  - Link to admin drift tab (only visible to Lead Clinician, Admin, ML Lead)
+- Each alert shows: detector (ADWIN, PSI), feature group, severity, detected-at timestamp, and an admin drift deep link (role-gated)
 
 Clinical behavior:
 - Drift triggers a banner in center column: “Model under review — predictions are advisory only”.
@@ -311,7 +304,7 @@ Tabs in this order:
 ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Date range: [from] [to]     Search: [event_type / patient_id / run_id / user_id]     Export: [CSV] [JSON]     │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ Immutable audit log (hash-chained)                                                       Merkle anchor: [✓]   │
+│ Immutable audit log (hash-chained)                                                 Merkle anchor: [VERIFIED] │
 │ ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────┐ │
 │ │ Event row: timestamp • event_type • actor • patient_id • run_id • hash • prev_hash                        │ │
 │ │ - click row opens details drawer with payload and verification steps                                       │ │
@@ -381,7 +374,7 @@ Drift governance:
 │ Pending retrains                                                                                               │
 │ ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────┐ │
 │ │ retrain_id | task_head | candidate_version | eval_summary | requested_by | signatures | actions            │ │
-│ │ ... signatures: [Clinical Lead ✓/·] [ML Lead ✓/·]                                                          │ │
+│ │ ... signatures: [Clinical Lead: signed/unsigned] [ML Lead: signed/unsigned]                                │ │
 │ │ actions: [Approve] [Hold] (buttons are role-aware)                                                         │ │
 │ └──────────────────────────────────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                                              │
@@ -454,12 +447,8 @@ Admin page keys:
 - `['admin', 'learning-loop', 'override-rates']`
 - `['admin', 'learning-loop', 'champion-challenger']`
 
-Cache policy:
-- Presence: staleTime 30s, refetchOnWindowFocus true
-- Embedding: staleTime 5m, refetchOnWindowFocus false
-- Timeline: staleTime 60s, refetchOnWindowFocus true
-- Report: staleTime 60s with explicit invalidate on feedback correction submission
-- Admin: default staleTime 30s, audit may be 10s depending on usage
+Cache policy (recommended defaults):
+- Presence: 30s, Embedding: 5m, Timeline: 60s, Report: 60s (invalidate on correction), Admin: 30s
 
 ### WebSocket channel (wearables live updates)
 - Endpoint: `wss://api/ws/brain-twin/:patient_id`
@@ -644,7 +633,7 @@ Payload:
 
 ## File layout
 
-Full directory trees (compact). Annotation is via folder role descriptions below the trees.
+Directory trees (compact).
 
 ### `apps/web/src/features/brain-twin/`
 
@@ -687,12 +676,6 @@ apps/web/src/features/brain-twin/
    └─ auditEvents.ts
 ```
 
-Folder annotations:
-- `components/`: UI building blocks for `/clinical/brain-twin/:patient_id`
-- `hooks/`: TanStack Query + WebSocket orchestration
-- `types/`: feature-level types and API contract typings
-- `utils/`: freshness policy, audit payload helpers, accessible “view as table” utilities
-
 ### `apps/web/src/pages/admin/learning-loop/`
 
 ```
@@ -715,11 +698,6 @@ apps/web/src/pages/admin/learning-loop/
    ├─ useLearningLoopModels.ts
    └─ useLearningLoopRetrains.ts
 ```
-
-Folder annotations:
-- `tabs/`: per-tab layouts and charts
-- `components/`: shared admin widgets (Merkle badge, signature control)
-- `hooks/`: admin query wrappers and mutations
 
 ---
 

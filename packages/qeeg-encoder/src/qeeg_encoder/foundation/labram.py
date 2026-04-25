@@ -43,6 +43,7 @@ class LaBraMBackbone(nn.Module):
     def __init__(self, embedding_dim: int = 512, in_channels: int = 32) -> None:
         super().__init__()
         self.embedding_dim = embedding_dim
+        self.in_channels = in_channels
         # Lightweight stand-in: temporal conv + global pool + linear.
         # The real backbone replaces this in-place when weights are loaded.
         self.temporal = nn.Conv1d(in_channels, 64, kernel_size=15, stride=8)
@@ -94,4 +95,33 @@ def to_tensor(eeg: np.ndarray, device: str = "cpu") -> Tensor:
     if eeg.ndim != 2:
         raise ValueError(f"expected (channels, samples), got shape {eeg.shape}")
     return torch.from_numpy(eeg.astype(np.float32)).unsqueeze(0).to(device)
+
+
+def to_tensor_padded(
+    eeg: np.ndarray,
+    *,
+    device: str = "cpu",
+    target_channels: int,
+) -> Tensor:
+    """Convert EEG to a tensor, padding/truncating channels to match a backbone contract.
+
+    Many EEG foundation models are trained with a fixed channel count. For the scaffold
+    (and for mixed montage inputs), we keep the contract stable by zero-padding missing
+    channels or truncating extra channels.
+    """
+    if eeg.ndim != 2:
+        raise ValueError(f"expected (channels, samples), got shape {eeg.shape}")
+    n_ch, n_samp = eeg.shape
+    if target_channels <= 0:
+        raise ValueError(f"target_channels must be > 0, got {target_channels}")
+
+    if n_ch == target_channels:
+        x = eeg
+    elif n_ch < target_channels:
+        pad = np.zeros((target_channels - n_ch, n_samp), dtype=eeg.dtype)
+        x = np.concatenate([eeg, pad], axis=0)
+    else:
+        x = eeg[:target_channels]
+
+    return torch.from_numpy(x.astype(np.float32)).unsqueeze(0).to(device)
 

@@ -379,7 +379,14 @@ def _build_rci_summary(improvement_summary: Optional[dict]) -> Optional[dict]:
     unchanged = int(improvement_summary.get("unchanged") or 0)
     total = improved + worsened + unchanged
     if total <= 0:
-        return None
+        # Legacy comparisons can omit RCI tallies. Return a well-shaped
+        # "stable" envelope so clients don't have to null-check.
+        return {
+            "label": "largely stable",
+            "net_response_index": 0.0,
+            "improved_share": 0.0,
+            "worsened_share": 0.0,
+        }
     net = (improved - worsened) / total
     if net >= 0.2:
         label = "meaningful improvement"
