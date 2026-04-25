@@ -2353,144 +2353,434 @@ export async function pgAuditTrail(setTopbar) {
 }
 
 // ── Pricing ───────────────────────────────────────────────────────────────────
-// Tiers are rendered from ``/api/v1/payments/config`` (source of truth is
-// apps/api/app/packages.py). The fallback below mirrors the canonical package
-// IDs and is only used when the config endpoint is unreachable.
+// Source of truth: PRICING_PAGE_SPEC.md (2025-04). Four tiers: Starter,
+// Professional (featured), Clinic, Enterprise. Annual = 15% off.
+// Stripe price IDs are placeholders until the Stripe config task lands.
+
+const PRICING_PLANS = [
+  {
+    id: 'starter',
+    name: 'Starter',
+    tagline: 'For solo practitioners',
+    priceMonthly: 99,
+    priceAnnual: 84,
+    featured: false,
+    accent: 'slate',
+    cta: { label: 'Start Free Trial \u2192', href: '/signup?plan=starter' },
+    features: [
+      '1 professional seat',
+      '50 active patients',
+      '10 qEEG reports /mo',
+      '10 personalized protocols /mo',
+      'Basic qEEG 2D topomaps + z-scores',
+      'Device-aware session runner (all modalities)',
+      'Evidence-graded protocol library (EV-A / EV-B)',
+      'Patient portal (DeepSynaps-branded)',
+      'Personal wearable sync',
+      'DOCX / PDF exports',
+      'Email support',
+    ],
+  },
+  {
+    id: 'professional',
+    name: 'Professional',
+    tagline: 'For solo practitioners running full workflows',
+    priceMonthly: 299,
+    priceAnnual: 254,
+    featured: true,
+    accent: 'teal',
+    cta: { label: 'Start Free Trial \u2192', href: '/signup?plan=professional' },
+    features: [
+      'Everything in Starter',
+      'Unlimited patients',
+      '50 qEEG reports /mo',
+      '10 MRI analyses /mo',
+      '50 personalized protocols /mo',
+      'qEEG v2 full stack (3D brain, sLORETA, connectivity, animated)',
+      'MRI Analyzer full (structural, fMRI, dMRI, SimNIBS targeting)',
+      '15 TIER A qEEG analysis modules',
+      'EV-C off-label governance',
+      'Home device integrations (Flow, Muse, Nurosym, Alpha-Stim)',
+      'Virtual Care with live vitals',
+      'Clinical-grade PDF reports with your logo',
+      'Priority email support',
+    ],
+  },
+  {
+    id: 'clinic',
+    name: 'Clinic',
+    tagline: 'For multi-user clinics running treatment operations together',
+    priceMonthly: 999,
+    priceAnnual: 849,
+    featured: false,
+    accent: 'slate',
+    cta: { label: 'Start Trial or Book Demo \u2192', href: '/signup?plan=clinic' },
+    features: [
+      'Everything in Professional',
+      'Up to 10 seats ($79 /seat /mo beyond)',
+      '300 qEEG / 50 MRI / 300 protocols /mo (pooled)',
+      'Full Monitor page \u2014 26 integrations',
+      'EHR: Epic, Cerner, Athena, DrChrono, NHS Spine',
+      'Labs & Imaging: LabCorp, Quest, PACS (DICOMweb)',
+      'Messaging: Twilio, SendGrid, Slack, PagerDuty',
+      'AI Agents (7-agent draft mode)',
+      'DeepSynaps Core \u2014 RiskEngine, PatientGraph, FeatureStore',
+      'Shared protocol & review queue',
+      'Clinic outcomes dashboard',
+      'Team audit trail & governance',
+      'Light white-label (logo + accent)',
+      'Dedicated onboarding support',
+    ],
+  },
+  {
+    id: 'enterprise',
+    name: 'Enterprise',
+    tagline: 'For multi-site groups and hospitals',
+    priceMonthly: null,
+    priceAnnual: null,
+    priceFloor: 2499,
+    featured: false,
+    accent: 'blue',
+    cta: { label: 'Talk to Sales \u2192', href: '/contact/sales' },
+    features: [
+      'Unlimited seats, sites, and volume',
+      'Full white-label (brand, domain, email, patient app)',
+      'SSO (Okta, Azure AD, SAML)',
+      'API access (REST + FHIR R4 + webhooks)',
+      'Custom workflows and AI agents',
+      'Multi-site governance',
+      'Bring your own normative DB',
+      '99.9% SLA, dedicated success manager',
+      'Private cloud / on-prem / regional residency',
+      'HIPAA BAA, UK DSPT, GDPR DPA',
+      'Implementation support',
+    ],
+  },
+];
+
+const STRIPE_PRICE_IDS = {
+  starter:      { monthly: 'price_starter_m',  annual: 'price_starter_y' },
+  professional: { monthly: 'price_pro_m',      annual: 'price_pro_y' },
+  clinic:       { monthly: 'price_clinic_m',   annual: 'price_clinic_y' },
+};
+
+// Lightweight analytics stub — replace with real provider when available.
+function _pricingTrack(event, payload) {
+  try { console.debug('[pricing]', event, payload || ''); } catch {}
+}
+
+// Full feature comparison matrix (Section 8 of spec).
+const COMPARISON_ROWS = [
+  { feature: 'Professional seats',                vals: ['1', '1', 'up to 10', 'Unlimited'] },
+  { feature: 'Active patients',                   vals: ['50', 'Unlimited', 'Unlimited', 'Unlimited'] },
+  { feature: 'qEEG reports / mo',                 vals: ['10', '50', '300', 'Unlimited'] },
+  { feature: 'MRI analyses / mo',                 vals: ['\u2014', '10', '50', 'Unlimited'] },
+  { feature: 'Personalized protocols / mo',        vals: ['10', '50', '300', 'Unlimited'] },
+  { feature: 'Evidence-graded protocol library',   vals: ['\u2713', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'Treatment-course runner',            vals: ['\u2713', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'Device-aware session execution',     vals: ['\u2713', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'Patient portal',                     vals: ['\u2713', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'qEEG v2 (2D topomaps, z-scores)',   vals: ['\u2713', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'qEEG v2 3D (three-brain-js, sLORETA)', vals: ['\u2014', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'MRI Analyzer',                       vals: ['\u2014', '\u2713', '\u2713', '\u2713'] },
+  { feature: '15 TIER A qEEG modules',             vals: ['\u2014', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'EV-C off-label governance',           vals: ['\u2014', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'Home device integrations',            vals: ['\u2014', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'Virtual Care with live vitals',       vals: ['\u2014', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'Personal wearable sync',              vals: ['\u2713', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'Monitor page (26 integrations)',      vals: ['\u2014', '\u2014', '\u2713', '\u2713'] },
+  { feature: 'EHR / EMR connectors',                vals: ['\u2014', '\u2014', '\u2713', '\u2713'] },
+  { feature: 'Lab & imaging connectors',             vals: ['\u2014', '\u2014', '\u2713', '\u2713'] },
+  { feature: 'Messaging connectors',                vals: ['\u2014', '\u2014', '\u2713', '\u2713'] },
+  { feature: 'AI Agents (7-agent draft mode)',       vals: ['\u2014', '\u2014', '\u2713', '\u2713'] },
+  { feature: 'DeepSynaps Core (RiskEngine, PatientGraph)', vals: ['\u2014', '\u2014', '\u2713', '\u2713'] },
+  { feature: 'Shared protocol & review queue',       vals: ['\u2014', '\u2014', '\u2713', '\u2713'] },
+  { feature: 'Clinic outcomes dashboard',            vals: ['\u2014', '\u2014', '\u2713', '\u2713'] },
+  { feature: 'Team audit trail & RBAC',              vals: ['\u2014', '\u2014', '\u2713', '\u2713'] },
+  { feature: 'Multi-site governance',                vals: ['\u2014', '\u2014', '\u2014', '\u2713'] },
+  { feature: 'SSO (Okta, Azure AD, SAML)',           vals: ['\u2014', '\u2014', '\u2014', '\u2713'] },
+  { feature: 'API access (REST + FHIR + webhooks)',  vals: ['\u2014', '\u2014', '\u2014', '\u2713'] },
+  { feature: 'Custom workflows',                     vals: ['\u2014', '\u2014', '\u2014', '\u2713'] },
+  { feature: 'White-label',                          vals: ['\u2014', 'Logo on reports', 'Light (logo + accent)', 'Full (brand, domain, email, app)'] },
+  { feature: 'Bring your own normative DB',          vals: ['\u2014', '\u2014', '\u2014', '\u2713'] },
+  { feature: 'Support',                              vals: ['Email', 'Priority email', 'Dedicated onboarding', 'Dedicated success manager + SLA'] },
+];
+
+const PRICING_FAQS = [
+  { q: 'What happens if I exceed my monthly qEEG or MRI quota?', a: 'Your account does not lock. Extra qEEG reports are billed at $15, MRI at $35, and protocols at $18. You can also prepay a credit pack ($200 / $500 / $2,000) for a 10% discount on all overage.' },
+  { q: 'Can I switch between plans?', a: 'Yes. Upgrades take effect immediately with prorated billing. Downgrades take effect at the end of your current billing period.' },
+  { q: 'Is there a free trial?', a: 'Yes. Every plan includes a 14-day free trial with full Professional access, including 3 qEEG reports, 1 MRI analysis, and 3 personalized protocols during the trial window. No charge until day 14.' },
+  { q: 'Does DeepSynaps replace my existing EHR?', a: 'Professional and above can run as your primary clinical system. Clinic and Enterprise integrate with Epic, Cerner, Athena, DrChrono, and NHS Spine if you already have an EHR and want DeepSynaps to sit alongside it.' },
+  { q: 'How does white-labeling work?', a: 'Clinic includes light white-labeling (your logo and accent colour on reports, patient portal, and share links). Enterprise includes full white-labeling \u2014 your brand, your domain, your email sender, and a branded patient app.' },
+  { q: 'What compliance certifications do you hold?', a: 'HIPAA BAA available on Professional and above. UK DSPT and EU GDPR DPA available on Clinic and above. SOC 2 Type II completed. HITRUST in progress. Enterprise supports regional data residency in US, UK, and EU.' },
+];
+
+const DISCOUNT_CHIPS = [
+  { label: 'Annual billing', pct: '-15%', detail: 'All tiers' },
+  { label: 'Annual prepay', pct: '-20%', detail: 'Pro and Clinic' },
+  { label: 'Academic / research', pct: '-40%', detail: '.edu / .ac.uk verification' },
+  { label: 'Resident / fellow / trainee', pct: '-50%', detail: 'On Starter' },
+  { label: 'Early adopter', pct: '-25%', detail: 'First 100 clinics, 12 months' },
+  { label: 'Referral', pct: '1 month free', detail: 'Per successful referral' },
+];
+
 export async function pgPricing(setTopbar) {
   setTopbar('Plans & Pricing', '');
   const el = document.getElementById('content');
   el.innerHTML = `<div class="spinner">${Array.from({length:5},(_,i)=>`<div class="ai-dot" style="animation-delay:${i*.12}s"></div>`).join('')}</div>`;
 
-  let serverPackages = [];
-  try {
-    const res = await api.paymentConfig();
-    serverPackages = Array.isArray(res?.packages) ? res.packages : [];
-  } catch {}
-
-  // Canonical fallback (matches apps/api/app/packages.py). Only used if the
-  // payments/config endpoint is unavailable.
-  const CANONICAL_FALLBACK = [
-    { id: 'explorer',      name: 'Explorer',          price_monthly: 0,    price_annual: 0,    seat_limit: 1,    custom_pricing: false, best_for: 'Evaluators exploring the platform', features: ['Evidence library — read', 'Device registry — limited', 'Conditions & modalities — limited'] },
-    { id: 'resident',      name: 'Resident / Fellow', price_monthly: 99,   price_annual: 990,  seat_limit: 1,    custom_pricing: false, best_for: 'Trainees and early-career clinicians', features: ['Full evidence library', 'Protocol generation (EV-A/B)', 'Assessment builder — limited', 'Handbook generation — limited', 'PDF export'] },
-    { id: 'clinician_pro', name: 'Clinician Pro',     price_monthly: 199,  price_annual: 1990, seat_limit: 1,    custom_pricing: false, best_for: 'Independent clinicians', features: ['Full protocol generator (EV-C override)', 'Uploads (qEEG / MRI / PDFs)', 'Personalized case summaries', 'Full assessment + handbook builders', 'PDF + DOCX export', 'Personal review queue & audit trail', 'Add-on: Phenotype mapping'] },
-    { id: 'clinic_team',   name: 'Clinic Team',       price_monthly: 699,  price_annual: 6990, seat_limit: 10,   custom_pricing: false, best_for: 'Clinical teams', features: ['Everything in Clinician Pro', 'Phenotype mapping included', 'Shared team review queue', 'Team audit trail & governance', 'Team templates & comments', 'Seat management (up to 10)', 'Basic white-label branding'] },
-    { id: 'enterprise',    name: 'Enterprise',        price_monthly: 2500, price_annual: null, seat_limit: null, custom_pricing: true,  best_for: 'Multi-site organizations', features: ['Everything in Clinic Team', 'Unlimited seats', 'Advanced governance rules', 'Full white-label branding', 'API / integrations', 'Automated monitoring workspace', 'SSO-ready structure'] },
-  ];
-
-  const packages = serverPackages.length > 0 ? serverPackages : CANONICAL_FALLBACK;
-  // Tier that gets the "RECOMMENDED" badge.
-  const RECOMMENDED_ID = 'clinician_pro';
+  _pricingTrack('pricing_page_viewed');
 
   let _pricingAnnual = false;
+  let _compareOpen = false;
 
-  function _formatPrice(pkg) {
-    if (pkg.custom_pricing) return 'Custom';
-    const monthly = Number(pkg.price_monthly || 0);
-    if (monthly === 0) return 'Free';
-    if (_pricingAnnual && pkg.price_annual) {
-      // Show equivalent monthly for annual billing (price_annual / 12).
-      const perMo = Math.round(Number(pkg.price_annual) / 12);
-      return '$' + perMo + '/mo';
-    }
-    return '$' + monthly + '/mo';
-  }
+  // ── Card builder ────────────────────────────────────────────────────────
+  function _buildCard(plan) {
+    const displayPrice = _pricingAnnual ? plan.priceAnnual : plan.priceMonthly;
+    const isCustom = displayPrice === null;
+    const isFeatured = !!plan.featured;
+    const isBlue = plan.accent === 'blue';
 
-  function _seatLine(pkg) {
-    if (pkg.seat_limit == null) return 'Unlimited seats';
-    return pkg.seat_limit === 1 ? '1 seat' : ('Up to ' + pkg.seat_limit + ' seats');
-  }
+    const borderStyle = isFeatured
+      ? 'border-color:var(--border-teal);box-shadow:0 0 40px rgba(0,212,188,0.12);'
+      : '';
+    const scaleClass = isFeatured ? ' pricing-card--featured' : '';
+    const badge = isFeatured
+      ? '<span class="pricing-most-popular" aria-label="Most popular plan">MOST POPULAR</span>'
+      : '';
 
-  function _pricingHTML() {
-    const billingNote = _pricingAnnual
-      ? '<span style="font-size:11px;color:var(--teal);margin-left:6px">Annual — 17% off</span>'
-      : '<span style="font-size:11px;color:var(--text-secondary);margin-left:6px">Monthly</span>';
+    const nameColor = plan.accent === 'teal' ? 'var(--teal)'
+      : plan.accent === 'blue' ? 'var(--blue)'
+      : 'var(--text-primary)';
 
-    const plans = packages.map(pkg => {
-      const recommended   = pkg.id === RECOMMENDED_ID;
-      const isEnterprise  = pkg.id === 'enterprise' || pkg.custom_pricing;
-      const isFree        = Number(pkg.price_monthly || 0) === 0 && !isEnterprise;
-      let cta;
-      if (isEnterprise)      cta = 'Book a Demo \u2192';
-      else if (isFree)       cta = 'Get Started \u2192';
-      else                   cta = 'Start Free Trial \u2192';
-      return {
-        id: pkg.id,
-        name: pkg.name,
-        price: _formatPrice(pkg),
-        forLine: pkg.best_for || _seatLine(pkg),
-        recommended,
-        features: [_seatLine(pkg), ...(Array.isArray(pkg.features) ? pkg.features : [])],
-        cta,
-        ctaPrimary: recommended,
-      };
-    });
-
-    const planCards = plans.map(p => {
-      const border = p.recommended ? 'border-color:var(--border-teal);' : '';
-      const bg     = p.recommended ? 'background:linear-gradient(135deg,rgba(0,212,188,0.05),rgba(74,158,255,0.05));' : '';
-      const badge  = p.recommended ? '<div style="display:inline-block;background:var(--teal);color:#0a1628;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;margin-bottom:10px;letter-spacing:.04em">RECOMMENDED</div>' : '';
-      const feats  = p.features.map(f => `<div style="font-size:12px;color:var(--text-secondary);padding:4px 0;display:flex;gap:8px;align-items:flex-start"><span style="color:var(--green);flex-shrink:0;margin-top:1px">&#10003;</span><span>${f}</span></div>`).join('');
-      return `<div class="card pricing-card" style="margin-bottom:0;${border}${bg}">
-        <div class="card-body" style="display:flex;flex-direction:column;height:100%">
-          ${badge}
-          <div style="font-family:var(--font-display);font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:4px">${p.name}</div>
-          <div style="font-family:var(--font-display);font-size:26px;font-weight:700;color:var(--teal);margin-bottom:4px">${p.price}</div>
-          <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:14px;line-height:1.5">For: ${p.forLine}</div>
-          <div style="margin-bottom:20px;flex:1">${feats}</div>
-          <button class="btn${p.ctaPrimary ? ' btn-primary' : ''}" style="width:100%;font-weight:${p.ctaPrimary ? '700' : '400'}" onclick="window.subscribe('${p.id}')">${p.cta}</button>
-        </div>
+    let priceBlock;
+    if (isCustom) {
+      priceBlock = `<div style="font-family:var(--font-display);font-size:36px;font-weight:600;color:var(--blue)">Custom</div>
+        ${plan.priceFloor ? `<div style="margin-top:4px;font-size:11px;color:var(--text-tertiary)">starts at $${plan.priceFloor.toLocaleString()} /mo</div>` : ''}`;
+    } else {
+      priceBlock = `<div style="display:flex;align-items:baseline;gap:6px">
+        <span style="font-family:var(--font-display);font-size:36px;font-weight:600;color:var(--text-primary)">$${displayPrice}</span>
+        <span style="font-size:12px;color:var(--text-tertiary)">/mo</span>
       </div>`;
-    }).join('');
+    }
 
-    const stats = [
-      { value: '30s', label: 'average outcome capture time' },
-      { value: '1 screen', label: 'to run the clinic day' },
-      { value: '9 validated scales', label: 'built in' },
-      { value: 'PHQ-9 crisis flagging', label: 'active' },
-    ];
-    const statBadges = stats.map(s => `<div style="text-align:center;padding:16px 12px">
-      <div style="font-family:var(--font-display);font-size:15px;font-weight:700;color:var(--teal)">${s.value}</div>
-      <div style="font-size:11.5px;color:var(--text-secondary);margin-top:3px">${s.label}</div>
-    </div>`).join('');
+    const feats = plan.features.map(f =>
+      `<li style="display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--text-secondary);padding:3px 0">
+        <span style="color:var(--teal);flex-shrink:0;margin-top:1px">\u2713</span><span>${f}</span>
+      </li>`
+    ).join('');
 
-    const faqs = [
-      { q: 'Can I try it before subscribing?', a: 'Yes \u2014 14-day free trial, no credit card required.' },
-      { q: 'Does it replace our EHR?', a: 'No \u2014 DeepSynaps is purpose-built for neuromodulation workflows. It complements your EHR rather than replacing it.' },
-      { q: 'Is outcome data secure?', a: 'Yes \u2014 all data is encrypted at rest and in transit. We support HIPAA-aligned deployment for US clinics.' },
-    ];
-    const faqItems = faqs.map((f, i) => `<div class="pricing-faq-item" style="border-bottom:1px solid var(--border);padding:12px 0">
-      <button style="width:100%;text-align:left;background:none;border:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:0;color:var(--text-primary);font-size:13px;font-weight:600" onclick="window._pricingFaq(${i})">
-        <span>${f.q}</span><span id="pricing-faq-ico-${i}" style="color:var(--text-secondary);font-size:16px">+</span>
-      </button>
-      <div id="pricing-faq-ans-${i}" style="display:none;font-size:12.5px;color:var(--text-secondary);padding-top:8px;line-height:1.6">${f.a}</div>
-    </div>`).join('');
+    let ctaStyle;
+    if (isFeatured) {
+      ctaStyle = 'background:var(--teal);color:#0a1628;border-color:var(--teal);font-weight:700;';
+    } else if (isBlue) {
+      ctaStyle = 'background:transparent;color:var(--blue);border:1px solid rgba(74,158,255,0.5);font-weight:600;';
+    } else {
+      ctaStyle = 'background:transparent;color:var(--text-secondary);border:1px solid var(--border-hover);font-weight:500;';
+    }
 
-    return `
-    <div style="text-align:center;margin-bottom:28px">
-      <div style="font-family:var(--font-display);font-size:23px;font-weight:700;color:var(--text-primary);margin-bottom:8px">The operating system for neuromodulation clinics</div>
-      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:20px">Built for TMS, Neurofeedback, and multi-modal treatment programs.</div>
-      <div style="display:inline-flex;align-items:center;gap:8px;background:var(--surface-2,rgba(255,255,255,0.04));border:1px solid var(--border);border-radius:20px;padding:4px 6px">
-        <button id="pricing-toggle-mo" style="border:none;cursor:pointer;padding:5px 14px;border-radius:16px;font-size:12px;font-weight:600;background:${!_pricingAnnual ? 'var(--teal)' : 'transparent'};color:${!_pricingAnnual ? '#0a1628' : 'var(--text-secondary)'}" onclick="window._pricingToggleBilling(false)">Monthly</button>
-        <button id="pricing-toggle-yr" style="border:none;cursor:pointer;padding:5px 14px;border-radius:16px;font-size:12px;font-weight:600;background:${_pricingAnnual ? 'var(--teal)' : 'transparent'};color:${_pricingAnnual ? '#0a1628' : 'var(--text-secondary)'}" onclick="window._pricingToggleBilling(true)">Annual ${billingNote}</button>
-      </div>
-    </div>
-    <div class="g3" style="margin-bottom:28px">${planCards}</div>
-    <div class="card" style="margin-bottom:24px;padding:0">
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);border-top:none">${statBadges}</div>
-    </div>
-    <div class="card" style="margin-bottom:0">
-      <div class="card-body" style="padding-bottom:4px">
-        <div style="font-family:var(--font-display);font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:4px">Frequently Asked Questions</div>
-        ${faqItems}
+    return `<div class="card pricing-card${scaleClass}" style="margin-bottom:0;position:relative;display:flex;flex-direction:column;${borderStyle}">
+      <div class="card-body" style="display:flex;flex-direction:column;height:100%;padding:24px 22px;">
+        ${badge}
+        <h3 style="font-family:var(--font-display);font-size:17px;font-weight:600;color:${nameColor};margin-bottom:4px">${plan.name}</h3>
+        <p style="font-size:12px;color:var(--text-tertiary);margin-bottom:20px;line-height:1.4">${plan.tagline}</p>
+        <div style="margin-bottom:24px">${priceBlock}</div>
+        <ul style="list-style:none;margin-bottom:24px;flex:1;display:flex;flex-direction:column;gap:0">${feats}</ul>
+        <button class="btn pricing-cta" style="width:100%;padding:10px 16px;border-radius:var(--radius-md);font-size:13px;cursor:pointer;transition:all var(--transition);${ctaStyle}" onclick="window._pricingCta('${plan.id}')">${plan.cta.label}</button>
       </div>
     </div>`;
   }
 
-  el.innerHTML = _pricingHTML();
+  // ── Footer strip ────────────────────────────────────────────────────────
+  function _footerStrip() {
+    const items = [
+      'Patient portal included in every plan',
+      'Audit trail and role-based access on all plans',
+      'Device-aware session workflows included',
+      'Save 15% with annual billing',
+      '14-day free trial. No setup fees. Cancel anytime.',
+    ];
+    const dots = items.map(t =>
+      `<span style="display:flex;align-items:center;gap:6px;padding:4px 12px"><span style="color:var(--teal);font-size:8px">\u25CF</span><span>${t}</span></span>`
+    ).join('');
+    return `<div class="card" style="margin-bottom:8px;overflow:visible">
+      <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:4px 16px;padding:12px 18px;font-size:11.5px;color:var(--text-tertiary)">${dots}</div>
+    </div>
+    <div style="text-align:center;font-size:12.5px;color:var(--text-tertiary);margin-bottom:32px">
+      Need help choosing a plan? <button style="background:none;border:none;cursor:pointer;color:var(--teal);font-size:12.5px;font-weight:600" onclick="window._pricingCta('talk_to_sales')">Talk to our team \u2192</button>
+    </div>`;
+  }
 
+  // ── Comparison table ────────────────────────────────────────────────────
+  function _comparisonTable() {
+    const headerCells = ['Feature', 'Starter', 'Professional', 'Clinic', 'Enterprise']
+      .map((h, i) => `<th style="padding:10px 12px;text-align:${i === 0 ? 'left' : 'center'};font-size:11px;font-weight:600;color:var(--text-primary);white-space:nowrap;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.2);position:sticky;top:0">${h}</th>`)
+      .join('');
+
+    const rows = COMPARISON_ROWS.map(r => {
+      const cells = r.vals.map(v => {
+        const isCheck = v === '\u2713';
+        const isDash = v === '\u2014';
+        const color = isCheck ? 'var(--teal)' : isDash ? 'var(--text-tertiary)' : 'var(--text-secondary)';
+        const weight = isCheck ? '700' : '400';
+        return `<td style="padding:8px 12px;text-align:center;font-size:11.5px;color:${color};font-weight:${weight};border-bottom:1px solid var(--border)">${v}</td>`;
+      }).join('');
+      return `<tr><td style="padding:8px 12px;text-align:left;font-size:11.5px;color:var(--text-secondary);border-bottom:1px solid var(--border);white-space:nowrap">${r.feature}</td>${cells}</tr>`;
+    }).join('');
+
+    return `<div style="margin-bottom:32px">
+      <button style="background:none;border:none;cursor:pointer;color:var(--teal);font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;margin:0 auto 12px" onclick="window._pricingToggleCompare()" id="pricing-compare-btn">
+        Compare all features <span id="pricing-compare-arrow" style="transition:transform 0.2s">${_compareOpen ? '\u2191' : '\u2193'}</span>
+      </button>
+      <div id="pricing-compare-wrap" style="display:${_compareOpen ? 'block' : 'none'}">
+        <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:var(--radius-lg)">
+          <table class="ds-table" style="min-width:700px;border-collapse:collapse;width:100%">
+            <thead><tr>${headerCells}</tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── Overage & credits ───────────────────────────────────────────────────
+  function _overagePanel() {
+    const cards = [
+      { price: '$15', title: 'Extra qEEG report', desc: 'Full v2 pipeline (3D, sLORETA, topomaps, PDF)' },
+      { price: '$35', title: 'Extra MRI analysis', desc: 'Structural, fMRI, dMRI, SimNIBS, NiiVue report' },
+      { price: '$18', title: 'Extra protocol', desc: 'Evidence-graded S-O-Z-O framework with biomarker mapping' },
+    ];
+    const cardHTML = cards.map(c =>
+      `<div class="card" style="margin-bottom:0;text-align:center">
+        <div class="card-body" style="padding:20px 16px">
+          <div style="font-family:var(--font-display);font-size:28px;font-weight:600;color:var(--teal);margin-bottom:6px">${c.price}</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:8px">${c.title}</div>
+          <div style="font-size:11.5px;color:var(--text-tertiary);line-height:1.5">${c.desc}</div>
+        </div>
+      </div>`
+    ).join('');
+
+    return `<div style="margin-bottom:32px">
+      <div style="font-family:var(--font-display);font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:14px;text-align:center">Flexible capacity when you need more</div>
+      <div class="g3" style="margin-bottom:16px">${cardHTML}</div>
+      <div class="card" style="margin-bottom:0">
+        <div class="card-body" style="padding:14px 18px;font-size:12px;color:var(--text-secondary);line-height:1.6">
+          <strong style="color:var(--text-primary)">Credit packs.</strong> Prepay for heavy months and save 10%. Packs of $200, $500, or $2,000 with 10% bonus credits. Auto-top-up refills when balance drops below $50. Credits never expire while your subscription is active.
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── Discounts ───────────────────────────────────────────────────────────
+  function _discountsBlock() {
+    const chips = DISCOUNT_CHIPS.map(c =>
+      `<span class="pricing-discount-chip">
+        <span style="font-weight:600;color:var(--teal);margin-right:4px">${c.pct}</span>
+        <span style="color:var(--text-secondary)">${c.label}</span>
+        <span style="color:var(--text-tertiary);margin-left:4px;font-size:10.5px">${c.detail}</span>
+      </span>`
+    ).join('');
+    return `<div style="margin-bottom:32px">
+      <div style="font-family:var(--font-display);font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:14px;text-align:center">Save more when it fits</div>
+      <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:8px">${chips}</div>
+    </div>`;
+  }
+
+  // ── FAQ accordion ───────────────────────────────────────────────────────
+  function _faqSection() {
+    const items = PRICING_FAQS.map((f, i) =>
+      `<div style="border-bottom:1px solid var(--border);padding:0">
+        <button style="width:100%;text-align:left;background:none;border:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:14px 0;color:var(--text-primary);font-size:13px;font-weight:600;font-family:var(--font-body)" onclick="window._pricingFaq(${i})">
+          <span>${f.q}</span>
+          <span id="pricing-faq-ico-${i}" style="color:var(--text-tertiary);font-size:16px;flex-shrink:0;margin-left:12px">+</span>
+        </button>
+        <div id="pricing-faq-ans-${i}" style="display:none;font-size:12.5px;color:var(--text-tertiary);padding:0 0 14px;line-height:1.7">${f.a}</div>
+      </div>`
+    ).join('');
+    return `<div style="margin-bottom:32px">
+      <div style="font-family:var(--font-display);font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:14px;text-align:center">Frequently asked questions</div>
+      <div class="card" style="margin-bottom:0"><div class="card-body">${items}</div></div>
+    </div>`;
+  }
+
+  // ── CTA banner ──────────────────────────────────────────────────────────
+  function _ctaBanner() {
+    return `<div style="border-top:1px solid var(--border);padding:40px 0 24px;text-align:center">
+      <div style="font-family:var(--font-display);font-size:22px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Start your 14-day free trial today</div>
+      <div style="font-size:13px;color:var(--text-tertiary);margin-bottom:20px;max-width:500px;margin-left:auto;margin-right:auto;line-height:1.6">
+        Full Professional access. 3 qEEG reports, 1 MRI analysis, and 3 personalized protocols included. No credit card required to explore.
+      </div>
+      <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-primary" style="padding:10px 22px;font-size:13px;font-weight:700;border-radius:var(--radius-md)" onclick="window._pricingCta('trial')">Start Free Trial \u2192</button>
+        <button class="btn" style="padding:10px 22px;font-size:13px;border-radius:var(--radius-md)" onclick="window._pricingCta('demo')">Book a Demo</button>
+      </div>
+    </div>`;
+  }
+
+  // ── Full page render ────────────────────────────────────────────────────
+  function _renderPricing() {
+    const billingHint = _pricingAnnual
+      ? '<span style="font-size:10.5px;color:var(--teal);margin-left:4px">Save 15%</span>'
+      : '';
+
+    const cards = PRICING_PLANS.map(p => _buildCard(p)).join('');
+
+    return `<div style="max-width:1200px;margin:0 auto">
+      <!-- Header -->
+      <div style="text-align:center;margin-bottom:28px;padding-top:8px">
+        <div style="font-family:var(--font-display);font-size:24px;font-weight:600;color:var(--text-primary);margin-bottom:8px;line-height:1.3">
+          One platform. Solo practitioner to hospital system.
+        </div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:22px;max-width:560px;margin-left:auto;margin-right:auto;line-height:1.6">
+          Clinical neuromodulation, qEEG + MRI intelligence, and device-aware treatment workflows. No setup fees. Cancel anytime.
+        </div>
+        <div role="tablist" style="display:inline-flex;align-items:center;gap:4px;background:var(--bg-surface);border:1px solid var(--border);border-radius:20px;padding:3px 4px">
+          <button role="tab" aria-selected="${!_pricingAnnual}" style="border:none;cursor:pointer;padding:6px 16px;border-radius:16px;font-size:12px;font-weight:600;transition:all var(--transition);background:${!_pricingAnnual ? 'var(--bg-surface-2)' : 'transparent'};color:${!_pricingAnnual ? 'var(--text-primary)' : 'var(--text-tertiary)'}" onclick="window._pricingToggleBilling(false)">Monthly</button>
+          <button role="tab" aria-selected="${_pricingAnnual}" style="border:none;cursor:pointer;padding:6px 16px;border-radius:16px;font-size:12px;font-weight:600;transition:all var(--transition);background:${_pricingAnnual ? 'var(--teal)' : 'transparent'};color:${_pricingAnnual ? '#0a1628' : 'var(--text-tertiary)'}" onclick="window._pricingToggleBilling(true)">Annual ${billingHint}</button>
+        </div>
+      </div>
+
+      <!-- Pricing cards -->
+      <div class="pricing-grid" style="margin-bottom:24px">${cards}</div>
+
+      <!-- Footer strip -->
+      ${_footerStrip()}
+
+      <!-- Comparison table -->
+      ${_comparisonTable()}
+
+      <!-- Overage & credits -->
+      ${_overagePanel()}
+
+      <!-- Discounts -->
+      ${_discountsBlock()}
+
+      <!-- FAQ -->
+      ${_faqSection()}
+
+      <!-- CTA banner -->
+      ${_ctaBanner()}
+    </div>`;
+  }
+
+  el.innerHTML = _renderPricing();
+
+  // ── Event handlers ──────────────────────────────────────────────────────
   window._pricingToggleBilling = function(annual) {
     _pricingAnnual = !!annual;
-    el.innerHTML = _pricingHTML();
+    _pricingTrack('pricing_toggle_annual', { billing: _pricingAnnual ? 'annual' : 'monthly' });
+    el.innerHTML = _renderPricing();
+  };
+
+  window._pricingToggleCompare = function() {
+    const wrap = document.getElementById('pricing-compare-wrap');
+    const arrow = document.getElementById('pricing-compare-arrow');
+    if (!wrap) return;
+    const open = wrap.style.display !== 'none';
+    wrap.style.display = open ? 'none' : 'block';
+    if (arrow) arrow.textContent = open ? '\u2193' : '\u2191';
+    if (!open) _pricingTrack('pricing_compare_expanded');
+    _compareOpen = !open;
   };
 
   window._pricingFaq = function(i) {
@@ -2500,25 +2790,29 @@ export async function pgPricing(setTopbar) {
     const open = ans.style.display !== 'none';
     ans.style.display = open ? 'none' : '';
     if (ico) ico.textContent = open ? '+' : '\u2212';
+    if (!open) _pricingTrack('pricing_faq_opened', { question_id: i });
   };
 
-  window.subscribe = async function(pkg) {
-    if (pkg === 'enterprise') { window._showEnterpriseModal(); return; }
-    // Explorer is free — no Stripe checkout. Route to the app shell.
-    if (pkg === 'explorer') { window._nav && window._nav('knowledge'); return; }
-    try {
-      const res = await api.createCheckout(pkg);
-      if (res?.checkout_url) {
-        window.location.href = res.checkout_url;
-      } else if (res?.contact_us) {
-        window._showEnterpriseModal();
-      }
-    } catch (e) {
-      const b = document.createElement('div');
-      b.className = 'notice notice-warn';
-      b.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:380px';
-      b.textContent = e.message || 'Checkout unavailable.';
-      document.body.appendChild(b); setTimeout(() => b.remove(), 5000);
+  window._pricingCta = function(planId) {
+    _pricingTrack('pricing_cta_clicked', { plan_id: planId, billing_period: _pricingAnnual ? 'annual' : 'monthly' });
+    if (planId === 'enterprise' || planId === 'talk_to_sales' || planId === 'demo') {
+      _pricingTrack('pricing_talk_to_sales');
+      window._showEnterpriseModal();
+      return;
+    }
+    if (planId === 'trial') {
+      localStorage.setItem('ds_selected_plan', 'professional');
+      localStorage.setItem('ds_selected_billing', _pricingAnnual ? 'annual' : 'monthly');
+      if (window._navPublic) { window._navPublic('signup-professional'); }
+      else if (window._nav) { window._nav('signup-professional'); }
+      return;
+    }
+    const plan = PRICING_PLANS.find(p => p.id === planId);
+    if (plan) {
+      localStorage.setItem('ds_selected_plan', plan.id);
+      localStorage.setItem('ds_selected_billing', _pricingAnnual ? 'annual' : 'monthly');
+      if (window._navPublic) { window._navPublic('signup-professional'); }
+      else if (window._nav) { window._nav('signup-professional'); }
     }
   };
 

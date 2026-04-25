@@ -1350,7 +1350,6 @@ export function renderFullView(state) {
       + renderFusionSummaryCard(state.fusion || null, report && report.patient && report.patient.patient_id)
       + renderMRIQCChips(report)
       + renderBrainAgeCard(report)
-      + renderProgressiveViewerCard(report)
       + renderTargetsPanel(report)
       + renderSliceViewer(report)
       + renderGlassBrain(report)

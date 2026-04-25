@@ -478,7 +478,7 @@ const NAV = [
   { id: 'finance-v2',         label: 'Finance',           icon: '💰' },
   { id: 'ai-agent-v2',        label: 'AI Practice Agents', icon: '🤖', ai: true },
   // Research has moved into Reports (Reports → Research tab).
-  { id: 'settings-v2',        label: 'Settings',          icon: '⚙️' },
+  // Settings is rendered pinned at the sidebar bottom (outside NAV sections).
   { id: 'tickets',            label: 'Tickets',           icon: '🎫' },
   { id: 'academy',            label: 'Academy',           icon: '🎓' },
   { id: 'marketplace',        label: 'Marketplace',       icon: '🛒' },
@@ -766,6 +766,21 @@ function renderNav() {
   </div></div>`);
 
   _navList.innerHTML = html.join('');
+
+  // ── Pinned Settings button (between nav-list and user-bar) ───────────────────
+  let settingsPin = document.getElementById('nav-settings-pin');
+  if (!settingsPin) {
+    settingsPin = document.createElement('div');
+    settingsPin.id = 'nav-settings-pin';
+    settingsPin.className = 'nav-settings-pin';
+    _navList.parentNode.insertBefore(settingsPin, document.getElementById('user-bar'));
+  }
+  const _settingsActive = currentPage === 'settings-v2' || currentPage === 'settings';
+  settingsPin.innerHTML = `
+    <div class="nav-item ${_settingsActive ? 'active' : ''}" onclick="window._nav('settings-v2')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window._nav('settings-v2')}" role="menuitem" tabindex="0" aria-current="${_settingsActive ? 'page' : 'false'}">
+      <span class="nav-icon" aria-hidden="true">${NAV_ICONS['settings']}</span>
+      <span class="nav-label">Settings</span>
+    </div>`;
 }
 
 window._toggleNavSection = function(sectionId) {
@@ -1035,8 +1050,13 @@ async function renderPatientPage() {
     case 'pt-home-session-log':  await m.pgPatientHomeSessionLog();             break;
     case 'pt-adherence-events':  await m.pgPatientAdherenceEvents();            break;
     case 'pt-adherence-history': await m.pgPatientAdherenceHistory();           break;
+    case 'pt-home-device':       await m.pgPatientHomeDevice();                break;
     case 'pt-caregiver':         await m.pgPatientCaregiver();                  break;
     case 'pt-help':              await m.pgPatientHelp();                       break;
+    case 'ai-agents':            await m.pgPatientVirtualCare();                break;
+    case 'pt-tickets':           await m.pgPatientTickets();                    break;
+    case 'pt-billing':           await m.pgPatientBilling();                    break;
+    case 'pt-academy':           await m.pgPatientAcademy();                    break;
     default:                     await m.pgPatientDashboard(currentUser);
   }
 }
@@ -1127,7 +1147,7 @@ async function renderPage() {
   el.scrollTop = 0;
 
   // ── Auth guard (synchronous — runs before any async data fetch) ───────────
-  const _publicRoutes = ['home', 'login', 'register', 'onboarding', 'onboarding-wizard'];
+  const _publicRoutes = ['home', 'login', 'register', 'onboarding', 'onboarding-wizard', 'pricing'];
   if (!_publicRoutes.includes(currentPage) && !window._isAuthenticated?.()) {
     el.innerHTML = `
       <div class="auth-required-notice">

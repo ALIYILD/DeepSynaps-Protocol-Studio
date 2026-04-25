@@ -9466,7 +9466,7 @@ function _reReadTestContext(trigger) {
 export async function pgRulesEngine(setTopbar) {
   setTopbar('Automated Alerts & Rules Engine', []);
 
-  const app = document.getElementById('app');
+  const app = document.getElementById('content');
   if (!app) return;
 
   function _reRender() {

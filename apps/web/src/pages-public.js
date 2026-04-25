@@ -72,6 +72,13 @@ window._pubOpenLogin = function(role) {
   }, 40);
 };
 
+window._pubScrollTo = function(selector) {
+  var shell = document.getElementById('public-shell');
+  var el = shell && shell.querySelector(selector);
+  var off = window.innerWidth <= 768 ? 116 : 80;
+  if (shell && el) shell.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + shell.scrollTop - off), behavior: 'smooth' });
+};
+
 window._pubInstallHint = function() {
   return /iphone|ipad|ipod/i.test(navigator.userAgent || '')
     ? 'On iPhone or iPad, tap Share and then Add to Home Screen.'
@@ -377,7 +384,7 @@ export function pgHome() {
             <button class="btn btn-ghost btn-lg" onclick="window._pubOpenLogin('clinician')">Doctor Sign In</button>
             <button class="btn btn-ghost btn-lg" onclick="window._navPublic('signup-patient')">Patient Portal</button>
             <button class="btn btn-primary btn-lg" onclick="window._startDemoTour()">${t('pub.hero.cta.tour')}</button>
-            <button class="btn btn-ghost btn-lg" onclick="window._nav('pricing')">${t('pub.hero.cta.pricing')}</button>
+            <button class="btn btn-ghost btn-lg" onclick="window._pubScrollTo('.pub-pricing-section')">${t('pub.hero.cta.pricing')}</button>
           </div>
           <div class="dv2-trust-chips">
             <span class="dv2-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>HIPAA-Aligned</span>
@@ -461,25 +468,25 @@ export function pgHome() {
         <p class="lead">Conditions, modalities, devices and safety rules live in one registry — every protocol, assessment, and patient guide stays consistent.</p>
       </div>
       <div class="pub-features dv2-features-4">
-        <div class="pub-feature" onclick="window._nav('patient-queue')" style="cursor:pointer">
+        <div class="pub-feature" onclick="window._navPublic('signup-professional')" style="cursor:pointer">
           <div class="pub-feature-tag">Live</div>
           <div class="pub-feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h12"/></svg></div>
           <div class="pub-feature-title">Today&rsquo;s Queue</div>
           <div class="pub-feature-body">Every patient, session status, overdue assessment, and missed homework in one screen. Start sessions in one click.</div>
         </div>
-        <div class="pub-feature" onclick="window._nav('protocols')" style="cursor:pointer">
+        <div class="pub-feature" onclick="window._navPublic('signup-professional')" style="cursor:pointer">
           <div class="pub-feature-tag">10-20 · fMRI</div>
           <div class="pub-feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg></div>
           <div class="pub-feature-title">Protocol Studio</div>
           <div class="pub-feature-body">DLPFC, SMA, mPFC — every target mapped to anchor electrodes with a live 10-20 preview that updates as you change montage.</div>
         </div>
-        <div class="pub-feature" onclick="window._nav('scoring-calc')" style="cursor:pointer">
+        <div class="pub-feature" onclick="window._navPublic('signup-professional')" style="cursor:pointer">
           <div class="pub-feature-tag">42 instruments</div>
           <div class="pub-feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 7h6M9 11h6M9 15h4"/></svg></div>
           <div class="pub-feature-title">Assessments</div>
           <div class="pub-feature-body">PHQ-9, GAD-7, AQ-10, ACE-Q and 38 more — automated scoring, longitudinal views, and patient-portal form delivery.</div>
         </div>
-        <div class="pub-feature" onclick="window._nav('outcomes')" style="cursor:pointer">
+        <div class="pub-feature" onclick="window._navPublic('signup-professional')" style="cursor:pointer">
           <div class="pub-feature-tag">Course-level</div>
           <div class="pub-feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg></div>
           <div class="pub-feature-title">Reports</div>
@@ -589,7 +596,7 @@ export function pgHome() {
         <p>${t('pub.cta.sub')} 14-day trial on production-parity infrastructure. No credit card required.</p>
         <div class="pub-cta-ctas">
           <button class="btn btn-primary btn-lg" onclick="window._navPublic('signup-professional')">${t('pub.cta.trial')}</button>
-          <button class="btn btn-ghost btn-lg" onclick="window._nav('pricing')">${t('pub.cta.demo')}</button>
+          <button class="btn btn-ghost btn-lg" onclick="window._pubScrollTo('.pub-pricing-section')">${t('pub.cta.demo')}</button>
         </div>
       </div>
 
@@ -605,7 +612,7 @@ export function pgHome() {
       <div class="pub-footer">
         <div>© 2026 DeepSynaps. ${t('pub.footer.tagline')}</div>
         <div class="pub-footer-links">
-          <a href="#" onclick="window._nav('pricing');return false">Pricing</a>
+          <a href="#" onclick="window._pubScrollTo('.pub-pricing-section');return false">Pricing</a>
           <a href="#" onclick="window._showSignIn();return false">Sign In</a>
           <a href="mailto:team@deepsynaps.com">Contact</a>
           <a href="#" onclick="window._navPublic('signup-patient');return false">Patient portal</a>
@@ -1027,7 +1034,7 @@ export function pgHome() {
     const banner = document.getElementById('demo-tour-banner');
     if (banner) banner.remove();
     window._demoTour = null;
-    window._nav('pricing');
+    window._pubScrollTo('.pub-pricing-section');
     if (typeof window._showNotifToast === 'function') {
       window._showNotifToast({ title: 'Tour complete', body: '14-day free trial \u2014 no credit card required.', severity: 'success' });
     }
@@ -1750,36 +1757,39 @@ export function pgHome() {
       <div style="text-align:center;margin-bottom:52px">
         <div class="pub-eyebrow">Pricing</div>
         <div class="pub-section-title" style="text-align:center;font-size:30px;margin-bottom:12px">
-          Straightforward pricing for neuromodulation practices
+          One platform. Solo practitioner to hospital system.
         </div>
-        <div style="font-size:14px;color:var(--text-secondary);line-height:1.7;max-width:520px;margin:0 auto">
-          Start as a solo practitioner or roll out across a full clinic team.
-          The patient portal is included in every paid plan.
+        <div style="font-size:14px;color:var(--text-secondary);line-height:1.7;max-width:560px;margin:0 auto">
+          Clinical neuromodulation, qEEG + MRI intelligence, and device-aware
+          treatment workflows. No setup fees. Cancel anytime.
         </div>
         <div style="display:flex;gap:20px;justify-content:center;flex-wrap:wrap;margin-top:18px">
-          <span class="pub-pricing-trust-badge">◉ Patient portal included in all paid plans</span>
-          <span class="pub-pricing-trust-badge">◈ Save 15% annually</span>
-          <span class="pub-pricing-trust-badge">◇ Enterprise onboarding available</span>
+          <span class="pub-pricing-trust-badge">Patient portal included in every plan</span>
+          <span class="pub-pricing-trust-badge">Save 15% with annual billing</span>
+          <span class="pub-pricing-trust-badge">14-day free trial</span>
         </div>
       </div>
 
       <div class="pub-pricing-grid">
 
-        <!-- Resident -->
+        <!-- Starter -->
         <div class="pub-plan-card">
           <div class="pub-plan-header">
-            <div class="pub-plan-name">Resident</div>
-            <div class="pub-plan-sub">For solo practitioners getting started</div>
+            <div class="pub-plan-name">Starter</div>
+            <div class="pub-plan-sub">For solo practitioners</div>
             <div class="pub-plan-price"><span class="pub-plan-amount">$99</span><span class="pub-plan-period">/mo</span></div>
           </div>
           <ul class="pub-plan-features">
             <li>1 professional seat</li>
-            <li>Up to 25 active patients</li>
-            <li>Evidence-graded protocol intelligence</li>
-            <li>Treatment courses &amp; session execution</li>
-            <li>Assessments &amp; basic reports</li>
-            <li>Patient portal access (clinic-provisioned)</li>
-            <li>EV-A / EV-B evidence grades</li>
+            <li>50 active patients</li>
+            <li>10 qEEG reports /mo</li>
+            <li>10 personalized protocols /mo</li>
+            <li>Basic qEEG 2D topomaps + z-scores</li>
+            <li>Device-aware session runner (all modalities)</li>
+            <li>Evidence-graded protocol library (EV-A / EV-B)</li>
+            <li>Patient portal (DeepSynaps-branded)</li>
+            <li>Personal wearable sync</li>
+            <li>DOCX / PDF exports</li>
             <li>Email support</li>
           </ul>
           <button class="pub-plan-cta" onclick="window._navPublic('signup-professional')">
@@ -1787,25 +1797,27 @@ export function pgHome() {
           </button>
         </div>
 
-        <!-- Clinician Pro — highlighted -->
+        <!-- Professional — highlighted -->
         <div class="pub-plan-card pub-plan-card--featured">
           <div class="pub-plan-popular-badge">Most Popular</div>
           <div class="pub-plan-header">
-            <div class="pub-plan-name">Clinician Pro</div>
-            <div class="pub-plan-sub">For full clinical workflows and protocol governance</div>
-            <div class="pub-plan-price"><span class="pub-plan-amount">$199</span><span class="pub-plan-period">/mo</span></div>
+            <div class="pub-plan-name" style="color:var(--teal)">Professional</div>
+            <div class="pub-plan-sub">For solo practitioners running full workflows</div>
+            <div class="pub-plan-price"><span class="pub-plan-amount">$299</span><span class="pub-plan-period">/mo</span></div>
           </div>
           <ul class="pub-plan-features">
-            <li>1 professional seat</li>
+            <li>Everything in Starter</li>
             <li>Unlimited patients</li>
-            <li>Full treatment-course workflows</li>
-            <li>Device-aware session execution runner</li>
-            <li>Evidence-graded protocol intelligence</li>
-            <li>Patient portal (clinic-provisioned)</li>
-            <li>Outcomes tracking &amp; assessments</li>
-            <li>qEEG &amp; brain data integration</li>
-            <li>DOCX / PDF report exports</li>
-            <li>EV-C override &amp; off-label governance</li>
+            <li>50 qEEG reports /mo</li>
+            <li>10 MRI analyses /mo</li>
+            <li>50 personalized protocols /mo</li>
+            <li>qEEG v2 full stack (3D brain, sLORETA, connectivity, animated)</li>
+            <li>MRI Analyzer full (structural, fMRI, dMRI, SimNIBS targeting)</li>
+            <li>15 TIER A qEEG analysis modules</li>
+            <li>EV-C off-label governance</li>
+            <li>Home device integrations (Flow, Muse, Nurosym, Alpha-Stim)</li>
+            <li>Virtual Care with live vitals</li>
+            <li>Clinical-grade PDF reports with your logo</li>
             <li>Priority email support</li>
           </ul>
           <button class="pub-plan-cta pub-plan-cta--featured" onclick="window._navPublic('signup-professional')">
@@ -1813,23 +1825,27 @@ export function pgHome() {
           </button>
         </div>
 
-        <!-- Clinic Team -->
+        <!-- Clinic -->
         <div class="pub-plan-card">
           <div class="pub-plan-header">
-            <div class="pub-plan-name">Clinic Team</div>
+            <div class="pub-plan-name">Clinic</div>
             <div class="pub-plan-sub">For multi-user clinics running treatment operations together</div>
-            <div class="pub-plan-price"><span class="pub-plan-amount">$699</span><span class="pub-plan-period">/mo</span></div>
+            <div class="pub-plan-price"><span class="pub-plan-amount">$999</span><span class="pub-plan-period">/mo</span></div>
           </div>
           <ul class="pub-plan-features">
-            <li>Up to 10 professional seats</li>
-            <li>Clinician + Technician + Reviewer roles</li>
+            <li>Everything in Professional</li>
+            <li>Up to 10 seats ($79 /seat /mo beyond)</li>
+            <li>300 qEEG / 50 MRI / 300 protocols /mo (pooled)</li>
+            <li>Full Monitor page &mdash; 26 integrations</li>
+            <li>EHR: Epic, Cerner, Athena, DrChrono, NHS Spine</li>
+            <li>Labs &amp; Imaging: LabCorp, Quest, PACS (DICOMweb)</li>
+            <li>Messaging: Twilio, SendGrid, Slack, PagerDuty</li>
+            <li>AI Agents (7-agent draft mode)</li>
+            <li>DeepSynaps Core &mdash; RiskEngine, PatientGraph, FeatureStore</li>
             <li>Shared protocol &amp; review queue</li>
-            <li>Device-aware session execution</li>
-            <li>Evidence-graded protocol intelligence</li>
-            <li>Team audit trail &amp; governance</li>
             <li>Clinic outcomes dashboard</li>
-            <li>Patient portal for all patients</li>
-            <li>Light white-labelling</li>
+            <li>Team audit trail &amp; governance</li>
+            <li>Light white-label (logo + accent)</li>
             <li>Dedicated onboarding support</li>
           </ul>
           <button class="pub-plan-cta" onclick="window._navPublic('signup-professional')" title="Start with a 14-day trial or contact us for a guided demo">
@@ -1840,17 +1856,22 @@ export function pgHome() {
         <!-- Enterprise -->
         <div class="pub-plan-card pub-plan-card--enterprise">
           <div class="pub-plan-header">
-            <div class="pub-plan-name">Enterprise</div>
-            <div class="pub-plan-sub">For multi-site groups and advanced governance</div>
+            <div class="pub-plan-name" style="color:var(--blue)">Enterprise</div>
+            <div class="pub-plan-sub">For multi-site groups and hospitals</div>
             <div class="pub-plan-price"><span class="pub-plan-amount pub-plan-amount--custom">Custom</span></div>
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">starts at $2,499 /mo</div>
           </div>
           <ul class="pub-plan-features">
-            <li>Custom seats &amp; roles</li>
+            <li>Unlimited seats, sites, and volume</li>
+            <li>Full white-label (brand, domain, email, patient app)</li>
+            <li>SSO (Okta, Azure AD, SAML)</li>
+            <li>API access (REST + FHIR R4 + webhooks)</li>
+            <li>Custom workflows and AI agents</li>
             <li>Multi-site governance</li>
-            <li>API access</li>
-            <li>SSO integration</li>
-            <li>Custom workflows</li>
-            <li>Full white-label</li>
+            <li>Bring your own normative DB</li>
+            <li>99.9% SLA, dedicated success manager</li>
+            <li>Private cloud / on-prem / regional residency</li>
+            <li>HIPAA BAA, UK DSPT, GDPR DPA</li>
             <li>Implementation support</li>
           </ul>
           <button class="pub-plan-cta pub-plan-cta--ghost" onclick="window._navPublic('signup-professional')">
@@ -1860,27 +1881,26 @@ export function pgHome() {
 
       </div>
 
-      <!-- FAQ / Trust note -->
       <!-- Support strip -->
       <div class="pub-pricing-support-strip">
         <div class="pub-pricing-support-item">
-          <span class="pub-pricing-support-icon">◉</span>
-          <span>Patient portal included in every paid plan</span>
+          <span class="pub-pricing-support-icon">&#x25CF;</span>
+          <span>Patient portal included in every plan</span>
         </div>
         <div class="pub-pricing-support-sep"></div>
         <div class="pub-pricing-support-item">
-          <span class="pub-pricing-support-icon">◈</span>
+          <span class="pub-pricing-support-icon">&#x25CF;</span>
           <span>Audit trail &amp; role-based access on all plans</span>
         </div>
         <div class="pub-pricing-support-sep"></div>
         <div class="pub-pricing-support-item">
-          <span class="pub-pricing-support-icon">◧</span>
+          <span class="pub-pricing-support-icon">&#x25CF;</span>
           <span>Device-aware session workflows included</span>
         </div>
         <div class="pub-pricing-support-sep"></div>
         <div class="pub-pricing-support-item">
-          <span class="pub-pricing-support-icon">◇</span>
-          <span>Save 15% with annual billing &nbsp;·&nbsp; No setup fees. Cancel anytime.</span>
+          <span class="pub-pricing-support-icon">&#x25CF;</span>
+          <span>14-day free trial. No setup fees. Cancel anytime.</span>
         </div>
       </div>
 
@@ -2034,19 +2054,6 @@ function _waContextMsg(key) {
   return t(keyMap[key] || 'pub.wa.msg.default');
 }
 
-function _aiStarters() {
-  return [
-    t('pub.chat.starter.modalities'),
-    t('pub.chat.starter.cost'),
-    t('pub.chat.starter.hipaa'),
-    t('pub.chat.starter.start'),
-  ];
-}
-
-let _pubChatHistory = [];
-let _pubChatBusy = false;
-let _launcherOpen = false;
-let _chatOpen = false;
 let _waContext = 'default';
 let _waObserver = null;
 
@@ -2083,9 +2090,6 @@ function _updateWaLink() {
 
 function _initContactLauncher() {
   document.getElementById('pub-launcher')?.remove();
-  _pubChatHistory = [];
-  _launcherOpen = false;
-  _chatOpen = false;
   _waContext = 'default';
 
   const el = document.createElement('div');
@@ -2093,200 +2097,15 @@ function _initContactLauncher() {
   el.setAttribute('role', 'region');
   el.setAttribute('aria-label', 'Contact options');
   el.innerHTML = `
-    <!-- Option menu -->
-    <div class="pub-launcher-menu" id="pub-launcher-menu" aria-hidden="true" role="menu">
-
-      <a class="pub-launcher-option" id="pub-wa-link" href="${_waHref()}"
-         target="_blank" rel="noopener noreferrer" role="menuitem"
-         onclick="window._launcherClose()">
-        <span class="pub-launcher-option-icon pub-launcher-option-icon--wa">${WA_SVG}</span>
-        <div class="pub-launcher-option-text">
-          <div class="pub-launcher-option-title">${t('pub.chat.wa.title')}</div>
-          <div class="pub-launcher-option-sub">${t('pub.chat.wa.sub')}</div>
-        </div>
-        <span class="pub-launcher-option-arrow">\u2192</span>
-      </a>
-
-      <div class="pub-launcher-divider"></div>
-
-      <button class="pub-launcher-option" onclick="window._launcherOpenChat()" role="menuitem">
-        <span class="pub-launcher-option-icon pub-launcher-option-icon--ai">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/><circle cx="9" cy="11" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="11" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="11" r="1" fill="currentColor" stroke="none"/></svg>
-        </span>
-        <div class="pub-launcher-option-text">
-          <div class="pub-launcher-option-title">${t('pub.chat.ai.title')}</div>
-          <div class="pub-launcher-option-sub">${t('pub.chat.ai.sub')}</div>
-        </div>
-        <span class="pub-launcher-option-arrow">\u2192</span>
-      </button>
-
-    </div>
-
-    <!-- AI chat panel -->
-    <div class="pub-chat-panel" id="pub-chat-panel" style="display:none" role="dialog" aria-label="DeepSynaps AI chat">
-      <div class="pub-chat-header">
-        <button class="pub-chat-back" onclick="window._launcherBackToMenu()" aria-label="Back">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
-        </button>
-        <div style="flex:1">
-          <div style="font-weight:700;font-size:13px;line-height:1.2">DeepSynaps AI</div>
-          <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:1px">${t('pub.chat.header.sub')}</div>
-        </div>
-        <button class="pub-chat-close" onclick="window._launcherClose()" aria-label="Close">\u2715</button>
-      </div>
-      <div style="padding:6px 14px;background:rgba(255,181,71,0.08);border-bottom:1px solid rgba(255,181,71,0.2);font-size:10.5px;color:rgba(255,181,71,0.9);display:flex;align-items:center;gap:6px">
-        <span style="font-size:11px">⚠</span>
-        <span>General platform enquiries only &mdash; not clinical advice. Consult your clinician for all medical decisions.</span>
-      </div>
-
-      <div class="pub-chat-messages" id="pub-chat-messages">
-        <div class="pub-chat-msg pub-chat-msg--agent">
-          <div class="pub-chat-bubble-msg">
-            ${t('pub.chat.ai.greeting')}
-          </div>
-        </div>
-        <div class="pub-chat-starters" id="pub-chat-starters">
-          ${_aiStarters().map(p => `<button class="pub-chat-starter-btn" onclick="window._pubChatStarter(${JSON.stringify(p)})">${p}</button>`).join('')}
-        </div>
-      </div>
-
-      <div class="pub-chat-typing" id="pub-chat-typing" style="display:none" aria-live="polite">
-        <div class="pub-chat-dot"></div><div class="pub-chat-dot"></div><div class="pub-chat-dot"></div>
-      </div>
-
-      <div class="pub-chat-input-row">
-        <input id="pub-chat-input" class="pub-chat-input" type="text"
-          placeholder="${t('pub.chat.placeholder')}" autocomplete="off"
-          onkeydown="if(event.key==='Enter')window._pubChatSend()">
-        <button class="pub-chat-send" id="pub-chat-send-btn" onclick="window._pubChatSend()" aria-label="Send">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-        </button>
-      </div>
-    </div>
-
-    <!-- FAB -->
-    <button class="pub-fab" id="pub-fab" onclick="window._launcherToggle()" aria-label="Contact us" aria-expanded="false">
-      <span class="pub-fab-icon" id="pub-fab-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-      </span>
-      <span class="pub-fab-icon" id="pub-fab-close-icon" style="display:none">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="20" height="20"><path d="M18 6L6 18M6 6l12 12"/></svg>
-      </span>
-    </button>
+    <!-- WhatsApp FAB -->
+    <a class="pub-fab pub-fab--wa" id="pub-wa-link" href="${_waHref()}"
+       target="_blank" rel="noopener noreferrer" aria-label="Message us on WhatsApp">
+      <span class="pub-fab-icon">${WA_SVG}</span>
+    </a>
   `;
   document.body.appendChild(el);
 
   _initWaContextObserver();
-
-  window._launcherToggle = function() {
-    if (_chatOpen) { window._launcherClose(); return; }
-    _launcherOpen = !_launcherOpen;
-    const menu = document.getElementById('pub-launcher-menu');
-    menu.classList.toggle('open', _launcherOpen);
-    menu.setAttribute('aria-hidden', String(!_launcherOpen));
-    document.getElementById('pub-fab').setAttribute('aria-expanded', String(_launcherOpen));
-    _setFabState(_launcherOpen ? 'open' : 'closed');
-  };
-
-  window._launcherClose = function() {
-    _launcherOpen = false; _chatOpen = false;
-    document.getElementById('pub-launcher-menu').classList.remove('open');
-    document.getElementById('pub-launcher-menu').setAttribute('aria-hidden', 'true');
-    document.getElementById('pub-chat-panel').style.display = 'none';
-    document.getElementById('pub-fab').setAttribute('aria-expanded', 'false');
-    _setFabState('closed');
-  };
-
-  window._launcherOpenChat = function() {
-    _launcherOpen = false; _chatOpen = true;
-    document.getElementById('pub-launcher-menu').classList.remove('open');
-    document.getElementById('pub-launcher-menu').setAttribute('aria-hidden', 'true');
-    document.getElementById('pub-chat-panel').style.display = 'flex';
-    document.getElementById('pub-fab').setAttribute('aria-expanded', 'true');
-    _setFabState('open');
-    setTimeout(() => document.getElementById('pub-chat-input')?.focus(), 150);
-  };
-
-  window._launcherBackToMenu = function() {
-    _chatOpen = false; _launcherOpen = true;
-    document.getElementById('pub-chat-panel').style.display = 'none';
-    const menu = document.getElementById('pub-launcher-menu');
-    menu.classList.add('open');
-    menu.setAttribute('aria-hidden', 'false');
-    _setFabState('open');
-  };
-
-  window._pubChatStarter = function(prompt) {
-    document.getElementById('pub-chat-starters')?.remove();
-    const input = document.getElementById('pub-chat-input');
-    if (input) input.value = prompt;
-    window._pubChatSend();
-  };
-
-  window._pubChatSend = async function() {
-    if (_pubChatBusy) return;
-    const input = document.getElementById('pub-chat-input');
-    const text = (input?.value || '').trim();
-    if (!text) return;
-    input.value = '';
-    document.getElementById('pub-chat-starters')?.remove();
-
-    _pubChatHistory.push({ role: 'user', content: text });
-    _appendPubMsg('user', text);
-
-    _pubChatBusy = true;
-    const sendBtn = document.getElementById('pub-chat-send-btn');
-    if (sendBtn) sendBtn.disabled = true;
-    document.getElementById('pub-chat-typing').style.display = 'flex';
-    _scrollPubChat();
-
-    try {
-      const result = await api.chatPublic(_pubChatHistory);
-      const reply = result?.reply || t('pub.chat.api_error');
-      _pubChatHistory.push({ role: 'assistant', content: reply });
-      _appendPubMsg('agent', reply);
-    } catch {
-      _appendPubMsg('agent', t('pub.chat.error'));
-    } finally {
-      _pubChatBusy = false;
-      if (sendBtn) sendBtn.disabled = false;
-      document.getElementById('pub-chat-typing').style.display = 'none';
-      _scrollPubChat();
-      document.getElementById('pub-chat-input')?.focus();
-    }
-  };
-}
-
-function _setFabState(state) {
-  const icon  = document.getElementById('pub-fab-icon');
-  const close = document.getElementById('pub-fab-close-icon');
-  const fab   = document.getElementById('pub-fab');
-  if (!icon || !close) return;
-  const isOpen = state === 'open';
-  icon.style.display  = isOpen ? 'none' : 'flex';
-  close.style.display = isOpen ? 'flex' : 'none';
-  fab?.classList.toggle('pub-fab--open', isOpen);
-}
-
-function _appendPubMsg(role, text) {
-  const el = document.getElementById('pub-chat-messages');
-  if (!el) return;
-  const safe = text
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
-    .replace(/\n/g,'<br>');
-  const div = document.createElement('div');
-  div.className = `pub-chat-msg pub-chat-msg--${role}`;
-  div.innerHTML = `<div class="pub-chat-bubble-msg">${safe}</div>`;
-  el.appendChild(div);
-  _scrollPubChat();
-}
-
-function _scrollPubChat() {
-  requestAnimationFrame(() => {
-    const el = document.getElementById('pub-chat-messages');
-    if (el) el.scrollTop = el.scrollHeight;
-  });
 }
 
 // ── Re-render public page on locale change ────────────────────────────────────
@@ -2318,6 +2137,7 @@ export function pgSignupProfessional() {
           For qualified clinicians, technicians, and clinic administrators.
           All accounts are reviewed before full protocol access is granted.
         </div>
+        ${(() => { const _sp = localStorage.getItem('ds_selected_plan'); return _sp ? `<div style="display:inline-flex;align-items:center;gap:6px;margin-bottom:12px;padding:5px 12px;border-radius:20px;background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.2);font-size:11.5px;color:var(--teal);font-weight:600">Selected plan: ${_sp.charAt(0).toUpperCase() + _sp.slice(1)}</div>` : ''; })()}
 
         <div class="step-indicator">
           <div class="step-pip active" id="pip-1"></div>
@@ -2482,13 +2302,18 @@ export function pgSignupProfessional() {
     const name     = document.getElementById('prof-clinic').value.trim();
     const email    = document.getElementById('prof-email').value.trim();
     const password = document.getElementById('prof-password').value;
+    const role     = document.getElementById('prof-role')?.value || 'clinician';
 
     try {
-      const res = await api.register(email, name, password);
+      const res = await api.register(email, name, password, role);
       if (!res?.access_token) throw new Error('Registration failed. Please try again.');
       api.setToken(res.access_token);
       if (res.refresh_token) api.setRefreshToken(res.refresh_token);
-      const user = res.user || { email, display_name: name, role: 'clinician', package_id: 'clinician_pro' };
+      const user = res.user || { email, display_name: name, role, package_id: 'clinician_pro' };
+
+      // Persist registration profile for onboarding pre-fill
+      const condition = document.getElementById('prof-condition')?.value || '';
+      try { localStorage.setItem('ds_registration_profile', JSON.stringify({ clinic: name, role, modalities: selectedMods || [], condition })); } catch (_) {}
 
       document.getElementById('prof-step-3').style.display = 'none';
       document.getElementById('prof-step-done').style.display = '';
@@ -2529,7 +2354,7 @@ export function pgSignupPatient() {
 
         <div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:24px">
           <button class="tab-btn active" id="tab-invite" onclick="window._ptTab('invite')">Invitation Code</button>
-          <button class="tab-btn" id="tab-direct" onclick="window._ptTab('direct')">Clinic Email Link</button>
+          <button class="tab-btn" id="tab-direct" onclick="window._ptTab('direct')">Already Registered?</button>
         </div>
 
         <!-- Invite code form -->
@@ -2558,20 +2383,15 @@ export function pgSignupPatient() {
           </button>
         </div>
 
-        <!-- Direct email form -->
+        <!-- Direct sign-in redirect -->
         <div id="pt-direct-form" style="display:none">
           <div class="notice notice-info" style="margin-bottom:16px">
-            If your clinic registered you directly, enter your email to receive an activation link.
+            If your clinic already created your account, you can sign in directly with the credentials they provided. No separate activation is needed.
           </div>
-          <div class="form-group">
-            <label class="form-label">Email Address</label>
-            <input id="pt-email-direct" class="form-control" type="email" placeholder="patient@email.com">
-          </div>
-          <div id="pt-direct-err" style="color:var(--red);font-size:12px;margin-bottom:10px;display:none"></div>
           <button
             style="width:100%;font-size:13px;padding:12px;border-radius:var(--radius-lg);background:linear-gradient(135deg,var(--blue-dim),var(--violet));color:#fff;font-family:var(--font-body);font-weight:600;border:none;cursor:pointer"
-            onclick="window._ptEmailSend()">
-            Send Activation Link &rarr;
+            onclick="window._showSignIn()">
+            Sign In &rarr;
           </button>
         </div>
 
@@ -2624,19 +2444,6 @@ export function pgSignupPatient() {
       err.textContent = e.message || 'Activation failed. Please check your invite code and try again.';
       err.style.display = '';
     }
-  };
-
-  window._ptEmailSend = function() {
-    const email = document.getElementById('pt-email-direct').value.trim();
-    const err   = document.getElementById('pt-direct-err');
-    err.style.display = 'none';
-    if (!email) { err.textContent = 'Email required.'; err.style.display = ''; return; }
-    document.getElementById('pt-direct-form').innerHTML = `
-      <div class="notice notice-ok">
-        To receive an activation link for <strong>${email}</strong>, please contact your clinic directly.
-        Your clinic administrator will send you an activation email.
-      </div>
-    `;
   };
 }
 
