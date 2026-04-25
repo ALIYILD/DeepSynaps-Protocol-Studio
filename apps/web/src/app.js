@@ -176,6 +176,8 @@ let _modMRIAnalysis = null;
 async function loadMRIAnalysis() { return (_modMRIAnalysis ??= await import('./pages-mri-analysis.js')); }
 let _modMonitor = null;
 async function loadMonitor() { return (_modMonitor ??= await import('./pages-monitor.js')); }
+let _modDeviceDashboard = null;
+async function loadDeviceDashboard() { return (_modDeviceDashboard ??= await import('./pages-device-dashboard.js')); }
 let _modPatientTimeline = null;
 async function loadPatientTimeline() { return (_modPatientTimeline ??= await import('./pages-patient-timeline.js')); }
 let _modMonitoring = null;
@@ -1488,6 +1490,7 @@ async function renderPage() {
     case 'brain-twin':         { const m = await loadBrainTwin(); await m.pgBrainTwin(setTopbar, navigate); break; }
     case 'deeptwin':           { const m = await loadDeeptwin(); await m.pgDeeptwin(setTopbar, navigate); break; }
     case 'monitor':            { const m = await loadMonitor(); await m.pgMonitor(setTopbar, navigate); break; }
+    case 'device-dashboard':   { const m = await loadDeviceDashboard(); await m.pgDeviceDashboard(setTopbar, navigate); break; }
     case 'protocol-studio':    { const m = await loadClinicalHubs(); await m.pgProtocolHub(setTopbar, navigate); break; }
     case 'brainmap-v2':        { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar, navigate); break; }
     case 'qeeg-analysis':      { const m = await loadQEEGAnalysis(); await m.pgQEEGAnalysis(setTopbar, navigate); break; }

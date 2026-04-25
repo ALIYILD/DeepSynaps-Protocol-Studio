@@ -141,10 +141,10 @@ export async function pgPatientHub(setTopbar, navigate) {
   window._patientHubTab = tab;
 
   const TAB_META = {
-    patients:      { label: 'Patients',           color: 'var(--blue)'   },
-    courses:       { label: 'Treatment Courses',   color: 'var(--teal)'   },
-    prescriptions: { label: 'Prescriptions',       color: 'var(--violet)' },
-    history:       { label: 'Medical History',     color: 'var(--amber)'  },
+    patients:   { label: 'Patients',       color: 'var(--blue)'   },
+    analytics:  { label: 'Analytics',      color: 'var(--teal)'   },
+    alerts:     { label: 'Alerts',         color: 'var(--amber)'  },
+    reports:    { label: 'Reports',        color: 'var(--violet)' },
   };
 
   function tabBar() {
@@ -1291,6 +1291,90 @@ export async function pgPatientHub(setTopbar, navigate) {
     }
 
     await loadPatient(window._phMhPatientId);
+  }
+
+  // ── ANALYTICS TAB ─────────────────────────────────────────────────────────
+  else if (tab === 'analytics') {
+    setTopbar('Patients', '');
+    el.innerHTML = `<div class="ch-shell">
+      <div class="d2p7-tab-bar">${tabBar()}</div>
+      <div class="card" style="padding:32px;text-align:center">
+        <div style="font-size:32px;margin-bottom:12px">&#128202;</div>
+        <h3 style="color:var(--text-primary);margin:0 0 8px">Cohort Analytics</h3>
+        <p style="color:var(--text-secondary);font-size:13px;max-width:420px;margin:0 auto 16px">
+          Population-level outcome trends, treatment response rates, and cohort comparisons.
+          Select a patient to view their full Bloomberg-style data terminal.
+        </p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-top:20px;text-align:left">
+          <div class="card" style="padding:14px"><div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:6px">Avg PHQ-9 Change</div><div style="font-size:22px;font-weight:700;color:var(--green);font-family:var(--font-display)">-6.2</div><div style="font-size:11px;color:var(--text-secondary)">across 5 patients</div></div>
+          <div class="card" style="padding:14px"><div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:6px">Response Rate</div><div style="font-size:22px;font-weight:700;color:var(--teal);font-family:var(--font-display)">64%</div><div style="font-size:11px;color:var(--text-secondary)">3 of 5 responding</div></div>
+          <div class="card" style="padding:14px"><div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:6px">Avg Adherence</div><div style="font-size:22px;font-weight:700;color:var(--blue);font-family:var(--font-display)">78%</div><div style="font-size:11px;color:var(--text-secondary)">session attendance</div></div>
+          <div class="card" style="padding:14px"><div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:6px">Active Courses</div><div style="font-size:22px;font-weight:700;color:var(--violet);font-family:var(--font-display)">4</div><div style="font-size:11px;color:var(--text-secondary)">across modalities</div></div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── ALERTS TAB ────────────────────────────────────────────────────────────
+  else if (tab === 'alerts') {
+    setTopbar('Patients', '');
+    el.innerHTML = `<div class="ch-shell">
+      <div class="d2p7-tab-bar">${tabBar()}</div>
+      <div class="card" style="padding:24px">
+        <h3 style="color:var(--text-primary);margin:0 0 16px;font-size:15px">&#128276; Clinical Alerts</h3>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="padding:12px 16px;border-radius:8px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);display:flex;align-items:center;gap:12px">
+            <span style="font-size:18px">&#9888;</span>
+            <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--amber)">Assessment Overdue</div><div style="font-size:11px;color:var(--text-secondary)">Samantha Li - PHQ-9 assessment due 2 days ago</div></div>
+            <button class="btn btn-sm" onclick="window._patientHubTab='patients';window._nav('patients-hub')">View</button>
+          </div>
+          <div style="padding:12px 16px;border-radius:8px;background:rgba(0,212,188,0.06);border:1px solid rgba(0,212,188,0.15);display:flex;align-items:center;gap:12px">
+            <span style="font-size:18px">&#10003;</span>
+            <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--teal)">Treatment Milestone</div><div style="font-size:11px;color:var(--text-secondary)">Marcus Chen completed session 10 of 15 (rTMS course)</div></div>
+            <button class="btn btn-sm" onclick="window._patientHubTab='patients';window._nav('patients-hub')">View</button>
+          </div>
+          <div style="padding:12px 16px;border-radius:8px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.15);display:flex;align-items:center;gap:12px">
+            <span style="font-size:18px">&#128200;</span>
+            <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--blue)">Outcome Improvement</div><div style="font-size:11px;color:var(--text-secondary)">Elena Vasquez - Pain VAS decreased 30% over 4 weeks</div></div>
+            <button class="btn btn-sm" onclick="window._patientHubTab='patients';window._nav('patients-hub')">View</button>
+          </div>
+          <div style="padding:12px 16px;border-radius:8px;background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.15);display:flex;align-items:center;gap:12px">
+            <span style="font-size:18px">&#128268;</span>
+            <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--violet)">Wearable Alert</div><div style="font-size:11px;color:var(--text-secondary)">Aisha Rahman - HRV dropped below baseline for 3 consecutive days</div></div>
+            <button class="btn btn-sm" onclick="window._patientHubTab='patients';window._nav('patients-hub')">View</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── REPORTS TAB ───────────────────────────────────────────────────────────
+  else if (tab === 'reports') {
+    setTopbar('Patients', '');
+    el.innerHTML = `<div class="ch-shell">
+      <div class="d2p7-tab-bar">${tabBar()}</div>
+      <div class="card" style="padding:24px">
+        <h3 style="color:var(--text-primary);margin:0 0 16px;font-size:15px">&#128196; Clinical Reports</h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
+          <div class="card" style="padding:16px;cursor:pointer;border-left:3px solid var(--teal)" onclick="alert('Report generation coming soon')">
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Treatment Summary</div>
+            <div style="font-size:11px;color:var(--text-secondary)">Generate a comprehensive treatment summary report for any patient.</div>
+          </div>
+          <div class="card" style="padding:16px;cursor:pointer;border-left:3px solid var(--blue)" onclick="alert('Report generation coming soon')">
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Outcome Report</div>
+            <div style="font-size:11px;color:var(--text-secondary)">Export outcome measures, trends, and response rates as PDF or FHIR.</div>
+          </div>
+          <div class="card" style="padding:16px;cursor:pointer;border-left:3px solid var(--violet)" onclick="alert('Report generation coming soon')">
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">DeepTwin Report</div>
+            <div style="font-size:11px;color:var(--text-secondary)">Full digital twin analysis including EEG, MRI, and biometric correlations.</div>
+          </div>
+          <div class="card" style="padding:16px;cursor:pointer;border-left:3px solid var(--amber)" onclick="alert('Report generation coming soon')">
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Cohort Comparison</div>
+            <div style="font-size:11px;color:var(--text-secondary)">Compare patient outcomes against similar cohorts and benchmarks.</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
   }
 }
 

@@ -52,6 +52,11 @@ import {
   outcomeGoalMarker,
   computeCountdown,
   phaseLabel,
+  DEMO_PATIENT_DASH,
+  multiLineChartSVG,
+  barChartSVG,
+  eegWaveformSVG,
+  correlationHTML,
 } from './patient-dashboard-helpers.js';
 
 if (import.meta.env?.DEV) {
@@ -3208,7 +3213,7 @@ export async function pgProfile(setTopbar, navigate) {
   </div>
 
   <div class="tab-bar">
-    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'brain-twin', 'assessments', 'notes', 'phenotype', 'consent', 'monitoring', 'home-therapy'].map(t => {
+    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'brain-twin', 'assessments', 'patient-dash', 'notes', 'phenotype', 'consent', 'monitoring', 'home-therapy'].map(t => {
       const labels = {
         'overview':     'Dashboard',
         'courses':      'Treatment Courses',
@@ -3217,6 +3222,7 @@ export async function pgProfile(setTopbar, navigate) {
         'protocol':     'AI Protocol',
         'brain-twin':   'Deeptwin',
         'assessments':  'Assessments',
+        'patient-dash': 'Patient Dash',
         'notes':        'Clinical Notes',
         'phenotype':    'Phenotype',
         'consent':      'Consent',
@@ -3890,6 +3896,331 @@ function renderDashboardOverview(pt, sessions, courses, ctx = {}) {
   `;
 }
 
+// ── Patient Dash — Bloomberg Terminal-style Data Visualization ───────────────
+function renderPatientDash(pt, sessions, courses, ctx = {}) {
+  const { isDemoPatient: isDemo } = ctx;
+  const pid = String(pt.id).replace(/'/g, "\\'");
+  const d = DEMO_PATIENT_DASH;
+
+  // Inject Bloomberg Terminal CSS once
+  if (!document.getElementById('pdash-bloomberg-styles')) {
+    const s = document.createElement('style');
+    s.id = 'pdash-bloomberg-styles';
+    s.textContent = `
+      .bb-shell{font-family:var(--font-mono);color:var(--text-primary)}
+      .bb-header{display:flex;align-items:center;gap:12px;padding:10px 16px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:var(--radius-md);margin-bottom:12px}
+      .bb-header-title{font-size:14px;font-weight:700;color:var(--teal);letter-spacing:1px;text-transform:uppercase}
+      .bb-header-id{font-size:10px;color:var(--text-tertiary);margin-left:auto;font-family:var(--font-mono)}
+      .bb-header-live{display:inline-flex;align-items:center;gap:5px;font-size:10px;color:var(--green);font-weight:600}
+      .bb-header-live::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--green);animation:bb-pulse 2s infinite}
+      @keyframes bb-pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+      .bb-ticker{display:flex;gap:8px;overflow-x:auto;padding:8px 0;margin-bottom:12px;scrollbar-width:none}
+      .bb-ticker::-webkit-scrollbar{display:none}
+      .bb-tick{flex-shrink:0;padding:8px 14px;background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:var(--radius-sm);display:flex;flex-direction:column;gap:2px;min-width:120px}
+      .bb-tick-label{font-size:9px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;font-weight:600}
+      .bb-tick-val{font-size:18px;font-weight:700;font-family:var(--font-display);line-height:1.1}
+      .bb-tick-delta{font-size:10px;font-weight:600}
+      .bb-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+      @media(max-width:900px){.bb-grid{grid-template-columns:1fr}}
+      .bb-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px}
+      @media(max-width:1100px){.bb-grid-3{grid-template-columns:1fr 1fr}}
+      @media(max-width:700px){.bb-grid-3{grid-template-columns:1fr}}
+      .bb-panel{background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden}
+      .bb-panel-hdr{padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+      .bb-panel-hdr h4{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin:0}
+      .bb-panel-hdr .bb-tag{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:600;margin-left:auto}
+      .bb-panel-body{padding:12px 14px}
+      .bb-pred-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.04)}
+      .bb-pred-row:last-child{border-bottom:none}
+      .bb-pred-metric{font-size:11px;color:var(--text-secondary);flex:1}
+      .bb-pred-val{font-size:13px;font-weight:700;font-family:var(--font-display)}
+      .bb-pred-conf{font-size:9px;color:var(--text-tertiary);width:50px;text-align:right}
+      .bb-mri-stat{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)}
+      .bb-mri-stat:last-child{border-bottom:none}
+      .bb-mri-label{font-size:11px;color:var(--text-secondary);flex:1}
+      .bb-mri-val{font-size:13px;font-weight:700;font-family:var(--font-display);color:var(--text-primary)}
+      .bb-mri-change{font-size:10px;font-weight:600}
+      .bb-dt-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)}
+      .bb-dt-row:last-child{border-bottom:none}
+      .bb-dt-label{font-size:11px;color:var(--text-secondary);flex:1}
+      .bb-dt-val{font-size:13px;font-weight:700;font-family:var(--font-display)}
+      .bb-gauge{height:6px;border-radius:3px;background:rgba(255,255,255,0.06);overflow:hidden}
+      .bb-gauge-fill{height:6px;border-radius:3px;transition:width .3s}
+      .bb-src-chip{display:inline-flex;padding:3px 8px;border-radius:4px;font-size:9px;font-weight:600;background:rgba(0,212,188,0.08);color:var(--teal);border:1px solid rgba(0,212,188,0.15);margin:2px}
+    `;
+    document.head.appendChild(s);
+  }
+
+  // ── Compute ticker values ──
+  const outcomes = d.outcomes;
+  const bio = d.biometrics;
+  const phqCur = outcomes.phq9[outcomes.phq9.length - 1];
+  const phqPrev = outcomes.phq9[0];
+  const phqDelta = phqPrev - phqCur;
+  const gadCur = outcomes.gad7[outcomes.gad7.length - 1];
+  const gadPrev = outcomes.gad7[0];
+  const gadDelta = gadPrev - gadCur;
+  const hrvCur = bio.hrv[bio.hrv.length - 1];
+  const hrvPrev = bio.hrv[0];
+  const hrvDelta = hrvCur - hrvPrev;
+  const sleepCur = bio.sleep[bio.sleep.length - 1];
+  const rhrCur = bio.rhr[bio.rhr.length - 1];
+  const cortCur = bio.cortisol[bio.cortisol.length - 1];
+  const cortPrev = bio.cortisol[0];
+  const cortDelta = cortPrev - cortCur;
+  const dt = d.deepTwin;
+
+  const _delta = (val, good) => {
+    const c = good ? 'var(--green)' : 'var(--red,#f43f5e)';
+    const sign = val > 0 ? '+' : '';
+    return '<span class="bb-tick-delta" style="color:' + c + '">' + sign + val + '</span>';
+  };
+
+  return `<div class="bb-shell">
+    <!-- Terminal Header -->
+    <div class="bb-header">
+      <span class="bb-header-title">DEEPTWIN TERMINAL</span>
+      <span class="bb-header-live">LIVE</span>
+      <span style="font-size:10px;color:var(--text-tertiary)">${pt.first_name} ${pt.last_name} | ${pt.primary_condition || '—'} | ${pt.primary_modality || '—'}</span>
+      <span class="bb-header-id">${dt.id} | v${dt.version} | Updated: ${dt.updated}</span>
+    </div>
+
+    <!-- Ticker Bar -->
+    <div class="bb-ticker">
+      <div class="bb-tick"><span class="bb-tick-label">PHQ-9</span><span class="bb-tick-val" style="color:var(--green)">${phqCur}</span>${_delta(-phqDelta, true)} from baseline</div>
+      <div class="bb-tick"><span class="bb-tick-label">GAD-7</span><span class="bb-tick-val" style="color:var(--green)">${gadCur}</span>${_delta(-gadDelta, true)} from baseline</div>
+      <div class="bb-tick"><span class="bb-tick-label">HRV</span><span class="bb-tick-val" style="color:var(--teal)">${hrvCur}<span style="font-size:10px;font-weight:400"> ms</span></span>${_delta(hrvDelta, true)}</div>
+      <div class="bb-tick"><span class="bb-tick-label">RHR</span><span class="bb-tick-val" style="color:var(--blue)">${rhrCur}<span style="font-size:10px;font-weight:400"> bpm</span></span></div>
+      <div class="bb-tick"><span class="bb-tick-label">Sleep</span><span class="bb-tick-val" style="color:var(--blue)">${sleepCur}<span style="font-size:10px;font-weight:400">h</span></span></div>
+      <div class="bb-tick"><span class="bb-tick-label">Cortisol</span><span class="bb-tick-val" style="color:var(--amber)">${cortCur}</span>${_delta(-cortDelta, true)} nmol/L</div>
+      <div class="bb-tick"><span class="bb-tick-label">Efficacy</span><span class="bb-tick-val" style="color:var(--teal)">${Math.round(dt.efficacy * 100)}%</span></div>
+      <div class="bb-tick"><span class="bb-tick-label">Risk</span><span class="bb-tick-val" style="color:${dt.risk < 0.3 ? 'var(--green)' : 'var(--amber)'}">${Math.round(dt.risk * 100)}%</span></div>
+    </div>
+
+    <!-- Row 1: Outcome Trends + Biometrics -->
+    <div class="bb-grid">
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>Outcome Trends (12 wk)</h4><span class="bb-tag" style="background:rgba(0,212,188,0.1);color:var(--teal)">IMPROVING</span></div>
+        <div class="bb-panel-body">
+          ${multiLineChartSVG(
+            [outcomes.phq9, outcomes.gad7, outcomes.isi],
+            outcomes.dates.map(d => d.slice(5)),
+            ['var(--green)', 'var(--blue)', 'var(--amber)'],
+            ['PHQ-9', 'GAD-7', 'ISI'],
+            { h: 170 }
+          )}
+        </div>
+      </div>
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>Biometrics (30 d)</h4><span class="bb-tag" style="background:rgba(74,158,255,0.1);color:var(--blue)">DAILY</span></div>
+        <div class="bb-panel-body">
+          ${multiLineChartSVG(
+            [bio.hrv, bio.sleep.map(v => v * 7)],
+            bio.dates.map(d => d.slice(5)),
+            ['var(--teal)', 'var(--blue)'],
+            ['HRV (ms)', 'Sleep (x7)'],
+            { h: 170 }
+          )}
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 2: EEG + Session Quality + Correlations -->
+    <div class="bb-grid-3">
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>EEG Power Bands</h4><span class="bb-tag" style="background:rgba(139,92,246,0.1);color:var(--violet)">NEURO</span></div>
+        <div class="bb-panel-body">
+          ${eegWaveformSVG(d.eeg)}
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+            <div style="font-size:10px;color:var(--text-tertiary)">Alpha Asymmetry: <span style="color:var(--green);font-weight:600">${d.eeg.alpha_asymmetry[d.eeg.alpha_asymmetry.length-1].toFixed(2)}</span></div>
+            <div style="font-size:10px;color:var(--text-tertiary)">Coherence: <span style="color:var(--teal);font-weight:600">${d.eeg.coherence[d.eeg.coherence.length-1].toFixed(2)}</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>Session Quality</h4><span class="bb-tag" style="background:rgba(245,158,11,0.1);color:var(--amber)">QUALITY</span></div>
+        <div class="bb-panel-body">
+          <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:6px">Comfort Score (1-10)</div>
+          ${barChartSVG(d.sessionMetrics.comfort, d.sessionMetrics.labels, 'var(--teal)', { h: 100 })}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:10px;margin-bottom:6px">Impedance (kohm)</div>
+          ${barChartSVG(d.sessionMetrics.impedance, d.sessionMetrics.labels, 'var(--amber)', { h: 80 })}
+        </div>
+      </div>
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>Correlations</h4><span class="bb-tag" style="background:rgba(0,212,188,0.1);color:var(--teal)">AI</span></div>
+        <div class="bb-panel-body" style="max-height:340px;overflow-y:auto;scrollbar-width:thin">
+          ${correlationHTML(d.correlations)}
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 3: Predictions + MRI + DeepTwin Summary -->
+    <div class="bb-grid-3">
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>Predictions</h4><span class="bb-tag" style="background:rgba(34,197,94,0.1);color:var(--green)">FORECAST</span></div>
+        <div class="bb-panel-body">
+          ${d.predictions.map(p => {
+            const val = p.predicted != null ? p.predicted : (p.label || (p.probability != null ? Math.round(p.probability * 100) + '%' : '—'));
+            const conf = Math.round(p.confidence * 100);
+            return '<div class="bb-pred-row">' +
+              '<div class="bb-pred-metric">' + p.metric + (p.risk ? ' <span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(34,197,94,0.1);color:var(--green)">' + p.risk + '</span>' : '') + '</div>' +
+              '<div class="bb-pred-val" style="color:' + (p.color || 'var(--teal)') + '">' + val + (p.ci_low != null ? ' <span style="font-size:9px;color:var(--text-tertiary)">(' + p.ci_low + '-' + p.ci_high + ')</span>' : '') + '</div>' +
+              '<div class="bb-pred-conf">' + conf + '% conf</div>' +
+              '</div>';
+          }).join('')}
+        </div>
+      </div>
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>MRI / Structural</h4><span class="bb-tag" style="background:rgba(74,158,255,0.1);color:var(--blue)">IMAGING</span></div>
+        <div class="bb-panel-body">
+          <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:8px">Last Scan: ${d.mri.last_scan}</div>
+          <div class="bb-mri-stat">
+            <span class="bb-mri-label">Hippocampus (L)</span>
+            <span class="bb-mri-val">${d.mri.hippo_l} cm<sup>3</sup></span>
+            <span class="bb-mri-change" style="color:var(--green)">+${d.mri.hippo_change}%</span>
+          </div>
+          <div class="bb-mri-stat">
+            <span class="bb-mri-label">Hippocampus (R)</span>
+            <span class="bb-mri-val">${d.mri.hippo_r} cm<sup>3</sup></span>
+            <span class="bb-mri-change" style="color:var(--green)">+${d.mri.hippo_change}%</span>
+          </div>
+          <div class="bb-mri-stat">
+            <span class="bb-mri-label">DLPFC Thickness</span>
+            <span class="bb-mri-val">${d.mri.dlpfc} mm</span>
+            <span class="bb-mri-change" style="color:var(--green)">+${d.mri.cortical_change}%</span>
+          </div>
+          <div class="bb-mri-stat">
+            <span class="bb-mri-label">ACC Thickness</span>
+            <span class="bb-mri-val">${d.mri.acc} mm</span>
+          </div>
+          <div class="bb-mri-stat">
+            <span class="bb-mri-label">White Matter FA</span>
+            <span class="bb-mri-val">${d.mri.wm_fa}</span>
+            <span class="bb-mri-change" style="color:var(--green)">+${d.mri.wm_change}%</span>
+          </div>
+          <div style="margin-top:8px">
+            ${d.mri.findings.map(f => '<div style="font-size:10px;color:var(--text-secondary);padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.03)">&#8226; ' + f + '</div>').join('')}
+          </div>
+        </div>
+      </div>
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>DeepTwin Summary</h4><span class="bb-tag" style="background:rgba(0,212,188,0.1);color:var(--teal)">AI MODEL</span></div>
+        <div class="bb-panel-body">
+          <div class="bb-dt-row">
+            <span class="bb-dt-label">Trajectory</span>
+            <span class="bb-dt-val" style="color:var(--green)">${dt.trajectory}</span>
+          </div>
+          <div class="bb-dt-row">
+            <span class="bb-dt-label">Trajectory Confidence</span>
+            <span class="bb-dt-val" style="color:var(--teal)">${Math.round(dt.trajectory_conf * 100)}%</span>
+          </div>
+          <div style="padding:4px 0"><div class="bb-gauge"><div class="bb-gauge-fill" style="width:${Math.round(dt.trajectory_conf * 100)}%;background:var(--teal)"></div></div></div>
+          <div class="bb-dt-row">
+            <span class="bb-dt-label">Treatment Efficacy</span>
+            <span class="bb-dt-val" style="color:var(--green)">${Math.round(dt.efficacy * 100)}%</span>
+          </div>
+          <div style="padding:4px 0"><div class="bb-gauge"><div class="bb-gauge-fill" style="width:${Math.round(dt.efficacy * 100)}%;background:var(--green)"></div></div></div>
+          <div class="bb-dt-row">
+            <span class="bb-dt-label">Engagement Score</span>
+            <span class="bb-dt-val" style="color:var(--teal)">${Math.round(dt.engagement * 100)}%</span>
+          </div>
+          <div style="padding:4px 0"><div class="bb-gauge"><div class="bb-gauge-fill" style="width:${Math.round(dt.engagement * 100)}%;background:var(--teal)"></div></div></div>
+          <div class="bb-dt-row">
+            <span class="bb-dt-label">Risk Score</span>
+            <span class="bb-dt-val" style="color:${dt.risk < 0.3 ? 'var(--green)' : 'var(--amber)'}">${Math.round(dt.risk * 100)}%</span>
+          </div>
+          <div style="padding:4px 0"><div class="bb-gauge"><div class="bb-gauge-fill" style="width:${Math.round(dt.risk * 100)}%;background:${dt.risk < 0.3 ? 'var(--green)' : 'var(--amber)'}"></div></div></div>
+          <div style="font-size:10px;color:var(--text-secondary);margin-top:8px;line-height:1.5">${dt.bio_summary}</div>
+          <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:3px">
+            ${dt.sources.map(s => '<span class="bb-src-chip">' + s + '</span>').join('')}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 4: Additional Charts -->
+    <div class="bb-grid">
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>Cortisol & Steps (30 d)</h4><span class="bb-tag" style="background:rgba(245,158,11,0.1);color:var(--amber)">BIOMARKER</span></div>
+        <div class="bb-panel-body">
+          ${multiLineChartSVG(
+            [bio.cortisol, bio.steps.map(v => v / 400)],
+            bio.dates.map(d => d.slice(5)),
+            ['var(--amber)', 'var(--green)'],
+            ['Cortisol', 'Steps/400'],
+            { h: 140 }
+          )}
+        </div>
+      </div>
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>EEG Longitudinal</h4><span class="bb-tag" style="background:rgba(139,92,246,0.1);color:var(--violet)">TREND</span></div>
+        <div class="bb-panel-body">
+          ${multiLineChartSVG(
+            [d.eeg.alpha_power, d.eeg.beta_power, d.eeg.theta_power],
+            d.eeg.labels,
+            ['var(--teal)', 'var(--blue)', 'var(--violet)'],
+            ['Alpha', 'Beta', 'Theta'],
+            { h: 140 }
+          )}
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 5: Alpha Asymmetry + Coherence + RHR -->
+    <div class="bb-grid-3">
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>Alpha Asymmetry</h4></div>
+        <div class="bb-panel-body">
+          ${multiLineChartSVG(
+            [d.eeg.alpha_asymmetry],
+            d.eeg.labels,
+            ['var(--teal)'],
+            ['FAA Index'],
+            { h: 100 }
+          )}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px">Positive shift = left-dominant activation (associated with approach motivation)</div>
+        </div>
+      </div>
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>Coherence</h4></div>
+        <div class="bb-panel-body">
+          ${multiLineChartSVG(
+            [d.eeg.coherence],
+            d.eeg.labels,
+            ['var(--blue)'],
+            ['Interhemispheric'],
+            { h: 100 }
+          )}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px">Higher coherence = improved functional connectivity</div>
+        </div>
+      </div>
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>Resting Heart Rate</h4></div>
+        <div class="bb-panel-body">
+          ${multiLineChartSVG(
+            [bio.rhr],
+            bio.dates.map(d => d.slice(8)),
+            ['var(--rose,#f43f5e)'],
+            ['RHR (bpm)'],
+            { h: 100 }
+          )}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px">Declining trend = improved cardiovascular autonomic regulation</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="padding:8px 14px;background:rgba(0,0,0,0.15);border:1px solid var(--border);border-radius:var(--radius-md);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span style="font-size:9px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;font-weight:600">Data Terminal</span>
+      <span style="font-size:10px;color:var(--text-tertiary)">${pt.first_name} ${pt.last_name}</span>
+      <span style="font-size:10px;color:var(--text-tertiary)">${dt.sources.length} data sources</span>
+      <span style="font-size:10px;color:var(--text-tertiary)">Model v${dt.version}</span>
+      <span style="font-size:10px;color:var(--text-tertiary);margin-left:auto">Last updated: ${dt.updated}</span>
+      ${isDemo ? '<span style="font-size:9px;padding:2px 8px;border-radius:4px;background:rgba(245,158,11,0.1);color:var(--amber);border:1px solid rgba(245,158,11,0.2)">DEMO DATA</span>' : ''}
+    </div>
+  </div>`;
+}
+
 function renderProfileTab(pt, sessions, courses = [], ctx = {}) {
   const name = `${pt.first_name} ${pt.last_name}`;
 
@@ -3945,7 +4276,14 @@ function renderProfileTab(pt, sessions, courses = [], ctx = {}) {
       }`;
   }
 
-  if (ptab === 'overview') return renderDashboardOverview(pt, sessions, courses, ctx);
+  if (ptab === 'overview') {
+    // Render old overview first, then overlay command center async
+    const fallbackHtml = renderDashboardOverview(pt, sessions, courses, ctx);
+    _loadCommandCenter(pt.id, fallbackHtml);
+    return `<div id="cc-overview-root">${fallbackHtml}</div>`;
+  }
+
+  if (ptab === 'patient-dash') return renderPatientDash(pt, sessions, courses, ctx);
 
   if (ptab === 'sessions') return `
     <div style="margin-bottom:14px;display:flex;gap:8px">

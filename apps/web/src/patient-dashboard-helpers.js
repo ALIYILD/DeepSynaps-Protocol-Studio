@@ -1196,3 +1196,125 @@ export function demoPtFromRoster(id) {
     notes: '[DEMO] Sample patient',
   };
 }
+
+// ── Bloomberg Terminal Demo Data ────────────────────────────────────────────
+function _bloombergDates() {
+  const ONE_DAY = 86400000;
+  const now = Date.now();
+  const weekly = n => new Date(now - n * 7 * ONE_DAY).toISOString().split('T')[0];
+  const daily = n => new Date(now - n * ONE_DAY).toISOString().split('T')[0];
+  return { weekly, daily };
+}
+const _BD = _bloombergDates();
+
+export const DEMO_PATIENT_DASH = Object.freeze({
+  outcomes: Object.freeze({
+    phq9:  [22,21,20,19,18,17,16,15,15,14,14,13],
+    gad7:  [15,14,14,13,13,12,11,11,10,10,10,9],
+    isi:   [18,17,16,15,14,14,13,13,12,12,12,11],
+    psqi:  [12,11,11,10,10,10,9,9,8,8,8,8],
+    dates: Array.from({length:12},(_,i)=>_BD.weekly(11-i)),
+  }),
+  biometrics: Object.freeze({
+    hrv:   [38,40,39,42,41,43,42,44,43,45,44,46,45,47,46,48,47,48,46,49,48,50,49,51,50,48,49,51,50,52],
+    rhr:   [72,71,72,70,71,69,70,68,69,67,68,66,67,65,66,64,65,64,66,63,64,62,63,62,63,64,63,62,61,60],
+    sleep: [5.8,6.2,6.0,6.5,6.3,6.8,6.5,7.0,6.8,7.2,7.0,7.1,6.9,7.3,7.0,7.4,7.1,7.2,6.8,7.5,7.2,7.4,7.3,7.5,7.1,7.0,7.2,7.4,7.3,7.2],
+    steps: [4200,5100,4800,5500,6200,5800,6500,7000,6800,7200,7500,7100,6900,7800,7200,7600,7400,7100,6800,8000,7800,7500,7200,8200,7900,7600,7800,8100,7900,7800],
+    cortisol:[22,21,22,20,21,19,20,18,19,17,18,17,16,16,17,15,16,15,14,15,14,13,14,13,12,13,13,12,12,11],
+    dates: Array.from({length:30},(_,i)=>_BD.daily(29-i)),
+  }),
+  eeg: Object.freeze({
+    alpha_power:     [8.2,7.8,9.1,8.5,10.2,9.8,10.5,11.0,10.8,11.3,11.5,12.0],
+    beta_power:      [15.3,14.8,15.0,14.5,13.8,13.2,12.8,12.5,12.8,12.2,12.0,11.5],
+    theta_power:     [5.2,5.5,5.0,4.8,4.5,4.3,4.2,4.0,4.1,3.9,3.8,3.6],
+    alpha_asymmetry: [-0.15,-0.12,-0.10,-0.08,-0.05,-0.03,-0.01,0.02,0.01,0.04,0.05,0.07],
+    coherence:       [0.42,0.45,0.48,0.50,0.52,0.55,0.57,0.60,0.58,0.62,0.63,0.65],
+    labels: ['S1','S2','S3','S4','S5','S6','S7','S8','S9','S10','S11','S12'],
+  }),
+  mri: Object.freeze({
+    last_scan: _BD.daily(14),
+    hippo_l: 3.42, hippo_r: 3.51, hippo_change: 2.1,
+    dlpfc: 2.8, acc: 3.1, cortical_change: 0.5,
+    wm_fa: 0.48, wm_change: 1.2,
+    findings: ['Normal hippocampal volumes bilaterally','DLPFC cortical thickness within range','No structural abnormalities','White matter integrity stable (FA 0.48)'],
+  }),
+  correlations: Object.freeze([
+    {a:'PHQ-9',b:'HRV',r:-0.72},{a:'PHQ-9',b:'Sleep',r:-0.65},{a:'PHQ-9',b:'Steps',r:-0.48},
+    {a:'GAD-7',b:'HRV',r:-0.58},{a:'GAD-7',b:'RHR',r:0.62},{a:'Sleep',b:'HRV',r:0.71},
+    {a:'Steps',b:'Sleep',r:0.45},{a:'Alpha',b:'PHQ-9',r:-0.68},{a:'Alpha Asym',b:'Mood',r:0.74},
+    {a:'Cortisol',b:'PHQ-9',r:0.66},{a:'Theta',b:'Focus',r:-0.55},{a:'Coherence',b:'GAD-7',r:-0.61},
+  ]),
+  predictions: Object.freeze([
+    {metric:'PHQ-9 (4-week)',predicted:11,ci_low:9,ci_high:13,confidence:0.78,color:'var(--green)'},
+    {metric:'Treatment Response',label:'Responder',probability:0.82,confidence:0.75,color:'var(--teal)'},
+    {metric:'Remission by Wk 16',probability:0.64,confidence:0.68,color:'var(--blue)'},
+    {metric:'Relapse Risk (6mo)',probability:0.22,risk:'Low',confidence:0.71,color:'var(--green)'},
+    {metric:'Optimal Dose',label:'2.0 mA',confidence:0.80,color:'var(--violet)'},
+  ]),
+  sessionMetrics: Object.freeze({
+    comfort:   [7,7,8,8,8,9,8,7,8,9,7,8],
+    impedance: [5.2,5.0,4.8,4.9,4.7,4.6,4.8,5.1,4.5,4.4,4.6,4.3],
+    labels:    ['S1','S2','S3','S4','S5','S6','S7','S8','S9','S10','S11','S12'],
+  }),
+  deepTwin: Object.freeze({
+    id:'DT-SAM-LI-0042', updated:_BD.daily(1), version:'2.4.1',
+    sources:['EEG (12 sessions)','Wearable (30d)','Self-report (12wk)','MRI (1 scan)','Session logs (12)'],
+    trajectory:'Improving', trajectory_conf:0.84, risk:0.18, engagement:0.87, efficacy:0.76,
+    bio_summary:'HRV improving (+37%), cortisol normalising, alpha asymmetry shifting positive',
+  }),
+});
+
+/** Multi-series line chart SVG */
+export function multiLineChartSVG(seriesArr, labels, colors, names, opts = {}) {
+  const w = opts.w || 420, h = opts.h || 160;
+  const pad = {top:20,right:16,bottom:28,left:38};
+  const cw = w-pad.left-pad.right, ch = h-pad.top-pad.bottom;
+  let allV = seriesArr.flat().filter(v => Number.isFinite(v));
+  if (!allV.length) allV = [0,1];
+  const yMin = opts.yMin != null ? opts.yMin : Math.min(...allV);
+  const yMax = opts.yMax != null ? opts.yMax : Math.max(...allV);
+  const yr = yMax-yMin||1;
+  const maxLen = Math.max(...seriesArr.map(s=>s.length),1);
+  const x = i => pad.left+(i/Math.max(maxLen-1,1))*cw;
+  const y = v => pad.top+(1-(v-yMin)/yr)*ch;
+  let g='';
+  for(let i=0;i<=4;i++){const gy=pad.top+(i/4)*ch;const val=yMax-(i/4)*yr;g+='<line x1="'+pad.left+'" y1="'+gy.toFixed(1)+'" x2="'+(w-pad.right)+'" y2="'+gy.toFixed(1)+'" stroke="rgba(255,255,255,0.06)" stroke-width="1"/><text x="'+(pad.left-4)+'" y="'+(gy+3).toFixed(1)+'" fill="rgba(255,255,255,0.3)" font-size="9" text-anchor="end" font-family="var(--font-mono)">'+Math.round(val)+'</text>';}
+  const st=Math.max(1,Math.floor(labels.length/6));let xl='';
+  for(let i=0;i<labels.length;i+=st){xl+='<text x="'+x(i).toFixed(1)+'" y="'+(h-4)+'" fill="rgba(255,255,255,0.3)" font-size="8" text-anchor="middle" font-family="var(--font-mono)">'+(labels[i]||'')+'</text>';}
+  let ln='';
+  for(let si=0;si<seriesArr.length;si++){const pts=seriesArr[si].map((v,i)=>x(i).toFixed(1)+','+y(v).toFixed(1)).join(' ');const c=colors[si]||'var(--teal)';const fX=x(0).toFixed(1),lX=x(seriesArr[si].length-1).toFixed(1),bY=(pad.top+ch).toFixed(1);ln+='<polygon points="'+fX+','+bY+' '+pts+' '+lX+','+bY+'" fill="'+c+'" opacity="0.06"/><polyline points="'+pts+'" fill="none" stroke="'+c+'" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>';}
+  let leg='';for(let si=0;si<names.length;si++){const lx=pad.left+si*80;leg+='<circle cx="'+(lx+5)+'" cy="8" r="3" fill="'+(colors[si]||'var(--teal)')+'"/><text x="'+(lx+12)+'" y="11" fill="rgba(255,255,255,0.5)" font-size="9" font-family="var(--font-mono)">'+names[si]+'</text>';}
+  return '<svg width="100%" viewBox="0 0 '+w+' '+h+'" style="display:block">'+g+xl+ln+leg+'</svg>';
+}
+
+/** Bar chart SVG */
+export function barChartSVG(values, labels, color='var(--teal)', opts={}) {
+  const w=opts.w||420,h=opts.h||120;
+  const pad={top:12,right:12,bottom:24,left:36};
+  const cw=w-pad.left-pad.right,ch=h-pad.top-pad.bottom;
+  const n=values.length; if(!n) return '';
+  const maxV=Math.max(...values,1),minV=0,range=maxV-minV||1;
+  const barW=Math.max(4,(cw/n)*0.65),gap=(cw-barW*n)/(n+1);
+  let bars='';
+  for(let i=0;i<n;i++){const bx=pad.left+gap+i*(barW+gap);const bh=((values[i]-minV)/range)*ch;const by=pad.top+ch-bh;bars+='<rect x="'+bx.toFixed(1)+'" y="'+by.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+bh.toFixed(1)+'" rx="2" fill="'+color+'" opacity="0.8"/>';if(labels[i])bars+='<text x="'+(bx+barW/2).toFixed(1)+'" y="'+(h-6)+'" fill="rgba(255,255,255,0.3)" font-size="7" text-anchor="middle" font-family="var(--font-mono)">'+labels[i]+'</text>';}
+  let ya='';for(let i=0;i<=3;i++){const gy=pad.top+(i/3)*ch;const val=maxV-(i/3)*range;ya+='<text x="'+(pad.left-4)+'" y="'+(gy+3).toFixed(1)+'" fill="rgba(255,255,255,0.3)" font-size="8" text-anchor="end" font-family="var(--font-mono)">'+(Number.isInteger(val)?val:val.toFixed(1))+'</text><line x1="'+pad.left+'" y1="'+gy.toFixed(1)+'" x2="'+(w-pad.right)+'" y2="'+gy.toFixed(1)+'" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>';}
+  return '<svg width="100%" viewBox="0 0 '+w+' '+h+'" style="display:block">'+ya+bars+'</svg>';
+}
+
+/** EEG waveform SVG */
+export function eegWaveformSVG(eeg) {
+  const w=420,h=150;
+  const channels=[{name:'Alpha',data:eeg.alpha_power,color:'var(--teal)'},{name:'Beta',data:eeg.beta_power,color:'var(--blue)'},{name:'Theta',data:eeg.theta_power,color:'var(--violet)'}];
+  const chH=h/channels.length;let svg='';
+  for(let ci=0;ci<channels.length;ci++){const c=channels[ci];const baseY=ci*chH+chH/2;const vals=c.data;const maxA=Math.max(...vals.map(Math.abs),1);let pts='';const n=vals.length;const segW=(w-60)/Math.max(n-1,1);
+  for(let i=0;i<n;i++){const px=50+i*segW;const amp=(vals[i]/maxA)*(chH*0.35);const py=baseY-amp;pts+=(i===0?'':' ')+px.toFixed(1)+','+py.toFixed(1);}
+  svg+='<text x="4" y="'+(baseY+3)+'" fill="'+c.color+'" font-size="9" font-weight="600" font-family="var(--font-mono)">'+c.name+'</text><line x1="50" y1="'+baseY.toFixed(1)+'" x2="'+(w-10)+'" y2="'+baseY.toFixed(1)+'" stroke="rgba(255,255,255,0.06)" stroke-width="1"/><polyline points="'+pts+'" fill="none" stroke="'+c.color+'" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>';}
+  return '<svg width="100%" viewBox="0 0 '+w+' '+h+'" style="display:block">'+svg+'</svg>';
+}
+
+/** Correlation row HTML */
+export function correlationHTML(correlations) {
+  if(!correlations||!correlations.length) return '';
+  return correlations.map(c=>{const abs=Math.abs(c.r);const hue=c.r>0?'160':'0';const bg='hsla('+hue+','+Math.round(abs*100)+'%,50%,'+(abs*0.25).toFixed(2)+')';const border='hsla('+hue+','+Math.round(abs*100)+'%,50%,'+(abs*0.4).toFixed(2)+')';const tc=c.r>0?'var(--green)':'var(--red,#f43f5e)';
+  return '<div style="display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:6px;background:'+bg+';border:1px solid '+border+';margin-bottom:3px"><span style="font-size:10px;color:var(--text-secondary);flex:1;font-family:var(--font-mono)">'+c.a+' ~ '+c.b+'</span><span style="font-size:12px;font-weight:700;color:'+tc+';font-family:var(--font-display)">'+(c.r>0?'+':'')+c.r.toFixed(2)+'</span><div style="width:40px;height:5px;border-radius:3px;background:rgba(255,255,255,0.06)"><div style="width:'+Math.round(abs*100)+'%;height:5px;border-radius:3px;background:'+tc+'"></div></div></div>';}).join('');
+}

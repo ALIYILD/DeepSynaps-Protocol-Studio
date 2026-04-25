@@ -1644,6 +1644,23 @@ export const api = {
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
   getRiskAudit: (patientId) =>
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/audit`),
+
+  // ── Device Sync (clinician-facing) ─────────────────────────────────────────
+  deviceSyncProviders: () => apiFetchWithRetry('/api/v1/device-sync/providers'),
+  deviceSyncAuthorize: (provider) =>
+    apiFetch(`/api/v1/device-sync/oauth/${encodeURIComponent(provider)}/authorize`),
+  deviceSyncDashboard: (connectionId, days = 30) =>
+    apiFetchWithRetry(`/api/v1/device-sync/${encodeURIComponent(connectionId)}/dashboard?days=${days}`),
+  deviceSyncHistory: (connectionId, limit = 20) =>
+    apiFetchWithRetry(`/api/v1/device-sync/${encodeURIComponent(connectionId)}/history?limit=${limit}`),
+  deviceSyncTimeseries: (connectionId, metric = 'heart_rate', days = 30) =>
+    apiFetchWithRetry(`/api/v1/device-sync/${encodeURIComponent(connectionId)}/timeseries?metric=${encodeURIComponent(metric)}&days=${days}`),
+  deviceSyncTrigger: (connectionId) =>
+    apiFetch(`/api/v1/device-sync/${encodeURIComponent(connectionId)}/trigger`, { method: 'POST' }),
+
+  // ── Patient Command Center ─────────────────────────────────────────────────
+  getCommandCenter: (patientId) =>
+    apiFetchWithRetry(`/api/v1/command-center/${encodeURIComponent(patientId)}`),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).
