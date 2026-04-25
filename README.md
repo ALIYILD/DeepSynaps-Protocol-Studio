@@ -98,6 +98,13 @@ Required GitHub secrets for live sweeps:
 - `DEEPSWEEPER_GITHUB_TOKEN`
 - `DEEPSWEEPER_OPENAI_API_KEY`
 
+## Go-Live Ops
+
+For the final 48-hour launch workflow, use:
+- [docs/go-live-agent-team.md](docs/go-live-agent-team.md)
+- [docs/go-live-checklist.md](docs/go-live-checklist.md)
+- [docs/go-live-qa-gate.md](docs/go-live-qa-gate.md)
+
 ## Verified fallback workflow in this environment
 Backend tests:
 

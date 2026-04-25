@@ -345,7 +345,6 @@ function _buildPaletteLUT(palette) {
 var _weightCache = {};
 function _buildWeightTable(res) {
   if (_weightCache[res]) return _weightCache[res];
-
   var cx = res / 2, cy = res / 2;
   var hr = res * 0.4;  // head radius (matches 160/400 ratio)
   var hr2 = hr * hr;
@@ -417,6 +416,7 @@ function _renderHeatmapToDataUri(canvasRes, electrodeValues, paletteLUT, bgColor
   } catch (_e) {
     return null; // fallback to SVG
   }
+  if (!canvas || typeof canvas.getContext !== 'function') return null;
   var ctx = canvas.getContext('2d');
   if (!ctx) return null;
 
@@ -462,9 +462,11 @@ function _renderHeatmapToDataUri(canvasRes, electrodeValues, paletteLUT, bgColor
     if (canvas.convertToBlob) {
       // OffscreenCanvas — use toDataURL workaround via temporary canvas
       var tmpCanvas = document.createElement('canvas');
+      if (!tmpCanvas || typeof tmpCanvas.getContext !== 'function' || typeof tmpCanvas.toDataURL !== 'function') return null;
       tmpCanvas.width = canvasRes;
       tmpCanvas.height = canvasRes;
       var tmpCtx = tmpCanvas.getContext('2d');
+      if (!tmpCtx || typeof tmpCtx.drawImage !== 'function') return null;
       tmpCtx.drawImage(canvas, 0, 0);
       return tmpCanvas.toDataURL('image/png');
     }
@@ -510,7 +512,11 @@ function _buildElectrodeOverlaySvg(bandPowers, vMin, range, palette, unit, size)
 }
 
 // ── Color-bar legend SVG ──────────────────────────────────────────────────
-function _buildLegendSvg(palette, vMin, vMax, band, unit, size) {
+function _buildLegendSvg(palette, vMin, vMax, band, unit, size, options) {
+  var opts = options || {};
+  var legendMinLabel = opts.legendMinLabel != null ? String(opts.legendMinLabel) : vMin.toFixed(1);
+  var legendMaxLabel = opts.legendMaxLabel != null ? String(opts.legendMaxLabel) : vMax.toFixed(1);
+  var legendMidLabel = opts.legendMidLabel != null ? String(opts.legendMidLabel) : null;
   var parts = [];
   var legendW = 240, legendX = 80, legendY = 4;
   var legendH = 30;
@@ -520,8 +526,11 @@ function _buildLegendSvg(palette, vMin, vMax, band, unit, size) {
     parts.push('<rect x="' + (legendX + i) + '" y="' + legendY + '" width="1.5" height="10" fill="' + color + '"/>');
   }
   parts.push('<rect x="' + legendX + '" y="' + legendY + '" width="' + legendW + '" height="10" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="0.5" rx="2"/>');
-  parts.push('<text x="' + legendX + '" y="' + (legendY + 22) + '" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + vMin.toFixed(1) + '</text>');
-  parts.push('<text x="' + (legendX + legendW) + '" y="' + (legendY + 22) + '" text-anchor="end" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + vMax.toFixed(1) + '</text>');
+  parts.push('<text x="' + legendX + '" y="' + (legendY + 22) + '" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + legendMinLabel + '</text>');
+  parts.push('<text x="' + (legendX + legendW) + '" y="' + (legendY + 22) + '" text-anchor="end" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + legendMaxLabel + '</text>');
+  if (legendMidLabel != null) {
+    parts.push('<text x="' + (legendX + legendW / 2) + '" y="' + (legendY + 22) + '" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + legendMidLabel + '</text>');
+  }
   parts.push('<text x="200" y="' + (legendY + 22) + '" text-anchor="middle" font-size="9" font-weight="600" fill="rgba(255,255,255,0.8)" font-family="system-ui,sans-serif">' + band + (unit ? ' (' + unit + ')' : '') + '</text>');
   parts.push('</svg>');
   return parts.join('');
@@ -534,15 +543,21 @@ function _renderTopoHeatmapSvgFallback(bandPowers, options) {
   var unit = opts.unit || '';
   var size = Number.isFinite(opts.size) ? opts.size : 360;
   var palette = HEATMAP_PALETTES[opts.colorScale] || HEATMAP_PALETTES.warm;
+  var domain = Array.isArray(opts.valueDomain) && opts.valueDomain.length === 2
+    ? [Number(opts.valueDomain[0]), Number(opts.valueDomain[1])]
+    : null;
 
   var values = [];
   SITES_10_20.forEach(function (site) {
     var v = bandPowers[site.id];
     if (v !== undefined && v !== null && Number.isFinite(v)) values.push(v);
   });
-  var vMin = values.length ? Math.min.apply(null, values) : 0;
-  var vMax = values.length ? Math.max.apply(null, values) : 1;
+  var vMin = domain && Number.isFinite(domain[0]) ? domain[0] : (values.length ? Math.min.apply(null, values) : 0);
+  var vMax = domain && Number.isFinite(domain[1]) ? domain[1] : (values.length ? Math.max.apply(null, values) : 1);
   var range = vMax - vMin || 1;
+  var legendMinLabel = opts.legendMinLabel != null ? String(opts.legendMinLabel) : vMin.toFixed(1);
+  var legendMaxLabel = opts.legendMaxLabel != null ? String(opts.legendMaxLabel) : vMax.toFixed(1);
+  var legendMidLabel = opts.legendMidLabel != null ? String(opts.legendMidLabel) : null;
 
   var parts = [];
   parts.push('<svg class="ds-topo-heatmap" viewBox="0 0 400 430" width="' + size + '" height="' + Math.round(size * 430 / 400) + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="qEEG topographic heatmap — ' + band + '" tabindex="0">');
@@ -585,8 +600,11 @@ function _renderTopoHeatmapSvgFallback(bandPowers, options) {
     parts.push('<rect x="' + (legendX + i) + '" y="' + legendY + '" width="1.5" height="10" fill="' + color + '"/>');
   }
   parts.push('<rect x="' + legendX + '" y="' + legendY + '" width="' + legendW + '" height="10" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="0.5" rx="2"/>');
-  parts.push('<text x="' + legendX + '" y="' + (legendY + 22) + '" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + vMin.toFixed(1) + '</text>');
-  parts.push('<text x="' + (legendX + legendW) + '" y="' + (legendY + 22) + '" text-anchor="end" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + vMax.toFixed(1) + '</text>');
+  parts.push('<text x="' + legendX + '" y="' + (legendY + 22) + '" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + legendMinLabel + '</text>');
+  parts.push('<text x="' + (legendX + legendW) + '" y="' + (legendY + 22) + '" text-anchor="end" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + legendMaxLabel + '</text>');
+  if (legendMidLabel != null) {
+    parts.push('<text x="' + (legendX + legendW / 2) + '" y="' + (legendY + 22) + '" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + legendMidLabel + '</text>');
+  }
   parts.push('<text x="200" y="' + (legendY + 22) + '" text-anchor="middle" font-size="9" font-weight="600" fill="rgba(255,255,255,0.8)" font-family="system-ui,sans-serif">' + band + (unit ? ' (' + unit + ')' : '') + '</text>');
   parts.push('</svg>');
   return parts.join('');
@@ -600,6 +618,9 @@ export function renderTopoHeatmap(bandPowers, options) {
   var size = Number.isFinite(opts.size) ? opts.size : 360;
   var palette = HEATMAP_PALETTES[opts.colorScale] || HEATMAP_PALETTES.warm;
   var isDiverging = opts.colorScale === 'diverging';
+  var domain = Array.isArray(opts.valueDomain) && opts.valueDomain.length === 2
+    ? [Number(opts.valueDomain[0]), Number(opts.valueDomain[1])]
+    : null;
 
   // Collect values and compute normalization range
   var values = [];
@@ -607,8 +628,8 @@ export function renderTopoHeatmap(bandPowers, options) {
     var v = bandPowers[site.id];
     if (v !== undefined && v !== null && Number.isFinite(v)) values.push(v);
   });
-  var vMin = values.length ? Math.min.apply(null, values) : 0;
-  var vMax = values.length ? Math.max.apply(null, values) : 1;
+  var vMin = domain && Number.isFinite(domain[0]) ? domain[0] : (values.length ? Math.min.apply(null, values) : 0);
+  var vMax = domain && Number.isFinite(domain[1]) ? domain[1] : (values.length ? Math.max.apply(null, values) : 1);
 
   // For diverging palettes, center at zero
   if (isDiverging) {
@@ -644,7 +665,19 @@ export function renderTopoHeatmap(bandPowers, options) {
   var html = '<div class="ds-topo-heatmap-wrap" style="width:' + size + 'px;display:inline-block;position:relative">'
     + '<img src="' + dataUri + '" width="' + size + '" height="' + size + '" alt="qEEG topographic heatmap — ' + band + '" style="display:block;border-radius:50%" />'
     + _buildElectrodeOverlaySvg(bandPowers, vMin, range, palette, unit, size)
-    + _buildLegendSvg(palette, vMin, vMax, band, unit, size)
+    + _buildLegendSvg(
+      palette,
+      vMin,
+      vMax,
+      band,
+      unit,
+      size,
+      {
+        legendMinLabel: opts.legendMinLabel,
+        legendMaxLabel: opts.legendMaxLabel,
+        legendMidLabel: opts.legendMidLabel,
+      }
+    )
     + '</div>';
 
   return html;

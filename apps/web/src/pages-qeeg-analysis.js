@@ -337,6 +337,15 @@ function _getTopomapLegendOptions(metric, domain) {
   };
 }
 
+function _getPercentDeltaLegendOptions(domain) {
+  return {
+    valueDomain: domain,
+    legendMinLabel: String(domain[0]) + '%',
+    legendMidLabel: '0%',
+    legendMaxLabel: '+' + String(domain[1]) + '%',
+  };
+}
+
 function _getSortedChannelMetrics(channelMap) {
   return Object.keys(channelMap || {}).map(function (ch) {
     return { channel: ch, value: Number(channelMap[ch]) };
@@ -4692,7 +4701,7 @@ function renderComparison(comp) {
         + '<div class="ds-card__body"><div class="qeeg-compare-topo-row">'
         + '<div><div class="qeeg-compare-topo-row__label">Baseline</div>' + renderTopoHeatmap(baseMap, Object.assign({ band: band + ' (baseline)', size: 180, colorScale: 'warm' }, _getTopomapLegendOptions('relative', relativeDomain))) + '</div>'
         + '<div><div class="qeeg-compare-topo-row__label">Follow-up</div>' + renderTopoHeatmap(fuMap, Object.assign({ band: band + ' (follow-up)', size: 180, colorScale: 'warm' }, _getTopomapLegendOptions('relative', relativeDomain))) + '</div>'
-        + '<div><div class="qeeg-compare-topo-row__label">Change (%)</div>' + renderTopoHeatmap(changeMap, Object.assign({ band: band + ' change %', size: 180, colorScale: 'diverging' }, _getTopomapLegendOptions('zscore', deltaDomain))) + '</div>'
+        + '<div><div class="qeeg-compare-topo-row__label">Change (%)</div>' + renderTopoHeatmap(changeMap, Object.assign({ band: band + ' change %', size: 180, colorScale: 'diverging' }, _getPercentDeltaLegendOptions(deltaDomain))) + '</div>'
         + '</div></div></div>';
     });
   }
