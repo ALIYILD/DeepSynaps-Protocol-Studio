@@ -269,10 +269,7 @@ export async function pgPatientHub(setTopbar, navigate) {
           },
         };
       }
-    }
-
-    // Demo mode: seed summary with plausible demo KPIs when API returns empty
-    {
+      // Demo mode: seed summary with plausible demo KPIs when API returns empty
       const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
       if (_demoOk && _currentSummary && (_currentSummary.total === 0 || !_currentSummary.total)) {
         const n = DEMO_PATIENT_ROSTER.length;
