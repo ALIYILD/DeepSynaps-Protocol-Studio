@@ -233,6 +233,70 @@ function _extractMedicalSignals(payload) {
   return { sectionCount: sections || diagnoses || meds, raw };
 }
 
+function _extractTimelineSummary(payload) {
+  const lanes = payload?.lanes || {};
+  const laneOrder = ['sessions', 'qeeg', 'mri', 'outcomes'];
+  const events = [];
+  laneOrder.forEach((laneId) => {
+    _toArray(lanes[laneId]).forEach((item) => {
+      events.push({
+        lane: laneId,
+        title: _firstDefined(item.title, item.id, laneId),
+        at: item.at,
+        status: item.status,
+        meta: item.meta || {},
+      });
+    });
+  });
+  events.sort((left, right) => new Date(right.at || 0).getTime() - new Date(left.at || 0).getTime());
+  return {
+    lanes: laneOrder.map((laneId) => ({
+      id: laneId,
+      label: laneId === 'qeeg' ? 'qEEG' : laneId === 'mri' ? 'MRI' : laneId[0].toUpperCase() + laneId.slice(1),
+      count: _toArray(lanes[laneId]).length,
+    })),
+    links: _toArray(payload?.links),
+    latestEvent: events[0] || null,
+    recentEvents: events.slice(0, 6),
+    raw: payload || null,
+  };
+}
+
+function _buildOperationalSnapshot(context) {
+  const now = Date.now();
+  const nextSession = context.sessionRows
+    .filter((item) => new Date(item.date || 0).getTime() > now)
+    .sort((left, right) => new Date(left.date || 0).getTime() - new Date(right.date || 0).getTime())[0] || null;
+  return {
+    activeAlerts: context.alerts.length,
+    activeCourses: context.courseRows.length,
+    nextSession,
+    latestReport: _latestByDate(context.reportRows),
+    recentTimelineEvent: context.timeline?.latestEvent || null,
+  };
+}
+
+function _buildUncertaintySnapshot(snapshot, workspace) {
+  const missing = snapshot.coverage.items.filter((item) => !item.available);
+  const stale = snapshot.coverage.items.filter((item) => item.available && item.staleDays != null && item.staleDays > 30);
+  const modelUncertainty = workspace.analysis?.prediction?.uncertainty || workspace.analysis?.correlation?.uncertainty || null;
+  return {
+    missing,
+    stale,
+    summary: modelUncertainty?.summary || 'Confidence falls when key modalities are missing, stale, or not aligned across physiology, imaging, and symptoms.',
+    recommendedNextData: _toArray(modelUncertainty?.recommended_next_data).length
+      ? modelUncertainty.recommended_next_data
+      : missing.slice(0, 3).map((item) => item.label),
+    reasons: _toArray(modelUncertainty?.reasons).length
+      ? modelUncertainty.reasons
+      : [
+          missing.length ? `${missing.length} selected modalities are still missing.` : null,
+          stale.length ? `${stale.length} available modalities are stale and should be refreshed.` : null,
+          !missing.length && !stale.length ? 'Even full coverage remains hypothesis-generating rather than causal truth.' : null,
+        ].filter(Boolean),
+  };
+}
+
 async function _loadPatientTwinContext(patientId) {
   const calls = await Promise.allSettled([
     api.getPatient(patientId),
@@ -246,6 +310,7 @@ async function _loadPatientTwinContext(patientId) {
     api.getPatientWearableSummary(patientId),
     api.getPatientAlertFlags(patientId),
     api.getFusionRecommendation(patientId),
+    api.getMRIPatientTimeline(patientId),
   ]);
   const value = (index, fallback) => (calls[index].status === 'fulfilled' ? calls[index].value : fallback);
   return {
@@ -261,6 +326,7 @@ async function _loadPatientTwinContext(patientId) {
     wearables: _extractWearableSummary(value(8, null)),
     alerts: _toArray(value(9, [])),
     fusion: value(10, null),
+    timeline: _extractTimelineSummary(value(11, null)),
   };
 }
 
@@ -320,6 +386,7 @@ function _buildSnapshot(context) {
     ),
     coverage: _inferCoverage(context, _selectedModalities()),
     activeAlerts: context.alerts,
+    operational: _buildOperationalSnapshot(context),
   };
 }
 
@@ -332,6 +399,16 @@ function _assessmentSeverity(item) {
 
 function _buildFindings(context, analysis) {
   const findings = [];
+  if (context.alerts.length) {
+    findings.push({
+      title: 'Active clinical alerts',
+      summary: `${context.alerts.length} active alert${context.alerts.length === 1 ? '' : 's'} require review`,
+      supporting: 'DeepTwin should rank hypotheses in the context of current clinical flags, not separate from them.',
+      confidence: context.alerts.length > 1 ? 'high' : 'moderate',
+      tone: context.alerts.length > 1 ? 'red' : 'amber',
+      provenance: 'clinical alert flags',
+    });
+  }
   const latestAssessment = _latestByDate(context.assessmentRows, 'createdAt');
   if (latestAssessment) {
     const severity = _assessmentSeverity(latestAssessment);
@@ -387,6 +464,16 @@ function _buildFindings(context, analysis) {
       confidence: 'moderate',
       tone: 'blue',
       provenance: 'MRI analyzer',
+    });
+  }
+  if (context.timeline?.latestEvent) {
+    findings.push({
+      title: 'Latest timeline anchor',
+      summary: `${context.timeline.latestEvent.title || 'Recent event'} in ${context.timeline.latestEvent.lane} on ${_fmtDate(context.timeline.latestEvent.at)}`,
+      supporting: 'Use the timeline to judge whether the lead signals appeared before, during, or after treatment exposure.',
+      confidence: 'moderate',
+      tone: 'blue',
+      provenance: 'patient timeline',
     });
   }
   if (analysis?.prediction?.key_predictions) {
@@ -572,7 +659,7 @@ function _renderHero(snapshot, findings, workspace) {
       <div style="max-width:860px">
         <div style="font-size:12px;color:var(--text-tertiary);letter-spacing:.08em;text-transform:uppercase">Decision-support only</div>
         <div style="font-size:28px;font-weight:750;letter-spacing:-.03em;color:var(--text);margin-top:14px">DeepTwin Command Workspace</div>
-        <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin-top:10px">
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin-top:10px">
           One patient-state canvas for multimodal signal fusion, ranked mechanism hypotheses, scenario simulation, auto-research, and clinician-ready report drafting.
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
@@ -585,6 +672,7 @@ function _renderHero(snapshot, findings, workspace) {
       <div style="display:grid;gap:10px;min-width:280px">
         <button class="btn btn-primary btn-sm" onclick="window._brainTwinRefreshAll()">Refresh patient context</button>
         <button class="btn btn-ghost btn-sm" onclick="window._brainTwinRun()">Run DeepTwin analysis</button>
+        <button class="btn btn-ghost btn-sm" onclick="window._brainTwinOpenTimeline()">Open patient timeline</button>
         <div style="font-size:12.5px;color:var(--text-tertiary);line-height:1.6">
           ${_esc(workspace.simulation?.outputs?.clinical_forecast?.summary || 'Define a protocol and run a what-if scenario to estimate biomarker and outcome movement.')}
         </div>
@@ -652,6 +740,38 @@ function _renderStateRail(snapshot, context) {
   </div>`);
 }
 
+function _renderTimelineCard(context) {
+  const laneCounts = _toArray(context.timeline?.lanes);
+  const recentEvents = _toArray(context.timeline?.recentEvents);
+  return _card('Timeline And Provenance', `<div style="display:grid;gap:10px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px">
+      ${laneCounts.map((lane) => `<div style="padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.05)">
+        <div style="font-size:11px;color:var(--text-tertiary)">${_esc(lane.label)}</div>
+        <div style="font-size:18px;font-weight:700;color:var(--text);margin-top:6px">${_esc(lane.count)}</div>
+      </div>`).join('')}
+    </div>
+    <div style="font-size:12px;color:var(--text-tertiary);line-height:1.7">${_esc(context.timeline?.links?.length ? `${context.timeline.links.length} cross-lane link(s) available for chronology review.` : 'No cross-lane links were returned.')}</div>
+    ${recentEvents.length ? recentEvents.map((item) => `<div style="padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02)">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center">
+        <div style="font-size:13px;font-weight:650;color:var(--text)">${_esc(item.title || item.lane)}</div>
+        ${_pill(item.lane, 'blue')}
+      </div>
+      <div style="font-size:12px;color:var(--text-tertiary);margin-top:6px">${_esc(_fmtDate(item.at))}${item.status ? ` · ${_esc(item.status)}` : ''}</div>
+    </div>`).join('') : '<div style="font-size:12.5px;color:var(--text-tertiary)">Timeline events will appear here after chronology loads.</div>'}
+  </div>`);
+}
+
+function _renderUncertaintyCard(snapshot, workspace) {
+  const uncertainty = _buildUncertaintySnapshot(snapshot, workspace);
+  return _card('Uncertainty And Gaps', `<div style="display:grid;gap:10px">
+    <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.7">${_esc(uncertainty.summary)}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${uncertainty.recommendedNextData.map((item) => _pill(item, 'amber')).join('')}
+    </div>
+    ${uncertainty.reasons.map((reason) => `<div style="padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02);font-size:12px;color:var(--text-tertiary);line-height:1.7">${_esc(reason)}</div>`).join('')}
+  </div>`);
+}
+
 function _renderFindings(findings) {
   return _card('Prioritized Findings', findings.length
     ? `<div style="display:grid;gap:10px">
@@ -713,6 +833,8 @@ function _renderSimulationLab(workspace) {
   const clinical = simulation?.outputs?.clinical_forecast || {};
   const biomarkers = _toArray(simulation?.outputs?.biomarker_forecast);
   const timeline = _toArray(simulation?.outputs?.timecourse);
+  const uncertainty = simulation?.outputs?.uncertainty || null;
+  const guardrails = _toArray(simulation?.outputs?.safety_guardrails);
   return _card('Simulation Lab', `<div style="display:grid;grid-template-columns:320px minmax(0,1fr);gap:14px">
     <div style="display:grid;gap:10px">
       <label class="bt-field"><span>Intervention</span>
@@ -746,6 +868,7 @@ function _renderSimulationLab(workspace) {
         <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin-top:8px">${_esc(clinical.summary || 'No scenario has been executed yet. Use the structured fields on the left rather than an opaque protocol id so the workspace can explain the forecast.')}</div>
         ${clinical.expected_direction ? `<div style="font-size:12px;color:var(--text-tertiary);margin-top:10px">Expected direction: ${_esc(clinical.expected_direction)}</div>` : ''}
         ${clinical.caveat ? `<div style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Uncertainty: ${_esc(clinical.caveat)}</div>` : ''}
+        ${simulation?.outputs?.provenance?.components?.length ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Lineage: ${_esc(simulation.outputs.provenance.components.join(', '))}</div>` : ''}
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
         ${biomarkers.length ? biomarkers.map((item) => `<div style="padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02)">
@@ -763,6 +886,16 @@ function _renderSimulationLab(workspace) {
           </div>`).join('')}
         </div>` : '<div style="font-size:12px;color:var(--text-tertiary);margin-top:10px">No timecourse yet.</div>'}
       </div>
+      ${(uncertainty || guardrails.length) ? `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
+        ${uncertainty ? `<div style="padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02)">
+          <div style="font-size:12px;font-weight:700;color:var(--text)">Simulation uncertainty</div>
+          <div style="font-size:12px;color:var(--text-tertiary);line-height:1.7;margin-top:8px">${_esc(uncertainty.summary || 'Missing modalities widen the forecast band.')}</div>
+        </div>` : ''}
+        ${guardrails.length ? `<div style="padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02)">
+          <div style="font-size:12px;font-weight:700;color:var(--text)">Safety guardrails</div>
+          <div style="font-size:12px;color:var(--text-tertiary);line-height:1.7;margin-top:8px">${_esc(guardrails[0])}</div>
+        </div>` : ''}
+      </div>` : ''}
     </div>
   </div>`);
 }
@@ -862,6 +995,8 @@ function _renderWorkspace(setTopbar) {
       <div style="display:grid;gap:14px">
         ${snapshot ? _renderSourceInventory(snapshot) : ''}
         ${snapshot ? _renderStateRail(snapshot, context) : ''}
+        ${context ? _renderTimelineCard(context) : ''}
+        ${snapshot ? _renderUncertaintyCard(snapshot, workspace) : ''}
       </div>
       <div style="display:grid;gap:14px">
         ${context ? _renderFindings(findings) : ''}
@@ -991,6 +1126,12 @@ function _wireHandlers(setTopbar) {
   window._brainTwinRefreshAll = _refreshAll;
   window._brainTwinRun = _runAnalysis;
   window._brainTwinSimulate = _runSimulation;
+  window._brainTwinOpenTimeline = function () {
+    const patientId = _selectedPatientId();
+    if (!patientId) return;
+    window._patientTimelinePatientId = patientId;
+    window._nav('patient-timeline');
+  };
   window._brainTwinEvidence = function () {
     const input = document.getElementById('brain-twin-evidence-q');
     const workspace = _workspaceState();
