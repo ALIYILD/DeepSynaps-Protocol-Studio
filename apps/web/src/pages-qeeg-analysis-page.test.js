@@ -311,8 +311,9 @@ test('compare summary renders chronological baseline and follow-up guidance', ()
   );
 
   assert.match(html, /Suggested comparison/);
-  assert.match(html, /Baseline:\s*baseline\.edf \(1\/10\/2026\)|Baseline:\s*baseline\.edf/);
-  assert.match(html, /Follow-up:\s*followup\.edf \(2\/9\/2026\)|Follow-up:\s*followup\.edf/);
+  // Date formatting is environment-dependent (MM/DD/YYYY vs DD/MM/YYYY).
+  assert.match(html, /Baseline:\s*baseline\.edf \((1\/10\/2026|10\/01\/2026)\)|Baseline:\s*baseline\.edf/);
+  assert.match(html, /Follow-up:\s*followup\.edf \((2\/9\/2026|09\/02\/2026)\)|Follow-up:\s*followup\.edf/);
   assert.match(html, /30-day interval/);
 });
 
