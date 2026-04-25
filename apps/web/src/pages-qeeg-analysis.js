@@ -4629,6 +4629,9 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   // TAB: RAW DATA
   // ══════════════════════════════════════════════════════════════════════════
   if (tab === 'raw') {
+    if (!window._qeegSelectedId && _isDemoMode()) {
+      window._qeegSelectedId = 'demo';
+    }
     const analysisId = window._qeegSelectedId;
     if (!analysisId) {
       tabEl.innerHTML = emptyState('&#x1F4C8;', 'No Analysis Selected', 'Select an analysis from the Patient & Upload tab to view raw EEG data.', 'Go to Patient & Upload', "window._qeegTab='patient';window._nav('qeeg-analysis')");

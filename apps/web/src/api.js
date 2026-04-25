@@ -1669,6 +1669,7 @@ export const api = {
     const q = new URLSearchParams();
     if (params.tStart != null) q.set('t_start', params.tStart);
     if (params.tEnd != null) q.set('t_end', params.tEnd);
+    if (params.windowSec != null) q.set('window_sec', params.windowSec);
     if (params.channels) q.set('channels', params.channels.join(','));
     if (params.maxPoints != null) q.set('max_points_per_channel', params.maxPoints);
     const qs = q.toString();
@@ -1678,6 +1679,7 @@ export const api = {
     const q = new URLSearchParams();
     if (params.tStart != null) q.set('t_start', params.tStart);
     if (params.tEnd != null) q.set('t_end', params.tEnd);
+    if (params.windowSec != null) q.set('window_sec', params.windowSec);
     if (params.channels) q.set('channels', params.channels.join(','));
     if (params.maxPoints != null) q.set('max_points_per_channel', params.maxPoints);
     const qs = q.toString();
