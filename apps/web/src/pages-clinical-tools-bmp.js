@@ -1422,6 +1422,241 @@ export async function pgBrainMapPlanner(setTopbar) {
     return '<div class="bm-canvas compare">' + main + altPanel + '</div>';
   }
 
+  // ── MRI focus viewer (T1 atlas + matched-protocol target dots) ──────────
+  // Builds the same Neurolight-TPS-style zoom/pan/plane viewer used by
+  // pages-mri-analysis.js and pages-qeeg-analysis.js, but populated with
+  // matched-protocol target dots derived from the unified _catalog. Targets
+  // without an MNI mapping (region's primary 10-20 site has no entry in
+  // BMP_MNI) are skipped — never fabricated.
+  function _bmpMatchedProtocolDots() {
+    const list = _filteredCatalog();
+    const seenSite = {};
+    const dots = [];
+    list.forEach(function(cat) {
+      const m = _bmpCatalogMNI(cat);
+      if (!m) return;
+      if (seenSite[m.site]) return;
+      seenSite[m.site] = true;
+      const col = _bmpModalityDotColor(cat.modality);
+      const isActive = bmpState.protoId && cat.id === bmpState.protoId;
+      const label = (cat.name || cat.id || '').slice(0, 36);
+      const tooltip = (cat.name || cat.id || '') + ' · ' + (cat.modality || '')
+        + ' · MNI [' + m.mni.join(', ') + ']';
+      dots.push('<div class="ds-mri-glass-dot" data-tid="' + _esc(cat.id || '') + '"'
+        + ' data-site="' + _esc(m.site) + '"'
+        + ' data-pulse="' + (isActive ? '1' : '0') + '"'
+        + ' data-mni-x="' + m.mni[0] + '"'
+        + ' data-mni-y="' + m.mni[1] + '"'
+        + ' data-mni-z="' + m.mni[2] + '"'
+        + ' style="--dot-color:' + col + '"'
+        + ' title="' + _esc(tooltip) + '">'
+        + '<span class="ds-mri-glass-dot__core"></span>'
+        + '<span class="ds-mri-glass-dot__label">' + _esc(label) + '</span>'
+        + '</div>');
+    });
+    return { html: dots.join(''), count: dots.length };
+  }
+
+  function _buildBMPFocusViewer() {
+    const dots = _bmpMatchedProtocolDots();
+    const planes = [
+      { id: 'axial',    label: 'Axial' },
+      { id: 'coronal',  label: 'Coronal' },
+      { id: 'sagittal', label: 'Sagittal' },
+    ];
+    const planeTabs = '<div class="ds-mri-glass-planes" role="tablist" aria-label="MRI plane">'
+      + planes.map(function(p, i) {
+        const on = i === 0;
+        return '<button type="button" class="ds-mri-glass-plane' + (on ? ' is-active' : '') + '"'
+          + ' role="tab" aria-selected="' + (on ? 'true' : 'false') + '"'
+          + ' data-plane="' + p.id + '">' + p.label + '</button>';
+      }).join('')
+      + '</div>';
+
+    const toolbar = '<div class="ds-mri-glass-toolbar" role="toolbar" aria-label="MRI viewer zoom">'
+      + '<button class="ds-mri-glass-btn" id="ds-bmp-mri-zoom-out" aria-label="Zoom out" type="button">&minus;</button>'
+      + '<span class="ds-mri-glass-zoom-level" id="ds-bmp-mri-zoom-level" aria-live="polite">1.0&times;</span>'
+      + '<button class="ds-mri-glass-btn" id="ds-bmp-mri-zoom-in" aria-label="Zoom in" type="button">+</button>'
+      + '<button class="ds-mri-glass-btn ds-mri-glass-btn--reset" id="ds-bmp-mri-zoom-reset" aria-label="Reset view" type="button" title="Reset zoom &amp; pan">Reset</button>'
+      + '</div>';
+
+    const stage = '<div class="ds-mri-glass-stage" id="ds-bmp-mri-stage" tabindex="0" data-plane="axial" aria-label="MRI slice with matched-protocol targets — drag to pan, scroll or pinch to zoom">'
+      + '<div class="ds-mri-glass-pan" id="ds-bmp-mri-pan">'
+      + '<img class="ds-mri-glass-img" id="ds-bmp-mri-img" src="/images/brain-atlas/axial.png" alt="Axial T1 MRI template" draggable="false">'
+      + '<div class="ds-mri-glass-overlay" id="ds-bmp-mri-overlay">' + dots.html + '</div>'
+      + '</div>'
+      + '</div>';
+
+    const captionTxt = dots.count
+      ? dots.count + ' matched-protocol target' + (dots.count === 1 ? '' : 's')
+        + ' projected to MNI atlas. Switch plane, scroll or use +/&minus; to zoom, drag to pan.'
+      : 'No matched protocols carry MNI coordinates yet — adjust filters or pick a protocol with a 10-20 anode.';
+    const caption = '<div class="ds-mri-glass-caption">' + captionTxt + '</div>';
+
+    const body = '<div class="ds-mri-glass-wrap ds-bmp-mri-wrap" id="ds-bmp-mri-wrap">'
+      + planeTabs + toolbar + stage + caption
+      + '</div>';
+
+    return '<div class="ds-card" id="bmp-mri-card">'
+      + '<div class="ds-card__header"><h3>MRI target view</h3></div>'
+      + '<div class="ds-card__body">' + body + '</div>'
+      + '</div>';
+  }
+
+  function _renderBMPFocusViewer() {
+    const host = document.getElementById('bmp-mri-host');
+    if (!host) return;
+    if (!bmpState.mriOverlay) { host.innerHTML = ''; return; }
+    host.innerHTML = _buildBMPFocusViewer();
+    _wireBMPFocusViewer();
+  }
+
+  // Mirrors _wireMRIFocusViewer in pages-mri-analysis.js. Identifiers are
+  // prefixed `ds-bmp-mri-` to keep the planner's viewer independent from the
+  // MRI-analysis and qEEG source viewers should they ever co-mount.
+  function _wireBMPFocusViewer() {
+    const stage = document.getElementById('ds-bmp-mri-stage');
+    const pan = document.getElementById('ds-bmp-mri-pan');
+    const img = document.getElementById('ds-bmp-mri-img');
+    const overlay = document.getElementById('ds-bmp-mri-overlay');
+    const levelEl = document.getElementById('ds-bmp-mri-zoom-level');
+    const btnIn = document.getElementById('ds-bmp-mri-zoom-in');
+    const btnOut = document.getElementById('ds-bmp-mri-zoom-out');
+    const btnReset = document.getElementById('ds-bmp-mri-zoom-reset');
+    if (!stage || !pan) return;
+
+    const MIN_SCALE = 1.0, MAX_SCALE = 6.0;
+    const state = { scale: 1.0, tx: 0, ty: 0, plane: 'axial' };
+
+    function projectDot(plane, mx, my, mz) {
+      let x = NaN, y = NaN;
+      if (plane === 'axial') {
+        if (!isFinite(mx) || !isFinite(my)) return null;
+        x = 50 + (mx / 90) * 45; y = 50 - (my / 120) * 45;
+      } else if (plane === 'coronal') {
+        if (!isFinite(mx) || !isFinite(mz)) return null;
+        x = 50 + (mx / 90) * 45; y = 50 - (mz / 75) * 45;
+      } else if (plane === 'sagittal') {
+        if (!isFinite(my) || !isFinite(mz)) return null;
+        x = 50 + (my / 120) * 45; y = 50 - (mz / 75) * 45;
+      } else return null;
+      return { x: x, y: y };
+    }
+    function repositionDots() {
+      if (!overlay) return;
+      overlay.querySelectorAll('.ds-mri-glass-dot').forEach(function(d) {
+        const p = projectDot(state.plane,
+          parseFloat(d.getAttribute('data-mni-x')),
+          parseFloat(d.getAttribute('data-mni-y')),
+          parseFloat(d.getAttribute('data-mni-z')));
+        if (!p) { d.style.display = 'none'; return; }
+        d.style.display = '';
+        d.style.left = p.x.toFixed(2) + '%';
+        d.style.top = p.y.toFixed(2) + '%';
+      });
+    }
+    function setPlane(plane) {
+      if (plane === state.plane) return;
+      state.plane = plane;
+      if (img) {
+        img.src = '/images/brain-atlas/' + plane + '.png';
+        img.alt = plane.charAt(0).toUpperCase() + plane.slice(1) + ' T1 MRI template';
+      }
+      stage.setAttribute('data-plane', plane);
+      state.scale = 1.0; state.tx = 0; state.ty = 0;
+      repositionDots(); apply();
+    }
+    function clampPan() {
+      const max = (state.scale - 1) / 2;
+      if (state.tx > max) state.tx = max;
+      if (state.tx < -max) state.tx = -max;
+      if (state.ty > max) state.ty = max;
+      if (state.ty < -max) state.ty = -max;
+    }
+    function apply() {
+      clampPan();
+      pan.style.transform = 'translate(' + (state.tx * 100).toFixed(2) + '%,'
+        + (state.ty * 100).toFixed(2) + '%) scale(' + state.scale.toFixed(3) + ')';
+      if (levelEl) levelEl.textContent = state.scale.toFixed(1) + '×';
+      stage.classList.toggle('is-zoomed', state.scale > 1.001);
+    }
+    function setScale(next, anchor) {
+      next = Math.max(MIN_SCALE, Math.min(MAX_SCALE, next));
+      if (anchor && state.scale !== next) {
+        const prev = state.scale;
+        const ax = anchor.x - 0.5, ay = anchor.y - 0.5;
+        state.tx = ax + (state.tx - ax) * (next / prev);
+        state.ty = ay + (state.ty - ay) * (next / prev);
+      }
+      state.scale = next; apply();
+    }
+
+    if (btnIn) btnIn.addEventListener('click', function() { setScale(state.scale * 1.4); });
+    if (btnOut) btnOut.addEventListener('click', function() { setScale(state.scale / 1.4); });
+    if (btnReset) btnReset.addEventListener('click', function() {
+      state.scale = 1.0; state.tx = 0; state.ty = 0; apply();
+    });
+
+    stage.addEventListener('wheel', function(e) {
+      e.preventDefault();
+      const rect = stage.getBoundingClientRect();
+      const anchor = { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
+      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      setScale(state.scale * factor, anchor);
+    }, { passive: false });
+
+    let drag = null;
+    stage.addEventListener('pointerdown', function(e) {
+      if (state.scale <= 1.001) return;
+      if (e.button !== undefined && e.button !== 0) return;
+      drag = {
+        startX: e.clientX, startY: e.clientY,
+        tx0: state.tx, ty0: state.ty,
+        width: stage.clientWidth || 1, height: stage.clientHeight || 1,
+      };
+      stage.setPointerCapture(e.pointerId);
+      stage.classList.add('is-panning');
+    });
+    stage.addEventListener('pointermove', function(e) {
+      if (!drag) return;
+      state.tx = drag.tx0 + (e.clientX - drag.startX) / drag.width;
+      state.ty = drag.ty0 + (e.clientY - drag.startY) / drag.height;
+      apply();
+    });
+    function endDrag(e) {
+      if (!drag) return;
+      drag = null;
+      stage.classList.remove('is-panning');
+      if (e && e.pointerId !== undefined && stage.releasePointerCapture) {
+        try { stage.releasePointerCapture(e.pointerId); } catch (_) { /* noop */ }
+      }
+    }
+    stage.addEventListener('pointerup', endDrag);
+    stage.addEventListener('pointercancel', endDrag);
+    stage.addEventListener('pointerleave', endDrag);
+
+    stage.addEventListener('keydown', function(e) {
+      if (e.key === '+' || e.key === '=') { e.preventDefault(); setScale(state.scale * 1.4); }
+      else if (e.key === '-' || e.key === '_') { e.preventDefault(); setScale(state.scale / 1.4); }
+      else if (e.key === '0') { e.preventDefault(); state.scale = 1.0; state.tx = 0; state.ty = 0; apply(); }
+    });
+
+    document.querySelectorAll('#ds-bmp-mri-wrap .ds-mri-glass-plane').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        const plane = btn.getAttribute('data-plane');
+        if (!plane) return;
+        document.querySelectorAll('#ds-bmp-mri-wrap .ds-mri-glass-plane').forEach(function(b) {
+          const on = b === btn;
+          b.classList.toggle('is-active', on);
+          b.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        setPlane(plane);
+      });
+    });
+
+    repositionDots(); apply();
+  }
+
   // Tab strip — clinical / montage / research
   function _buildTabStrip() {
     const tabs = [
