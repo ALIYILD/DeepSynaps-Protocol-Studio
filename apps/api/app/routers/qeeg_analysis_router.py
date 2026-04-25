@@ -768,7 +768,6 @@ async def analyze_edf_mne(
 
     try:
         from app.services.qeeg_pipeline_job import run_mne_pipeline_job_sync
-        from apps.worker.app.jobs import run_mne_pipeline_job
     except Exception as exc:
         _log.exception("MNE pipeline job import failed for %s", analysis_id)
         analysis.analysis_status = "failed"
@@ -777,7 +776,19 @@ async def analyze_edf_mne(
         db.refresh(analysis)
         return AnalysisOut.from_record(analysis)
 
-    if hasattr(run_mne_pipeline_job, "delay"):
+    run_mne_pipeline_job = None
+    try:
+        from apps.worker.app.jobs import run_mne_pipeline_job as _run_mne_pipeline_job
+
+        run_mne_pipeline_job = _run_mne_pipeline_job
+    except Exception as exc:
+        _log.info(
+            "Worker queue unavailable for %s, using background task fallback: %s",
+            analysis_id,
+            exc,
+        )
+
+    if run_mne_pipeline_job is not None and hasattr(run_mne_pipeline_job, "delay"):
         try:
             queued = run_mne_pipeline_job.delay(analysis_id)
             queue_meta = {

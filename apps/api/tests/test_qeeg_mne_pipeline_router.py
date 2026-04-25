@@ -7,6 +7,7 @@ persistence plumbing without requiring MNE-Python, PyPREP, or the sibling
 from __future__ import annotations
 
 import json
+import builtins
 from pathlib import Path
 
 import pytest
@@ -277,6 +278,50 @@ def test_analyze_mne_prefers_celery_enqueue_when_available(
         assert params["job_id"] == queued_job_id
     finally:
         db.close()
+
+
+def test_analyze_mne_falls_back_when_worker_module_is_unavailable(
+    client: TestClient,
+    auth_headers: dict,
+    analysis_row: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    real_import = builtins.__import__
+
+    def _patched_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "apps.worker.app.jobs":
+            raise ModuleNotFoundError("simulated missing worker package")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", _patched_import)
+    monkeypatch.setattr(
+        "app.services.qeeg_pipeline_job.run_mne_pipeline_job_sync",
+        lambda analysis_id: calls.append(analysis_id),
+    )
+
+    resp = client.post(
+        f"/api/v1/qeeg-analysis/{analysis_row}/analyze-mne",
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["analysis_status"] == "processing:mne_pipeline"
+    assert payload["execution_mode"] == "background"
+    assert payload["queue_job_id"] is None
+    assert calls == [analysis_row]
+
+    db = SessionLocal()
+    try:
+        row = db.query(QEEGAnalysis).filter_by(id=analysis_row).first()
+        assert row is not None
+        assert row.analysis_status == "processing:mne_pipeline"
+        params = json.loads(row.analysis_params_json)
+        assert params["execution_mode"] == "background"
+        assert params["job_id"] is None
+    finally:
+        db.close()
+
 
 def test_analyze_mne_rejects_unknown_id(
     client: TestClient,
