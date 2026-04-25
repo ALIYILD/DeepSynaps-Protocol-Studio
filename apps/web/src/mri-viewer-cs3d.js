@@ -59,8 +59,11 @@ export async function mountCornerstoneMPR(host, opts = {}) {
   // Register NIfTI loader scheme
   try {
     if (!_didRegisterNifti) {
-      const register = nifti?.registerNiftiVolumeLoader;
-      if (typeof register === 'function') register(core);
+      const loader = nifti?.cornerstoneNiftiImageVolumeLoader;
+      const registerVolumeLoader = core?.volumeLoader?.registerVolumeLoader;
+      if (typeof registerVolumeLoader === 'function' && loader) {
+        registerVolumeLoader('nifti', loader);
+      }
       _didRegisterNifti = true;
     }
   } catch {
