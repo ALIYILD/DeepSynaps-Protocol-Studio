@@ -1000,6 +1000,10 @@ window._openCourse = function(id) {
 };
 
 // ── Public page routing ───────────────────────────────────────────────────────
+// Routes that don't require authentication. Used by both renderPage()'s auth
+// guard and init()'s deep-link gate so an unauth visitor to ?page=<private>
+// gets the login overlay rather than silently landing on the marketing home.
+const _PUBLIC_ROUTES = ['home', 'login', 'register', 'onboarding', 'onboarding-wizard', 'pricing'];
 let currentPublicPage = 'home';
 
 async function renderPublicPage() {
@@ -1161,8 +1165,7 @@ async function renderPage() {
   el.scrollTop = 0;
 
   // ── Auth guard (synchronous — runs before any async data fetch) ───────────
-  const _publicRoutes = ['home', 'login', 'register', 'onboarding', 'onboarding-wizard', 'pricing'];
-  if (!_publicRoutes.includes(currentPage) && !window._isAuthenticated?.()) {
+  if (!_PUBLIC_ROUTES.includes(currentPage) && !window._isAuthenticated?.()) {
     el.innerHTML = `
       <div class="auth-required-notice">
         <div class="auth-required-icon">🔒</div>
@@ -2210,6 +2213,16 @@ async function init() {
   const token = api.getToken();
   if (!token) {
     navigatePublic('home');
+    // Honor ?page=<private-route> deep links for unauth visitors: pop the login
+    // overlay so the URL is preserved and bootApp() can route on success.
+    try {
+      const deepLinkId = new URL(location.href).searchParams.get('page');
+      if (deepLinkId
+          && /^[a-z0-9][a-z0-9-]{0,63}$/i.test(deepLinkId)
+          && !_PUBLIC_ROUTES.includes(normalizeRouteId(deepLinkId))) {
+        showLogin();
+      }
+    } catch {}
     return;
   }
   try {
