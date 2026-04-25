@@ -194,7 +194,7 @@ let _notifCount = 0;
 // duplicate toasts/badge increments after reconnects that replay events.
 const _seenNotifIds = new Set();
 
-const _API_BASE = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
+const _API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 
 // ── Global error handlers ─────────────────────────────────────────────────────
 window.addEventListener('unhandledrejection', (e) => {
@@ -1594,6 +1594,10 @@ window._renderPresence = renderPresence;
 // ── Presence: heartbeat ───────────────────────────────────────────────────────
 let _presenceInterval = null;
 function startPresenceHeartbeat() {
+  // Skip in demo mode
+  const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+  const token = api.getToken();
+  if (_demoOk && token && token.endsWith('-demo-token')) return;
   clearInterval(_presenceInterval);
   _presenceInterval = setInterval(() => {
     if (currentPage && api.getToken()) {
@@ -1817,8 +1821,11 @@ let _sseRetryDelay = 3000;   // initial retry: 3 s, doubles each failure, capped
 let _sseRetryTimer = null;
 
 function connectSSE() {
+  // Skip SSE in demo mode — backend may be unreachable and retries cause noise
+  const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
   const token = api.getToken();
   if (!token) return;
+  if (_demoOk && token.endsWith('-demo-token')) return;
 
   // Tear down any stale connection before opening a new one
   if (window._sseSource) {
@@ -2148,6 +2155,13 @@ window._bootApp = bootApp;
 
 // ── Backend health check ──────────────────────────────────────────────────────
 async function checkBackendHealth() {
+  // Suppress banner in demo mode — backend being unreachable is expected
+  const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+  const token = api.getToken();
+  if (_demoOk && token && token.endsWith('-demo-token')) {
+    document.getElementById('backend-banner')?.remove();
+    return;
+  }
   try {
     await api.health();
     document.getElementById('backend-banner')?.remove();
