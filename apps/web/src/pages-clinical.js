@@ -3527,6 +3527,266 @@ export async function pgProfile(setTopbar, navigate) {
   if (ptab === 'protocol') bindAI(pt);
 }
 
+// ── Patient Command Center (cockpit dashboard) ─────────────────────────────
+
+function _ccSparkSVG(values, color = '#4cc9f0', w = 100, h = 24) {
+  if (!values || values.length < 2) return '';
+  const min = Math.min(...values), max = Math.max(...values), range = max - min || 1;
+  const pts = values.map((v, i) => `${(i / (values.length - 1) * w).toFixed(1)},${(h - ((v - min) / range) * (h - 2) - 1).toFixed(1)}`).join(' ');
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:${w}px;height:${h}px;display:block"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+}
+
+function _ccLineSVG(series, w = 420, h = 140) {
+  if (!series || !series.length) return '<div class="cc-chart-empty">No data</div>';
+  const allVals = series.flatMap(s => s.values || []);
+  if (allVals.length < 2) return '<div class="cc-chart-empty">Insufficient data</div>';
+  const min = Math.min(...allVals), max = Math.max(...allVals), range = max - min || 1;
+  const len = Math.max(...series.map(s => (s.values || []).length));
+  const gridY = [0, 0.25, 0.5, 0.75, 1].map(f => {
+    const y = h - 20 - f * (h - 28);
+    return `<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/><text x="-4" y="${y + 3}" fill="rgba(255,255,255,0.3)" font-size="8" text-anchor="end">${(min + f * range).toFixed(0)}</text>`;
+  }).join('');
+  const lines = series.map(s => {
+    const pts = (s.values || []).map((v, i) => `${(i / (len - 1) * w).toFixed(1)},${(h - 20 - ((v - min) / range) * (h - 28)).toFixed(1)}`).join(' ');
+    return `<polyline points="${pts}" fill="none" stroke="${s.color || '#4cc9f0'}" stroke-width="2" stroke-linecap="round"/>`;
+  }).join('');
+  return `<svg viewBox="-28 0 ${w + 28} ${h}" style="width:100%;height:${h}px">${gridY}${lines}</svg>`;
+}
+
+function _ccBarSVG(values, color = '#4cc9f0', w = 420, h = 120) {
+  if (!values || !values.length) return '<div class="cc-chart-empty">No data</div>';
+  const max = Math.max(...values) || 1;
+  const bw = Math.max(4, Math.min(16, (w - 10) / values.length - 1));
+  const bars = values.map((v, i) => {
+    const bh = Math.max(1, (v / max) * (h - 16));
+    return `<rect x="${i * (bw + 1)}" y="${h - 12 - bh}" width="${bw}" height="${bh}" rx="1.5" fill="${color}" opacity="0.8"/>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${values.length * (bw + 1)} ${h}" style="width:100%;height:${h}px">${bars}</svg>`;
+}
+
+function _escCC(v) { return v == null ? '' : String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function _renderCommandCenterHTML(d) {
+  const pid = _escCC(d.patient_id);
+
+  // KPI strip
+  const kpiHtml = (d.kpis || []).map(k => {
+    const trendIcon = k.trend === 'down' ? '\u2193' : k.trend === 'up' ? '\u2191' : '\u2192';
+    const trendColor = k.trend === 'down' ? '#34d399' : k.trend === 'up' ? '#f87171' : '#94a3b8';
+    return `<div class="cc-kpi">
+      <div class="cc-kpi-label">${_escCC(k.label)}</div>
+      <div class="cc-kpi-value" style="color:${k.color || 'var(--text-primary)'}">${_escCC(String(k.value))}${k.unit ? `<span class="cc-kpi-unit">${_escCC(k.unit)}</span>` : ''}</div>
+      <div class="cc-kpi-trend" style="color:${trendColor}">${trendIcon}</div>
+    </div>`;
+  }).join('');
+
+  // Charts
+  const chartsHtml = (d.charts || []).map(c => {
+    let inner = '';
+    if (c.chart_type === 'line' && c.series?.length) {
+      inner = _ccLineSVG(c.series);
+    } else if (c.chart_type === 'bar' && c.series?.[0]?.values) {
+      inner = _ccBarSVG(c.series[0].values, c.series[0].color || '#4cc9f0');
+    }
+    const legend = (c.series || []).map(s => `<span class="cc-legend"><span class="cc-legend-dot" style="background:${s.color || '#4cc9f0'}"></span>${_escCC(s.label)}</span>`).join('');
+    return `<div class="cc-chart-card"><h4 class="cc-chart-title">${_escCC(c.title)}</h4><div class="cc-chart-body">${inner}</div>${legend ? `<div class="cc-chart-legend">${legend}</div>` : ''}</div>`;
+  }).join('');
+
+  // Assessments
+  const asmtHtml = (d.assessments || []).map(a => {
+    const delta = a.delta_pct != null ? `<span class="cc-asmt-delta" style="color:${a.delta_pct > 0 ? '#34d399' : '#f87171'}">${a.delta_pct > 0 ? '\u2193' : '\u2191'}${Math.abs(a.delta_pct).toFixed(0)}%</span>` : '';
+    const spark = a.scores?.length >= 2 ? _ccSparkSVG(a.scores, '#8b5cf6', 80, 20) : '';
+    return `<div class="cc-asmt-row">
+      <div class="cc-asmt-name">${_escCC(a.name)}</div>
+      <div class="cc-asmt-score">${a.latest_score != null ? a.latest_score.toFixed(1) : '\u2014'}</div>
+      ${delta}
+      <div class="cc-asmt-spark">${spark}</div>
+    </div>`;
+  }).join('');
+
+  // Wearables
+  const wearHtml = (d.wearables || []).map(w => {
+    const statusCls = w.status === 'active' ? 'ok' : w.status === 'error' ? 'error' : 'warn';
+    return `<div class="cc-wear-card">
+      <div class="cc-wear-head"><strong>${_escCC(w.display_name)}</strong><span class="cc-badge cc-badge--${statusCls}">${_escCC(w.status)}</span></div>
+      <div class="cc-wear-metrics">
+        ${w.rhr_bpm != null ? `<span>HR ${w.rhr_bpm.toFixed(0)}</span>` : ''}
+        ${w.hrv_ms != null ? `<span>HRV ${w.hrv_ms.toFixed(0)}</span>` : ''}
+        ${w.sleep_h != null ? `<span>Sleep ${w.sleep_h.toFixed(1)}h</span>` : ''}
+        ${w.steps != null ? `<span>${w.steps.toLocaleString()} steps</span>` : ''}
+        ${w.readiness != null ? `<span>Ready ${w.readiness}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('') || '<div class="cc-muted">No wearables connected</div>';
+
+  // Sessions
+  const sess = d.sessions || {};
+  const sessHtml = `<div class="cc-sess-grid">
+    <div class="cc-sess-stat"><div class="cc-sess-num">${sess.completed || 0}</div><div class="cc-sess-lbl">Completed</div></div>
+    <div class="cc-sess-stat"><div class="cc-sess-num">${sess.scheduled || 0}</div><div class="cc-sess-lbl">Scheduled</div></div>
+    <div class="cc-sess-stat"><div class="cc-sess-num">${sess.cancelled || 0}</div><div class="cc-sess-lbl">Cancelled</div></div>
+    <div class="cc-sess-stat"><div class="cc-sess-num">${(sess.progress_pct || 0).toFixed(0)}%</div><div class="cc-sess-lbl">Progress</div></div>
+  </div>
+  <div class="cc-progress-bar"><div class="cc-progress-fill" style="width:${Math.min(100, sess.progress_pct || 0)}%"></div></div>`;
+
+  // Treatment
+  const tx = d.treatment || {};
+  const txHtml = `<div class="cc-tx-info">
+    ${tx.active_course ? `<div class="cc-tx-row"><span class="cc-tx-lbl">Course</span><span>${_escCC(tx.active_course)}</span></div>` : ''}
+    ${tx.protocol ? `<div class="cc-tx-row"><span class="cc-tx-lbl">Protocol</span><span>${_escCC(tx.protocol)}</span></div>` : ''}
+    ${tx.phase ? `<div class="cc-tx-row"><span class="cc-tx-lbl">Phase</span><span>${_escCC(tx.phase)}</span></div>` : ''}
+    <div class="cc-tx-row"><span class="cc-tx-lbl">Adherence</span><span style="color:${tx.adherence_pct >= 80 ? '#34d399' : tx.adherence_pct >= 50 ? '#fbbf24' : '#f87171'}">${(tx.adherence_pct || 0).toFixed(0)}%</span></div>
+  </div>`;
+
+  // Neuroimaging
+  const neuro = d.neuroimaging || {};
+  const neuroHtml = `<div class="cc-neuro-grid">
+    <div class="cc-neuro-stat"><span class="cc-neuro-num">${neuro.eeg_count || 0}</span><span class="cc-neuro-lbl">EEG</span></div>
+    <div class="cc-neuro-stat"><span class="cc-neuro-num">${neuro.mri_count || 0}</span><span class="cc-neuro-lbl">MRI</span></div>
+  </div>
+  ${neuro.latest_eeg_date ? `<div class="cc-muted">Last EEG: ${neuro.latest_eeg_date}</div>` : ''}
+  ${neuro.latest_mri_date ? `<div class="cc-muted">Last MRI: ${neuro.latest_mri_date}</div>` : ''}
+  ${(neuro.eeg_findings || []).length ? `<div class="cc-findings">${neuro.eeg_findings.map(f => `<span class="cc-finding-chip">${_escCC(f)}</span>`).join('')}</div>` : ''}`;
+
+  // Alerts
+  const alertsHtml = (d.alerts || []).filter(a => !a.dismissed).map(a => {
+    const sevCls = a.severity === 'critical' ? 'error' : a.severity === 'warning' ? 'warn' : 'info';
+    return `<div class="cc-alert cc-alert--${sevCls}">
+      <span class="cc-alert-type">${_escCC(a.flag_type.replace(/_/g, ' '))}</span>
+      <span class="cc-alert-detail">${_escCC(a.detail)}</span>
+    </div>`;
+  }).join('') || '<div class="cc-muted">No active alerts</div>';
+
+  // Risk badge
+  const riskHtml = d.risk_tier ? `<div class="cc-risk-badge cc-risk--${d.risk_tier}">
+    <span class="cc-risk-label">Risk</span>
+    <span class="cc-risk-tier">${d.risk_tier.toUpperCase()}</span>
+    ${d.risk_score != null ? `<span class="cc-risk-score">${(d.risk_score * 100).toFixed(0)}%</span>` : ''}
+  </div>` : '';
+
+  return `
+    ${riskHtml}
+    <div class="cc-kpi-strip">${kpiHtml}</div>
+    <div class="cc-cockpit-grid">
+      <div class="cc-col cc-col-charts">
+        <div class="cc-panel"><div class="cc-panel-hdr"><h4>Trend Charts</h4></div><div class="cc-panel-body cc-charts-wrap">${chartsHtml}</div></div>
+      </div>
+      <div class="cc-col cc-col-side">
+        <div class="cc-panel"><div class="cc-panel-hdr"><h4>Assessments</h4><button class="btn btn-sm" onclick="window.switchPT('assessments')" style="font-size:10px">Run New</button></div><div class="cc-panel-body">${asmtHtml || '<div class="cc-muted">No assessments</div>'}</div></div>
+        <div class="cc-panel"><div class="cc-panel-hdr"><h4>Wearable Devices</h4><button class="btn btn-sm" onclick="window.switchPT('monitoring')" style="font-size:10px">Details</button></div><div class="cc-panel-body">${wearHtml}</div></div>
+        <div class="cc-panel"><div class="cc-panel-hdr"><h4>Alerts</h4></div><div class="cc-panel-body">${alertsHtml}</div></div>
+      </div>
+    </div>
+    <div class="cc-bottom-grid">
+      <div class="cc-panel"><div class="cc-panel-hdr"><h4>Sessions</h4><button class="btn btn-sm" onclick="window.switchPT('sessions')" style="font-size:10px">View All</button></div><div class="cc-panel-body">${sessHtml}</div></div>
+      <div class="cc-panel"><div class="cc-panel-hdr"><h4>Treatment</h4><button class="btn btn-sm" onclick="window.switchPT('courses')" style="font-size:10px">Courses</button></div><div class="cc-panel-body">${txHtml}</div></div>
+      <div class="cc-panel"><div class="cc-panel-hdr"><h4>Neuroimaging</h4></div><div class="cc-panel-body">${neuroHtml}</div></div>
+    </div>
+    <div class="ptd-quick-bar">
+      <button class="ptd-quick-btn" onclick="window._patStartSession('${pid}')">&#9654; Start Session</button>
+      <button class="ptd-quick-btn" onclick="window.switchPT('outcomes')">&#128202; Log Outcome</button>
+      <button class="ptd-quick-btn" onclick="window._nav('calendar')">&#128197; Schedule</button>
+      <button class="ptd-quick-btn" onclick="window.switchPT('assessments')">&#128203; Run Assessment</button>
+      <button class="ptd-quick-btn" onclick="window.startNewCourse()">&#9737; New Course</button>
+    </div>`;
+}
+
+function _loadCommandCenter(patientId, fallbackHtml) {
+  // Async load command center data, replacing the overview content when ready
+  setTimeout(async () => {
+    const root = document.getElementById('cc-overview-root');
+    if (!root) return;
+
+    // Inject CSS once
+    if (!document.getElementById('cc-styles')) {
+      const s = document.createElement('style');
+      s.id = 'cc-styles';
+      s.textContent = `
+        .cc-kpi-strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-bottom:16px}
+        .cc-kpi{background:rgba(255,255,255,0.025);border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:3px}
+        .cc-kpi-label{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-tertiary);font-weight:600}
+        .cc-kpi-value{font-family:var(--font-display);font-size:22px;font-weight:800;letter-spacing:-.03em}
+        .cc-kpi-unit{font-size:12px;font-weight:500;opacity:.6;margin-left:3px}
+        .cc-kpi-trend{font-size:12px;font-weight:700}
+        .cc-cockpit-grid{display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px}
+        @media(max-width:1000px){.cc-cockpit-grid{grid-template-columns:1fr}}
+        .cc-col{display:flex;flex-direction:column;gap:14px}
+        .cc-bottom-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px}
+        @media(max-width:900px){.cc-bottom-grid{grid-template-columns:1fr}}
+        .cc-panel{background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+        .cc-panel-hdr{padding:10px 14px 8px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)}
+        .cc-panel-hdr h4{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary);margin:0}
+        .cc-panel-body{padding:12px 14px}
+        .cc-charts-wrap{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+        .cc-chart-card{background:rgba(255,255,255,0.015);border:1px solid rgba(255,255,255,0.04);border-radius:10px;padding:12px}
+        .cc-chart-title{font-size:12px;font-weight:600;color:var(--text-secondary);margin:0 0 8px}
+        .cc-chart-body{overflow:hidden;min-height:80px}
+        .cc-chart-empty{font-size:11px;color:var(--text-tertiary);text-align:center;padding:30px 0}
+        .cc-chart-legend{display:flex;gap:10px;margin-top:6px;flex-wrap:wrap}
+        .cc-legend{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--text-tertiary)}
+        .cc-legend-dot{width:7px;height:7px;border-radius:50%}
+        .cc-asmt-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)}
+        .cc-asmt-row:last-child{border-bottom:none}
+        .cc-asmt-name{flex:1;font-size:12px;font-weight:600;color:var(--text-primary)}
+        .cc-asmt-score{font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--text-primary)}
+        .cc-asmt-delta{font-size:11px;font-weight:700}
+        .cc-asmt-spark{margin-left:4px}
+        .cc-badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;text-transform:uppercase}
+        .cc-badge--ok{background:rgba(16,185,129,.15);color:#34d399}
+        .cc-badge--warn{background:rgba(245,158,11,.15);color:#fbbf24}
+        .cc-badge--error{background:rgba(239,68,68,.15);color:#f87171}
+        .cc-badge--info{background:rgba(59,130,246,.15);color:#60a5fa}
+        .cc-wear-card{padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04)}
+        .cc-wear-card:last-child{border-bottom:none}
+        .cc-wear-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+        .cc-wear-head strong{font-size:12px;color:var(--text-primary)}
+        .cc-wear-metrics{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--text-secondary)}
+        .cc-muted{font-size:11px;color:var(--text-tertiary);padding:4px 0}
+        .cc-sess-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+        .cc-sess-stat{text-align:center}
+        .cc-sess-num{font-family:var(--font-display);font-size:20px;font-weight:800;color:var(--text-primary)}
+        .cc-sess-lbl{font-size:10px;color:var(--text-tertiary);text-transform:uppercase}
+        .cc-progress-bar{height:5px;border-radius:3px;background:rgba(255,255,255,0.06);overflow:hidden}
+        .cc-progress-fill{height:5px;border-radius:3px;background:var(--teal);transition:width .3s}
+        .cc-tx-info{display:flex;flex-direction:column;gap:6px}
+        .cc-tx-row{display:flex;justify-content:space-between;font-size:12px;color:var(--text-secondary)}
+        .cc-tx-lbl{color:var(--text-tertiary);font-size:11px}
+        .cc-neuro-grid{display:flex;gap:20px;margin-bottom:6px}
+        .cc-neuro-stat{display:flex;align-items:baseline;gap:4px}
+        .cc-neuro-num{font-family:var(--font-display);font-size:22px;font-weight:800;color:var(--text-primary)}
+        .cc-neuro-lbl{font-size:11px;color:var(--text-tertiary)}
+        .cc-findings{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+        .cc-finding-chip{font-size:10px;padding:3px 8px;border-radius:4px;background:rgba(139,92,246,0.1);color:#a78bfa;border:1px solid rgba(139,92,246,0.15)}
+        .cc-alert{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;margin-bottom:6px;font-size:12px}
+        .cc-alert:last-child{margin-bottom:0}
+        .cc-alert--error{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.15)}
+        .cc-alert--warn{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.15)}
+        .cc-alert--info{background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.12)}
+        .cc-alert-type{font-weight:700;text-transform:capitalize;color:var(--text-secondary);white-space:nowrap}
+        .cc-alert-detail{color:var(--text-tertiary);flex:1}
+        .cc-risk-badge{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:10px;margin-bottom:14px;font-size:12px;font-weight:700}
+        .cc-risk--green{background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);color:#34d399}
+        .cc-risk--yellow{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.2);color:#fbbf24}
+        .cc-risk--orange{background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.2);color:#fb923c}
+        .cc-risk--red{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#f87171}
+        .cc-risk-label{text-transform:uppercase;letter-spacing:.06em;font-size:10px}
+        .cc-risk-tier{font-size:14px;font-weight:800}
+        .cc-risk-score{font-size:11px;opacity:.7}
+      `;
+      document.head.appendChild(s);
+    }
+
+    let data = null;
+    try {
+      data = await api.getCommandCenter(patientId);
+    } catch {}
+
+    if (!data || (!data.kpis && !data.charts)) return; // keep fallback
+
+    root.innerHTML = _renderCommandCenterHTML(data);
+  }, 50);
+}
+
 // ── Patient Dashboard Overview ──────────────────────────────────────────────
 function renderDashboardOverview(pt, sessions, courses, ctx = {}) {
   const { demoOutcomes = [], demoWearable, demoNotes = [], demoAssessments = [], demoAiAnalysis, isDemoPatient: isDemo } = ctx;

@@ -37,6 +37,8 @@ def run(
     epoch_len: float = EPOCH_LENGTH_SEC,
     overlap: float = EPOCH_OVERLAP,
     quality: dict[str, Any] | None = None,
+    ica_exclude_override: list[int] | None = None,
+    ica_keep_override: list[int] | None = None,
 ) -> tuple["mne.Epochs", dict[str, Any]]:
     """Fit ICA, reject non-brain components, epoch, and run autoreject.
 
@@ -51,6 +53,10 @@ def run(
     quality : dict or None
         Optional existing quality snapshot to augment. If None, a fresh dict
         is created.
+    ica_exclude_override : list of int or None
+        ICA component indices to force-exclude (user's manual selection).
+    ica_keep_override : list of int or None
+        ICA component indices to force-keep (user overriding auto-rejection).
 
     Returns
     -------
@@ -69,6 +75,18 @@ def run(
 
     # --- ICA ---
     ica, n_dropped, labels_dropped, iclabel_used = _fit_and_clean_ica(raw_clean)
+
+    # Apply user ICA overrides if provided
+    if ica is not None and (ica_exclude_override is not None or ica_keep_override is not None):
+        current_exclude = set(ica.exclude)
+        if ica_keep_override:
+            current_exclude -= set(ica_keep_override)
+        if ica_exclude_override:
+            current_exclude |= set(ica_exclude_override)
+        ica.exclude = sorted(current_exclude)
+        n_dropped = len(ica.exclude)
+        labels_dropped = {"user_override": n_dropped}
+        log.info("User ICA overrides applied: %d components excluded", n_dropped)
 
     # Apply ICA to the main (non-high-passed) raw
     if ica is not None:

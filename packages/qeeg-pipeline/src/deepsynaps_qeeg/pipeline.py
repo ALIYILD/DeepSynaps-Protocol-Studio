@@ -60,6 +60,7 @@ def run_full_pipeline(
     compute_embeddings: bool = False,
     do_report: bool = False,
     out_dir: str | Path | None = None,
+    user_overrides: dict[str, Any] | None = None,
 ) -> PipelineResult:
     """End-to-end qEEG pipeline.
 
@@ -88,6 +89,10 @@ def run_full_pipeline(
         Render an HTML/PDF report into ``out_dir``.
     out_dir : str, Path, or None
         Output directory for the report. Required when ``do_report=True``.
+    user_overrides : dict or None
+        Manual cleaning overrides from the interactive Raw Data viewer.
+        Supported keys: ``bad_channels``, ``annotations``,
+        ``ica_exclude``, ``ica_keep``, ``bandpass``, ``notch``.
 
     Returns
     -------
@@ -111,6 +116,25 @@ def run_full_pipeline(
     raw = load_raw(eeg_path)
     result.quality["n_channels_input"] = len(raw.ch_names)
 
+    # --- Stage 1b — apply user overrides (interactive cleaning) ---
+    if user_overrides:
+        import mne as _mne
+
+        if user_overrides.get("bad_channels"):
+            raw.info["bads"] = list(user_overrides["bad_channels"])
+            log.info("User overrides: marked %d bad channels", len(raw.info["bads"]))
+        for ann in user_overrides.get("annotations", []):
+            raw.annotations.append(
+                float(ann["onset"]),
+                float(ann["duration"]),
+                str(ann.get("description", "BAD_user")),
+            )
+        if user_overrides.get("bandpass"):
+            bandpass = tuple(user_overrides["bandpass"])
+        if user_overrides.get("notch") is not None:
+            notch_hz = float(user_overrides["notch"])
+        result.quality["user_overrides_applied"] = True
+
     # --- Stage 2 — preprocess ---
     try:
         raw_clean, prep_quality = preprocess.run(
@@ -125,8 +149,15 @@ def run_full_pipeline(
 
     # --- Stage 3 — artifacts + epoching ---
     try:
+        ica_exclude_override = None
+        ica_keep_override = None
+        if user_overrides:
+            ica_exclude_override = user_overrides.get("ica_exclude")
+            ica_keep_override = user_overrides.get("ica_keep")
         epochs, art_quality = artifacts.run(
-            raw_clean, epoch_len=epoch_len, overlap=overlap, quality=result.quality
+            raw_clean, epoch_len=epoch_len, overlap=overlap, quality=result.quality,
+            ica_exclude_override=ica_exclude_override,
+            ica_keep_override=ica_keep_override,
         )
         result.quality.update(art_quality)
     except Exception as exc:

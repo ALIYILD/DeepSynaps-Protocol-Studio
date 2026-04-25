@@ -2562,6 +2562,7 @@ function _renderComprehensiveReport(report, analysis) {
 const TAB_META = {
   patient:   { label: 'Patient & Upload',  color: 'var(--blue)' },
   analysis:  { label: 'Analysis',          color: 'var(--teal)' },
+  raw:       { label: 'Raw Data',          color: 'var(--green)' },
   report:    { label: 'AI Report',         color: 'var(--violet)' },
   compare:   { label: 'Compare',           color: 'var(--amber)' },
 };
@@ -4620,6 +4621,25 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       }
     } catch (err) {
       tabEl.innerHTML = '<div style="color:var(--red);padding:24px" aria-live="assertive" role="alert">Failed to load report: ' + esc(err.message || err) + '</div>';
+    }
+    return;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // TAB: RAW DATA
+  // ══════════════════════════════════════════════════════════════════════════
+  if (tab === 'raw') {
+    const analysisId = window._qeegSelectedId;
+    if (!analysisId) {
+      tabEl.innerHTML = emptyState('&#x1F4C8;', 'No Analysis Selected', 'Select an analysis from the Patient & Upload tab to view raw EEG data.', 'Go to Patient & Upload', "window._qeegTab='patient';window._nav('qeeg-analysis')");
+      return;
+    }
+    tabEl.innerHTML = '<div style="text-align:center;padding:48px"><div class="spinner"></div><div style="margin-top:12px;font-size:13px;color:var(--text-secondary)">Loading Raw Data viewer&hellip;</div></div>';
+    try {
+      const { renderRawDataTab } = await import('./pages-qeeg-raw.js');
+      await renderRawDataTab(tabEl, analysisId, patientId);
+    } catch (err) {
+      tabEl.innerHTML = '<div style="color:var(--red);padding:24px" role="alert">Failed to load Raw Data viewer: ' + esc(String(err.message || err)) + '</div>';
     }
     return;
   }
