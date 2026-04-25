@@ -1358,22 +1358,29 @@ export async function pgPatientHub(setTopbar, navigate) {
       <div class="d2p7-tab-bar">${tabBar()}</div>
       <div class="card" style="padding:24px">
         <h3 style="color:var(--text-primary);margin:0 0 16px;font-size:15px">&#128196; Clinical Reports</h3>
+        <div style="font-size:12px;color:var(--text-secondary);margin:0 0 14px">
+          Reporting exports are being wired to governed backend generators. The items below are roadmap placeholders and are intentionally disabled until export, audit, and reviewer stamps are complete.
+        </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
-          <div class="card" style="padding:16px;cursor:pointer;border-left:3px solid var(--teal)" onclick="alert('Report generation coming soon')">
+          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--teal)">
             <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Treatment Summary</div>
             <div style="font-size:11px;color:var(--text-secondary)">Generate a comprehensive treatment summary report for any patient.</div>
+            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
           </div>
-          <div class="card" style="padding:16px;cursor:pointer;border-left:3px solid var(--blue)" onclick="alert('Report generation coming soon')">
+          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--blue)">
             <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Outcome Report</div>
             <div style="font-size:11px;color:var(--text-secondary)">Export outcome measures, trends, and response rates as PDF or FHIR.</div>
+            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
           </div>
-          <div class="card" style="padding:16px;cursor:pointer;border-left:3px solid var(--violet)" onclick="alert('Report generation coming soon')">
+          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--violet)">
             <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">DeepTwin Report</div>
             <div style="font-size:11px;color:var(--text-secondary)">Full digital twin analysis including EEG, MRI, and biometric correlations.</div>
+            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
           </div>
-          <div class="card" style="padding:16px;cursor:pointer;border-left:3px solid var(--amber)" onclick="alert('Report generation coming soon')">
+          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--amber)">
             <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Cohort Comparison</div>
             <div style="font-size:11px;color:var(--text-secondary)">Compare patient outcomes against similar cohorts and benchmarks.</div>
+            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
           </div>
         </div>
       </div>

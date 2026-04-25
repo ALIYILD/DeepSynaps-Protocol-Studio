@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.services.deeptwin_engine import (
     REPORT_BUILDERS,
@@ -372,6 +372,17 @@ def _normalize_number(value: Any, fallback: float) -> float:
         return fallback
 
 
+def _require_clinician_review_actor(actor: AuthenticatedActor) -> None:
+    require_minimum_role(
+        actor,
+        "clinician",
+        warnings=[
+            "DeepTwin outputs are clinician decision support only.",
+            "Patient-specific simulations and predictions require clinician or admin access.",
+        ],
+    )
+
+
 def _build_simulation_outputs(
     patient_id: str,
     protocol_id: str,
@@ -477,6 +488,7 @@ def deeptwin_analyze(
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> DeeptwinAnalyzeResponse:
+    _require_clinician_review_actor(_actor)
     used = payload.modalities or ["qeeg_features", "assessments", "wearables"]
     weights = _safe_weights(used, payload.combine, payload.custom_weights)
 
@@ -535,6 +547,7 @@ def deeptwin_simulate(
     payload: DeeptwinSimulateRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> DeeptwinSimulateResponse:
+    _require_clinician_review_actor(_actor)
     inputs = {
         "patient_id": payload.patient_id,
         "protocol_id": payload.protocol_id,
@@ -593,6 +606,7 @@ def deeptwin_evidence(
     payload: DeeptwinEvidenceRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> DeeptwinEvidenceResponse:
+    _require_clinician_review_actor(_actor)
     trace_id = str(uuid.uuid4())
     snapshot_id = _snapshot_id_for_research_bundle()
 
@@ -773,6 +787,7 @@ def deeptwin_get_summary(
     patient_id: str,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinSummaryOut:
+    _require_clinician_review_actor(_actor)
     return TwinSummaryOut(**build_twin_summary(patient_id))
 
 
@@ -782,6 +797,7 @@ def deeptwin_get_timeline(
     days: int = 90,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinTimelineOut:
+    _require_clinician_review_actor(_actor)
     days = max(7, min(365, days))
     return TwinTimelineOut(**align_timeline_events(patient_id, days=days))
 
@@ -791,6 +807,7 @@ def deeptwin_get_signals(
     patient_id: str,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinSignalsOut:
+    _require_clinician_review_actor(_actor)
     return TwinSignalsOut(**build_signal_matrix(patient_id))
 
 
@@ -799,6 +816,7 @@ def deeptwin_get_correlations(
     patient_id: str,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinCorrelationsOut:
+    _require_clinician_review_actor(_actor)
     corr = detect_correlations(patient_id)
     caus = generate_causal_hypotheses(patient_id)
     return TwinCorrelationsOut(
@@ -818,6 +836,7 @@ def deeptwin_get_predictions(
     horizon: Literal["2w", "6w", "12w"] = "6w",
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinPredictionOut:
+    _require_clinician_review_actor(_actor)
     return TwinPredictionOut(**estimate_trajectory(patient_id, horizon=horizon))
 
 
@@ -827,6 +846,7 @@ def deeptwin_post_simulation(
     payload: TwinSimulationRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinSimulationOut:
+    _require_clinician_review_actor(_actor)
     result = simulate_intervention_scenario(
         patient_id,
         scenario_id=payload.scenario_id,
@@ -851,6 +871,7 @@ def deeptwin_post_report(
     payload: TwinReportRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinReportOut:
+    _require_clinician_review_actor(_actor)
     builder = REPORT_BUILDERS.get(payload.kind)
     if builder is None:
         builder = REPORT_BUILDERS["clinician_deep"]
@@ -880,5 +901,6 @@ def deeptwin_post_agent_handoff(
     payload: TwinAgentHandoffRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinAgentHandoffOut:
+    _require_clinician_review_actor(_actor)
     result = create_agent_handoff_summary(patient_id, kind=payload.kind, note=payload.note)
     return TwinAgentHandoffOut(**result)

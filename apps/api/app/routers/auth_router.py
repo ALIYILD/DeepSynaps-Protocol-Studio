@@ -614,7 +614,15 @@ class DemoLoginRequest(BaseModel):
 
 @router.post("/api/v1/auth/demo-login", response_model=TokenResponse)
 def demo_login(body: DemoLoginRequest) -> TokenResponse:
-    """Issue real JWTs for demo roles — works in all environments."""
+    """Issue demo JWTs only in explicitly non-production environments."""
+    settings = get_settings()
+    if settings.app_env in ("production", "staging"):
+        raise ApiServiceError(
+            code="demo_login_disabled",
+            message="Demo access is disabled in this environment.",
+            warnings=["Use a real user account in staging or production."],
+            status_code=403,
+        )
     demo = DEMO_ACTOR_TOKENS.get(body.token)
     if demo is None:
         raise ApiServiceError(
