@@ -9,6 +9,7 @@ DeepSynaps Studio supports evidence-based assessments, protocols, clinician hand
 - `apps/api` FastAPI backend
 - `apps/web` React + Vite frontend
 - `apps/worker` worker scaffold
+- `config` governance policy and review-threshold YAML used by evidence/review workflows
 - `tools/deepsweeper` vendored issue/PR sweeper kit with regulated guardrails
 - `packages/core-schema` shared API and domain contracts
 - `packages/*-registry` shared registry packages
@@ -22,6 +23,14 @@ DeepSynaps Studio supports evidence-based assessments, protocols, clinician hand
 ## Condition packages (evidence and governance)
 
 See [`docs/protocol-evidence-governance-policy.md`](docs/protocol-evidence-governance-policy.md) for repo-wide rules on protocol evidence levels, downgrade/remove decisions, and required wording for clinician-facing vs patient-facing content.
+
+Additional governance pack materials are available under:
+- `docs/evidence_policy.md`
+- `docs/review_workflow.md`
+- `docs/condition_onboarding.md`
+- `docs/governance-pack/README.md`
+- `config/evidence_rules.yaml`
+- `config/review_thresholds.yaml`
 
 ## Verified production-readiness baseline
 - backend health endpoints with database + snapshot status

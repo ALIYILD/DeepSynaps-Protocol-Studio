@@ -1,0 +1,154 @@
+evidence_levels:
+  highest:
+    - "clinical_practice_guideline"
+    - "systematic_review"
+    - "meta_analysis"
+    - "large_rct"
+    score: 5
+
+  high:
+    - "rct"
+    - "controlled_trial"
+    score: 4
+
+  medium:
+    - "cohort_study"
+    - "narrative_review"
+    - "consensus_statement"
+    score: 3
+
+  low:
+    - "pilot_study"
+    - "feasibility_study"
+    - "case_series"
+    score: 2
+
+  very_low:
+    - "case_report"
+    - "expert_opinion"
+    - "indirect_evidence"
+    score: 1
+
+confidence_thresholds:
+  high_confidence: 4
+  medium_confidence: 3
+  low_confidence: 2
+  insufficient: 1
+
+language_by_confidence:
+  high_confidence: "Evidence-based:"
+  medium_confidence: "Supported by emerging evidence:"
+  low_confidence: "Consensus-informed (limited evidence):"
+  insufficient: "⚠ REQUIRES CLINICAL REVIEW — Evidence insufficient:"
+
+review_flags:
+  missing_primary_source: true
+  contradicting_sources: true
+  indirect_evidence_only: true
+  pilot_data_only: true
+  no_rct_available: false  # flag but don't block
+  off_label_without_consent_note: true
+
+claim_categories:
+  - "pathophysiology"
+  - "brain_regions"
+  - "network_involvement"
+  - "clinical_phenotypes"
+  - "assessment_tools"
+  - "stimulation_targets"
+  - "stimulation_parameters"
+  - "modality_rationale"
+  - "safety"
+  - "contraindications"
+  - "responder_criteria"
+  - "inclusion_criteria"
+  - "exclusion_criteria"
+
+pubmed_search:
+  max_results_per_query: 50
+  preferred_publication_types:
+    - "Systematic Review"
+    - "Meta-Analysis"
+    - "Practice Guideline"
+    - "Randomized Controlled Trial"
+    - "Review"
+    - "Clinical Trial"
+  years_back: 10
+  min_abstract_length: 100
+
+# ── Multi-source search ─────────────────────────────────────────────
+multi_source_search:
+  sources:
+    pubmed: true
+    crossref: true
+    semantic_scholar: true
+  max_results_per_source: 30
+  crossref_rate_limit_seconds: 1.0
+  semantic_scholar_rate_limit_seconds: 3.1
+
+# ── Fuzzy deduplication ─────────────────────────────────────────────
+deduplication:
+  title_similarity_threshold: 0.85
+  methods:
+    - pmid_exact
+    - doi_exact
+    - title_fuzzy
+
+# ── Screening ───────────────────────────────────────────────────────
+screening:
+  min_confidence_for_auto_decision: 0.7
+  include_uncertain_in_pipeline: true
+  llm_screening_enabled: false  # set to true when API key available
+
+# ── Parameter extraction ────────────────────────────────────────────
+parameter_extraction:
+  method: regex  # regex | llm | hybrid
+  min_fields_for_inclusion: 1
+  key_parameters:
+    - modality
+    - brain_target
+    - intensity
+    - frequency
+    - duration
+    - sessions
+    - montage
+    - outcome_measure
+
+# ── Evidence scoring (multi-dimensional) ────────────────────────────
+evidence_scoring:
+  quality_weights:
+    design: 0.30
+    sample_size: 0.20
+    bias_risk: 0.20
+    reporting: 0.10
+    replication: 0.20
+  relevance_weights:
+    parameter_match: 0.40
+    population_match: 0.25
+    recency: 0.15
+    parameter_completeness: 0.20
+  grade_thresholds:
+    A: { quality_min: 75, relevance_min: 70 }
+    B: { quality_min: 55, relevance_min: 50 }
+    C: { quality_min: 35, relevance_min: 35 }
+    D: { quality_min: 0, relevance_min: 0 }
+
+# ── Citation grounding ──────────────────────────────────────────────
+citation_grounding:
+  max_citations_per_claim: 5
+  citation_types:
+    - supports
+    - informs
+    - contradicts
+    - safety_note
+  flag_contradictions: true
+  require_grade_a_for_params: false
+
+# ── PRISMA pipeline ─────────────────────────────────────────────────
+prisma_pipeline:
+  track_all_decisions: true
+  persist_pipeline_log: true
+  generate_flow_diagram: true
+  output_format:
+    - text
+    - mermaid
