@@ -1,0 +1,31 @@
+# Model weight lock file
+# CI gate: any entry with a non-permissive license fails the build.
+# Permissive licenses: Apache-2.0, MIT, BSD-3-Clause, BSD-2-Clause
+# Banned: any license containing "NC" (non-commercial), CC BY-NC, GPL-3.0 (copyleft)
+# Banned models (explicit): tribe-v2 (CC BY-NC 4.0)
+
+models:
+  - id: labram-base
+    version: "1.0.0"
+    license: Apache-2.0
+    source: https://github.com/935963004/LaBraM
+    sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    parameters: 5800000
+    embedding_dim: 512
+    notes: "EEG foundation model, frozen at inference"
+
+  - id: eegpt-small
+    version: "1.0.0"
+    license: MIT
+    source: https://github.com/BINE022/EEGPT
+    sha256: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+    parameters: 25000000
+    embedding_dim: 512
+    notes: "Alternative EEG foundation model"
+
+# Explicit deny list
+banned:
+  - id: tribe-v2
+    reason: "CC BY-NC 4.0 — non-commercial license, fMRI not EEG, forward encoder not classifier"
+    source: https://github.com/facebookresearch/tribev2
+

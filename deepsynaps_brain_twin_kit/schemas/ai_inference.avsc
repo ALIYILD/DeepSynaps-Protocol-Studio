@@ -1,0 +1,83 @@
+{
+  "type": "record",
+  "name": "AiInferenceEvent",
+  "namespace": "studio.deepsynaps.events.v1",
+  "doc": "deepsynaps.ai.inference.v1: Brain Twin inference output for audit, monitoring, and UI rendering. Output payload must be PHI-safe.",
+  "fields": [
+    { "name": "event_id", "type": { "type": "string", "logicalType": "uuid" } },
+    { "name": "event_type", "type": "string", "doc": "Expected: deepsynaps.ai.inference.v1" },
+    { "name": "schema_version", "type": "string" },
+    { "name": "occurred_at", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "recorded_at", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "tenant_id", "type": "string" },
+    { "name": "patient_id", "type": ["null", "string"], "default": null },
+    { "name": "source_id", "type": "string", "doc": "Producing service id, for example brain-twin-inference" },
+    { "name": "source_instance", "type": "string" },
+    {
+      "name": "modality",
+      "type": {
+        "type": "enum",
+        "name": "Modality",
+        "symbols": [
+          "QEEG",
+          "MRI",
+          "FMRI",
+          "WEARABLE",
+          "THERAPY_INCLINIC",
+          "THERAPY_HOME",
+          "VIDEO",
+          "AUDIO",
+          "ASSESSMENT",
+          "EHR_TEXT",
+          "OUTCOME",
+          "CONSENT",
+          "SYSTEM"
+        ]
+      }
+    },
+    { "name": "trace_id", "type": "string" },
+    { "name": "correlation_id", "type": ["null", "string"], "default": null, "doc": "Often a report_id, inference_run_id, or visit_id" },
+    { "name": "consent_version", "type": "string" },
+    { "name": "de_identified", "type": "boolean", "doc": "Must be true for any narrative payload that could contain identifiers" },
+    {
+      "name": "retention_class",
+      "type": {
+        "type": "enum",
+        "name": "RetentionClass",
+        "symbols": ["STANDARD", "EXTENDED", "RESEARCH_ONLY"]
+      }
+    },
+    { "name": "payload_uri", "type": ["null", "string"], "default": null, "doc": "Optional URI to full JSON output stored for audit (encrypted)" },
+    { "name": "payload_inline", "type": ["null", { "type": "map", "values": "string" }], "default": null, "doc": "Small PHI-safe output summary (UI blocks, scores)" },
+    { "name": "schema_registry_id", "type": ["null", "int"], "default": null },
+
+    { "name": "model_id", "type": "string", "doc": "Stable model family id, for example brain-twin-fusion" },
+    { "name": "model_version", "type": "string", "doc": "Version tag, for example 2026-04-25+sha.1234" },
+    { "name": "task", "type": "string", "doc": "For example report_generation, protocol_recommendation, risk_forecast" },
+    { "name": "input_event_ids", "type": { "type": "array", "items": { "type": "string", "logicalType": "uuid" } }, "default": [] },
+    { "name": "retrieved_evidence_ids", "type": { "type": "array", "items": "string" }, "default": [], "doc": "IDs of RAG citations (EEG-MedRAG hypergraph node ids), not URLs" },
+    { "name": "latency_ms", "type": "int" },
+    {
+      "name": "uncertainty_interval",
+      "type": {
+        "type": "record",
+        "name": "UncertaintyInterval",
+        "fields": [
+          { "name": "method", "type": "string", "doc": "For example conformal, mc_dropout, ensemble" },
+          { "name": "lower", "type": ["null", "double"], "default": null },
+          { "name": "upper", "type": ["null", "double"], "default": null },
+          { "name": "coverage_target", "type": ["null", "double"], "default": null }
+        ]
+      }
+    },
+    {
+      "name": "output_payload",
+      "type": {
+        "type": "map",
+        "values": "string"
+      },
+      "default": {},
+      "doc": "PHI-safe key/value output summary. Use payload_uri for full structured output."
+    }
+  ]
+}

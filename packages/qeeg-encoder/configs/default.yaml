@@ -1,0 +1,52 @@
+# qEEG Encoder runtime config
+# Override via env: QEEG_ENCODER__BUS__BOOTSTRAP_SERVERS=...
+service:
+  name: qeeg-encoder
+  log_level: INFO
+  metrics_port: 9090
+
+bus:
+  bootstrap_servers: redpanda:9092
+  schema_registry_url: http://schema-registry:8081
+  consumer_group: qeeg-encoder.v1
+  topics:
+    qeeg_recording: studio.qeeg-recording.v1
+    qeeg_features: studio.qeeg-features.v1
+    ai_inference: studio.ai-inference.v1
+    dlq: studio.dlq.qeeg-encoder.v1
+  max_poll_records: 32
+  enable_auto_commit: false
+
+foundation:
+  enabled: true
+  backbone: labram-base       # one of: labram-base, eegpt-small
+  weights_dir: /opt/models/labram-base
+  expected_sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  device: cuda                # cuda | cpu
+  embedding_dim: 512
+
+tabular:
+  enabled: true
+  embedding_dim: 128
+  feature_set: canonical_v1   # band powers, coherence, asymmetry
+
+conformal:
+  alpha: 0.10                 # 90% coverage
+  method: split
+  calibration_size: 0.20
+  cache_dir: /var/cache/qeeg-encoder/conformal
+
+feature_store:
+  feast_repo: /opt/feast
+  push_endpoint: http://feast-push:8080
+  feature_view: qeeg_session_features
+  freshness_sla_seconds: 60
+
+emit:
+  retries: 3
+  retry_backoff_ms: 250
+
+tenancy:
+  enforce_isolation: true
+  tenant_header: x-tenant-id
+

@@ -1,0 +1,71 @@
+{
+  "type": "record",
+  "name": "QeegRecordingEvent",
+  "namespace": "studio.deepsynaps.events.v1",
+  "doc": "deepsynaps.qeeg.recording.v1: qEEG raw recording session metadata + payload_uri to EDF in encrypted object storage.",
+  "fields": [
+    { "name": "event_id", "type": { "type": "string", "logicalType": "uuid" } },
+    { "name": "event_type", "type": "string", "doc": "Expected: deepsynaps.qeeg.recording.v1" },
+    { "name": "schema_version", "type": "string", "doc": "SemVer for this schema, for example 1.0.0" },
+    { "name": "occurred_at", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "recorded_at", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "tenant_id", "type": "string" },
+    { "name": "patient_id", "type": ["null", "string"], "default": null },
+    { "name": "source_id", "type": "string", "doc": "Producing module id, for example qeeg-analyzer" },
+    { "name": "source_instance", "type": "string", "doc": "Device serial or service instance id" },
+    {
+      "name": "modality",
+      "type": {
+        "type": "enum",
+        "name": "Modality",
+        "symbols": [
+          "QEEG",
+          "MRI",
+          "FMRI",
+          "WEARABLE",
+          "THERAPY_INCLINIC",
+          "THERAPY_HOME",
+          "VIDEO",
+          "AUDIO",
+          "ASSESSMENT",
+          "EHR_TEXT",
+          "OUTCOME",
+          "CONSENT",
+          "SYSTEM"
+        ]
+      }
+    },
+    { "name": "trace_id", "type": "string" },
+    { "name": "correlation_id", "type": ["null", "string"], "default": null },
+    { "name": "consent_version", "type": "string" },
+    { "name": "de_identified", "type": "boolean" },
+    {
+      "name": "retention_class",
+      "type": {
+        "type": "enum",
+        "name": "RetentionClass",
+        "symbols": ["STANDARD", "EXTENDED", "RESEARCH_ONLY"]
+      }
+    },
+    { "name": "payload_uri", "type": ["null", "string"], "default": null, "doc": "S3 URI to EDF file (encrypted)" },
+    { "name": "payload_inline", "type": ["null", { "type": "map", "values": "string" }], "default": null },
+    { "name": "schema_registry_id", "type": ["null", "int"], "default": null },
+
+    { "name": "recording_id", "type": "string", "doc": "Producer-side recording/session identifier" },
+    { "name": "sfreq_hz", "type": "double" },
+    { "name": "n_channels", "type": "int" },
+    { "name": "montage", "type": "string", "doc": "For example 10-20" },
+    {
+      "name": "recording_state",
+      "type": {
+        "type": "enum",
+        "name": "RecordingState",
+        "symbols": ["eyes_open", "eyes_closed", "task", "other"]
+      }
+    },
+    { "name": "referencing", "type": "string", "doc": "For example average, linked_mastoids, cz" },
+    { "name": "duration_s", "type": "double" },
+    { "name": "vendor_device", "type": "string" },
+    { "name": "channel_labels", "type": { "type": "array", "items": "string" }, "default": [] }
+  ]
+}

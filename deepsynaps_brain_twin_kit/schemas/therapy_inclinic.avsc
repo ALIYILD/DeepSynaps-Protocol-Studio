@@ -1,0 +1,83 @@
+{
+  "type": "record",
+  "name": "TherapyInClinicEvent",
+  "namespace": "studio.deepsynaps.events.v1",
+  "doc": "deepsynaps.therapy.inclinic.v1: in-clinic therapy device session logs with dose and provenance.",
+  "fields": [
+    { "name": "event_id", "type": { "type": "string", "logicalType": "uuid" } },
+    { "name": "event_type", "type": "string", "doc": "Expected: deepsynaps.therapy.inclinic.v1" },
+    { "name": "schema_version", "type": "string" },
+    { "name": "occurred_at", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "recorded_at", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "tenant_id", "type": "string" },
+    { "name": "patient_id", "type": ["null", "string"], "default": null },
+    { "name": "source_id", "type": "string" },
+    { "name": "source_instance", "type": "string" },
+    {
+      "name": "modality",
+      "type": {
+        "type": "enum",
+        "name": "Modality",
+        "symbols": [
+          "QEEG",
+          "MRI",
+          "FMRI",
+          "WEARABLE",
+          "THERAPY_INCLINIC",
+          "THERAPY_HOME",
+          "VIDEO",
+          "AUDIO",
+          "ASSESSMENT",
+          "EHR_TEXT",
+          "OUTCOME",
+          "CONSENT",
+          "SYSTEM"
+        ]
+      }
+    },
+    { "name": "trace_id", "type": "string" },
+    { "name": "correlation_id", "type": ["null", "string"], "default": null },
+    { "name": "consent_version", "type": "string" },
+    { "name": "de_identified", "type": "boolean" },
+    {
+      "name": "retention_class",
+      "type": {
+        "type": "enum",
+        "name": "RetentionClass",
+        "symbols": ["STANDARD", "EXTENDED", "RESEARCH_ONLY"]
+      }
+    },
+    { "name": "payload_uri", "type": ["null", "string"], "default": null, "doc": "Optional URI to device export / session report" },
+    { "name": "payload_inline", "type": ["null", { "type": "map", "values": "string" }], "default": null },
+    { "name": "schema_registry_id", "type": ["null", "int"], "default": null },
+
+    {
+      "name": "therapy_modality",
+      "type": {
+        "type": "enum",
+        "name": "TherapyModality",
+        "symbols": ["rTMS", "tDCS", "TPS", "taVNS", "CES", "PBM", "PEMF", "LIFU", "tRNS", "other"]
+      }
+    },
+    { "name": "session_id", "type": "string" },
+    { "name": "target_region", "type": "string" },
+    {
+      "name": "dose_params",
+      "type": {
+        "type": "record",
+        "name": "DoseParams",
+        "fields": [
+          { "name": "frequency_hz", "type": ["null", "double"], "default": null },
+          { "name": "intensity", "type": ["null", "double"], "default": null, "doc": "Normalized unit; producer must specify unit in intensity_unit" },
+          { "name": "intensity_unit", "type": ["null", "string"], "default": null, "doc": "For example percent_rmt, ma, w_cm2" },
+          { "name": "duration_s", "type": ["null", "double"], "default": null },
+          { "name": "n_pulses", "type": ["null", "int"], "default": null }
+        ]
+      }
+    },
+    { "name": "operator_id", "type": ["null", "string"], "default": null },
+    { "name": "device_serial", "type": "string" },
+    { "name": "completed_at", "type": ["null", { "type": "long", "logicalType": "timestamp-millis" }], "default": null },
+    { "name": "notes_uri", "type": ["null", "string"], "default": null, "doc": "Optional URI to operator notes, must be de-identified if present" }
+  ]
+}

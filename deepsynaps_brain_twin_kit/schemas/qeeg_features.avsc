@@ -1,0 +1,81 @@
+{
+  "type": "record",
+  "name": "QeegFeaturesEvent",
+  "namespace": "studio.deepsynaps.events.v1",
+  "doc": "deepsynaps.qeeg.features.v1: engineered qEEG features suitable for inline payload and feature-store materialization.",
+  "fields": [
+    { "name": "event_id", "type": { "type": "string", "logicalType": "uuid" } },
+    { "name": "event_type", "type": "string", "doc": "Expected: deepsynaps.qeeg.features.v1" },
+    { "name": "schema_version", "type": "string" },
+    { "name": "occurred_at", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "recorded_at", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "tenant_id", "type": "string" },
+    { "name": "patient_id", "type": ["null", "string"], "default": null },
+    { "name": "source_id", "type": "string" },
+    { "name": "source_instance", "type": "string" },
+    {
+      "name": "modality",
+      "type": {
+        "type": "enum",
+        "name": "Modality",
+        "symbols": [
+          "QEEG",
+          "MRI",
+          "FMRI",
+          "WEARABLE",
+          "THERAPY_INCLINIC",
+          "THERAPY_HOME",
+          "VIDEO",
+          "AUDIO",
+          "ASSESSMENT",
+          "EHR_TEXT",
+          "OUTCOME",
+          "CONSENT",
+          "SYSTEM"
+        ]
+      }
+    },
+    { "name": "trace_id", "type": "string" },
+    { "name": "correlation_id", "type": ["null", "string"], "default": null },
+    { "name": "consent_version", "type": "string" },
+    { "name": "de_identified", "type": "boolean" },
+    {
+      "name": "retention_class",
+      "type": {
+        "type": "enum",
+        "name": "RetentionClass",
+        "symbols": ["STANDARD", "EXTENDED", "RESEARCH_ONLY"]
+      }
+    },
+    { "name": "payload_uri", "type": ["null", "string"], "default": null, "doc": "Optional URI to a parquet/npz artifact for provenance" },
+    { "name": "payload_inline", "type": ["null", { "type": "map", "values": "string" }], "default": null },
+    { "name": "schema_registry_id", "type": ["null", "int"], "default": null },
+
+    { "name": "recording_id", "type": "string" },
+    { "name": "feature_set_id", "type": "string", "doc": "Identifier of feature extraction configuration" },
+    {
+      "name": "band_powers",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "ChannelBandPower",
+          "fields": [
+            { "name": "channel", "type": "string" },
+            { "name": "delta", "type": "double" },
+            { "name": "theta", "type": "double" },
+            { "name": "alpha", "type": "double" },
+            { "name": "beta", "type": "double" },
+            { "name": "gamma", "type": "double" }
+          ]
+        }
+      },
+      "default": []
+    },
+    { "name": "tbr_by_channel", "type": { "type": "map", "values": "double" }, "default": {} },
+    { "name": "iapf_hz", "type": ["null", "double"], "default": null },
+    { "name": "faa", "type": ["null", "double"], "default": null, "doc": "Frontal alpha asymmetry scalar summary" },
+    { "name": "connectivity_summary", "type": { "type": "map", "values": "double" }, "default": {}, "doc": "Regional connectivity summary stats, not full matrix" },
+    { "name": "z_scores", "type": { "type": "map", "values": "double" }, "default": {}, "doc": "Z-score aggregates per region/metric" }
+  ]
+}

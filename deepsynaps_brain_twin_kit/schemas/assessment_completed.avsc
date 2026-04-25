@@ -1,0 +1,69 @@
+{
+  "type": "record",
+  "name": "AssessmentCompletedEvent",
+  "namespace": "studio.deepsynaps.events.v1",
+  "doc": "deepsynaps.assessment.completed.v1: structured assessment completion with scores and item responses.",
+  "fields": [
+    { "name": "event_id", "type": { "type": "string", "logicalType": "uuid" } },
+    { "name": "event_type", "type": "string", "doc": "Expected: deepsynaps.assessment.completed.v1" },
+    { "name": "schema_version", "type": "string" },
+    { "name": "occurred_at", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "recorded_at", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "tenant_id", "type": "string" },
+    { "name": "patient_id", "type": ["null", "string"], "default": null },
+    { "name": "source_id", "type": "string" },
+    { "name": "source_instance", "type": "string" },
+    {
+      "name": "modality",
+      "type": {
+        "type": "enum",
+        "name": "Modality",
+        "symbols": [
+          "QEEG",
+          "MRI",
+          "FMRI",
+          "WEARABLE",
+          "THERAPY_INCLINIC",
+          "THERAPY_HOME",
+          "VIDEO",
+          "AUDIO",
+          "ASSESSMENT",
+          "EHR_TEXT",
+          "OUTCOME",
+          "CONSENT",
+          "SYSTEM"
+        ]
+      }
+    },
+    { "name": "trace_id", "type": "string" },
+    { "name": "correlation_id", "type": ["null", "string"], "default": null },
+    { "name": "consent_version", "type": "string" },
+    { "name": "de_identified", "type": "boolean" },
+    {
+      "name": "retention_class",
+      "type": {
+        "type": "enum",
+        "name": "RetentionClass",
+        "symbols": ["STANDARD", "EXTENDED", "RESEARCH_ONLY"]
+      }
+    },
+    { "name": "payload_uri", "type": ["null", "string"], "default": null },
+    { "name": "payload_inline", "type": ["null", { "type": "map", "values": "string" }], "default": null },
+    { "name": "schema_registry_id", "type": ["null", "int"], "default": null },
+
+    { "name": "instrument", "type": "string", "doc": "For example PHQ-9, GAD-7, BPRS, ASRS, MoCA" },
+    { "name": "instrument_version", "type": ["null", "string"], "default": null },
+    { "name": "total_score", "type": "double" },
+    { "name": "subscale_scores", "type": { "type": "map", "values": "double" }, "default": {} },
+    { "name": "item_responses", "type": { "type": "map", "values": "string" }, "default": {}, "doc": "String values to support mixed item formats" },
+    {
+      "name": "mode",
+      "type": {
+        "type": "enum",
+        "name": "AssessmentMode",
+        "symbols": ["self", "clinician", "proxy", "other"]
+      }
+    },
+    { "name": "completed_at", "type": { "type": "long", "logicalType": "timestamp-millis" } }
+  ]
+}

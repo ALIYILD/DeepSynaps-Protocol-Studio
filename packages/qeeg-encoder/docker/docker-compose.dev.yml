@@ -1,0 +1,62 @@
+# Local dev stack: Redpanda + Schema Registry + Redis + qEEG encoder
+# Run from repo root: docker compose -f docker/docker-compose.dev.yml up
+services:
+  redpanda:
+    image: redpandadata/redpanda:v24.2.4
+    container_name: redpanda
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=1G
+      - --reserve-memory=0M
+      - --overprovisioned
+      - --node-id=0
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:9092
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info"]
+      interval: 5s
+      retries: 12
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.1
+    container_name: schema-registry
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://redpanda:9092
+    ports:
+      - "8081:8081"
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+
+  qeeg-encoder:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: qeeg-encoder
+    depends_on:
+      schema-registry:
+        condition: service_started
+      redis:
+        condition: service_started
+    environment:
+      QEEG_ENCODER__BUS__BOOTSTRAP_SERVERS: redpanda:9092
+      QEEG_ENCODER__BUS__SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      QEEG_ENCODER__FOUNDATION__DEVICE: cpu
+    volumes:
+      - ./models:/opt/models:ro
+    ports:
+      - "9090:9090"
+

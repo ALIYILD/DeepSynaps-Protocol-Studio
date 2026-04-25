@@ -1,0 +1,92 @@
+{
+  "type": "record",
+  "name": "WearableTimeseriesEvent",
+  "namespace": "studio.deepsynaps.events.v1",
+  "doc": "deepsynaps.wearable.timeseries.v1: wearable metric timeseries as inline points or payload_uri to a larger chunk artifact.",
+  "fields": [
+    { "name": "event_id", "type": { "type": "string", "logicalType": "uuid" } },
+    { "name": "event_type", "type": "string", "doc": "Expected: deepsynaps.wearable.timeseries.v1" },
+    { "name": "schema_version", "type": "string" },
+    { "name": "occurred_at", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "recorded_at", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "tenant_id", "type": "string" },
+    { "name": "patient_id", "type": ["null", "string"], "default": null },
+    { "name": "source_id", "type": "string" },
+    { "name": "source_instance", "type": "string" },
+    {
+      "name": "modality",
+      "type": {
+        "type": "enum",
+        "name": "Modality",
+        "symbols": [
+          "QEEG",
+          "MRI",
+          "FMRI",
+          "WEARABLE",
+          "THERAPY_INCLINIC",
+          "THERAPY_HOME",
+          "VIDEO",
+          "AUDIO",
+          "ASSESSMENT",
+          "EHR_TEXT",
+          "OUTCOME",
+          "CONSENT",
+          "SYSTEM"
+        ]
+      }
+    },
+    { "name": "trace_id", "type": "string" },
+    { "name": "correlation_id", "type": ["null", "string"], "default": null },
+    { "name": "consent_version", "type": "string" },
+    { "name": "de_identified", "type": "boolean" },
+    {
+      "name": "retention_class",
+      "type": {
+        "type": "enum",
+        "name": "RetentionClass",
+        "symbols": ["STANDARD", "EXTENDED", "RESEARCH_ONLY"]
+      }
+    },
+    { "name": "payload_uri", "type": ["null", "string"], "default": null, "doc": "Optional URI to a parquet/json chunk of values" },
+    { "name": "payload_inline", "type": ["null", { "type": "map", "values": "string" }], "default": null },
+    { "name": "schema_registry_id", "type": ["null", "int"], "default": null },
+
+    {
+      "name": "vendor",
+      "type": {
+        "type": "enum",
+        "name": "WearableVendor",
+        "symbols": ["apple_health", "whoop", "oura", "garmin", "fitbit", "other"]
+      }
+    },
+    {
+      "name": "metric",
+      "type": {
+        "type": "enum",
+        "name": "WearableMetric",
+        "symbols": ["HR", "HRV", "SpO2", "temp", "sleep_stage", "activity", "other"]
+      }
+    },
+    { "name": "device_id", "type": "string" },
+    { "name": "sampling_hz", "type": ["null", "double"], "default": null },
+    { "name": "window_start", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "window_end", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    {
+      "name": "points",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "WearablePoint",
+          "fields": [
+            { "name": "t", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+            { "name": "v", "type": "double" }
+          ]
+        }
+      },
+      "default": []
+    },
+    { "name": "value_uri", "type": ["null", "string"], "default": null, "doc": "Optional secondary URI to raw vendor export for this window" },
+    { "name": "unit", "type": ["null", "string"], "default": null }
+  ]
+}

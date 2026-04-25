@@ -1,0 +1,68 @@
+{
+  "type": "record",
+  "name": "VideoSessionEvent",
+  "namespace": "studio.deepsynaps.events.v1",
+  "doc": "deepsynaps.video.session.v1: video session reference with optional de-identified derived features.",
+  "fields": [
+    { "name": "event_id", "type": { "type": "string", "logicalType": "uuid" } },
+    { "name": "event_type", "type": "string", "doc": "Expected: deepsynaps.video.session.v1" },
+    { "name": "schema_version", "type": "string" },
+    { "name": "occurred_at", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "recorded_at", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "tenant_id", "type": "string" },
+    { "name": "patient_id", "type": ["null", "string"], "default": null },
+    { "name": "source_id", "type": "string" },
+    { "name": "source_instance", "type": "string" },
+    {
+      "name": "modality",
+      "type": {
+        "type": "enum",
+        "name": "Modality",
+        "symbols": [
+          "QEEG",
+          "MRI",
+          "FMRI",
+          "WEARABLE",
+          "THERAPY_INCLINIC",
+          "THERAPY_HOME",
+          "VIDEO",
+          "AUDIO",
+          "ASSESSMENT",
+          "EHR_TEXT",
+          "OUTCOME",
+          "CONSENT",
+          "SYSTEM"
+        ]
+      }
+    },
+    { "name": "trace_id", "type": "string" },
+    { "name": "correlation_id", "type": ["null", "string"], "default": null },
+    { "name": "consent_version", "type": "string" },
+    { "name": "de_identified", "type": "boolean", "doc": "Must be true for patient-identifiable video sources" },
+    {
+      "name": "retention_class",
+      "type": {
+        "type": "enum",
+        "name": "RetentionClass",
+        "symbols": ["STANDARD", "EXTENDED", "RESEARCH_ONLY"]
+      }
+    },
+    { "name": "payload_uri", "type": ["null", "string"], "default": null, "doc": "S3 URI to video clip (encrypted)" },
+    { "name": "payload_inline", "type": ["null", { "type": "map", "values": "string" }], "default": null },
+    { "name": "schema_registry_id", "type": ["null", "int"], "default": null },
+
+    { "name": "session_id", "type": "string" },
+    {
+      "name": "source",
+      "type": {
+        "type": "enum",
+        "name": "VideoSource",
+        "symbols": ["telehealth", "gait", "face", "eye_tracking", "other"]
+      }
+    },
+    { "name": "duration_s", "type": "double" },
+    { "name": "resolution_w", "type": ["null", "int"], "default": null },
+    { "name": "resolution_h", "type": ["null", "int"], "default": null },
+    { "name": "derived_features", "type": { "type": "map", "values": "double" }, "default": {}, "doc": "Optional de-identified derived features, for example gait cadence, blink rate" }
+  ]
+}
