@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeepSweeper decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decision",
+    "closeReason",
+    "keepOpenReason",
+    "confidence",
+    "summary",
+    "evidence",
+    "risks",
+    "regulatedComponentTouched",
+    "regulatedComponentPaths",
+    "fixedRelease",
+    "fixedSha",
+    "closeComment"
+  ],
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": ["close", "keep_open"],
+      "description": "Final disposition. close requires confidence=high AND regulatedComponentTouched=false."
+    },
+    "closeReason": {
+      "type": "string",
+      "enum": [
+        "implemented_on_main",
+        "cannot_reproduce",
+        "studio_marketplace",
+        "incoherent",
+        "stale_insufficient_info",
+        "none"
+      ],
+      "description": "Why we close. studio_marketplace means it belongs as a Studio plugin/skill, not in core. Set to none for keep_open."
+    },
+    "keepOpenReason": {
+      "type": "string",
+      "enum": [
+        "regulated_component",
+        "real_bug",
+        "plausible_feature",
+        "salvageable_unclear",
+        "stale_pr_useful_work",
+        "evidence_insufficient",
+        "maintainer_authored",
+        "none"
+      ],
+      "description": "Why we keep open. regulated_component is the highest-priority reason and overrides any close decision. Set to none if decision=close."
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "detail", "file", "line", "command", "sha"],
+        "properties": {
+          "label": { "type": "string" },
+          "detail": { "type": "string" },
+          "file": { "type": ["string", "null"] },
+          "line": { "type": ["integer", "null"] },
+          "command": { "type": ["string", "null"] },
+          "sha": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "regulatedComponentTouched": {
+      "type": "boolean",
+      "description": "True if any file path discussed or touched by this item is on the regulated-component allow-list (see config/regulated-paths.yaml). When true, decision MUST be keep_open."
+    },
+    "regulatedComponentPaths": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Specific paths from the allow-list that triggered the regulated flag, if any."
+    },
+    "fixedRelease": {
+      "type": ["string", "null"],
+      "description": "Release tag/version where the issue was fixed, if known."
+    },
+    "fixedSha": {
+      "type": ["string", "null"],
+      "description": "Specific commit SHA that fixed or proves implementation, if known."
+    },
+    "closeComment": {
+      "type": "string",
+      "description": "Markdown comment posted on close. Empty string when decision=keep_open."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "decision": { "const": "close" } } },
+      "then": {
+        "properties": {
+          "regulatedComponentTouched": { "const": false },
+          "confidence": { "const": "high" },
+          "keepOpenReason": { "const": "none" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "regulatedComponentTouched": { "const": true } } },
+      "then": {
+        "properties": {
+          "decision": { "const": "keep_open" },
+          "keepOpenReason": { "const": "regulated_component" }
+        }
+      }
+    }
+  ]
+}

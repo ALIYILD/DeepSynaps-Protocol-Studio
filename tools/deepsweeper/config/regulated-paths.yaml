@@ -1,0 +1,66 @@
+# DeepSweeper regulated-component allow-list
+# Any issue/PR that touches a path matching one of these globs is auto-kept-open.
+# Override via env: DEEPSWEEPER_REGULATED_PATHS_FILE=/path/to/file.yaml
+
+# Hard regulated paths (IEC 62304 / ISO 13485 scope)
+paths:
+  # Clinical analyzers
+  - "apps/qeeg-analyzer/**"
+  - "apps/mri-analyzer/**"
+  - "apps/brain-twin/**"
+  - "apps/learning-loop/**"
+
+  # ML packages
+  - "packages/encoders/**"
+  - "packages/fusion/**"
+  - "packages/audit/**"
+  - "packages/drift/**"
+  - "packages/event-bus/**"
+  - "packages/feature-store/**"
+
+  # Schemas + model locks (changes here = device specification change)
+  - "schemas/**"
+  - "**/models.lock.yaml"
+
+  # Clinical protocols (16+ finalized SOZO protocols)
+  - "**/protocols/**"
+  - "**/*protocol*"
+
+  # Regulatory artifacts
+  - "**/regulatory/**"
+  - "**/quality-management/**"
+  - "**/iec-62304/**"
+  - "**/iso-13485/**"
+  - "**/fda/**"
+  - "**/ce-mark/**"
+
+  # PHI / consent / privacy
+  - "**/*phi*"
+  - "**/*consent*"
+  - "**/*pii*"
+  - "**/presidio*"
+
+# Title/body/comment keywords that trigger the regulated flag
+# even if no path is mentioned
+keywords:
+  - "clinical"
+  - "regulated"
+  - "FDA"
+  - "CE mark"
+  - "CE-mark"
+  - "IEC 62304"
+  - "ISO 13485"
+  - "ISO 27001"
+  - "ISO 14971"
+  - "PHI"
+  - "HIPAA"
+  - "GDPR"
+  - "consent"
+  - "protocol"
+  - "Class IIa"
+  - "SaMD"
+  - "EU AI Act"
+  - "post-market"
+  - "vigilance"
+  - "adverse event"
+  - "patient safety"

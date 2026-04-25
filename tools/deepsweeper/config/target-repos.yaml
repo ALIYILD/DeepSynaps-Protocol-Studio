@@ -1,0 +1,53 @@
+# DeepSweeper target repositories
+# One workflow run sweeps all listed repos.
+# Override per-run via workflow_dispatch input `target_repo`.
+
+repos:
+  - owner: deepsynaps
+    name: studio
+    description: Core platform (Monitor, viz, pricing, integrations)
+    apply_closures: true
+    apply_limit: 50
+    apply_min_age_days: 14
+
+  - owner: deepsynaps
+    name: qeeg-analyzer
+    description: qEEG analyzer (regulated)
+    apply_closures: false  # regulated — review only, never auto-close
+    apply_limit: 0
+    apply_min_age_days: 30
+
+  - owner: deepsynaps
+    name: mri-analyzer
+    description: MRI analyzer (regulated)
+    apply_closures: false
+    apply_limit: 0
+    apply_min_age_days: 30
+
+  - owner: deepsynaps
+    name: brain-twin
+    description: Brain Twin kit (regulated)
+    apply_closures: false
+    apply_limit: 0
+    apply_min_age_days: 30
+
+  - owner: deepsynaps
+    name: monitor
+    description: Caseload triage + connectors
+    apply_closures: true
+    apply_limit: 30
+    apply_min_age_days: 14
+
+# Where DeepSweeper itself lives — this is where review records are committed
+report_repo:
+  owner: deepsynaps
+  name: deepsweeper
+
+# Public docs domain — used to rewrite GitHub blob links into user-facing links
+docs_url: https://docs.deepsynaps.com
+
+# Studio Marketplace URL — referenced by close comments for studio_marketplace closures
+marketplace_url: https://marketplace.deepsynaps.com
+
+# Vision/scope anchor for studio_marketplace decisions
+scope_anchor: docs/SCOPE.md

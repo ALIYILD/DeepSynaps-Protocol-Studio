@@ -1,0 +1,121 @@
+--- a/src/clawsweeper.ts
++++ b/src/deepsweeper.ts
+@@ Constants @@
+-const TARGET_REPO = "openclaw/openclaw";
+-const REPORT_REPO = "openclaw/clawsweeper";
+-const CLAWHUB_URL = "https://clawhub.ai/";
+-const DOCS_URL = "https://docs.openclaw.ai";
++// Targets are now loaded from config/target-repos.yaml at process start.
++import { loadTargetConfig, selectRepos, type TargetRepo } from "./repos.js";
++import { loadRegulatedConfig, evaluateRegulated, enforceRegulatedGuardrail } from "./regulated.js";
++import { emitAuditRecord } from "./audit.js";
++
++const TARGET_CONFIG = loadTargetConfig(ROOT);
++const REGULATED_CONFIG = loadRegulatedConfig(ROOT);
++const REPORT_REPO = `${TARGET_CONFIG.reportRepo.owner}/${TARGET_CONFIG.reportRepo.name}`;
++const MARKETPLACE_URL = TARGET_CONFIG.marketplaceUrl;
++const DOCS_URL = TARGET_CONFIG.docsUrl;
++const SCOPE_ANCHOR = TARGET_CONFIG.scopeAnchor;
+
+@@ ALLOWED_REASONS @@
+-  "clawhub",
++  "studio_marketplace",
+
+@@ Decision type — CloseReason @@
+-  | "clawhub"
++  | "studio_marketplace"
+
+@@ closeReasonText @@
+-    case "clawhub":
+-      return "belongs on ClawHub";
++    case "studio_marketplace":
++      return "belongs on Studio Marketplace";
+
+@@ defaultCloseComment @@
+-    case "clawhub":
+-      return `Closing this as better suited for ${markdownLink("ClawHub", CLAWHUB_URL)}/community plugin work after Codex review.`;
++    case "studio_marketplace":
++      return `Closing this as better suited for ${markdownLink("Studio Marketplace", MARKETPLACE_URL)} plugin/skill work after DeepSweeper review.`;
+
+@@ DocsAnchorFile predicate @@
+-  return ["AGENTS.md", "CHANGELOG.md", "README.md", "VISION.md"].includes(file);
++  return ["AGENTS.md", "CHANGELOG.md", "README.md", SCOPE_ANCHOR.split("/").pop()!].includes(file);
+
+@@ canClose — apply-time guardrail @@
+ function canClose(decision: Decision): boolean {
+   return (
+     decision.decision === "close" &&
+     decision.confidence === "high" &&
+-    ALLOWED_REASONS.has(decision.closeReason)
++    ALLOWED_REASONS.has(decision.closeReason) &&
++    !decision.regulatedComponentTouched
+   );
+ }
+
+@@ applyDecision — emit audit record on every close @@
+ async function applyDecision(item: Item, decision: Decision, repo: TargetRepo) {
++  // Defense-in-depth: re-evaluate regulated check even if model said close.
++  const regulated = evaluateRegulated(
++    {
++      title: item.title,
++      body: item.body ?? "",
++      changedFiles: item.changedFiles ?? [],
++      commentTexts: (item.comments ?? []).map((c) => c.body ?? ""),
++    },
++    REGULATED_CONFIG,
++  );
++  decision = enforceRegulatedGuardrail(decision, regulated);
++
++  // Refuse close on regulated repos with applyClosures=false
++  if (!repo.applyClosures && decision.decision === "close") {
++    decision = { ...decision, decision: "keep_open", closeReason: "none", closeComment: "" };
++  }
+
+   if (canClose(decision)) {
+     // ... existing close logic ...
++    emitAuditRecord({
++      rootDir: ROOT,
++      actor: "deepsweeper-bot",
++      eventType: "deepsweeper.close",
++      payload: {
++        repo: `${repo.owner}/${repo.name}`,
++        item_number: item.number,
++        item_kind: item.kind,
++        close_reason: decision.closeReason,
++        confidence: decision.confidence,
++        regulated_check: regulated,
++        fixed_release: decision.fixedRelease,
++        fixed_sha: decision.fixedSha,
++        decision_sha: itemSnapshotHash(item, /* context */ {} as ItemContext),
++      },
++    });
++  } else {
++    emitAuditRecord({
++      rootDir: ROOT,
++      actor: "deepsweeper-bot",
++      eventType: "deepsweeper.keep_open",
++      payload: {
++        repo: `${repo.owner}/${repo.name}`,
++        item_number: item.number,
++        keep_open_reason: decision.keepOpenReason ?? "none",
++        regulated_check: regulated,
++      },
++    });
+   }
+ }
+
+@@ main — multi-repo loop @@
+-async function main(args: Args) {
+-  const repo = TARGET_REPO;
+-  // ... single-repo sweep ...
++async function main(args: Args) {
++  const filter = stringArg(args.target_repo, "");
++  const repos = selectRepos(TARGET_CONFIG, filter || undefined);
++  for (const repo of repos) {
++    try {
++      await sweepOne(repo, args);
++    } catch (e) {
++      log("repo_failed", { repo: `${repo.owner}/${repo.name}`, error: String(e) });
++    }
++  }
++}

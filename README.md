@@ -9,6 +9,7 @@ DeepSynaps Studio supports evidence-based assessments, protocols, clinician hand
 - `apps/api` FastAPI backend
 - `apps/web` React + Vite frontend
 - `apps/worker` worker scaffold
+- `tools/deepsweeper` vendored issue/PR sweeper kit with regulated guardrails
 - `packages/core-schema` shared API and domain contracts
 - `packages/*-registry` shared registry packages
 - `packages/safety-engine` deterministic compatibility checks

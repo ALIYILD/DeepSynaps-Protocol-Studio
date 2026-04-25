@@ -1,0 +1,247 @@
+name: Sweep DeepSynaps Repos
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: "owner/name to sweep (empty = all repos in config/target-repos.yaml)"
+        required: false
+        default: ""
+      apply_closures:
+        description: "Comment+close during review when DeepSweeper gives high-confidence close"
+        required: false
+        default: "false"
+      apply_existing:
+        description: "Apply existing proposed close decisions without rerunning Codex"
+        required: false
+        default: "false"
+      apply_limit:
+        description: "Max items to close per repo per run (0 = no closes)"
+        required: false
+        default: "20"
+      apply_min_age_days:
+        description: "Minimum item age in days before apply can close it"
+        required: false
+        default: "14"
+      apply_kind:
+        description: "issue | pull_request | all"
+        required: false
+        default: "issue"
+      apply_close_delay_ms:
+        description: "Delay between closes (ms)"
+        required: false
+        default: "5000"
+      apply_progress_every:
+        description: "Log progress every N items"
+        required: false
+        default: "10"
+      apply_checkpoint_size:
+        description: "Fresh closes per checkpoint commit"
+        required: false
+        default: "25"
+      batch_size:
+        description: "Items per worker job"
+        required: false
+        default: "5"
+      codex_timeout_ms:
+        description: "Per-item Codex timeout (ms)"
+        required: false
+        default: "600000"
+      shard_count:
+        description: "Parallel shards"
+        required: false
+        default: "10"
+      item_number:
+        description: "Optional single issue/PR number"
+        required: false
+        default: ""
+
+  # Daily at 06:17 UTC = 07:17 BST. ClawSweeper runs hourly; DeepSynaps repos are
+  # smaller and the regulated guardrail is conservative — daily is plenty.
+  schedule:
+    - cron: "17 6 * * *"
+
+permissions:
+  contents: write
+  actions: write
+  issues: write
+  pull-requests: write
+
+env:
+  GH_TOKEN: ${{ secrets.DEEPSWEEPER_GITHUB_TOKEN }}
+  OPENAI_API_KEY: ${{ secrets.DEEPSWEEPER_OPENAI_API_KEY }}
+
+jobs:
+  list-repos:
+    name: Resolve target repos
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Compute repo matrix
+        id: set-matrix
+        run: |
+          node dist/deepsweeper.js list-repos --filter "${{ inputs.target_repo }}" > matrix.json
+          echo "matrix=$(cat matrix.json)" >> "$GITHUB_OUTPUT"
+
+  plan:
+    name: Plan ${{ matrix.repo }}
+    needs: list-repos
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.list-repos.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Plan
+        run: |
+          node dist/deepsweeper.js plan \
+            --repo "${{ matrix.repo }}" \
+            --shard-count "${{ inputs.shard_count || 10 }}" \
+            --batch-size "${{ inputs.batch_size || 5 }}"
+        env:
+          REPO: ${{ matrix.repo }}
+
+  review:
+    name: Review ${{ matrix.repo }} shard ${{ matrix.shard }}
+    needs: [list-repos, plan]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        repo: ${{ fromJson(needs.list-repos.outputs.matrix).repo }}
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Install Codex CLI
+        run: npm install -g @openai/codex@latest --prefer-offline
+      - name: Checkout target repo (read-only)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          path: target
+          fetch-depth: 50
+          token: ${{ secrets.DEEPSWEEPER_GITHUB_TOKEN }}
+      - name: Review shard
+        run: |
+          node dist/deepsweeper.js review \
+            --repo "${{ matrix.repo }}" \
+            --shard "${{ matrix.shard }}" \
+            --shard-count "${{ inputs.shard_count || 10 }}" \
+            --target-dir "$(pwd)/target" \
+            --readonly-target true \
+            --codex-timeout-ms "${{ inputs.codex_timeout_ms || 600000 }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: review-${{ matrix.repo }}-shard-${{ matrix.shard }}
+          path: review-output/
+
+  apply-artifacts:
+    name: Collect review artifacts
+    needs: review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+      - name: Apply review artifacts
+        run: |
+          node dist/deepsweeper.js apply-artifacts \
+            --artifacts-dir artifacts/
+      - name: Commit review records + audit log
+        run: |
+          git config user.name "deepsweeper-bot"
+          git config user.email "bot@deepsynaps.com"
+          git add items/ closed/ audit-log.ndjson
+          git commit -m "review: refresh items + audit log" || echo "nothing to commit"
+          git push
+
+  apply-decisions:
+    name: Apply close decisions
+    needs: apply-artifacts
+    runs-on: ubuntu-latest
+    if: ${{ inputs.apply_closures == 'true' || inputs.apply_existing == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Verify audit chain
+        run: node dist/deepsweeper.js verify-audit
+      - name: Apply close decisions
+        run: |
+          node dist/deepsweeper.js apply-decisions \
+            --apply-limit "${{ inputs.apply_limit || 20 }}" \
+            --apply-min-age-days "${{ inputs.apply_min_age_days || 14 }}" \
+            --apply-kind "${{ inputs.apply_kind || 'issue' }}" \
+            --apply-close-delay-ms "${{ inputs.apply_close_delay_ms || 5000 }}" \
+            --apply-progress-every "${{ inputs.apply_progress_every || 10 }}" \
+            --apply-checkpoint-size "${{ inputs.apply_checkpoint_size || 25 }}"
+      - name: Commit audit log
+        run: |
+          git config user.name "deepsweeper-bot"
+          git config user.email "bot@deepsynaps.com"
+          git add audit-log.ndjson closed/ items/
+          git commit -m "apply: close decisions + audit chain" || echo "nothing to commit"
+          git push
+
+  dashboard:
+    name: Refresh dashboard
+    needs: [apply-artifacts]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Pull latest
+        run: git pull --rebase
+      - name: Refresh dashboard
+        run: node dist/deepsweeper.js dashboard
+      - name: Commit dashboard
+        run: |
+          git config user.name "deepsweeper-bot"
+          git config user.email "bot@deepsynaps.com"
+          git add README.md
+          git commit -m "dashboard: refresh metrics" || echo "nothing to commit"
+          git push
