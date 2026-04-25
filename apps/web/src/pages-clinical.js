@@ -692,6 +692,7 @@ export async function pgDash(setTopbar, navigate) {
   const _todayDateStr = new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'short', year:'numeric' });
   setTopbar('Dashboard \u2014 ' + _todayDateStr,
     `<button class="btn btn-sm btn-ghost" onclick="window._cdAddWalkin?.() || window._nav('clinic-day')" style="white-space:nowrap">+ Walk-in</button>` +
+    `<button class="btn btn-sm btn-ghost" onclick="window._nav('deeptwin')" style="white-space:nowrap;margin-left:6px" title="Open the patient intelligence hub">\ud83e\udde0 DeepTwin</button>` +
     `<button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')" style="white-space:nowrap;margin-left:6px">&#9654; Start Session</button>` +
     `<button class="btn btn-sm" aria-label="Report adverse event during active session" onclick="window._nav('adverse-events')" style="white-space:nowrap;margin-left:6px;border-color:var(--red);color:var(--red)">&#9888; Report Adverse Event</button>`
   );
@@ -3175,6 +3176,7 @@ export async function pgProfile(setTopbar, navigate) {
   setTopbar(`${name}`,
     `<button class="btn btn-ghost btn-sm" onclick="window._nav('patients')">← All Patients</button>
      <button class="btn btn-ghost btn-sm" onclick="window._nav('dashboard')">⌂ Dashboard</button>
+     <button class="btn btn-ghost btn-sm" onclick="window._patDashDeepTwin && window._patDashDeepTwin()" title="Open this patient in DeepTwin">🧠 Open in DeepTwin</button>
      <button class="btn btn-primary btn-sm" onclick="window.startNewCourse()">+ New Course</button>`
   );
 

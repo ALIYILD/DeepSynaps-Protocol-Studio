@@ -395,8 +395,37 @@ function _renderHub(setTopbar) {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
-  el.innerHTML = `<div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px"><div class="agent-hub">
+  // ── DeepTwin handoff banner (picks up ds_agent_handoff_context) ──────────
+  let _twinHandoffBanner = '';
+  try {
+    const raw = sessionStorage.getItem('ds_agent_handoff_context');
+    if (raw) {
+      const ctx = JSON.parse(raw);
+      const patientLabel = _esc(String(ctx.patient_id || 'patient'));
+      const kindLabel = _esc(String(ctx.label || ctx.kind || 'DeepTwin handoff'));
+      const submitted = ctx.submitted_at ? new Date(ctx.submitted_at).toLocaleString() : '';
+      const auditRef = _esc(String(ctx.audit_ref || ''));
+      _twinHandoffBanner = `
+        <div class="card" style="padding:14px 16px;margin-bottom:16px;border-left:3px solid var(--teal);background:linear-gradient(135deg,rgba(0,212,188,0.06),rgba(74,158,255,0.04))">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+            <div>
+              <div style="font-size:11px;color:var(--teal);text-transform:uppercase;letter-spacing:.06em">DeepTwin handoff received</div>
+              <div style="font-size:14px;font-weight:650;color:var(--text-primary);margin-top:2px">${kindLabel} · patient ${patientLabel}</div>
+              <div style="font-size:11.5px;color:var(--text-tertiary);margin-top:2px">${_esc(submitted)} · audit_ref <code style="font-size:11px">${auditRef}</code></div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-sm btn-primary" onclick="window._agentOpenChat('clinician')">Open in clinician chat</button>
+              <button class="btn btn-sm btn-ghost" onclick="(function(){ try { sessionStorage.removeItem('ds_agent_handoff_context'); } catch(e){} ; window._agentBackToHub && window._agentBackToHub(); })()">Dismiss</button>
+            </div>
+          </div>
+          <div style="font-size:11.5px;color:var(--text-tertiary);margin-top:8px">Decision-support context only — clinician must review before any treatment action.</div>
+        </div>
+      `;
+    }
+  } catch { /* ignore */ }
 
+  el.innerHTML = `<div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px"><div class="agent-hub">
+    ${_twinHandoffBanner}
     <!-- Welcome banner -->
     <div class="card" style="padding:20px 24px;margin-bottom:20px;border-left:3px solid var(--violet);background:linear-gradient(135deg,rgba(155,127,255,0.05),rgba(0,212,188,0.03))">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">

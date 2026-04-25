@@ -163,9 +163,12 @@ export async function pgPatientHub(setTopbar, navigate) {
   // cohort, no fake aggregates, no placeholder onClicks.
   if (tab === 'patients') {
     const canAdd = ['clinician','admin','clinic-admin','supervisor'].includes(currentUser?.role);
+    const _twinBtn = '<button class="btn btn-sm btn-ghost" onclick="window._nav(\'deeptwin\')" title="Open the patient intelligence hub" style="margin-right:6px">🧠 DeepTwin</button>';
     setTopbar('Patients',
-      canAdd ? '<button class="btn btn-primary btn-sm" onclick="window.showAddPatient()">+ Add patient</button>' +
-               '<button class="btn btn-sm" onclick="window.showImportCSV()" style="margin-right:6px">Import CSV</button>' : ''
+      _twinBtn + (canAdd
+        ? '<button class="btn btn-primary btn-sm" onclick="window.showAddPatient()">+ Add patient</button>' +
+          '<button class="btn btn-sm" onclick="window.showImportCSV()" style="margin-right:6px">Import CSV</button>'
+        : '')
     );
     el.innerHTML = '<div class="ch-shell">' + spinner() + '</div>';
 
