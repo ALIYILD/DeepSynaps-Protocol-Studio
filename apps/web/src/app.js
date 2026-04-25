@@ -1065,7 +1065,7 @@ async function renderPatientPage() {
     case 'ai-agents':            await m.pgPatientVirtualCare();                break;
     case 'pt-tickets':           await m.pgPatientTickets();                    break;
     case 'pt-billing':           await m.pgPatientBilling();                    break;
-    case 'pt-academy':           await m.pgPatientAcademy();                    break;
+    case 'pt-academy':           await m.pgPatientEducation();                  break;
     default:                     await m.pgPatientDashboard(currentUser);
   }
 }

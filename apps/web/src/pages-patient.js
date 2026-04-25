@@ -27,18 +27,28 @@ import {
 // give patients an immediately recognisable visual anchor for each area.
 function _patientNav() {
   return [
+    // ── MY CARE ───────────────────────────────────────────────────────────────
+    { section: 'My Care', sectionId: 'pt-care', collapsed: false },
     { id: 'patient-portal',      label: 'Home',                 icon: '🏠', tone: 'teal',   group: 'main' },
     { id: 'patient-sessions',    label: 'Sessions',             icon: '📅', tone: 'blue',   group: 'main' },
     { id: 'patient-homework',    label: 'Homework',             icon: '📝', tone: 'violet', group: 'main' },
     { id: 'pt-outcomes',         label: 'Progress',             icon: '📈', tone: 'green',  group: 'main' },
     { id: 'patient-assessments', label: 'Assessments',          icon: '📋', tone: 'rose',   group: 'main' },
     { id: 'patient-reports',     label: 'My Reports',           icon: '📄', tone: 'blue',   group: 'main' },
+
+    // ── CONNECT ───────────────────────────────────────────────────────────────
+    { section: 'Connect', sectionId: 'pt-connect', collapsed: false },
     { id: 'patient-virtualcare', label: 'Virtual Care',         icon: '📹', tone: 'teal',   group: 'main' },
     { id: 'patient-careteam',    label: 'Care Team',            icon: '👥', tone: 'rose',   group: 'main' },
+
+    // ── RESOURCES ─────────────────────────────────────────────────────────────
+    { section: 'Resources', sectionId: 'pt-resources', collapsed: false },
     { id: 'patient-education',   label: 'Education Library',    icon: '📚', tone: 'violet', group: 'main' },
     { id: 'patient-marketplace', label: 'Marketplace',          icon: '🛒', tone: 'green',  group: 'main' },
+
+    // ── ACCOUNT ───────────────────────────────────────────────────────────────
+    { section: 'Account', sectionId: 'pt-account', collapsed: false },
     { id: 'pt-billing',          label: 'Billing',              icon: '💳', tone: 'amber',  group: 'main' },
-    { id: 'pt-academy',          label: 'Academy',              icon: '🎓', tone: 'blue',   group: 'main' },
     { id: 'pt-tickets',          label: 'Support',              icon: '🎫', tone: 'rose',   group: 'main' },
     { id: 'patient-profile',     label: 'Profile',              icon: '👤', tone: 'amber',  group: 'main' },
     { id: 'patient-settings',    label: 'Settings',             icon: '⚙',  tone: 'slate',  group: 'main' },
@@ -8628,6 +8638,45 @@ async function _pgPatientEducationImpl() {
     { id:'p3', icoCls:'shield', tag:'Foundations',       name:'Brain health basics in 7 short videos',  desc:'A friendly tour of brain regions, neurotransmitters, neuroplasticity, qEEG, and how home devices fit into the broader picture.', lessons:7, mins:42, pct:8 },
   ];
 
+  // Academy courses — curated learning resources with completion tracking
+  const ACADEMY_CATEGORIES = [
+    { id: 'all',          label: 'All',             icon: '&#128218;' },
+    { id: 'understanding', label: 'Understanding',   icon: '&#129504;' },
+    { id: 'self-care',    label: 'Self-Care',        icon: '&#128154;' },
+    { id: 'techniques',   label: 'Techniques',       icon: '&#127919;' },
+    { id: 'stories',      label: 'Patient Stories',  icon: '&#128172;' },
+    { id: 'webinars',     label: 'Webinars',         icon: '&#127908;' },
+    { id: 'courses',      label: 'Courses',          icon: '&#127891;' },
+  ];
+  const ACADEMY_COURSES = [
+    { id: 'c1', title: 'Understanding Neuromodulation', subtitle: 'What happens during tDCS and why it helps', category: 'understanding', type: 'Article', duration: '8 min read', source: 'DeepSynaps Clinic', icon: '&#129504;', free: true,
+      description: 'A patient-friendly guide to how transcranial direct current stimulation works, what the electrodes do, and why consistency matters.' },
+    { id: 'c2', title: 'Sleep Hygiene for Better Outcomes', subtitle: 'Small changes that support your treatment', category: 'self-care', type: 'Guide', duration: '6 min read', source: 'NHS Better Health', icon: '&#128164;', free: true,
+      description: 'Evidence-based tips to improve your sleep quality, which can significantly impact how well your treatment works.' },
+    { id: 'c3', title: 'Breathing Exercises: 4-7-8 Technique', subtitle: 'A quick calming technique you can do anywhere', category: 'techniques', type: 'Video', duration: '4 min', source: 'YouTube', icon: '&#128692;', free: true,
+      description: 'Learn the 4-7-8 breathing technique recommended by your care team as part of your homework programme.' },
+    { id: 'c4', title: 'My tDCS Journey: 20 Sessions Later', subtitle: 'One patient shares their honest experience', category: 'stories', type: 'Article', duration: '12 min read', source: 'DeepSynaps Community', icon: '&#128172;', free: true,
+      description: 'A real patient describes what sessions felt like, how symptoms changed, and what surprised them about the process.' },
+    { id: 'c5', title: 'Managing Side Effects', subtitle: 'What to expect and when to speak up', category: 'understanding', type: 'Guide', duration: '5 min read', source: 'DeepSynaps Clinic', icon: '&#9888;', free: true,
+      description: 'Common side effects of neuromodulation treatments, which ones are normal, and when you should contact your care team.' },
+    { id: 'c6', title: 'Mindfulness for Depression', subtitle: 'Evidence-based practices that complement your protocol', category: 'techniques', type: 'Course', duration: '6 modules', source: 'FutureLearn', icon: '&#128992;', free: false,
+      description: 'A structured mindfulness course designed for people receiving treatment for depression. Integrates with your care plan.' },
+    { id: 'c7', title: 'Understanding Your qEEG Report', subtitle: 'What those brain waves actually mean for you', category: 'understanding', type: 'Video', duration: '18 min', source: 'DeepSynaps Clinic+', icon: '&#129504;', free: false,
+      description: 'A clinician walkthrough explaining what your qEEG report shows, written for patients, not clinicians.' },
+    { id: 'c8', title: 'Nutrition & Brain Health', subtitle: 'How diet impacts your neuromodulation outcomes', category: 'self-care', type: 'Article', duration: '10 min read', source: 'Mayo Clinic', icon: '&#129382;', free: true,
+      description: 'Research-backed dietary suggestions that may support brain health during your treatment course.' },
+    { id: 'c9', title: 'Patient Q&A: Common Concerns', subtitle: 'Answers to the most asked questions', category: 'stories', type: 'Webinar Recording', duration: '45 min', source: 'DeepSynaps Community', icon: '&#127908;', free: true,
+      description: 'A recorded Q&A session where patients asked clinicians their most pressing questions about neuromodulation.' },
+    { id: 'c10', title: 'Progressive Muscle Relaxation', subtitle: 'Reduce tension before and after sessions', category: 'techniques', type: 'Audio Guide', duration: '15 min', source: 'NHS Every Mind Matters', icon: '&#127925;', free: true,
+      description: 'A guided audio exercise to help you relax your body, especially useful before clinic sessions.' },
+    { id: 'c11', title: 'Home Device Safety Training', subtitle: 'Required before starting home therapy', category: 'courses', type: 'Interactive Course', duration: '3 modules', source: 'DeepSynaps Clinic', icon: '&#128268;', free: true,
+      description: 'Mandatory safety training covering device setup, electrode placement, emergency procedures, and session logging.' },
+    { id: 'c12', title: 'Building Resilience During Treatment', subtitle: 'A 4-week guided programme', category: 'courses', type: 'Course', duration: '4 weeks', source: 'DeepSynaps Academy', icon: '&#127891;', free: false,
+      description: 'A structured programme combining psychoeducation, journaling prompts, and behavioural exercises tailored to your treatment phase.' },
+  ];
+  let _acadFilter = 'all';
+  const _acadCompleted = JSON.parse(localStorage.getItem('ds_pt_academy_completed') || '[]');
+
   // Saved state (localStorage). Seed 6 by default.
   let savedIds = (() => {
     try { return JSON.parse(localStorage.getItem('ds_edu_saved') || '["sv01","yt01","pc01","j01","mc01","nhs01"]'); }
@@ -8814,6 +8863,46 @@ async function _pgPatientEducationImpl() {
                 <span class="el-path-progress-pct">${p.pct}%</span>
               </div>
             </div>`).join('')}
+        </div>
+      </div>
+
+      <!-- Academy -->
+      <div class="el-section">
+        <div class="el-section-head">
+          <div class="el-section-title"><svg width="16" height="16"><use href="#i-graduation"/></svg>Academy <span class="el-section-count">${_acadCompleted.length}/${ACADEMY_COURSES.length} completed</span></div>
+        </div>
+        <div style="margin-bottom:12px">
+          <div style="display:flex;gap:6px;flex-wrap:wrap" id="el-acad-chips">
+            ${ACADEMY_CATEGORIES.map(c => `<button onclick="window._edAcadFilter('${c.id}')" class="el-tab${_acadFilter === c.id ? ' active' : ''}" data-acad-cat="${c.id}" style="display:inline-flex;align-items:center;gap:4px"><span>${c.icon}</span>${esc(c.label)}</button>`).join('')}
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px" id="el-acad-grid">
+          ${ACADEMY_COURSES.map(c => {
+            const done = _acadCompleted.includes(c.id);
+            return `
+            <div class="el-card" data-acad-id="${esc(c.id)}" data-acad-cat="${esc(c.category)}" onclick="window._edAcadOpen('${esc(c.id)}')" style="cursor:pointer">
+              <div style="padding:16px;display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;align-items:flex-start;gap:10px">
+                  <div style="width:40px;height:40px;border-radius:10px;background:rgba(45,212,191,0.08);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${c.icon}</div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:2px;display:flex;align-items:center;gap:6px">${esc(c.title)}${done ? '<span style="color:#22c55e;font-size:11px">&#10003;</span>' : ''}</div>
+                    <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.4">${esc(c.subtitle)}</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:10.5px">
+                  <span style="padding:2px 8px;border-radius:4px;background:rgba(96,165,250,0.1);color:#60a5fa">${esc(c.type)}</span>
+                  <span style="padding:2px 8px;border-radius:4px;background:rgba(255,255,255,0.04);color:var(--text-tertiary)">${esc(c.duration)}</span>
+                  <span style="padding:2px 8px;border-radius:4px;background:rgba(255,255,255,0.04);color:var(--text-tertiary)">${esc(c.source)}</span>
+                  ${!c.free ? '<span style="padding:2px 8px;border-radius:4px;background:rgba(251,191,36,0.1);color:#fbbf24">Premium</span>' : ''}
+                </div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div class="el-empty" id="el-acad-empty" style="display:none">
+          <svg><use href="#i-search"/></svg>
+          <div class="el-empty-title">No academy resources match</div>
+          <div class="el-empty-sub">Try a different category.</div>
         </div>
       </div>
 
@@ -9023,6 +9112,79 @@ async function _pgPatientEducationImpl() {
     window._edToastTimer = setTimeout(() => t.classList.remove('show'), 2200);
   }
   window._edToast = _edToast;
+
+  // ── Academy handlers ───────────────────────────────────────────────────
+  window._edAcadFilter = function(catId) {
+    _acadFilter = catId;
+    document.querySelectorAll('#el-acad-chips .el-tab').forEach(b => b.classList.toggle('active', b.dataset.acadCat === catId));
+    let shown = 0;
+    document.querySelectorAll('#el-acad-grid .el-card').forEach(c => {
+      const ok = catId === 'all' || c.dataset.acadCat === catId;
+      c.style.display = ok ? '' : 'none';
+      if (ok) shown++;
+    });
+    const empty = document.getElementById('el-acad-empty');
+    if (empty) empty.style.display = shown === 0 ? '' : 'none';
+  };
+
+  window._edAcadOpen = function(id) {
+    const c = ACADEMY_COURSES.find(x => x.id === id);
+    if (!c) return;
+    const done = _acadCompleted.includes(c.id);
+    const existing = document.getElementById('ed-acad-modal');
+    if (existing) existing.remove();
+    const modal = document.createElement('div');
+    modal.id = 'ed-acad-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);padding:16px';
+    modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
+    modal.innerHTML = `
+      <div style="background:var(--bg-primary,#0f172a);border:1px solid var(--border);border-radius:14px;padding:24px;width:90%;max-width:520px;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.35)">
+        <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px">
+          <div style="width:48px;height:48px;border-radius:12px;background:rgba(45,212,191,0.08);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">${c.icon}</div>
+          <div style="flex:1">
+            <div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:2px">${esc(c.title)}</div>
+            <div style="font-size:12px;color:var(--text-secondary)">${esc(c.subtitle)}</div>
+          </div>
+          <button onclick="document.getElementById('ed-acad-modal').remove()" style="background:transparent;border:none;color:var(--text-tertiary);cursor:pointer;font-size:16px;padding:4px">\u2715</button>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;font-size:10.5px">
+          <span style="padding:3px 10px;border-radius:5px;background:rgba(96,165,250,0.1);color:#60a5fa">${esc(c.type)}</span>
+          <span style="padding:3px 10px;border-radius:5px;background:rgba(255,255,255,0.04);color:var(--text-tertiary)">${esc(c.duration)}</span>
+          <span style="padding:3px 10px;border-radius:5px;background:rgba(255,255,255,0.04);color:var(--text-tertiary)">${esc(c.source)}</span>
+          ${!c.free ? '<span style="padding:3px 10px;border-radius:5px;background:rgba(251,191,36,0.1);color:#fbbf24">Premium</span>' : '<span style="padding:3px 10px;border-radius:5px;background:rgba(34,197,94,0.1);color:#22c55e">Free</span>'}
+        </div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">${esc(c.description)}</div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          ${done
+            ? '<span style="font-size:12px;color:#22c55e;font-weight:600;padding:7px 14px">&#10003; Completed</span>'
+            : `<button class="btn btn-ghost btn-sm" onclick="window._edAcadComplete('${esc(c.id)}');document.getElementById('ed-acad-modal').remove()">Mark as completed</button>`}
+          <button class="btn btn-primary btn-sm" onclick="document.getElementById('ed-acad-modal').remove()">Close</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  };
+
+  window._edAcadComplete = function(id) {
+    if (!_acadCompleted.includes(id)) {
+      _acadCompleted.push(id);
+      try { localStorage.setItem('ds_pt_academy_completed', JSON.stringify(_acadCompleted)); } catch (_e) {}
+      window._showNotifToast && window._showNotifToast({ title: 'Resource completed', body: 'Great job keeping up with your learning!', severity: 'success' });
+    }
+    // Update the checkmark on the card
+    const card = document.querySelector('#el-acad-grid .el-card[data-acad-id="' + id + '"]');
+    if (card) {
+      const titleEl = card.querySelector('div[style*="font-weight:600"]');
+      if (titleEl && !titleEl.querySelector('span[style*="color:#22c55e"]')) {
+        titleEl.insertAdjacentHTML('beforeend', '<span style="color:#22c55e;font-size:11px">&#10003;</span>');
+      }
+    }
+    // Update count
+    const countEl = document.querySelector('.el-section-title svg[href="#i-graduation"]');
+    if (countEl) {
+      const span = countEl.closest('.el-section-title').querySelector('.el-section-count');
+      if (span) span.textContent = _acadCompleted.length + '/' + ACADEMY_COURSES.length + ' completed';
+    }
+  };
 }
 
 
