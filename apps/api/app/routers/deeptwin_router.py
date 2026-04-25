@@ -13,6 +13,17 @@ from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import get_db_session
+from app.services.deeptwin_engine import (
+    REPORT_BUILDERS,
+    align_timeline_events,
+    build_signal_matrix,
+    build_twin_summary,
+    create_agent_handoff_summary,
+    detect_correlations,
+    estimate_trajectory,
+    generate_causal_hypotheses,
+    simulate_intervention_scenario,
+)
 from app.services.fusion_service import build_fusion_recommendation
 from app.services.neuromodulation_research import bundle_root_or_none, search_ranked_papers
 
@@ -293,4 +304,247 @@ def brain_twin_evidence(
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> DeeptwinEvidenceResponse:
     return deeptwin_evidence(payload=payload, _actor=_actor)
+
+
+# ---------------------------------------------------------------------------
+# DeepTwin v1: rich endpoints powering the clinician page.
+# These return deterministic synthetic data seeded by patient_id. The shapes
+# are stable so the frontend can render fully without real ingestion.
+# Every prediction/simulation includes evidence grade, uncertainty band and
+# explicit "approval_required" / "decision-support only" labels.
+# ---------------------------------------------------------------------------
+
+
+class TwinSummaryOut(BaseModel):
+    patient_id: str
+    completeness_pct: float
+    risk_status: str
+    last_updated: str
+    sources_connected: list[dict[str, Any]]
+    sources_missing: list[dict[str, Any]]
+    review_status: str
+    warnings: list[str]
+    disclaimer: str
+
+
+class TwinTimelineOut(BaseModel):
+    patient_id: str
+    events: list[dict[str, Any]]
+    window_days: int
+
+
+class TwinSignalsOut(BaseModel):
+    patient_id: str
+    signals: list[dict[str, Any]]
+
+
+class TwinCorrelationsOut(BaseModel):
+    patient_id: str
+    method: str
+    labels: list[str]
+    matrix: list[list[float]]
+    cards: list[dict[str, Any]]
+    hypotheses: list[dict[str, Any]]
+    warnings: list[str]
+
+
+class TwinPredictionOut(BaseModel):
+    patient_id: str
+    horizon: str
+    horizon_days: int
+    traces: list[dict[str, Any]]
+    assumptions: list[str]
+    evidence_grade: str
+    uncertainty_widens_with_horizon: bool
+    disclaimer: str
+
+
+class TwinSimulationRequest(BaseModel):
+    scenario_id: str | None = None
+    modality: Literal["tms", "tdcs", "tacs", "ces", "pbm", "behavioural", "therapy",
+                      "medication", "lifestyle"] = "tdcs"
+    target: str = "Fp2"
+    frequency_hz: float | None = 10.0
+    current_ma: float | None = 2.0
+    power_w: float | None = None
+    duration_min: int = Field(20, ge=1, le=120)
+    sessions_per_week: int = Field(5, ge=1, le=14)
+    weeks: int = Field(5, ge=1, le=26)
+    contraindications: list[str] = Field(default_factory=list)
+    adherence_assumption_pct: float = Field(80.0, ge=0.0, le=100.0)
+    notes: str | None = None
+
+
+class TwinSimulationOut(BaseModel):
+    patient_id: str
+    scenario_id: str
+    input: dict[str, Any]
+    predicted_curve: dict[str, Any]
+    expected_domains: list[str]
+    responder_probability: float
+    non_responder_flag: bool
+    safety_concerns: list[str]
+    missing_data: list[str]
+    monitoring_plan: list[str]
+    evidence_support: list[str]
+    evidence_grade: str
+    approval_required: bool
+    labels: dict[str, bool]
+    disclaimer: str
+
+
+class TwinReportRequest(BaseModel):
+    kind: Literal[
+        "clinician_deep", "patient_progress", "prediction", "correlation",
+        "causal", "simulation", "governance", "data_completeness",
+    ]
+    horizon: str | None = "6w"
+    simulation: dict[str, Any] | None = None
+
+
+class TwinReportOut(BaseModel):
+    patient_id: str
+    kind: str
+    title: str
+    generated_at: str
+    data_sources_used: list[str]
+    date_range_days: int
+    audit_refs: list[str]
+    limitations: list[str]
+    review_points: list[str]
+    evidence_grade: str
+    body: dict[str, Any]
+
+
+class TwinAgentHandoffRequest(BaseModel):
+    kind: Literal["send_summary", "draft_protocol_update", "review_risks",
+                  "create_followup_tasks"] = "send_summary"
+    note: str | None = None
+
+
+class TwinAgentHandoffOut(BaseModel):
+    patient_id: str
+    kind: str
+    note: str | None
+    submitted_at: str
+    audit_ref: str
+    summary_markdown: str
+    approval_required: bool
+    disclaimer: str
+
+
+@router.get("/patients/{patient_id}/summary", response_model=TwinSummaryOut)
+def deeptwin_get_summary(
+    patient_id: str,
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> TwinSummaryOut:
+    return TwinSummaryOut(**build_twin_summary(patient_id))
+
+
+@router.get("/patients/{patient_id}/timeline", response_model=TwinTimelineOut)
+def deeptwin_get_timeline(
+    patient_id: str,
+    days: int = 90,
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> TwinTimelineOut:
+    days = max(7, min(365, days))
+    return TwinTimelineOut(**align_timeline_events(patient_id, days=days))
+
+
+@router.get("/patients/{patient_id}/signals", response_model=TwinSignalsOut)
+def deeptwin_get_signals(
+    patient_id: str,
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> TwinSignalsOut:
+    return TwinSignalsOut(**build_signal_matrix(patient_id))
+
+
+@router.get("/patients/{patient_id}/correlations", response_model=TwinCorrelationsOut)
+def deeptwin_get_correlations(
+    patient_id: str,
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> TwinCorrelationsOut:
+    corr = detect_correlations(patient_id)
+    caus = generate_causal_hypotheses(patient_id)
+    return TwinCorrelationsOut(
+        patient_id=patient_id,
+        method=corr["method"],
+        labels=corr["labels"],
+        matrix=corr["matrix"],
+        cards=corr["cards"],
+        hypotheses=caus["hypotheses"],
+        warnings=corr["warnings"],
+    )
+
+
+@router.get("/patients/{patient_id}/predictions", response_model=TwinPredictionOut)
+def deeptwin_get_predictions(
+    patient_id: str,
+    horizon: Literal["2w", "6w", "12w"] = "6w",
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> TwinPredictionOut:
+    return TwinPredictionOut(**estimate_trajectory(patient_id, horizon=horizon))
+
+
+@router.post("/patients/{patient_id}/simulations", response_model=TwinSimulationOut)
+def deeptwin_post_simulation(
+    patient_id: str,
+    payload: TwinSimulationRequest,
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> TwinSimulationOut:
+    result = simulate_intervention_scenario(
+        patient_id,
+        scenario_id=payload.scenario_id,
+        modality=payload.modality,
+        target=payload.target,
+        frequency_hz=payload.frequency_hz,
+        current_ma=payload.current_ma,
+        power_w=payload.power_w,
+        duration_min=payload.duration_min,
+        sessions_per_week=payload.sessions_per_week,
+        weeks=payload.weeks,
+        contraindications=payload.contraindications,
+        adherence_assumption_pct=payload.adherence_assumption_pct,
+        notes=payload.notes,
+    )
+    return TwinSimulationOut(**result)
+
+
+@router.post("/patients/{patient_id}/reports", response_model=TwinReportOut)
+def deeptwin_post_report(
+    patient_id: str,
+    payload: TwinReportRequest,
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> TwinReportOut:
+    builder = REPORT_BUILDERS.get(payload.kind)
+    if builder is None:
+        builder = REPORT_BUILDERS["clinician_deep"]
+    body = builder(
+        patient_id,
+        horizon=payload.horizon or "6w",
+        simulation=payload.simulation or {},
+    )
+    return TwinReportOut(
+        patient_id=body["patient_id"],
+        kind=body["kind"],
+        title=body.get("title", "DeepTwin Report"),
+        generated_at=body["generated_at"],
+        data_sources_used=body.get("data_sources_used", []),
+        date_range_days=body.get("date_range_days", 90),
+        audit_refs=body.get("audit_refs", []),
+        limitations=body.get("limitations", []),
+        review_points=body.get("review_points", []),
+        evidence_grade=body.get("evidence_grade", "moderate"),
+        body=body,
+    )
+
+
+@router.post("/patients/{patient_id}/agent-handoff", response_model=TwinAgentHandoffOut)
+def deeptwin_post_agent_handoff(
+    patient_id: str,
+    payload: TwinAgentHandoffRequest,
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> TwinAgentHandoffOut:
+    result = create_agent_handoff_summary(patient_id, kind=payload.kind, note=payload.note)
+    return TwinAgentHandoffOut(**result)
 

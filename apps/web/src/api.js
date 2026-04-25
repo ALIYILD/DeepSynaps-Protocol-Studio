@@ -768,6 +768,30 @@ export const api = {
   brainTwinEvidence: (data) =>
     apiFetch('/api/v1/brain-twin/evidence', { method: 'POST', body: JSON.stringify(data) }),
 
+  // ── DeepTwin v1 (rich clinician page) ────────────────────────────────────
+  getTwinSummary: (patientId) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/summary`),
+  getTwinTimeline: (patientId, days = 90) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/timeline?days=${days}`),
+  getTwinSignals: (patientId) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/signals`),
+  getTwinCorrelations: (patientId) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/correlations`),
+  getTwinPredictions: (patientId, horizon = '6w') =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/predictions?horizon=${encodeURIComponent(horizon)}`),
+  runTwinSimulation: (patientId, payload) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/simulations`, {
+      method: 'POST', body: JSON.stringify(payload),
+    }),
+  generateTwinReport: (patientId, payload) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/reports`, {
+      method: 'POST', body: JSON.stringify(payload),
+    }),
+  postTwinAgentHandoff: (patientId, payload) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/agent-handoff`, {
+      method: 'POST', body: JSON.stringify(payload),
+    }),
+
   // ── Registry endpoints (public — no auth needed but token attached if present) ──
   conditions: () => apiFetchWithRetry('/api/v1/registry/conditions'),
   listConditions: () => api.conditions(),
