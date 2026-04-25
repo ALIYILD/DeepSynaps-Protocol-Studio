@@ -1814,6 +1814,7 @@ export function renderMNEPipelineSections(analysis) {
     renderPipelineQualityStrip(analysis),
     renderSpecParamPanel(analysis),
     renderELoretaROIPanel(analysis),
+    renderQEEGSourceMRI(analysis),
     renderNormativeTopomapGrid(analysis),
     renderNormativeZScoreHeatmap(analysis),
     renderConnectivityClinicViz(analysis),
@@ -4340,6 +4341,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       // Bind advanced analyses button
       setTimeout(function () {
         _bindBrainRingFrames();
+        _wireQEEGSourceMRI();
         // ── Mount Viz v2 panels (lazy-loaded) ─────────────────────────────
         var vizMount = document.getElementById('qeeg-viz-v2-mount');
         if (vizMount && analysisId) {
