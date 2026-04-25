@@ -1668,6 +1668,57 @@ export const api = {
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
   getRiskAudit: (patientId) =>
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/audit`),
+
+  // ── Device Sync (clinician-facing) ─────────────────────────────────────────
+  deviceSyncProviders: () => apiFetchWithRetry('/api/v1/device-sync/providers'),
+  deviceSyncAuthorize: (provider) =>
+    apiFetch(`/api/v1/device-sync/oauth/${encodeURIComponent(provider)}/authorize`),
+  deviceSyncDashboard: (connectionId, days = 30) =>
+    apiFetchWithRetry(`/api/v1/device-sync/${encodeURIComponent(connectionId)}/dashboard?days=${days}`),
+  deviceSyncHistory: (connectionId, limit = 20) =>
+    apiFetchWithRetry(`/api/v1/device-sync/${encodeURIComponent(connectionId)}/history?limit=${limit}`),
+  deviceSyncTimeseries: (connectionId, metric = 'heart_rate', days = 30) =>
+    apiFetchWithRetry(`/api/v1/device-sync/${encodeURIComponent(connectionId)}/timeseries?metric=${encodeURIComponent(metric)}&days=${days}`),
+  deviceSyncTrigger: (connectionId) =>
+    apiFetch(`/api/v1/device-sync/${encodeURIComponent(connectionId)}/trigger`, { method: 'POST' }),
+
+  // ── Patient Command Center ─────────────────────────────────────────────────
+  getCommandCenter: (patientId) =>
+    apiFetchWithRetry(`/api/v1/command-center/${encodeURIComponent(patientId)}`),
+
+  // ── qEEG Raw Data & Cleaning ──────────────────────────────────────────────
+  getQEEGChannelInfo: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/channel-info`),
+  getQEEGRawSignal: (analysisId, params = {}) => {
+    const q = new URLSearchParams();
+    if (params.tStart != null) q.set('t_start', params.tStart);
+    if (params.tEnd != null) q.set('t_end', params.tEnd);
+    if (params.windowSec != null) q.set('window_sec', params.windowSec);
+    if (params.channels) q.set('channels', params.channels.join(','));
+    if (params.maxPoints != null) q.set('max_points_per_channel', params.maxPoints);
+    const qs = q.toString();
+    return apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/raw-signal${qs ? '?' + qs : ''}`);
+  },
+  getQEEGCleanedSignal: (analysisId, params = {}) => {
+    const q = new URLSearchParams();
+    if (params.tStart != null) q.set('t_start', params.tStart);
+    if (params.tEnd != null) q.set('t_end', params.tEnd);
+    if (params.windowSec != null) q.set('window_sec', params.windowSec);
+    if (params.channels) q.set('channels', params.channels.join(','));
+    if (params.maxPoints != null) q.set('max_points_per_channel', params.maxPoints);
+    const qs = q.toString();
+    return apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/cleaned-signal${qs ? '?' + qs : ''}`);
+  },
+  getQEEGICAComponents: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/ica-components`),
+  getQEEGICATimecourse: (analysisId, idx) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/ica-timecourse/${idx}`),
+  saveQEEGCleaningConfig: (analysisId, config) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/cleaning-config`, { method: 'POST', body: JSON.stringify(config) }),
+  getQEEGCleaningConfig: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/cleaning-config`),
+  reprocessQEEGWithCleaning: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/reprocess`, { method: 'POST' }),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).

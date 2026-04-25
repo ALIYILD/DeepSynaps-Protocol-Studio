@@ -52,6 +52,17 @@ import {
   outcomeGoalMarker,
   computeCountdown,
   phaseLabel,
+  DEMO_PATIENT_DASH,
+  multiLineChartSVG,
+  barChartSVG,
+  eegWaveformSVG,
+  correlationHTML,
+  ANALYTICS_DEMO,
+  stackedBarSVG,
+  areaChartSVG,
+  donutSVG,
+  hBarChartHTML,
+  severityBandSVG,
 } from './patient-dashboard-helpers.js';
 
 if (import.meta.env?.DEV) {
@@ -3210,7 +3221,7 @@ export async function pgProfile(setTopbar, navigate) {
   </div>
 
   <div class="tab-bar">
-    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'brain-twin', 'assessments', 'notes', 'phenotype', 'consent', 'monitoring', 'home-therapy'].map(t => {
+    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'brain-twin', 'assessments', 'analytics', 'patient-dash', 'notes', 'phenotype', 'consent', 'monitoring', 'home-therapy'].map(t => {
       const labels = {
         'overview':     'Dashboard',
         'courses':      'Treatment Courses',
@@ -3219,6 +3230,8 @@ export async function pgProfile(setTopbar, navigate) {
         'protocol':     'AI Protocol',
         'brain-twin':   'Deeptwin',
         'assessments':  'Assessments',
+        'analytics':    'Analytics',
+        'patient-dash': 'Patient Dash',
         'notes':        'Clinical Notes',
         'phenotype':    'Phenotype',
         'consent':      'Consent',
@@ -3521,6 +3534,266 @@ export async function pgProfile(setTopbar, navigate) {
   };
 
   if (ptab === 'protocol') bindAI(pt);
+}
+
+// ── Patient Command Center (cockpit dashboard) ─────────────────────────────
+
+function _ccSparkSVG(values, color = '#4cc9f0', w = 100, h = 24) {
+  if (!values || values.length < 2) return '';
+  const min = Math.min(...values), max = Math.max(...values), range = max - min || 1;
+  const pts = values.map((v, i) => `${(i / (values.length - 1) * w).toFixed(1)},${(h - ((v - min) / range) * (h - 2) - 1).toFixed(1)}`).join(' ');
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:${w}px;height:${h}px;display:block"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+}
+
+function _ccLineSVG(series, w = 420, h = 140) {
+  if (!series || !series.length) return '<div class="cc-chart-empty">No data</div>';
+  const allVals = series.flatMap(s => s.values || []);
+  if (allVals.length < 2) return '<div class="cc-chart-empty">Insufficient data</div>';
+  const min = Math.min(...allVals), max = Math.max(...allVals), range = max - min || 1;
+  const len = Math.max(...series.map(s => (s.values || []).length));
+  const gridY = [0, 0.25, 0.5, 0.75, 1].map(f => {
+    const y = h - 20 - f * (h - 28);
+    return `<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/><text x="-4" y="${y + 3}" fill="rgba(255,255,255,0.3)" font-size="8" text-anchor="end">${(min + f * range).toFixed(0)}</text>`;
+  }).join('');
+  const lines = series.map(s => {
+    const pts = (s.values || []).map((v, i) => `${(i / (len - 1) * w).toFixed(1)},${(h - 20 - ((v - min) / range) * (h - 28)).toFixed(1)}`).join(' ');
+    return `<polyline points="${pts}" fill="none" stroke="${s.color || '#4cc9f0'}" stroke-width="2" stroke-linecap="round"/>`;
+  }).join('');
+  return `<svg viewBox="-28 0 ${w + 28} ${h}" style="width:100%;height:${h}px">${gridY}${lines}</svg>`;
+}
+
+function _ccBarSVG(values, color = '#4cc9f0', w = 420, h = 120) {
+  if (!values || !values.length) return '<div class="cc-chart-empty">No data</div>';
+  const max = Math.max(...values) || 1;
+  const bw = Math.max(4, Math.min(16, (w - 10) / values.length - 1));
+  const bars = values.map((v, i) => {
+    const bh = Math.max(1, (v / max) * (h - 16));
+    return `<rect x="${i * (bw + 1)}" y="${h - 12 - bh}" width="${bw}" height="${bh}" rx="1.5" fill="${color}" opacity="0.8"/>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${values.length * (bw + 1)} ${h}" style="width:100%;height:${h}px">${bars}</svg>`;
+}
+
+function _escCC(v) { return v == null ? '' : String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function _renderCommandCenterHTML(d) {
+  const pid = _escCC(d.patient_id);
+
+  // KPI strip
+  const kpiHtml = (d.kpis || []).map(k => {
+    const trendIcon = k.trend === 'down' ? '\u2193' : k.trend === 'up' ? '\u2191' : '\u2192';
+    const trendColor = k.trend === 'down' ? '#34d399' : k.trend === 'up' ? '#f87171' : '#94a3b8';
+    return `<div class="cc-kpi">
+      <div class="cc-kpi-label">${_escCC(k.label)}</div>
+      <div class="cc-kpi-value" style="color:${k.color || 'var(--text-primary)'}">${_escCC(String(k.value))}${k.unit ? `<span class="cc-kpi-unit">${_escCC(k.unit)}</span>` : ''}</div>
+      <div class="cc-kpi-trend" style="color:${trendColor}">${trendIcon}</div>
+    </div>`;
+  }).join('');
+
+  // Charts
+  const chartsHtml = (d.charts || []).map(c => {
+    let inner = '';
+    if (c.chart_type === 'line' && c.series?.length) {
+      inner = _ccLineSVG(c.series);
+    } else if (c.chart_type === 'bar' && c.series?.[0]?.values) {
+      inner = _ccBarSVG(c.series[0].values, c.series[0].color || '#4cc9f0');
+    }
+    const legend = (c.series || []).map(s => `<span class="cc-legend"><span class="cc-legend-dot" style="background:${s.color || '#4cc9f0'}"></span>${_escCC(s.label)}</span>`).join('');
+    return `<div class="cc-chart-card"><h4 class="cc-chart-title">${_escCC(c.title)}</h4><div class="cc-chart-body">${inner}</div>${legend ? `<div class="cc-chart-legend">${legend}</div>` : ''}</div>`;
+  }).join('');
+
+  // Assessments
+  const asmtHtml = (d.assessments || []).map(a => {
+    const delta = a.delta_pct != null ? `<span class="cc-asmt-delta" style="color:${a.delta_pct > 0 ? '#34d399' : '#f87171'}">${a.delta_pct > 0 ? '\u2193' : '\u2191'}${Math.abs(a.delta_pct).toFixed(0)}%</span>` : '';
+    const spark = a.scores?.length >= 2 ? _ccSparkSVG(a.scores, '#8b5cf6', 80, 20) : '';
+    return `<div class="cc-asmt-row">
+      <div class="cc-asmt-name">${_escCC(a.name)}</div>
+      <div class="cc-asmt-score">${a.latest_score != null ? a.latest_score.toFixed(1) : '\u2014'}</div>
+      ${delta}
+      <div class="cc-asmt-spark">${spark}</div>
+    </div>`;
+  }).join('');
+
+  // Wearables
+  const wearHtml = (d.wearables || []).map(w => {
+    const statusCls = w.status === 'active' ? 'ok' : w.status === 'error' ? 'error' : 'warn';
+    return `<div class="cc-wear-card">
+      <div class="cc-wear-head"><strong>${_escCC(w.display_name)}</strong><span class="cc-badge cc-badge--${statusCls}">${_escCC(w.status)}</span></div>
+      <div class="cc-wear-metrics">
+        ${w.rhr_bpm != null ? `<span>HR ${w.rhr_bpm.toFixed(0)}</span>` : ''}
+        ${w.hrv_ms != null ? `<span>HRV ${w.hrv_ms.toFixed(0)}</span>` : ''}
+        ${w.sleep_h != null ? `<span>Sleep ${w.sleep_h.toFixed(1)}h</span>` : ''}
+        ${w.steps != null ? `<span>${w.steps.toLocaleString()} steps</span>` : ''}
+        ${w.readiness != null ? `<span>Ready ${w.readiness}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('') || '<div class="cc-muted">No wearables connected</div>';
+
+  // Sessions
+  const sess = d.sessions || {};
+  const sessHtml = `<div class="cc-sess-grid">
+    <div class="cc-sess-stat"><div class="cc-sess-num">${sess.completed || 0}</div><div class="cc-sess-lbl">Completed</div></div>
+    <div class="cc-sess-stat"><div class="cc-sess-num">${sess.scheduled || 0}</div><div class="cc-sess-lbl">Scheduled</div></div>
+    <div class="cc-sess-stat"><div class="cc-sess-num">${sess.cancelled || 0}</div><div class="cc-sess-lbl">Cancelled</div></div>
+    <div class="cc-sess-stat"><div class="cc-sess-num">${(sess.progress_pct || 0).toFixed(0)}%</div><div class="cc-sess-lbl">Progress</div></div>
+  </div>
+  <div class="cc-progress-bar"><div class="cc-progress-fill" style="width:${Math.min(100, sess.progress_pct || 0)}%"></div></div>`;
+
+  // Treatment
+  const tx = d.treatment || {};
+  const txHtml = `<div class="cc-tx-info">
+    ${tx.active_course ? `<div class="cc-tx-row"><span class="cc-tx-lbl">Course</span><span>${_escCC(tx.active_course)}</span></div>` : ''}
+    ${tx.protocol ? `<div class="cc-tx-row"><span class="cc-tx-lbl">Protocol</span><span>${_escCC(tx.protocol)}</span></div>` : ''}
+    ${tx.phase ? `<div class="cc-tx-row"><span class="cc-tx-lbl">Phase</span><span>${_escCC(tx.phase)}</span></div>` : ''}
+    <div class="cc-tx-row"><span class="cc-tx-lbl">Adherence</span><span style="color:${tx.adherence_pct >= 80 ? '#34d399' : tx.adherence_pct >= 50 ? '#fbbf24' : '#f87171'}">${(tx.adherence_pct || 0).toFixed(0)}%</span></div>
+  </div>`;
+
+  // Neuroimaging
+  const neuro = d.neuroimaging || {};
+  const neuroHtml = `<div class="cc-neuro-grid">
+    <div class="cc-neuro-stat"><span class="cc-neuro-num">${neuro.eeg_count || 0}</span><span class="cc-neuro-lbl">EEG</span></div>
+    <div class="cc-neuro-stat"><span class="cc-neuro-num">${neuro.mri_count || 0}</span><span class="cc-neuro-lbl">MRI</span></div>
+  </div>
+  ${neuro.latest_eeg_date ? `<div class="cc-muted">Last EEG: ${neuro.latest_eeg_date}</div>` : ''}
+  ${neuro.latest_mri_date ? `<div class="cc-muted">Last MRI: ${neuro.latest_mri_date}</div>` : ''}
+  ${(neuro.eeg_findings || []).length ? `<div class="cc-findings">${neuro.eeg_findings.map(f => `<span class="cc-finding-chip">${_escCC(f)}</span>`).join('')}</div>` : ''}`;
+
+  // Alerts
+  const alertsHtml = (d.alerts || []).filter(a => !a.dismissed).map(a => {
+    const sevCls = a.severity === 'critical' ? 'error' : a.severity === 'warning' ? 'warn' : 'info';
+    return `<div class="cc-alert cc-alert--${sevCls}">
+      <span class="cc-alert-type">${_escCC(a.flag_type.replace(/_/g, ' '))}</span>
+      <span class="cc-alert-detail">${_escCC(a.detail)}</span>
+    </div>`;
+  }).join('') || '<div class="cc-muted">No active alerts</div>';
+
+  // Risk badge
+  const riskHtml = d.risk_tier ? `<div class="cc-risk-badge cc-risk--${d.risk_tier}">
+    <span class="cc-risk-label">Risk</span>
+    <span class="cc-risk-tier">${d.risk_tier.toUpperCase()}</span>
+    ${d.risk_score != null ? `<span class="cc-risk-score">${(d.risk_score * 100).toFixed(0)}%</span>` : ''}
+  </div>` : '';
+
+  return `
+    ${riskHtml}
+    <div class="cc-kpi-strip">${kpiHtml}</div>
+    <div class="cc-cockpit-grid">
+      <div class="cc-col cc-col-charts">
+        <div class="cc-panel"><div class="cc-panel-hdr"><h4>Trend Charts</h4></div><div class="cc-panel-body cc-charts-wrap">${chartsHtml}</div></div>
+      </div>
+      <div class="cc-col cc-col-side">
+        <div class="cc-panel"><div class="cc-panel-hdr"><h4>Assessments</h4><button class="btn btn-sm" onclick="window.switchPT('assessments')" style="font-size:10px">Run New</button></div><div class="cc-panel-body">${asmtHtml || '<div class="cc-muted">No assessments</div>'}</div></div>
+        <div class="cc-panel"><div class="cc-panel-hdr"><h4>Wearable Devices</h4><button class="btn btn-sm" onclick="window.switchPT('monitoring')" style="font-size:10px">Details</button></div><div class="cc-panel-body">${wearHtml}</div></div>
+        <div class="cc-panel"><div class="cc-panel-hdr"><h4>Alerts</h4></div><div class="cc-panel-body">${alertsHtml}</div></div>
+      </div>
+    </div>
+    <div class="cc-bottom-grid">
+      <div class="cc-panel"><div class="cc-panel-hdr"><h4>Sessions</h4><button class="btn btn-sm" onclick="window.switchPT('sessions')" style="font-size:10px">View All</button></div><div class="cc-panel-body">${sessHtml}</div></div>
+      <div class="cc-panel"><div class="cc-panel-hdr"><h4>Treatment</h4><button class="btn btn-sm" onclick="window.switchPT('courses')" style="font-size:10px">Courses</button></div><div class="cc-panel-body">${txHtml}</div></div>
+      <div class="cc-panel"><div class="cc-panel-hdr"><h4>Neuroimaging</h4></div><div class="cc-panel-body">${neuroHtml}</div></div>
+    </div>
+    <div class="ptd-quick-bar">
+      <button class="ptd-quick-btn" onclick="window._patStartSession('${pid}')">&#9654; Start Session</button>
+      <button class="ptd-quick-btn" onclick="window.switchPT('outcomes')">&#128202; Log Outcome</button>
+      <button class="ptd-quick-btn" onclick="window._nav('calendar')">&#128197; Schedule</button>
+      <button class="ptd-quick-btn" onclick="window.switchPT('assessments')">&#128203; Run Assessment</button>
+      <button class="ptd-quick-btn" onclick="window.startNewCourse()">&#9737; New Course</button>
+    </div>`;
+}
+
+function _loadCommandCenter(patientId, fallbackHtml) {
+  // Async load command center data, replacing the overview content when ready
+  setTimeout(async () => {
+    const root = document.getElementById('cc-overview-root');
+    if (!root) return;
+
+    // Inject CSS once
+    if (!document.getElementById('cc-styles')) {
+      const s = document.createElement('style');
+      s.id = 'cc-styles';
+      s.textContent = `
+        .cc-kpi-strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-bottom:16px}
+        .cc-kpi{background:rgba(255,255,255,0.025);border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:3px}
+        .cc-kpi-label{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-tertiary);font-weight:600}
+        .cc-kpi-value{font-family:var(--font-display);font-size:22px;font-weight:800;letter-spacing:-.03em}
+        .cc-kpi-unit{font-size:12px;font-weight:500;opacity:.6;margin-left:3px}
+        .cc-kpi-trend{font-size:12px;font-weight:700}
+        .cc-cockpit-grid{display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px}
+        @media(max-width:1000px){.cc-cockpit-grid{grid-template-columns:1fr}}
+        .cc-col{display:flex;flex-direction:column;gap:14px}
+        .cc-bottom-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px}
+        @media(max-width:900px){.cc-bottom-grid{grid-template-columns:1fr}}
+        .cc-panel{background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+        .cc-panel-hdr{padding:10px 14px 8px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)}
+        .cc-panel-hdr h4{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary);margin:0}
+        .cc-panel-body{padding:12px 14px}
+        .cc-charts-wrap{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+        .cc-chart-card{background:rgba(255,255,255,0.015);border:1px solid rgba(255,255,255,0.04);border-radius:10px;padding:12px}
+        .cc-chart-title{font-size:12px;font-weight:600;color:var(--text-secondary);margin:0 0 8px}
+        .cc-chart-body{overflow:hidden;min-height:80px}
+        .cc-chart-empty{font-size:11px;color:var(--text-tertiary);text-align:center;padding:30px 0}
+        .cc-chart-legend{display:flex;gap:10px;margin-top:6px;flex-wrap:wrap}
+        .cc-legend{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--text-tertiary)}
+        .cc-legend-dot{width:7px;height:7px;border-radius:50%}
+        .cc-asmt-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)}
+        .cc-asmt-row:last-child{border-bottom:none}
+        .cc-asmt-name{flex:1;font-size:12px;font-weight:600;color:var(--text-primary)}
+        .cc-asmt-score{font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--text-primary)}
+        .cc-asmt-delta{font-size:11px;font-weight:700}
+        .cc-asmt-spark{margin-left:4px}
+        .cc-badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;text-transform:uppercase}
+        .cc-badge--ok{background:rgba(16,185,129,.15);color:#34d399}
+        .cc-badge--warn{background:rgba(245,158,11,.15);color:#fbbf24}
+        .cc-badge--error{background:rgba(239,68,68,.15);color:#f87171}
+        .cc-badge--info{background:rgba(59,130,246,.15);color:#60a5fa}
+        .cc-wear-card{padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04)}
+        .cc-wear-card:last-child{border-bottom:none}
+        .cc-wear-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+        .cc-wear-head strong{font-size:12px;color:var(--text-primary)}
+        .cc-wear-metrics{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--text-secondary)}
+        .cc-muted{font-size:11px;color:var(--text-tertiary);padding:4px 0}
+        .cc-sess-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+        .cc-sess-stat{text-align:center}
+        .cc-sess-num{font-family:var(--font-display);font-size:20px;font-weight:800;color:var(--text-primary)}
+        .cc-sess-lbl{font-size:10px;color:var(--text-tertiary);text-transform:uppercase}
+        .cc-progress-bar{height:5px;border-radius:3px;background:rgba(255,255,255,0.06);overflow:hidden}
+        .cc-progress-fill{height:5px;border-radius:3px;background:var(--teal);transition:width .3s}
+        .cc-tx-info{display:flex;flex-direction:column;gap:6px}
+        .cc-tx-row{display:flex;justify-content:space-between;font-size:12px;color:var(--text-secondary)}
+        .cc-tx-lbl{color:var(--text-tertiary);font-size:11px}
+        .cc-neuro-grid{display:flex;gap:20px;margin-bottom:6px}
+        .cc-neuro-stat{display:flex;align-items:baseline;gap:4px}
+        .cc-neuro-num{font-family:var(--font-display);font-size:22px;font-weight:800;color:var(--text-primary)}
+        .cc-neuro-lbl{font-size:11px;color:var(--text-tertiary)}
+        .cc-findings{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+        .cc-finding-chip{font-size:10px;padding:3px 8px;border-radius:4px;background:rgba(139,92,246,0.1);color:#a78bfa;border:1px solid rgba(139,92,246,0.15)}
+        .cc-alert{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;margin-bottom:6px;font-size:12px}
+        .cc-alert:last-child{margin-bottom:0}
+        .cc-alert--error{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.15)}
+        .cc-alert--warn{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.15)}
+        .cc-alert--info{background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.12)}
+        .cc-alert-type{font-weight:700;text-transform:capitalize;color:var(--text-secondary);white-space:nowrap}
+        .cc-alert-detail{color:var(--text-tertiary);flex:1}
+        .cc-risk-badge{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:10px;margin-bottom:14px;font-size:12px;font-weight:700}
+        .cc-risk--green{background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);color:#34d399}
+        .cc-risk--yellow{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.2);color:#fbbf24}
+        .cc-risk--orange{background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.2);color:#fb923c}
+        .cc-risk--red{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#f87171}
+        .cc-risk-label{text-transform:uppercase;letter-spacing:.06em;font-size:10px}
+        .cc-risk-tier{font-size:14px;font-weight:800}
+        .cc-risk-score{font-size:11px;opacity:.7}
+      `;
+      document.head.appendChild(s);
+    }
+
+    let data = null;
+    try {
+      data = await api.getCommandCenter(patientId);
+    } catch {}
+
+    if (!data || (!data.kpis && !data.charts)) return; // keep fallback
+
+    root.innerHTML = _renderCommandCenterHTML(data);
+  }, 50);
 }
 
 // ── Patient Dashboard Overview ──────────────────────────────────────────────
@@ -3892,6 +4165,767 @@ function renderDashboardOverview(pt, sessions, courses, ctx = {}) {
   `;
 }
 
+// ── Patient Dash — Bloomberg Terminal-style Data Visualization ───────────────
+function renderPatientDash(pt, sessions, courses, ctx = {}) {
+  const { isDemoPatient: isDemo } = ctx;
+  const pid = String(pt.id).replace(/'/g, "\\'");
+  const d = DEMO_PATIENT_DASH;
+
+  // Inject Bloomberg Terminal CSS once
+  if (!document.getElementById('pdash-bloomberg-styles')) {
+    const s = document.createElement('style');
+    s.id = 'pdash-bloomberg-styles';
+    s.textContent = `
+      .bb-shell{font-family:var(--font-mono);color:var(--text-primary)}
+      .bb-header{display:flex;align-items:center;gap:12px;padding:10px 16px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:var(--radius-md);margin-bottom:12px}
+      .bb-header-title{font-size:14px;font-weight:700;color:var(--teal);letter-spacing:1px;text-transform:uppercase}
+      .bb-header-id{font-size:10px;color:var(--text-tertiary);margin-left:auto;font-family:var(--font-mono)}
+      .bb-header-live{display:inline-flex;align-items:center;gap:5px;font-size:10px;color:var(--green);font-weight:600}
+      .bb-header-live::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--green);animation:bb-pulse 2s infinite}
+      @keyframes bb-pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+      .bb-ticker{display:flex;gap:8px;overflow-x:auto;padding:8px 0;margin-bottom:12px;scrollbar-width:none}
+      .bb-ticker::-webkit-scrollbar{display:none}
+      .bb-tick{flex-shrink:0;padding:8px 14px;background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:var(--radius-sm);display:flex;flex-direction:column;gap:2px;min-width:120px}
+      .bb-tick-label{font-size:9px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;font-weight:600}
+      .bb-tick-val{font-size:18px;font-weight:700;font-family:var(--font-display);line-height:1.1}
+      .bb-tick-delta{font-size:10px;font-weight:600}
+      .bb-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+      @media(max-width:900px){.bb-grid{grid-template-columns:1fr}}
+      .bb-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px}
+      @media(max-width:1100px){.bb-grid-3{grid-template-columns:1fr 1fr}}
+      @media(max-width:700px){.bb-grid-3{grid-template-columns:1fr}}
+      .bb-panel{background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden}
+      .bb-panel-hdr{padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+      .bb-panel-hdr h4{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin:0}
+      .bb-panel-hdr .bb-tag{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:600;margin-left:auto}
+      .bb-panel-body{padding:12px 14px}
+      .bb-pred-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.04)}
+      .bb-pred-row:last-child{border-bottom:none}
+      .bb-pred-metric{font-size:11px;color:var(--text-secondary);flex:1}
+      .bb-pred-val{font-size:13px;font-weight:700;font-family:var(--font-display)}
+      .bb-pred-conf{font-size:9px;color:var(--text-tertiary);width:50px;text-align:right}
+      .bb-mri-stat{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)}
+      .bb-mri-stat:last-child{border-bottom:none}
+      .bb-mri-label{font-size:11px;color:var(--text-secondary);flex:1}
+      .bb-mri-val{font-size:13px;font-weight:700;font-family:var(--font-display);color:var(--text-primary)}
+      .bb-mri-change{font-size:10px;font-weight:600}
+      .bb-dt-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)}
+      .bb-dt-row:last-child{border-bottom:none}
+      .bb-dt-label{font-size:11px;color:var(--text-secondary);flex:1}
+      .bb-dt-val{font-size:13px;font-weight:700;font-family:var(--font-display)}
+      .bb-gauge{height:6px;border-radius:3px;background:rgba(255,255,255,0.06);overflow:hidden}
+      .bb-gauge-fill{height:6px;border-radius:3px;transition:width .3s}
+      .bb-src-chip{display:inline-flex;padding:3px 8px;border-radius:4px;font-size:9px;font-weight:600;background:rgba(0,212,188,0.08);color:var(--teal);border:1px solid rgba(0,212,188,0.15);margin:2px}
+    `;
+    document.head.appendChild(s);
+  }
+
+  // ── Compute ticker values ──
+  const outcomes = d.outcomes;
+  const bio = d.biometrics;
+  const phqCur = outcomes.phq9[outcomes.phq9.length - 1];
+  const phqPrev = outcomes.phq9[0];
+  const phqDelta = phqPrev - phqCur;
+  const gadCur = outcomes.gad7[outcomes.gad7.length - 1];
+  const gadPrev = outcomes.gad7[0];
+  const gadDelta = gadPrev - gadCur;
+  const hrvCur = bio.hrv[bio.hrv.length - 1];
+  const hrvPrev = bio.hrv[0];
+  const hrvDelta = hrvCur - hrvPrev;
+  const sleepCur = bio.sleep[bio.sleep.length - 1];
+  const rhrCur = bio.rhr[bio.rhr.length - 1];
+  const cortCur = bio.cortisol[bio.cortisol.length - 1];
+  const cortPrev = bio.cortisol[0];
+  const cortDelta = cortPrev - cortCur;
+  const dt = d.deepTwin;
+
+  const _delta = (val, good) => {
+    const c = good ? 'var(--green)' : 'var(--red,#f43f5e)';
+    const sign = val > 0 ? '+' : '';
+    return '<span class="bb-tick-delta" style="color:' + c + '">' + sign + val + '</span>';
+  };
+
+  return `<div class="bb-shell">
+    <!-- Terminal Header -->
+    <div class="bb-header">
+      <span class="bb-header-title">DEEPTWIN TERMINAL</span>
+      <span class="bb-header-live">LIVE</span>
+      <span style="font-size:10px;color:var(--text-tertiary)">${pt.first_name} ${pt.last_name} | ${pt.primary_condition || '—'} | ${pt.primary_modality || '—'}</span>
+      <span class="bb-header-id">${dt.id} | v${dt.version} | Updated: ${dt.updated}</span>
+    </div>
+
+    <!-- Ticker Bar -->
+    <div class="bb-ticker">
+      <div class="bb-tick"><span class="bb-tick-label">PHQ-9</span><span class="bb-tick-val" style="color:var(--green)">${phqCur}</span>${_delta(-phqDelta, true)} from baseline</div>
+      <div class="bb-tick"><span class="bb-tick-label">GAD-7</span><span class="bb-tick-val" style="color:var(--green)">${gadCur}</span>${_delta(-gadDelta, true)} from baseline</div>
+      <div class="bb-tick"><span class="bb-tick-label">HRV</span><span class="bb-tick-val" style="color:var(--teal)">${hrvCur}<span style="font-size:10px;font-weight:400"> ms</span></span>${_delta(hrvDelta, true)}</div>
+      <div class="bb-tick"><span class="bb-tick-label">RHR</span><span class="bb-tick-val" style="color:var(--blue)">${rhrCur}<span style="font-size:10px;font-weight:400"> bpm</span></span></div>
+      <div class="bb-tick"><span class="bb-tick-label">Sleep</span><span class="bb-tick-val" style="color:var(--blue)">${sleepCur}<span style="font-size:10px;font-weight:400">h</span></span></div>
+      <div class="bb-tick"><span class="bb-tick-label">Cortisol</span><span class="bb-tick-val" style="color:var(--amber)">${cortCur}</span>${_delta(-cortDelta, true)} nmol/L</div>
+      <div class="bb-tick"><span class="bb-tick-label">Efficacy</span><span class="bb-tick-val" style="color:var(--teal)">${Math.round(dt.efficacy * 100)}%</span></div>
+      <div class="bb-tick"><span class="bb-tick-label">Risk</span><span class="bb-tick-val" style="color:${dt.risk < 0.3 ? 'var(--green)' : 'var(--amber)'}">${Math.round(dt.risk * 100)}%</span></div>
+    </div>
+
+    <!-- Row 1: Outcome Trends + Biometrics -->
+    <div class="bb-grid">
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>Outcome Trends (12 wk)</h4><span class="bb-tag" style="background:rgba(0,212,188,0.1);color:var(--teal)">IMPROVING</span></div>
+        <div class="bb-panel-body">
+          ${multiLineChartSVG(
+            [outcomes.phq9, outcomes.gad7, outcomes.isi],
+            outcomes.dates.map(d => d.slice(5)),
+            ['var(--green)', 'var(--blue)', 'var(--amber)'],
+            ['PHQ-9', 'GAD-7', 'ISI'],
+            { h: 170 }
+          )}
+        </div>
+      </div>
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>Biometrics (30 d)</h4><span class="bb-tag" style="background:rgba(74,158,255,0.1);color:var(--blue)">DAILY</span></div>
+        <div class="bb-panel-body">
+          ${multiLineChartSVG(
+            [bio.hrv, bio.sleep.map(v => v * 7)],
+            bio.dates.map(d => d.slice(5)),
+            ['var(--teal)', 'var(--blue)'],
+            ['HRV (ms)', 'Sleep (x7)'],
+            { h: 170 }
+          )}
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 2: EEG + Session Quality + Correlations -->
+    <div class="bb-grid-3">
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>EEG Power Bands</h4><span class="bb-tag" style="background:rgba(139,92,246,0.1);color:var(--violet)">NEURO</span></div>
+        <div class="bb-panel-body">
+          ${eegWaveformSVG(d.eeg)}
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+            <div style="font-size:10px;color:var(--text-tertiary)">Alpha Asymmetry: <span style="color:var(--green);font-weight:600">${d.eeg.alpha_asymmetry[d.eeg.alpha_asymmetry.length-1].toFixed(2)}</span></div>
+            <div style="font-size:10px;color:var(--text-tertiary)">Coherence: <span style="color:var(--teal);font-weight:600">${d.eeg.coherence[d.eeg.coherence.length-1].toFixed(2)}</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>Session Quality</h4><span class="bb-tag" style="background:rgba(245,158,11,0.1);color:var(--amber)">QUALITY</span></div>
+        <div class="bb-panel-body">
+          <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:6px">Comfort Score (1-10)</div>
+          ${barChartSVG(d.sessionMetrics.comfort, d.sessionMetrics.labels, 'var(--teal)', { h: 100 })}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:10px;margin-bottom:6px">Impedance (kohm)</div>
+          ${barChartSVG(d.sessionMetrics.impedance, d.sessionMetrics.labels, 'var(--amber)', { h: 80 })}
+        </div>
+      </div>
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>Correlations</h4><span class="bb-tag" style="background:rgba(0,212,188,0.1);color:var(--teal)">AI</span></div>
+        <div class="bb-panel-body" style="max-height:340px;overflow-y:auto;scrollbar-width:thin">
+          ${correlationHTML(d.correlations)}
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 3: Predictions + MRI + DeepTwin Summary -->
+    <div class="bb-grid-3">
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>Predictions</h4><span class="bb-tag" style="background:rgba(34,197,94,0.1);color:var(--green)">FORECAST</span></div>
+        <div class="bb-panel-body">
+          ${d.predictions.map(p => {
+            const val = p.predicted != null ? p.predicted : (p.label || (p.probability != null ? Math.round(p.probability * 100) + '%' : '—'));
+            const conf = Math.round(p.confidence * 100);
+            return '<div class="bb-pred-row">' +
+              '<div class="bb-pred-metric">' + p.metric + (p.risk ? ' <span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(34,197,94,0.1);color:var(--green)">' + p.risk + '</span>' : '') + '</div>' +
+              '<div class="bb-pred-val" style="color:' + (p.color || 'var(--teal)') + '">' + val + (p.ci_low != null ? ' <span style="font-size:9px;color:var(--text-tertiary)">(' + p.ci_low + '-' + p.ci_high + ')</span>' : '') + '</div>' +
+              '<div class="bb-pred-conf">' + conf + '% conf</div>' +
+              '</div>';
+          }).join('')}
+        </div>
+      </div>
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>MRI / Structural</h4><span class="bb-tag" style="background:rgba(74,158,255,0.1);color:var(--blue)">IMAGING</span></div>
+        <div class="bb-panel-body">
+          <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:8px">Last Scan: ${d.mri.last_scan}</div>
+          <div class="bb-mri-stat">
+            <span class="bb-mri-label">Hippocampus (L)</span>
+            <span class="bb-mri-val">${d.mri.hippo_l} cm<sup>3</sup></span>
+            <span class="bb-mri-change" style="color:var(--green)">+${d.mri.hippo_change}%</span>
+          </div>
+          <div class="bb-mri-stat">
+            <span class="bb-mri-label">Hippocampus (R)</span>
+            <span class="bb-mri-val">${d.mri.hippo_r} cm<sup>3</sup></span>
+            <span class="bb-mri-change" style="color:var(--green)">+${d.mri.hippo_change}%</span>
+          </div>
+          <div class="bb-mri-stat">
+            <span class="bb-mri-label">DLPFC Thickness</span>
+            <span class="bb-mri-val">${d.mri.dlpfc} mm</span>
+            <span class="bb-mri-change" style="color:var(--green)">+${d.mri.cortical_change}%</span>
+          </div>
+          <div class="bb-mri-stat">
+            <span class="bb-mri-label">ACC Thickness</span>
+            <span class="bb-mri-val">${d.mri.acc} mm</span>
+          </div>
+          <div class="bb-mri-stat">
+            <span class="bb-mri-label">White Matter FA</span>
+            <span class="bb-mri-val">${d.mri.wm_fa}</span>
+            <span class="bb-mri-change" style="color:var(--green)">+${d.mri.wm_change}%</span>
+          </div>
+          <div style="margin-top:8px">
+            ${d.mri.findings.map(f => '<div style="font-size:10px;color:var(--text-secondary);padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.03)">&#8226; ' + f + '</div>').join('')}
+          </div>
+        </div>
+      </div>
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>DeepTwin Summary</h4><span class="bb-tag" style="background:rgba(0,212,188,0.1);color:var(--teal)">AI MODEL</span></div>
+        <div class="bb-panel-body">
+          <div class="bb-dt-row">
+            <span class="bb-dt-label">Trajectory</span>
+            <span class="bb-dt-val" style="color:var(--green)">${dt.trajectory}</span>
+          </div>
+          <div class="bb-dt-row">
+            <span class="bb-dt-label">Trajectory Confidence</span>
+            <span class="bb-dt-val" style="color:var(--teal)">${Math.round(dt.trajectory_conf * 100)}%</span>
+          </div>
+          <div style="padding:4px 0"><div class="bb-gauge"><div class="bb-gauge-fill" style="width:${Math.round(dt.trajectory_conf * 100)}%;background:var(--teal)"></div></div></div>
+          <div class="bb-dt-row">
+            <span class="bb-dt-label">Treatment Efficacy</span>
+            <span class="bb-dt-val" style="color:var(--green)">${Math.round(dt.efficacy * 100)}%</span>
+          </div>
+          <div style="padding:4px 0"><div class="bb-gauge"><div class="bb-gauge-fill" style="width:${Math.round(dt.efficacy * 100)}%;background:var(--green)"></div></div></div>
+          <div class="bb-dt-row">
+            <span class="bb-dt-label">Engagement Score</span>
+            <span class="bb-dt-val" style="color:var(--teal)">${Math.round(dt.engagement * 100)}%</span>
+          </div>
+          <div style="padding:4px 0"><div class="bb-gauge"><div class="bb-gauge-fill" style="width:${Math.round(dt.engagement * 100)}%;background:var(--teal)"></div></div></div>
+          <div class="bb-dt-row">
+            <span class="bb-dt-label">Risk Score</span>
+            <span class="bb-dt-val" style="color:${dt.risk < 0.3 ? 'var(--green)' : 'var(--amber)'}">${Math.round(dt.risk * 100)}%</span>
+          </div>
+          <div style="padding:4px 0"><div class="bb-gauge"><div class="bb-gauge-fill" style="width:${Math.round(dt.risk * 100)}%;background:${dt.risk < 0.3 ? 'var(--green)' : 'var(--amber)'}"></div></div></div>
+          <div style="font-size:10px;color:var(--text-secondary);margin-top:8px;line-height:1.5">${dt.bio_summary}</div>
+          <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:3px">
+            ${dt.sources.map(s => '<span class="bb-src-chip">' + s + '</span>').join('')}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 4: Additional Charts -->
+    <div class="bb-grid">
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>Cortisol & Steps (30 d)</h4><span class="bb-tag" style="background:rgba(245,158,11,0.1);color:var(--amber)">BIOMARKER</span></div>
+        <div class="bb-panel-body">
+          ${multiLineChartSVG(
+            [bio.cortisol, bio.steps.map(v => v / 400)],
+            bio.dates.map(d => d.slice(5)),
+            ['var(--amber)', 'var(--green)'],
+            ['Cortisol', 'Steps/400'],
+            { h: 140 }
+          )}
+        </div>
+      </div>
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>EEG Longitudinal</h4><span class="bb-tag" style="background:rgba(139,92,246,0.1);color:var(--violet)">TREND</span></div>
+        <div class="bb-panel-body">
+          ${multiLineChartSVG(
+            [d.eeg.alpha_power, d.eeg.beta_power, d.eeg.theta_power],
+            d.eeg.labels,
+            ['var(--teal)', 'var(--blue)', 'var(--violet)'],
+            ['Alpha', 'Beta', 'Theta'],
+            { h: 140 }
+          )}
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 5: Alpha Asymmetry + Coherence + RHR -->
+    <div class="bb-grid-3">
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>Alpha Asymmetry</h4></div>
+        <div class="bb-panel-body">
+          ${multiLineChartSVG(
+            [d.eeg.alpha_asymmetry],
+            d.eeg.labels,
+            ['var(--teal)'],
+            ['FAA Index'],
+            { h: 100 }
+          )}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px">Positive shift = left-dominant activation (associated with approach motivation)</div>
+        </div>
+      </div>
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>Coherence</h4></div>
+        <div class="bb-panel-body">
+          ${multiLineChartSVG(
+            [d.eeg.coherence],
+            d.eeg.labels,
+            ['var(--blue)'],
+            ['Interhemispheric'],
+            { h: 100 }
+          )}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px">Higher coherence = improved functional connectivity</div>
+        </div>
+      </div>
+      <div class="bb-panel">
+        <div class="bb-panel-hdr"><h4>Resting Heart Rate</h4></div>
+        <div class="bb-panel-body">
+          ${multiLineChartSVG(
+            [bio.rhr],
+            bio.dates.map(d => d.slice(8)),
+            ['var(--rose,#f43f5e)'],
+            ['RHR (bpm)'],
+            { h: 100 }
+          )}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px">Declining trend = improved cardiovascular autonomic regulation</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="padding:8px 14px;background:rgba(0,0,0,0.15);border:1px solid var(--border);border-radius:var(--radius-md);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span style="font-size:9px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;font-weight:600">Data Terminal</span>
+      <span style="font-size:10px;color:var(--text-tertiary)">${pt.first_name} ${pt.last_name}</span>
+      <span style="font-size:10px;color:var(--text-tertiary)">${dt.sources.length} data sources</span>
+      <span style="font-size:10px;color:var(--text-tertiary)">Model v${dt.version}</span>
+      <span style="font-size:10px;color:var(--text-tertiary);margin-left:auto">Last updated: ${dt.updated}</span>
+      ${isDemo ? '<span style="font-size:9px;padding:2px 8px;border-radius:4px;background:rgba(245,158,11,0.1);color:var(--amber);border:1px solid rgba(245,158,11,0.2)">DEMO DATA</span>' : ''}
+    </div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Patient Analytics Dashboard — Premium Clinical Analytics
+// ═══════════════════════════════════════════════════════════════════════════════
+function renderPatientAnalytics(pt, sessions, courses, ctx = {}) {
+  const { isDemoPatient: isDemo } = ctx;
+  const A = ANALYTICS_DEMO;
+  const pid = String(pt.id).replace(/'/g, "\\'");
+  const name = (pt.first_name || '') + ' ' + (pt.last_name || '');
+  const age = pt.dob ? Math.floor((Date.now() - new Date(pt.dob).getTime()) / 31557600000) : '—';
+
+  // Inject analytics CSS once
+  if (!document.getElementById('pa-analytics-css')) {
+    const s = document.createElement('style');
+    s.id = 'pa-analytics-css';
+    s.textContent = `
+      .pa{font-family:var(--font-mono);color:var(--text-primary)}
+      .pa-hdr{display:flex;align-items:center;gap:16px;padding:14px 18px;background:linear-gradient(135deg,rgba(0,212,188,0.04),rgba(74,158,255,0.04));border:1px solid var(--border);border-radius:var(--radius-md);margin-bottom:14px;flex-wrap:wrap}
+      .pa-hdr-name{font-size:16px;font-weight:700;color:var(--text-primary);font-family:var(--font-display)}
+      .pa-hdr-meta{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--text-secondary)}
+      .pa-hdr-badge{font-size:10px;padding:3px 8px;border-radius:6px;font-weight:600}
+      .pa-kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:14px}
+      .pa-kpi{background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:var(--radius-md);padding:12px 14px;display:flex;flex-direction:column;gap:3px;position:relative}
+      .pa-kpi-lbl{font-size:9px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.7px;font-weight:600}
+      .pa-kpi-val{font-size:20px;font-weight:700;font-family:var(--font-display);line-height:1.1}
+      .pa-kpi-sub{font-size:10px;color:var(--text-tertiary)}
+      .pa-filters{display:flex;gap:8px;flex-wrap:wrap;padding:10px 14px;background:rgba(0,0,0,0.15);border:1px solid var(--border);border-radius:var(--radius-md);margin-bottom:14px;align-items:center}
+      .pa-filter-sel{background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:11px;color:var(--text-secondary);font-family:var(--font-mono);cursor:pointer;appearance:none;-webkit-appearance:none}
+      .pa-filter-sel:focus{border-color:var(--teal);outline:none}
+      .pa-section{margin-bottom:14px}
+      .pa-section-hdr{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+      .pa-section-hdr h3{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--text-secondary);margin:0}
+      .pa-section-hdr .pa-badge{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:600}
+      .pa-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+      @media(max-width:900px){.pa-grid{grid-template-columns:1fr}}
+      .pa-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+      @media(max-width:1100px){.pa-grid-3{grid-template-columns:1fr 1fr}}
+      @media(max-width:700px){.pa-grid-3{grid-template-columns:1fr}}
+      .pa-card{background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden}
+      .pa-card-hdr{padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+      .pa-card-hdr h4{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--text-tertiary);margin:0}
+      .pa-card-hdr .pa-tag{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:600;margin-left:auto}
+      .pa-card-body{padding:12px 14px}
+      .pa-ai-box{background:linear-gradient(135deg,rgba(0,212,188,0.05),rgba(74,158,255,0.05));border:1px solid rgba(0,212,188,0.2);border-radius:var(--radius-md);padding:16px;margin-bottom:14px}
+      .pa-ai-item{font-size:12px;color:var(--text-secondary);line-height:1.6;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03)}
+      .pa-ai-item:last-child{border-bottom:none}
+      .pa-corr-warn{font-size:10px;color:var(--text-tertiary);font-style:italic;padding:8px 0;border-top:1px solid rgba(255,255,255,0.04);margin-top:8px}
+      .pa-event-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:11px}
+      .pa-event-row:last-child{border-bottom:none}
+    `;
+    document.head.appendChild(s);
+  }
+
+  const k = A.kpis;
+  const sm = A.summary;
+
+  // ── Filter state ──
+  window._paFilterRange = window._paFilterRange || 'all';
+  window._paFilterCategory = window._paFilterCategory || 'all';
+  window._paApplyFilter = function() {
+    window._paFilterRange = document.getElementById('pa-f-range')?.value || 'all';
+    window._paFilterCategory = document.getElementById('pa-f-cat')?.value || 'all';
+    // Re-render tab
+    const body = document.getElementById('ptab-body');
+    if (body) body.innerHTML = renderPatientAnalytics(pt, sessions, courses, ctx);
+  };
+
+  const _kpiColor = (val, threshGood, threshWarn, invert) => {
+    if (invert) return val <= threshGood ? 'var(--green)' : val <= threshWarn ? 'var(--amber)' : 'var(--red,#f43f5e)';
+    return val >= threshGood ? 'var(--green)' : val >= threshWarn ? 'var(--amber)' : 'var(--red,#f43f5e)';
+  };
+
+  // PHQ-9 severity bands
+  const phqBands = [{range:5,color:'rgba(34,197,94,0.6)'},{range:5,color:'rgba(245,158,11,0.5)'},{range:5,color:'rgba(245,158,11,0.7)'},{range:5,color:'rgba(239,68,68,0.5)'},{range:7,color:'rgba(239,68,68,0.7)'}];
+
+  return `<div class="pa">
+  <!-- ═══ 1) HEADER ═══ -->
+  <div class="pa-hdr">
+    <div>
+      <div class="pa-hdr-name">${name}</div>
+      <div class="pa-hdr-meta">
+        <span>Age: ${age}</span>
+        <span>${pt.primary_condition || '—'}</span>
+        <span>${sm.protocol}</span>
+        <span>Last visit: ${sm.last_visit}</span>
+        <span>${sm.clinician}</span>
+      </div>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="pa-hdr-badge" style="background:rgba(0,212,188,0.1);color:var(--teal)">Data: ${sm.data_completeness}%</span>
+      <span class="pa-hdr-badge" style="background:${sm.risk_flag === 'Low' ? 'rgba(34,197,94,0.1)' : 'rgba(245,158,11,0.1)'};color:${sm.risk_flag === 'Low' ? 'var(--green)' : 'var(--amber)'}">Risk: ${sm.risk_flag}</span>
+      <span class="pa-hdr-badge" style="background:rgba(74,158,255,0.1);color:var(--blue)">Improvement: ${sm.improvement_score}%</span>
+      ${isDemo ? '<span class="pa-hdr-badge" style="background:rgba(245,158,11,0.1);color:var(--amber);border:1px solid rgba(245,158,11,0.2)">DEMO</span>' : ''}
+    </div>
+  </div>
+
+  <!-- ═══ 2) KPI CARDS ═══ -->
+  <div class="pa-kpi-grid">
+    <div class="pa-kpi"><div class="pa-kpi-lbl">Adherence</div><div class="pa-kpi-val" style="color:${_kpiColor(k.adherence,80,60,false)}">${k.adherence}%</div><div class="pa-kpi-sub">${donutSVG(k.adherence, _kpiColor(k.adherence,80,60,false), {size:32})}</div></div>
+    <div class="pa-kpi"><div class="pa-kpi-lbl">Symptom Improvement</div><div class="pa-kpi-val" style="color:var(--green)">${k.symptom_improvement}%</div><div class="pa-kpi-sub">PHQ-9 reduction</div></div>
+    <div class="pa-kpi"><div class="pa-kpi-lbl">Sessions</div><div class="pa-kpi-val" style="color:var(--teal)">${k.sessions_completed}</div><div class="pa-kpi-sub">completed</div></div>
+    <div class="pa-kpi"><div class="pa-kpi-lbl">Missed</div><div class="pa-kpi-val" style="color:${k.missed_sessions > 2 ? 'var(--red,#f43f5e)' : 'var(--amber)'}">${k.missed_sessions}</div><div class="pa-kpi-sub">sessions</div></div>
+    <div class="pa-kpi"><div class="pa-kpi-lbl">Sleep Avg</div><div class="pa-kpi-val" style="color:var(--blue)">${k.sleep_avg}h</div><div class="pa-kpi-sub">last 30d</div></div>
+    <div class="pa-kpi"><div class="pa-kpi-lbl">HRV Avg</div><div class="pa-kpi-val" style="color:var(--teal)">${k.hrv_avg} ms</div><div class="pa-kpi-sub">last 30d</div></div>
+    <div class="pa-kpi"><div class="pa-kpi-lbl">Stress Avg</div><div class="pa-kpi-val" style="color:${_kpiColor(k.stress_avg,30,50,true)}">${k.stress_avg}</div><div class="pa-kpi-sub">lower is better</div></div>
+    <div class="pa-kpi"><div class="pa-kpi-lbl">Assessment</div><div class="pa-kpi-val" style="color:var(--green)">${k.assessment_change > 0 ? '+' : ''}${k.assessment_change}</div><div class="pa-kpi-sub">PHQ-9 change</div></div>
+    <div class="pa-kpi"><div class="pa-kpi-lbl">Tasks</div><div class="pa-kpi-val" style="color:${_kpiColor(k.task_completion,70,50,false)}">${k.task_completion}%</div><div class="pa-kpi-sub">completion rate</div></div>
+    <div class="pa-kpi"><div class="pa-kpi-lbl">Safety Alerts</div><div class="pa-kpi-val" style="color:${k.safety_alerts === 0 ? 'var(--green)' : 'var(--amber)'}">${k.safety_alerts}</div><div class="pa-kpi-sub">active</div></div>
+  </div>
+
+  <!-- ═══ 3) FILTERS ═══ -->
+  <div class="pa-filters">
+    <span style="font-size:10px;color:var(--text-tertiary);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Filters</span>
+    <select id="pa-f-range" class="pa-filter-sel" onchange="window._paApplyFilter()">
+      <option value="all" ${window._paFilterRange === 'all' ? 'selected' : ''}>All Time</option>
+      <option value="7d" ${window._paFilterRange === '7d' ? 'selected' : ''}>Last 7 Days</option>
+      <option value="30d" ${window._paFilterRange === '30d' ? 'selected' : ''}>Last 30 Days</option>
+      <option value="90d" ${window._paFilterRange === '90d' ? 'selected' : ''}>Last 90 Days</option>
+    </select>
+    <select id="pa-f-cat" class="pa-filter-sel" onchange="window._paApplyFilter()">
+      <option value="all" ${window._paFilterCategory === 'all' ? 'selected' : ''}>All Categories</option>
+      <option value="symptoms">Symptoms</option>
+      <option value="biometrics">Biometrics</option>
+      <option value="eeg">EEG / qEEG</option>
+      <option value="treatment">Treatment</option>
+      <option value="tasks">Tasks</option>
+    </select>
+    <button class="btn btn-sm" style="font-size:10px" onclick="window.switchPT('patient-dash')">Open DeepTwin Terminal</button>
+    <button class="btn btn-sm" style="font-size:10px" onclick="window._patDashExport && window._patDashExport()">Export Report</button>
+  </div>
+
+  <!-- ═══ 4) OVERVIEW CHARTS ═══ -->
+  <div class="pa-section">
+    <div class="pa-section-hdr"><h3>Overview</h3><span class="pa-badge" style="background:rgba(0,212,188,0.1);color:var(--teal)">TRENDS</span></div>
+    <div class="pa-grid">
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Symptom Trends (12 wk)</h4></div>
+        <div class="pa-card-body">
+          ${multiLineChartSVG(
+            [A.symptoms.phq9, A.symptoms.gad7, A.symptoms.isi, A.symptoms.psqi],
+            A.symptoms.weeks.map(d => d.slice(5)),
+            ['var(--green)','var(--blue)','var(--amber)','var(--violet)'],
+            ['PHQ-9','GAD-7','ISI','PSQI'],
+            {h:170}
+          )}
+        </div>
+      </div>
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Adherence & Wellness</h4></div>
+        <div class="pa-card-body">
+          <div style="display:flex;gap:16px;align-items:center;margin-bottom:12px">
+            ${donutSVG(k.adherence, 'var(--teal)', {size:64})}
+            ${donutSVG(100 - (k.stress_avg), 'var(--blue)', {size:64, label: (100-k.stress_avg)+'%'})}
+            ${donutSVG(k.task_completion, 'var(--violet)', {size:64})}
+            <div style="display:flex;flex-direction:column;gap:4px;font-size:10px;color:var(--text-tertiary)">
+              <span style="color:var(--teal)">Adherence ${k.adherence}%</span>
+              <span style="color:var(--blue)">Wellness ${100-k.stress_avg}%</span>
+              <span style="color:var(--violet)">Tasks ${k.task_completion}%</span>
+            </div>
+          </div>
+          ${areaChartSVG(A.biometrics.stress.map(v=>100-v), A.biometrics.dates.map(d=>d.slice(5)), 'var(--teal)', {h:100, yMin:0, yMax:100})}
+          <div style="font-size:9px;color:var(--text-tertiary);margin-top:4px;text-align:center">Combined Wellness Score (30d)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 5) ASSESSMENT ANALYTICS ═══ -->
+  <div class="pa-section">
+    <div class="pa-section-hdr"><h3>Assessment Analytics</h3><span class="pa-badge" style="background:rgba(74,158,255,0.1);color:var(--blue)">OUTCOMES</span></div>
+    <div class="pa-grid">
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Scores Over Time</h4></div>
+        <div class="pa-card-body">
+          ${A.assessments.map(a =>
+            '<div style="margin-bottom:12px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:11px;font-weight:600;color:var(--text-primary)">' + a.name + '</span><span style="font-size:10px;color:' + a.bandColor + ';padding:1px 6px;border-radius:4px;background:' + a.bandColor.replace('var(','rgba(').replace(')',',0.1)') + '">' + a.band + '</span><span style="font-size:10px;color:var(--text-tertiary);margin-left:auto">' + a.baseline + ' → ' + a.latest + '</span></div>' +
+            areaChartSVG(a.scores, a.dates.map(d => d.slice(5)), a.bandColor, {h:60}) +
+            '</div>'
+          ).join('')}
+        </div>
+      </div>
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Baseline vs Latest</h4></div>
+        <div class="pa-card-body">
+          ${A.assessments.map(a => {
+            const changePct = Math.round(((a.baseline - a.latest) / a.baseline) * 100);
+            return '<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span style="color:var(--text-secondary)">' + a.name + '</span><span style="color:var(--green);font-weight:600">-' + changePct + '%</span></div>' +
+              '<div style="display:flex;gap:4px;align-items:center"><div style="flex:1;height:8px;border-radius:4px;background:rgba(255,255,255,0.06);position:relative;overflow:hidden"><div style="position:absolute;left:0;top:0;height:8px;border-radius:4px;background:rgba(239,68,68,0.4);width:' + Math.round((a.baseline/27)*100) + '%"></div><div style="position:absolute;left:0;top:0;height:8px;border-radius:4px;background:var(--green);width:' + Math.round((a.latest/27)*100) + '%"></div></div></div>' +
+              '<div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-tertiary);margin-top:2px"><span>Baseline: ' + a.baseline + '</span><span>Latest: ' + a.latest + '</span></div></div>';
+          }).join('')}
+          <div style="margin-top:12px;font-size:10px;color:var(--text-tertiary)">Severity Band (PHQ-9): ${severityBandSVG(A.assessments[0].latest, 27, phqBands, {w:180})}<div style="display:flex;gap:8px;font-size:8px;margin-top:2px"><span style="color:rgba(34,197,94,0.8)">Minimal</span><span style="color:rgba(245,158,11,0.8)">Mild</span><span style="color:rgba(245,158,11,0.9)">Moderate</span><span style="color:rgba(239,68,68,0.8)">Mod-Severe</span><span style="color:rgba(239,68,68,0.9)">Severe</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 6) TREATMENT ANALYTICS ═══ -->
+  <div class="pa-section">
+    <div class="pa-section-hdr"><h3>Treatment Analytics</h3><span class="pa-badge" style="background:rgba(139,92,246,0.1);color:var(--violet)">SESSIONS</span></div>
+    <div class="pa-grid">
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Sessions by Week</h4></div>
+        <div class="pa-card-body">
+          ${stackedBarSVG(
+            [A.treatment.completed, A.treatment.missed, A.treatment.cancelled],
+            A.treatment.weekLabels,
+            ['var(--teal)','var(--red,#f43f5e)','var(--amber)'],
+            ['Completed','Missed','Cancelled'],
+            {h:130}
+          )}
+        </div>
+      </div>
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Treatment Response</h4></div>
+        <div class="pa-card-body">
+          <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:6px">PHQ-9 Change After Each Session</div>
+          ${areaChartSVG(A.treatment.responseAfterSession, A.assessments[0].dates.map((_,i) => 'S'+(i+1)), 'var(--green)', {h:100})}
+          <div style="margin-top:10px;font-size:10px;color:var(--text-tertiary)">Modality Breakdown</div>
+          ${A.treatment.modalities.map(m =>
+            '<div style="display:flex;align-items:center;gap:8px;margin-top:4px"><span style="font-size:10px;color:var(--text-secondary);width:80px">' + m.name + '</span><div style="flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,0.06)"><div style="height:6px;border-radius:3px;background:' + m.color + ';width:' + m.pct + '%"></div></div><span style="font-size:10px;color:var(--text-tertiary);width:30px;text-align:right">' + m.pct + '%</span></div>'
+          ).join('')}
+          ${A.treatment.protocolChanges.length ? '<div style="margin-top:10px;font-size:10px;color:var(--text-tertiary)">Protocol Changes</div>' + A.treatment.protocolChanges.map(pc => '<div style="font-size:10px;color:var(--amber);padding:3px 0">Week ' + pc.week + ': ' + pc.note + '</div>').join('') : ''}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 7) BIOMETRICS ANALYTICS ═══ -->
+  <div class="pa-section">
+    <div class="pa-section-hdr"><h3>Biometrics Analytics</h3><span class="pa-badge" style="background:rgba(74,158,255,0.1);color:var(--blue)">30 DAYS</span></div>
+    <div class="pa-grid-3">
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Sleep</h4></div>
+        <div class="pa-card-body">
+          <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:4px">Duration (hours)</div>
+          ${areaChartSVG(A.biometrics.sleep_duration, A.biometrics.dates.map(d=>d.slice(8)), 'var(--blue)', {h:80})}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;margin-bottom:4px">Quality Score</div>
+          ${areaChartSVG(A.biometrics.sleep_quality, A.biometrics.dates.map(d=>d.slice(8)), 'var(--violet)', {h:80})}
+        </div>
+      </div>
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Cardiac</h4></div>
+        <div class="pa-card-body">
+          <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:4px">HRV (ms)</div>
+          ${areaChartSVG(A.biometrics.hrv, A.biometrics.dates.map(d=>d.slice(8)), 'var(--teal)', {h:80})}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;margin-bottom:4px">Resting HR (bpm)</div>
+          ${areaChartSVG(A.biometrics.rhr, A.biometrics.dates.map(d=>d.slice(8)), 'var(--rose,#f43f5e)', {h:80})}
+        </div>
+      </div>
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Activity & Stress</h4></div>
+        <div class="pa-card-body">
+          <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:4px">Stress Level</div>
+          ${areaChartSVG(A.biometrics.stress, A.biometrics.dates.map(d=>d.slice(8)), 'var(--amber)', {h:80})}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;margin-bottom:4px">Steps</div>
+          ${barChartSVG(A.biometrics.steps, A.biometrics.dates.map(d=>d.slice(8)), 'var(--green)', {h:80})}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 8) EEG / qEEG ANALYTICS ═══ -->
+  <div class="pa-section">
+    <div class="pa-section-hdr"><h3>EEG / qEEG Analytics</h3><span class="pa-badge" style="background:rgba(139,92,246,0.1);color:var(--violet)">NEURO</span></div>
+    <div class="pa-grid">
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Power Band Trends</h4></div>
+        <div class="pa-card-body">
+          ${multiLineChartSVG(
+            [A.eeg.alpha, A.eeg.beta, A.eeg.theta],
+            A.eeg.labels,
+            ['var(--teal)','var(--blue)','var(--violet)'],
+            ['Alpha','Beta','Theta'],
+            {h:150}
+          )}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;margin-bottom:4px">Alpha/Beta Ratio (higher = better for depression)</div>
+          ${areaChartSVG(A.eeg.alpha_beta_ratio, A.eeg.labels, 'var(--teal)', {h:70})}
+        </div>
+      </div>
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Connectivity</h4></div>
+        <div class="pa-card-body">
+          <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:4px">Alpha Asymmetry (FAA)</div>
+          ${multiLineChartSVG([A.eeg.asymmetry], A.eeg.labels, ['var(--teal)'], ['FAA'], {h:80})}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;margin-bottom:4px">Coherence</div>
+          ${areaChartSVG(A.eeg.coherence, A.eeg.labels, 'var(--blue)', {h:80})}
+          <div style="margin-top:10px;font-size:10px;color:var(--text-tertiary)">Region Summary</div>
+          ${A.eeg.regions.map(r =>
+            '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:10px"><span style="color:var(--text-secondary);flex:1;font-weight:600">' + r.name + '</span><span style="color:var(--text-tertiary)">a:' + r.alpha + '</span><span style="color:var(--text-tertiary)">b:' + r.beta + '</span><span style="color:var(--text-tertiary)">t:' + r.theta + '</span><span style="color:' + (r.status === 'improved' ? 'var(--green)' : 'var(--text-tertiary)') + ';font-weight:600">' + r.status + '</span></div>'
+          ).join('')}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 9) TASKS & ENGAGEMENT ═══ -->
+  <div class="pa-section">
+    <div class="pa-section-hdr"><h3>Tasks & Engagement</h3><span class="pa-badge" style="background:rgba(245,158,11,0.1);color:var(--amber)">ENGAGEMENT</span></div>
+    <div class="pa-grid">
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Task Completion Trend</h4></div>
+        <div class="pa-card-body">
+          ${stackedBarSVG(
+            [A.tasks.completed, A.tasks.assigned.map((v,i) => v - A.tasks.completed[i])],
+            A.tasks.weekLabels,
+            ['var(--teal)','rgba(255,255,255,0.08)'],
+            ['Completed','Remaining'],
+            {h:120}
+          )}
+          <div style="display:flex;gap:16px;margin-top:10px;align-items:center">
+            <div style="text-align:center">${donutSVG(k.task_completion, 'var(--teal)', {size:48})}<div style="font-size:9px;color:var(--text-tertiary);margin-top:2px">Overall</div></div>
+            <div style="flex:1;font-size:10px;color:var(--text-secondary)">
+              <div>Current streak: <span style="color:var(--teal);font-weight:600">${A.tasks.streak_current} days</span></div>
+              <div>Best streak: <span style="color:var(--blue);font-weight:600">${A.tasks.streak_best} days</span></div>
+              <div>Missed rate: <span style="color:var(--amber);font-weight:600">${A.tasks.missed_rate_pct}%</span></div>
+            </div>
+            <div style="display:flex;gap:2px">${A.tasks.engagement_7d.map(e => '<div style="width:10px;height:10px;border-radius:2px;background:' + (e ? 'var(--teal)' : 'rgba(255,255,255,0.08)') + '"></div>').join('')}<div style="font-size:8px;color:var(--text-tertiary);margin-left:4px">7d</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Category Breakdown</h4></div>
+        <div class="pa-card-body">
+          ${hBarChartHTML(A.tasks.categories.map(c => ({...c, color: c.done/c.total >= 0.8 ? 'var(--teal)' : c.done/c.total >= 0.5 ? 'var(--amber)' : 'var(--red,#f43f5e)'})))}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 10) SAFETY ANALYTICS ═══ -->
+  <div class="pa-section">
+    <div class="pa-section-hdr"><h3>Safety Analytics</h3><span class="pa-badge" style="background:rgba(239,68,68,0.1);color:var(--red,#f43f5e)">SAFETY</span></div>
+    <div class="pa-grid">
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Adverse Events & Alerts</h4></div>
+        <div class="pa-card-body">
+          ${A.safety.adverse_events.length ? A.safety.adverse_events.map(e =>
+            '<div class="pa-event-row"><span style="color:var(--text-tertiary);width:70px">' + e.date + '</span><span style="color:var(--text-secondary);flex:1">' + e.type + '</span><span style="font-size:10px;padding:1px 6px;border-radius:4px;background:' + (e.severity === 'mild' ? 'rgba(245,158,11,0.1);color:var(--amber)' : 'rgba(239,68,68,0.1);color:var(--red,#f43f5e)') + '">' + e.severity + '</span><span style="font-size:10px;color:' + (e.resolved ? 'var(--green)' : 'var(--amber)') + '">' + (e.resolved ? 'Resolved' : 'Active') + '</span></div>'
+          ).join('') : '<div style="font-size:11px;color:var(--text-tertiary);padding:8px 0">No adverse events recorded.</div>'}
+          <div style="margin-top:10px;font-size:10px;color:var(--text-tertiary)">Worsening Alerts</div>
+          ${A.safety.worsening_alerts.map(w =>
+            '<div class="pa-event-row"><span style="color:var(--text-tertiary);width:70px">' + w.date + '</span><span style="color:var(--amber);font-weight:600;width:40px">' + w.metric + '</span><span style="color:var(--text-secondary);flex:1">' + w.note + '</span></div>'
+          ).join('')}
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:8px">Missed appointments: <span style="color:var(--amber);font-weight:600">${A.safety.missed_appointments}</span></div>
+        </div>
+      </div>
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Protocol Tolerance</h4></div>
+        <div class="pa-card-body">
+          ${A.safety.tolerance.map(t => {
+            const color = t.status === 'good' ? 'var(--green)' : t.status === 'monitor' ? 'var(--amber)' : 'var(--red,#f43f5e)';
+            return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04)"><span style="font-size:11px;color:var(--text-secondary);flex:1">' + t.metric + '</span><span style="font-size:13px;font-weight:700;color:' + color + ';font-family:var(--font-display)">' + (t.avg || t.count || '—') + '</span><span style="font-size:9px;padding:2px 6px;border-radius:4px;background:' + color.replace('var(','rgba(').replace(')',',0.1)') + ';color:' + color + ';font-weight:600;text-transform:uppercase">' + t.status + '</span></div>';
+          }).join('')}
+          ${A.safety.deterioration.length === 0 ? '<div style="font-size:11px;color:var(--green);padding:10px 0;display:flex;align-items:center;gap:6px"><span style="font-size:14px">&#10003;</span> No symptom deterioration indicators detected.</div>' : ''}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 11) CORRELATIONS ═══ -->
+  <div class="pa-section">
+    <div class="pa-section-hdr"><h3>Correlation Snapshots</h3><span class="pa-badge" style="background:rgba(0,212,188,0.1);color:var(--teal)">ANALYSIS</span></div>
+    <div class="pa-grid">
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Variable Associations</h4></div>
+        <div class="pa-card-body">
+          ${correlationHTML(A.correlations)}
+          <div class="pa-corr-warn">Note: Correlation does not imply causation. These associations require clinical interpretation and should not be used as the sole basis for treatment decisions.</div>
+        </div>
+      </div>
+      <div class="pa-card">
+        <div class="pa-card-hdr"><h4>Key Insights</h4></div>
+        <div class="pa-card-body">
+          ${A.correlations.map(c =>
+            '<div style="padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.03);font-size:11px"><span style="color:var(--text-secondary)">' + c.insight + '</span> <span style="font-size:10px;color:var(--text-tertiary)">(r=' + (c.r > 0 ? '+' : '') + c.r.toFixed(2) + ')</span></div>'
+          ).join('')}
+          <div style="margin-top:12px">
+            <button class="btn btn-sm" style="font-size:10px" onclick="window.switchPT('patient-dash')">Explore in DeepTwin Terminal</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 12) AI ANALYTICS SUMMARY ═══ -->
+  <div class="pa-section">
+    <div class="pa-section-hdr"><h3>AI Analytics Summary</h3><span class="pa-badge" style="background:rgba(0,212,188,0.1);color:var(--teal)">AI-GENERATED</span><span style="font-size:10px;color:var(--text-tertiary);margin-left:auto">${A.aiInsights.generated_at} | ${Math.round(A.aiInsights.confidence*100)}% confidence</span></div>
+    <div class="pa-ai-box">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <span style="font-size:14px">&#129516;</span>
+        <span style="font-size:13px;font-weight:700;color:var(--text-primary)">Clinical Analytics Insights</span>
+        <span style="font-size:9px;padding:2px 8px;border-radius:999px;background:rgba(0,212,188,0.1);color:var(--teal);font-weight:600">${Math.round(A.aiInsights.confidence*100)}% conf</span>
+      </div>
+
+      <div style="margin-bottom:12px">
+        <div style="font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Key Improvements</div>
+        ${A.aiInsights.improvements.map(i => '<div class="pa-ai-item"><span style="color:var(--green);margin-right:6px">&#9650;</span>' + i + '</div>').join('')}
+      </div>
+
+      <div style="margin-bottom:12px">
+        <div style="font-size:10px;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Areas of Concern</div>
+        ${A.aiInsights.worsening.map(w => '<div class="pa-ai-item"><span style="color:var(--amber);margin-right:6px">&#9660;</span>' + w + '</div>').join('')}
+      </div>
+
+      <div style="margin-bottom:12px">
+        <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Adherence Notes</div>
+        ${A.aiInsights.adherence_notes.map(a => '<div class="pa-ai-item"><span style="color:var(--blue);margin-right:6px">&#8226;</span>' + a + '</div>').join('')}
+      </div>
+
+      <div style="margin-bottom:12px">
+        <div style="font-size:10px;font-weight:700;color:var(--violet);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Anomalies</div>
+        ${A.aiInsights.anomalies.map(a => '<div class="pa-ai-item"><span style="color:var(--violet);margin-right:6px">&#9733;</span>' + a + '</div>').join('')}
+      </div>
+
+      <div>
+        <div style="font-size:10px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Requires Clinician Review</div>
+        ${A.aiInsights.review_areas.map(r => '<div class="pa-ai-item"><span style="color:var(--text-secondary);margin-right:6px">&#10147;</span>' + r + '</div>').join('')}
+      </div>
+
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(0,212,188,0.15);font-size:10px;color:var(--text-tertiary);font-style:italic">
+        This summary uses cautious language ("suggests", "appears", "associated with") and is intended to support — not replace — clinical judgement. All insights require clinician review before acting.
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ FOOTER ═══ -->
+  <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(0,0,0,0.1);border:1px solid var(--border);border-radius:var(--radius-md);flex-wrap:wrap">
+    <span style="font-size:9px;color:var(--text-tertiary);font-weight:600;text-transform:uppercase;letter-spacing:.7px">Patient Analytics</span>
+    <span style="font-size:10px;color:var(--text-tertiary)">${name}</span>
+    <span style="font-size:10px;color:var(--text-tertiary)">${sm.protocol}</span>
+    <span style="font-size:10px;color:var(--text-tertiary);margin-left:auto">Data completeness: ${sm.data_completeness}%</span>
+    <button class="btn btn-sm" style="font-size:10px" onclick="window.switchPT('patient-dash')">DeepTwin Terminal</button>
+    <button class="btn btn-sm" style="font-size:10px" onclick="window._patDashExport && window._patDashExport()">Generate Report</button>
+  </div>
+</div>`;
+}
+
 function renderProfileTab(pt, sessions, courses = [], ctx = {}) {
   const name = `${pt.first_name} ${pt.last_name}`;
 
@@ -3947,7 +4981,16 @@ function renderProfileTab(pt, sessions, courses = [], ctx = {}) {
       }`;
   }
 
-  if (ptab === 'overview') return renderDashboardOverview(pt, sessions, courses, ctx);
+  if (ptab === 'overview') {
+    // Render old overview first, then overlay command center async
+    const fallbackHtml = renderDashboardOverview(pt, sessions, courses, ctx);
+    _loadCommandCenter(pt.id, fallbackHtml);
+    return `<div id="cc-overview-root">${fallbackHtml}</div>`;
+  }
+
+  if (ptab === 'patient-dash') return renderPatientDash(pt, sessions, courses, ctx);
+
+  if (ptab === 'analytics') return renderPatientAnalytics(pt, sessions, courses, ctx);
 
   if (ptab === 'sessions') return `
     <div style="margin-bottom:14px;display:flex;gap:8px">

@@ -110,7 +110,10 @@ from app.routers.monitor_router import router as monitor_router
 from app.routers.deeptwin_router import brain_twin_router, router as deeptwin_router
 from app.routers.feature_store_router import router as feature_store_router
 from app.routers.citation_validator_router import router as citation_validator_router
+from app.routers.command_center_router import router as command_center_router
+from app.routers.device_sync_router import router as device_sync_router
 from app.routers.qa_router import router as qa_router
+from app.routers.qeeg_raw_router import router as qeeg_raw_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.audit import get_audit_trail
@@ -223,7 +226,10 @@ app.include_router(brain_twin_router)
 app.include_router(admin_pgvector_router)
 app.include_router(feature_store_router)
 app.include_router(citation_validator_router)
+app.include_router(command_center_router)
+app.include_router(device_sync_router)
 app.include_router(qa_router)
+app.include_router(qeeg_raw_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

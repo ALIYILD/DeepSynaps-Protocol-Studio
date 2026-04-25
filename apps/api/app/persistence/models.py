@@ -1821,6 +1821,8 @@ class QEEGAnalysis(Base):
     similar_cases_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     protocol_recommendation_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     longitudinal_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    # ── Raw data viewer / interactive cleaning (migration 046) ─────────────
+    cleaning_config_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     session_number: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     days_from_baseline: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     analyzed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)

@@ -7,8 +7,11 @@ lifespan startup, so each test starts with the seeded default rows.
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
+from app.persistence.models import AgentSkill
 from app.services.agent_skills_seed import DEFAULT_AGENT_SKILLS
+from app.services.agent_skills_seed import seed_default_agent_skills
 
 
 _DEFAULT_COUNT = len(DEFAULT_AGENT_SKILLS)
@@ -36,6 +39,14 @@ class TestAgentSkillsAuth:
 
 
 class TestAgentSkillsListVisibility:
+    def test_seed_includes_launch_team_presets(self, client: TestClient, auth_headers: dict) -> None:
+        listing = client.get("/api/v1/agent-skills", headers=auth_headers["clinician"]).json()
+        labels = {row["label"] for row in listing["items"]}
+        assert "Go-Live Lead" in labels
+        assert "Go-Live Implementer" in labels
+        assert "Go-Live QA Reviewer" in labels
+        assert "Release Brief" in labels
+
     def test_clinician_excludes_disabled_admin_includes_them(
         self, client: TestClient, auth_headers: dict
     ) -> None:
@@ -57,6 +68,22 @@ class TestAgentSkillsListVisibility:
         assert first["id"] in admin_ids
         assert first["id"] not in clinician_ids
         assert clinician_listing["total"] == _DEFAULT_COUNT - 1
+
+    def test_seed_backfills_missing_defaults(self, db_session) -> None:
+        record = db_session.scalar(
+            select(AgentSkill).where(AgentSkill.label == "Go-Live Lead")
+        )
+        assert record is not None
+        db_session.delete(record)
+        db_session.commit()
+
+        inserted = seed_default_agent_skills(db_session)
+        assert inserted >= 1
+
+        restored = db_session.scalar(
+            select(AgentSkill).where(AgentSkill.label == "Go-Live Lead")
+        )
+        assert restored is not None
 
 
 class TestAgentSkillsCrud:

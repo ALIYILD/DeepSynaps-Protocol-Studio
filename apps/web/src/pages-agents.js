@@ -197,6 +197,7 @@ function _logActivity(type, agent, summary) {
 // server responds. PATIENT_SKILLS is unchanged — only the clinician catalogue
 // is server-managed in this PR.
 const SKILL_CATEGORIES_DEFAULT = [
+  { id: 'launch', label: 'Go-Live Team', icon: '🎯' },
   { id: 'comms', label: 'Communication', icon: '💬' },
   { id: 'clinical', label: 'Clinical', icon: '🩺' },
   { id: 'admin', label: 'Administration', icon: '📋' },
@@ -204,6 +205,12 @@ const SKILL_CATEGORIES_DEFAULT = [
 ];
 
 const CLINICIAN_SKILLS_DEFAULT = [
+  // Go-live team
+  { id: 'launch-lead',      cat: 'launch',   icon: '🎯', label: 'Go-Live Lead',        desc: 'Coordinate one launch task from intake to release decision', prompt: 'Act as the DeepSynaps Go-Live Lead Agent. Keep scope narrow, choose one highest-value launch task, assign one implementation owner and one QA verifier, and report status using: task summary, scope, owner, verifier, acceptance criteria, current status, blockers. Refuse broad feature expansion, refactors, or unverified completion.' },
+  { id: 'launch-implement', cat: 'launch',   icon: '🛠️', label: 'Go-Live Implementer', desc: 'Execute a narrowly scoped launch task and report exact evidence', prompt: 'Act as the DeepSynaps Go-Live Implementation Agent. Change only the owned files needed for the task, keep diffs minimal, run the smallest relevant verification commands, and report: changed files, commands run, results, unresolved risks. Surface blockers immediately and do not expand scope.' },
+  { id: 'launch-qa',        cat: 'launch',   icon: '🔎', label: 'Go-Live QA Reviewer',  desc: 'Review a launch diff independently and issue a go or no-go', prompt: 'Act as the DeepSynaps Go-Live QA Agent. Review the proposed change independently. Focus on regressions, weak assumptions, missing tests, unsafe wording, and launch risk. Return findings ordered by severity, residual risks, and a release recommendation of GO, GO_WITH_CONCERNS, or NO_GO.' },
+  { id: 'launch-release',   cat: 'launch',   icon: '📦', label: 'Release Brief',        desc: 'Prepare the deploy and rollback brief for the human release owner', prompt: 'Act as the DeepSynaps Release Briefing Agent. Summarize what is changing, what was verified, the QA recommendation, deploy prerequisites, rollback steps, and what the human release owner must approve. Do not claim deployment authority.' },
+
   // Communication
   { id: 'msg-patient',    cat: 'comms',    icon: '💬', label: 'Message Patient',       desc: 'Draft and send a message to a patient', prompt: 'I need to send a message to a patient. Help me draft a professional, caring message. Ask me which patient and what the message is about.' },
   { id: 'call-patient',   cat: 'comms',    icon: '📞', label: 'Call Patient',           desc: 'Prepare talking points for a patient call', prompt: 'I need to call a patient. Help me prepare talking points and key items to discuss. Ask me which patient and the purpose of the call.' },

@@ -68,10 +68,23 @@ def deeptwin_simulation_job(payload: dict[str, Any]) -> dict[str, Any]:
     return run_deeptwin_simulation(job)
 
 
+@celery_app.task(name="deepsynaps.qeeg.run_mne_pipeline_custom", bind=False)
+def run_mne_pipeline_custom_job(analysis_id: str) -> dict[str, Any]:
+    """Worker wrapper for re-running the MNE pipeline with user cleaning overrides."""
+    try:
+        from app.services.eeg_signal_service import run_custom_pipeline_sync  # type: ignore[import-not-found]
+    except Exception as exc:  # pragma: no cover
+        _log.exception("run_mne_pipeline_custom_job: import failure")
+        return {"analysis_id": analysis_id, "status": "failed", "error": f"import failed: {exc}"}
+
+    return run_custom_pipeline_sync(analysis_id)
+
+
 __all__ = [
     "RenderJob",
     "enqueue_render_job",
     "run_mne_pipeline_job",
+    "run_mne_pipeline_custom_job",
     "deeptwin_simulation_job",
     "celery_app",
 ]

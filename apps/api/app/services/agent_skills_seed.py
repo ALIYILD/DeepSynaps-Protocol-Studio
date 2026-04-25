@@ -10,7 +10,7 @@ Two consumers:
 2. The FastAPI lifespan startup hook calls `seed_default_agent_skills(session)`
    so test runs (which use `Base.metadata.create_all`, not alembic) and any
    environment whose schema was created without alembic still get the same
-   defaults. The seed is idempotent — it no-ops once the table has any rows.
+   defaults. The seed is idempotent — it inserts only missing defaults.
 """
 from __future__ import annotations
 
@@ -25,6 +25,11 @@ from app.persistence.models import AgentSkill
 
 
 DEFAULT_AGENT_SKILLS: tuple[dict, ...] = (
+    # Launch team
+    {"id": "launch-lead",        "cat": "launch",   "icon": "\U0001f3af", "label": "Go-Live Lead",        "desc": "Coordinate one launch task from intake to release decision", "prompt": "Act as the DeepSynaps Go-Live Lead Agent. Keep scope narrow, choose one highest-value launch task, assign one implementation owner and one QA verifier, and report status using: task summary, scope, owner, verifier, acceptance criteria, current status, blockers. Refuse broad feature expansion, refactors, or unverified completion."},
+    {"id": "launch-implement",   "cat": "launch",   "icon": "\U0001f6e0\ufe0f", "label": "Go-Live Implementer", "desc": "Execute a narrowly scoped launch task and report exact evidence", "prompt": "Act as the DeepSynaps Go-Live Implementation Agent. Change only the owned files needed for the task, keep diffs minimal, run the smallest relevant verification commands, and report: changed files, commands run, results, unresolved risks. Surface blockers immediately and do not expand scope."},
+    {"id": "launch-qa",          "cat": "launch",   "icon": "\U0001f50e", "label": "Go-Live QA Reviewer",  "desc": "Review a launch diff independently and issue a go or no-go", "prompt": "Act as the DeepSynaps Go-Live QA Agent. Review the proposed change independently. Focus on regressions, weak assumptions, missing tests, unsafe wording, and launch risk. Return findings ordered by severity, residual risks, and a release recommendation of GO, GO_WITH_CONCERNS, or NO_GO."},
+    {"id": "launch-release",     "cat": "launch",   "icon": "\U0001f4e6", "label": "Release Brief",        "desc": "Prepare the deploy and rollback brief for the human release owner", "prompt": "Act as the DeepSynaps Release Briefing Agent. Summarize what is changing, what was verified, the QA recommendation, deploy prerequisites, rollback steps, and what the human release owner must approve. Do not claim deployment authority."},
     # Communication
     {"id": "msg-patient",        "cat": "comms",    "icon": "\U0001f4ac", "label": "Message Patient",       "desc": "Draft and send a message to a patient",          "prompt": "I need to send a message to a patient. Help me draft a professional, caring message. Ask me which patient and what the message is about."},
     {"id": "call-patient",       "cat": "comms",    "icon": "\U0001f4de", "label": "Call Patient",          "desc": "Prepare talking points for a patient call",       "prompt": "I need to call a patient. Help me prepare talking points and key items to discuss. Ask me which patient and the purpose of the call."},
@@ -77,11 +82,19 @@ def default_agent_skill_rows() -> list[dict]:
 
 
 def seed_default_agent_skills(session: Session) -> int:
-    """Insert default rows when the table is empty. Returns rows inserted."""
-    existing = session.scalar(select(AgentSkill.id).limit(1))
-    if existing is not None:
-        return 0
+    """Insert any missing default rows. Returns rows inserted."""
+    existing_keys = {
+        (category_id, label)
+        for category_id, label in session.execute(
+            select(AgentSkill.category_id, AgentSkill.label)
+        ).all()
+    }
+    inserted = 0
     for row in default_agent_skill_rows():
+        key = (row["category_id"], row["label"])
+        if key in existing_keys:
+            continue
         session.add(AgentSkill(**row))
+        inserted += 1
     session.commit()
-    return len(DEFAULT_AGENT_SKILLS)
+    return inserted

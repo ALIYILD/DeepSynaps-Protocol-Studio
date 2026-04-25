@@ -454,7 +454,8 @@ function renderExpandedCategory(kind, data) {
           ${active?.last_error ? `<div class="monitor-inline-error">${esc(active.last_error)}</div>` : ''}
           <div class="monitor-inline-actions">
             ${active
-              ? `<button class="btn btn-sm" onclick="window._monitorSyncIntegration('${esc(targetId)}')">Sync</button>
+              ? `${kind === 'wearable' ? `<button class="btn btn-sm btn-primary" onclick="window._monitorOpenDeviceDash('${esc(targetId)}','${esc(item.id)}')">Dashboard</button>` : ''}
+                 <button class="btn btn-sm" onclick="window._monitorSyncIntegration('${esc(targetId)}')">Sync</button>
                  <button class="btn btn-sm" ${writable ? `onclick="window._monitorDisconnectIntegration('${esc(targetId)}')"` : 'disabled'}>Disconnect</button>`
               : `<button class="btn btn-sm btn-primary" ${writable ? `onclick="window._monitorConnectIntegration('${esc(item.id)}')"` : 'disabled'}>Connect</button>`}
           </div>
@@ -596,6 +597,11 @@ export async function pgMonitor(setTopbar) {
   };
 
   window._monitorOpenPatient = openPatient;
+  window._monitorOpenDeviceDash = function (connectionId, provider) {
+    window._deviceDashConnectionId = connectionId;
+    window._deviceDashProvider = provider;
+    window._nav('device-dashboard');
+  };
   window._monitorConnectIntegration = function (connectorId) { (async function () { try { await api.monitorConnectIntegration(connectorId, {}); } catch {} await loadIntegrations(); })(); };
   window._monitorSyncIntegration = function (integrationId) { (async function () { try { await api.monitorSyncIntegration(integrationId); } catch {} await loadIntegrations(); })(); };
   window._monitorDisconnectIntegration = function (integrationId) { (async function () { try { await api.monitorDisconnectIntegration(integrationId); } catch {} await loadIntegrations(); })(); };

@@ -1,0 +1,72 @@
+{
+  "team_id": "go-live-v1",
+  "name": "DeepSynaps Go-Live Team",
+  "mode": "launch",
+  "human_release_owner_required": true,
+  "roles": [
+    {
+      "id": "lead",
+      "label": "Go-Live Lead",
+      "skill_id": "launch-lead",
+      "responsibility": "Own one launch task from intake through release decision."
+    },
+    {
+      "id": "implementation",
+      "label": "Go-Live Implementer",
+      "skill_id": "launch-implement",
+      "responsibility": "Execute a narrowly scoped task and provide exact evidence."
+    },
+    {
+      "id": "qa",
+      "label": "Go-Live QA Reviewer",
+      "skill_id": "launch-qa",
+      "responsibility": "Review independently and issue GO, GO_WITH_CONCERNS, or NO_GO."
+    },
+    {
+      "id": "release_brief",
+      "label": "Release Brief",
+      "skill_id": "launch-release",
+      "responsibility": "Prepare deploy and rollback briefing for the human release owner."
+    }
+  ],
+  "status_flow": [
+    "queued",
+    "in_progress",
+    "qa_review",
+    "ready_for_release",
+    "blocked",
+    "done"
+  ],
+  "allowed_task_types": [
+    "critical bug fix",
+    "deploy blocker removal",
+    "smoke-test failure fix",
+    "auth/payment/runtime correction",
+    "launch-page correction",
+    "monitoring/logging gap for launch-critical flows"
+  ],
+  "disallowed_task_types": [
+    "broad refactors",
+    "speculative platform improvements",
+    "nice-to-have UX polish",
+    "new architectural systems",
+    "new autonomous agent infrastructure",
+    "non-essential data model changes"
+  ],
+  "priority_order": [
+    "production outage or deploy blocker",
+    "authentication and access failures",
+    "payment or billing failures",
+    "core clinician workflow failures",
+    "patient-facing critical path failures",
+    "launch messaging/content errors",
+    "non-critical polish"
+  ],
+  "required_evidence": [
+    "changed files",
+    "exact commands run",
+    "command outcomes",
+    "qa recommendation",
+    "rollback note when launch-critical behavior changes"
+  ]
+}
