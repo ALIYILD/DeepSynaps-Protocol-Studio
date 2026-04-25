@@ -36,6 +36,14 @@ class TestAgentSkillsAuth:
 
 
 class TestAgentSkillsListVisibility:
+    def test_seed_includes_launch_team_presets(self, client: TestClient, auth_headers: dict) -> None:
+        listing = client.get("/api/v1/agent-skills", headers=auth_headers["clinician"]).json()
+        labels = {row["label"] for row in listing["items"]}
+        assert "Go-Live Lead" in labels
+        assert "Go-Live Implementer" in labels
+        assert "Go-Live QA Reviewer" in labels
+        assert "Release Brief" in labels
+
     def test_clinician_excludes_disabled_admin_includes_them(
         self, client: TestClient, auth_headers: dict
     ) -> None:

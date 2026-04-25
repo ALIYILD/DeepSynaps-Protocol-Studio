@@ -14,6 +14,17 @@ It is a launch-mode delivery loop with:
 - one QA/review worker
 - one human release owner
 
+## Ready Assets
+
+These repo assets now define the launch team directly:
+
+- `config/agent-team/go-live-team.json`
+- `docs/agents/go-live-lead.md`
+- `docs/agents/go-live-implementer.md`
+- `docs/agents/go-live-qa.md`
+- `docs/agents/release-brief.md`
+- `docs/agents/launch-task-board.md`
+
 ## Hard Constraints
 
 - No autonomous production deployment.
