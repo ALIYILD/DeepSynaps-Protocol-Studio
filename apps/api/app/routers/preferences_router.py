@@ -23,8 +23,6 @@ value (no deep-merge in v0 — too error-prone for nested matrices).
 
 See apps/api/SETTINGS_API_DESIGN.md - Preferences router for the full spec.
 """
-from __future__ import annotations
-
 import json
 import logging
 from datetime import datetime, timezone

@@ -14,8 +14,6 @@ Endpoints:
 
 See apps/api/SETTINGS_API_DESIGN.md § Team router for the full spec.
 """
-from __future__ import annotations
-
 import json
 import logging
 import re

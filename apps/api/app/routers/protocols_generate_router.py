@@ -7,7 +7,6 @@ Both delegate to generate_protocol_draft_from_clinical_data for the base
 protocol, then layer a structured enrichment block on top. No external AI
 calls are made — all logic is data-driven from the imported CSVs.
 """
-from __future__ import annotations
 
 from typing import Optional
 

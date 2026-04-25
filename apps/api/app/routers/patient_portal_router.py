@@ -1529,7 +1529,13 @@ def get_portal_dashboard(
     progress_pct = int(round((completed / total_sessions) * 100)) if total_sessions > 0 else 0
     unread = (
         db.query(Message)
-        .filter(Message.patient_id == patient.id, Message.is_read.is_(False), Message.sender_type != "patient")
+        # Messages are "unread" when read_at is NULL, and "from clinician" when
+        # sender_id != current patient actor (patients send with sender_id=actor.actor_id).
+        .filter(
+            Message.patient_id == patient.id,
+            Message.read_at.is_(None),
+            Message.sender_id != actor.actor_id,
+        )
         .count()
     )
     logs = (
@@ -1580,14 +1586,15 @@ def list_portal_notifications(
 
     for m in (
         db.query(Message)
-        .filter(Message.patient_id == patient.id, Message.sender_type != "patient")
+        # Only clinician->patient messages should generate portal notifications.
+        .filter(Message.patient_id == patient.id, Message.sender_id != actor.actor_id)
         .order_by(Message.created_at.desc()).limit(20).all()
     ):
         notifications.append(PortalNotificationOut(
             id="msg-" + m.id, type="message",
             title="Message from your care team",
             body=(m.body or "")[:140],
-            is_read=bool(m.is_read), created_at=_dt(m.created_at), action_url="patient-messages",
+            is_read=bool(m.read_at), created_at=_dt(m.created_at), action_url="patient-messages",
         ))
 
     soon = now + timedelta(hours=48)
@@ -1631,8 +1638,9 @@ def mark_notification_read(
         msg_id = notification_id[4:]
         msg = db.query(Message).filter(Message.id == msg_id, Message.patient_id == patient.id).first()
         if msg:
-            msg.is_read = True
-            db.commit()
+            if msg.read_at is None:
+                msg.read_at = datetime.now(timezone.utc)
+                db.commit()
             return PortalNotificationOut(
                 id=notification_id, type="message", title="Message from your care team",
                 body=(msg.body or "")[:140], is_read=True,

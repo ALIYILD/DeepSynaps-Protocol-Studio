@@ -19,8 +19,6 @@ the owning user revisits their exports list.
 
 See apps/api/SETTINGS_API_DESIGN.md — Data privacy router for the full spec.
 """
-from __future__ import annotations
-
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
