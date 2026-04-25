@@ -206,6 +206,54 @@ export async function pgBrainMapPlanner(setTopbar) {
     'taVNS':'#a78bfa','CES':'#34d399','PBM':'#fb923c','TPS':'#f472b6',
   };
 
+  // Modality → dot color for MRI overlay (mirrors MODALITY_DOT_COLOR in
+  // pages-mri-analysis.js so the planner's MRI focus viewer is visually
+  // consistent with the MRI analysis page).
+  const MODALITY_DOT_COLOR = {
+    rtms: '#f59e0b', tps: '#c026d3', tfus: '#06b6d4',
+    tdcs: '#22c55e', tacs: '#eab308', custom: '#94a3b8',
+  };
+  function _bmpModalityDotColor(mod) {
+    const m = String(mod || '').toLowerCase();
+    if (m.indexOf('tdcs') !== -1) return MODALITY_DOT_COLOR.tdcs;
+    if (m.indexOf('tacs') !== -1) return MODALITY_DOT_COLOR.tacs;
+    if (m.indexOf('tps') !== -1)  return MODALITY_DOT_COLOR.tps;
+    if (m.indexOf('tfus') !== -1 || m.indexOf('tus') !== -1) return MODALITY_DOT_COLOR.tfus;
+    if (m.indexOf('tms') !== -1 || m.indexOf('itbs') !== -1 || m.indexOf('ctbs') !== -1) {
+      return MODALITY_DOT_COLOR.rtms;
+    }
+    return '#60a5fa';
+  }
+  // Parse the comma-separated BMP_MNI strings ("-46, 36, 20") into numeric
+  // tuples once so the MRI viewer can project per-plane without re-parsing.
+  const BMP_MNI_TUPLE = {};
+  Object.keys(BMP_MNI).forEach(function(site) {
+    const parts = String(BMP_MNI[site] || '').split(',').map(function(s) {
+      const n = parseFloat(s);
+      return Number.isFinite(n) ? n : null;
+    });
+    if (parts.length === 3 && parts.every(function(v) { return v != null; })) {
+      BMP_MNI_TUPLE[site] = parts;
+    }
+  });
+  // Resolve MNI for a catalog entry by walking primary 10-20 site → BMP_MNI.
+  // Returns null when the region's primary site has no MNI mapping (caller
+  // should skip the dot rather than fabricate coordinates).
+  function _bmpCatalogMNI(cat) {
+    if (!cat) return null;
+    const tries = [];
+    if (cat.targetRegion && BMP_REGION_SITES[cat.targetRegion]) {
+      const rs = BMP_REGION_SITES[cat.targetRegion];
+      (rs.primary || []).forEach(function(s) { tries.push(s); });
+    }
+    if (cat.anode) tries.push(cat.anode);
+    for (let i = 0; i < tries.length; i++) {
+      const t = BMP_MNI_TUPLE[tries[i]];
+      if (t) return { mni: t, site: tries[i] };
+    }
+    return null;
+  }
+
   const BMP_STORAGE_KEY = 'ds_brain_map_planner_state_v1';
   const BMP_PRESETS_KEY = 'ds_brain_map_planner_presets_v1';
 
@@ -225,6 +273,7 @@ export async function pgBrainMapPlanner(setTopbar) {
     compare: false,            // 2-up compare canvases
     eFieldOverlay: true,       // toggle radial-gradient E-field on primary site
     waveform: 'Anodal DC',     // stimulation waveform hint
+    mriOverlay: false,         // toggle MRI focus viewer panel under canvas
   };
 
   // Load persisted state (best-effort). Never trust shape fully.
@@ -255,6 +304,7 @@ export async function pgBrainMapPlanner(setTopbar) {
         compare:      !!raw.compare,
         eFieldOverlay: raw.eFieldOverlay == null ? bmpState.eFieldOverlay : !!raw.eFieldOverlay,
         waveform:     typeof raw.waveform === 'string' ? raw.waveform : bmpState.waveform,
+        mriOverlay:   raw.mriOverlay == null ? bmpState.mriOverlay : !!raw.mriOverlay,
       };
     }
   } catch (_) {}
@@ -284,6 +334,7 @@ export async function pgBrainMapPlanner(setTopbar) {
         compare: bmpState.compare,
         eFieldOverlay: bmpState.eFieldOverlay,
         waveform: bmpState.waveform,
+        mriOverlay: bmpState.mriOverlay,
       }));
     } catch (_) {}
   }
