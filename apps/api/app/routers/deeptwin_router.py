@@ -286,3 +286,11 @@ def deeptwin_evidence(
         notes=notes,
     )
 
+
+@brain_twin_router.post("/evidence", response_model=DeeptwinEvidenceResponse)
+def brain_twin_evidence(
+    payload: DeeptwinEvidenceRequest,
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> DeeptwinEvidenceResponse:
+    return deeptwin_evidence(payload=payload, _actor=_actor)
+

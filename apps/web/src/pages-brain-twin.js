@@ -145,6 +145,20 @@ function _render(setTopbar) {
             </div>
             <div id="brain-twin-sim" style="margin-top:10px"></div>
           </div>
+
+          <div class="card" style="padding:14px;margin-top:14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+              <div style="font-weight:650">Evidence (87k-paper index)</div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <input id="brain-twin-evidence-q" class="bt-input" style="width:320px" placeholder="Ask for evidence (e.g., rtms depression left dlPFC parameters)" />
+                <button class="btn btn-ghost btn-sm" onclick="window._brainTwinEvidence()">Fetch</button>
+              </div>
+            </div>
+            <div style="font-size:12px;color:var(--text-tertiary);margin-top:8px">
+              Evidence is context for clinician review. It does not directly change predictions at runtime.
+            </div>
+            <div id="brain-twin-evidence" style="margin-top:10px"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -162,6 +176,41 @@ function _renderSim(data) {
   if (!box) return;
   box.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:6px">Engine: <span class="bt-mono">${_esc(data.engine?.name || 'unknown')}</span></div>
     <pre class="bt-json">${_esc(JSON.stringify(data.outputs || {}, null, 2))}</pre>`;
+}
+
+function _renderEvidence(data) {
+  const box = document.getElementById('brain-twin-evidence');
+  if (!box) return;
+  const papers = (data?.papers || []).slice(0, 10);
+  if (!papers.length) {
+    const note = (data?.notes || []).join(' ');
+    box.innerHTML = `<div style="color:var(--text-tertiary);font-size:12.5px">No evidence results. ${_esc(note)}</div>`;
+    return;
+  }
+  const items = papers.map(p => {
+    const title = p.title || '(untitled)';
+    const year = p.year ? ` (${p.year})` : '';
+    const url = p.record_url || p.oa_url || '';
+    const meta = [
+      p.journal ? `Journal: ${p.journal}` : null,
+      p.doi ? `DOI: ${p.doi}` : null,
+      p.pmid ? `PMID: ${p.pmid}` : null,
+      typeof p.citation_count === 'number' ? `Citations: ${p.citation_count}` : null,
+      p.evidence_tier ? `Tier: ${p.evidence_tier}` : null,
+    ].filter(Boolean).join(' · ');
+    return `
+      <div style="padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.02);margin-bottom:10px">
+        <div style="font-weight:650">${_esc(title)}${_esc(year)}</div>
+        <div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">${_esc(meta)}</div>
+        ${url ? `<div style="margin-top:6px"><a href="${_esc(url)}" target="_blank" rel="noreferrer" style="font-size:12.5px">Open source</a></div>` : ''}
+      </div>
+    `;
+  }).join('');
+  const header = `<div style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:10px">
+      <div style="font-weight:650">Evidence (87k-paper index)</div>
+      <div class="bt-mono" style="font-size:11px;color:var(--text-tertiary)">trace_id: ${_esc(data.trace_id || '—')}</div>
+    </div>`;
+  box.innerHTML = header + items;
 }
 
 function _wireHandlers(setTopbar) {
@@ -221,6 +270,29 @@ function _wireHandlers(setTopbar) {
       _renderSim(data);
     } catch (e) {
       if (box) box.innerHTML = `<div style="color:var(--red);font-size:12.5px">Simulation failed: ${_esc(e.message || e)}</div>`;
+    }
+  };
+
+  window._brainTwinEvidence = async function() {
+    const patient_id = _ensurePatientOrPrompt();
+    if (!patient_id) return;
+    const box = document.getElementById('brain-twin-evidence');
+    if (box) box.innerHTML = spinner();
+    try {
+      const qEl = document.getElementById('brain-twin-evidence-q');
+      const question = (qEl?.value || '').trim() || 'protocol evidence';
+      const payload = {
+        patient_id,
+        question,
+        modalities: (window._brain_twin_modalities || _defaultSelection()).slice(),
+        analysis_mode: window._brain_twin_mode || 'prediction',
+        ranking_mode: 'clinical',
+        limit: 8,
+      };
+      const data = await api.brainTwinEvidence(payload);
+      _renderEvidence(data);
+    } catch (e) {
+      if (box) box.innerHTML = `<div style="color:var(--red);font-size:12.5px">Evidence failed: ${_esc(e.message || e)}</div>`;
     }
   };
 }

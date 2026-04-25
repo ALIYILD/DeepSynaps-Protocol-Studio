@@ -765,6 +765,8 @@ export const api = {
     apiFetch('/api/v1/brain-twin/analyze', { method: 'POST', body: JSON.stringify(data) }),
   brainTwinSimulate: (data) =>
     apiFetch('/api/v1/brain-twin/simulate', { method: 'POST', body: JSON.stringify(data) }),
+  brainTwinEvidence: (data) =>
+    apiFetch('/api/v1/brain-twin/evidence', { method: 'POST', body: JSON.stringify(data) }),
 
   // ── Registry endpoints (public — no auth needed but token attached if present) ──
   conditions: () => apiFetchWithRetry('/api/v1/registry/conditions'),
