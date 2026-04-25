@@ -907,6 +907,17 @@ const PAGE_TITLES = {
 
 // ── Navigate ──────────────────────────────────────────────────────────────────
 async function navigate(id, params = {}) {
+  // Best-effort page cleanup hook (pages can register async teardown).
+  // Prevents background timers/streams from leaking across navigation.
+  try {
+    if (typeof window._pageCleanup === 'function') {
+      await window._pageCleanup({ from: currentPage, to: id, params });
+    }
+  } catch (e) {
+    console.warn('[nav] page cleanup failed:', e);
+  } finally {
+    window._pageCleanup = null;
+  }
   // Apply any params before navigating so pages can read them
   if (params && typeof params === 'object') {
     if (params.id !== undefined) {

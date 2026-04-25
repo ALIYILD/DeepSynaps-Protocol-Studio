@@ -156,7 +156,7 @@ def test_analyze_mne_success_persists_all_contract_columns(
     analysis_row: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Happy path: the endpoint writes every §2 column and returns §3 fields."""
+    """Happy path: the shared job persists every contract column."""
     fake_result = _make_fake_pipeline_result()
     monkeypatch.setattr(
         "app.services.qeeg_pipeline.run_pipeline_safe",
@@ -170,33 +170,14 @@ def test_analyze_mne_success_persists_all_contract_columns(
     assert resp.status_code == 200, resp.text
     payload = resp.json()
 
-    # ── AnalysisOut response shape (CONTRACT.md §3) ───────────────────────
-    assert payload["analysis_status"] == "completed"
-    assert payload["pipeline_version"] == "0.1.0"
-    assert payload["norm_db_version"] == "toy-0.1"
-    assert payload["flagged_conditions"] == ["adhd", "anxiety"]
-    assert payload["aperiodic"]["slope"]["Cz"] == pytest.approx(1.42)
-    assert payload["peak_alpha_freq"]["Cz"] == pytest.approx(10.1)
-    assert payload["connectivity"]["channels"] == ["Cz", "Pz"]
-    assert payload["asymmetry"]["frontal_alpha_F3_F4"] == pytest.approx(-0.027)
-    assert payload["graph_metrics"]["alpha"]["small_worldness"] == pytest.approx(1.12)
-    assert payload["source_roi"]["method"] == "eLORETA"
-    assert payload["normative_zscores"]["norm_db_version"] == "toy-0.1"
-    assert payload["quality_metrics"]["pipeline_version"] == "0.1.0"
-    assert payload["quality_metrics"]["n_channels_rejected"] == 1
+    assert payload["analysis_status"] == "processing:mne_pipeline"
+    assert payload["analysis_error"] is None
 
-    # Legacy back-compat fields should also be populated so the
-    # pre-existing frontend + AI interpreter keep working.
-    assert payload["band_powers"] is not None
-    assert "alpha" in payload["band_powers"]["bands"]
-    assert payload["artifact_rejection"]["source"] == "mne_pipeline"
-    assert payload["artifact_rejection"]["rejected_channels"] == ["T6"]
-
-    # ── DB row directly: every CONTRACT.md §2 column must be non-null ────
     db = SessionLocal()
     try:
         row = db.query(QEEGAnalysis).filter_by(id=analysis_row).first()
         assert row is not None
+        assert row.analysis_status == "completed"
         assert row.aperiodic_json is not None
         assert row.peak_alpha_freq_json is not None
         assert row.connectivity_json is not None
@@ -208,14 +189,11 @@ def test_analyze_mne_success_persists_all_contract_columns(
         assert row.quality_metrics_json is not None
         assert row.pipeline_version == "0.1.0"
         assert row.norm_db_version == "toy-0.1"
-        # And the legacy JSON columns must have been back-filled:
         assert row.band_powers_json is not None
         assert row.artifact_rejection_json is not None
-        # Stored as a JSON array, not a PG ARRAY — decode to verify.
         assert json.loads(row.flagged_conditions) == ["adhd", "anxiety"]
     finally:
         db.close()
-
 
 def test_analyze_mne_pipeline_failure_marks_row_failed(
     client: TestClient,
@@ -223,8 +201,7 @@ def test_analyze_mne_pipeline_failure_marks_row_failed(
     analysis_row: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When the façade returns ``{"success": False, ...}`` the row must be
-    marked ``failed`` and the error must be surfaced in ``analysis_error``."""
+    """Pipeline failures should surface on the persisted analysis row."""
     monkeypatch.setattr(
         "app.services.qeeg_pipeline.run_pipeline_safe",
         lambda *a, **k: {"success": False, "error": "pipeline dependency missing"},
@@ -234,13 +211,19 @@ def test_analyze_mne_pipeline_failure_marks_row_failed(
         f"/api/v1/qeeg-analysis/{analysis_row}/analyze-mne",
         headers=auth_headers["clinician"],
     )
-    # The endpoint swallows pipeline errors and returns the analysis row with
-    # status=failed so the frontend can surface a useful message.
     assert resp.status_code == 200, resp.text
     payload = resp.json()
-    assert payload["analysis_status"] == "failed"
-    assert payload["analysis_error"] == "pipeline dependency missing"
+    assert payload["analysis_status"] == "processing:mne_pipeline"
+    assert payload["analysis_error"] is None
 
+    db = SessionLocal()
+    try:
+        row = db.query(QEEGAnalysis).filter_by(id=analysis_row).first()
+        assert row is not None
+        assert row.analysis_status == "failed"
+        assert row.analysis_error == "pipeline dependency missing"
+    finally:
+        db.close()
 
 def test_analyze_mne_rejects_unknown_id(
     client: TestClient,

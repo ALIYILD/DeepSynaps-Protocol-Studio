@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -34,6 +34,15 @@ from app.settings import get_settings
 _log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/qeeg-analysis", tags=["qeeg-analysis"])
+
+# New local recommender (qeeg-pipeline package).
+try:  # optional import guard for older deployments
+    from deepsynaps_qeeg.recommender import recommend_protocols, summarize_for_recommender
+    from deepsynaps_qeeg.recommender.protocols import ProtocolLibrary
+except Exception:  # pragma: no cover
+    recommend_protocols = None  # type: ignore[assignment]
+    summarize_for_recommender = None  # type: ignore[assignment]
+    ProtocolLibrary = None  # type: ignore[assignment]
 
 # ── Max upload size for EDF files (100 MB) ───────────────────────────────────
 _MAX_EDF_BYTES = 100 * 1024 * 1024
@@ -319,6 +328,43 @@ def _extract_ratio_changes(
         ratios["delta_alpha_ratio"] = {"baseline": round(dar_a, 4), "followup": round(dar_b, 4)}
 
     return ratios
+
+
+def _band_powers_relative_map(band_powers: Optional[dict]) -> dict[str, dict[str, float]]:
+    """Best-effort conversion of legacy band_powers_json into per-channel relative maps.
+
+    Returns
+    -------
+    dict
+        band -> {channel -> relative_fraction}
+    """
+    if not isinstance(band_powers, dict):
+        return {}
+    bands = band_powers.get("bands")
+    if not isinstance(bands, dict):
+        return {}
+    out: dict[str, dict[str, float]] = {}
+    for band, payload in bands.items():
+        if not isinstance(payload, dict):
+            continue
+        channels = payload.get("channels")
+        if not isinstance(channels, dict):
+            continue
+        rel_map: dict[str, float] = {}
+        for ch, ch_payload in channels.items():
+            if not isinstance(ch_payload, dict):
+                continue
+            # apps/api band_powers store relative_pct on each channel.
+            rel_pct = ch_payload.get("relative_pct")
+            try:
+                if rel_pct is None:
+                    continue
+                rel_map[str(ch)] = float(rel_pct) / 100.0
+            except (TypeError, ValueError):
+                continue
+        if rel_map:
+            out[str(band)] = rel_map
+    return out
 
 
 def _build_rci_summary(improvement_summary: Optional[dict]) -> Optional[dict]:
@@ -699,23 +745,11 @@ async def run_advanced_analyses_endpoint(
 @router.post("/{analysis_id}/analyze-mne", response_model=AnalysisOut)
 async def analyze_edf_mne(
     analysis_id: str,
+    background_tasks: BackgroundTasks,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> AnalysisOut:
-    """Run the full MNE-Python pipeline from the sibling ``deepsynaps_qeeg``.
-
-    Additive counterpart to :func:`analyze_edf`. Persists the pipeline
-    output into the columns introduced by migration 037 (aperiodic /
-    PAF / connectivity / asymmetry / graph / source ROI / normative
-    z-scores / flagged conditions / quality metrics / pipeline +
-    norm-db versions) AND back-fills ``band_powers_json`` +
-    ``artifact_rejection_json`` so legacy frontend code keeps working.
-
-    When the sibling pipeline package is not installed (i.e. the
-    ``qeeg_mne`` optional extra is absent) the façade returns a
-    structured error and the analysis is marked ``failed`` with the
-    error surfaced in ``analysis_error`` — no crash.
-    """
+    """Queue the MNE-backed qEEG pipeline and return the processing row."""
     require_minimum_role(actor, "clinician")
 
     analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
@@ -727,136 +761,18 @@ async def analyze_edf_mne(
     db.commit()
 
     try:
-        # 1. Materialise the uploaded EDF to a real path on disk — the MNE
-        #    readers require a filesystem path (they cannot consume bytes
-        #    directly for BDF / BrainVision / etc.).
-        settings = get_settings()
-        from app.services import media_storage
-
-        file_bytes = await media_storage.read_upload(analysis.file_ref, settings)
-
-        import os
-        import tempfile
-
-        ext = ""
-        if analysis.original_filename and "." in analysis.original_filename:
-            ext = "." + analysis.original_filename.rsplit(".", 1)[-1].lower()
-
-        tmp_path: Optional[str] = None
-        try:
-            with tempfile.NamedTemporaryFile(suffix=ext or ".edf", delete=False) as tmp:
-                tmp.write(file_bytes)
-                tmp_path = tmp.name
-
-            # 2. Delegate to the façade — never raises.
-            from app.services.qeeg_pipeline import run_pipeline_safe
-
-            result = run_pipeline_safe(tmp_path)
-        finally:
-            if tmp_path:
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-
-        if not result.get("success"):
-            analysis.analysis_status = "failed"
-            analysis.analysis_error = str(result.get("error", "MNE pipeline failed"))[:500]
-            db.commit()
-            db.refresh(analysis)
-            _log.warning(
-                "MNE pipeline failed for %s: %s",
-                analysis_id,
-                analysis.analysis_error,
-            )
-            return AnalysisOut.from_record(analysis)
-
-        # 3. Persist every contract §2 column.
-        features: dict = result.get("features") or {}
-        zscores: dict = result.get("zscores") or {}
-        quality: dict = result.get("quality") or {}
-        flagged: list[str] = list(result.get("flagged_conditions") or [])
-
-        spectral = features.get("spectral") or {}
-        analysis.aperiodic_json = json.dumps(spectral.get("aperiodic") or {})
-        analysis.peak_alpha_freq_json = json.dumps(spectral.get("peak_alpha_freq") or {})
-        analysis.connectivity_json = json.dumps(features.get("connectivity") or {})
-        analysis.asymmetry_json = json.dumps(features.get("asymmetry") or {})
-        analysis.graph_metrics_json = json.dumps(features.get("graph") or {})
-        analysis.source_roi_json = json.dumps(features.get("source") or {})
-        analysis.normative_zscores_json = json.dumps(zscores)
-        analysis.flagged_conditions = json.dumps(flagged)
-        analysis.quality_metrics_json = json.dumps(quality)
-        analysis.pipeline_version = str(quality.get("pipeline_version") or "")[:16] or None
-        analysis.norm_db_version = str(zscores.get("norm_db_version") or "")[:16] or None
-
-        # 4. Back-compat: derive legacy `band_powers_json` +
-        #    `artifact_rejection_json` from the pipeline feature dict so the
-        #    existing `/ai-report` endpoint and the current frontend render
-        #    path keep working untouched.
-        from app.services.spectral_analysis import compute_band_powers_from_pipeline
-
-        legacy_bands = compute_band_powers_from_pipeline(features)
-        if quality.get("sfreq_output"):
-            try:
-                legacy_bands["global_summary"]["sample_rate_hz"] = float(quality["sfreq_output"])
-            except (TypeError, ValueError):
-                pass
-        analysis.band_powers_json = json.dumps(legacy_bands)
-
-        legacy_rejection = {
-            "source": "mne_pipeline",
-            "rejected_channels": list(quality.get("bad_channels") or []),
-            "total_channels": int(quality.get("n_channels_input") or 0),
-            "clean_channels": max(
-                0,
-                int(quality.get("n_channels_input") or 0)
-                - int(quality.get("n_channels_rejected") or 0),
-            ),
-            "epochs_total": int(quality.get("n_epochs_total") or 0),
-            "epochs_retained": int(quality.get("n_epochs_retained") or 0),
-            "ica_components_dropped": int(quality.get("ica_components_dropped") or 0),
-            "ica_labels_dropped": dict(quality.get("ica_labels_dropped") or {}),
-            "bandpass": list(quality.get("bandpass") or []),
-            "notch_hz": quality.get("notch_hz"),
-        }
-        analysis.artifact_rejection_json = json.dumps(legacy_rejection)
-
-        # Populate duration / sfreq metadata too — the legacy `analyze` path
-        # sets these from the raw EDF header; the MNE path gets them from
-        # the quality dict.
-        if quality.get("sfreq_output"):
-            try:
-                analysis.sample_rate_hz = float(quality["sfreq_output"])
-            except (TypeError, ValueError):
-                pass
-
-        analysis.analysis_status = "completed"
-        analysis.analyzed_at = datetime.now(timezone.utc)
-        db.commit()
-        db.refresh(analysis)
-
-        _log.info(
-            "MNE pipeline completed for %s: pipeline_version=%s norm_db=%s flagged=%s",
-            analysis_id,
-            analysis.pipeline_version,
-            analysis.norm_db_version,
-            flagged,
-        )
-        return AnalysisOut.from_record(analysis)
-
-    except ApiServiceError:
-        raise
+        from app.services.qeeg_pipeline_job import run_mne_pipeline_job_sync
     except Exception as exc:
-        _log.exception("MNE pipeline endpoint failed for %s", analysis_id)
+        _log.exception("MNE pipeline job import failed for %s", analysis_id)
         analysis.analysis_status = "failed"
         analysis.analysis_error = str(exc)[:500]
         db.commit()
         db.refresh(analysis)
         return AnalysisOut.from_record(analysis)
 
-
-# ── Get Analysis ─────────────────────────────────────────────────────────────
+    background_tasks.add_task(run_mne_pipeline_job_sync, analysis_id)
+    db.refresh(analysis)
+    return AnalysisOut.from_record(analysis)
 
 @router.get("/{analysis_id}", response_model=AnalysisOut)
 def get_analysis(
@@ -2811,6 +2727,119 @@ def recommend_protocol_endpoint(
         }
 
     return _build_upgrade_response(analysis, envelope)
+
+
+class ProtocolRecommendationOut(BaseModel):
+    protocol_id: str
+    protocol_name: str
+    score: float
+    condition_id: str
+    modality_id: str
+    target_region: Optional[str] = None
+    evidence_urls: list[str] = Field(default_factory=list)
+    disclaimer: str
+
+
+class RecommendationsResponse(BaseModel):
+    analysis_id: str
+    success: bool
+    recommendations: list[ProtocolRecommendationOut] = Field(default_factory=list)
+    contraindications: list[dict] = Field(default_factory=list)
+    rules_fired: list[dict] = Field(default_factory=list)
+    disclaimer: str = (
+        "Decision support only. Not a diagnosis or treatment recommendation. Clinician supervision required."
+    )
+
+
+@router.get("/{analysis_id}/recommendations", response_model=RecommendationsResponse)
+def get_recommendations_endpoint(
+    analysis_id: str,
+    k: int = Query(default=5, ge=1, le=10),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> RecommendationsResponse:
+    """Return ranked protocol candidates (decision support)."""
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    if recommend_protocols is None or summarize_for_recommender is None:
+        return RecommendationsResponse(
+            analysis_id=analysis_id,
+            success=False,
+            recommendations=[],
+            contraindications=[],
+            rules_fired=[],
+            disclaimer=RecommendationsResponse().disclaimer,
+        )
+
+    # Build a minimal pipeline_result-like payload for summarization.
+    band_powers = _maybe_json_loads(getattr(analysis, "band_powers_json", None))
+    rel_maps = _band_powers_relative_map(band_powers if isinstance(band_powers, dict) else None)
+
+    features_payload = {
+        "spectral": {
+            "bands": {
+                band: {"relative": rel}
+                for band, rel in rel_maps.items()
+            },
+            "peak_alpha_freq": _maybe_json_loads(getattr(analysis, "peak_alpha_freq_json", None)) or {},
+        },
+        "asymmetry": _maybe_json_loads(getattr(analysis, "asymmetry_json", None)) or {},
+        "connectivity": _maybe_json_loads(getattr(analysis, "connectivity_json", None)) or {},
+    }
+    zscores_payload = _maybe_json_loads(getattr(analysis, "normative_zscores_json", None)) or {}
+    risk_scores_payload = _maybe_json_loads(getattr(analysis, "risk_scores_json", None)) or {}
+
+    fv = summarize_for_recommender(
+        {"features": features_payload, "zscores": zscores_payload, "risk_scores": risk_scores_payload}
+    )
+
+    # Patient meta: use structured medical_history when available (best-effort).
+    patient = db.query(Patient).filter_by(id=analysis.patient_id).first()
+    patient_meta = _maybe_json_loads(getattr(patient, "medical_history", None)) if patient else None
+    if not isinstance(patient_meta, dict):
+        patient_meta = {}
+
+    lib = ProtocolLibrary.load() if ProtocolLibrary is not None else None
+    recs, contra_hits, rule_hits = recommend_protocols(
+        fv,
+        patient_meta=patient_meta,
+        library=lib,
+        top_k=k,
+    )
+
+    return RecommendationsResponse(
+        analysis_id=analysis_id,
+        success=True,
+        recommendations=[
+            ProtocolRecommendationOut(
+                protocol_id=r.protocol_id,
+                protocol_name=r.protocol_name,
+                score=float(r.score),
+                condition_id=r.condition_id,
+                modality_id=r.modality_id,
+                target_region=r.target_region,
+                evidence_urls=list(r.evidence_urls),
+                disclaimer=r.disclaimer,
+            )
+            for r in recs
+        ],
+        contraindications=[{"protocol_id": h.protocol_id, "reason": h.reason} for h in contra_hits],
+        rules_fired=[
+            {
+                "rule_id": h.rule_id,
+                "condition_slug": h.condition_slug,
+                "score": h.score,
+                "summary": h.summary,
+                "citations": [{"label": c.label, "url": c.url} for c in h.citations],
+                "debug": h.debug,
+            }
+            for h in rule_hits
+        ],
+    )
 
 
 class TrajectoryResponse(BaseModel):

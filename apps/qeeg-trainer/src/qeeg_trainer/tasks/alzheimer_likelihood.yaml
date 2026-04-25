@@ -1,0 +1,21 @@
+task: alzheimer
+label_column: diagnosis
+positive_label: alzheimer
+negative_label: control
+
+window:
+  duration_sec: 4.0
+  sfreq: 256.0
+  n_channels: 19
+  trigger_query: "event_type == 'eyes_closed'"
+
+model:
+  name: deep4net
+  n_outputs: 2
+
+trainer:
+  batch_size: 64
+  max_epochs: 50
+  lr: 0.001
+  seed: 42
+

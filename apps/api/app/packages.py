@@ -74,6 +74,9 @@ class Feature(str, Enum):
     # API / integrations
     API_ACCESS = "api.access"
 
+    # qEEG live monitoring (wellness/research)
+    LIVE_QEEG = "qeeg.live"
+
 
 @dataclass(frozen=True, slots=True)
 class Package:
@@ -154,6 +157,7 @@ _CLINIC_TEAM: frozenset[Feature] = frozenset({
     Feature.TEAM_TEMPLATES,
     Feature.TEAM_COMMENTS,
     Feature.BRANDING_WHITELABEL_BASIC,
+    Feature.LIVE_QEEG,
 })
 
 _ENTERPRISE: frozenset[Feature] = frozenset({
@@ -182,6 +186,7 @@ _ENTERPRISE: frozenset[Feature] = frozenset({
     Feature.BRANDING_WHITELABEL_BASIC,
     Feature.BRANDING_WHITELABEL_FULL,
     Feature.API_ACCESS,
+    Feature.LIVE_QEEG,
 })
 
 

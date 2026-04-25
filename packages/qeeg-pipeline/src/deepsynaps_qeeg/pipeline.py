@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import (
     BANDPASS,
@@ -25,6 +25,9 @@ from .io import load_raw
 
 log = logging.getLogger(__name__)
 
+if TYPE_CHECKING:  # pragma: no cover
+    import mne
+
 
 @dataclass
 class PipelineResult:
@@ -34,6 +37,8 @@ class PipelineResult:
     zscores: dict[str, Any] = field(default_factory=dict)
     flagged_conditions: list[str] = field(default_factory=list)
     quality: dict[str, Any] = field(default_factory=dict)
+    source_estimates: dict[str, "mne.SourceEstimate"] = field(default_factory=dict)
+    longitudinal: dict[str, Any] = field(default_factory=dict)
     report_html: str | None = None
     report_pdf_path: Path | None = None
 
@@ -43,6 +48,8 @@ def run_full_pipeline(
     *,
     age: int | None = None,
     sex: str | None = None,
+    prev_session_id: str | None = None,
+    recording_state: str | None = None,
     notch_hz: float = NOTCH_HZ,
     bandpass: tuple[float, float] = BANDPASS,
     resample: float = RESAMPLE_SFREQ,
@@ -94,6 +101,9 @@ def run_full_pipeline(
     result = PipelineResult()
     result.quality["pipeline_version"] = PIPELINE_VERSION
     result.quality["stage_errors"] = {}
+    if recording_state:
+        # Stored for longitudinal state-mismatch validation (e.g. eyes-open vs eyes-closed).
+        result.quality["recording_state"] = str(recording_state)
 
     # --- Stage 1 — I/O ---
     raw = load_raw(eeg_path)
@@ -157,15 +167,87 @@ def run_full_pipeline(
     # --- Stage 5 — source localization (optional) ---
     if do_source_localization:
         try:
-            from .source import eloreta as eloreta_mod
+            if not _should_run_source_localization(epochs, result.quality):
+                features["source"] = {"method": None, "roi_table": [], "figures": {}}
+            else:
+                import numpy as np
 
-            features["source"] = eloreta_mod.compute(epochs, bands=FREQ_BANDS)
+                from .source.forward import build_forward_model
+                from .source.inverse import apply_inverse, compute_inverse_operator
+                from .source.noise import estimate_noise_covariance
+                from .source.roi import extract_roi_band_power
+                from .source.viz_3d import save_stc_snapshots
+
+                fwd = build_forward_model(raw_clean, subject="fsaverage")
+                noise_cov = estimate_noise_covariance(epochs=epochs)
+                inv = compute_inverse_operator(raw_clean, fwd, noise_cov)
+
+                source_estimates: dict[str, Any] = {}
+                figures: dict[str, Any] = {}
+                for band, (lo, hi) in FREQ_BANDS.items():
+                    band_epochs = epochs.copy().filter(
+                        l_freq=float(lo),
+                        h_freq=float(hi),
+                        phase="zero",
+                        fir_design="firwin",
+                        verbose="WARNING",
+                    )
+                    evoked = band_epochs.average()
+                    stc = apply_inverse(evoked, inv, method="eLORETA")
+                    power = np.mean(np.asarray(stc.data) ** 2, axis=1)
+                    power_stc = stc.copy()
+                    power_stc._data = power[:, np.newaxis]
+                    power_stc.tmin = 0.0
+                    power_stc.tstep = 1.0
+                    source_estimates[band] = power_stc
+
+                # Persist on the result for downstream consumers (non-JSON).
+                result.source_estimates = source_estimates
+
+                roi_df = extract_roi_band_power(source_estimates, subject="fsaverage")
+                roi_records = (
+                    roi_df.reset_index(names="roi").to_dict(orient="records")
+                    if hasattr(roi_df, "reset_index")
+                    else []
+                )
+
+                # Optional outputs when an out_dir is provided (e.g. report build).
+                if out_dir is not None:
+                    source_out = Path(out_dir) / "source"
+                    source_out.mkdir(parents=True, exist_ok=True)
+                    try:
+                        roi_csv = source_out / "dk_roi_band_power.csv"
+                        roi_df.to_csv(roi_csv, index=True)
+                    except Exception as exc:
+                        log.warning("Failed writing ROI CSV (%s).", exc)
+                        roi_csv = None
+
+                    for band, stc in source_estimates.items():
+                        band_dir = source_out / band
+                        band_dir.mkdir(parents=True, exist_ok=True)
+                        figures[band] = save_stc_snapshots(
+                            stc, out_dir=band_dir, subject="fsaverage", kind="power"
+                        )
+
+                    features["source"] = {
+                        "method": "eLORETA",
+                        "roi_table": roi_records,
+                        "roi_csv_path": str(roi_csv) if roi_csv else None,
+                        "figures": figures,
+                    }
+                else:
+                    features["source"] = {
+                        "method": "eLORETA",
+                        "roi_table": roi_records,
+                        "roi_csv_path": None,
+                        "figures": {},
+                    }
         except Exception as exc:
             log.warning("Source localization skipped (%s)", exc)
             result.quality["stage_errors"]["source"] = str(exc)
-            features["source"] = {"roi_band_power": {}, "method": None}
+            features["source"] = {"method": None, "roi_table": [], "figures": {}}
     else:
-        features["source"] = {"roi_band_power": {}, "method": None}
+        features["source"] = {"method": None, "roi_table": [], "figures": {}}
 
     result.features = features
 
@@ -177,6 +259,107 @@ def run_full_pipeline(
         result.quality["stage_errors"]["normative"] = str(exc)
         result.zscores = {"spectral": {"bands": {}}, "aperiodic": {"slope": {}},
                           "flagged": [], "norm_db_version": "unknown"}
+
+    # --- Stage 6b — longitudinal comparison (optional) ---
+    if prev_session_id and out_dir is not None:
+        try:
+            from .longitudinal.compare import compare_sessions
+            from .longitudinal.significance import rci_for_comparison
+            from .longitudinal.store import SessionData
+            from .longitudinal.viz import plot_change_topomap, plot_trend_lines
+
+            outp = Path(out_dir)
+            patient_dir = outp.parent
+            curr_session_id = outp.name
+            prev_dir = patient_dir / str(prev_session_id)
+
+            prev_features_path = prev_dir / "features.json"
+            if not prev_features_path.exists():
+                raise FileNotFoundError(str(prev_features_path))
+            import json as _json
+
+            prev_features = _json.loads(prev_features_path.read_text(encoding="utf-8"))
+            prev_zscores_path = prev_dir / "zscores.json"
+            prev_quality_path = prev_dir / "quality.json"
+            prev_z = (
+                _json.loads(prev_zscores_path.read_text(encoding="utf-8"))
+                if prev_zscores_path.exists()
+                else None
+            )
+            prev_q = (
+                _json.loads(prev_quality_path.read_text(encoding="utf-8"))
+                if prev_quality_path.exists()
+                else None
+            )
+
+            curr_sess = SessionData(
+                patient_id=str(patient_dir.name),
+                session_id=str(curr_session_id),
+                features=result.features,
+                zscores=result.zscores,
+                quality=result.quality,
+            )
+            prev_sess = SessionData(
+                patient_id=str(patient_dir.name),
+                session_id=str(prev_session_id),
+                features=prev_features,
+                zscores=prev_z,
+                quality=prev_q,
+            )
+
+            comp = compare_sessions(curr_sess, prev_sess)
+            rci = rci_for_comparison(comp)
+
+            change_topos: dict[str, str] = {}
+            for band in sorted(((comp.spectral or {}).get("bands") or {}).keys()):
+                img = plot_change_topomap(curr_sess, prev_sess, band=band)
+                if isinstance(img, str):
+                    change_topos[band] = img
+
+            # Trend lines: when >=3 sessions exist for this patient on disk
+            trend_imgs: dict[str, str] = {}
+            sess_dirs = [
+                p for p in patient_dir.iterdir() if p.is_dir() and (p / "features.json").exists()
+            ]
+            sess_dirs.sort(key=lambda p: (p.name, p.stat().st_mtime))
+            if len(sess_dirs) >= 3:
+                sessions: list[SessionData] = []
+                for sd in sess_dirs:
+                    try:
+                        feats = _json.loads((sd / "features.json").read_text(encoding="utf-8"))
+                        zpath = sd / "zscores.json"
+                        qpath = sd / "quality.json"
+                        zs = _json.loads(zpath.read_text(encoding="utf-8")) if zpath.exists() else None
+                        qq = _json.loads(qpath.read_text(encoding="utf-8")) if qpath.exists() else None
+                        sessions.append(
+                            SessionData(
+                                patient_id=str(patient_dir.name),
+                                session_id=sd.name,
+                                features=feats,
+                                zscores=zs,
+                                quality=qq,
+                            )
+                        )
+                    except Exception:
+                        continue
+                if len(sessions) >= 3:
+                    img1 = plot_trend_lines(sessions, metric="iapf_mean_hz")
+                    if isinstance(img1, str):
+                        trend_imgs["iapf_mean_hz"] = img1
+                    img2 = plot_trend_lines(sessions, metric="tbr")
+                    if isinstance(img2, str):
+                        trend_imgs["tbr"] = img2
+
+            result.longitudinal = {
+                "prev_session_id": str(prev_session_id),
+                "comparison": comp.to_dict(),
+                "rci": rci.to_dict(),
+                "change_topomaps": change_topos,
+                "trend_lines": trend_imgs,
+            }
+        except Exception as exc:
+            log.warning("Longitudinal compare skipped (%s)", exc)
+            result.quality["stage_errors"]["longitudinal"] = str(exc)
 
     # Flagged conditions are a consumer-provided mapping; default to [].
     result.flagged_conditions = []
@@ -198,3 +381,36 @@ def run_full_pipeline(
     # Re-stamp pipeline version at the end (avoid being clobbered by sub-dicts).
     result.quality["pipeline_version"] = PIPELINE_VERSION
     return result
+
+
+def _should_run_source_localization(epochs: Any, quality: dict[str, Any]) -> bool:
+    """Quality guard for expensive source localization.
+
+    Requirements:
+    - skip when <19 EEG channels after cleaning
+    - skip when quality indicates low-quality data
+    """
+    try:
+        import mne
+
+        n_eeg = len(mne.pick_types(epochs.info, eeg=True))
+    except Exception:
+        n_eeg = len(getattr(epochs, "ch_names", []) or [])
+
+    if int(n_eeg) < 19:
+        quality["source_skipped_reason"] = f"insufficient_channels(n_eeg={n_eeg})"
+        return False
+
+    n_epochs = int(quality.get("n_epochs_retained") or 0)
+    if n_epochs and n_epochs < 20:
+        quality["source_skipped_reason"] = f"too_few_epochs(n_epochs_retained={n_epochs})"
+        return False
+
+    bads = list(quality.get("bad_channels") or [])
+    n_ch_in = int(quality.get("n_channels_input") or 0)
+    if n_ch_in and len(bads) / max(n_ch_in, 1) >= 0.30:
+        quality["source_skipped_reason"] = "too_many_bad_channels"
+        return False
+
+    quality.pop("source_skipped_reason", None)
+    return True

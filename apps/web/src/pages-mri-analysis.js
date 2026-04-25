@@ -29,6 +29,7 @@ var _patientMeta   = null;
 var _medragCache   = null;
 var _jobStatus     = null;       // { stage, state } snapshot
 var _jobPollTimer  = null;
+var _jobWatchAbort = null;       // AbortController for SSE-over-fetch
 var _selectedCondition = 'mdd';
 var _fusionSummary = null;
 // Populated by pgMRIAnalysis() and re-read by the compare modal's submit
@@ -609,6 +610,7 @@ export function _resetMRIState() {
   _medragCache = null;
   _jobStatus = null;
   if (_jobPollTimer) { clearInterval(_jobPollTimer); _jobPollTimer = null; }
+  if (_jobWatchAbort) { try { _jobWatchAbort.abort(); } catch (_) {} _jobWatchAbort = null; }
 }
 
 // Determine the badge CSS class for a modality.  Returns the rose
@@ -748,8 +750,36 @@ export function renderPipelineProgress(status) {
       + '</div>';
   }).join('');
   return card('Pipeline progress',
-    '<div class="ds-mri-stage-row">' + pills + '</div>'
-    + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:10px">Polls <code>/api/v1/mri/status/{job_id}</code> every 2 s.</div>');
+    '<div class="ds-mri-stage-row" data-mri-pipeline-row="1">' + pills + '</div>'
+    + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:10px">'
+    + 'Live status via <code>/api/v1/mri/status/{job_id}/events</code> (fallback: polling)'
+    + '.</div>');
+}
+
+function _renderPipelineRowInner(status) {
+  // Return only the inner HTML of `.ds-mri-stage-row` (used for in-place updates).
+  var s = status || { stage: null, state: null };
+  var state = String(s.state || '').toUpperCase();
+  var cur = String(s.stage || '').toLowerCase();
+  var curIdx = -1;
+  for (var i = 0; i < PIPELINE_STAGES.length; i++) {
+    if (PIPELINE_STAGES[i].id === cur) { curIdx = i; break; }
+  }
+  if (state === 'SUCCESS') curIdx = PIPELINE_STAGES.length;
+  return PIPELINE_STAGES.map(function (stg, idx) {
+    var pill = 'queued';
+    if (state === 'FAILURE' && idx === Math.max(0, curIdx)) pill = 'failed';
+    else if (curIdx === -1) pill = 'queued';
+    else if (idx < curIdx) pill = 'done';
+    else if (idx === curIdx) pill = (state === 'SUCCESS') ? 'done' : 'running';
+    else pill = 'queued';
+    var icon = pill === 'done' ? '&#x2713;' : pill === 'running' ? '&#x25B6;' : pill === 'failed' ? '&#x26A0;' : '&#x25CB;';
+    return '<div class="ds-mri-stage-pill ds-mri-stage-pill--' + pill + '" data-stage="' + esc(stg.id) + '">'
+      + '<span class="ds-mri-stage-pill__icon">' + icon + '</span>'
+      + '<span class="ds-mri-stage-pill__label">' + esc(stg.label) + '</span>'
+      + '<span class="ds-mri-stage-pill__state">' + esc(pill) + '</span>'
+      + '</div>';
+  }).join('');
 }
 
 // ── Right column: single stim-target card ──────────────────────────────────
@@ -1457,7 +1487,7 @@ function _wireRunButton(navigate) {
         });
         _jobId = (resp && resp.job_id) || null;
         _jobStatus = { stage: 'ingest', state: 'STARTED' };
-        _startPolling(navigate);
+        _startJobWatch(navigate);
       }
     } catch (err) {
       showToast('Analyze failed: ' + (err && err.message ? err.message : err), 'error');
@@ -1487,11 +1517,115 @@ function _startPolling(navigate) {
         navigate('mri-analysis');
       } else {
         // Update the pills in place so we don't re-render the whole page.
-        var pipe = document.querySelector('.ds-mri-col--left .ds-card:nth-of-type(4) .ds-card__body');
-        if (pipe) pipe.innerHTML = renderPipelineProgress(_jobStatus).replace(/^.*?<div class="ds-card__body">|<\/div><\/div>$/g, '');
+        var row = document.querySelector('[data-mri-pipeline-row="1"]');
+        if (row) row.innerHTML = _renderPipelineRowInner(_jobStatus);
       }
     } catch (_e) { /* silent polling */ }
   }, 2000);
+}
+
+async function _startJobWatch(navigate) {
+  // Prefer SSE-over-fetch so we can include Authorization headers (EventSource can't).
+  // Falls back to polling when streaming is unavailable.
+  if (!_jobId || _jobId === 'demo') return;
+  if (_jobPollTimer) { clearInterval(_jobPollTimer); _jobPollTimer = null; }
+  if (_jobWatchAbort) { try { _jobWatchAbort.abort(); } catch (_) {} _jobWatchAbort = null; }
+
+  var token = null;
+  try { token = api.getToken ? api.getToken() : null; } catch (_) { token = null; }
+  var apiBase = _getApiBase();
+  var url = apiBase + '/api/v1/mri/status/' + encodeURIComponent(_jobId) + '/events';
+  if (!token || typeof fetch !== 'function' || typeof AbortController === 'undefined') {
+    _startPolling(navigate);
+    return;
+  }
+
+  var ac = new AbortController();
+  _jobWatchAbort = ac;
+
+  function stop() {
+    if (_jobWatchAbort === ac) _jobWatchAbort = null;
+    try { ac.abort(); } catch (_) {}
+  }
+
+  try {
+    var res = await fetch(url, {
+      method: 'GET',
+      headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'text/event-stream' },
+      signal: ac.signal,
+    });
+    if (!res.ok || !res.body) {
+      stop();
+      _startPolling(navigate);
+      return;
+    }
+
+    var reader = res.body.getReader();
+    var decoder = new TextDecoder('utf-8');
+    var buf = '';
+
+    while (true) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+      buf += decoder.decode(chunk.value, { stream: true });
+
+      var idx;
+      while ((idx = buf.indexOf('\n\n')) !== -1) {
+        var frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+
+        // Parse minimal SSE: look for "data:" lines (ignore event type; backend already encodes state).
+        var lines = frame.split('\n');
+        var dataLines = [];
+        lines.forEach(function (ln) {
+          if (ln.startsWith('data:')) dataLines.push(ln.slice(5).trim());
+        });
+        if (!dataLines.length) continue;
+        var dataText = dataLines.join('\n');
+        var payload = null;
+        try { payload = JSON.parse(dataText); } catch (_) { payload = null; }
+        if (!payload || payload.type === 'heartbeat') continue;
+
+        _jobStatus = {
+          stage: (payload && payload.info && payload.info.stage) || payload.stage || null,
+          state: (payload && payload.state) || null,
+        };
+
+        // In-place pipeline row update
+        var row = document.querySelector('[data-mri-pipeline-row="1"]');
+        if (row) row.innerHTML = _renderPipelineRowInner(_jobStatus);
+
+        var st = String(_jobStatus.state || '').toUpperCase();
+        if (st === 'SUCCESS' || st === 'FAILURE') {
+          stop();
+          if (st === 'SUCCESS') {
+            var analysisId = payload.analysis_id || _jobId;
+            try {
+              _report = await api.getMRIReport(analysisId);
+              _mriAnalysisId = _report && _report.analysis_id;
+            } catch (_e) {}
+          }
+          navigate('mri-analysis');
+          return;
+        }
+      }
+    }
+  } catch (_err) {
+    // Abort is normal on navigation. Anything else falls back to polling.
+    if (!ac.signal.aborted) {
+      _startPolling(navigate);
+    }
+  } finally {
+    if (_jobWatchAbort === ac) _jobWatchAbort = null;
+  }
+}
+
+function _registerPageCleanup() {
+  // Called by pgMRIAnalysis on every render; used by app.js navigate() hook.
+  window._pageCleanup = async function (_ctx) {
+    if (_jobPollTimer) { clearInterval(_jobPollTimer); _jobPollTimer = null; }
+    if (_jobWatchAbort) { try { _jobWatchAbort.abort(); } catch (_) {} _jobWatchAbort = null; }
+  };
 }
 
 function _wireRightColumn(navigate) {
@@ -1689,6 +1823,7 @@ function _openViewerPayloadModal(aid, payload) {
 // ─────────────────────────────────────────────────────────────────────────────
 export async function pgMRIAnalysis(setTopbar, navigate) {
   if (typeof setTopbar === 'function') setTopbar('MRI Analyzer', '');
+  _registerPageCleanup();
 
   var flagOn = _mriFeatureFlagEnabled();
   var el = (typeof document !== 'undefined') ? document.getElementById('content') : null;
@@ -1751,7 +1886,6 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
     ];
   }
   _patientAnalysesCache = { patientId: pid || null, rows: patientAnalyses };
-  _fusionSummary = await _fetchFusionSummary(pid || (_report && _report.patient && _report.patient.patient_id));
 
   if (el) {
     el.innerHTML = renderFullView({

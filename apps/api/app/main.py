@@ -100,6 +100,7 @@ from app.routers.preferences_router import router as preferences_router
 from app.routers.data_privacy_router import router as data_privacy_router
 from app.routers.risk_stratification_router import router as risk_stratification_router
 from app.routers.qeeg_analysis_router import router as qeeg_analysis_router
+from app.routers.qeeg_live_router import router as qeeg_live_router
 from app.routers.qeeg_copilot_router import router as qeeg_copilot_router
 from app.routers.qeeg_viz_router import router as qeeg_viz_router
 from app.routers.mri_analysis_router import router as mri_analysis_router
@@ -207,6 +208,7 @@ app.include_router(preferences_router)
 app.include_router(data_privacy_router)
 app.include_router(risk_stratification_router)
 app.include_router(qeeg_analysis_router)
+app.include_router(qeeg_live_router)
 app.include_router(qeeg_copilot_router)
 app.include_router(qeeg_viz_router)
 app.include_router(mri_analysis_router)

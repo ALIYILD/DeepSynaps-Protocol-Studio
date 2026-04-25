@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepsynaps-qeeg-trainer"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "neuralset==0.1.0",
+  "neuralfetch>=0.1.0",
+  "braindecode>=0.8",
+  "mne>=1.12.1",
+  "torch>=2.5.1",
+  "skorch>=1.0",
+  "mlflow>=2.16",
+  "pandas>=2.2.2",
+  "pyarrow>=17.0.0",
+  "scikit-learn>=1.5",
+  "typer>=0.12",
+  "pyyaml>=6.0.1",
+]
+
+[project.optional-dependencies]
+multimodal = [
+  "neuralset[all]",
+]
+
+[project.scripts]
+qeeg-train = "qeeg_trainer.train:app"
+qeeg-export = "qeeg_trainer.export:app"
+
+[tool.setuptools]
+py-modules = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
