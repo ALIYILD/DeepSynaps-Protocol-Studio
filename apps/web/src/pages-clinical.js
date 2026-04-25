@@ -3152,14 +3152,14 @@ export async function pgProfile(setTopbar, navigate) {
   </div>
 
   <div class="tab-bar">
-    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'deeptwin', 'assessments', 'notes', 'phenotype', 'consent', 'monitoring', 'home-therapy'].map(t => {
+    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'brain-twin', 'assessments', 'notes', 'phenotype', 'consent', 'monitoring', 'home-therapy'].map(t => {
       const labels = {
         'overview':     'Overview',
         'courses':      'Treatment Courses',
         'sessions':     'Sessions',
         'outcomes':     'Outcomes',
         'protocol':     'AI Protocol',
-        'deeptwin':     'Deeptwin',
+        'brain-twin':   'Brain Twin',
         'assessments':  'Assessments',
         'notes':        'Clinical Notes',
         'phenotype':    'Phenotype',
@@ -3183,11 +3183,11 @@ export async function pgProfile(setTopbar, navigate) {
       const onclickAttr = b.getAttribute('onclick') || '';
       b.classList.toggle('active', onclickAttr.includes(`'${t}'`));
     });
-    if (t === 'deeptwin') {
+    if (t === 'brain-twin') {
       window._selectedPatientId = pt.id;
       window._profilePatientId = pt.id;
       try { sessionStorage.setItem('ds_pat_selected_id', pt.id); } catch {}
-      window._nav('deeptwin');
+      window._nav('brain-twin');
       return;
     }
     if (t === 'phenotype') {

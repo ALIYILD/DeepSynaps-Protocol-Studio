@@ -143,6 +143,7 @@ let _modConditions    = null;
 let _modClinicalTools = null;
 let _modClinicalHubs  = null;
 let _modDeeptwin      = null;
+let _modBrainTwin     = null;
 
 async function loadPublic()     { return (_modPublic    ??= await import('./pages-public.js')); }
 async function loadPatient()    { return (_modPatient   ??= await import('./pages-patient.js')); }
@@ -150,6 +151,7 @@ async function loadClinical()   { return (_modClinical  ??= await import('./page
 async function loadClinicalTools() { return (_modClinicalTools ??= await import('./pages-clinical-tools.js')); }
 async function loadClinicalHubs()  { return (_modClinicalHubs  ??= await import('./pages-clinical-hubs.js')); }
 async function loadDeeptwin()   { return (_modDeeptwin  ??= await import('./pages-deeptwin.js')); }
+async function loadBrainTwin()  { return (_modBrainTwin ??= await import('./pages-brain-twin.js')); }
 async function loadKnowledge()  { return (_modKnowledge ??= await import('./pages-knowledge.js')); }
 async function loadPractice()   { return (_modPractice  ??= await import('./pages-practice.js')); }
 async function loadCourses()    { return (_modCourses   ??= await import('./pages-courses.js')); }
@@ -459,7 +461,7 @@ const NAV = [
   { id: 'schedule-v2',        label: 'Schedule',          icon: '🗓️' },
   { id: 'assessments-v2',     label: 'Assessments',       icon: '◉' },
   { id: 'patients-v2',        label: 'Patients',          icon: '👥' },
-  { id: 'deeptwin',           label: 'Deeptwin',          icon: '🧠', ai: true },
+  { id: 'brain-twin',         label: 'Brain Twin',        icon: 'BT', ai: true },
   { id: 'monitor',            label: 'Monitor',           icon: '📡' },
   { id: 'mri-analysis',       label: 'MRI Analyzer',      icon: '🧠', ai: true },
 
@@ -872,7 +874,8 @@ const PAGE_TITLES = {
   'ai-note-assistant': 'AI Note Assistant',
   'intake': 'Patient Intake & Consent',
   'patient-profile': 'Patient Profile',
-  deeptwin: 'Deeptwin',
+  'brain-twin': 'Brain Twin',
+  deeptwin: 'Brain Twin',
   'pt-journal': 'Symptom Journal',
   'pt-notifications': 'Notification Settings',
   'pt-outcomes': 'My Progress',
@@ -1480,6 +1483,7 @@ async function renderPage() {
     case 'schedule-v2':        { const m = await loadClinicalHubs(); await m.pgSchedulingHub(setTopbar, navigate); break; }
     case 'assessments-v2':     { const m = await loadClinicalHubs(); await m.pgAssessmentsHub(setTopbar, navigate); break; }
     case 'patients-v2':        { const m = await loadClinicalHubs(); await m.pgPatientHub(setTopbar, navigate); break; }
+    case 'brain-twin':         { const m = await loadBrainTwin(); await m.pgBrainTwin(setTopbar, navigate); break; }
     case 'deeptwin':           { const m = await loadDeeptwin(); await m.pgDeeptwin(setTopbar, navigate); break; }
     case 'monitor':            { const m = await loadMonitor(); await m.pgMonitor(setTopbar, navigate); break; }
     case 'protocol-studio':    { const m = await loadClinicalHubs(); await m.pgProtocolHub(setTopbar, navigate); break; }

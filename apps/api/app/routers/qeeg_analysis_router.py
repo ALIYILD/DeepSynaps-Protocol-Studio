@@ -1320,29 +1320,53 @@ async def stream_analysis_events(
     """
     require_minimum_role(actor, "clinician")
 
-    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
-    if not analysis:
-        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
-
     async def event_generator():
         last_payload: str | None = None
         while True:
-            if await request.is_disconnected():
-                break
-            db.refresh(analysis)
-            payload = _analysis_status_payload(analysis).model_dump()
-            payload["analysis_id"] = analysis.id
-            payload["raw_status"] = analysis.analysis_status
-            encoded = json.dumps(payload)
+            # NOTE: Avoid `await request.is_disconnected()` here.
+            # In Starlette's TestClient streaming mode the disconnect awaitable can
+            # block indefinitely, which hangs unit tests. SSE generators are
+            # cancelled on client disconnect anyway.
+            # Streaming responses outlive the request dependency lifecycle, so
+            # we must not rely on the request-scoped DB session here.
+            from app.database import SessionLocal
+
+            session = SessionLocal()
+            try:
+                analysis = session.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+                if analysis is None:
+                    # Treat as terminal state so clients stop listening.
+                    encoded = json.dumps(
+                        {
+                            "analysis_id": analysis_id,
+                            "status": "failed",
+                            "step": None,
+                            "progress_pct": 0,
+                            "completed_analyses": 0,
+                            "total_analyses": 0,
+                            "error": "analysis_not_found",
+                            "analyzed_at": None,
+                            "raw_status": "failed",
+                        }
+                    )
+                    yield f"event: complete\ndata: {encoded}\n\n".encode("utf-8")
+                    break
+
+                payload = _analysis_status_payload(analysis).model_dump()
+                payload["analysis_id"] = analysis.id
+                payload["raw_status"] = analysis.analysis_status
+                encoded = json.dumps(payload)
+            finally:
+                session.close()
             if encoded != last_payload:
                 event_name = "complete" if payload["status"] in {"completed", "failed"} else "progress"
-                yield f"event: {event_name}\ndata: {encoded}\n\n"
+                yield f"event: {event_name}\ndata: {encoded}\n\n".encode("utf-8")
                 last_payload = encoded
                 if payload["status"] in {"completed", "failed"}:
                     break
             else:
                 heartbeat = json.dumps({"analysis_id": analysis.id, "type": "heartbeat"})
-                yield f"event: heartbeat\ndata: {heartbeat}\n\n"
+                yield f"event: heartbeat\ndata: {heartbeat}\n\n".encode("utf-8")
             await asyncio.sleep(2.0)
 
     return StreamingResponse(

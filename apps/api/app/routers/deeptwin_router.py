@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import importlib
+import os
+import uuid
+from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
@@ -11,8 +14,10 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import get_db_session
 from app.services.fusion_service import build_fusion_recommendation
+from app.services.neuromodulation_research import bundle_root_or_none, search_ranked_papers
 
 router = APIRouter(prefix="/api/v1/deeptwin", tags=["deeptwin"])
+brain_twin_router = APIRouter(prefix="/api/v1/brain-twin", tags=["brain-twin"])
 
 
 ModalityKey = Literal[
@@ -66,6 +71,26 @@ class DeeptwinSimulateResponse(BaseModel):
     horizon_days: int
     engine: dict[str, Any]
     outputs: dict[str, Any]
+
+
+class DeeptwinEvidenceRequest(BaseModel):
+    patient_id: str = Field(..., min_length=1)
+    question: str = Field(..., min_length=1)
+    modalities: list[ModalityKey] = Field(default_factory=list)
+    analysis_mode: AnalysisMode = "prediction"
+    ranking_mode: Literal["best", "clinical", "regulatory", "safety", "recent"] = "clinical"
+    limit: int = Field(8, ge=1, le=25)
+
+
+class DeeptwinEvidenceResponse(BaseModel):
+    patient_id: str
+    trace_id: str
+    index_snapshot_id: str | None = None
+    question: str
+    modalities: list[ModalityKey] = Field(default_factory=list)
+    analysis_mode: AnalysisMode
+    papers: list[dict[str, Any]] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
 
 
 def _safe_weights(
@@ -149,6 +174,15 @@ def deeptwin_analyze(
     return out
 
 
+@brain_twin_router.post("/analyze", response_model=DeeptwinAnalyzeResponse)
+def brain_twin_analyze(
+    payload: DeeptwinAnalyzeRequest,
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> DeeptwinAnalyzeResponse:
+    return deeptwin_analyze(payload=payload, _actor=_actor, session=session)
+
+
 @router.post("/simulate", response_model=DeeptwinSimulateResponse)
 def deeptwin_simulate(
     payload: DeeptwinSimulateRequest,
@@ -187,5 +221,68 @@ def deeptwin_simulate(
         horizon_days=payload.horizon_days,
         engine={"name": "stub", "status": "ok"},
         outputs={"timecourse": curve},
+    )
+
+
+@brain_twin_router.post("/simulate", response_model=DeeptwinSimulateResponse)
+def brain_twin_simulate(
+    payload: DeeptwinSimulateRequest,
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> DeeptwinSimulateResponse:
+    return deeptwin_simulate(payload=payload, _actor=_actor)
+
+
+def _snapshot_id_for_research_bundle() -> str | None:
+    root = bundle_root_or_none()
+    if root is None:
+        return None
+    manifest = Path(root) / "research_bundle_manifest.json"
+    if not manifest.exists():
+        return None
+    st = manifest.stat()
+    return f"neuromodulation_bundle:{st.st_mtime_ns}:{st.st_size}"
+
+
+@router.post("/evidence", response_model=DeeptwinEvidenceResponse)
+def deeptwin_evidence(
+    payload: DeeptwinEvidenceRequest,
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> DeeptwinEvidenceResponse:
+    trace_id = str(uuid.uuid4())
+    snap = _snapshot_id_for_research_bundle()
+
+    notes: list[str] = [
+        "Evidence results are decision-support context only; they do not directly change predictions at runtime.",
+        "Citations must be reviewed by a clinician before being used in care decisions.",
+    ]
+    if snap is None:
+        notes.append(
+            "Neuromodulation research bundle not found. Set DEEPSYNAPS_NEUROMODULATION_RESEARCH_BUNDLE_ROOT to enable 87k-paper evidence search."
+        )
+        return DeeptwinEvidenceResponse(
+            patient_id=payload.patient_id,
+            trace_id=trace_id,
+            index_snapshot_id=None,
+            question=payload.question,
+            modalities=payload.modalities,
+            analysis_mode=payload.analysis_mode,
+            papers=[],
+            notes=notes,
+        )
+
+    q = (payload.question or "").strip()
+    # v1: query only by free-text + ranking mode. Future: infer modality/indication filters from patient context.
+    papers = search_ranked_papers(q=q, ranking_mode=payload.ranking_mode, limit=payload.limit)
+
+    # PHI boundary: this endpoint returns research metadata only; no patient identifiers beyond patient_id echo.
+    return DeeptwinEvidenceResponse(
+        patient_id=payload.patient_id,
+        trace_id=trace_id,
+        index_snapshot_id=snap,
+        question=q,
+        modalities=payload.modalities,
+        analysis_mode=payload.analysis_mode,
+        papers=papers,
+        notes=notes,
     )
 
