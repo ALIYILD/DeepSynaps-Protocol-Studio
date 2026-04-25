@@ -98,6 +98,25 @@ To configure for your repos:
 3. Adjust `prompts/review-item.md` if your scope anchor differs from `docs/SCOPE.md`
 4. Set GitHub secrets: `DEEPSWEEPER_GITHUB_TOKEN` (PAT with repo + issues + pull-requests scope) and `DEEPSWEEPER_OPENAI_API_KEY`
 
+## GitHub Actions in this repo
+
+The runnable root workflows are:
+
+- `.github/workflows/deepsweeper-sweep.yml` - scheduled/manual sweep runner
+- `.github/workflows/deepsweeper-validate.yml` - build/test/check validation for the vendored tool
+
+Recommended first run:
+
+```text
+workflow_dispatch
+target_repo=deepsynaps/studio
+apply_closures=false
+apply_existing=false
+```
+
+Start with a dry review-only run on one repo, inspect `tools/deepsweeper/items/`,
+then enable `apply_closures` only after the outputs look correct.
+
 ## Differences from upstream ClawSweeper
 
 See [docs/DIFF_FROM_CLAWSWEEPER.md](docs/DIFF_FROM_CLAWSWEEPER.md). Headlines:

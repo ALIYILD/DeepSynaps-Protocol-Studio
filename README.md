@@ -77,6 +77,18 @@ Run the frontend:
 npm run dev:web
 ```
 
+## DeepSweeper Ops
+
+The vendored maintainer bot lives in `tools/deepsweeper`.
+
+Key workflows:
+- `.github/workflows/deepsweeper-validate.yml`
+- `.github/workflows/deepsweeper-sweep.yml`
+
+Required GitHub secrets for live sweeps:
+- `DEEPSWEEPER_GITHUB_TOKEN`
+- `DEEPSWEEPER_OPENAI_API_KEY`
+
 ## Verified fallback workflow in this environment
 Backend tests:
 

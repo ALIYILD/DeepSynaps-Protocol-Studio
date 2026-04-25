@@ -2658,10 +2658,12 @@ function statusCommand(args: Args): void {
   writeFileSync(readmePath, updated, "utf8");
 }
 
-function listReposCommand(): void {
+function listReposCommand(args: Args): void {
+  const filter = stringArg(args.filter ?? args.target_repo, "");
+  const repos = selectRepos(TARGET_CONFIG, filter || undefined);
   console.log(
     JSON.stringify(
-      TARGET_CONFIG.repos.map((repo) => ({
+      repos.map((repo) => ({
         repo: `${repo.owner}/${repo.name}`,
         description: repo.description,
         apply_closures: repo.applyClosures,
@@ -2692,7 +2694,7 @@ function checkCommand(): void {
 
 const args = parseArgs(process.argv.slice(2));
 const command = args._[0] ?? "review";
-if (command === "list-repos") listReposCommand();
+if (command === "list-repos") listReposCommand(args);
 else if (command === "plan") planCommand(args);
 else if (command === "review") reviewCommand(args);
 else if (command === "apply-artifacts") applyArtifactsCommand(args);

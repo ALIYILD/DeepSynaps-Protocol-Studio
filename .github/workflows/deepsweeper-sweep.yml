@@ -1,0 +1,192 @@
+name: DeepSweeper Sweep
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: "owner/name to sweep, empty = all configured repos"
+        required: false
+        default: ""
+      apply_closures:
+        description: "Apply close decisions after review"
+        required: false
+        default: "false"
+      apply_existing:
+        description: "Apply existing proposed decisions without a new review pass"
+        required: false
+        default: "false"
+      apply_limit:
+        description: "Maximum closes per repo"
+        required: false
+        default: "20"
+      apply_min_age_days:
+        description: "Minimum item age before apply"
+        required: false
+        default: "14"
+      apply_kind:
+        description: "issue | pull_request | all"
+        required: false
+        default: "issue"
+      batch_size:
+        description: "Items per review batch"
+        required: false
+        default: "5"
+      codex_timeout_ms:
+        description: "Per-item Codex timeout"
+        required: false
+        default: "600000"
+  schedule:
+    - cron: "17 6 * * *"
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: deepsweeper-sweep
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ secrets.DEEPSWEEPER_GITHUB_TOKEN }}
+  OPENAI_API_KEY: ${{ secrets.DEEPSWEEPER_OPENAI_API_KEY }}
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: tools/deepsweeper/package-lock.json
+
+      - name: Install DeepSweeper dependencies
+        working-directory: tools/deepsweeper
+        run: npm ci
+
+      - name: Build DeepSweeper
+        working-directory: tools/deepsweeper
+        run: npm run build
+
+      - name: Validate vendored tool
+        working-directory: tools/deepsweeper
+        run: |
+          npm test
+          npm run verify-audit
+          node dist/deepsweeper.js check
+
+      - name: Install Codex CLI
+        if: ${{ github.event.inputs.apply_existing != 'true' }}
+        run: npm install -g @openai/codex@latest --prefer-offline
+
+      - name: Sweep configured repos
+        shell: bash
+        env:
+          TARGET_REPO_INPUT: ${{ github.event.inputs.target_repo || '' }}
+          APPLY_CLOSURES: ${{ github.event.inputs.apply_closures || 'false' }}
+          APPLY_EXISTING: ${{ github.event.inputs.apply_existing || 'false' }}
+          APPLY_LIMIT: ${{ github.event.inputs.apply_limit || '20' }}
+          APPLY_MIN_AGE_DAYS: ${{ github.event.inputs.apply_min_age_days || '14' }}
+          APPLY_KIND: ${{ github.event.inputs.apply_kind || 'issue' }}
+          BATCH_SIZE: ${{ github.event.inputs.batch_size || '5' }}
+          CODEX_TIMEOUT_MS: ${{ github.event.inputs.codex_timeout_ms || '600000' }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "DEEPSWEEPER_GITHUB_TOKEN is required." >&2
+            exit 1
+          fi
+
+          if [[ "${APPLY_EXISTING}" != "true" && -z "${OPENAI_API_KEY:-}" ]]; then
+            echo "DEEPSWEEPER_OPENAI_API_KEY is required for review runs." >&2
+            exit 1
+          fi
+
+          cd tools/deepsweeper
+          repo_json="$(node dist/deepsweeper.js list-repos)"
+          mapfile -t repos < <(
+            JSON_INPUT="${repo_json}" TARGET_REPO_INPUT="${TARGET_REPO_INPUT}" node -e '
+              const input = process.env.JSON_INPUT || "[]";
+              const filter = process.env.TARGET_REPO_INPUT || "";
+              const repos = JSON.parse(input);
+              for (const repo of repos) {
+                if (!filter || repo.repo === filter) {
+                  console.log(repo.repo);
+                }
+              }
+            '
+          )
+
+          if [[ "${#repos[@]}" -eq 0 ]]; then
+            echo "No repos selected for sweep." >&2
+            exit 1
+          fi
+
+          mkdir -p "${RUNNER_TEMP}/deepsweeper-targets" "${RUNNER_TEMP}/deepsweeper-artifacts"
+
+          for repo in "${repos[@]}"; do
+            slug="${repo/\//__}"
+            target_dir="${RUNNER_TEMP}/deepsweeper-targets/${slug}"
+            artifact_dir="${RUNNER_TEMP}/deepsweeper-artifacts/${slug}"
+
+            rm -rf "${target_dir}" "${artifact_dir}"
+            mkdir -p "${artifact_dir}"
+
+            git clone --depth 50 "https://x-access-token:${GH_TOKEN}@github.com/${repo}.git" "${target_dir}"
+
+            if [[ "${APPLY_EXISTING}" != "true" ]]; then
+              node dist/deepsweeper.js plan \
+                --repo "${repo}" \
+                --batch-size "${BATCH_SIZE}" \
+                --shard-count "1" > "${artifact_dir}/plan.json"
+
+              item_numbers="$(
+                node -e '
+                  const fs = require("node:fs");
+                  const plan = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+                  process.stdout.write(plan.matrix?.[0]?.item_numbers || "none");
+                ' "${artifact_dir}/plan.json"
+              )"
+
+              if [[ "${item_numbers}" != "none" ]]; then
+                node dist/deepsweeper.js review \
+                  --repo "${repo}" \
+                  --target-dir "${target_dir}" \
+                  --artifact-dir "${artifact_dir}" \
+                  --batch-size "${BATCH_SIZE}" \
+                  --codex-timeout-ms "${CODEX_TIMEOUT_MS}" \
+                  --item-numbers "${item_numbers}" \
+                  --readonly-target true \
+                  --shard-index "0" \
+                  --shard-count "1"
+              fi
+
+              node dist/deepsweeper.js apply-artifacts \
+                --repo "${repo}" \
+                --artifact-dir "${artifact_dir}"
+            fi
+
+            if [[ "${APPLY_CLOSURES}" == "true" || "${APPLY_EXISTING}" == "true" ]]; then
+              node dist/deepsweeper.js apply-decisions \
+                --repo "${repo}" \
+                --limit "${APPLY_LIMIT}" \
+                --min-age-days "${APPLY_MIN_AGE_DAYS}" \
+                --apply-kind "${APPLY_KIND}"
+            fi
+          done
+
+          node dist/deepsweeper.js verify-audit
+
+      - name: Commit DeepSweeper artifacts
+        run: |
+          git config user.name "deepsweeper-bot"
+          git config user.email "bot@deepsynaps.com"
+          git add tools/deepsweeper/items tools/deepsweeper/closed tools/deepsweeper/audit-log.ndjson
+          git commit -m "chore(deepsweeper): refresh sweep artifacts" || echo "nothing to commit"
+          git push
