@@ -36,6 +36,10 @@ SOURCE_PATHS = [
     # guards that), but making the path visible lets the façade load
     # schemas without pip-installing the package.
     REPO_ROOT / "packages" / "mri-pipeline" / "src",
+    # Evidence Citation Validator package (migration 045).
+    REPO_ROOT / "packages" / "evidence" / "src",
+    # QA package — protocol quality checks (may be added by parallel session).
+    REPO_ROOT / "packages" / "qa" / "src",
 ]
 
 for source_path in SOURCE_PATHS:

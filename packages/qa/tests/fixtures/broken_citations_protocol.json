@@ -1,0 +1,21 @@
+{
+  "artifact_id": "broken:citations:001",
+  "artifact_type": "protocol_draft",
+  "content": "This protocol draft has zero citations to test citation validation. Confidence level is moderate.",
+  "metadata": {},
+  "sections": [
+    {"section_id": "clinical_rationale", "body": "The clinical rationale for this neurostimulation protocol is based on convergent evidence from quantitative EEG studies demonstrating frontal hypoactivation patterns in attention-deficit presentations."},
+    {"section_id": "target_population_criteria", "body": "This protocol is indicated for adults aged 18-65 years with diagnosed attention deficit conditions confirmed by comprehensive neuropsychological assessment."},
+    {"section_id": "exclusion_criteria", "body": "Exclusion criteria include history of seizure disorder, intracranial metallic implants, and active substance use disorder within the past 6 months."},
+    {"section_id": "contraindications", "body": "Absolute contraindications include active seizure disorder, intracranial metallic hardware, and implanted electrical devices."},
+    {"section_id": "safety_notes", "body": "Safety monitoring includes pre-session screening, continuous observation during stimulation, and post-session adverse event assessment."},
+    {"section_id": "session_parameters", "body": "Current intensity: 2 mA. Stimulation duration: 20 min. Session frequency: 3 per week. Total sessions: 15."},
+    {"section_id": "outcome_measures", "body": "Primary outcome is change in theta/beta ratio at Fz measured by qEEG at baseline and post-treatment."},
+    {"section_id": "monitoring_plan", "body": "Pre-session vital signs, real-time impedance monitoring, post-session adverse event assessment."},
+    {"section_id": "informed_consent_reference", "body": "Written informed consent required using approved consent document prior to enrollment."},
+    {"section_id": "evidence_summary", "body": "Evidence supports frontal tDCS for attention conditions based on multiple trials with moderate effect sizes."},
+    {"section_id": "limitations", "body": "The evidence base is primarily derived from small-sample studies with limited long-term follow-up data."}
+  ],
+  "citations": [],
+  "schema_ref": "protocol_draft.json"
+}

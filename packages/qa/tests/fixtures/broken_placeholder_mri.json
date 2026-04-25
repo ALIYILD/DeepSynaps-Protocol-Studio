@@ -1,0 +1,26 @@
+{
+  "artifact_id": "broken:placeholder:001",
+  "artifact_type": "mri_report",
+  "content": "This MRI report contains placeholder text. Confidence level is moderate.",
+  "metadata": {
+    "field_strength": 3.0,
+    "sequence": "T1-MPRAGE",
+    "voxel_size": "1x1x1mm"
+  },
+  "sections": [
+    {"section_id": "patient_demographics", "body": "Patient is a 45-year-old individual referred for structural neuroimaging. No contraindications identified. Clinical indication is evaluation of cognitive complaints."},
+    {"section_id": "acquisition_parameters", "body": "MRI performed on 3.0 Tesla scanner. T1-weighted MPRAGE acquired with standard parameters. Quality assessment confirms adequate signal-to-noise ratio."},
+    {"section_id": "structural_findings", "body": "Cortical gray matter demonstrates normal gyral and sulcal patterns. No mass lesion or hemorrhage identified."},
+    {"section_id": "volumetric_summary", "body": "Total brain volume within normal limits for age and sex. Regional volumes all within expected ranges."},
+    {"section_id": "white_matter_assessment", "body": "No focal white matter signal abnormalities on FLAIR sequences. White matter architecture appears intact."},
+    {"section_id": "impression", "body": "TODO: complete after radiologist review. The preliminary findings suggest normal anatomy but this needs final verification."},
+    {"section_id": "recommendations", "body": "TBD - pending radiologist input on follow-up recommendations. [PLACEHOLDER] for clinical integration notes."},
+    {"section_id": "radiologist_attestation", "body": "This report has been reviewed by a board-certified neuroradiologist. All findings represent professional opinion based on imaging data."}
+  ],
+  "citations": [
+    {"pmid": "22019881", "title": "FreeSurfer volumetric analysis", "authors": "Fischl B", "year": 2012},
+    {"pmid": "23684127", "title": "Normal brain aging MRI data", "authors": "Hedman AM et al", "year": 2012},
+    {"pmid": "28432144", "title": "Hippocampal volume norms", "authors": "Nobis L et al", "year": 2019}
+  ],
+  "schema_ref": "mri_report.json"
+}

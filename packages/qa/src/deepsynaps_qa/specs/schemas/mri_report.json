@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deepsynaps.com/schemas/mri_report.json",
+  "title": "MRI Report",
+  "description": "Schema for MRI report artifacts subject to QA scoring.",
+  "type": "object",
+  "required": [
+    "artifact_id",
+    "artifact_type",
+    "sections",
+    "citations"
+  ],
+  "properties": {
+    "artifact_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifact_type": {
+      "type": "string",
+      "const": "mri_report"
+    },
+    "content": {
+      "type": "string"
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "field_strength": { "type": "number" },
+        "sequence": { "type": "string" },
+        "voxel_size": { "type": "string" }
+      }
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["section_id"],
+        "properties": {
+          "section_id": { "type": "string" },
+          "body": { "type": "string" }
+        }
+      }
+    },
+    "citations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "pmid": { "type": "string", "pattern": "^\\d{7,8}$" },
+          "doi": { "type": "string" },
+          "title": { "type": "string" }
+        }
+      }
+    },
+    "schema_ref": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

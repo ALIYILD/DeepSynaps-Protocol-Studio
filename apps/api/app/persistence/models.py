@@ -44,6 +44,17 @@ def _embedding_column() -> Column:
     return Column(Text(), nullable=True)
 
 
+def _embedding_column_1536() -> Column:
+    """Build a ``vector(1536)`` column for OpenAI text-embedding-3-small.
+
+    Used by :class:`DsPaper` (Evidence Citation Validator, migration 045).
+    Falls back to ``Text()`` on SQLite / when pgvector is missing.
+    """
+    if _HAS_PGVECTOR:
+        return Column(_PgVector(1536), nullable=True)
+    return Column(Text(), nullable=True)
+
+
 class AuditEventRecord(Base):
     __tablename__ = "audit_events"
 
@@ -1996,3 +2007,99 @@ class RiskStratificationAudit(Base):
     trigger: Mapped[str] = mapped_column(String(60), nullable=False)  # assessment_completed, medication_added, manual_override, etc.
     actor_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+# ── Evidence Citation Validator Models (migration 045) ────────────────────────
+#
+# Implements the pgvector-backed literature corpus, claim-citation linkage,
+# hash-chained grounding audit trail, and hypergraph edge citation enrichment
+# defined in ``evidence_citation_validator.md``.
+
+
+class DsPaper(Base):
+    """One row per ingested paper in the 87,654-paper evidence corpus.
+
+    Canonical deduplication key is ``pmid``; ``doi`` is the fallback.
+    The ``embedding`` column holds OpenAI text-embedding-3-small (1536-dim)
+    vectors on Postgres; degrades to Text on SQLite.
+    """
+    __tablename__ = "ds_papers"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    pmid: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, unique=True, index=True)
+    doi: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True, index=True)
+    openalex_id: Mapped[Optional[str]] = mapped_column(String(60), nullable=True, unique=True)
+    title: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    abstract: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    year: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True, index=True)
+    journal: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    authors_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    pub_types_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    cited_by_count: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    is_oa: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    oa_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    sources_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    evidence_type: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
+    evidence_level: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    grade: Mapped[Optional[str]] = mapped_column(String(1), nullable=True)
+    retracted: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    retraction_doi: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    embedding_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    embedding = _embedding_column_1536()
+    ingested_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    refreshed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class DsClaimCitation(Base):
+    """Links a validated clinical claim to one or more papers."""
+    __tablename__ = "ds_claim_citations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    claim_text: Mapped[str] = mapped_column(Text(), nullable=False)
+    claim_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    paper_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("ds_papers.id", ondelete="SET NULL"), nullable=True, index=True)
+    citation_type: Mapped[str] = mapped_column(String(20), nullable=False, default="supports")
+    relevance_score: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    evidence_grade: Mapped[Optional[str]] = mapped_column(String(1), nullable=True)
+    supporting_quote: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    confidence: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    validation_status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
+    issues_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    actor_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    validator_version: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class DsGroundingAudit(Base):
+    """Append-only, hash-chained audit log for grounding decisions.
+
+    No UPDATE or DELETE permitted; tamper evidence via SHA-256 chain.
+    """
+    __tablename__ = "ds_grounding_audit"
+
+    id: Mapped[int] = mapped_column(Integer(), primary_key=True, autoincrement=True)
+    event_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(60), nullable=False)
+    study_identifier: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
+    claim_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    decision: Mapped[str] = mapped_column(String(20), nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    confidence: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    decided_by: Mapped[str] = mapped_column(String(64), nullable=False, default="system")
+    prev_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    row_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
+class DsHgEdgeCitation(Base):
+    """Links a KG hyperedge to a validated claim citation for provenance."""
+    __tablename__ = "ds_hg_edge_citations"
+    __table_args__ = (
+        UniqueConstraint("edge_id", "citation_id", name="uq_edge_citation"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    edge_id: Mapped[int] = mapped_column(Integer(), ForeignKey("kg_hyperedges.edge_id", ondelete="CASCADE"), nullable=False, index=True)
+    citation_id: Mapped[str] = mapped_column(String(36), ForeignKey("ds_claim_citations.id", ondelete="CASCADE"), nullable=False, index=True)
+    enriched_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, default=lambda: datetime.now(timezone.utc))

@@ -1,0 +1,21 @@
+{
+  "artifact_id": "broken:redaction:001",
+  "artifact_type": "brain_twin_summary",
+  "content": "Brain Twin summary for patient John Smith, born January 15, 1980. Contact: john.smith@email.com, phone 555-123-4567. For clinical decision support only. Not a substitute for professional judgment. Confidence level is moderate.",
+  "metadata": {
+    "subject_profile_hash": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"
+  },
+  "sections": [
+    {"section_id": "subject_profile_hash", "body": "Subject hash: a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2. However the patient name John Smith appears in the raw data."},
+    {"section_id": "baseline_metrics", "body": "Baseline neurophysiological metrics for patient John Smith: Peak alpha 9.8 Hz. Frontal theta/beta ratio 3.2 (elevated)."},
+    {"section_id": "key_findings", "body": "Key findings for Mr. Smith include elevated frontal theta and reduced alpha coherence consistent with attention-related profiles. His date of birth January 15, 1980 was used for normative comparison."},
+    {"section_id": "confidence_summary", "body": "Confidence tier: moderate. Based on adequate data quality and supporting citations."},
+    {"section_id": "advisory_notice", "body": "For clinical decision support only. Not a substitute for professional judgment."},
+    {"section_id": "data_provenance", "body": "Data from 19-channel qEEG recording performed at City Hospital for patient John Smith (MRN: 12345678)."}
+  ],
+  "citations": [
+    {"pmid": "19207632", "title": "Quantitative EEG in ADHD", "authors": "Snyder SM", "year": 2006},
+    {"pmid": "21438734", "title": "EEG coherence in ADHD", "authors": "Barry RJ", "year": 2011}
+  ],
+  "schema_ref": "brain_twin_summary.json"
+}

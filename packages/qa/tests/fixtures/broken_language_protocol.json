@@ -1,0 +1,27 @@
+{
+  "artifact_id": "broken:language:001",
+  "artifact_type": "protocol_draft",
+  "content": "This protocol guarantees recovery and cures all attention deficit conditions. The treatment is proven to work with 100% effectiveness and definitively resolves all symptoms.",
+  "metadata": {},
+  "sections": [
+    {"section_id": "clinical_rationale", "body": "This approach is proven to cure attention deficit. It guarantees complete recovery in all patients. The treatment definitively resolves symptoms with 100% success rate. No other intervention is needed."},
+    {"section_id": "target_population_criteria", "body": "All adults with any attention complaints regardless of assessment results are eligible for this protocol."},
+    {"section_id": "exclusion_criteria", "body": "No exclusion criteria. History of seizures is not a concern. Metallic implants are acceptable. Active substance use is permitted."},
+    {"section_id": "contraindications", "body": "There are no contraindications for this treatment approach as it is completely safe."},
+    {"section_id": "safety_notes", "body": "No safety monitoring needed as the treatment has no side effects and is guaranteed to be safe."},
+    {"section_id": "session_parameters", "body": "Apply stimulation at maximum intensity for maximum duration. No specific parameters needed."},
+    {"section_id": "outcome_measures", "body": "All patients will show improvement as the treatment cures the condition."},
+    {"section_id": "monitoring_plan", "body": "No monitoring needed as treatment is guaranteed safe."},
+    {"section_id": "informed_consent_reference", "body": "Consent obtained verbally. No written documentation needed."},
+    {"section_id": "evidence_summary", "body": "Treatment is proven effective."},
+    {"section_id": "limitations", "body": "There are no limitations as this protocol cures all cases."}
+  ],
+  "citations": [
+    {"pmid": "26209472", "title": "tDCS for ADHD", "authors": "Salehinejad MA et al", "year": 2020},
+    {"pmid": "31676132", "title": "Effects of tDCS on attention", "authors": "Cachoeira CT et al", "year": 2017},
+    {"pmid": "25446785", "title": "tDCS modulates theta", "authors": "Brunoni AR et al", "year": 2014},
+    {"pmid": "30850700", "title": "Frontal theta activity", "authors": "Cavanagh JF", "year": 2014},
+    {"pmid": "29191459", "title": "Safety of tDCS", "authors": "Bikson M et al", "year": 2016}
+  ],
+  "schema_ref": "protocol_draft.json"
+}

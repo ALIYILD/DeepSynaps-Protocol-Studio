@@ -1,0 +1,24 @@
+{
+  "artifact_id": "broken:sections:001",
+  "artifact_type": "qeeg_narrative",
+  "content": "This qEEG narrative report has the clinical impression section removed entirely to test section validation. The confidence level is moderate.",
+  "metadata": {},
+  "sections": [
+    {"section_id": "patient_demographics", "body": "Patient is a 34-year-old individual presenting for quantitative EEG assessment. No history of seizure disorder. Current medications include sertraline 50mg daily. Previous neuroimaging unremarkable. Referred by treating psychiatrist for evaluation of attention difficulties."},
+    {"section_id": "recording_conditions", "body": "Recording performed using 19-channel international 10-20 system montage with linked-ear reference. Impedances maintained below 5 kOhm throughout recording. Eyes-closed resting state condition for 20 minutes. Sampling rate 256 Hz."},
+    {"section_id": "spectral_analysis", "body": "Absolute power analysis reveals elevated theta (4-8 Hz) activity in frontal leads exceeding 1.5 standard deviations above normative database values. Alpha (8-12 Hz) power is reduced in posterior regions. Beta and delta activity are within normal limits."},
+    {"section_id": "coherence_findings", "body": "Interhemispheric coherence analysis reveals reduced alpha-band coherence between homologous frontal electrode pairs. Theta-band coherence is elevated in frontocentral regions suggesting increased slow-wave synchronization."},
+    {"section_id": "connectivity_summary", "body": "Graph-theoretic analysis reveals reduced global efficiency in the alpha band network. Default mode network nodes show decreased connectivity strength. Small-world network properties are preserved."},
+    {"section_id": "differential_considerations", "body": "Alternative explanations include anxiety disorders which can produce similar frontal theta elevations and coherence changes. Medication effects from SSRI therapy may influence spectral power distributions."},
+    {"section_id": "recommendations", "body": "Consider neurofeedback protocol targeting theta suppression and beta enhancement at frontal sites. Repeat qEEG assessment after intervention. Integrate with neuropsychological testing results. Confidence level is indicative."},
+    {"section_id": "limitations_and_caveats", "body": "Based on a single recording session. State-dependent factors may influence findings. The normative database may not fully account for all demographic variables. qEEG measures should not be interpreted as diagnostic in isolation."}
+  ],
+  "citations": [
+    {"pmid": "15907390", "title": "EEG phenotypes predict treatment outcome", "authors": "Suffin SC", "year": 2005},
+    {"pmid": "23994199", "title": "EEG-Neurofeedback for ADHD", "authors": "Arnold LE et al", "year": 2013},
+    {"pmid": "19207632", "title": "Quantitative EEG in ADHD", "authors": "Snyder SM, Hall JR", "year": 2006},
+    {"pmid": "21438734", "title": "EEG coherence in ADHD", "authors": "Barry RJ et al", "year": 2011},
+    {"pmid": "30850700", "title": "Frontal theta activity", "authors": "Cavanagh JF, Frank MJ", "year": 2014}
+  ],
+  "schema_ref": "qeeg_narrative.json"
+}
