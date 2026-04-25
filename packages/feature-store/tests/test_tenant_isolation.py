@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from deepsynaps_features.serve import fetch_patient_features
-from deepsynaps_features.streaming.workers import redis_key
+from deepsynaps_features.streaming.keys import redis_key
 
 
 class _FakeRedis:

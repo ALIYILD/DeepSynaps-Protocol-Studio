@@ -107,6 +107,7 @@ from app.routers.mri_analysis_router import router as mri_analysis_router
 from app.routers.admin_pgvector_router import router as admin_pgvector_router
 from app.routers.fusion_router import router as fusion_router
 from app.routers.monitor_router import router as monitor_router
+from app.routers.feature_store_router import router as feature_store_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.audit import get_audit_trail
@@ -215,6 +216,7 @@ app.include_router(mri_analysis_router)
 app.include_router(fusion_router)
 app.include_router(monitor_router)
 app.include_router(admin_pgvector_router)
+app.include_router(feature_store_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

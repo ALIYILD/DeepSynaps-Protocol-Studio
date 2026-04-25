@@ -25,7 +25,24 @@ class FeatureEvent(BaseModel):
     payload: MutableMapping[str, Any] = Field(default_factory=dict)
 
 
-FeatureSetName = Literal["full", "qeeg", "wearable", "assessment", "therapy", "mri", "video", "audio", "ehr", "outcome"]
+FeatureSetName = Literal[
+    "full",
+    "core",
+    "qeeg",
+    "imaging",
+    "virtual_care",
+    "ehr",
+    "outcomes",
+    "wearable",
+    "assessment",
+    "therapy",
+    "mri",
+    "video",
+    "audio",
+    "outcome",
+    # App-specific named sets used by Layers 3–4. These must resolve to group lists in serve.py.
+    "qeeg_recommend_protocol_v1",
+]
 
 
 class FeatureEnvelope(BaseModel):
@@ -36,6 +53,7 @@ class FeatureEnvelope(BaseModel):
     tenant_id: str
     patient_id: str
     feature_set: FeatureSetName = "full"
+    feature_set_version: str = Field(default="2026-04-25")
     generated_at: datetime = Field(default_factory=utc_now)
     occurred_at: Optional[datetime] = None
     source: Literal["redis"] = "redis"
