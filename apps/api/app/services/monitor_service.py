@@ -10,11 +10,58 @@ from app.persistence.models import DeviceConnection, OutcomeEvent, Patient, Wear
 LIVE_STREAM_INTERVAL_SECONDS = 15
 
 CONNECTOR_CATALOG = (
-    {"id": "apple_healthkit", "display_name": "Apple HealthKit", "kind": "wearable", "auth_method": "oauth2"},
-    {"id": "epic_fhir", "display_name": "Epic (FHIR R4)", "kind": "ehr", "auth_method": "smart_on_fhir"},
-    {"id": "flow_tdcs", "display_name": "Flow Neuroscience tDCS", "kind": "home_device", "auth_method": "api_key"},
-    {"id": "native_prom", "display_name": "DeepSynaps PWA e-diary", "kind": "prom", "auth_method": "none"},
-    {"id": "twilio_sms", "display_name": "Twilio SMS", "kind": "messaging", "auth_method": "api_key"},
+    # ── EHR / EMR ─────────────────────────────────────────────────────────────
+    {"id": "epic_fhir",         "display_name": "Epic (FHIR R4)",             "kind": "ehr", "auth_method": "smart_on_fhir"},
+    {"id": "cerner_oracle",     "display_name": "Cerner / Oracle Health",     "kind": "ehr", "auth_method": "smart_on_fhir"},
+    {"id": "athenahealth",      "display_name": "Athenahealth",               "kind": "ehr", "auth_method": "oauth2"},
+    {"id": "allscripts",        "display_name": "Allscripts Veradigm",        "kind": "ehr", "auth_method": "oauth2"},
+    {"id": "eclinicalworks",    "display_name": "eClinicalWorks",             "kind": "ehr", "auth_method": "api_key"},
+    {"id": "drchrono",          "display_name": "DrChrono",                   "kind": "ehr", "auth_method": "oauth2"},
+    {"id": "practice_fusion",   "display_name": "Practice Fusion",            "kind": "ehr", "auth_method": "oauth2"},
+    {"id": "kareo_clinical",    "display_name": "Kareo Clinical",             "kind": "ehr", "auth_method": "api_key"},
+    # ── Wearable / Biometrics ─────────────────────────────────────────────────
+    {"id": "apple_healthkit",   "display_name": "Apple HealthKit",            "kind": "wearable", "auth_method": "oauth2"},
+    {"id": "google_health",     "display_name": "Google Health Connect",      "kind": "wearable", "auth_method": "oauth2"},
+    {"id": "fitbit",            "display_name": "Fitbit",                     "kind": "wearable", "auth_method": "oauth2"},
+    {"id": "garmin_connect",    "display_name": "Garmin Connect",             "kind": "wearable", "auth_method": "oauth2"},
+    {"id": "oura_ring",         "display_name": "Oura Ring",                  "kind": "wearable", "auth_method": "oauth2"},
+    {"id": "whoop",             "display_name": "WHOOP",                      "kind": "wearable", "auth_method": "oauth2"},
+    {"id": "polar",             "display_name": "Polar",                      "kind": "wearable", "auth_method": "oauth2"},
+    {"id": "samsung_health",    "display_name": "Samsung Health",             "kind": "wearable", "auth_method": "oauth2"},
+    {"id": "biostrap",          "display_name": "Biostrap",                   "kind": "wearable", "auth_method": "api_key"},
+    {"id": "withings",          "display_name": "Withings Health Mate",       "kind": "wearable", "auth_method": "oauth2"},
+    # ── Home-use neuromodulation devices ──────────────────────────────────────
+    {"id": "flow_tdcs",         "display_name": "Flow Neuroscience tDCS",     "kind": "home_device", "auth_method": "api_key"},
+    {"id": "fisher_wallace",    "display_name": "Fisher Wallace Stimulator",  "kind": "home_device", "auth_method": "api_key"},
+    {"id": "soterix_medical",   "display_name": "Soterix Medical tDCS",       "kind": "home_device", "auth_method": "api_key"},
+    {"id": "neuroelectrics",    "display_name": "Neuroelectrics Starstim",    "kind": "home_device", "auth_method": "api_key"},
+    {"id": "brainpatch",        "display_name": "BrainPatch",                 "kind": "home_device", "auth_method": "api_key"},
+    {"id": "neurostyle",        "display_name": "NeuroStyle Home tES",        "kind": "home_device", "auth_method": "api_key"},
+    # ── Brain monitoring / EEG headsets ───────────────────────────────────────
+    {"id": "muse_interaxon",    "display_name": "Muse (InteraXon)",           "kind": "brain_monitor", "auth_method": "bluetooth"},
+    {"id": "emotiv_epoc",       "display_name": "Emotiv EPOC",               "kind": "brain_monitor", "auth_method": "api_key"},
+    {"id": "neurosky",          "display_name": "NeuroSky MindWave",          "kind": "brain_monitor", "auth_method": "bluetooth"},
+    {"id": "openbci",           "display_name": "OpenBCI Cyton",              "kind": "brain_monitor", "auth_method": "api_key"},
+    {"id": "neurosity_crown",   "display_name": "Neurosity Crown",            "kind": "brain_monitor", "auth_method": "oauth2"},
+    # ── PROM / Patient-reported outcomes ──────────────────────────────────────
+    {"id": "native_prom",       "display_name": "DeepSynaps PWA e-diary",     "kind": "prom", "auth_method": "none"},
+    {"id": "redcap",            "display_name": "REDCap",                     "kind": "prom", "auth_method": "api_key"},
+    {"id": "qualtrics",         "display_name": "Qualtrics",                  "kind": "prom", "auth_method": "api_key"},
+    # ── Messaging / Communication ─────────────────────────────────────────────
+    {"id": "twilio_sms",        "display_name": "Twilio SMS",                 "kind": "messaging", "auth_method": "api_key"},
+    {"id": "sendgrid_email",    "display_name": "SendGrid Email",             "kind": "messaging", "auth_method": "api_key"},
+    # ── Lab / Diagnostics ─────────────────────────────────────────────────────
+    {"id": "quest_diagnostics", "display_name": "Quest Diagnostics",          "kind": "lab", "auth_method": "api_key"},
+    {"id": "labcorp",           "display_name": "LabCorp",                    "kind": "lab", "auth_method": "api_key"},
+    # ── Pharmacy ──────────────────────────────────────────────────────────────
+    {"id": "surescripts",       "display_name": "Surescripts e-Prescribing",  "kind": "pharmacy", "auth_method": "api_key"},
+    {"id": "pillpack",          "display_name": "PillPack (Amazon Pharmacy)", "kind": "pharmacy", "auth_method": "oauth2"},
+    # ── Telehealth ────────────────────────────────────────────────────────────
+    {"id": "zoom_health",       "display_name": "Zoom Health (HIPAA)",        "kind": "telehealth", "auth_method": "oauth2"},
+    {"id": "doxy_me",           "display_name": "Doxy.me",                    "kind": "telehealth", "auth_method": "api_key"},
+    # ── Billing / Insurance ───────────────────────────────────────────────────
+    {"id": "availity",          "display_name": "Availity",                   "kind": "billing", "auth_method": "api_key"},
+    {"id": "change_healthcare", "display_name": "Change Healthcare",          "kind": "billing", "auth_method": "api_key"},
 )
 
 _CONNECTED: dict[str, dict[str, dict]] = {}
