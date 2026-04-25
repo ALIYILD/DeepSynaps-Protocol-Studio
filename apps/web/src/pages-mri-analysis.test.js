@@ -156,6 +156,7 @@ test('regulatory footer appears in every rendered view', () => {
   const emptyView = renderFullView({ report: null });
   assert.match(emptyView, /ds-mri-footer-regulatory/);
   assert.match(emptyView, /Decision-support tool\. Not a medical device\./);
+  assert.match(emptyView, /What appears after run/);
 
   // 3. Full view with demo report
   const loadedView = renderFullView({ report: DEMO_MRI_REPORT });
@@ -206,6 +207,25 @@ test('pipeline progress renders all 5 stage pills with appropriate states', () =
 
   const failed = renderPipelineProgress({ stage: 'fmri', state: 'FAILURE' });
   assert.match(failed, /ds-mri-stage-pill--failed/);
+});
+
+test('renderFullView explains pending and failed non-report states', () => {
+  const pending = renderFullView({
+    report: null,
+    status: { stage: 'fmri', state: 'STARTED' },
+    patientId: 'DS-2026-000123',
+  });
+  assert.match(pending, /Results pending/);
+  assert.match(pending, /Current stage: <strong>fMRI<\/strong>/);
+  assert.match(pending, /Targets, QC, and literature cards will appear here/);
+
+  const failed = renderFullView({
+    report: null,
+    status: { stage: 'targeting', state: 'FAILURE' },
+  });
+  assert.match(failed, /Analysis needs attention/);
+  assert.match(failed, /The pipeline stopped before a report was generated/);
+  assert.match(failed, /Upload a session again to retry the analysis|current upload is still staged/i);
 });
 
 // ═════════════════════════════════════════════════════════════════════════════

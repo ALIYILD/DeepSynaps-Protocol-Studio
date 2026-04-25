@@ -8,7 +8,7 @@
 //   4. Compare          — pre/post comparison
 // ─────────────────────────────────────────────────────────────────────────────
 import { api, downloadBlob } from './api.js';
-import { renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap, renderConnectivityChordLite, renderICAComponents, renderWaveletHeatmap, renderChannelQualityMap, renderAsymmetryMap, renderPowerBarChart, renderTBRBarChart, renderSignalDeviationChart, renderBiomarkerGauges, renderBrodmannTable } from './brain-map-svg.js';
+import { renderBrainMap10_20, renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap, renderConnectivityChordLite, renderICAComponents, renderWaveletHeatmap, renderChannelQualityMap, renderAsymmetryMap, renderPowerBarChart, renderTBRBarChart, renderSignalDeviationChart, renderBiomarkerGauges, renderBrodmannTable } from './brain-map-svg.js';
 import { emptyState, showToast, spark } from './helpers.js';
 import { DK_LOBES, groupROIsByLobe, formatDKLabel } from './qeeg-dk-atlas.js';
 import {
@@ -55,6 +55,26 @@ function card(title, body, extra) {
   return '<div class="ds-card">'
     + (title ? '<div class="ds-card__header"><h3>' + esc(title) + '</h3>' + (extra || '') + '</div>' : '')
     + '<div class="ds-card__body">' + body + '</div></div>';
+}
+
+function renderLaunchNotice(title, body, tone) {
+  var palette = tone === 'warn'
+    ? { bg: 'rgba(255,179,71,0.12)', border: 'rgba(255,179,71,0.28)', text: 'var(--amber)' }
+    : tone === 'error'
+      ? { bg: 'rgba(255,107,107,0.12)', border: 'rgba(255,107,107,0.28)', text: 'var(--red)' }
+      : { bg: 'rgba(0,212,188,0.10)', border: 'rgba(0,212,188,0.20)', text: 'var(--teal)' };
+  return '<div class="qeeg-launch-notice" style="padding:12px 14px;border-radius:12px;background:' + palette.bg + ';border:1px solid ' + palette.border + ';margin-bottom:16px">'
+    + '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">'
+    + '<div>'
+    + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:' + palette.text + '">Decision-support only</div>'
+    + '<div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-top:4px">' + esc(title) + '</div>'
+    + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-top:6px">' + esc(body) + '</div>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+    + '<span>' + badge('Review raw data first', 'var(--blue)') + '</span>'
+    + '<span>' + badge('Confirm quality gate', 'var(--amber)') + '</span>'
+    + '</div>'
+    + '</div></div>';
 }
 
 function formatSupportedUploadTypes() {
@@ -221,6 +241,376 @@ function renderAnalysisWorkflowCard(mneButtonHtml, aiButtonsHtml, compareAction,
 function badge(text, color) {
   return '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:'
     + (color || 'var(--blue)') + '20;color:' + (color || 'var(--blue)') + '">' + esc(text) + '</span>';
+}
+
+const QEEG_WORKSPACE_LENS_META = {
+  spectral: { label: 'Spectral', color: 'var(--teal)' },
+  connectivity: { label: 'Connectivity', color: 'var(--blue)' },
+  asymmetry: { label: 'Asymmetry', color: 'var(--amber)' },
+  biomarkers: { label: 'Biomarkers', color: 'var(--violet)' },
+};
+
+function _getQEEGWorkspaceState(bands) {
+  var availableBands = Object.keys(bands || {});
+  var fallbackBand = availableBands.indexOf('alpha') !== -1 ? 'alpha' : (availableBands[0] || 'alpha');
+  var existing = window._qeegWorkspaceState || {};
+  var lens = QEEG_WORKSPACE_LENS_META[existing.lens] ? existing.lens : 'spectral';
+  var metric = ['relative', 'zscore'].indexOf(existing.metric) !== -1 ? existing.metric : 'relative';
+  var band = availableBands.indexOf(existing.band) !== -1 ? existing.band : fallbackBand;
+  var state = { lens: lens, metric: metric, band: band };
+  window._qeegWorkspaceState = state;
+  return state;
+}
+
+function _setQEEGWorkspaceState(patch) {
+  window._qeegWorkspaceState = Object.assign({}, window._qeegWorkspaceState || {}, patch || {});
+}
+
+function _getWorkspaceNormativeSummary(normDev) {
+  var out = { significant: 0, mild: 0, total: 0 };
+  if (!normDev) return out;
+  Object.keys(normDev).forEach(function (ch) {
+    Object.keys(normDev[ch] || {}).forEach(function (band) {
+      var z = Number(normDev[ch][band]);
+      if (!isFinite(z)) return;
+      out.total += 1;
+      if (Math.abs(z) >= 2) out.significant += 1;
+      else if (Math.abs(z) >= 1) out.mild += 1;
+    });
+  });
+  return out;
+}
+
+function _getBandMetricMap(bands, normDev, band, metric) {
+  if (metric === 'zscore') {
+    var zMap = {};
+    Object.keys(normDev || {}).forEach(function (ch) {
+      var z = normDev[ch] && normDev[ch][band];
+      if (z != null && isFinite(Number(z))) zMap[ch] = Number(z);
+    });
+    return zMap;
+  }
+  var channelData = bands && bands[band] && bands[band].channels ? bands[band].channels : {};
+  var relMap = {};
+  Object.keys(channelData).forEach(function (ch) {
+    var value = channelData[ch] && channelData[ch].relative_pct;
+    if (value != null && isFinite(Number(value))) relMap[ch] = Number(value);
+  });
+  return relMap;
+}
+
+function _getTopomapValueDomain(band, metric, datasets) {
+  if (metric === 'zscore') return [-3, 3];
+  var fixedByBand = {
+    delta: [0, 35],
+    theta: [0, 30],
+    alpha: [0, 45],
+    beta: [0, 25],
+    gamma: [0, 18],
+  };
+  if (fixedByBand[band]) return fixedByBand[band];
+  var values = [];
+  (datasets || []).forEach(function (dataset) {
+    Object.keys(dataset || {}).forEach(function (ch) {
+      var value = Number(dataset[ch]);
+      if (isFinite(value)) values.push(value);
+    });
+  });
+  if (!values.length) return [0, 50];
+  var maxValue = Math.max.apply(null, values);
+  return [0, Math.max(10, Math.ceil(maxValue / 5) * 5)];
+}
+
+function _getTopomapLegendOptions(metric, domain) {
+  if (metric === 'zscore') {
+    return {
+      valueDomain: domain,
+      legendMinLabel: '-3',
+      legendMidLabel: '0',
+      legendMaxLabel: '+3',
+    };
+  }
+  return {
+    valueDomain: domain,
+    legendMinLabel: String(domain[0]),
+    legendMaxLabel: String(domain[1]),
+  };
+}
+
+function _getSortedChannelMetrics(channelMap) {
+  return Object.keys(channelMap || {}).map(function (ch) {
+    return { channel: ch, value: Number(channelMap[ch]) };
+  }).filter(function (row) {
+    return isFinite(row.value);
+  }).sort(function (a, b) {
+    return Math.abs(b.value) - Math.abs(a.value);
+  });
+}
+
+function _deriveTopConnectivityEdges(matrix, channels, limit) {
+  var rows = Array.isArray(matrix) ? matrix : [];
+  var names = Array.isArray(channels) ? channels : [];
+  var edges = [];
+  for (var i = 0; i < rows.length; i += 1) {
+    for (var j = i + 1; j < rows[i].length; j += 1) {
+      var value = Number(rows[i][j]);
+      if (!isFinite(value)) continue;
+      edges.push({ ch1: names[i] || String(i), ch2: names[j] || String(j), value: value });
+    }
+  }
+  return edges.sort(function (a, b) {
+    return Math.abs(b.value) - Math.abs(a.value);
+  }).slice(0, limit || 10);
+}
+
+function _getSuggestedComparisonSessions(currentAnalysis, analyses) {
+  var currentId = currentAnalysis && currentAnalysis.id;
+  var currentTs = _getAnalysisSortTimestamp(currentAnalysis);
+  var candidates = (analyses || []).filter(function (item) {
+    return item && item.id && item.id !== currentId;
+  }).slice().sort(function (a, b) {
+    return _getAnalysisSortTimestamp(a) - _getAnalysisSortTimestamp(b);
+  });
+  if (!candidates.length || !currentAnalysis) return null;
+  var baseline = null;
+  candidates.forEach(function (item) {
+    if (_getAnalysisSortTimestamp(item) <= currentTs) baseline = item;
+  });
+  if (!baseline) baseline = candidates[0];
+  return { baseline: baseline, followup: currentAnalysis };
+}
+
+function _renderWorkspaceRatioRail(ratios) {
+  var ratioCards = [
+    { key: 'theta_beta_ratio', label: 'TBR', ref: 'Attention' },
+    { key: 'delta_alpha_ratio', label: 'D/A', ref: 'Slowing' },
+    { key: 'alpha_peak_frequency_hz', label: 'PAF', ref: 'Hz' },
+    { key: 'frontal_alpha_asymmetry', label: 'FAA', ref: 'Asymmetry' },
+  ];
+  var html = '';
+  ratioCards.forEach(function (item) {
+    var val = ratios && ratios[item.key];
+    if (val == null) return;
+    html += '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+      + '<div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em">' + esc(item.label) + '</div>'
+      + '<div style="font-size:18px;font-weight:700;margin-top:4px">' + (typeof val === 'number' ? val.toFixed(2) : esc(val)) + '</div>'
+      + '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">' + esc(item.ref) + '</div>'
+      + '</div>';
+  });
+  return html;
+}
+
+function _renderWorkspacePrimaryLens(data, bands, normDev, state) {
+  var metricMap = _getBandMetricMap(bands, normDev, state.band, state.metric);
+  var sortedChannels = _getSortedChannelMetrics(metricMap);
+  var headHighlights = sortedChannels.slice(0, 4).map(function (row) { return row.channel; });
+  if (state.lens === 'connectivity') {
+    var coh = data && data.advanced_analyses && data.advanced_analyses.results && data.advanced_analyses.results.coherence_matrix;
+    var d = coh && coh.status === 'ok' ? (coh.data || {}) : null;
+    var matrix = d && d.bands ? d.bands[state.band] : null;
+    if (matrix && d.channels) {
+      var topEdges = _deriveTopConnectivityEdges(matrix, d.channels, 8);
+      return '<div style="display:grid;grid-template-columns:minmax(0,1.35fr) minmax(260px,.85fr);gap:16px;align-items:start">'
+        + '<div style="overflow-x:auto">' + renderConnectivityMatrix(matrix, d.channels, { band: state.band + ' coherence', size: 420 }) + '</div>'
+        + '<div style="display:flex;flex-direction:column;gap:12px">'
+        + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+        + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Spatial network view</div>'
+        + renderConnectivityBrainMap(topEdges, { band: state.band + ' coherence', size: 260, threshold: 0 })
+        + '</div>'
+        + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+        + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Strongest pairs</div>'
+        + topEdges.map(function (edge) {
+          return '<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:4px 0;color:var(--text-secondary)">'
+            + '<span>' + esc(edge.ch1 + ' - ' + edge.ch2) + '</span>'
+            + '<strong style="color:var(--text-primary)">' + edge.value.toFixed(3) + '</strong></div>';
+        }).join('')
+        + '</div></div></div>';
+    }
+    return '<div style="padding:24px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.12);font-size:13px;color:var(--text-secondary)">Run advanced connectivity analyses to unlock the connectivity lens.</div>';
+  }
+  if (state.lens === 'asymmetry') {
+    if (data && data.asymmetry_detail && data.asymmetry_detail.regions && typeof renderAsymmetryMap === 'function') {
+      var regions = Object.keys(data.asymmetry_detail.regions || {});
+      return '<div style="display:grid;grid-template-columns:minmax(0,1.2fr) minmax(240px,.8fr);gap:16px;align-items:start">'
+        + '<div style="text-align:center;padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">' + renderAsymmetryMap(data.asymmetry_detail.regions) + '</div>'
+        + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+        + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Asymmetry regions</div>'
+        + regions.map(function (region) {
+          return '<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:4px 0;color:var(--text-secondary)">'
+            + '<span>' + esc(region) + '</span>'
+            + '<span>' + esc(typeof data.asymmetry_detail.regions[region] === 'number'
+              ? data.asymmetry_detail.regions[region].toFixed(2)
+              : data.asymmetry_detail.regions[region]) + '</span></div>';
+        }).join('')
+        + '</div></div>';
+    }
+    return '<div style="padding:24px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.12);font-size:13px;color:var(--text-secondary)">No asymmetry region data available for this session.</div>';
+  }
+  if (state.lens === 'biomarkers') {
+    var biomarkerHtml = '';
+    if (data && data.biomarkers && data.biomarkers.conditions && typeof renderBiomarkerGauges === 'function') {
+      biomarkerHtml += renderBiomarkerGauges(data.biomarkers.conditions);
+    }
+    if (!biomarkerHtml && data && data.tbr_per_channel && typeof renderTBRBarChart === 'function') {
+      biomarkerHtml += renderTBRBarChart(data.tbr_per_channel);
+    }
+    if (!biomarkerHtml && data && data.signal_deviations && typeof renderSignalDeviationChart === 'function') {
+      biomarkerHtml += renderSignalDeviationChart(data.signal_deviations);
+    }
+    if (biomarkerHtml) {
+      return '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">' + biomarkerHtml + '</div>';
+    }
+    return '<div style="padding:24px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.12);font-size:13px;color:var(--text-secondary)">No biomarker visualization is available yet for this session.</div>';
+  }
+  var lensDomain = _getTopomapValueDomain(state.band, state.metric, [metricMap]);
+  return '<div style="display:grid;grid-template-columns:minmax(0,1.25fr) minmax(220px,.75fr);gap:16px;align-items:start">'
+    + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+    + renderTopoHeatmap(metricMap, Object.assign({
+      band: state.band + ' ' + (state.metric === 'zscore' ? 'z-score' : 'relative power'),
+      unit: state.metric === 'zscore' ? 'z' : '%',
+      size: 320,
+      colorScale: state.metric === 'zscore' ? 'diverging' : 'warm',
+    }, _getTopomapLegendOptions(state.metric, lensDomain)))
+    + '</div>'
+    + '<div style="display:flex;flex-direction:column;gap:12px">'
+    + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+    + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">10-20 anchor map</div>'
+    + renderBrainMap10_20({ size: 250, highlightSites: headHighlights })
+    + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Highlighted channels are the strongest current ' + esc(state.metric === 'zscore' ? 'normative deviations' : 'spectral contributors') + ' for ' + esc(state.band) + '.</div>'
+    + '</div>'
+    + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+    + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Top channels</div>'
+    + (sortedChannels.length ? sortedChannels.slice(0, 8).map(function (row, index) {
+      return '<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:4px 0;color:var(--text-secondary)">'
+        + '<span>' + (index + 1) + '. ' + esc(row.channel) + '</span>'
+        + '<strong style="color:var(--text-primary)">' + row.value.toFixed(2) + (state.metric === 'zscore' ? ' z' : '%') + '</strong></div>';
+    }).join('') : '<div style="font-size:12px;color:var(--text-secondary)">No channel values available.</div>')
+    + '</div></div></div>';
+}
+
+function renderAnalysisWorkspace(data, bands, ratios, artifact, normDev, analyses) {
+  var bandNames = Object.keys(bands || {});
+  if (!bandNames.length) return '';
+  var state = _getQEEGWorkspaceState(bands);
+  var normSummary = _getWorkspaceNormativeSummary(normDev);
+  var comparison = _getSuggestedComparisonSessions(data, analyses);
+  var qualityPct = artifact && artifact.epochs_total
+    ? Math.round(((artifact.epochs_kept || 0) / artifact.epochs_total) * 100)
+    : null;
+  var qualityTone = qualityPct == null ? 'var(--text-secondary)' : (qualityPct >= 80 ? 'var(--green)' : qualityPct >= 60 ? 'var(--amber)' : 'var(--red)');
+  var ratioRail = _renderWorkspaceRatioRail(ratios);
+  return card('Analysis Workspace',
+    '<div style="display:flex;flex-direction:column;gap:16px">'
+      + '<div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-start">'
+        + '<div>'
+          + '<div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em">qEEG workspace</div>'
+          + '<div style="font-size:18px;font-weight:700;margin-top:4px">Interactive analyzer surface</div>'
+          + '<div style="font-size:12px;color:var(--text-secondary);margin-top:6px;max-width:760px">Primary view first: choose a lens, inspect the topography or network, then move into AI and narrative. This matches the MNE-style workflow of topomap, connectivity, and quality before interpretation.</div>'
+        + '</div>'
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+          + badge((data.channels_used || data.channel_count || 0) + ' channels', 'var(--blue)')
+          + badge((data.sample_rate_hz || 0) + ' Hz', 'var(--teal)')
+          + (data.eyes_condition ? badge('Eyes ' + data.eyes_condition, 'var(--violet)') : '')
+          + (qualityPct != null ? badge('Quality ' + qualityPct + '%', qualityTone) : '')
+          + badge(normSummary.significant + ' significant z-flags', normSummary.significant ? 'var(--amber)' : 'var(--green)')
+        + '</div>'
+      + '</div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">'
+        + Object.keys(QEEG_WORKSPACE_LENS_META).map(function (lens) {
+          var meta = QEEG_WORKSPACE_LENS_META[lens];
+          var active = state.lens === lens;
+          return '<button class="btn btn-sm ' + (active ? 'btn-primary' : 'btn-outline') + '"'
+            + (active ? ' style="background:' + meta.color + ';border-color:' + meta.color + ';color:#081019"' : '')
+            + ' onclick="window._qeegSetWorkspaceLens(\'' + lens + '\')">' + esc(meta.label) + '</button>';
+        }).join('')
+        + '<div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">'
+          + bandNames.map(function (band) {
+            var active = state.band === band;
+            return '<button class="btn btn-sm ' + (active ? 'btn-primary' : 'btn-outline') + '"'
+              + ' onclick="window._qeegSetWorkspaceBand(\'' + band + '\')">' + esc(band) + '</button>';
+          }).join('')
+          + '<button class="btn btn-sm ' + (state.metric === 'relative' ? 'btn-primary' : 'btn-outline') + '" onclick="window._qeegSetWorkspaceMetric(\'relative\')">Relative</button>'
+          + '<button class="btn btn-sm ' + (state.metric === 'zscore' ? 'btn-primary' : 'btn-outline') + '" onclick="window._qeegSetWorkspaceMetric(\'zscore\')">Z-score</button>'
+        + '</div>'
+      + '</div>'
+      + '<div style="display:grid;grid-template-columns:minmax(0,1.65fr) minmax(300px,.9fr);gap:16px;align-items:start">'
+        + '<div style="display:flex;flex-direction:column;gap:16px">'
+          + _renderWorkspacePrimaryLens(data, bands, normDev, state)
+          + '<div style="padding:12px 14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+            + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Lens guidance</div>'
+            + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6">Use <strong>' + esc(QEEG_WORKSPACE_LENS_META[state.lens].label) + '</strong> to inspect the dominant pattern in ' + esc(state.band) + '. Switch to z-score when you want deviation from the normative baseline rather than raw distribution.</div>'
+          + '</div>'
+        + '</div>'
+        + '<div style="display:flex;flex-direction:column;gap:12px">'
+          + '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+            + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Session summary</div>'
+            + '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;font-size:12px;color:var(--text-secondary)">'
+              + '<div><div style="color:var(--text-tertiary)">Recording</div><div style="color:var(--text-primary);font-weight:600">' + esc(data.original_filename || 'qEEG session') + '</div></div>'
+              + '<div><div style="color:var(--text-tertiary)">Duration</div><div style="color:var(--text-primary);font-weight:600">' + (((data.recording_duration_sec || data.duration_sec || 0) / 60) || 0).toFixed(1) + ' min</div></div>'
+              + '<div><div style="color:var(--text-tertiary)">Eyes</div><div style="color:var(--text-primary);font-weight:600">' + esc(data.eyes_condition || 'unspecified') + '</div></div>'
+              + '<div><div style="color:var(--text-tertiary)">Quality gate</div><div style="color:' + qualityTone + ';font-weight:700">' + (qualityPct != null ? qualityPct + '% epochs retained' : 'Pending') + '</div></div>'
+            + '</div>'
+          + '</div>'
+          + (ratioRail ? '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">' + ratioRail + '</div>' : '')
+          + '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+            + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Normative severity</div>'
+            + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">'
+              + badge(normSummary.significant + ' significant', normSummary.significant ? 'var(--amber)' : 'var(--green)')
+              + badge(normSummary.mild + ' mild', normSummary.mild ? 'var(--blue)' : 'var(--green)')
+              + badge(normSummary.total + ' total points', 'var(--teal)')
+            + '</div>'
+            + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6">Significant means |z| >= 2. Mild means |z| between 1 and 2. Review z-score mode before relying on narrative interpretation.</div>'
+          + '</div>'
+          + (comparison ? '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+              + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Compare readiness</div>'
+              + renderCompareSelectionSummary(comparison.baseline, comparison.followup)
+            + '</div>' : '')
+          + '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+            + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Next actions</div>'
+            + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+              + '<button class="btn btn-sm btn-outline" onclick="window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Open AI report</button>'
+              + '<button class="btn btn-sm btn-outline" onclick="window._qeegTab=\'compare\';window._nav(\'qeeg-analysis\')">Open compare</button>'
+            + '</div>'
+          + '</div>'
+        + '</div>'
+      + '</div>'
+    + '</div>'
+  );
+}
+
+function renderQEEGSessionRail(data, options) {
+  if (!data) return '';
+  var opts = options || {};
+  var ratios = (data.band_powers_json && data.band_powers_json.derived_ratios) || data.clinical_ratios || data.biomarkers || {};
+  var artifact = data.artifact_rejection || data.artifact_rejection_json || {};
+  var qualityPct = artifact && artifact.epochs_total
+    ? Math.round(((artifact.epochs_kept || 0) / artifact.epochs_total) * 100)
+    : null;
+  var qualityTone = qualityPct == null ? 'var(--text-secondary)' : (qualityPct >= 80 ? 'var(--green)' : qualityPct >= 60 ? 'var(--amber)' : 'var(--red)');
+  var normDev = data.normative_deviations_json || data.normative_deviations || null;
+  var normSummary = _getWorkspaceNormativeSummary(normDev);
+  return '<div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;padding:14px 16px;border-radius:14px;background:linear-gradient(135deg, rgba(11,23,37,0.94), rgba(16,28,48,0.9));border:1px solid rgba(255,255,255,0.08)">'
+    + '<div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-start">'
+      + '<div>'
+        + '<div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em">' + esc(opts.title || 'Current qEEG session') + '</div>'
+        + '<div style="font-size:18px;font-weight:700;margin-top:4px">' + esc(data.original_filename || data.id || 'qEEG session') + '</div>'
+        + '<div style="font-size:12px;color:var(--text-secondary);margin-top:6px">' + esc(opts.note || '') + '</div>'
+      + '</div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+        + badge((data.channels_used || data.channel_count || 0) + ' channels', 'var(--blue)')
+        + badge((data.sample_rate_hz || 0) + ' Hz', 'var(--teal)')
+        + (data.eyes_condition ? badge('Eyes ' + data.eyes_condition, 'var(--violet)') : '')
+        + (qualityPct != null ? badge('Quality ' + qualityPct + '%', qualityTone) : '')
+        + badge(normSummary.significant + ' significant z-flags', normSummary.significant ? 'var(--amber)' : 'var(--green)')
+      + '</div>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">'
+      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)"><div style="font-size:11px;color:var(--text-tertiary)">TBR</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.theta_beta_ratio != null ? Number(ratios.theta_beta_ratio).toFixed(2) : 'N/A') + '</div></div>'
+      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)"><div style="font-size:11px;color:var(--text-tertiary)">PAF</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.alpha_peak_frequency_hz != null ? Number(ratios.alpha_peak_frequency_hz).toFixed(2) + ' Hz' : 'N/A') + '</div></div>'
+      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)"><div style="font-size:11px;color:var(--text-tertiary)">FAA</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.frontal_alpha_asymmetry != null ? Number(ratios.frontal_alpha_asymmetry).toFixed(2) : 'N/A') + '</div></div>'
+      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)"><div style="font-size:11px;color:var(--text-tertiary)">Normative</div><div style="font-size:18px;font-weight:700;margin-top:4px;color:' + (normSummary.significant ? 'var(--amber)' : 'var(--green)') + '">' + normSummary.significant + ' high</div></div>'
+    + '</div>'
+  + '</div>';
 }
 
 function renderQEEGStackCard() {
@@ -3156,13 +3546,26 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       infoEl.innerHTML = renderClinicalInfo(_patient, _medHistory);
     }
   };
+  window._qeegSetWorkspaceLens = function (lens) {
+    _setQEEGWorkspaceState({ lens: lens });
+    window._nav('qeeg-analysis');
+  };
+  window._qeegSetWorkspaceBand = function (band) {
+    _setQEEGWorkspaceState({ band: band });
+    window._nav('qeeg-analysis');
+  };
+  window._qeegSetWorkspaceMetric = function (metric) {
+    _setQEEGWorkspaceState({ metric: metric });
+    window._nav('qeeg-analysis');
+  };
 
   // Build page shell
   let pageHtml = '<div class="ch-shell">';
   pageHtml += '<div class="qeeg-hero">'
     + '<div class="qeeg-hero__icon">&#x1F9E0;</div>'
     + '<div><div class="qeeg-hero__title">qEEG Analyzer</div>'
-    + '<div class="qeeg-hero__sub">Spectral analysis &middot; AI interpretation &middot; Pre/post comparison</div></div>'
+    + '<div class="qeeg-hero__sub">Spectral analysis &middot; AI interpretation &middot; Pre/post comparison</div>'
+    + '<div style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Decision-support only. Review acquisition quality and clinician context before acting on AI summaries.</div></div>'
     + '<div class="qeeg-export-bar" style="margin-left:auto">'
     + '<button class="btn btn-sm btn-outline" aria-label="Export patient FHIR bundle" onclick="window._qeegExportFHIRBundle()">FHIR</button>'
     + '<button class="btn btn-sm btn-outline" aria-label="Export patient BIDS derivatives package" onclick="window._qeegExportBIDSPackage()">BIDS</button>'
@@ -3253,10 +3656,15 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       // If pending — show manual trigger
       if (data.analysis_status === 'pending') {
         tabEl.innerHTML = card('Analysis Pending',
-          '<div style="text-align:center;padding:24px">'
+          renderLaunchNotice('Ready to run spectral analysis', 'Verify the patient match and recording quality before starting the pipeline.', 'warn')
+          + '<div style="text-align:center;padding:24px">'
           + '<div style="margin-bottom:12px">' + badge('pending', 'var(--amber)') + '</div>'
           + '<div style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">File uploaded: <strong>' + esc(data.original_filename || 'EDF') + '</strong></div>'
           + '<button class="btn btn-primary" id="qeeg-run-btn">Run Spectral Analysis</button>'
+          + '<div style="display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:12px">'
+          + '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'patient\';window._nav(\'qeeg-analysis\')">Back to upload</button>'
+          + '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Open report tab</button>'
+          + '</div>'
           + '<div id="qeeg-analyze-status" aria-live="polite" style="margin-top:12px"></div></div>'
         );
         const runBtn = document.getElementById('qeeg-run-btn');
@@ -3298,7 +3706,8 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
 
       // If processing — show progress bar and poll for status updates
       if (data.analysis_status === 'processing') {
-        tabEl.innerHTML = '<div style="text-align:center;padding:48px">'
+        tabEl.innerHTML = renderLaunchNotice('Analysis running', 'Wait for preprocessing and quantification to finish. If the run stalls, return to the upload tab and verify session metadata.', 'info')
+          + '<div style="text-align:center;padding:48px">'
           + spinner('Analysis in progress... This usually takes a few seconds.')
           + '<div id="qeeg-analysis-progress" aria-live="polite"></div>'
           + '</div>';
@@ -3325,9 +3734,14 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       // If failed
       if (data.analysis_status === 'failed') {
         tabEl.innerHTML = card('Analysis Failed',
-          '<div style="color:var(--red);padding:12px" aria-live="assertive" role="alert">'
+          renderLaunchNotice('Analysis needs review', 'Do not rely on downstream reports until this session is re-run or the upload issue is understood.', 'error')
+          + '<div style="color:var(--red);padding:12px" aria-live="assertive" role="alert">'
           + '<div style="margin-bottom:8px">' + badge('failed', 'var(--red)') + '</div>'
-          + '<div style="font-size:13px">' + esc(data.analysis_error || 'Unknown error') + '</div></div>'
+          + '<div style="font-size:13px">' + esc(data.analysis_error || 'Unknown error') + '</div>'
+          + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'
+          + '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'patient\';window._nav(\'qeeg-analysis\')">Review upload</button>'
+          + '<button class="btn btn-primary btn-sm" onclick="window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\')">Retry view</button>'
+          + '</div></div>'
         );
         return;
       }
@@ -3339,8 +3753,10 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       const artifact = data.artifact_rejection || data.artifact_rejection_json || {};
 
       let html = '';
+      _currentAnalysis = data;
 
       // Status strip
+      html += renderLaunchNotice('Clinical review workflow', 'Inspect quality and quantitative deviations first, then move into AI interpretation and comparison. Narrative output should support, not replace, clinician judgment.', 'info');
       html += '<div class="qeeg-status-strip">'
         + badge('completed', 'var(--green)')
         + '<span>'
@@ -3373,6 +3789,13 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         html += card('Derived Clinical Ratios', ratioHtml);
       }
 
+      var normDev = data.normative_deviations_json || data.normative_deviations || null;
+      html += renderAnalysisWorkspace(data, bands, ratios, artifact, normDev, _analyses);
+      html += card('Advanced Visualization Workspace',
+        '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">Richer visualization panels are mounted here first so they support the main analysis workflow rather than being buried after the legacy result sections.</div>'
+        + '<div id="qeeg-viz-v2-mount" style="min-height:80px"></div>'
+      );
+
       // Topographic heatmaps
       if (bands && Object.keys(bands).length) {
         let topoHtml = '<div class="qeeg-band-grid">';
@@ -3382,8 +3805,14 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           Object.entries(channelData).forEach(function (entry) {
             powerMap[entry[0]] = entry[1].relative_pct || 0;
           });
+          var bandDomain = _getTopomapValueDomain(bandName, 'relative', [powerMap]);
           topoHtml += '<div style="text-align:center">'
-            + renderTopoHeatmap(powerMap, { band: bandName, unit: '%', size: 240, colorScale: 'warm' })
+            + renderTopoHeatmap(powerMap, Object.assign({
+              band: bandName,
+              unit: '%',
+              size: 240,
+              colorScale: 'warm',
+            }, _getTopomapLegendOptions('relative', bandDomain)))
             + '</div>';
         });
         topoHtml += '</div>';
@@ -3401,8 +3830,6 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           bandMeans[b] = vals.length ? vals.reduce(function (a, c) { return a + c; }, 0) / vals.length : 0;
         });
         // Normative deviations
-        var normDev = data.normative_deviations_json || data.normative_deviations || null;
-
         let tableHtml = '<div style="overflow-x:auto"><table class="ds-table" style="width:100%;font-size:12px"><thead><tr><th>Channel</th>';
         bandNames.forEach(function (b) {
           tableHtml += '<th style="color:' + (BAND_COLORS[b] || '#fff') + ';background:' + (BAND_COLORS[b] || '#fff') + '15">' + esc(b) + '</th>';
@@ -3501,8 +3928,6 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       html += renderFusionSummaryCard(_fusionSummary, data && data.patient_id);
 
       // ── Viz v2 Panels (MNE topomaps, connectivity chord, source 3D, animation)
-      html += '<div id="qeeg-viz-v2-mount" style="margin-top:24px"></div>';
-
       if (analysisId === 'demo' && _isDemoMode()) {
         html = _demoBanner() + html;
       }
@@ -3669,7 +4094,12 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
 
       if (reports.length === 0) {
         tabEl.innerHTML = card('Generate AI Interpretation',
-          '<div style="text-align:center;padding:24px">'
+          renderQEEGSessionRail(_currentAnalysis, {
+            title: 'Selected qEEG session',
+            note: 'Narrative generation should follow quantitative review and clinician confirmation.'
+          })
+          + renderLaunchNotice('No AI report yet', 'Generate the narrative only after the quantitative review looks coherent. The report is decision support and should be clinician-reviewed before sharing.', 'warn')
+          + '<div style="text-align:center;padding:24px">'
           + '<p style="color:var(--text-secondary);margin-bottom:16px;font-size:13px">No AI report has been generated for this analysis yet.</p>'
           + '<div style="display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap">'
           + '<label for="qeeg-report-type" style="font-size:12px;font-weight:600;color:var(--text-secondary)">Report Mode</label>'
@@ -3721,7 +4151,10 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       }
       if (analysisData) _currentAnalysis = analysisData;
 
-      var html = _renderComprehensiveReport(report, analysisData);
+      var html = renderQEEGSessionRail(analysisData, {
+        title: 'qEEG report context',
+        note: 'This rail keeps the recording and quality context visible while reviewing AI narrative output.'
+      }) + _renderComprehensiveReport(report, analysisData);
       if (reports.length > 1) {
         html = card('Report Versions',
           '<div class="qeeg-report-version-bar">'
@@ -3807,6 +4240,12 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         if (window._qeegComparisonId === 'demo' && _isDemoMode()) {
           compHtml = _demoBanner() + compHtml;
         }
+        if (_currentAnalysis) {
+          compHtml = renderQEEGSessionRail(_currentAnalysis, {
+            title: 'qEEG comparison context',
+            note: 'Use shared rails and fixed topomap scales to interpret change, not just absolute intensity.'
+          }) + compHtml;
+        }
         tabEl.innerHTML = compHtml;
       } catch (err) {
         tabEl.innerHTML = '<div style="color:var(--red);padding:24px" aria-live="assertive" role="alert">Failed: ' + esc(err.message || err) + '</div>';
@@ -3847,7 +4286,10 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       }).join('');
     }
 
-    tabEl.innerHTML = card('Create Pre/Post Comparison',
+    tabEl.innerHTML = renderQEEGSessionRail(_currentAnalysis, {
+      title: 'qEEG comparison setup',
+      note: 'Select baseline and follow-up from the same patient history before computing change.'
+    }) + card('Create Pre/Post Comparison',
       '<div style="padding:8px">'
       + '<p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">Compare a baseline qEEG analysis with a follow-up to track treatment progress.</p>'
       + renderCompareSelectionSummary(defaultBaseline, defaultFollowup)
@@ -4243,12 +4685,14 @@ function renderComparison(comp) {
           changeMap[ch] = dv;
         }
       });
+      var relativeDomain = _getTopomapValueDomain(band, 'relative', [baseMap, fuMap]);
+      var deltaDomain = [-30, 30];
       var bandColor = BAND_COLORS[band] || 'var(--teal)';
       html += '<div class="ds-card"><div class="ds-card__header"><h3 style="color:' + bandColor + '">' + esc(band.charAt(0).toUpperCase() + band.slice(1)) + ' — Baseline vs Follow-up</h3></div>'
         + '<div class="ds-card__body"><div class="qeeg-compare-topo-row">'
-        + '<div><div class="qeeg-compare-topo-row__label">Baseline</div>' + renderTopoHeatmap(baseMap, { band: band + ' (baseline)', size: 180, colorScale: 'warm' }) + '</div>'
-        + '<div><div class="qeeg-compare-topo-row__label">Follow-up</div>' + renderTopoHeatmap(fuMap, { band: band + ' (follow-up)', size: 180, colorScale: 'warm' }) + '</div>'
-        + '<div><div class="qeeg-compare-topo-row__label">Change (%)</div>' + renderTopoHeatmap(changeMap, { band: band + ' change %', size: 180, colorScale: 'diverging' }) + '</div>'
+        + '<div><div class="qeeg-compare-topo-row__label">Baseline</div>' + renderTopoHeatmap(baseMap, Object.assign({ band: band + ' (baseline)', size: 180, colorScale: 'warm' }, _getTopomapLegendOptions('relative', relativeDomain))) + '</div>'
+        + '<div><div class="qeeg-compare-topo-row__label">Follow-up</div>' + renderTopoHeatmap(fuMap, Object.assign({ band: band + ' (follow-up)', size: 180, colorScale: 'warm' }, _getTopomapLegendOptions('relative', relativeDomain))) + '</div>'
+        + '<div><div class="qeeg-compare-topo-row__label">Change (%)</div>' + renderTopoHeatmap(changeMap, Object.assign({ band: band + ' change %', size: 180, colorScale: 'diverging' }, _getTopomapLegendOptions('zscore', deltaDomain))) + '</div>'
         + '</div></div></div>';
     });
   }

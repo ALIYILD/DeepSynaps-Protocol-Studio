@@ -243,7 +243,13 @@ test('analysis tab surfaces toolchain overview and staged workflow actions', asy
 
   const tab = dom.get('qeeg-tab-content');
   assert.ok(tab, 'analysis tab should be rendered');
+  assert.match(dom.content.innerHTML, /Decision-support only/);
   assert.match(tab.innerHTML, /Analysis Overview/);
+  assert.match(tab.innerHTML, /Analysis Workspace/);
+  assert.match(tab.innerHTML, /Clinical review workflow/);
+  assert.match(tab.innerHTML, /Interactive analyzer surface/);
+  assert.match(tab.innerHTML, /Session summary/);
+  assert.match(tab.innerHTML, /Normative severity/);
   assert.match(tab.innerHTML, /MNE-Python/);
   assert.match(tab.innerHTML, /PyPREP/);
   assert.match(tab.innerHTML, /MNE-ICALabel/);

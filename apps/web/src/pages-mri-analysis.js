@@ -41,6 +41,7 @@ var _medragCache   = null;
 var _jobStatus     = null;       // { stage, state } snapshot
 var _jobPollTimer  = null;
 var _jobWatchAbort = null;       // AbortController for SSE-over-fetch
+var _jobError      = null;
 var _selectedCondition = 'mdd';
 var _fusionSummary = null;
 // Populated by pgMRIAnalysis() and re-read by the compare modal's submit
@@ -974,6 +975,7 @@ export function _resetMRIState() {
   _fusionSummary = null;
   _medragCache = null;
   _jobStatus = null;
+  _jobError = null;
   if (_jobPollTimer) { clearInterval(_jobPollTimer); _jobPollTimer = null; }
   if (_jobWatchAbort) { try { _jobWatchAbort.abort(); } catch (_) {} _jobWatchAbort = null; }
   _customTargets = [];
@@ -1119,8 +1121,57 @@ export function renderPipelineProgress(status) {
   return card('Pipeline progress',
     '<div class="ds-mri-stage-row" data-mri-pipeline-row="1">' + pills + '</div>'
     + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:10px">'
-    + 'Live status via <code>/api/v1/mri/status/{job_id}/events</code> (fallback: polling)'
-    + '.</div>');
+     + 'Live status via <code>/api/v1/mri/status/{job_id}/events</code> (fallback: polling)'
+     + '.</div>');
+}
+
+function renderAnalysisStateCard(state) {
+  state = state || {};
+  if (state.report) return '';
+  var status = state.status || {};
+  var statusState = String(status.state || '').toUpperCase();
+  var stage = String(status.stage || '').toLowerCase();
+  var stageMeta = PIPELINE_STAGES.find(function (item) { return item.id === stage; }) || null;
+  var stepLabel = stageMeta ? stageMeta.label : 'analysis';
+  var patientId = state.patientId || (_patientMeta && _patientMeta.patient_id) || '';
+  var uploadReady = !!_uploadId;
+
+  if (statusState === 'FAILURE') {
+    var failureBits = [];
+    failureBits.push('<div style="font-size:13px;color:var(--text-primary);line-height:1.55">The pipeline stopped before a report was generated. Review the staged upload and run the analysis again.</div>');
+    if (_jobError) {
+      failureBits.push('<div style="margin-top:10px;padding:10px 12px;border-radius:10px;background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.24);font-size:12px;color:var(--text-secondary)"><strong style="color:#fca5a5">Last error</strong><div style="margin-top:4px">' + esc(_jobError) + '</div></div>');
+    }
+    failureBits.push('<div style="margin-top:10px;font-size:11.5px;color:var(--text-tertiary)">'
+      + (uploadReady
+        ? 'The current upload is still staged, so you can adjust the condition or patient details and retry without re-uploading.'
+        : 'Upload a session again to retry the analysis.')
+      + '</div>');
+    return card('Analysis needs attention', failureBits.join(''));
+  }
+
+  if (statusState === 'STARTED' || statusState === 'PROGRESS') {
+    return card('Results pending',
+      '<div style="font-size:13px;color:var(--text-primary);line-height:1.55">Pipeline running now'
+        + (patientId ? ' for <code>' + esc(patientId) + '</code>' : '')
+        + '. Current stage: <strong>' + esc(stepLabel) + '</strong>.</div>'
+      + '<div style="margin-top:10px;font-size:11.5px;color:var(--text-tertiary)">Targets, QC, and literature cards will appear here as soon as the final report is available.</div>');
+  }
+
+  if (statusState === 'SUCCESS') {
+    return card('Finalising report',
+      '<div style="font-size:13px;color:var(--text-primary);line-height:1.55">The pipeline finished, but the report payload is still loading into the page.</div>'
+      + '<div style="margin-top:10px;font-size:11.5px;color:var(--text-tertiary)">This usually resolves automatically after the next refresh/navigation cycle.</div>');
+  }
+
+  return card('Results',
+    emptyState('&#x1F9E0;',
+      'No analysis loaded',
+      'Upload a session, confirm patient details, then click Run analysis to generate MRI targets and QC summaries.')
+    + '<div style="margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.18);font-size:12px;color:var(--text-secondary);line-height:1.55">'
+    + '<strong style="color:var(--text-primary)">What appears after run</strong><br>'
+    + 'Target cards, viewer overlays, QC checks, and supporting literature are only shown after the pipeline completes.'
+    + '</div>');
 }
 
 function _renderPipelineRowInner(status) {
@@ -1771,10 +1822,7 @@ export function renderFullView(state) {
 
   var right;
   if (!report) {
-    right = card('Results',
-      emptyState('&#x1F9E0;',
-        'No analysis loaded',
-        'Upload a session and click Run analysis to compute MNI stim targets.'))
+    right = renderAnalysisStateCard(state)
       + renderFusionSummaryCard(state.fusion || null, state.patientId || null);
   } else {
     // Amber "radiology review advised" banner sits above everything else
@@ -1832,6 +1880,7 @@ function _wireUploader(navigate) {
 async function _handleFile(file, navigate) {
   var statusEl = document.querySelector('.ds-mri-upload-status');
   if (statusEl) statusEl.innerHTML = '<span class="spinner"></span> Uploading ' + esc(file.name) + '…';
+  _jobError = null;
   try {
     var patientId = (document.getElementById('ds-mri-pid') || {}).value || 'anonymous';
     var fd = new FormData();
@@ -1860,6 +1909,7 @@ function _wireRunButton(navigate) {
   if (!btn) return;
   btn.addEventListener('click', async function () {
     btn.disabled = true;
+    _jobError = null;
     var statusEl = document.getElementById('ds-mri-run-status');
     if (statusEl) statusEl.innerHTML = '<span class="spinner"></span> submitting job…';
     try {
@@ -1891,9 +1941,11 @@ function _wireRunButton(navigate) {
         });
         _jobId = (resp && resp.job_id) || null;
         _jobStatus = { stage: 'ingest', state: 'STARTED' };
+        _jobError = null;
         _startJobWatch(navigate);
       }
     } catch (err) {
+      _jobError = (err && err.message) ? err.message : String(err);
       showToast('Analyze failed: ' + (err && err.message ? err.message : err), 'error');
     }
     navigate('mri-analysis');
@@ -1908,15 +1960,19 @@ function _startPolling(navigate) {
       var s = await api.getMRIStatus(_jobId);
       _jobStatus = { stage: (s && s.info && s.info.stage) || (s && s.stage) || null,
                      state: (s && s.state) || null };
+      _jobError = (s && (s.error || s.detail || (s.info && s.info.error))) || null;
       var st = String(_jobStatus.state || '').toUpperCase();
       if (st === 'SUCCESS' || st === 'FAILURE') {
         clearInterval(_jobPollTimer);
         _jobPollTimer = null;
-        if (st === 'SUCCESS' && _jobId) {
+        if (st === 'SUCCESS') {
+          var analysisId = (s && s.analysis_id) || _mriAnalysisId || null;
+          if (analysisId) {
           try {
-            _report = await api.getMRIReport(_jobId);
+            _report = await api.getMRIReport(analysisId);
             _mriAnalysisId = _report && _report.analysis_id;
           } catch (_e) { /* surfaced via toast on navigate */ }
+          }
         }
         navigate('mri-analysis');
       } else {
@@ -1994,6 +2050,7 @@ async function _startJobWatch(navigate) {
           stage: (payload && payload.info && payload.info.stage) || payload.stage || null,
           state: (payload && payload.state) || null,
         };
+        _jobError = payload.error || payload.detail || (payload.info && payload.info.error) || null;
 
         // In-place pipeline row update
         var row = document.querySelector('[data-mri-pipeline-row="1"]');

@@ -44,6 +44,55 @@ function _ensurePatientOrPrompt() {
   return '';
 }
 
+function _selectedModalities() {
+  return (window._brain_twin_modalities || (window._brain_twin_modalities = _defaultSelection())).slice();
+}
+
+function _renderStatusBanner(patientId, selected, mode, combine) {
+  const patientText = patientId ? `Patient ${_esc(patientId)} is selected.` : 'No patient selected yet.';
+  const nextStep = patientId
+    ? 'Choose modalities, run Brain Twin, then simulate a protocol and check evidence before presenting anything to a clinician.'
+    : 'Select a patient first, then choose the smallest useful modality set before running analysis.';
+  return `
+    <div style="padding:12px 14px;border-radius:12px;background:${patientId ? 'rgba(0,212,188,.08)' : 'rgba(255,179,71,.10)'};border:1px solid ${patientId ? 'rgba(0,212,188,.18)' : 'rgba(255,179,71,.22)'};margin-top:14px">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
+        <div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:${patientId ? 'var(--teal)' : 'var(--amber)'}">Launch guardrail</div>
+          <div style="font-size:14px;font-weight:650;color:var(--text);margin-top:4px">${patientText}</div>
+          <div style="font-size:12.5px;color:var(--text-tertiary);line-height:1.6;margin-top:6px">${nextStep}</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <span class="bt-seg active">${selected.length} modalities</span>
+          <span class="bt-seg">${_esc(mode)}</span>
+          <span class="bt-seg">${_esc(combine)}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function _renderRunChecklist(selected) {
+  return `
+    <div class="card" style="padding:14px;margin-top:14px">
+      <div style="font-weight:650">Launch checklist</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:10px">
+        <div style="padding:10px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.02)">
+          <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em">1. Scope</div>
+          <div style="font-size:12.5px;color:var(--text);margin-top:6px">${selected.length ? `${selected.length} modalities selected.` : 'Pick at least one modality.'}</div>
+        </div>
+        <div style="padding:10px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.02)">
+          <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em">2. Protocol</div>
+          <div style="font-size:12.5px;color:var(--text);margin-top:6px">Use a recognisable protocol id before simulating.</div>
+        </div>
+        <div style="padding:10px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.02)">
+          <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em">3. Review</div>
+          <div style="font-size:12.5px;color:var(--text);margin-top:6px">Cross-check evidence before treating generated output as credible.</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function _injectStylesOnce() {
   if (window.__brainTwinStylesInjected) return;
   window.__brainTwinStylesInjected = true;
@@ -65,7 +114,7 @@ function _injectStylesOnce() {
 function _render(setTopbar) {
   const el = document.getElementById('content');
   const patientId = _getSelectedPatientId();
-  const selected = (window._brain_twin_modalities || (window._brain_twin_modalities = _defaultSelection())).slice();
+  const selected = _selectedModalities();
   const mode = window._brain_twin_mode || 'prediction';
   const combine = window._brain_twin_combine || 'all_selected';
   const protoId = window._brain_twin_protocol_id || 'proto_default';
@@ -92,16 +141,17 @@ function _render(setTopbar) {
         <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
           <div>
             <div style="font-size:13px;color:var(--text-tertiary)">Decision-support only</div>
-            <div style="font-size:18px;font-weight:650;margin-top:2px">Choose data, combine, analyze, simulate</div>
+            <div style="font-size:18px;font-weight:650;margin-top:2px">Brain Twin and protocol generator</div>
             <div style="font-size:12.5px;color:var(--text-tertiary);margin-top:6px;max-width:860px">
-              Clinicians choose modalities (text, video, audio, qEEG, MRI, wearables, device logs), run correlation/prediction/causation analyses, then simulate protocol changes.
+              Choose the smallest credible modality set, run Brain Twin analysis, simulate a protocol, then verify the evidence trail. Output is for clinician review, not autonomous treatment decisions.
             </div>
           </div>
           <div style="display:flex;gap:8px;align-items:center">
             <button class="btn btn-ghost btn-sm" onclick="window._brainTwinPickPatient()">Select patient</button>
-            <button class="btn btn-primary btn-sm" onclick="window._brainTwinRun()">Run</button>
+            <button class="btn btn-primary btn-sm" onclick="window._brainTwinRun()">Run Brain Twin</button>
           </div>
         </div>
+        ${_renderStatusBanner(patientId, selected, mode, combine)}
       </div>
 
       <div class="bt-grid" style="margin-top:14px">
@@ -135,12 +185,15 @@ function _render(setTopbar) {
 
           <div class="card" style="padding:14px;margin-top:14px">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
-              <div style="font-weight:650">Protocol simulation (autoresearch-backed)</div>
+              <div style="font-weight:650">Protocol generator and simulation</div>
               <div style="display:flex;gap:8px;align-items:center">
                 <input class="bt-input" style="width:220px" value="${_esc(protoId)}" placeholder="protocol_id"
                   oninput="window._brain_twin_protocol_id=this.value" />
                 <button class="btn btn-ghost btn-sm" onclick="window._brainTwinSimulate()">Simulate</button>
               </div>
+            </div>
+            <div style="font-size:12px;color:var(--text-tertiary);margin-top:8px">
+              Use protocol ids your team recognises. If the simulation is exploratory or synthetic, say that explicitly when presenting it.
             </div>
             <div id="brain-twin-sim" style="margin-top:10px"></div>
           </div>
@@ -158,6 +211,7 @@ function _render(setTopbar) {
             </div>
             <div id="brain-twin-evidence" style="margin-top:10px"></div>
           </div>
+          ${_renderRunChecklist(selected)}
         </div>
       </div>
     </div>
@@ -167,14 +221,40 @@ function _render(setTopbar) {
 function _renderResults(data) {
   const box = document.getElementById('brain-twin-results');
   if (!box) return;
-  box.innerHTML = `<pre class="bt-json">${_esc(JSON.stringify(data || {}, null, 2))}</pre>`;
+  const payload = data || {};
+  const modes = Array.isArray(payload.analysis_modes) ? payload.analysis_modes.join(', ') : (payload.mode || window._brain_twin_mode || 'prediction');
+  const selected = _selectedModalities();
+  box.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:10px">
+      <div style="padding:10px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.02)">
+        <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em">Mode</div>
+        <div style="font-size:13px;color:var(--text);margin-top:6px">${_esc(modes)}</div>
+      </div>
+      <div style="padding:10px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.02)">
+        <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em">Modalities</div>
+        <div style="font-size:13px;color:var(--text);margin-top:6px">${selected.length ? _esc(selected.join(', ')) : 'None selected'}</div>
+      </div>
+      <div style="padding:10px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.02)">
+        <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em">Trace</div>
+        <div class="bt-mono" style="font-size:12px;color:var(--text);margin-top:6px">${_esc(payload.trace_id || payload.run_id || 'n/a')}</div>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:8px">Review summary fields and confidence markers before relying on the raw payload.</div>
+    <pre class="bt-json">${_esc(JSON.stringify(payload, null, 2))}</pre>
+  `;
 }
 
 function _renderSim(data) {
   const box = document.getElementById('brain-twin-sim');
   if (!box) return;
-  box.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:6px">Engine: <span class="bt-mono">${_esc(data.engine?.name || 'unknown')}</span></div>
-    <pre class="bt-json">${_esc(JSON.stringify(data.outputs || {}, null, 2))}</pre>`;
+  const outputs = data?.outputs || {};
+  const outputKeys = Object.keys(outputs);
+  box.innerHTML = `<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+      <div style="font-size:12px;color:var(--text-tertiary)">Engine: <span class="bt-mono">${_esc(data.engine?.name || 'unknown')}</span></div>
+      <div style="font-size:12px;color:var(--text-tertiary)">Output blocks: ${outputKeys.length}</div>
+    </div>
+    <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:8px">If this simulation is based on sparse inputs or defaults, treat it as exploratory only.</div>
+    <pre class="bt-json">${_esc(JSON.stringify(outputs, null, 2))}</pre>`;
 }
 
 function _renderEvidence(data) {
@@ -249,7 +329,7 @@ function _wireHandlers(setTopbar) {
       const data = await api.brainTwinAnalyze(payload);
       _renderResults(data);
     } catch (e) {
-      if (resEl) resEl.innerHTML = `<div style="color:var(--red);font-size:12.5px">Deeptwin failed: ${_esc(e.message || e)}</div>`;
+      if (resEl) resEl.innerHTML = `<div style="padding:12px;border-radius:12px;border:1px solid rgba(255,107,107,.24);background:rgba(255,107,107,.10);color:var(--red);font-size:12.5px">Brain Twin failed: ${_esc(e.message || e)}<div style="color:var(--text-tertiary);margin-top:6px">Check patient selection, modality choices, and backend availability.</div></div>`;
     }
   };
 
@@ -268,7 +348,7 @@ function _wireHandlers(setTopbar) {
       const data = await api.brainTwinSimulate(payload);
       _renderSim(data);
     } catch (e) {
-      if (box) box.innerHTML = `<div style="color:var(--red);font-size:12.5px">Simulation failed: ${_esc(e.message || e)}</div>`;
+      if (box) box.innerHTML = `<div style="padding:12px;border-radius:12px;border:1px solid rgba(255,107,107,.24);background:rgba(255,107,107,.10);color:var(--red);font-size:12.5px">Simulation failed: ${_esc(e.message || e)}<div style="color:var(--text-tertiary);margin-top:6px">Confirm the protocol id and available modalities before retrying.</div></div>`;
     }
   };
 
@@ -291,7 +371,7 @@ function _wireHandlers(setTopbar) {
       const data = await api.brainTwinEvidence(payload);
       _renderEvidence(data);
     } catch (e) {
-      if (box) box.innerHTML = `<div style="color:var(--red);font-size:12.5px">Evidence failed: ${_esc(e.message || e)}</div>`;
+      if (box) box.innerHTML = `<div style="padding:12px;border-radius:12px;border:1px solid rgba(255,107,107,.24);background:rgba(255,107,107,.10);color:var(--red);font-size:12.5px">Evidence failed: ${_esc(e.message || e)}<div style="color:var(--text-tertiary);margin-top:6px">Retry with a narrower protocol question if the evidence search is too broad.</div></div>`;
     }
   };
 }
