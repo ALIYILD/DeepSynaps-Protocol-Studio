@@ -38,9 +38,19 @@ jobs:
             -e packages/condition-registry \
             -e packages/modality-registry \
             -e packages/device-registry \
+            -e packages/qa \
             -e packages/safety-engine \
             -e packages/generation-engine \
             -e packages/render-engine \
             -e apps/api
       - name: Check API syntax
         run: python -m py_compile apps/api/app/main.py
+
+  build-api-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production API image
+        run: docker build -f apps/api/Dockerfile -t deepsynaps-api-smoke .
+      - name: Smoke import app main in production image
+        run: docker run --rm deepsynaps-api-smoke python -c "import sys; sys.path.insert(0, '/app/apps/api'); import app.main"
