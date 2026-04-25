@@ -2029,6 +2029,14 @@ export async function pgPatients(setTopbar, navigate) {
     }
   }
 
+  // Demo mode: seed demo roster when API returns an empty patient list
+  {
+    const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+    if (_demoOk && items.length === 0) {
+      items = [...DEMO_PATIENT_ROSTER];
+    }
+  }
+
   // ── Detect demo-seeded patients (server prefixes notes with "[DEMO]" and
   //    sets a demo_seed flag on PatientOut). A visible banner informs
   //    clinicians they're looking at sample data, not real records.
