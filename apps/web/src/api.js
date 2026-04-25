@@ -752,6 +752,12 @@ export const api = {
       body: JSON.stringify({ messages, patient_context, language, dashboard_context }),
     }),
 
+  // ── Deeptwin ─────────────────────────────────────────────────────────────
+  deeptwinAnalyze: (data) =>
+    apiFetch('/api/v1/deeptwin/analyze', { method: 'POST', body: JSON.stringify(data) }),
+  deeptwinSimulate: (data) =>
+    apiFetch('/api/v1/deeptwin/simulate', { method: 'POST', body: JSON.stringify(data) }),
+
   // ── Registry endpoints (public — no auth needed but token attached if present) ──
   conditions: () => apiFetchWithRetry('/api/v1/registry/conditions'),
   listConditions: () => api.conditions(),
