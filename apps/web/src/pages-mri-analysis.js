@@ -1538,39 +1538,51 @@ export var renderSliceViewer = renderBrainAtlasViewer;
 
 // ── Right column: MRI focus viewer (real axial MRI, zoom + pan) ────────────
 // Replaces the older SVG silhouette. Mirrors the focus-in/-out behaviour of
-// Neurolight TPS planning view: real T1 axial slice with overlaid stim
-// targets, scroll-wheel + button zoom, click-drag pan.
+// Neurolight TPS planning view: real T1 slice with overlaid stim targets,
+// plane toggle (axial / coronal / sagittal), scroll-wheel + button zoom,
+// click-drag pan.
 export function renderGlassBrain(report) {
   var targets = (report && Array.isArray(report.stim_targets)) ? report.stim_targets : [];
-  // Project MNI (x,y) to percent-of-image coords on the axial template.
-  // MNI x in [-90, 90] maps roughly to 5%–95% across; MNI y in [-120, 80]
-  // maps to ~95%–5% top→bottom (anterior up).
-  function mniToPct(xyz) {
-    if (!Array.isArray(xyz) || xyz.length < 2) return null;
-    var mx = Number(xyz[0]);
-    var my = Number(xyz[1]);
-    if (!isFinite(mx) || !isFinite(my)) return null;
-    var xPct = 50 + (mx / 90) * 45;
-    var yPct = 50 - (my / 120) * 45;
-    return { x: xPct, y: yPct };
-  }
+
   var dotsHtml = '';
   targets.forEach(function (t) {
-    var p = mniToPct(t.mni_xyz);
-    if (!p) return;
+    var xyz = Array.isArray(t.mni_xyz) ? t.mni_xyz : [];
+    var mx = Number(xyz[0]);
+    var my = Number(xyz[1]);
+    var mz = Number(xyz[2]);
+    var hasX = isFinite(mx), hasY = isFinite(my), hasZ = isFinite(mz);
+    if (!hasX || !hasY) return;
     var col = _targetDotColor(t);
     var isPulse = String(t.method || '').endsWith('_personalised') ? '1' : '0';
     var label = esc(t.region_name || t.target_id || '');
-    var coords = (t.mni_xyz || []).join(', ');
+    var coords = xyz.join(', ');
     var tooltip = esc((t.region_name || t.target_id || '') + ' · MNI [' + coords + ']');
+    var dataAttrs = ' data-mni-x="' + (hasX ? mx : '') + '"'
+      + ' data-mni-y="' + (hasY ? my : '') + '"'
+      + ' data-mni-z="' + (hasZ ? mz : '') + '"';
     dotsHtml += '<div class="ds-mri-glass-dot" data-tid="' + esc(t.target_id || '')
       + '" data-pulse="' + isPulse + '"'
-      + ' style="left:' + p.x.toFixed(2) + '%;top:' + p.y.toFixed(2) + '%;--dot-color:' + col + '"'
+      + dataAttrs
+      + ' style="--dot-color:' + col + '"'
       + ' title="' + tooltip + '">'
       + '<span class="ds-mri-glass-dot__core"></span>'
       + '<span class="ds-mri-glass-dot__label">' + label + '</span>'
       + '</div>';
   });
+
+  var planes = [
+    { id: 'axial',    label: 'Axial' },
+    { id: 'coronal',  label: 'Coronal' },
+    { id: 'sagittal', label: 'Sagittal' },
+  ];
+  var planeTabs = '<div class="ds-mri-glass-planes" role="tablist" aria-label="MRI plane">'
+    + planes.map(function (p, i) {
+      var active = i === 0 ? ' is-active' : '';
+      return '<button type="button" class="ds-mri-glass-plane' + active + '"'
+        + ' role="tab" aria-selected="' + (i === 0 ? 'true' : 'false') + '"'
+        + ' data-plane="' + p.id + '">' + esc(p.label) + '</button>';
+    }).join('')
+    + '</div>';
 
   var toolbar = '<div class="ds-mri-glass-toolbar" role="toolbar" aria-label="MRI viewer zoom">'
     + '<button class="ds-mri-glass-btn" id="ds-mri-glass-zoom-out" aria-label="Zoom out" type="button">&minus;</button>'
@@ -1579,18 +1591,21 @@ export function renderGlassBrain(report) {
     + '<button class="ds-mri-glass-btn ds-mri-glass-btn--reset" id="ds-mri-glass-zoom-reset" aria-label="Reset view" type="button" title="Reset zoom &amp; pan">Reset</button>'
     + '</div>';
 
-  var stage = '<div class="ds-mri-glass-stage" id="ds-mri-glass-stage" tabindex="0" aria-label="Axial MRI with stim targets — drag to pan, scroll or pinch to zoom">'
+  var stage = '<div class="ds-mri-glass-stage" id="ds-mri-glass-stage" tabindex="0" data-plane="axial" aria-label="MRI slice with stim targets — drag to pan, scroll or pinch to zoom">'
     + '<div class="ds-mri-glass-pan" id="ds-mri-glass-pan">'
-    + '<img class="ds-mri-glass-img" src="/images/brain-atlas/axial.png" alt="Axial T1 MRI template" draggable="false">'
-    + '<div class="ds-mri-glass-overlay">' + dotsHtml + '</div>'
+    + '<img class="ds-mri-glass-img" id="ds-mri-glass-img" src="/images/brain-atlas/axial.png" alt="Axial T1 MRI template" draggable="false">'
+    + '<div class="ds-mri-glass-overlay" id="ds-mri-glass-overlay">' + dotsHtml + '</div>'
     + '</div>'
     + '</div>';
 
   var caption = '<div class="ds-mri-glass-caption">'
-    + 'Real T1 axial slice with stim targets overlaid. Scroll or use +/&minus; to zoom, drag to pan.'
+    + 'Real T1 slice with stim targets overlaid. Switch plane, scroll or use +/&minus; to zoom, drag to pan.'
     + '</div>';
 
-  return card('MRI target view', '<div class="ds-mri-glass-wrap">' + toolbar + stage + caption + '</div>');
+  return card(
+    'MRI target view',
+    '<div class="ds-mri-glass-wrap">' + planeTabs + toolbar + stage + caption + '</div>'
+  );
 }
 
 // ── Right column: MedRAG literature panel ──────────────────────────────────
@@ -2044,12 +2059,15 @@ export function renderFullView(state) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Event wiring
 // ─────────────────────────────────────────────────────────────────────────────
-// Zoom + pan controller for the MRI focus viewer (axial slice w/ targets).
-// Scale is clamped to [1.0, 6.0]; translate is in fractional units of stage
-// size so the panned image always covers the stage at the current scale.
+// Zoom + pan controller for the MRI focus viewer (axial / coronal / sagittal
+// slice w/ targets). Scale is clamped to [1.0, 6.0]; translate is in
+// fractional units of stage size so the panned image always covers the stage
+// at the current scale.
 function _wireMRIFocusViewer() {
   var stage = document.getElementById('ds-mri-glass-stage');
   var pan = document.getElementById('ds-mri-glass-pan');
+  var img = document.getElementById('ds-mri-glass-img');
+  var overlay = document.getElementById('ds-mri-glass-overlay');
   var levelEl = document.getElementById('ds-mri-glass-zoom-level');
   var btnIn = document.getElementById('ds-mri-glass-zoom-in');
   var btnOut = document.getElementById('ds-mri-glass-zoom-out');
@@ -2058,7 +2076,62 @@ function _wireMRIFocusViewer() {
 
   var MIN_SCALE = 1.0;
   var MAX_SCALE = 6.0;
-  var state = { scale: 1.0, tx: 0, ty: 0 };
+  var state = { scale: 1.0, tx: 0, ty: 0, plane: 'axial' };
+
+  // Project MNI mm → percent-of-image-extent for a given plane. The atlas
+  // PNGs are square thumbnails of the MNI152 template; the ranges below match
+  // the template extents used elsewhere in this file (axial: x∈±90, y∈[-120,80];
+  // coronal: x∈±90, z∈[-70,80]; sagittal: y∈[-120,80], z∈[-70,80]).
+  function projectDot(plane, mx, my, mz) {
+    var x = NaN, y = NaN;
+    if (plane === 'axial') {
+      if (!isFinite(mx) || !isFinite(my)) return null;
+      x = 50 + (mx / 90) * 45;
+      y = 50 - (my / 120) * 45;
+    } else if (plane === 'coronal') {
+      if (!isFinite(mx) || !isFinite(mz)) return null;
+      x = 50 + (mx / 90) * 45;
+      y = 50 - (mz / 75) * 45;
+    } else if (plane === 'sagittal') {
+      if (!isFinite(my) || !isFinite(mz)) return null;
+      x = 50 + (my / 120) * 45;
+      y = 50 - (mz / 75) * 45;
+    } else {
+      return null;
+    }
+    return { x: x, y: y };
+  }
+  function repositionDots() {
+    if (!overlay) return;
+    var dots = overlay.querySelectorAll('.ds-mri-glass-dot');
+    dots.forEach(function (d) {
+      var mx = parseFloat(d.getAttribute('data-mni-x'));
+      var my = parseFloat(d.getAttribute('data-mni-y'));
+      var mz = parseFloat(d.getAttribute('data-mni-z'));
+      var p = projectDot(state.plane, mx, my, mz);
+      if (!p) {
+        d.style.display = 'none';
+        return;
+      }
+      d.style.display = '';
+      d.style.left = p.x.toFixed(2) + '%';
+      d.style.top = p.y.toFixed(2) + '%';
+    });
+  }
+  function setPlane(plane) {
+    if (plane === state.plane) return;
+    state.plane = plane;
+    if (img) {
+      img.src = '/images/brain-atlas/' + plane + '.png';
+      img.alt = plane.charAt(0).toUpperCase() + plane.slice(1) + ' T1 MRI template';
+    }
+    stage.setAttribute('data-plane', plane);
+    // Reset zoom/pan when switching plane to avoid stranding the user
+    // panned-out on a different orientation.
+    state.scale = 1.0; state.tx = 0; state.ty = 0;
+    repositionDots();
+    apply();
+  }
 
   function clampPan() {
     // Image fills stage at scale 1; at scale s the pan range is ±((s-1)/2)
@@ -2152,6 +2225,21 @@ function _wireMRIFocusViewer() {
     else if (e.key === '0') { e.preventDefault(); state.scale = 1.0; state.tx = 0; state.ty = 0; apply(); }
   });
 
+  // Plane toggle (axial / coronal / sagittal).
+  document.querySelectorAll('.ds-mri-glass-plane').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var plane = btn.getAttribute('data-plane');
+      if (!plane) return;
+      document.querySelectorAll('.ds-mri-glass-plane').forEach(function (b) {
+        var on = b === btn;
+        b.classList.toggle('is-active', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      setPlane(plane);
+    });
+  });
+
+  repositionDots();
   apply();
 }
 

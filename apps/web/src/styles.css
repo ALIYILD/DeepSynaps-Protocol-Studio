@@ -26536,11 +26536,41 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 .ds-atlas-efield-bar { flex: 1; height: 10px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.08); }
 .ds-atlas-efield-label { font-size: 10px; color: var(--text-tertiary); white-space: nowrap; }
 
-/* MRI focus viewer — real axial T1 with stim targets, zoom + pan. */
+/* MRI focus viewer — real T1 (axial/coronal/sagittal) with stim targets, zoom + pan. */
 .ds-mri-glass-wrap {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.ds-mri-glass-planes {
+  display: flex;
+  align-self: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.10));
+}
+.ds-mri-glass-plane {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary, #c9cdd4);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  padding: 5px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.ds-mri-glass-plane:hover { color: var(--text-primary, #f5f6f8); }
+.ds-mri-glass-plane.is-active {
+  background: var(--surface-4, rgba(255, 255, 255, 0.14));
+  color: var(--text-primary, #f5f6f8);
+}
+.ds-mri-glass-plane:focus-visible {
+  outline: 2px solid var(--focus-ring, #6aa9ff);
+  outline-offset: 1px;
 }
 .ds-mri-glass-toolbar {
   display: flex;
