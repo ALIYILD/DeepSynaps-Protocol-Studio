@@ -127,6 +127,8 @@ if (localStorage.getItem('ds_high_contrast') === '1') document.body.classList.ad
 // ── Lazy-loaded page module caches ────────────────────────────────────────────
 // Modules are imported on first navigation to a page in that group,
 // then cached for all subsequent navigations (Vite chunks them automatically).
+import { normalizeRouteId } from './route-id.js';
+
 let _modPublic    = null;
 let _modPatient   = null;
 let _modClinical  = null;
@@ -461,7 +463,7 @@ const NAV = [
   { id: 'schedule-v2',        label: 'Schedule',          icon: '🗓️' },
   { id: 'assessments-v2',     label: 'Assessments',       icon: '◉' },
   { id: 'patients-v2',        label: 'Patients',          icon: '👥' },
-  { id: 'brain-twin',         label: 'Brain Twin',        icon: 'BT', ai: true },
+  { id: 'deeptwin',           label: 'Deeptwin',          icon: 'BT', ai: true },
   { id: 'monitor',            label: 'Monitor',           icon: '📡' },
   { id: 'mri-analysis',       label: 'MRI Analyzer',      icon: '🧠', ai: true },
 
@@ -916,6 +918,7 @@ const PAGE_TITLES = {
 
 // ── Navigate ──────────────────────────────────────────────────────────────────
 async function navigate(id, params = {}) {
+  id = normalizeRouteId(id);
   // Apply any params before navigating so pages can read them
   if (params && typeof params === 'object') {
     if (params.id !== undefined) {
@@ -2058,7 +2061,7 @@ async function bootApp() {
       else if (location.hash && location.hash.length > 1) deepLinkId = location.hash.slice(1);
     } catch {}
     if (deepLinkId && /^[a-z0-9][a-z0-9-]{0,63}$/i.test(deepLinkId)) {
-      currentPage = deepLinkId;
+      currentPage = normalizeRouteId(deepLinkId);
     }
   }
   // Initialise clinic switcher for multi-clinic roles

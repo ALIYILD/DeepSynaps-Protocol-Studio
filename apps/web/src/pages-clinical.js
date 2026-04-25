@@ -3159,7 +3159,7 @@ export async function pgProfile(setTopbar, navigate) {
         'sessions':     'Sessions',
         'outcomes':     'Outcomes',
         'protocol':     'AI Protocol',
-        'brain-twin':   'Brain Twin',
+        'brain-twin':   'Deeptwin',
         'assessments':  'Assessments',
         'notes':        'Clinical Notes',
         'phenotype':    'Phenotype',
@@ -3187,7 +3187,7 @@ export async function pgProfile(setTopbar, navigate) {
       window._selectedPatientId = pt.id;
       window._profilePatientId = pt.id;
       try { sessionStorage.setItem('ds_pat_selected_id', pt.id); } catch {}
-      window._nav('brain-twin');
+      window._nav('deeptwin');
       return;
     }
     if (t === 'phenotype') {
