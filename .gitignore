@@ -62,6 +62,7 @@ batch1.txt
 # Debug screenshots / temp images
 *.png
 !apps/web/public/*.png
+!apps/web/public/images/brain-atlas/*.png
 vibe_images/
 
 # Local Netlify folder

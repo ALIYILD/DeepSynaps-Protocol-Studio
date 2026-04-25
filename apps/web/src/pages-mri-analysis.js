@@ -47,6 +47,54 @@ var _fusionSummary = null;
 // handler so we don't refetch on every click.
 var _patientAnalysesCache = { patientId: null, rows: [] };
 
+// ── Brain Atlas Viewer state ────────────────────────────────────────────────
+var _customTargets = [];
+var _atlasLabelsVisible = true;
+var _atlasAnimFrame = null;
+
+// ── Modality color map (shared by glass-brain + atlas viewer) ───────────────
+var MODALITY_DOT_COLOR = {
+  rtms: '#f59e0b', tps: '#c026d3', tfus: '#06b6d4',
+  tdcs: '#22c55e', tacs: '#eab308', custom: '#94a3b8',
+};
+var PERSONALISED_DOT_COLOR = '#f43f5e';
+
+// ── MNI ↔ Pixel coordinate mapping ─────────────────────────────────────────
+// MNI space: x[-90,90], y[-126,90], z[-72,108]
+// Template cut planes: axial z=30, coronal y=30, sagittal x=0
+var _ATLAS_CUT = { axial: 30, coronal: 30, sagittal: 0 };
+var _ATLAS_SLAB = 40; // mm — targets within this distance of cut plane are shown
+
+function mniToPixel(mni_xyz, plane, cw, ch) {
+  var x = Number(mni_xyz[0]), y = Number(mni_xyz[1]), z = Number(mni_xyz[2]);
+  if (plane === 'axial')    return { x: ((x + 90) / 180) * cw, y: ((90 - y) / 216) * ch };
+  if (plane === 'coronal')  return { x: ((x + 90) / 180) * cw, y: ((108 - z) / 180) * ch };
+  if (plane === 'sagittal') return { x: ((y + 126) / 216) * cw, y: ((108 - z) / 180) * ch };
+  return { x: cw / 2, y: ch / 2 };
+}
+
+function pixelToMni(px, py, plane, cw, ch) {
+  if (plane === 'axial')    return [ Math.round((px / cw) * 180 - 90), Math.round(90 - (py / ch) * 216), _ATLAS_CUT.axial ];
+  if (plane === 'coronal')  return [ Math.round((px / cw) * 180 - 90), _ATLAS_CUT.coronal, Math.round(108 - (py / ch) * 180) ];
+  if (plane === 'sagittal') return [ _ATLAS_CUT.sagittal, Math.round((px / cw) * 216 - 126), Math.round(108 - (py / ch) * 180) ];
+  return [0, 0, 0];
+}
+
+function _targetVisibleOnPlane(mni_xyz, plane) {
+  var val;
+  if (plane === 'axial')    val = Math.abs(Number(mni_xyz[2]) - _ATLAS_CUT.axial);
+  else if (plane === 'coronal')  val = Math.abs(Number(mni_xyz[1]) - _ATLAS_CUT.coronal);
+  else if (plane === 'sagittal') val = Math.abs(Number(mni_xyz[0]) - _ATLAS_CUT.sagittal);
+  else return false;
+  return val <= _ATLAS_SLAB;
+}
+
+function _targetDotColor(target) {
+  if (String(target.method || '').endsWith('_personalised')) return PERSONALISED_DOT_COLOR;
+  if (target.is_custom) return MODALITY_DOT_COLOR.custom;
+  return MODALITY_DOT_COLOR[String(target.modality || '').toLowerCase()] || '#60a5fa';
+}
+
 // ── Feature flag ────────────────────────────────────────────────────────────
 function _mriFeatureFlagEnabled() {
   try {
@@ -417,20 +465,302 @@ async function mountBestMRIViewer(host, opts) {
   return mountNiiVue(host, opts);
 }
 
-function _mountInlineMRIViewer(report) {
-  var host = document.getElementById('ds-mri-progressive-viewer');
-  if (!host) return;
-  host.innerHTML = '<div class="ds-mri-progressive-viewer__loading"><span class="spinner"></span>Preparing viewer…</div>';
-  var target0 = report && Array.isArray(report.stim_targets) && report.stim_targets[0]
-    ? report.stim_targets[0]
-    : null;
-  mountBestMRIViewer(host, {
-    analysisId: report && report.analysis_id,
-    patientId: report && report.patient && report.patient.patient_id,
-    targetId: target0 && target0.target_id,
-    targets: report && report.stim_targets,
-    report: report,
+function _mountBrainAtlasViewer(report) {
+  var planes = ['axial', 'coronal', 'sagittal'];
+  var canvases = {};
+  var images = {};
+  var loaded = 0;
+
+  planes.forEach(function (plane) {
+    canvases[plane] = document.getElementById('ds-atlas-canvas-' + plane);
+    images[plane] = document.getElementById('ds-atlas-img-' + plane);
   });
+
+  // Wait for all images to load before sizing canvases
+  function onAllLoaded() {
+    _drawAtlasTargets(report, canvases, images);
+    _wireAtlasClickHandlers(report, canvases, images);
+    // Resize observer
+    var resizeTimer = null;
+    window.addEventListener('resize', function () {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(function () {
+        _drawAtlasTargets(report, canvases, images);
+      }, 150);
+    });
+  }
+
+  planes.forEach(function (plane) {
+    var img = images[plane];
+    if (!img) return;
+    if (img.complete && img.naturalWidth > 0) {
+      loaded++;
+      if (loaded === 3) onAllLoaded();
+    } else {
+      img.addEventListener('load', function () {
+        loaded++;
+        if (loaded === 3) onAllLoaded();
+      });
+      img.addEventListener('error', function () {
+        loaded++;
+        if (loaded === 3) onAllLoaded();
+      });
+    }
+  });
+}
+
+function _drawAtlasTargets(report, canvases, images) {
+  if (_atlasAnimFrame) { cancelAnimationFrame(_atlasAnimFrame); _atlasAnimFrame = null; }
+
+  var planes = ['axial', 'coronal', 'sagittal'];
+  var allTargets = ((report && Array.isArray(report.stim_targets)) ? report.stim_targets : []).concat(_customTargets);
+  var hasPersonalised = false;
+
+  planes.forEach(function (plane) {
+    var canvas = canvases[plane];
+    var img = images[plane];
+    if (!canvas || !img) return;
+
+    // Size canvas to match the rendered image dimensions
+    var rect = img.getBoundingClientRect();
+    var cw = rect.width;
+    var ch = rect.height;
+    canvas.width = cw * (window.devicePixelRatio || 1);
+    canvas.height = ch * (window.devicePixelRatio || 1);
+    canvas.style.width = cw + 'px';
+    canvas.style.height = ch + 'px';
+
+    var ctx = canvas.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, cw, ch);
+
+    // Draw crosshairs at center
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 0.5;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(cw / 2, 0); ctx.lineTo(cw / 2, ch);
+    ctx.moveTo(0, ch / 2); ctx.lineTo(cw, ch / 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Draw targets
+    allTargets.forEach(function (t) {
+      if (!Array.isArray(t.mni_xyz) || t.mni_xyz.length < 3) return;
+      if (!_targetVisibleOnPlane(t.mni_xyz, plane)) return;
+
+      var p = mniToPixel(t.mni_xyz, plane, cw, ch);
+      var col = _targetDotColor(t);
+      var isCustom = !!t.is_custom;
+      var isPersonalised = String(t.method || '').endsWith('_personalised');
+      if (isPersonalised) hasPersonalised = true;
+      var radius = isCustom ? 7 : 9;
+
+      ctx.save();
+      if (isCustom) {
+        // Dashed ring for custom targets
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // Small crosshair inside
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(p.x - 4, p.y); ctx.lineTo(p.x + 4, p.y);
+        ctx.moveTo(p.x, p.y - 4); ctx.lineTo(p.x, p.y + 4);
+        ctx.stroke();
+      } else {
+        // Filled circle with glow for auto targets
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 12;
+        ctx.globalAlpha = 0.7;
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // Labels
+      if (_atlasLabelsVisible && (t.region_name || t.target_id)) {
+        ctx.save();
+        ctx.font = '10px sans-serif';
+        var label = (t.region_name || t.target_id || '').split(' — ')[0].split('(')[0].trim();
+        if (label.length > 18) label = label.substring(0, 16) + '...';
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        var tw = ctx.measureText(label).width;
+        ctx.fillRect(p.x + radius + 4, p.y - 6, tw + 6, 14);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(label, p.x + radius + 7, p.y + 4);
+        ctx.restore();
+      }
+    });
+  });
+
+  // Pulse animation for personalised targets
+  if (hasPersonalised) {
+    var startTime = performance.now();
+    function animatePulse(now) {
+      var elapsed = (now - startTime) / 1000;
+      var scale = 1 + 0.3 * Math.sin(elapsed * Math.PI * 1.25);
+      planes.forEach(function (plane) {
+        var canvas = canvases[plane];
+        var img = images[plane];
+        if (!canvas || !img) return;
+        var rect = img.getBoundingClientRect();
+        var cw = rect.width, ch = rect.height;
+        var ctx = canvas.getContext('2d');
+        // Redraw only personalised targets' outer glow ring
+        allTargets.forEach(function (t) {
+          if (!String(t.method || '').endsWith('_personalised')) return;
+          if (!_targetVisibleOnPlane(t.mni_xyz, plane)) return;
+          var p = mniToPixel(t.mni_xyz, plane, cw, ch);
+          var dpr = window.devicePixelRatio || 1;
+          ctx.save();
+          ctx.scale(dpr, dpr);
+          ctx.globalAlpha = 0.3 * (1 - (scale - 1) / 0.3);
+          ctx.strokeStyle = PERSONALISED_DOT_COLOR;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 9 * scale, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        });
+      });
+      _atlasAnimFrame = requestAnimationFrame(animatePulse);
+    }
+    _atlasAnimFrame = requestAnimationFrame(animatePulse);
+  }
+}
+
+function _wireAtlasClickHandlers(report, canvases, images) {
+  var planes = ['axial', 'coronal', 'sagittal'];
+  planes.forEach(function (plane) {
+    var canvas = canvases[plane];
+    var img = images[plane];
+    if (!canvas || !img) return;
+
+    canvas.addEventListener('click', function (e) {
+      var rect = canvas.getBoundingClientRect();
+      var px = e.clientX - rect.left;
+      var py = e.clientY - rect.top;
+      var cw = rect.width;
+      var ch = rect.height;
+      var mni = pixelToMni(px, py, plane, cw, ch);
+
+      var customTarget = {
+        target_id: 'custom_' + Date.now(),
+        modality: 'custom',
+        region_name: 'Manual target',
+        mni_xyz: mni,
+        method: 'manual_placement',
+        is_custom: true,
+        placed_on_plane: plane,
+      };
+
+      _customTargets.push(customTarget);
+      _drawAtlasTargets(report, canvases, images);
+      _refreshAtlasCustomList();
+      _refreshAtlasToolbar();
+
+      // Show brief tooltip
+      var tooltip = document.createElement('div');
+      tooltip.className = 'ds-atlas-tooltip';
+      tooltip.textContent = 'Target placed at MNI [' + mni.map(function (v) { return Math.round(v); }).join(', ') + ']';
+      tooltip.style.left = (px + 12) + 'px';
+      tooltip.style.top = (py - 20) + 'px';
+      canvas.parentNode.appendChild(tooltip);
+      setTimeout(function () { if (tooltip.parentNode) tooltip.parentNode.removeChild(tooltip); }, 2000);
+    });
+  });
+}
+
+function _refreshAtlasCustomList() {
+  // Re-render the custom targets list in the DOM
+  var container = document.querySelector('.ds-atlas-custom-list');
+  var parent = container ? container.parentNode : document.querySelector('.ds-atlas-viewer');
+  if (!parent) return;
+
+  // Remove old list
+  if (container) container.remove();
+
+  if (!_customTargets.length) return;
+
+  var html = '<div class="ds-atlas-custom-list">'
+    + _customTargets.map(function (ct, i) {
+      var coords = Array.isArray(ct.mni_xyz) ? ct.mni_xyz.map(function (v) { return Math.round(v); }).join(', ') : '?';
+      return '<div class="ds-atlas-custom-item">'
+        + '<span class="ds-atlas-legend__dot" style="background:' + MODALITY_DOT_COLOR.custom + '"></span>'
+        + '<span>Custom target #' + (i + 1) + '</span>'
+        + '<span class="ds-atlas-custom-item__coords">MNI [' + coords + ']</span>'
+        + '<button class="ds-atlas-custom-remove" data-custom-idx="' + i + '" title="Remove">&times;</button>'
+        + '</div>';
+    }).join('')
+    + '</div>';
+
+  // Insert before the disclaimer
+  var disclaimer = parent.querySelector('.ds-atlas-disclaimer');
+  if (disclaimer) {
+    disclaimer.insertAdjacentHTML('beforebegin', html);
+  } else {
+    parent.insertAdjacentHTML('beforeend', html);
+  }
+
+  // Wire remove buttons
+  parent.querySelectorAll('.ds-atlas-custom-remove').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var idx = parseInt(btn.getAttribute('data-custom-idx'), 10);
+      if (!isNaN(idx) && idx >= 0 && idx < _customTargets.length) {
+        _customTargets.splice(idx, 1);
+        _drawAtlasTargets(_report, _getAtlasCanvases(), _getAtlasImages());
+        _refreshAtlasCustomList();
+        _refreshAtlasToolbar();
+        _refreshAtlasCount();
+      }
+    });
+  });
+}
+
+function _refreshAtlasToolbar() {
+  var btn = document.getElementById('ds-atlas-clear-custom');
+  if (btn) btn.disabled = !_customTargets.length;
+}
+
+function _refreshAtlasCount() {
+  var el = document.querySelector('.ds-atlas-count');
+  if (!el) return;
+  var targets = (_report && Array.isArray(_report.stim_targets)) ? _report.stim_targets : [];
+  el.textContent = (targets.length + _customTargets.length) + ' target(s)';
+}
+
+function _getAtlasCanvases() {
+  return {
+    axial: document.getElementById('ds-atlas-canvas-axial'),
+    coronal: document.getElementById('ds-atlas-canvas-coronal'),
+    sagittal: document.getElementById('ds-atlas-canvas-sagittal'),
+  };
+}
+function _getAtlasImages() {
+  return {
+    axial: document.getElementById('ds-atlas-img-axial'),
+    coronal: document.getElementById('ds-atlas-img-coronal'),
+    sagittal: document.getElementById('ds-atlas-img-sagittal'),
+  };
+}
+
+// Keep old function name for backwards compat
+function _mountInlineMRIViewer(report) {
+  _mountBrainAtlasViewer(report);
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // DEMO_MRI_REPORT — verbatim copy of demo/sample_mri_report.json.  Demo mode
@@ -646,6 +976,8 @@ export function _resetMRIState() {
   _jobStatus = null;
   if (_jobPollTimer) { clearInterval(_jobPollTimer); _jobPollTimer = null; }
   if (_jobWatchAbort) { try { _jobWatchAbort.abort(); } catch (_) {} _jobWatchAbort = null; }
+  _customTargets = [];
+  if (_atlasAnimFrame) { cancelAnimationFrame(_atlasAnimFrame); _atlasAnimFrame = null; }
 }
 
 // Determine the badge CSS class for a modality.  Returns the rose
@@ -898,42 +1230,85 @@ export function renderTargetsPanel(report) {
     '<div class="ds-mri-targets-list">' + cards + '</div>');
 }
 
-// ── Right column: 3-plane slice viewer placeholder ─────────────────────────
-export function renderSliceViewer(report) {
-  var aid = report && report.analysis_id ? report.analysis_id : null;
-  var target0 = report && Array.isArray(report.stim_targets) && report.stim_targets[0]
-    ? report.stim_targets[0].target_id : null;
-  var patientId = report && report.patient && report.patient.patient_id ? report.patient.patient_id : '';
-  var targetCount = report && Array.isArray(report.stim_targets) ? report.stim_targets.length : 0;
-  var openable = aid && target0;
-  var viewerState = _viewerVolumeCandidates(report).length
-    ? 'NiiVue volume mount ready'
-    : (openable ? 'Overlay endpoint fallback ready' : 'Waiting for analysis assets');
-  var body = '<div class="ds-mri-slice-viewer ds-mri-progressive-viewer-card">'
-    + '<div class="ds-mri-progressive-viewer__head">'
-    + '<div><div class="ds-mri-progressive-viewer__eyebrow">Progressive MRI Viewer</div>'
-    + '<div class="ds-mri-progressive-viewer__msg">' + esc(viewerState) + '</div></div>'
-    + '<div class="ds-mri-progressive-viewer__count">' + esc(String(targetCount || 0)) + ' target(s)</div>'
-    + '</div>'
-    + '<div id="ds-mri-progressive-viewer" class="ds-mri-progressive-viewer"></div>'
-    + '<div class="ds-mri-progressive-viewer__actions">'
-    + (aid
-      ? '<button class="btn btn-sm ds-mri-open-viewer-json" data-aid="' + esc(aid) + '">Inspect viewer payload</button>'
-      : '')
-    + (openable
-      ? '<button class="btn btn-sm ds-mri-open-overlay" data-aid="' + esc(aid) + '" data-target="' + esc(target0) + '">'
-        + 'Open first-target overlay</button>'
-      : '<button class="btn btn-sm" disabled>Overlay unavailable</button>')
-    + (aid
-      ? '<button class="btn btn-sm ds-mri-copy-viewer-url" data-aid="' + esc(aid) + '">Copy viewer endpoint</button>'
-      : '')
-    + (patientId
-      ? '<button class="btn btn-sm ds-mri-open-timeline" data-patient="' + esc(patientId) + '">Open patient timeline</button>'
-      : '')
-    + '</div>'
+// ── Right column: Brain Atlas Viewer with TPS target overlay ───────────────
+export function renderBrainAtlasViewer(report) {
+  var targets = (report && Array.isArray(report.stim_targets)) ? report.stim_targets : [];
+  var totalCount = targets.length + _customTargets.length;
+  var planes = ['axial', 'coronal', 'sagittal'];
+  var planeLabels = { axial: 'Axial (z=30)', coronal: 'Coronal (y=30)', sagittal: 'Sagittal (x=0)' };
+
+  // Legend items
+  var legendItems = [
+    { color: MODALITY_DOT_COLOR.rtms, label: 'rTMS' },
+    { color: MODALITY_DOT_COLOR.tps, label: 'TPS' },
+    { color: MODALITY_DOT_COLOR.tfus, label: 'tFUS' },
+    { color: MODALITY_DOT_COLOR.tdcs, label: 'tDCS' },
+    { color: PERSONALISED_DOT_COLOR, label: 'Personalised' },
+    { color: MODALITY_DOT_COLOR.custom, label: 'Custom' },
+  ];
+  var legendHtml = '<div class="ds-atlas-legend">'
+    + legendItems.map(function (l) {
+      return '<div class="ds-atlas-legend__item">'
+        + '<span class="ds-atlas-legend__dot" style="background:' + l.color + '"></span>'
+        + '<span>' + esc(l.label) + '</span></div>';
+    }).join('')
     + '</div>';
-  return card('3-plane slice viewer', body);
+
+  // Header
+  var header = '<div class="ds-atlas-header">'
+    + '<div class="ds-atlas-header__left">'
+    + '<span class="ds-atlas-eyebrow">Brain Atlas Viewer</span>'
+    + '<span class="ds-atlas-count">' + esc(String(totalCount)) + ' target(s)</span>'
+    + '</div>'
+    + legendHtml
+    + '</div>';
+
+  // 3-panel grid
+  var grid = '<div class="ds-atlas-grid">'
+    + planes.map(function (plane) {
+      return '<div class="ds-atlas-panel" data-plane="' + plane + '">'
+        + '<img class="ds-atlas-img" id="ds-atlas-img-' + plane + '" src="/images/brain-atlas/' + plane + '.png" alt="' + esc(planeLabels[plane]) + ' MRI template" draggable="false">'
+        + '<canvas class="ds-atlas-canvas" id="ds-atlas-canvas-' + plane + '"></canvas>'
+        + '<div class="ds-atlas-plane-label">' + esc(planeLabels[plane]) + '</div>'
+        + '</div>';
+    }).join('')
+    + '</div>';
+
+  // Actions toolbar
+  var actions = '<div class="ds-atlas-actions">'
+    + '<button class="btn btn-sm" id="ds-atlas-clear-custom"' + (_customTargets.length ? '' : ' disabled') + '>Clear custom targets</button>'
+    + '<button class="btn btn-sm" id="ds-atlas-export">Export to protocol</button>'
+    + '<button class="btn btn-sm" id="ds-atlas-toggle-labels">' + (_atlasLabelsVisible ? 'Hide labels' : 'Show labels') + '</button>'
+    + '<span class="ds-atlas-hint">Click any slice to place a custom target</span>'
+    + '</div>';
+
+  // Custom targets list
+  var customListHtml = '';
+  if (_customTargets.length) {
+    customListHtml = '<div class="ds-atlas-custom-list">'
+      + _customTargets.map(function (ct, i) {
+        var coords = Array.isArray(ct.mni_xyz) ? ct.mni_xyz.map(function (v) { return Math.round(v); }).join(', ') : '?';
+        return '<div class="ds-atlas-custom-item">'
+          + '<span class="ds-atlas-legend__dot" style="background:' + MODALITY_DOT_COLOR.custom + '"></span>'
+          + '<span>Custom target #' + (i + 1) + '</span>'
+          + '<span class="ds-atlas-custom-item__coords">MNI [' + esc(coords) + ']</span>'
+          + '<button class="ds-atlas-custom-remove" data-custom-idx="' + i + '" title="Remove">&times;</button>'
+          + '</div>';
+      }).join('')
+      + '</div>';
+  }
+
+  var disclaimer = '<div class="ds-atlas-disclaimer">Approximate MNI projection for planning visualization only. Not a substitute for neuronavigation.</div>';
+
+  var body = '<div class="ds-atlas-viewer">'
+    + header + grid + actions + customListHtml + disclaimer
+    + '</div>';
+
+  return card('Brain Atlas Viewer', body);
 }
+
+// Keep old name as alias for backwards compatibility with tests
+export var renderSliceViewer = renderBrainAtlasViewer;
 
 // ── Right column: glass-brain summary ──────────────────────────────────────
 export function renderGlassBrain(report) {
@@ -954,17 +1329,11 @@ export function renderGlassBrain(report) {
     var sy = 115 - (my / 120) * 100;
     return { x: sx, y: sy };
   }
-  var dotColorFor = {
-    rtms: '#f59e0b', tps: '#c026d3', tfus: '#06b6d4',
-    tdcs: '#22c55e', tacs: '#eab308',
-  };
   var dotsHtml = '';
   targets.forEach(function (t) {
     var p = mniTo2D(t.mni_xyz);
     if (!p) return;
-    var col = String(t.method || '').endsWith('_personalised')
-      ? '#f43f5e'
-      : (dotColorFor[String(t.modality || '').toLowerCase()] || '#60a5fa');
+    var col = _targetDotColor(t);
     var pulse = String(t.method || '').endsWith('_personalised')
       ? '<animate attributeName="r" values="6;9;6" dur="1.6s" repeatCount="indefinite"/>'
       : '';
@@ -1416,7 +1785,7 @@ export function renderFullView(state) {
       + renderMRIQCChips(report)
       + renderBrainAgeCard(report)
       + renderTargetsPanel(report)
-      + renderSliceViewer(report)
+      + renderBrainAtlasViewer(report)
       + renderGlassBrain(report)
       + renderMedRAGPanel(state.medrag || _synthesiseMedRAGFromReport(report));
   }
@@ -1669,6 +2038,34 @@ function _registerPageCleanup() {
 
 function _wireRightColumn(navigate) {
   _bindMRIAnnotationButtons();
+
+  // ── Brain Atlas Viewer toolbar buttons ──────────────────────────────────
+  var clearBtn = document.getElementById('ds-atlas-clear-custom');
+  if (clearBtn) clearBtn.addEventListener('click', function () {
+    _customTargets = [];
+    _drawAtlasTargets(_report, _getAtlasCanvases(), _getAtlasImages());
+    _refreshAtlasCustomList();
+    _refreshAtlasToolbar();
+    _refreshAtlasCount();
+  });
+  var exportBtn = document.getElementById('ds-atlas-export');
+  if (exportBtn) exportBtn.addEventListener('click', function () {
+    var targets = ((_report && Array.isArray(_report.stim_targets)) ? _report.stim_targets : []).concat(_customTargets);
+    window._atlasExportedTargets = targets;
+    var blob = new Blob([JSON.stringify(targets, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = 'stim_targets_export.json'; a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    showToast(targets.length + ' target(s) exported', 'success');
+  });
+  var toggleBtn = document.getElementById('ds-atlas-toggle-labels');
+  if (toggleBtn) toggleBtn.addEventListener('click', function () {
+    _atlasLabelsVisible = !_atlasLabelsVisible;
+    toggleBtn.textContent = _atlasLabelsVisible ? 'Hide labels' : 'Show labels';
+    _drawAtlasTargets(_report, _getAtlasCanvases(), _getAtlasImages());
+  });
+
   document.querySelectorAll('.ds-mri-open-viewer-json').forEach(function (btn) {
     btn.addEventListener('click', async function () {
       var aid = btn.getAttribute('data-aid');
@@ -2000,6 +2397,7 @@ export var _INTERNALS = {
   CONDITION_OPTIONS: CONDITION_OPTIONS,
   PIPELINE_STAGES:   PIPELINE_STAGES,
   MODALITY_CLASS:    MODALITY_CLASS,
+  MODALITY_DOT_COLOR: MODALITY_DOT_COLOR,
   synthesiseMedRAG:  _synthesiseMedRAGFromReport,
   isDemoMode:        _isDemoMode,
   featureFlag:       _mriFeatureFlagEnabled,
@@ -2009,4 +2407,8 @@ export var _INTERNALS = {
   setJobId:          function (j) { _jobId = j; },
   mountNiiVue:       mountNiiVue,
   getReport:         function () { return _report; },
+  mniToPixel:        mniToPixel,
+  pixelToMni:        pixelToMni,
+  getCustomTargets:  function () { return _customTargets; },
+  setCustomTargets:  function (t) { _customTargets = t; },
 };
