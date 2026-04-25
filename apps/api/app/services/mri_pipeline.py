@@ -163,7 +163,7 @@ def _build_overlay_summary_html(
   .preview img{{display:block;max-width:100%;height:auto;border-radius:10px}}
 </style></head>
 <body><div class="shell"><div class="card">
-  <h1>Interactive overlay unavailable in this build</h1>
+  <h1>Overlay unavailable in this build</h1>
   <p>Using staged target metadata for review while the full MRI viewer assets are unavailable.</p>
   <p>Analysis <code>{analysis_id}</code> · Target <code>{target_id}</code></p>
   <div class="meta">

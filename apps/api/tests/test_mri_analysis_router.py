@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -498,6 +499,14 @@ def test_patient_timeline_returns_four_lanes(
                 last_name="Patient",
             )
         )
+        # Flush so the patients.id row exists before the FK-bearing children
+        # (clinical_sessions.patient_id, qeeg_records.patient_id, etc.) are
+        # inserted in the same transaction. Without this flush the SQLite
+        # backend rejects the child INSERTs with a FOREIGN KEY violation
+        # because SQLAlchemy's unit-of-work, lacking declared relationship()
+        # links between these tables, can pick a flush order in which the
+        # children precede the parent.
+        db.flush()
         db.add(
             ClinicalSession(
                 id="sess-timeline-1",
