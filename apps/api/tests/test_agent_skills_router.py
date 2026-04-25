@@ -9,6 +9,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.database import SessionLocal
 from app.persistence.models import AgentSkill
 from app.services.agent_skills_seed import DEFAULT_AGENT_SKILLS
 from app.services.agent_skills_seed import seed_default_agent_skills
@@ -69,21 +70,26 @@ class TestAgentSkillsListVisibility:
         assert first["id"] not in clinician_ids
         assert clinician_listing["total"] == _DEFAULT_COUNT - 1
 
-    def test_seed_backfills_missing_defaults(self, db_session) -> None:
-        record = db_session.scalar(
-            select(AgentSkill).where(AgentSkill.label == "Go-Live Lead")
-        )
-        assert record is not None
-        db_session.delete(record)
-        db_session.commit()
+    def test_seed_backfills_missing_defaults(self) -> None:
+        db_session = SessionLocal()
+        try:
+            seed_default_agent_skills(db_session)
+            record = db_session.scalar(
+                select(AgentSkill).where(AgentSkill.label == "Go-Live Lead")
+            )
+            assert record is not None
+            db_session.delete(record)
+            db_session.commit()
 
-        inserted = seed_default_agent_skills(db_session)
-        assert inserted >= 1
+            inserted = seed_default_agent_skills(db_session)
+            assert inserted >= 1
 
-        restored = db_session.scalar(
-            select(AgentSkill).where(AgentSkill.label == "Go-Live Lead")
-        )
-        assert restored is not None
+            restored = db_session.scalar(
+                select(AgentSkill).where(AgentSkill.label == "Go-Live Lead")
+            )
+            assert restored is not None
+        finally:
+            db_session.close()
 
 
 class TestAgentSkillsCrud:
