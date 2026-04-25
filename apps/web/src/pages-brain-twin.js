@@ -1,9 +1,8 @@
 import { api } from './api.js';
 import { spinner } from './helpers.js';
 
-// Brain Twin (clinician-facing) v0 implementation
-// This page is a rebranded successor to the legacy Deeptwin page ID.
-// It preserves the existing "analyze/simulate" wiring while the full Brain Twin
+// Deeptwin (clinician-facing) v0 implementation
+// This page is the Deeptwin surface while the full Brain Twin
 // surfaces (/clinical/brain-twin/:patient_id, /admin/learning-loop) are implemented.
 
 const MODALITIES = [
@@ -72,7 +71,7 @@ function _render(setTopbar) {
   const protoId = window._brain_twin_protocol_id || 'proto_default';
 
   setTopbar?.({
-    title: 'Brain Twin',
+    title: 'Deeptwin',
     subtitle: patientId ? `Patient: ${patientId}` : 'Select a patient to run analyses',
     actions: [
       { label: 'Patients', onClick: () => window._nav('patients-v2') },
@@ -130,7 +129,7 @@ function _render(setTopbar) {
               </div>
             </div>
             <div id="brain-twin-results" style="margin-top:12px">
-              <div style="color:var(--text-tertiary);font-size:12.5px">Run Brain Twin to see results.</div>
+              <div style="color:var(--text-tertiary);font-size:12.5px">Run Deeptwin to see results.</div>
             </div>
           </div>
 
@@ -215,7 +214,7 @@ function _renderEvidence(data) {
 
 function _wireHandlers(setTopbar) {
   window._brainTwinPickPatient = function() {
-    if (window._showToast) window._showToast('Pick a patient from Patients, then return to Brain Twin.', 'info');
+    if (window._showToast) window._showToast('Pick a patient from Patients, then return to Deeptwin.', 'info');
     window._nav('patients-v2');
   };
 
@@ -250,7 +249,7 @@ function _wireHandlers(setTopbar) {
       const data = await api.brainTwinAnalyze(payload);
       _renderResults(data);
     } catch (e) {
-      if (resEl) resEl.innerHTML = `<div style="color:var(--red);font-size:12.5px">Brain Twin failed: ${_esc(e.message || e)}</div>`;
+      if (resEl) resEl.innerHTML = `<div style="color:var(--red);font-size:12.5px">Deeptwin failed: ${_esc(e.message || e)}</div>`;
     }
   };
 
