@@ -123,6 +123,7 @@ from app.services.clinical_data import seed_clinical_dataset
 from app.services.devices import list_devices
 from app.services.evidence import list_evidence
 from app.services.generation import generate_handbook, generate_protocol_draft
+from app.services.log_sanitizer import sanitize_path
 from app.services.preview import build_intake_preview
 from app.services.qeeg import list_qeeg_biomarkers, list_qeeg_condition_map
 from app.services.review import record_review_action
@@ -278,6 +279,21 @@ async def security_headers_middleware(request: Request, call_next):
     return response
 
 
+def _safe_log_path(request: Request) -> str:
+    """Return a PHI-safe path label for structured logs / Sentry.
+
+    Prefers the matched route template (`/api/v1/patients/{patient_id}/timeline`)
+    so identifiers never reach the log payload. Falls back to a sanitised raw
+    path when no route matched (404, malformed path, ASGI-level errors). See
+    apps/api/app/services/log_sanitizer.py for the redaction rules.
+    """
+    route = request.scope.get("route") if hasattr(request, "scope") else None
+    template = getattr(route, "path", None) if route is not None else None
+    if isinstance(template, str) and template:
+        return template
+    return sanitize_path(request.url.path)
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     request_id = request.headers.get("x-request-id", str(uuid4()))
@@ -293,7 +309,7 @@ async def log_requests(request: Request, call_next):
             extra={
                 "request_id": request_id,
                 "method": request.method,
-                "path": request.url.path,
+                "path": _safe_log_path(request),
                 "duration_ms": duration_ms,
             },
         )
@@ -306,7 +322,7 @@ async def log_requests(request: Request, call_next):
         extra={
             "request_id": request_id,
             "method": request.method,
-            "path": request.url.path,
+            "path": _safe_log_path(request),
             "status_code": response.status_code,
             "duration_ms": duration_ms,
         },
@@ -409,7 +425,7 @@ async def unexpected_error_handler(
         extra={
             "request_id": getattr(request.state, "request_id", None),
             "method": request.method,
-            "path": request.url.path,
+            "path": _safe_log_path(request),
         },
     )
     payload = ErrorResponse(
