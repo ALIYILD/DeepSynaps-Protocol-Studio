@@ -65,6 +65,7 @@ jobs:
   backend-test:
     name: Backend Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -75,7 +76,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-xdist httpx
+          pip install pytest pytest-xdist pytest-timeout httpx
           pip install \
             -e packages/core-schema \
             -e packages/condition-registry \
@@ -88,11 +89,12 @@ jobs:
             -e apps/api
       - name: Run tests
         working-directory: apps/api
-        run: python -m pytest -q -n auto --tb=short
+        run: python -m pytest -q -n auto --tb=short --timeout=120 --timeout-method=thread
 
   backend-smoke:
     name: Backend Smoke (fast)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -103,7 +105,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-xdist httpx
+          pip install pytest pytest-xdist pytest-timeout httpx
           pip install \
             -e packages/core-schema \
             -e packages/condition-registry \
@@ -117,7 +119,7 @@ jobs:
       - name: Run smoke tests
         working-directory: apps/api
         run: |
-          python -m pytest -q -n auto --tb=short \
+          python -m pytest -q -n auto --tb=short --timeout=60 --timeout-method=thread \
             tests/test_health.py \
             tests/test_home_program_tasks.py \
             tests/test_evidence_router.py
