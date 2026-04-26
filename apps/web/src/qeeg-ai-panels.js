@@ -62,9 +62,9 @@ var _EEG_10_20 = {
   O1:  [-0.30,-0.92], Oz:  [ 0.00,-0.97], O2:  [ 0.30,-0.92],
 };
 
-// Return a 240x240 inline SVG mini-topomap of `weights` {channel: float},
-// normalised to [0,1] for colour intensity. Omits channels without known
-// 10-20 coordinates. Tiny enough to ship inline in 19-channel panels.
+// Return an inline SVG mini-topomap of `weights` {channel: float},
+// Electrodes above threshold highlighted in cyan/teal, rest dark.
+// Matches the INTEGRATED_GRADIENTS explainability style.
 function _miniTopomap(weights, opts) {
   weights = weights || {};
   opts = opts || {};
@@ -75,13 +75,16 @@ function _miniTopomap(weights, opts) {
   var vals = Object.keys(weights).map(function (k) { return Number(weights[k]); }).filter(isFinite);
   if (!vals.length) return '';
   var maxAbs = vals.reduce(function (m, v) { return Math.max(m, Math.abs(v)); }, 0) || 1;
-  // Head outline + nose marker + ears.
+  var eR = Math.max(7, Math.round(size / 22));
+  // Head outline + nose marker + ears
   var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + size + ' ' + size
     + '" role="img" aria-label="Electrode importance topomap" class="qeeg-ai-topomap">'
-    + '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="rgba(255,255,255,0.02)" '
+    + '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="rgba(10,20,40,0.85)" '
     + 'stroke="rgba(255,255,255,0.18)" stroke-width="1.5"/>'
     + '<polygon points="' + cx + ',' + (cy - r - 6) + ' ' + (cx - 6) + ',' + (cy - r + 2) + ' '
-    + (cx + 6) + ',' + (cy - r + 2) + '" fill="rgba(255,255,255,0.12)"/>';
+    + (cx + 6) + ',' + (cy - r + 2) + '" fill="rgba(255,255,255,0.12)"/>'
+    + '<ellipse cx="' + (cx - r - 4) + '" cy="' + cy + '" rx="3" ry="8" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>'
+    + '<ellipse cx="' + (cx + r + 4) + '" cy="' + cy + '" rx="3" ry="8" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>';
   Object.keys(weights).forEach(function (ch) {
     var pos = _EEG_10_20[ch];
     if (!pos) return;
@@ -90,14 +93,21 @@ function _miniTopomap(weights, opts) {
     var x = cx + pos[0] * r * 0.9;
     var y = cy - pos[1] * r * 0.9;
     var intensity = Math.abs(v) / maxAbs;
-    var fill = v >= 0
-      ? 'rgba(38,198,218,' + (0.18 + 0.82 * intensity).toFixed(2) + ')'
-      : 'rgba(239,83,80,'  + (0.18 + 0.82 * intensity).toFixed(2) + ')';
-    var radius = 6 + intensity * 10;
-    svg += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + radius.toFixed(1)
-      + '" fill="' + fill + '" stroke="rgba(0,0,0,0.3)" stroke-width="0.5"/>';
+    // High importance: cyan/teal glow; low importance: dark muted
+    var fill, stroke, textFill;
+    if (intensity > 0.4) {
+      fill = 'rgba(0,229,255,' + (0.15 + 0.65 * intensity).toFixed(2) + ')';
+      stroke = 'rgba(0,229,255,' + (0.4 + 0.5 * intensity).toFixed(2) + ')';
+      textFill = 'rgba(255,255,255,0.95)';
+    } else {
+      fill = 'rgba(30,40,60,' + (0.5 + 0.3 * intensity).toFixed(2) + ')';
+      stroke = 'rgba(255,255,255,' + (0.08 + 0.12 * intensity).toFixed(2) + ')';
+      textFill = 'rgba(255,255,255,' + (0.35 + 0.25 * intensity).toFixed(2) + ')';
+    }
+    svg += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + eR
+      + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.2"/>';
     svg += '<text x="' + x.toFixed(1) + '" y="' + (y + 3).toFixed(1)
-      + '" text-anchor="middle" font-size="9" font-weight="600" fill="rgba(255,255,255,0.85)">'
+      + '" text-anchor="middle" font-size="' + Math.max(7, Math.round(size / 28)) + '" font-weight="600" fill="' + textFill + '">'
       + esc(ch) + '</text>';
   });
   svg += '</svg>';
@@ -303,7 +313,7 @@ export function renderExplainabilityOverlay(analysis) {
   var ood = ex.ood_score || {};
   var sanity = ex.adebayo_sanity_pass;
 
-  // OOD badge — one line summary.
+  // OOD badge
   var oodPct = ood.percentile != null ? Number(ood.percentile).toFixed(0) : null;
   var oodColor = oodPct != null ? (oodPct < 20 ? 'var(--red)' : oodPct > 80 ? 'var(--amber)' : 'var(--green)')
     : 'var(--text-secondary)';
@@ -316,17 +326,23 @@ export function renderExplainabilityOverlay(analysis) {
       + esc(ood.interpretation) + '</span>' : '')
     + '</div>';
 
-  var rowsHtml = '';
-  Object.keys(per).forEach(function (riskKey) {
-    var row = per[riskKey] || {};
+  var cardsHtml = '';
+  _RISK_ORDER.forEach(function (riskKey) {
+    var row = per[riskKey];
+    if (!row) return;
     var top = Array.isArray(row.top_channels) ? row.top_channels.slice(0, 3) : [];
     var channelImp = row.channel_importance || {};
+
+    // Build per-channel importance list
     var chipsHtml = top.map(function (t) {
-      return '<span class="qeeg-ai-chip" style="--chip-color:var(--teal)">'
-        + esc(t.ch) + ' · ' + esc(t.band) + ' · ' + Number(t.score || 0).toFixed(2)
-        + '</span>';
+      return '<div class="qeeg-ai-explain-chip">'
+        + '<span class="qeeg-ai-explain-chip__ch">' + esc(t.ch) + '</span>'
+        + '<span class="qeeg-ai-explain-chip__band">' + esc(t.band) + '</span>'
+        + '<span class="qeeg-ai-explain-chip__score">' + Number(t.score || 0).toFixed(2) + '</span>'
+        + '</div>';
     }).join('');
-    // Build an aggregate per-channel importance (sum across bands) for the mini topomap.
+
+    // Aggregate per-channel importance for the brain map
     var flat = {};
     Object.keys(channelImp).forEach(function (ch) {
       var bandMap = channelImp[ch] || {};
@@ -339,15 +355,19 @@ export function renderExplainabilityOverlay(analysis) {
     });
     var topo = '';
     if (sanity !== false && Object.keys(flat).length) {
-      topo = _miniTopomap(flat, { size: 180 });
+      topo = _miniTopomap(flat, { size: 160 });
     }
-    rowsHtml += '<div class="qeeg-ai-explain-row">'
-      + '<div class="qeeg-ai-explain-row__head">'
-      + '<strong>' + esc(_RISK_LABELS[riskKey] || riskKey) + '</strong>'
-      + '<span class="qeeg-ai-explain-row__method">' + esc(ex.method || 'integrated_gradients') + '</span>'
+
+    cardsHtml += '<div class="qeeg-ai-explain-card">'
+      + '<div class="qeeg-ai-explain-card__header">'
+      + '<strong class="qeeg-ai-explain-card__title">' + esc(_RISK_LABELS[riskKey] || riskKey) + '</strong>'
+      + '<span class="qeeg-ai-explain-card__method">' + esc(ex.method || 'integrated_gradients') + '</span>'
       + '</div>'
-      + '<div class="qeeg-ai-explain-row__chips">' + chipsHtml + '</div>'
-      + (topo ? '<div class="qeeg-ai-explain-row__topo">' + topo + '</div>' : '')
+      + (topo ? '<div class="qeeg-ai-explain-card__topo">' + topo + '</div>' : '')
+      + '<div class="qeeg-ai-explain-card__channels">'
+      + '<div class="qeeg-ai-explain-card__channels-label">Top channels + band</div>'
+      + chipsHtml
+      + '</div>'
       + '</div>';
   });
 
@@ -361,12 +381,12 @@ export function renderExplainabilityOverlay(analysis) {
     sanityFooter = '<div class="qeeg-ai-footnote">Adebayo sanity check: passed.</div>';
   }
 
-  if (!rowsHtml && sanity !== false) return '';
+  if (!cardsHtml && sanity !== false) return '';
 
-  var body = '<div class="qeeg-ai-risk-sub">Per-risk-score top channels × band importance. '
-    + 'OOD percentile tells you how unusual this recording looks compared to training data.</div>'
+  var body = '<div class="qeeg-ai-risk-sub">Per-condition top channels × band importance (integrated gradients). '
+    + 'Highlighted electrodes indicate strongest contributors.</div>'
     + oodHtml
-    + (sanity !== false ? '<div class="qeeg-ai-explain-grid">' + rowsHtml + '</div>' : '')
+    + (sanity !== false ? '<div class="qeeg-ai-explain-card-grid">' + cardsHtml + '</div>' : '')
     + sanityFooter;
   return _card('Explainability (research)', body);
 }

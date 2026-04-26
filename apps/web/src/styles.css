@@ -26003,22 +26003,49 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 }
 
 /* Explainability overlay */
-.qeeg-ai-explain-grid {
+.qeeg-ai-explain-grid,
+.qeeg-ai-explain-card-grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 12px; margin-top: 10px;
 }
-.qeeg-ai-explain-row {
-  padding: 10px 12px;
+.qeeg-ai-explain-row,
+.qeeg-ai-explain-card {
+  padding: 12px;
   background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
+  border-radius: 10px; display: flex; flex-direction: column; gap: 8px;
 }
-.qeeg-ai-explain-row__head {
+.qeeg-ai-explain-row__head,
+.qeeg-ai-explain-card__header {
   display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: 6px;
 }
-.qeeg-ai-explain-row__method {
+.qeeg-ai-explain-row__method,
+.qeeg-ai-explain-card__method {
+  font-size: 9px; color: var(--teal, #26c6da); text-transform: uppercase;
+  letter-spacing: 0.5px; font-weight: 600;
+  padding: 2px 6px; border-radius: 4px;
+  background: rgba(0,229,255,0.1); border: 1px solid rgba(0,229,255,0.2);
+}
+.qeeg-ai-explain-card__title { font-size: 13px; color: var(--text-primary); }
+.qeeg-ai-explain-card__topo { display: flex; justify-content: center; }
+.qeeg-ai-explain-card__topo .qeeg-ai-topomap { width: 160px; height: 160px; }
+.qeeg-ai-explain-card__channels { display: flex; flex-direction: column; gap: 4px; }
+.qeeg-ai-explain-card__channels-label {
   font-size: 10px; color: var(--text-tertiary); text-transform: uppercase;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.4px; margin-bottom: 2px;
+}
+.qeeg-ai-explain-chip {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 0; font-size: 11px; color: var(--text-secondary);
+}
+.qeeg-ai-explain-chip__ch {
+  font-weight: 700; color: var(--teal, #26c6da); min-width: 28px;
+}
+.qeeg-ai-explain-chip__band {
+  font-size: 10px; color: var(--text-tertiary); text-transform: capitalize;
+}
+.qeeg-ai-explain-chip__score {
+  margin-left: auto; font-family: var(--font-mono, monospace);
+  font-size: 11px; color: var(--text-secondary);
 }
 .qeeg-ai-explain-row__chips { display: flex; flex-wrap: wrap; margin-bottom: 6px; }
 .qeeg-ai-explain-row__topo { display: flex; justify-content: center; }
@@ -26771,6 +26798,58 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   font-size: 11px;
   color: var(--text-tertiary, #8a8f99);
   text-align: center;
+}
+
+/* Source ROIs — 3D Brain Map (replaces MRI viewer on qEEG page) */
+.ds-source-3d-wrap { display: flex; flex-direction: column; gap: 10px; }
+.ds-source-3d-bands {
+  display: flex; flex-wrap: wrap; align-self: center; gap: 2px; padding: 2px;
+  border-radius: 7px; background: var(--surface-2, rgba(255,255,255,0.04));
+  border: 1px solid var(--border-subtle, rgba(255,255,255,0.10));
+}
+.ds-source-3d-band {
+  border: 0; background: transparent; color: var(--text-secondary, #c9cdd4);
+  font-size: 11px; font-weight: 500; letter-spacing: 0.3px; text-transform: capitalize;
+  padding: 5px 11px; border-radius: 5px; cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.ds-source-3d-band:hover { color: var(--text-primary, #f5f6f8); }
+.ds-source-3d-band.is-active {
+  background: var(--band-color, var(--surface-4, rgba(255,255,255,0.14)));
+  color: #0d0f12;
+}
+.ds-source-3d-band:focus-visible { outline: 2px solid var(--focus-ring, #6aa9ff); outline-offset: 1px; }
+.ds-source-3d-content {
+  display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap;
+}
+.ds-source-3d-brain { flex: 0 0 auto; }
+.ds-source-3d-info { flex: 1; min-width: 200px; }
+.ds-source-3d-rois { display: flex; flex-direction: column; gap: 4px; }
+.ds-source-3d-roi-row {
+  display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary);
+}
+.ds-source-3d-roi-rank {
+  min-width: 22px; font-size: 10px; font-weight: 700; color: var(--text-tertiary);
+}
+.ds-source-3d-roi-label {
+  min-width: 120px; font-size: 11px; color: var(--text-primary); font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ds-source-3d-roi-bar {
+  flex: 1; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.06);
+  overflow: hidden;
+}
+.ds-source-3d-roi-fill { height: 100%; border-radius: 3px; transition: width 300ms ease; }
+.ds-source-3d-roi-val {
+  min-width: 48px; text-align: right; font-family: var(--font-mono, monospace);
+  font-size: 11px; color: var(--text-secondary);
+}
+.ds-source-3d-caption {
+  font-size: 11px; color: var(--text-tertiary, #8a8f99); text-align: center;
+}
+@media (max-width: 640px) {
+  .ds-source-3d-content { flex-direction: column; }
+  .ds-source-3d-brain { align-self: center; }
 }
 
 /* Patient + QC header */
