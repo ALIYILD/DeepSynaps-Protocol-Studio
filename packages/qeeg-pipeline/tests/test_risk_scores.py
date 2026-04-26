@@ -38,10 +38,12 @@ def test_risk_scores_shape_and_labels():
     # disclaimer is mandatory
     assert "disclaimer" in out
     assert "NOT diagnostic" in out["disclaimer"]
+    assert out["score_type"] == "neurophysiological_similarity_index"
+    assert "calibration" in out
     for label in rs.LABELS:
         assert label in out
         entry = out[label]
-        assert "score" in entry and "ci95" in entry
+        assert "score" in entry and "ci95" in entry and "drivers" in entry
         assert 0.0 <= entry["score"] <= 1.0
         ci = entry["ci95"]
         assert isinstance(ci, list) and len(ci) == 2
@@ -88,6 +90,18 @@ def test_risk_scores_reduced_paf_bumps_cognitive_decline():
 def test_risk_scores_labels_use_like_suffix():
     out = rs.compute_risk_scores(_embedding(), _features())
     for key in out:
-        if key == "disclaimer":
+        if key in {"disclaimer", "score_type", "confidence", "explainability", "caution"}:
             continue
         assert key.endswith("_like"), f"label {key} must end with _like"
+
+
+def test_risk_scores_explain_biomarker_drivers():
+    out = rs.compute_risk_scores(
+        _embedding(),
+        _features(asymmetry={"frontal_alpha_F3_F4": 0.35, "frontal_alpha_F7_F8": 0.2}),
+        deterministic_seed=1,
+    )
+    drivers = out["mdd_like"]["drivers"]
+    assert any(driver["feature"] == "frontal_alpha_asymmetry" for driver in drivers)
+    assert out["mdd_like"]["calibration"] == "uncalibrated_stub"
+    assert out["confidence"]["level"] in {"low", "moderate", "high"}

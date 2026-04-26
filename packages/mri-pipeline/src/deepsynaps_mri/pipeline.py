@@ -274,6 +274,20 @@ def run_pipeline(
     # MRIQC + incidental-finding triage pass that runs during ingest.
     qc_warnings = qc_mod.build_qc_warnings(ctx.qc.mriqc, ctx.qc.incidental)
 
+    from .clinical_summary import build_clinical_summary
+
+    clinical_summary = build_clinical_summary(
+        patient=patient,
+        modalities_present=modalities_present,
+        qc=ctx.qc,
+        structural=struct_metrics,
+        functional=func_metrics,
+        diffusion=diff_metrics,
+        stim_targets=stim_targets,
+        medrag_query=medrag_q,
+        qc_warnings=qc_warnings,
+    )
+
     report = MRIReport(
         analysis_id=uuid4(),
         patient=patient,
@@ -286,6 +300,7 @@ def run_pipeline(
         medrag_query=medrag_q,
         overlays=overlays,
         qc_warnings=qc_warnings,
+        clinical_summary=clinical_summary,
     )
     ctx.report = report
 
