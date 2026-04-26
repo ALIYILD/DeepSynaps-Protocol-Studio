@@ -260,6 +260,12 @@ function _wireHandoffButtons() {
     btn.addEventListener('click', async () => {
       const kind = btn.dataset.handoffKind;
       const note = document.getElementById('dt-handoff-note')?.value || '';
+      // Confirm before sending — handoffs notify another clinician/agent and
+      // are awkward to retract. Fat-finger clicks have triggered accidental
+      // handoffs in QA. Use the native confirm dialog so we get the same
+      // accessibility/affordance as a real modal without adding a new one.
+      const target = (kind || 'agent').replace(/_/g, ' ');
+      if (!window.confirm(`Send handoff to ${target}?`)) return;
       try { await startHandoff(STATE.patientId, kind, note); }
       catch (e) {
         if (window._showToast) window._showToast('Handoff failed: ' + (e.message || e), 'warning');
