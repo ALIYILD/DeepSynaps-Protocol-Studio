@@ -268,13 +268,14 @@ def test_deeptwin_summary_admin_other_clinic_succeeds(
 
 
 def test_deeptwin_summary_guest_blocked(client: TestClient) -> None:
-    # Use the demo guest token. This first hits the cross-clinic gate
-    # only after an upstream gate would have admitted it; the deeptwin
-    # patient endpoints have no role gate, so the guest gets through to
-    # the ownership gate which denies on role=guest. With a non-existent
-    # patient id the gate is currently skipped (synthetic-allow), so we
-    # use the real seeded patient id instead. Seeding inline since this
-    # test doesn't take the cross_clinic_setup fixture.
+    # Use the demo guest token. The deeptwin patient endpoints stack two
+    # gates (post-merge): _require_clinician_review_actor (role gate, raises
+    # "insufficient_role" for anyone below clinician) THEN _gate_patient_access
+    # (ownership gate, raises "cross_clinic_access_denied" for cross-clinic or
+    # guest). Either is a correct deny for a guest — assert 403 and accept
+    # either code. With a non-existent patient id the ownership gate would be
+    # skipped (synthetic-allow), so we seed a real patient inline. Seeding
+    # inline since this test doesn't take the cross_clinic_setup fixture.
     db: Session = SessionLocal()
     try:
         clinic = Clinic(id=str(uuid.uuid4()), name="Guest test clinic")
@@ -306,7 +307,10 @@ def test_deeptwin_summary_guest_blocked(client: TestClient) -> None:
         headers=_auth("guest-demo-token"),
     )
     assert resp.status_code == 403, resp.text
-    assert resp.json()["code"] == "cross_clinic_access_denied"
+    assert resp.json()["code"] in {
+        "cross_clinic_access_denied",
+        "insufficient_role",
+    }, resp.text
 
 
 # ── qEEG router: analysis_id resolves to patient_id ──────────────────────────
