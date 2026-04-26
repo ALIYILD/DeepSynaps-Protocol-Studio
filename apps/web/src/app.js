@@ -93,7 +93,7 @@ if (localStorage.getItem('ds_high_contrast') === '1') document.body.classList.ad
   wrap.style.cssText = 'position:relative;display:inline-block;';
   wrap.innerHTML = `
     <button id="lang-btn" class="lang-btn" title="Language" aria-label="Switch language" onclick="window._toggleLangMenu()" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;width:34px;height:34px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:0.9rem;flex-shrink:0;gap:4px;font-size:11px;font-weight:500;padding:0 6px;width:auto;white-space:nowrap;">
-      🌐 <span id="lang-btn-label">${getLocale().toUpperCase()}</span>
+      <span role="img" aria-label="Language" style="line-height:1">🌐</span> <span id="lang-btn-label">${getLocale().toUpperCase()}</span>
     </button>
     <div id="lang-menu" class="lang-menu" style="display:none;" role="menu">
       ${Object.entries(LOCALES).map(([code, name]) =>
