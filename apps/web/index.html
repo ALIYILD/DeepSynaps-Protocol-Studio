@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- HIPAA hygiene: never leak the source URL (which may carry IDs that
+     correlate to a patient) via the Referer header on outbound links or
+     resource requests. -->
+<meta name="referrer" content="no-referrer">
 <script>
   try {
     const t = localStorage.getItem('ds_theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
