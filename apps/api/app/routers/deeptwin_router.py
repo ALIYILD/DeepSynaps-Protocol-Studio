@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import get_db_session
+from app.errors import ApiServiceError
 from app.services.deeptwin_engine import (
     REPORT_BUILDERS,
     align_timeline_events,
@@ -25,6 +26,7 @@ from app.services.deeptwin_engine import (
 )
 from app.services.fusion_service import build_fusion_recommendation
 from app.services.neuromodulation_research import bundle_root_or_none, search_ranked_papers
+from app.settings import get_settings
 
 router = APIRouter(prefix="/api/v1/deeptwin", tags=["deeptwin"])
 brain_twin_router = APIRouter(prefix="/api/v1/brain-twin", tags=["brain-twin"])
@@ -535,6 +537,24 @@ def deeptwin_simulate(
     payload: DeeptwinSimulateRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> DeeptwinSimulateResponse:
+    # F6 launch-readiness gate: DeepTwin simulation must be explicitly enabled
+    # in production/staging. The worker returns {"status": "disabled", ...}
+    # when the flag is off; map that to a structured 503 the frontend can
+    # render as a "feature unavailable in your environment" banner.
+    if not get_settings().enable_deeptwin_simulation:
+        raise ApiServiceError(
+            code="deeptwin_simulation_disabled",
+            message=(
+                "DeepTwin simulation is gated off in this environment. "
+                "Contact admin to enable."
+            ),
+            status_code=503,
+            details={
+                "reason": "deeptwin_simulation_not_enabled_in_environment",
+                "env_flag": "DEEPSYNAPS_ENABLE_DEEPTWIN_SIMULATION",
+            },
+        )
+
     inputs = {
         "patient_id": payload.patient_id,
         "protocol_id": payload.protocol_id,
