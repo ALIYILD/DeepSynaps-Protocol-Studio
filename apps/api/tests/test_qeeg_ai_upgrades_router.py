@@ -17,7 +17,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import QEEGAnalysis
+from app.persistence.models import Clinic, Patient, QEEGAnalysis, User
+from app.services.auth_service import create_access_token
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -32,6 +33,62 @@ def patient_id(client: TestClient, auth_headers: dict) -> str:
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
+
+
+@pytest.fixture
+def clinic_scoped_patient() -> dict[str, str]:
+    """Seed Clinic + clinician User + Patient and mint a real JWT.
+
+    The demo-token fixture (auth_headers["clinician"]) carries clinic_id=None,
+    which the cross-clinic ownership gate (apps/api/app/auth.py:160) rejects
+    as ``cross_clinic_access_denied`` for any patient-scoped route. This
+    follows the minted-JWT pattern from
+    tests/test_cross_clinic_ownership.py:111-183 so the JWT carries a real
+    clinic_id claim that matches the patient's owning clinician's clinic.
+    """
+    clinic_id = "clinic-test-default"
+    clinician_user_id = "user-test-clinician"
+    patient_pk = "pat-test-trajectory"
+    db = SessionLocal()
+    try:
+        db.add(Clinic(id=clinic_id, name="Test Clinic"))
+        db.add(
+            User(
+                id=clinician_user_id,
+                email="clinician-test@example.com",
+                display_name="Test Clinician",
+                hashed_password="x",
+                role="clinician",
+                package_id="clinician_pro",
+                clinic_id=clinic_id,
+            )
+        )
+        db.flush()
+        db.add(
+            Patient(
+                id=patient_pk,
+                clinician_id=clinician_user_id,
+                first_name="AI",
+                last_name="Upgrades",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    token = create_access_token(
+        user_id=clinician_user_id,
+        email="clinician-test@example.com",
+        role="clinician",
+        package_id="clinician_pro",
+        clinic_id=clinic_id,
+    )
+    return {
+        "patient_id": patient_pk,
+        "clinic_id": clinic_id,
+        "clinician_id": clinician_user_id,
+        "auth_header": f"Bearer {token}",
+    }
 
 
 @pytest.fixture
@@ -357,8 +414,7 @@ def test_recommend_protocol_persists_dict(
 
 def test_patient_trajectory_returns_envelope(
     client: TestClient,
-    auth_headers: dict,
-    patient_id: str,
+    clinic_scoped_patient: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -379,11 +435,12 @@ def test_patient_trajectory_returns_envelope(
             "is_stub": True,
         },
     )
+    pid = clinic_scoped_patient["patient_id"]
     resp = client.get(
-        f"/api/v1/qeeg-analysis/patients/{patient_id}/trajectory",
-        headers=auth_headers["clinician"],
+        f"/api/v1/qeeg-analysis/patients/{pid}/trajectory",
+        headers={"Authorization": clinic_scoped_patient["auth_header"]},
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["success"] is True
     assert body["trajectory"]["n_sessions"] == 0
@@ -391,19 +448,19 @@ def test_patient_trajectory_returns_envelope(
 
 def test_patient_trajectory_graceful_when_bridge_fails(
     client: TestClient,
-    auth_headers: dict,
-    patient_id: str,
+    clinic_scoped_patient: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
         "app.services.qeeg_ai_bridge.run_trajectory_report_safe",
         lambda *a, **k: {"success": False, "data": None, "error": "missing dep", "is_stub": True},
     )
+    pid = clinic_scoped_patient["patient_id"]
     resp = client.get(
-        f"/api/v1/qeeg-analysis/patients/{patient_id}/trajectory",
-        headers=auth_headers["clinician"],
+        f"/api/v1/qeeg-analysis/patients/{pid}/trajectory",
+        headers={"Authorization": clinic_scoped_patient["auth_header"]},
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["success"] is False
     assert "missing dep" in (body.get("error") or "")
