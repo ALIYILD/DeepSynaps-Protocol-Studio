@@ -290,6 +290,7 @@ export function renderSimulationLab(_state, hostId) {
             <button class="btn btn-primary btn-sm" id="dt-sim-run">Simulate</button>
             <button class="btn btn-ghost btn-sm" id="dt-sim-add">Add to compare</button>
             <button class="btn btn-ghost btn-sm" id="dt-sim-clear">Clear</button>
+            <button class="btn btn-sm" id="dt-sim-room" style="margin-left:auto;background:linear-gradient(135deg,rgba(139,125,255,0.18),rgba(62,224,197,0.18));border:1px solid rgba(139,125,255,0.4);color:var(--text-primary)">🚀 Open Simulation Room</button>
           </div>
         </div>
         <div class="dt-sim-output">

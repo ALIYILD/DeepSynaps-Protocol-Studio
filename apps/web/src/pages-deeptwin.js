@@ -234,6 +234,10 @@ function _wireSimulationLab() {
     const detail = document.getElementById('dt-sim-detail');
     if (detail) detail.innerHTML = '';
   });
+  document.getElementById('dt-sim-room')?.addEventListener('click', async () => {
+    const { openSimRoom } = await import('./deeptwin/sim-room.js');
+    openSimRoom(STATE.patientId);
+  });
 }
 
 function _wireReportButtons() {
