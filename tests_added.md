@@ -24,3 +24,12 @@
 
 - `apps/api/tests/test_deeptwin_engine_provenance.py`
   - Validates simulation provenance, scenario comparison, uncertainty notes, feature attribution, and `approval_required` safety framing.
+
+## Validation Run
+
+- `PYTHONPATH=packages/qeeg-pipeline/src python3 -m pytest packages/qeeg-pipeline/tests/test_clinical_summary.py packages/qeeg-pipeline/tests/test_risk_scores.py`
+  - Result: 7 passed.
+- `PYTHONPATH=packages/mri-pipeline/src python3 -m pytest packages/mri-pipeline/tests/test_clinical_summary.py packages/mri-pipeline/tests/test_qc.py`
+  - Result: 11 passed, 1 existing Pydantic deprecation warning.
+- `PYTHONPATH=apps/api:packages/qeeg-pipeline/src python3 -m pytest apps/api/tests/test_deeptwin_engine_provenance.py`
+  - Result: 1 passed, 1 existing Pydantic deprecation warning.

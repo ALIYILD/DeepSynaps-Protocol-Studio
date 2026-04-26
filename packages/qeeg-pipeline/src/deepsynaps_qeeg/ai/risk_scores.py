@@ -263,6 +263,11 @@ def _decision_support_metadata(
             "confidence": {"score": round(0.35 + completeness * 0.5, 2), "level": level},
             "available_signals": available_signals,
         },
+        "confidence": {
+            "score": round(0.35 + completeness * 0.5, 2),
+            "level": level,
+            "rationale": "Completeness-based confidence for the similarity-index payload.",
+        },
         "evidence_policy": {
             "primary_anchor": "validated clinical assessments and clinician review",
             "biomarker_role": "supporting evidence only",

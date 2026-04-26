@@ -33,10 +33,14 @@ def build_clinical_summary(report: MRIReport) -> dict[str, Any]:
     quality_flags = _quality_flags(report)
     confidence = _confidence_from_report(report, quality_flags)
     observed = _observed_findings(report)
+    region_findings = [item for item in observed if item.get("type") == "region_metric"]
+    network_findings = _network_findings(report)
     derived = _derived_interpretations(report, confidence)
 
     return {
         "module": "MRI / fMRI Analyzer",
+        "decision_support_only": True,
+        "confidence": confidence,
         "patient_context": {
             "age": report.patient.age,
             "sex": report.patient.sex.value if report.patient.sex else None,
@@ -53,6 +57,8 @@ def build_clinical_summary(report: MRIReport) -> dict[str, Any]:
             ),
         },
         "observed_findings": observed,
+        "region_level_findings": region_findings,
+        "network_findings": network_findings,
         "derived_interpretations": derived,
         "limitations": [
             "MRI-derived measures depend on acquisition quality, preprocessing, segmentation, and atlas coverage.",
@@ -134,6 +140,8 @@ def _confidence_from_report(
     penalties = {"high": 0.22, "medium": 0.11, "low": 0.04}
     for flag in flags:
         score -= penalties.get(flag.get("severity", "low"), 0.04)
+    if report.qc.passed is False:
+        score -= 0.12
     score = max(0.15, min(0.97, score))
     if score >= 0.78:
         level = "high"
@@ -203,12 +211,33 @@ def _normed_finding(
     return {
         "type": "region_metric",
         "label": f"{kind}:{region}",
+        "region": region,
         "location": region,
         "value": value,
         "unit": unit,
         "z": z,
         "statement": f"Observed {kind.replace('_', ' ')} in {region}: {value:.3g}{unit or ''}{z_text}.",
     }
+
+
+def _network_findings(report: MRIReport) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    if not report.functional:
+        return findings
+    for network in report.functional.networks:
+        if network.mean_within_fc.flagged:
+            findings.append({
+                "type": "network_metric",
+                "network": network.network,
+                "value": network.mean_within_fc.value,
+                "unit": network.mean_within_fc.unit,
+                "z": network.mean_within_fc.z,
+                "statement": (
+                    f"Observed {network.network} within-network FC value "
+                    f"{network.mean_within_fc.value:.3f}."
+                ),
+            })
+    return findings
 
 
 def _derived_interpretations(

@@ -90,7 +90,7 @@ def test_risk_scores_reduced_paf_bumps_cognitive_decline():
 def test_risk_scores_labels_use_like_suffix():
     out = rs.compute_risk_scores(_embedding(), _features())
     for key in out:
-        if key in {"disclaimer", "score_type", "confidence", "explainability", "caution"}:
+        if key in {"disclaimer", "score_type", "confidence", "calibration", "evidence_policy"}:
             continue
         assert key.endswith("_like"), f"label {key} must end with _like"
 

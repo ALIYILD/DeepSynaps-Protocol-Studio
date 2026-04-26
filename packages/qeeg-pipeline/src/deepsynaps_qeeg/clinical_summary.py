@@ -62,6 +62,7 @@ def build_clinical_summary(
     return {
         "module": "qEEG Analyzer",
         "patient_context": {"age": age, "sex": sex},
+        "confidence": confidence,
         "data_quality": {
             "confidence": confidence,
             "flags": flags,
