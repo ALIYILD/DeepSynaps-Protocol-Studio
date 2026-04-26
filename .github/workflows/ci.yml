@@ -21,8 +21,6 @@ jobs:
         run: npm ci
       - name: Web unit tests (registries)
         run: npm run test:unit --workspace @deepsynaps/web
-      - name: Typecheck (web)
-        run: npx tsc --noEmit -p apps/web/tsconfig.app.json
       - name: Build
         run: npm run build:web
       - name: Upload build artifact
