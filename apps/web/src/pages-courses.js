@@ -109,16 +109,24 @@ function _courseFinalizationSummary(sessions, adverseEvents, aeSummary) {
 // ── Clinical Intelligence — Risk Scoring ──────────────────────────────────────
 
 function computeRiskScore(course) {
+  // Defensive: bail early if no course at all so callers never see NaN.
+  if (!course || typeof course !== 'object') return 0;
   let score = 0;
   const gradeRisk = { A: 0, B: 10, C: 25, D: 40 };
-  score += gradeRisk[course.evidence_grade] ?? 20;
+  // evidence_grade may be missing/null/lowercase; fall back to mid-risk (20)
+  // when not in the {A,B,C,D} set instead of letting `undefined` propagate.
+  const grade = typeof course.evidence_grade === 'string' ? course.evidence_grade.toUpperCase() : null;
+  score += (grade && grade in gradeRisk) ? gradeRisk[grade] : 20;
   if (course.on_label === false) score += 30;
-  score += (course.governance_warnings || []).length * 15;
+  score += (Array.isArray(course.governance_warnings) ? course.governance_warnings.length : 0) * 15;
   if (course.review_required) score += 10;
-  if (course.planned_intensity_pct_rmt > 110) score += 15;
-  if (course.planned_intensity_pct_rmt > 120) score += 15;
-  if (course.planned_frequency_hz > 20) score += 10;
-  if (course.planned_sessions_total > 40) score += 5;
+  const intensity = Number(course.planned_intensity_pct_rmt);
+  if (Number.isFinite(intensity) && intensity > 110) score += 15;
+  if (Number.isFinite(intensity) && intensity > 120) score += 15;
+  const freq = Number(course.planned_frequency_hz);
+  if (Number.isFinite(freq) && freq > 20) score += 10;
+  const sessions = Number(course.planned_sessions_total);
+  if (Number.isFinite(sessions) && sessions > 40) score += 5;
   return Math.min(100, score);
 }
 
