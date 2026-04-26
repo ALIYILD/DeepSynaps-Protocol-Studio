@@ -4,10 +4,28 @@ This module turns low-level pipeline dictionaries into a stable, cautious
 report block. It does not add new inference; it documents observed findings,
 data quality, uncertainty, limitations, and provenance so downstream reports
 and APIs can present qEEG results in a clinically reviewable way.
+
+Output schema additions (2026-04-26 night-shift upgrade):
+- ``qc_flags``: structured list (code/severity/message/affected) instead of
+  buried text — top-level so frontend can render badges per finding.
+- ``method_provenance``: explicit pipeline / detector / tool fingerprints.
+- ``limitations``: structured array (code/severity/message) so callers can
+  filter ("hide low-severity") instead of parsing prose.
+- ``observed_findings`` and ``derived_interpretations`` stay separated: the
+  first is "this is in the signal" (no inference), the second is "this is what
+  a model would infer" (always hedged).
+- Each finding now carries an ``evidence`` block: either real PubMed/RAG hits
+  from the evidence layer, OR ``status='evidence_pending'`` when the layer is
+  not reachable. We never fabricate citations.
+- Stage errors are wrapped in a structured envelope (code / severity /
+  recoverable / partial_output) instead of a raw string.
 """
 from __future__ import annotations
 
-from typing import Any
+import logging
+from typing import Any, Callable
+
+log_ = logging.getLogger(__name__)
 
 MIN_REVIEWABLE_EPOCHS = 20
 TARGET_CLEAN_EPOCHS = 40
@@ -48,21 +66,45 @@ def build_clinical_summary(
     quality: dict[str, Any] | None,
     age: int | None = None,
     sex: str | None = None,
+    evidence_lookup: Callable[[str], list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
-    """Build a cautious, machine-readable qEEG decision-support block."""
+    """Build a cautious, machine-readable qEEG decision-support block.
+
+    Parameters
+    ----------
+    features, zscores, quality
+        Pipeline outputs (see ``CONTRACT.md §1``).
+    age, sex
+        Patient context, used as-is in the response.
+    evidence_lookup
+        Optional callable ``(finding_label) -> list[citation_dict]``. If
+        provided and reachable, each ``observed_findings`` entry will carry up
+        to 3 supporting citations. Citations must be real (the callable is
+        responsible for that — typically the ``deepsynaps_evidence`` layer).
+        When the callable is absent, raises, or returns an empty list, the
+        finding is marked ``evidence={"status": "evidence_pending", ...}`` —
+        we never fabricate citations.
+    """
     features = features or {}
     zscores = zscores or {}
     quality = quality or {}
 
     flags = _quality_flags(quality)
     confidence = _confidence_from_quality(quality, flags)
-    observed = _observed_findings(features, zscores)
+    observed = _observed_findings(features, zscores, evidence_lookup=evidence_lookup)
     derived = _derived_interpretations(observed, confidence, features)
+    structured_stage_errors = _structured_stage_errors(quality.get("stage_errors") or {})
+    limitations = _structured_limitations(features, quality, zscores, flags)
 
     return {
         "module": "qEEG Analyzer",
         "patient_context": {"age": age, "sex": sex},
         "confidence": confidence,
+        # Top-level QC flags array (promoted out of data_quality so downstream
+        # consumers — frontend, report renderer, fusion — can read it without
+        # nested traversal). data_quality.flags kept as alias for backwards
+        # compatibility with existing callers/tests.
+        "qc_flags": flags,
         "data_quality": {
             "confidence": confidence,
             "flags": flags,
@@ -70,34 +112,140 @@ def build_clinical_summary(
             "total_epochs": _safe_int(quality.get("n_epochs_total")),
             "bad_channels": list(quality.get("bad_channels") or []),
             "stage_errors": dict(quality.get("stage_errors") or {}),
+            "stage_errors_structured": structured_stage_errors,
+            "bad_channel_detector": quality.get("bad_channel_detector"),
         },
         "observed_findings": observed,
         "derived_interpretations": derived,
-        "limitations": [
-            "qEEG findings are observations from this recording and require clinical correlation.",
-            "Similarity indices and normative deviations are not standalone clinical determinations.",
-            "Low clean-epoch count, missing artifact tooling, or unmapped channels can reduce reliability.",
-        ],
+        "limitations": limitations,
         "recommended_review_items": _review_items(flags, observed),
-        "method_provenance": {
-            "pipeline_version": quality.get("pipeline_version"),
-            "norm_db_version": zscores.get("norm_db_version"),
-            "preprocessing": {
-                "bandpass": quality.get("bandpass"),
-                "notch_hz": quality.get("notch_hz"),
-                "sfreq_input": quality.get("sfreq_input"),
-                "sfreq_output": quality.get("sfreq_output"),
-                "prep_used": bool(quality.get("prep_used")),
-                "iclabel_used": bool(quality.get("iclabel_used")),
-                "autoreject_used": bool(quality.get("autoreject_used")),
-            },
-            "citations": METHOD_CITATIONS,
-        },
+        "method_provenance": _method_provenance(quality, zscores, features),
         "safety_statement": (
             "Decision support only. Separate observed signal features from model-derived "
             "interpretation and review alongside history, examination, assessments, and imaging."
         ),
     }
+
+
+def _structured_limitations(
+    features: dict[str, Any],
+    quality: dict[str, Any],
+    zscores: dict[str, Any],
+    flags: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    """Promote the previous prose limitations into a structured array.
+
+    Frontends can filter by severity, search by code, or render a "show all
+    limitations" toggle without text parsing. Backwards compatibility: the
+    semantics of the original three statements are preserved verbatim in
+    ``message``.
+    """
+    out: list[dict[str, Any]] = [
+        {
+            "code": "decision_support_only",
+            "severity": "info",
+            "message": "qEEG findings are observations from this recording and require clinical correlation.",
+        },
+        {
+            "code": "not_a_diagnosis",
+            "severity": "info",
+            "message": "Similarity indices and normative deviations are not standalone clinical determinations.",
+        },
+    ]
+    n_retained = _safe_int(quality.get("n_epochs_retained")) or 0
+    if n_retained < TARGET_CLEAN_EPOCHS:
+        out.append({
+            "code": "low_clean_epoch_count",
+            "severity": "high" if n_retained < MIN_REVIEWABLE_EPOCHS else "medium",
+            "message": (
+                f"Only {n_retained} clean epochs available; spectral, connectivity, and "
+                "source estimates may be less stable than typical clinical recordings."
+            ),
+        })
+    if quality.get("bad_channel_detector") == "correlation_deviation_fallback":
+        out.append({
+            "code": "fallback_bad_channel_detector",
+            "severity": "low",
+            "message": (
+                "PyPREP was unavailable; bad channels were detected with a "
+                "correlation+deviation fallback. PyPREP-grade detection is recommended."
+            ),
+        })
+    if any(f.get("code", "").startswith("stage_error_") for f in flags):
+        out.append({
+            "code": "partial_pipeline_output",
+            "severity": "high",
+            "message": (
+                "One or more pipeline stages reported errors; the report below is partial. "
+                "Re-run the analysis or inspect data_quality.stage_errors_structured."
+            ),
+        })
+    if not (features.get("source") or {}).get("method"):
+        out.append({
+            "code": "no_source_localization",
+            "severity": "low",
+            "message": "Source localization was skipped; ROI-level interpretation is not available.",
+        })
+    return out
+
+
+def _method_provenance(
+    quality: dict[str, Any],
+    zscores: dict[str, Any],
+    features: dict[str, Any],
+) -> dict[str, Any]:
+    """Top-level method provenance dict, including per-stage tool fingerprints."""
+    spectral_prov = (features.get("spectral") or {}).get("method_provenance") or {}
+    asym_prov = (features.get("asymmetry") or {}).get("method_provenance") or {}
+    source_prov = features.get("source") or {}
+    return {
+        "pipeline_version": quality.get("pipeline_version"),
+        "norm_db_version": zscores.get("norm_db_version"),
+        "preprocessing": {
+            "bandpass": quality.get("bandpass"),
+            "notch_hz": quality.get("notch_hz"),
+            "sfreq_input": quality.get("sfreq_input"),
+            "sfreq_output": quality.get("sfreq_output"),
+            "prep_used": bool(quality.get("prep_used")),
+            "bad_channel_detector": quality.get("bad_channel_detector"),
+            "iclabel_used": bool(quality.get("iclabel_used")),
+            "autoreject_used": bool(quality.get("autoreject_used")),
+        },
+        "spectral": spectral_prov,
+        "asymmetry": asym_prov,
+        "source": {
+            "method": source_prov.get("method"),
+            "skipped_reason": quality.get("source_skipped_reason"),
+        },
+        "citations": METHOD_CITATIONS,
+    }
+
+
+def _structured_stage_errors(stage_errors: dict[str, Any]) -> list[dict[str, Any]]:
+    """Wrap each stage error string into a structured envelope.
+
+    Distinguishes recoverable vs hard failures using a small allow-list. Stages
+    not in the list default to ``recoverable=False`` (safer for review).
+    """
+    recoverable_stages = {
+        "embeddings", "longitudinal", "report", "source", "clinical_summary",
+        "asymmetry", "graph",  # downstream metrics whose absence does not block reading the rest
+    }
+    out: list[dict[str, Any]] = []
+    if not isinstance(stage_errors, dict):
+        return out
+    for stage, err in stage_errors.items():
+        if not err:
+            continue
+        out.append({
+            "code": f"stage_error_{stage}",
+            "stage": str(stage),
+            "severity": "high" if stage not in recoverable_stages else "medium",
+            "message": str(err),
+            "recoverable": stage in recoverable_stages,
+            "partial_output_available": stage in recoverable_stages,
+        })
+    return out
 
 
 def _quality_flags(quality: dict[str, Any]) -> list[dict[str, str]]:
@@ -182,6 +330,8 @@ def _confidence_from_quality(
 def _observed_findings(
     features: dict[str, Any],
     zscores: dict[str, Any],
+    *,
+    evidence_lookup: Callable[[str], list[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     flagged = zscores.get("flagged") or []
@@ -227,7 +377,52 @@ def _observed_findings(
             "statement": f"Frontal alpha asymmetry F3/F4 value was {float(asym):.3f}.",
         })
 
+    # Attach per-finding evidence (real citations from the evidence layer, OR
+    # an explicit "evidence_pending" marker). Never fabricate.
+    for finding in findings:
+        finding["evidence"] = _attach_evidence(finding, evidence_lookup)
+
     return findings
+
+
+def _attach_evidence(
+    finding: dict[str, Any],
+    evidence_lookup: Callable[[str], list[dict[str, Any]]] | None,
+) -> dict[str, Any]:
+    """Attach 1-3 supporting citations to a finding via the evidence layer.
+
+    The evidence layer must return a list of dicts with at least ``title`` and
+    ``url`` (PubMed-style). If unreachable or returns nothing, we mark the
+    finding as ``evidence_pending`` so the frontend can render a clear chip
+    instead of fabricating references.
+    """
+    if evidence_lookup is None:
+        return {"status": "evidence_pending", "reason": "no_evidence_lookup_provided"}
+    label = str(finding.get("label") or finding.get("type") or "qEEG_finding")
+    try:
+        hits = evidence_lookup(label) or []
+    except Exception as exc:  # pragma: no cover — defensive
+        log_.warning("Evidence lookup raised for %s (%s).", label, exc)
+        return {"status": "evidence_pending", "reason": f"lookup_error: {type(exc).__name__}"}
+    if not isinstance(hits, list) or not hits:
+        return {"status": "evidence_pending", "reason": "no_matches"}
+    # Trim to 3 strongest hits, filter to dicts with at least a title or url.
+    cleaned: list[dict[str, Any]] = []
+    for h in hits[:3]:
+        if not isinstance(h, dict):
+            continue
+        if not (h.get("title") or h.get("url") or h.get("pmid")):
+            continue
+        cleaned.append({
+            "title": h.get("title"),
+            "url": h.get("url"),
+            "pmid": h.get("pmid"),
+            "year": h.get("year"),
+            "evidence_level": h.get("evidence_level"),
+        })
+    if not cleaned:
+        return {"status": "evidence_pending", "reason": "no_well_formed_hits"}
+    return {"status": "found", "citations": cleaned}
 
 
 def _derived_interpretations(
