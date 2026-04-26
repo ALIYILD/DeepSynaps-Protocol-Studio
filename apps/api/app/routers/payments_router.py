@@ -23,6 +23,22 @@ from ..settings import get_settings
 
 router = APIRouter(prefix="", tags=["payments"])
 
+# TODO(billing-reconcile, 2026-04-26): Three-way pricing conflict — needs CEO input.
+# This router and ``apps/api/app/packages.py`` use the canonical 5-tier model:
+#   Explorer (free) / Resident $99 / Clinician Pro $199 / Clinic Team $699 / Enterprise $2,500
+# ``PRICING_PACKAGES.md`` (root) matches this 5-tier model.
+# However, the public web pricing page (``apps/web/src/pages-public.js`` and
+# ``apps/web/src/pages-knowledge.js``, last rebuilt 2026-04-24 in commit 6d9c673)
+# advertises a different 4-tier model:
+#   Starter $99 / Professional $299 / Clinic $999 / Enterprise from $2,499
+# with package IDs (``starter``/``professional``/``clinic``) and Stripe price IDs
+# (``price_starter_m`` / ``price_pro_m`` / ``price_clinic_m``) that do NOT exist
+# in this backend. The commit message references ``PRICING_PAGE_SPEC.md`` but no
+# such spec file exists in the repo. Until product/CEO confirms which model is
+# canonical, checkout for Professional/Clinic from the marketing site will 404
+# at ``/api/v1/payments/create-checkout``. Do NOT silently align prices in either
+# direction — this is a billing/legal-risk decision that requires explicit sign-off.
+
 PACKAGE_ROLE_MAP = {
     "explorer": "guest",
     "resident": "clinician",
