@@ -203,7 +203,14 @@ function _wireSimulationLab() {
     if (detail) detail.innerHTML = loadingBlock('Simulating…');
     try {
       const params = _readSimForm();
-      const sim = await runTwinSimulation(STATE.patientId, params);
+      // Race the simulation against a 30s timeout so a stalled backend can't
+      // hang the clinician indefinitely. The backend job continues server-
+      // side; the UI just stops waiting and shows a clear timeout block.
+      const TIMEOUT_MS = 30000;
+      const timeoutP = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Simulation timed out after 30s. The backend may still be processing — try again or refresh shortly.')), TIMEOUT_MS)
+      );
+      const sim = await Promise.race([runTwinSimulation(STATE.patientId, params), timeoutP]);
       if (addToCompare) {
         const willEvict = STATE.scenarios.length >= 3;
         STATE.scenarios = [...STATE.scenarios, sim].slice(-3);
