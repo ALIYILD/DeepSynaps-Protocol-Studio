@@ -938,7 +938,7 @@ export async function pgPatientDashboard(user) {
     </button>`);
     // 2. Homework
     const openCount = openTasks.length;
-    tiles.push(`<button class="pth-tile${openCount ? ' pth-tile--pending' : ''}" onclick="window._navPatient('pt-wellness')">
+    tiles.push(`<button class="pth-tile${openCount ? ' pth-tile--pending' : ''}" onclick="window._navPatient('patient-homework')">
       <span class="pth-tile-ico pth-tile-ico--blue" aria-hidden="true">✓</span>
       <span class="pth-tile-title">Homework</span>
       <span class="pth-tile-meta">${openCount ? openCount + ' pending' : 'All done'}</span>
@@ -1002,7 +1002,7 @@ export async function pgPatientDashboard(user) {
               <div class="pth-hw-title">${esc(title)}</div>
               <div class="pth-hw-sub">${esc(sub)}</div>
             </div>
-            <button class="pth-hw-btn" onclick="window._navPatient('pt-wellness')">Start</button>
+            <button class="pth-hw-btn" onclick="window._navPatient('patient-homework')">Start</button>
           </div>`;
         }).join('')
       : `<div class="pth-empty">
@@ -1013,7 +1013,7 @@ export async function pgPatientDashboard(user) {
       <div class="pth-card pth-card--homework">
         <div class="pth-card-head">
           <div class="pth-card-title">Your homework</div>
-          <button class="pth-ghost-btn" onclick="window._navPatient('pt-wellness')">View all →</button>
+          <button class="pth-ghost-btn" onclick="window._navPatient('patient-homework')">View all →</button>
         </div>
         <div class="pth-hw-list">${rows}</div>
       </div>`;
@@ -1180,7 +1180,7 @@ export async function pgPatientDashboard(user) {
     const nextTask = openTasks[0] || null;
     if (nextTask) {
       tiles.push(`
-        <button class="pth2-tile pth2-tile--blue" onclick="window._navPatient('pt-wellness')">
+        <button class="pth2-tile pth2-tile--blue" onclick="window._navPatient('patient-homework')">
           <div class="pth2-tile-ico pth2-tile-ico--blue" aria-hidden="true">
             <svg width="18" height="18"><use href="#i-video"/></svg>
           </div>
@@ -1190,7 +1190,7 @@ export async function pgPatientDashboard(user) {
         </button>`);
     } else {
       tiles.push(`
-        <button class="pth2-tile pth2-tile--blue" onclick="window._navPatient('pt-wellness')">
+        <button class="pth2-tile pth2-tile--blue" onclick="window._navPatient('patient-homework')">
           <div class="pth2-tile-ico pth2-tile-ico--blue" aria-hidden="true">
             <svg width="18" height="18"><use href="#i-video"/></svg>
           </div>
@@ -1413,7 +1413,7 @@ export async function pgPatientDashboard(user) {
           <div class="pth2-hw-action">
             ${done
               ? '<span class="pth2-chip pth2-chip--green">&check; Done</span>'
-              : '<button class="pth2-inline-btn" onclick="window._navPatient(\'pt-wellness\')">Open</button>'}
+              : '<button class="pth2-inline-btn" onclick="window._navPatient(\'patient-homework\')">Open</button>'}
           </div>
         </div>`;
     }).join('');
@@ -1938,6 +1938,9 @@ export async function pgPatientDashboard(user) {
           </div>
         </div>
       </div>` : ''}
+      <div style="margin-top:${_hmNudge ? '10px' : '0'};padding:10px 12px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.03);font-size:12px;line-height:1.5;color:rgba(255,255,255,.76);">
+        <strong style="color:#fff;">Decision-support only.</strong> This summary and assistant guidance may be incomplete and do not replace advice from your clinician or emergency care.
+      </div>
 
       <!-- ═══ Main grid ═══ -->
       <div class="hm-grid">
@@ -1952,7 +1955,7 @@ export async function pgPatientDashboard(user) {
                 <h3>Today's plan</h3>
                 <p>${homeTasks.length} item${homeTasks.length === 1 ? '' : 's'} · ${homeTasks.filter(t => t.completed || t.done).length} done · ${openTasks.length ? 'next up when you are' : 'all caught up'}</p>
               </div>
-              <button class="hm-card-link" onclick="window._navPatient('pt-wellness')">Full homework →</button>
+              <button class="hm-card-link" onclick="window._navPatient('patient-homework')">Full homework →</button>
             </div>
             <div class="hm-timeline">${_hmPlanHtml()}</div>
           </div>
@@ -2058,10 +2061,10 @@ export async function pgPatientDashboard(user) {
             <div class="hm-q-t">Log today\u2019s mood</div>
             <div class="hm-q-s">${streak > 0 ? 'Continue your ' + streak + '-day streak' : 'Start a streak today'}</div>
           </button>
-          <button class="hm-q-tile" onclick="window._navPatient('patient-messages')">
+          <button class="hm-q-tile" onclick="window._navPatient('patient-sessions')">
             <div class="hm-q-ico pink"><svg width="16" height="16"><use href="#i-calendar"/></svg></div>
-            <div class="hm-q-t">Book a consult</div>
-            <div class="hm-q-s">Ask your clinician for an open slot</div>
+            <div class="hm-q-t">View sessions</div>
+            <div class="hm-q-s">Check scheduled visits or request a slot</div>
           </button>
         </div>
       </div>
@@ -2078,7 +2081,7 @@ export async function pgPatientDashboard(user) {
         <button class="ptd-asst-close" onclick="window._ptdCloseAssistant()" aria-label="Close">\u2715</button>
       </div>
       <div class="ptd-asst-body">
-        <div class="ptd-asst-intro">Ask about your scores, next session, or wellbeing &mdash; answers use your dashboard snapshot. For medical decisions, contact your care team.</div>
+        <div class="ptd-asst-intro">Decision-support only. Ask about your scores, next session, or wellbeing &mdash; answers summarise your dashboard snapshot and may be incomplete. For medical decisions or urgent concerns, contact your care team.</div>
         <div class="ptd-asst-prompts">
           ${[
             { icon: '\ud83d\udcc8', q: 'Explain my progress' },
@@ -2133,7 +2136,7 @@ export async function pgPatientDashboard(user) {
     if (kind === 'walk') {
       _hmShowToast('Walk timer started \u2014 20 min');
       // Navigate to wellness page where the timer could live
-      setTimeout(() => window._navPatient && window._navPatient('pt-wellness'), 600);
+      setTimeout(() => window._navPatient && window._navPatient('patient-homework'), 600);
     } else if (kind === 'tdcs') {
       window._navPatient && window._navPatient('patient-home-devices');
     } else {
@@ -2142,7 +2145,7 @@ export async function pgPatientDashboard(user) {
   };
   window._hmAiAction = function(action) {
     if (action === 'walk') { window._hmStartTask(null, 'walk'); return; }
-    if (action === 'plan') { window._navPatient && window._navPatient('pt-wellness'); return; }
+    if (action === 'plan') { window._navPatient && window._navPatient('patient-homework'); return; }
     _hmShowToast('Noted');
   };
   window._hmDismissNudge = function() {
@@ -6824,20 +6827,20 @@ export async function pgPatientMessages() {
       <header class="ptmsg-header">
         <div class="ptmsg-header-title">
           <div class="ptmsg-title">Your care team</div>
-          <div class="ptmsg-subtitle">Send a message, or jump on a call.</div>
+          <div class="ptmsg-subtitle">Send a message, or request a call from your care team.</div>
         </div>
         <div class="ptmsg-header-actions">
           <button type="button"
                   class="btn btn-primary btn-sm ptmsg-btn-call ptmsg-btn-call-video"
-                  aria-label="Start video call"
+                  aria-label="Request video call"
                   onclick="window._ptmsgStartCall('video')">
-            ${SVG_VIDEO} <span>Start video call</span>
+            ${SVG_VIDEO} <span>Request video call</span>
           </button>
           <button type="button"
                   class="btn btn-ghost btn-sm ptmsg-btn-call ptmsg-btn-call-voice"
-                  aria-label="Start voice call"
+                  aria-label="Request voice call"
                   onclick="window._ptmsgStartCall('voice')">
-            ${SVG_PHONE} <span>Start voice call</span>
+            ${SVG_PHONE} <span>Request voice call</span>
           </button>
           <button type="button"
                   class="btn btn-ghost btn-sm ptmsg-btn-refresh"

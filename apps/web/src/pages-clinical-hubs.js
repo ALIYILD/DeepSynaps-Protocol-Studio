@@ -1988,7 +1988,7 @@ export async function pgProtocolStudio(setTopbar, navigate) {
         }).join('') +
       '</div>' +
       '<div class="studio-save-bar">' +
-        '<button class="btn btn-ghost btn-sm" onclick="window._studioExport()">Export to patient course</button>' +
+        '<button class="btn btn-ghost btn-sm" onclick="window._studioExport()">Submit draft for review</button>' +
         '<button class="btn btn-primary btn-sm" onclick="window._studioSave()">Save as protocol</button>' +
       '</div>' +
     '</div>';
@@ -2372,7 +2372,7 @@ export async function pgProtocolStudio(setTopbar, navigate) {
     // so we save-as-draft via /api/v1/protocols/saved and leave course
     // creation to the review-queue → activate path downstream.
     if (!S.patientId || !S.condition) {
-      try { alert('Select a patient and condition before exporting.'); } catch {}
+      try { alert('Select a patient and condition before submitting for review.'); } catch {}
       return;
     }
     try {
@@ -2395,7 +2395,7 @@ export async function pgProtocolStudio(setTopbar, navigate) {
         try { window._studioRenderDrafts?.(); } catch {}
       }
       try { alert('Draft submitted for review. Promote to a treatment course from the review queue.'); } catch {}
-    } catch (e) { try { alert('Export failed: ' + (e?.message || 'endpoint error') + '. Draft preserved locally.'); } catch {} }
+    } catch (e) { try { alert('Review submission failed: ' + (e?.message || 'endpoint error') + '. Draft preserved locally.'); } catch {} }
   };
 
   paint();
@@ -3023,6 +3023,17 @@ export async function pgProtocolHub(setTopbar, navigate) {
     W.saving = true; W.error = null; W.result = null;
     _renderGenerate();
     try {
+      if (olEl && olEl.checked) {
+        const proceed = window.confirm(
+          'This protocol is marked off-label. Continue only if a clinician has reviewed the indication and you acknowledge off-label use before generating a draft.'
+        );
+        if (!proceed) {
+          W.error = 'Off-label generation cancelled until clinician review acknowledgement is confirmed.';
+          W.saving = false;
+          _renderGenerate();
+          return;
+        }
+      }
       const payload = {
         condition,
         symptom_cluster: 'General',

@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+from app.settings import get_settings
 
 from app.settings import get_settings
 
@@ -24,6 +25,23 @@ def test_case_summary_requires_clinician_role(
     assert response.status_code == 403
     payload = response.json()
     assert payload["code"] == "insufficient_role"
+
+
+def test_demo_login_is_disabled_in_production(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    settings = get_settings().model_copy(update={"app_env": "production"})
+    monkeypatch.setattr("app.routers.auth_router.get_settings", lambda: settings)
+
+    response = client.post(
+        "/api/v1/auth/demo-login",
+        json={"token": "clinician-demo-token"},
+    )
+
+    assert response.status_code == 403
+    payload = response.json()
+    assert payload["code"] == "demo_login_disabled"
 
 
 def test_review_actions_are_persisted_to_audit_trail(

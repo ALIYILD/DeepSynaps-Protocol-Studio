@@ -136,10 +136,11 @@ npm.cmd run test:unit --workspace @deepsynaps/web
 .\.venv\Scripts\python.exe -m pytest apps/api/tests/test_auth_persistence.py apps/api/tests/test_deeptwin_router.py -q
 .\.venv\Scripts\python.exe -m pytest apps/api/tests/test_security.py apps/api/tests/test_production_hardening.py apps/api/tests/test_2fa_flow.py apps/api/tests/test_course_safety_gate.py apps/api/tests/test_consent_records.py -q
 .\.venv\Scripts\python.exe -m pytest apps/api/tests/test_reports_router.py apps/api/tests/test_data_export.py apps/api/tests/test_patient_home_program_tasks_completion.py apps/api/tests/test_security.py -q --basetemp=.pytest_tmp -o cache_dir=.pytest_cache_local
+.\.venv\Scripts\python.exe -m pytest apps/api/tests/test_documents_router.py -q --basetemp=.pytest_tmp_launch
 node --check apps/web/src/pages-protocols.js
 node --check apps/web/src/pages-patient.js
 node --check apps/web/src/pages-patient-timeline.js
-.\.venv\Scripts\python.exe -m py_compile apps/api/app/routers/patients_router.py apps/api/app/routers/patient_portal_router.py apps/api/app/routers/export_router.py apps/api/app/routers/media_router.py apps/api/app/routers/reports_router.py
+.\.venv\Scripts\python.exe -m py_compile apps/api/app/routers/patients_router.py apps/api/app/routers/patient_portal_router.py apps/api/app/routers/export_router.py apps/api/app/routers/media_router.py apps/api/app/routers/reports_router.py apps/api/app/routers/documents_router.py apps/api/app/routers/sessions_router.py
 ```
 
 ## Current Findings
@@ -154,6 +155,7 @@ node --check apps/web/src/pages-patient-timeline.js
   - `64 passed` in security + production-hardening + 2FA + course-safety + consent slices
 - Additional targeted launch-hardening slice passes:
   - `43 passed` in reports + data export + patient home-program completion + security regressions
+  - `15 passed` in document CRUD/upload/download governance coverage
 - Syntax checks pass for the launch-touch frontend files:
   - `pages-protocols.js`
   - `pages-patient.js`
@@ -207,9 +209,30 @@ node --check apps/web/src/pages-patient-timeline.js
     - persisted report creation now requires an explicit `patient_id`.
     - AI summary now requires report ownership and valid patient access.
 
+11. Document records still had weak provenance and mutable signing fields.
+    Fix:
+    - document create/upload now verifies the referenced patient belongs to the clinician.
+    - document status is restricted to controlled values.
+    - `signed_at` is only accepted in signable states and is auto-stamped on `signed` / `completed`.
+    - document metadata now stores provenance/governance fields for create/upload/update actions.
+    - deploy docs and `.env.example` now document `DEEPSYNAPS_SECRETS_KEY` and `WEARABLE_TOKEN_ENC_KEY` as production requirements.
+
+12. Some patient dashboard CTAs were still routing to placeholder or misleading destinations.
+    Fix:
+    - homework CTAs now route to the real homework surface.
+    - “Book a consult” was relabeled/rerouted to the real sessions surface.
+    - patient assistant/call copy is more explicit that this is decision support and call actions are requests, not instant live connections.
+
+13. Additional cross-tenant backend actions were still too permissive.
+    Fix:
+    - media consent reads and clinician-side media write/delete actions now re-check patient ownership.
+    - session creation now verifies the target patient belongs to the creating clinician.
+
 ### Residual risks
 
 - The full backend suite still has not been completed end-to-end within this audit window; a broad run exceeded the current timeout and needs a longer unattended pass.
 - The repo is very large, and many frontend pages still need explicit manual/functional review for empty/error/loading states and true backend wiring.
+- Patient surfaces still contain demo/sample fallback behavior in other modules such as messages, virtual care, assessments, and care-team views; those need removal or explicit sandbox labeling before real clinic rollout.
+- `get_authenticated_actor()` still defaults missing auth to `guest`, which is only safe as long as every sensitive route keeps explicit role gating.
 - Local branch contains unrelated concurrent edits outside this launch tranche (`Makefile`, `package.json`, `apps/api/app/auth.py`, `apps/web/src/auth.js`, and a few untracked helper docs/scripts); they were not audited in this pass and should be reviewed before merge.
 - README readiness claims remain broader than the verification evidence gathered in this pass.

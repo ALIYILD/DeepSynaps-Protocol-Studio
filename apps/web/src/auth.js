@@ -343,7 +343,7 @@ function renderLoginPage() {
         </div>
 
         <!-- ───────── DEMO ACCESS ───────── -->
-        <div id="demo-form" style="display:none">
+        <div id="demo-form" style="display:${demoEnabled ? 'none' : 'none'}">
           <div class="dv2-auth-title">Try a live demo.</div>
           <div class="dv2-auth-sub">Pick a workspace below and we'll log you in with seeded patients, protocols, and assessments. No signup required.</div>
 
@@ -699,7 +699,7 @@ window.demoLogin = async function(token) {
   const errEl = document.getElementById('demo-error');
   if (errEl) errEl.style.display = 'none';
 
-  // Try real demo-login endpoint first (works in all environments)
+  // Try real demo-login endpoint first when demo mode is explicitly enabled.
   try {
     const res = await Promise.race([
       api.demoLogin(token),

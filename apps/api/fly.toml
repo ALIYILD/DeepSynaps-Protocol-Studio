@@ -3,9 +3,11 @@
 # Required secrets (set via `fly secrets set KEY=value`):
 #   DEEPSYNAPS_DATABASE_URL   — SQLite path or PostgreSQL URL for production DB
 #   JWT_SECRET_KEY            — Secret key for JWT signing (min 32 chars)
-#   DEEPSYNAPS_CORS_ORIGINS   — Comma-separated allowed frontend origins
+#   DEEPSYNAPS_SECRETS_KEY    — Fernet key for persisted auth/2FA secrets
+#   DEEPSYNAPS_CORS_ORIGINS   — Comma-separated allowed frontend origins (for example https://deepsynaps-web.fly.dev)
 #   STRIPE_SECRET_KEY         — Stripe secret key (when payments are enabled)
 #   STRIPE_WEBHOOK_SECRET     — Stripe webhook signing secret
+#   WEARABLE_TOKEN_ENC_KEY    — Fernet key required before enabling real wearable OAuth
 #   SENTRY_DSN                — Sentry DSN for error tracking (optional)
 
 app = "deepsynaps-studio"
@@ -24,7 +26,8 @@ primary_region = "lhr"
   #   fly ssh console -C "python3 /app/services/evidence-pipeline/ingest.py --all --unpaywall"
   # Secrets to set: NCBI_API_KEY, UNPAYWALL_EMAIL, OPENFDA_API_KEY.
   EVIDENCE_DB_PATH = "/data/evidence.db"
-  # DEEPSYNAPS_CORS_ORIGINS and DEEPSYNAPS_DATABASE_URL must be set as secrets
+  # DEEPSYNAPS_CORS_ORIGINS, DEEPSYNAPS_DATABASE_URL, JWT_SECRET_KEY, and
+  # DEEPSYNAPS_SECRETS_KEY must be set as secrets before production boot.
 
 [http_service]
   internal_port = 8080

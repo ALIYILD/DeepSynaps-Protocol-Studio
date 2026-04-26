@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import DocumentTemplate, FormDefinition
+from app.persistence.models import DocumentTemplate, FormDefinition, Patient
 from app.settings import get_settings
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
@@ -34,6 +34,8 @@ _DOC_UPLOAD_ALLOWED = {
     "image/webp",
     "text/plain",
 }
+_DOC_ALLOWED_STATUSES = {"pending", "uploaded", "signed", "completed"}
+_DOC_SIGNABLE_STATUSES = {"signed", "completed"}
 
 
 def _docs_storage_root() -> Path:
@@ -69,6 +71,51 @@ def _record_to_out(r: FormDefinition) -> "DocumentOut":
     )
 
 
+def _validate_document_status(status: str) -> None:
+    if status not in _DOC_ALLOWED_STATUSES:
+        raise ApiServiceError(
+            code="invalid_status",
+            message=f"status must be one of {sorted(_DOC_ALLOWED_STATUSES)}.",
+            status_code=422,
+        )
+
+
+def _stamp_document_provenance(meta: dict, actor: AuthenticatedActor, *, event: str) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    actor_id = actor.actor_id
+    meta["last_governance_event"] = event
+    meta["last_governance_event_at"] = now
+    meta["last_governance_event_by"] = actor_id
+
+
+def _assert_document_patient_access(
+    patient_id: Optional[str],
+    actor: AuthenticatedActor,
+    session: Session,
+) -> None:
+    if patient_id is None:
+        return
+    patient = session.scalar(
+        select(Patient).where(
+            Patient.id == patient_id,
+            Patient.clinician_id == actor.actor_id,
+        )
+    )
+    if patient is None:
+        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+
+
+def _validate_document_file_ref(file_ref: Optional[str]) -> None:
+    if file_ref is None:
+        return
+    if not file_ref.startswith("documents/"):
+        raise ApiServiceError(
+            code="invalid_file_ref",
+            message="Document downloads are limited to stored documents/ paths.",
+            status_code=422,
+        )
+
+
 # ── Schemas ────────────────────────────────────────────────────────────────────
 
 class DocumentCreate(BaseModel):
@@ -78,14 +125,12 @@ class DocumentCreate(BaseModel):
     template_id: Optional[str] = None
     status: str = "pending"             # pending|signed|uploaded|completed
     notes: Optional[str] = None
-    file_ref: Optional[str] = None
 
 
 class DocumentUpdate(BaseModel):
     title: Optional[str] = None
     status: Optional[str] = None
     notes: Optional[str] = None
-    file_ref: Optional[str] = None
     signed_at: Optional[str] = None     # ISO datetime string
 
 
@@ -119,6 +164,7 @@ def list_documents(
 ) -> DocumentListResponse:
     """List documents for the authenticated clinician, optionally filtered by patient."""
     require_minimum_role(actor, "clinician")
+    _assert_document_patient_access(patient_id, actor, session)
     stmt = select(FormDefinition).where(
         FormDefinition.clinician_id == actor.actor_id,
         FormDefinition.form_type == _DOC_FORM_TYPE,
@@ -141,15 +187,20 @@ def create_document(
 ) -> DocumentOut:
     """Create a new document record."""
     require_minimum_role(actor, "clinician")
+    _validate_document_status(body.status)
+    _assert_document_patient_access(body.patient_id, actor, session)
 
     meta = {
         "doc_type": body.doc_type,
         "patient_id": body.patient_id,
         "template_id": body.template_id,
         "notes": body.notes,
-        "file_ref": body.file_ref,
+        "file_ref": None,
         "signed_at": None,
+        "created_by_actor_id": actor.actor_id,
+        "created_by_actor_at": datetime.now(timezone.utc).isoformat(),
     }
+    _stamp_document_provenance(meta, actor, event="created")
 
     record = FormDefinition(
         clinician_id=actor.actor_id,
@@ -353,7 +404,7 @@ def update_document(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> DocumentOut:
-    """Update a document's status, notes, signed_at, or file_ref."""
+    """Update a document's status and notes with controlled signing metadata."""
     require_minimum_role(actor, "clinician")
     record = session.scalar(
         select(FormDefinition).where(
@@ -366,17 +417,41 @@ def update_document(
         raise ApiServiceError(code="not_found", message="Document not found.", status_code=404)
 
     meta = _meta_from_record(record)
+    _validate_document_file_ref(meta.get("file_ref"))
 
     if body.title is not None:
         record.title = body.title
+    next_status = body.status if body.status is not None else record.status
     if body.status is not None:
+        _validate_document_status(body.status)
         record.status = body.status
+        meta["status_updated_by_actor_id"] = actor.actor_id
+        meta["status_updated_at"] = datetime.now(timezone.utc).isoformat()
     if body.notes is not None:
         meta["notes"] = body.notes
-    if body.file_ref is not None:
-        meta["file_ref"] = body.file_ref
+        meta["notes_updated_by_actor_id"] = actor.actor_id
+        meta["notes_updated_at"] = datetime.now(timezone.utc).isoformat()
     if body.signed_at is not None:
+        if next_status not in _DOC_SIGNABLE_STATUSES:
+            raise ApiServiceError(
+                code="invalid_signed_state",
+                message="signed_at may only be set when status is signed or completed.",
+                status_code=422,
+            )
         meta["signed_at"] = body.signed_at
+        meta["signed_by_actor_id"] = actor.actor_id
+        meta["signed_recorded_at"] = datetime.now(timezone.utc).isoformat()
+    elif body.status is not None:
+        if next_status in _DOC_SIGNABLE_STATUSES:
+            meta["signed_at"] = meta.get("signed_at") or datetime.now(timezone.utc).isoformat()
+            meta["signed_by_actor_id"] = meta.get("signed_by_actor_id") or actor.actor_id
+            meta["signed_recorded_at"] = meta.get("signed_recorded_at") or datetime.now(timezone.utc).isoformat()
+        else:
+            meta["signed_at"] = None
+            meta.pop("signed_by_actor_id", None)
+            meta.pop("signed_recorded_at", None)
+
+    _stamp_document_provenance(meta, actor, event="updated")
 
     record.questions_json = json.dumps(meta)
     record.updated_at = datetime.now(timezone.utc)
@@ -425,6 +500,7 @@ async def upload_document(
     the absolute disk layout.
     """
     require_minimum_role(actor, "clinician")
+    _assert_document_patient_access(patient_id, actor, session)
 
     if file.content_type and file.content_type not in _DOC_UPLOAD_ALLOWED:
         raise ApiServiceError(
@@ -477,7 +553,10 @@ async def upload_document(
         "file_size": len(file_bytes),
         "file_mime": file.content_type,
         "signed_at": None,
+        "created_by_actor_id": actor.actor_id,
+        "created_by_actor_at": datetime.now(timezone.utc).isoformat(),
     }
+    _stamp_document_provenance(meta, actor, event="uploaded")
 
     record = FormDefinition(
         id=doc_id,
@@ -518,6 +597,7 @@ def download_document(
             message="This document has no uploaded file attached.",
             status_code=404,
         )
+    _validate_document_file_ref(file_ref)
     settings_root = Path(get_settings().media_storage_root).resolve()
     target = (settings_root / file_ref).resolve()
     # Defence-in-depth: refuse paths outside the storage root.
@@ -553,6 +633,7 @@ def list_patient_documents(
 ) -> DocumentListResponse:
     """List documents for a specific patient (clinician access only)."""
     require_minimum_role(actor, "clinician")
+    _assert_document_patient_access(patient_id, actor, session)
     rows = session.scalars(
         select(FormDefinition).where(
             FormDefinition.clinician_id == actor.actor_id,
