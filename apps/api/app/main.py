@@ -271,7 +271,9 @@ async def security_headers_middleware(request: Request, call_next):
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data: https:; "
-        "connect-src 'self'; "
+        # Allow the Sentry browser SDK to POST events / session replays.
+        # Without these origins the in-browser SDK is silently blocked by CSP.
+        "connect-src 'self' https://*.sentry.io https://*.ingest.sentry.io; "
         "frame-ancestors 'none';"
     )
     if settings.app_env == "production":
