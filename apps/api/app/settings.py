@@ -27,6 +27,37 @@ except ImportError:
 _INSECURE_JWT_DEFAULT = "CHANGE-THIS-IN-PRODUCTION-use-openssl-rand-hex-32"
 
 
+def _truthy_env(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _falsy_env(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"0", "false", "no", "off"}
+
+
+def resolve_enable_deeptwin_simulation(
+    *,
+    app_env: str,
+    raw_env: str | None,
+) -> bool:
+    """Resolve the DeepTwin simulation feature flag.
+
+    Defaults: False in production/staging, True in development/test.
+    DEEPSYNAPS_ENABLE_DEEPTWIN_SIMULATION (truthy) forces on; (falsy) forces off.
+    Shared between apps/api/app/settings.py and apps/worker so both layers
+    agree on whether the simulation surface is live for the environment.
+    """
+    if _truthy_env(raw_env):
+        return True
+    if _falsy_env(raw_env):
+        return False
+    return app_env not in ("production", "staging")
+
+
 def _parse_cors_origins(value: str | None) -> list[str]:
     if not value:
         return [
@@ -136,6 +167,15 @@ class AppSettings(BaseModel):
     feature_store_backend: Literal["disabled", "in_memory", "feast"] = "disabled"
     feature_store_default_tenant_id: str = Field(default="default")
     feature_store_registry_url: str = Field(default="")
+
+    enable_deeptwin_simulation: bool = Field(
+        default=False,
+        description=(
+            "Gates DeepTwin simulation worker. Default off in production until "
+            "clinical validation packet exists. "
+            "Set DEEPSYNAPS_ENABLE_DEEPTWIN_SIMULATION=1 to override."
+        ),
+    )
 
     @field_validator("database_url")
     @classmethod
@@ -290,6 +330,11 @@ def load_settings() -> AppSettings:
                 "feature_store_backend": os.getenv("DEEPSYNAPS_FEATURE_STORE_BACKEND", "disabled"),
                 "feature_store_default_tenant_id": os.getenv("DEEPSYNAPS_FEATURE_STORE_DEFAULT_TENANT_ID", "default"),
                 "feature_store_registry_url": os.getenv("DEEPSYNAPS_FEATURE_STORE_REGISTRY_URL", ""),
+                # DeepTwin simulation gate (F6 from launch-readiness review).
+                "enable_deeptwin_simulation": resolve_enable_deeptwin_simulation(
+                    app_env=_app_env,
+                    raw_env=os.getenv("DEEPSYNAPS_ENABLE_DEEPTWIN_SIMULATION"),
+                ),
             }
         )
     except ValidationError as exc:
