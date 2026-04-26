@@ -2,21 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from deepsynaps_qa.audit import emit_audit_record, verify_chain
+from deepsynaps_qa.audit import emit_audit_record
 from deepsynaps_qa.demotion import apply_demotion, should_demote
 from deepsynaps_qa.engine import QAEngine
 from deepsynaps_qa.models import (
     Artifact,
-    ArtifactType,
     DemotionEvent,
     QAAuditEntry,
     QAResult,
-    QASpec,
 )
 from deepsynaps_qa.specs import SPEC_REGISTRY, get_spec, list_specs
 

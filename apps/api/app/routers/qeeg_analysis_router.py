@@ -3,7 +3,6 @@
 Handles EDF file upload, spectral analysis, AI interpretation,
 pre/post comparison, prediction, and correlation.
 """
-import asyncio
 import html as html_mod
 import json
 import logging
@@ -27,6 +26,7 @@ from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import (
     AiSummaryAudit,
+    Patient,
     QEEGAnalysis,
     QEEGAIReport,
     QEEGComparison,

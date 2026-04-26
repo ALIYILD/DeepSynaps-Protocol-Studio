@@ -314,11 +314,6 @@ def _build_patient_timeline_payload(
         },
         "links": links,
     }
-    try:
-        return json.loads(raw)
-    except (TypeError, ValueError):
-        _log.warning("JSON load failed; returning None for MRI column")
-        return None
 
 
 def _report_from_row(row: MriAnalysis) -> dict[str, Any]:
