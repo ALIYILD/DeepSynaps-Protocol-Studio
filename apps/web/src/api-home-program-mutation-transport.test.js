@@ -4,12 +4,22 @@ import assert from 'node:assert/strict';
 import { HOME_PROGRAM_MUTATION_OUTCOMES, parseHomeProgramTaskMutationResponse } from './home-program-task-sync.js';
 
 function ensureLocalStorage() {
-  if (globalThis.localStorage) return;
-  globalThis.localStorage = {
-    getItem: () => null,
-    setItem: () => {},
-    removeItem: () => {},
-  };
+  // Node 22+ exposes a built-in `localStorage` whose getter throws
+  // `SecurityError` unless the runtime was launched with --localstorage-file.
+  // Probe via Object.getOwnPropertyDescriptor so we don't trigger the throw,
+  // then unconditionally install a stub when the descriptor's getter exists
+  // (built-in) or the property is missing entirely.
+  const desc = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  if (desc && desc.value && typeof desc.value.getItem === 'function') return;
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    writable: true,
+    value: {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {},
+    },
+  });
 }
 
 function makeHeaders(map) {
