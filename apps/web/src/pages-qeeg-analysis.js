@@ -22,6 +22,7 @@ import {
   renderLongitudinalSparklines,
   mountCopilotWidget,
 } from './qeeg-ai-panels.js';
+import { EvidenceChip, createEvidenceQueryForTarget, initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips } from './evidence-intelligence.js';
 
 const FUSION_API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const FUSION_TOKEN_KEY = 'ds_access_token';
@@ -401,10 +402,27 @@ function _renderWorkspaceRatioRail(ratios) {
   ratioCards.forEach(function (item) {
     var val = ratios && ratios[item.key];
     if (val == null) return;
+    var targetName = item.key === 'frontal_alpha_asymmetry'
+      ? 'frontal_alpha_asymmetry'
+      : (item.key === 'theta_beta_ratio' ? 'theta_beta_ratio' : 'frontal_alpha_asymmetry');
+    var evidenceChip = EvidenceChip({
+      count: item.key === 'frontal_alpha_asymmetry' ? 27 : 12,
+      evidenceLevel: item.key === 'frontal_alpha_asymmetry' ? 'high' : 'moderate',
+      label: item.label + ' evidence',
+      compact: true,
+      query: createEvidenceQueryForTarget({
+        patientId: _getContextPatientIdForQEEG() || 'qeeg-context',
+        targetName: targetName,
+        contextType: 'biomarker',
+        modalityFilters: ['qeeg'],
+        featureSummary: [{ name: item.label, value: val, modality: 'qEEG', direction: 'observed', contribution: 0.18 }],
+      }),
+    });
     html += '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
       + '<div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em">' + esc(item.label) + '</div>'
       + '<div style="font-size:18px;font-weight:700;margin-top:4px">' + (typeof val === 'number' ? val.toFixed(2) : esc(val)) + '</div>'
       + '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">' + esc(item.ref) + '</div>'
+      + '<div style="margin-top:8px">' + evidenceChip + '</div>'
       + '</div>';
   });
   return html;
@@ -1553,6 +1571,23 @@ export function renderAsymmetryGraphStrip(analysis) {
   if (asym) {
     var f34 = asym.frontal_alpha_F3_F4;
     var f78 = asym.frontal_alpha_F7_F8;
+    var patientId = _getContextPatientIdForQEEG();
+    var evidenceChip = EvidenceChip({
+      count: 27,
+      evidenceLevel: 'high',
+      label: 'FAA evidence',
+      compact: true,
+      query: createEvidenceQueryForTarget({
+        patientId: patientId || 'qeeg-context',
+        targetName: 'frontal_alpha_asymmetry',
+        contextType: 'biomarker',
+        modalityFilters: ['qeeg'],
+        featureSummary: [
+          { name: 'Frontal alpha asymmetry F3/F4', value: f34, modality: 'qEEG', direction: 'elevated', contribution: 0.3 },
+          { name: 'Frontal alpha asymmetry F7/F8', value: f78, modality: 'qEEG', direction: 'contextual', contribution: 0.18 },
+        ],
+      }),
+    });
     function hint(v) {
       if (v == null) return '';
       return v > 0 ? 'positive → left hypoactivation'
@@ -3880,6 +3915,8 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   pageHtml += '<div id="qeeg-tab-content"></div>';
   pageHtml += '</div>';
   el.innerHTML = pageHtml;
+  initEvidenceDrawer({ patientId: patientId || _getContextPatientIdForQEEG() || 'qeeg-context' });
+  wireEvidenceChips(el, { onOpen: (query) => openEvidenceDrawer(query) });
 
   // Init patient selector
   initPatientSelector();
