@@ -27709,6 +27709,25 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 .dt-empty h3 { margin: 0 0 6px; }
 .dt-empty p { margin: 0 0 12px; }
 
+/* TRIBE Compare Protocols panel (additive) */
+.dt-tribe-grid { display: grid; grid-template-columns: 280px 1fr; gap: 16px; margin-top: 8px; }
+@media (max-width: 900px) { .dt-tribe-grid { grid-template-columns: 1fr; } }
+.dt-tribe-controls { padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,.02); }
+.dt-tribe-results { display: flex; flex-direction: column; gap: 10px; min-height: 60px; }
+.dt-preset-row { display: flex; gap: 8px; align-items: center; padding: 6px 0; font-size: 13px; color: var(--text); }
+.dt-preset-row input { accent-color: var(--teal); }
+.dt-select { background: var(--surface-1, rgba(255,255,255,.04)); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 4px 8px; font-size: 12.5px; }
+.dt-rank-card { padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,.02); display: flex; flex-direction: column; gap: 8px; }
+.dt-rank-head { display: flex; gap: 12px; align-items: center; }
+.dt-rank-pos { width: 36px; height: 36px; border-radius: 10px; background: rgba(0,212,188,.10); border: 1px solid rgba(0,212,188,.25); color: var(--teal); font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+.dt-rank-title { font-weight: 650; color: var(--text); font-size: 14px; }
+.dt-rank-sub { font-size: 12px; color: var(--text-tertiary); margin-top: 2px; }
+.dt-rank-rationale { font-size: 12.5px; color: var(--text-secondary); }
+.dt-chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.dt-chip--ok { background: rgba(0,212,188,.10); color: var(--teal); }
+.dt-chip--warn { background: rgba(255,179,71,.10); color: var(--amber); }
+.dt-chip--low { background: rgba(255,255,255,.03); color: var(--text-tertiary); }
+
 /* ── Device Dashboard ──────────────────────────────────────────────────────── */
 .dd-shell { display:flex; flex-direction:column; gap:20px; padding:24px; max-width:1400px; margin:0 auto; }
 .dd-topbar { display:flex; align-items:center; gap:12px; }

@@ -33,6 +33,7 @@ import {
 import { buildReport, reportToMarkdown, reportToJSONString, downloadBlob, renderReportPreview } from './deeptwin/reports.js';
 import { startHandoff } from './deeptwin/handoff.js';
 import { PRESET_SCENARIOS } from './deeptwin/mockData.js';
+import { renderTribeCompare, wireTribeCompare } from './deeptwin/tribe.js';
 
 const HOST_TIMELINE = 'dt-timeline-host';
 const HOST_CORR     = 'dt-corr-host';
@@ -114,6 +115,7 @@ function _renderAll() {
       ${renderCausal({ correlations: STATE.correlations })}
       ${renderPrediction({ prediction: STATE.prediction }, HOST_PRED)}
       ${renderSimulationLab({}, HOST_SIM)}
+      ${renderTribeCompare()}
       ${renderReportCenter()}
       ${renderHandoff()}
       ${renderSafetyFooter()}
@@ -129,6 +131,7 @@ function _renderAll() {
   _wireTimelineFilters();
   _wirePredictionTabs();
   _wireSimulationLab();
+  wireTribeCompare(() => STATE.patientId);
   _wireReportButtons();
   _wireHandoffButtons();
 }

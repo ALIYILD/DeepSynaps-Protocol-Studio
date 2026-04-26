@@ -757,6 +757,17 @@ export const api = {
     apiFetch('/api/v1/deeptwin/analyze', { method: 'POST', body: JSON.stringify(data) }),
   deeptwinSimulate: (data) =>
     apiFetch('/api/v1/deeptwin/simulate', { method: 'POST', body: JSON.stringify(data) }),
+  // TRIBE-inspired layer (additive)
+  deeptwinSimulateTribe: (data) =>
+    apiFetch('/api/v1/deeptwin/simulate-tribe', { method: 'POST', body: JSON.stringify(data) }),
+  deeptwinCompareProtocols: (data) =>
+    apiFetch('/api/v1/deeptwin/compare-protocols', { method: 'POST', body: JSON.stringify(data) }),
+  deeptwinPatientLatent: (data) =>
+    apiFetch('/api/v1/deeptwin/patient-latent', { method: 'POST', body: JSON.stringify(data) }),
+  deeptwinExplain: (data) =>
+    apiFetch('/api/v1/deeptwin/explain', { method: 'POST', body: JSON.stringify(data) }),
+  deeptwinReportPayload: (data) =>
+    apiFetch('/api/v1/deeptwin/report-payload', { method: 'POST', body: JSON.stringify(data) }),
   deeptwinEvidence: (data) =>
     apiFetch('/api/v1/deeptwin/evidence', { method: 'POST', body: JSON.stringify(data) }),
 
