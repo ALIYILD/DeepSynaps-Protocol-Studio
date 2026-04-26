@@ -128,8 +128,9 @@ class AppSettings(BaseModel):
 
     # Wearable token encryption (Fernet key — generate with:
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-    # Required before enabling real OAuth device connections. If absent, tokens
-    # are stored as plaintext and a warning is logged on every write.)
+    # Required in production/staging — load_settings() refuses to boot if
+    # WEARABLE_TOKEN_ENC_KEY is unset there. In dev/test, tokens fall back to
+    # plaintext storage and a warning is logged on every write.
     wearable_token_enc_key: str = Field(default="")
 
     # Settings API secrets key (Fernet — encrypts TOTP secrets and 2FA backup
@@ -204,6 +205,20 @@ def load_settings() -> AppSettings:
                 f"{_app_env} environments. "
                 "Generate one with: openssl rand -hex 32"
             )
+
+    # Wearable OAuth token encryption (Fernet). Required in staging/production
+    # so OAuth refresh/access tokens are encrypted at rest. In dev/test we
+    # tolerate an unset key and let app.crypto fall back to plaintext (with a
+    # warning) so local boot works without provisioning a key.
+    _wearable_enc_key = os.getenv("WEARABLE_TOKEN_ENC_KEY", "")
+    if _app_env in ("production", "staging") and not _wearable_enc_key:
+        raise RuntimeError(
+            "WEARABLE_TOKEN_ENC_KEY must be set to a Fernet key (32-byte "
+            f"base64) in {_app_env} environments so wearable OAuth tokens "
+            "are encrypted at rest. Generate one with: "
+            "python -c 'from cryptography.fernet import Fernet; "
+            "print(Fernet.generate_key().decode())'"
+        )
 
     # Settings API: Fernet key for TOTP/2FA secret encryption. In dev/test we
     # fall back to an ephemeral key (with a stderr warning) so local boot works
