@@ -39,9 +39,10 @@ def test_demo_login_is_disabled_in_production(
         json={"token": "clinician-demo-token"},
     )
 
-    assert response.status_code == 403
+    # In production/staging the endpoint must not reveal it exists.
+    assert response.status_code == 404
     payload = response.json()
-    assert payload["code"] == "demo_login_disabled"
+    assert payload.get("detail") == "Not Found"
 
 
 def test_review_actions_are_persisted_to_audit_trail(
@@ -98,6 +99,7 @@ def test_demo_login_is_disabled_in_production(
         json={"token": "clinician-demo-token"},
     )
 
-    assert response.status_code == 403
+    # In production/staging the endpoint must not reveal it exists.
+    assert response.status_code == 404
     payload = response.json()
-    assert payload["code"] == "demo_login_disabled"
+    assert payload.get("detail") == "Not Found"

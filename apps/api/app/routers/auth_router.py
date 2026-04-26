@@ -8,7 +8,7 @@ import string
 from datetime import datetime, timedelta, timezone
 
 import pyotp
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -619,13 +619,9 @@ class DemoLoginRequest(BaseModel):
 def demo_login(body: DemoLoginRequest) -> TokenResponse:
     """Issue demo JWTs only in explicitly non-production environments."""
     settings = get_settings()
-    if settings.app_env in ("production", "staging"):
-        raise ApiServiceError(
-            code="demo_login_disabled",
-            message="Demo access is disabled in this environment.",
-            warnings=["Use a real user account in staging or production."],
-            status_code=403,
-        )
+    # In production/staging, do not reveal that this endpoint exists.
+    if settings.app_env not in ("development", "test"):
+        raise HTTPException(status_code=404, detail="Not Found")
     demo = DEMO_ACTOR_TOKENS.get(body.token)
     if demo is None:
         raise ApiServiceError(
