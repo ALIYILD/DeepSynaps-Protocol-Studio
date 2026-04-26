@@ -14614,7 +14614,7 @@ export async function pgHomeworkBuilder(setTopbarFn) {
     if (nameEl)  _editorPlan.name      = nameEl.value.trim();
     if (condEl)  _editorPlan.condition = condEl.value.trim();
     if (weeksEl) _editorPlan.weeks     = parseInt(weeksEl.value, 10) || 4;
-    if (!_editorPlan.name) { alert('Please enter a plan name.'); return; }
+    if (!_editorPlan.name) { window._showToast?.('Please enter a plan name.', 'warning'); return; }
     saveHWPlan(_editorPlan);
     renderSavedPlansList();
     const statusEl = document.getElementById('hw-assign-status');
@@ -14649,14 +14649,14 @@ export async function pgHomeworkBuilder(setTopbarFn) {
     const idEl        = document.getElementById('hw-assign-patient-id');
     const patientName = nameEl ? nameEl.value.trim() : '';
     const patientId   = (idEl && idEl.value.trim()) ? idEl.value.trim() : 'demo-patient';
-    if (!patientName) { alert('Please enter a patient name.'); return; }
+    if (!patientName) { window._showToast?.('Please enter a patient name.', 'warning'); return; }
     const nameInputEl = document.getElementById('hw-plan-name');
     const condEl      = document.getElementById('hw-plan-condition');
     const weeksEl     = document.getElementById('hw-plan-weeks');
     if (nameInputEl) _editorPlan.name      = nameInputEl.value.trim();
     if (condEl)      _editorPlan.condition = condEl.value.trim();
     if (weeksEl)     _editorPlan.weeks     = parseInt(weeksEl.value, 10) || 4;
-    if (!_editorPlan.name) { alert('Please enter a plan name before assigning.'); return; }
+    if (!_editorPlan.name) { window._showToast?.('Please enter a plan name before assigning.', 'warning'); return; }
     saveHWPlan(_editorPlan);
     const assignment = assignHWPlan(_editorPlan.id, patientId, patientName);
     if (assignment) {
@@ -15093,7 +15093,7 @@ window._patShareProgress = async function() {
       const btn = document.getElementById('share-btn');
       if (btn) { const orig = btn.textContent; btn.textContent = t('patient.share.copied'); setTimeout(() => { btn.textContent = orig; }, 2000); }
     } catch (_) {
-      alert(t('patient.share.unavailable') + ' ' + url);
+      window._showToast?.(t('patient.share.unavailable') + ' ' + url, 'warning');
     }
   }
 };
@@ -15941,7 +15941,7 @@ window._importHandleFile = function(type, file) {
         _importState.protocol.step = 2;
         _renderImportPage('protocol');
       } catch (_err) {
-        alert('Invalid JSON file. Please check the file and try again.');
+        window._showToast?.('Invalid JSON file. Please check the file and try again.', 'error');
       }
     };
     reader.readAsText(file);
@@ -15991,7 +15991,7 @@ window._importValidate = function(type) {
   if (!csvData) return;
   const missingRequired = schema.required.filter(f => !mappings[f]);
   if (missingRequired.length > 0) {
-    alert('Please map required fields: ' + missingRequired.join(', '));
+    window._showToast?.('Please map required fields: ' + missingRequired.join(', '), 'warning');
     return;
   }
   const validRows = [];
@@ -16092,7 +16092,7 @@ window._importExecuteSessions = async function() {
 
 window._importProtocolFromPaste = function() {
   const ta = document.getElementById('protocol-paste-area');
-  if (!ta || !ta.value.trim()) { alert('Please paste valid JSON first.'); return; }
+  if (!ta || !ta.value.trim()) { window._showToast?.('Please paste valid JSON first.', 'warning'); return; }
   try {
     const json = JSON.parse(ta.value.trim());
     _importState.protocol.jsonData = json;
@@ -16100,7 +16100,7 @@ window._importProtocolFromPaste = function() {
     _importState.protocol.step = 2;
     _renderImportPage('protocol');
   } catch (_err) {
-    alert('Invalid JSON. Please check the syntax and try again.');
+    window._showToast?.('Invalid JSON. Please check the syntax and try again.', 'error');
   }
 };
 
@@ -16133,7 +16133,7 @@ window._importExecuteProtocol = function() {
 window._importDownloadErrors = function(importId) {
   const history = getImportHistory();
   const record = history.find(r => r.id === importId);
-  if (!record || record.errors.length === 0) { alert('No errors to download.'); return; }
+  if (!record || record.errors.length === 0) { window._showToast?.('No errors to download.', 'info'); return; }
   const header = 'row,field,value,error\n';
   const body = record.errors.map(e =>
     e.row + ',"' + e.field + '","' + String(e.value).replace(/"/g, '""') + '","' + e.message.replace(/"/g, '""') + '"'
@@ -18346,7 +18346,7 @@ window._ptoCopyProgress = function () {
 
 window._ptoDownloadChart = function () {
   const svg = document.getElementById('pgp-trend-svg') || document.getElementById('pto-trend-svg');
-  if (!svg) { alert('Chart not found.'); return; }
+  if (!svg) { window._showToast?.('Chart not found.', 'error'); return; }
   const svgData = new XMLSerializer().serializeToString(svg);
   const canvas = document.createElement('canvas');
   const bbox = svg.getBoundingClientRect();
@@ -18366,7 +18366,7 @@ window._ptoDownloadChart = function () {
     a.href = canvas.toDataURL('image/png');
     a.click();
   };
-  img.onerror = function () { URL.revokeObjectURL(url); alert('Could not render chart image.'); };
+  img.onerror = function () { URL.revokeObjectURL(url); window._showToast?.('Could not render chart image.', 'error'); };
   img.src = url;
 };
 
