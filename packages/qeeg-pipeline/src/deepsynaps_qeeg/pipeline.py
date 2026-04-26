@@ -315,6 +315,22 @@ def run_full_pipeline(
         result.zscores = {"spectral": {"bands": {}}, "aperiodic": {"slope": {}},
                           "flagged": [], "norm_db_version": "unknown"}
 
+    # --- Stage 6a — clinical-readiness summary ---
+    try:
+        from .clinical_summary import build_clinical_summary
+
+        features["clinical_summary"] = build_clinical_summary(
+            features=features,
+            zscores=result.zscores,
+            quality=result.quality,
+            age=age,
+            sex=sex,
+        )
+        result.features = features
+    except Exception as exc:
+        log.warning("Clinical summary stage skipped (%s)", exc)
+        result.quality["stage_errors"]["clinical_summary"] = str(exc)
+
     # --- Stage 6b — longitudinal comparison (optional) ---
     if prev_session_id and out_dir is not None:
         try:

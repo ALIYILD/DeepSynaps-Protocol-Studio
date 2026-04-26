@@ -321,6 +321,7 @@ class MRIReport(BaseModel):
     # something a radiologist should review. Does not block pipeline
     # progress — surfaced only.
     qc_warnings: list[str] = Field(default_factory=list)
+    clinical_summary: dict = Field(default_factory=dict)
 
     class Config:
         json_schema_extra = {
