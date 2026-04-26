@@ -1806,7 +1806,16 @@ export async function pgMediaReviewQueue(setTopbar) {
     const esc = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
     const cards = filtered.length === 0
-      ? `<div style="padding:48px;text-align:center;color:var(--text-tertiary);font-size:13.5px">No pending uploads to review.</div>`
+      ? (items.length === 0
+          ? `<div style="padding:48px;text-align:center;color:var(--text-tertiary)">
+              <div style="font-size:32px;margin-bottom:10px;opacity:0.4">&#x1F4ED;</div>
+              <div style="font-size:13.5px;font-weight:600;color:var(--text-secondary);margin-bottom:4px">No items in review queue</div>
+              <div style="font-size:12px">Patient-submitted voice notes and text updates will appear here once uploaded.</div>
+            </div>`
+          : `<div style="padding:48px;text-align:center;color:var(--text-tertiary);font-size:13.5px">
+              No items match the current filter.
+              <div style="font-size:11.5px;margin-top:6px">Switch tabs to see other items, or clear the filter.</div>
+            </div>`)
       : filtered.map(u => {
           const typeIcon = u.upload_type === 'voice' ? '&#x1F399;' : '&#x1F4DD;';
           const dateStr  = u.created_at
