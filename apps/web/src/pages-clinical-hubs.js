@@ -2286,11 +2286,11 @@ export async function pgProtocolStudio(setTopbar, navigate) {
     // If the studio was opened without a patient context, we surface that
     // honestly rather than silently firing a 4xx.
     if (!S.patientId) {
-      try { alert('Select a patient before saving a protocol draft.'); } catch {}
+      try { window._showToast?.('Select a patient before saving a protocol draft.', 'warning'); } catch {}
       return;
     }
     if (!S.condition) {
-      try { alert('Pick a condition before saving.'); } catch {}
+      try { window._showToast?.('Pick a condition before saving.', 'warning'); } catch {}
       return;
     }
     try {
@@ -2315,12 +2315,12 @@ export async function pgProtocolStudio(setTopbar, navigate) {
           governance_state: 'draft',
         });
       }
-      try { alert('Protocol saved.'); } catch {}
+      try { window._showToast?.('Protocol saved.', 'success'); } catch {}
       // Surface the saved draft in the right-column drafts panel so the user
       // sees their save land without having to reload.
       window._studioDraftsCache = null;
       try { window._studioRenderDrafts?.(); } catch {}
-    } catch (e) { try { alert('Could not save: ' + (e?.message || 'endpoint error') + '. State preserved locally.'); } catch {} }
+    } catch (e) { try { window._showToast?.('Could not save: ' + (e?.message || 'endpoint error') + '. State preserved locally.', 'error'); } catch {} }
   };
 
   // ── My Drafts panel — /api/v1/protocols/saved ─────────────────────────────
@@ -2372,7 +2372,7 @@ export async function pgProtocolStudio(setTopbar, navigate) {
     // so we save-as-draft via /api/v1/protocols/saved and leave course
     // creation to the review-queue → activate path downstream.
     if (!S.patientId || !S.condition) {
-      try { alert('Select a patient and condition before submitting for review.'); } catch {}
+      try { window._showToast?.('Select a patient and condition before submitting for review.', 'warning'); } catch {}
       return;
     }
     try {
@@ -2394,8 +2394,8 @@ export async function pgProtocolStudio(setTopbar, navigate) {
         window._studioDraftsCache = null;
         try { window._studioRenderDrafts?.(); } catch {}
       }
-      try { alert('Draft submitted for review. Promote to a treatment course from the review queue.'); } catch {}
-    } catch (e) { try { alert('Review submission failed: ' + (e?.message || 'endpoint error') + '. Draft preserved locally.'); } catch {} }
+      try { window._showToast?.('Draft submitted for review. Promote to a treatment course from the review queue.', 'success'); } catch {}
+    } catch (e) { try { window._showToast?.('Review submission failed: ' + (e?.message || 'endpoint error') + '. Draft preserved locally.', 'error'); } catch {} }
   };
 
   paint();
@@ -9548,7 +9548,7 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
       return;
     }
     const verb = l.unit === 'month' ? 'Subscribe to' : l.unit === 'course' ? 'Enroll in' : l.unit === 'free' ? 'Get' : 'Book';
-    alert(verb + ': "' + l.title + '"\n\nProvider: ' + l.clinic + '\nPrice: ' + (l.unit === 'free' ? 'Free' : '\u00A3' + l.price + '/' + l.unit) + '\n\nPlease contact the provider directly to proceed.');
+    window._showToast?.(verb + ': "' + l.title + '" - Provider: ' + l.clinic + ' Price: ' + (l.unit === 'free' ? 'Free' : '\u00A3' + l.price + '/' + l.unit) + '. Please contact the provider directly to proceed.', 'info');
   };
   window._mpListNew = (editItem) => {
     const existing = document.getElementById('mp-list-modal');
@@ -9628,7 +9628,7 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
         modal.innerHTML = '<div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:420px;width:100%;padding:40px 32px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)"><div style="font-size:2.5rem;margin-bottom:12px">&#10003;</div><h3 style="color:var(--text-primary);margin:0 0 8px">' + (isEdit ? 'Listing Updated' : 'Listing Published!') + '</h3><p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;line-height:1.5">Your ' + esc(payload.kind) + ' <strong>' + esc(payload.name) + '</strong> is now live on the marketplace.</p><div style="display:flex;gap:8px;justify-content:center"><button onclick="window._mpMyListings();document.getElementById(\'mp-list-modal\').remove()" style="padding:8px 20px;background:rgba(155,127,255,.15);color:#9b7fff;border:1px solid rgba(155,127,255,.25);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">View My Listings</button><button onclick="document.getElementById(\'mp-list-modal\').remove()" style="padding:8px 20px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer">Close</button></div></div>';
       } catch (err) {
         btn.disabled = false; btn.textContent = isEdit ? 'Update Listing' : 'Publish Listing';
-        alert('Failed to ' + (isEdit ? 'update' : 'publish') + ' listing: ' + (err.message || 'Please try again.'));
+        window._showToast?.('Failed to ' + (isEdit ? 'update' : 'publish') + ' listing: ' + (err.message || 'Please try again.'), 'error');
       }
     });
   };
@@ -9703,7 +9703,7 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
             await api.marketplaceSellerUpdateItem(btn.dataset.idx, { active: newActive });
             modal.remove();
             window._mpMyListings();
-          } catch (err) { alert('Update failed: ' + (err.message || 'try again')); }
+          } catch (err) { window._showToast?.('Update failed: ' + (err.message || 'try again'), 'error'); }
         });
       });
       // Delete buttons
@@ -9714,7 +9714,7 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
             await api.marketplaceSellerDeleteItem(btn.dataset.idx);
             modal.remove();
             window._mpMyListings();
-          } catch (err) { alert('Delete failed: ' + (err.message || 'try again')); }
+          } catch (err) { window._showToast?.('Delete failed: ' + (err.message || 'try again'), 'error'); }
         });
       });
     } catch (err) {
