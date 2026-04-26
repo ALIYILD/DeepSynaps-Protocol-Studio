@@ -529,11 +529,8 @@ def deeptwin_analyze(
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> DeeptwinAnalyzeResponse:
-<<<<<<< HEAD
     _require_clinician_review_actor(_actor)
-=======
     _gate_patient_access(_actor, payload.patient_id, session)
->>>>>>> worktree-agent-a98c8daa631a37082
     used = payload.modalities or ["qeeg_features", "assessments", "wearables"]
     weights = _safe_weights(used, payload.combine, payload.custom_weights)
 
@@ -592,8 +589,8 @@ def deeptwin_simulate(
     payload: DeeptwinSimulateRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> DeeptwinSimulateResponse:
-<<<<<<< HEAD
     _require_clinician_review_actor(_actor)
+    _gate_patient_access(_actor, payload.patient_id)
     if not get_settings().enable_deeptwin_simulation:
         raise ApiServiceError(
             code="deeptwin_simulation_disabled",
@@ -607,9 +604,6 @@ def deeptwin_simulate(
                 "env_flag": "DEEPSYNAPS_ENABLE_DEEPTWIN_SIMULATION",
             },
         )
-=======
-    _gate_patient_access(_actor, payload.patient_id)
->>>>>>> worktree-agent-a98c8daa631a37082
     inputs = {
         "patient_id": payload.patient_id,
         "protocol_id": payload.protocol_id,
@@ -668,11 +662,8 @@ def deeptwin_evidence(
     payload: DeeptwinEvidenceRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> DeeptwinEvidenceResponse:
-<<<<<<< HEAD
     _require_clinician_review_actor(_actor)
-=======
     _gate_patient_access(_actor, payload.patient_id)
->>>>>>> worktree-agent-a98c8daa631a37082
     trace_id = str(uuid.uuid4())
     snapshot_id = _snapshot_id_for_research_bundle()
 
@@ -853,11 +844,8 @@ def deeptwin_get_summary(
     patient_id: str,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinSummaryOut:
-<<<<<<< HEAD
     _require_clinician_review_actor(_actor)
-=======
     _gate_patient_access(_actor, patient_id)
->>>>>>> worktree-agent-a98c8daa631a37082
     return TwinSummaryOut(**build_twin_summary(patient_id))
 
 
@@ -867,11 +855,8 @@ def deeptwin_get_timeline(
     days: int = 90,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinTimelineOut:
-<<<<<<< HEAD
     _require_clinician_review_actor(_actor)
-=======
     _gate_patient_access(_actor, patient_id)
->>>>>>> worktree-agent-a98c8daa631a37082
     days = max(7, min(365, days))
     return TwinTimelineOut(**align_timeline_events(patient_id, days=days))
 
@@ -881,11 +866,8 @@ def deeptwin_get_signals(
     patient_id: str,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinSignalsOut:
-<<<<<<< HEAD
     _require_clinician_review_actor(_actor)
-=======
     _gate_patient_access(_actor, patient_id)
->>>>>>> worktree-agent-a98c8daa631a37082
     return TwinSignalsOut(**build_signal_matrix(patient_id))
 
 
@@ -894,11 +876,8 @@ def deeptwin_get_correlations(
     patient_id: str,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinCorrelationsOut:
-<<<<<<< HEAD
     _require_clinician_review_actor(_actor)
-=======
     _gate_patient_access(_actor, patient_id)
->>>>>>> worktree-agent-a98c8daa631a37082
     corr = detect_correlations(patient_id)
     caus = generate_causal_hypotheses(patient_id)
     return TwinCorrelationsOut(
@@ -918,11 +897,8 @@ def deeptwin_get_predictions(
     horizon: Literal["2w", "6w", "12w"] = "6w",
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinPredictionOut:
-<<<<<<< HEAD
     _require_clinician_review_actor(_actor)
-=======
     _gate_patient_access(_actor, patient_id)
->>>>>>> worktree-agent-a98c8daa631a37082
     return TwinPredictionOut(**estimate_trajectory(patient_id, horizon=horizon))
 
 
@@ -932,11 +908,8 @@ def deeptwin_post_simulation(
     payload: TwinSimulationRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinSimulationOut:
-<<<<<<< HEAD
     _require_clinician_review_actor(_actor)
-=======
     _gate_patient_access(_actor, patient_id)
->>>>>>> worktree-agent-a98c8daa631a37082
     result = simulate_intervention_scenario(
         patient_id,
         scenario_id=payload.scenario_id,
@@ -961,11 +934,8 @@ def deeptwin_post_report(
     payload: TwinReportRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinReportOut:
-<<<<<<< HEAD
     _require_clinician_review_actor(_actor)
-=======
     _gate_patient_access(_actor, patient_id)
->>>>>>> worktree-agent-a98c8daa631a37082
     builder = REPORT_BUILDERS.get(payload.kind)
     if builder is None:
         builder = REPORT_BUILDERS["clinician_deep"]
@@ -995,10 +965,7 @@ def deeptwin_post_agent_handoff(
     payload: TwinAgentHandoffRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinAgentHandoffOut:
-<<<<<<< HEAD
     _require_clinician_review_actor(_actor)
-=======
     _gate_patient_access(_actor, patient_id)
->>>>>>> worktree-agent-a98c8daa631a37082
     result = create_agent_handoff_summary(patient_id, kind=payload.kind, note=payload.note)
     return TwinAgentHandoffOut(**result)
