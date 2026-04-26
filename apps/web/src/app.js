@@ -828,6 +828,11 @@ function setTopbar(title, html = '') {
   const _ta = document.getElementById('topbar-actions');
   if (_pt) _pt.textContent = title;
   if (_ta) _ta.innerHTML = html;
+  // PHI-out-of-titles (HIPAA 2026 best-practice): never let per-page topbar
+  // titles (which sometimes carry patient names) leak into the document
+  // <title>, browser history, or screen-share previews. Lock document.title
+  // to a generic product label regardless of what the page passes.
+  try { document.title = 'DeepSynaps Studio'; } catch {}
 }
 
 // ── Loading bar ───────────────────────────────────────────────────────────────
