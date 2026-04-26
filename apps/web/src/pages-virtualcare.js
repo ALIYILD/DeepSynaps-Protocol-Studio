@@ -4254,7 +4254,7 @@ function _lsPickPatient() {
 async function _lsAssignTask(payload) {
   const s = _lsState; if (!s) return null;
   const pid = payload.patientId || s.taskSelectedPid || s.session.patient_id;
-  if (!pid) { window.alert('No patient selected.'); return null; }
+  if (!pid) { window._showToast?.('No patient selected.', 'warning'); return null; }
   const now = new Date().toISOString();
   const id = payload.id || `ht-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
   const task = {
@@ -4354,7 +4354,7 @@ async function _lsSubmitEdit(id) {
   const s = _lsState; if (!s) return;
   const t = (s.tasks || []).find(x => x.id === id); if (!t) return;
   const title = (document.getElementById('ls-ht-ed-title')?.value || '').trim();
-  if (!title) { window.alert('Title required.'); return; }
+  if (!title) { window._showToast?.('Title required.', 'warning'); return; }
   t.title = title;
   t.type = document.getElementById('ls-ht-ed-type')?.value || t.type;
   t.category = t.type;
@@ -4518,7 +4518,7 @@ async function _lsOpenAssignModal() {
 
 async function _lsSubmitAssign() {
   const title = (document.getElementById('ls-ht-a-title')?.value || '').trim();
-  if (!title) { window.alert('Title required.'); return; }
+  if (!title) { window._showToast?.('Title required.', 'warning'); return; }
   const courseId = (document.getElementById('ls-ht-a-course')?.value || '').trim();
   const payload = {
     patientId: (document.getElementById('ls-ht-a-pid')?.value || '').trim(),
@@ -4546,7 +4546,7 @@ async function _lsBulkAssignTemplate() {
   const cond = window.prompt('Condition id to bulk-assign (e.g. CON-001) or bundle name:', (s.patient && (s.patient.condition_id || '')) || '');
   if (!cond) return;
   const tpls = CONDITION_HOME_TEMPLATES.filter(t => t.conditionId === cond || t.conditionName.toLowerCase().includes(cond.toLowerCase()));
-  if (!tpls.length) { window.alert('No templates matched.'); return; }
+  if (!tpls.length) { window._showToast?.('No templates matched.', 'warning'); return; }
   if (!window.confirm(`Assign ${tpls.length} template task(s)?`)) return;
   for (const tpl of tpls) {
     await _lsAssignTask({

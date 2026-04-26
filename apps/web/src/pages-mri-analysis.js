@@ -1695,12 +1695,24 @@ export function renderBrainAgeCard(report) {
   if (!ba || ba.status !== 'ok' || ba.predicted_age_years == null) return '';
 
   var predicted = Number(ba.predicted_age_years);
-  var chrono = ba.chronological_age_years != null ? Number(ba.chronological_age_years) : null;
-  var gap = ba.brain_age_gap_years != null
+  // Defensive: if the model returned a NaN, infinite or non-positive value,
+  // render an explicit "data unavailable" stub instead of a broken gauge so
+  // clinicians never see a garbage biomarker.
+  if (!Number.isFinite(predicted) || predicted <= 0 || predicted > 150) {
+    return card('Brain age',
+      '<div style="font-size:12.5px;color:var(--text-tertiary);padding:8px 0">'
+      + 'Brain-age estimate unavailable for this report.'
+      + '</div>');
+  }
+  var chrono = ba.chronological_age_years != null && Number.isFinite(Number(ba.chronological_age_years))
+    ? Number(ba.chronological_age_years) : null;
+  var gap = ba.brain_age_gap_years != null && Number.isFinite(Number(ba.brain_age_gap_years))
     ? Number(ba.brain_age_gap_years)
     : (chrono != null ? predicted - chrono : null);
-  var mae = ba.mae_years_reference != null ? Number(ba.mae_years_reference) : 3.3;
-  var cdr = ba.cognition_cdr_estimate != null ? Number(ba.cognition_cdr_estimate) : null;
+  var mae = ba.mae_years_reference != null && Number.isFinite(Number(ba.mae_years_reference))
+    ? Number(ba.mae_years_reference) : 3.3;
+  var cdr = ba.cognition_cdr_estimate != null && Number.isFinite(Number(ba.cognition_cdr_estimate))
+    ? Number(ba.cognition_cdr_estimate) : null;
 
   var gapColor = 'var(--text-tertiary)';
   if (gap != null) {
