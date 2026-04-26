@@ -25478,6 +25478,30 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   margin-top: 4px;
 }
 
+/* 3D Brain Map — hero mini icon */
+.qeeg-hero__icon--3d {
+  background: transparent;
+  display: flex; align-items: center; justify-content: center;
+  width: 48px; height: 48px; border-radius: 10px; padding: 0; overflow: visible;
+}
+.qeeg-hero__icon--3d svg { display: block; }
+
+/* 3D Brain Map — full section */
+.qeeg-3d-brain-section { padding: 4px 0; }
+.qeeg-3d-brain-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.qeeg-3d-band-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.qeeg-3d-band-tab {
+  padding: 4px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.03); color: var(--text-secondary);
+  font-size: 11px; font-weight: 600; text-transform: capitalize; cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.qeeg-3d-band-tab:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.15); }
+.qeeg-3d-band-tab--active {
+  background: color-mix(in srgb, var(--band-color, var(--teal)) 18%, transparent);
+  border-color: var(--band-color, var(--teal)); color: var(--band-color, var(--teal));
+}
+
 /* AI Narratives */
 .qeeg-narrative {
   font-size: 14px;

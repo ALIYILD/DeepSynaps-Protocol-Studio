@@ -2112,3 +2112,168 @@ export function renderBrodmannTable(areas, options) {
   parts.push('</svg>');
   return parts.join('');
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// render3DBrainMap — 3D-style top-down brain visualization for qEEG
+//
+// Renders a realistic top-down brain SVG with lobe regions color-coded by
+// qEEG band power data.  Uses gradients, sulci lines and shadows for a 3D
+// appearance.
+//
+// bandPowers:    { [channelName]: number }
+// options.band / .size / .colorScale / .showElectrodes / .animate / .mini
+// ─────────────────────────────────────────────────────────────────────────────
+
+var QEEG_BAND_COLORS = {
+  delta:     { base: '#42a5f5', glow: '#1565c0', label: 'Delta (0.5-4 Hz)' },
+  theta:     { base: '#7e57c2', glow: '#4527a0', label: 'Theta (4-8 Hz)' },
+  alpha:     { base: '#66bb6a', glow: '#2e7d32', label: 'Alpha (8-12 Hz)' },
+  beta:      { base: '#ffa726', glow: '#e65100', label: 'Beta (12-30 Hz)' },
+  high_beta: { base: '#ef5350', glow: '#b71c1c', label: 'Hi-Beta (20-30 Hz)' },
+  gamma:     { base: '#ec407a', glow: '#880e4f', label: 'Gamma (30-100 Hz)' },
+};
+
+var BRAIN_LOBE_PATHS = {
+  frontal_l:  { path: 'M196,52 C170,54 148,62 130,78 C112,96 102,118 98,142 C96,158 96,172 98,186 L196,186 Z',  electrodes: ['Fp1','F7','F3','Fz'] },
+  frontal_r:  { path: 'M204,52 C230,54 252,62 270,78 C288,96 298,118 302,142 C304,158 304,172 302,186 L204,186 Z', electrodes: ['Fp2','F4','F8'] },
+  temporal_l: { path: 'M98,186 C92,196 86,210 82,228 C78,248 80,268 86,286 C90,296 96,304 104,310 L130,310 L130,186 Z', electrodes: ['T7','P7'] },
+  central_l:  { path: 'M130,186 L130,310 L196,310 L196,186 Z', electrodes: ['C3','Cz'] },
+  central_r:  { path: 'M204,186 L204,310 L270,310 L270,186 Z', electrodes: ['C4'] },
+  temporal_r: { path: 'M270,186 L270,310 L296,310 C304,304 310,296 314,286 C320,268 322,248 318,228 C314,210 308,196 302,186 Z', electrodes: ['T8','P8'] },
+  parietal_l: { path: 'M104,310 C112,320 124,330 138,338 L196,338 L196,310 L130,310 Z', electrodes: ['P3','Pz'] },
+  parietal_r: { path: 'M204,310 L204,338 L262,338 C276,330 288,320 296,310 L270,310 Z', electrodes: ['P4'] },
+  occipital_l:{ path: 'M138,338 C154,348 172,354 190,356 L196,356 L196,338 Z', electrodes: ['O1'] },
+  occipital_r:{ path: 'M204,338 L204,356 L210,356 C228,354 246,348 262,338 Z', electrodes: ['O2'] },
+};
+
+var BRAIN_3D_ELECTRODE_POS = {
+  Fp1:{x:160,y:80},  Fp2:{x:240,y:80},
+  F7:{x:110,y:130},  F3:{x:158,y:130}, Fz:{x:200,y:120},
+  F4:{x:242,y:130},  F8:{x:290,y:130},
+  T7:{x:90,y:220},   C3:{x:156,y:220}, Cz:{x:200,y:215},
+  C4:{x:244,y:220},  T8:{x:310,y:220},
+  P7:{x:108,y:298},  P3:{x:158,y:300}, Pz:{x:200,y:310},
+  P4:{x:242,y:300},  P8:{x:292,y:298},
+  O1:{x:172,y:346},  O2:{x:228,y:346},
+};
+
+function _getLobeAvgPower(lobe, bandPowers) {
+  var sum = 0, count = 0;
+  lobe.electrodes.forEach(function (ch) {
+    var v = bandPowers[ch];
+    if (v !== undefined && v !== null && Number.isFinite(v)) { sum += v; count++; }
+  });
+  return count > 0 ? sum / count : null;
+}
+
+var _BRAIN_OUTLINE = 'M200,48 C168,50 138,60 114,76 C90,94 74,118 68,148 C62,178 64,210 70,240 C76,268 88,294 106,314 C124,334 148,350 176,358 C188,362 196,362 200,362 C204,362 212,362 224,358 C252,350 276,334 294,314 C312,294 324,268 330,240 C336,210 338,178 332,148 C326,118 310,94 286,76 C262,60 232,50 200,48 Z';
+
+export function render3DBrainMap(bandPowers, options) {
+  var opts = options || {};
+  var band = opts.band || 'alpha';
+  var size = Number.isFinite(opts.size) ? opts.size : 380;
+  var showElectrodes = opts.showElectrodes !== false;
+  var palette = HEATMAP_PALETTES[opts.colorScale] || HEATMAP_PALETTES.warm;
+  var bandColor = QEEG_BAND_COLORS[band] || QEEG_BAND_COLORS.alpha;
+
+  var values = [];
+  if (bandPowers) {
+    Object.keys(bandPowers).forEach(function (ch) {
+      var v = bandPowers[ch];
+      if (v !== undefined && v !== null && Number.isFinite(v)) values.push(v);
+    });
+  }
+  var vMin = values.length ? Math.min.apply(null, values) : 0;
+  var vMax = values.length ? Math.max.apply(null, values) : 1;
+  var range = vMax - vMin || 1;
+
+  var uid = 'b3d-' + Math.random().toString(36).substr(2, 6);
+  var p = [];
+  p.push('<svg class="ds-brain-3d" viewBox="0 0 400 430" width="' + size + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="3D Brain Map — ' + band + '">');
+
+  // Defs
+  p.push('<defs>');
+  p.push('<radialGradient id="' + uid + '-light" cx="45%" cy="35%" r="60%"><stop offset="0%" stop-color="rgba(255,255,255,0.15)"/><stop offset="70%" stop-color="rgba(255,255,255,0)"/><stop offset="100%" stop-color="rgba(0,0,0,0.15)"/></radialGradient>');
+  p.push('<filter id="' + uid + '-shadow" x="-10%" y="-10%" width="130%" height="130%"><feDropShadow dx="0" dy="3" stdDeviation="6" flood-color="rgba(0,0,0,0.5)"/></filter>');
+  p.push('<clipPath id="' + uid + '-clip"><path d="' + _BRAIN_OUTLINE + '"/></clipPath>');
+  Object.keys(BRAIN_LOBE_PATHS).forEach(function (k) {
+    var avg = _getLobeAvgPower(BRAIN_LOBE_PATHS[k], bandPowers || {});
+    var t = avg !== null ? (avg - vMin) / range : 0.3;
+    var c = _interpolateColor(palette, t);
+    p.push('<linearGradient id="' + uid + '-' + k + '" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="' + c + '" stop-opacity="0.85"/><stop offset="100%" stop-color="' + c + '" stop-opacity="0.6"/></linearGradient>');
+  });
+  p.push('</defs>');
+
+  // Shadow + base
+  p.push('<path d="' + _BRAIN_OUTLINE + '" fill="#0a1428" filter="url(#' + uid + '-shadow)" opacity="0.7"/>');
+  p.push('<path d="' + _BRAIN_OUTLINE + '" fill="#0f1e36"/>');
+
+  // Lobe regions
+  p.push('<g clip-path="url(#' + uid + '-clip)">');
+  Object.keys(BRAIN_LOBE_PATHS).forEach(function (k) {
+    p.push('<path d="' + BRAIN_LOBE_PATHS[k].path + '" fill="url(#' + uid + '-' + k + ')" stroke="rgba(255,255,255,0.08)" stroke-width="0.5"/>');
+  });
+  p.push('</g>');
+
+  // Sulci
+  p.push('<g clip-path="url(#' + uid + '-clip)" opacity="0.15" stroke="rgba(255,255,255,0.5)" stroke-width="0.8" fill="none">');
+  p.push('<line x1="200" y1="52" x2="200" y2="358" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>');
+  ['M90,190 C130,178 160,186 196,186','M204,186 C240,186 270,178 310,190',
+   'M86,215 C100,225 118,228 136,220','M264,220 C282,228 300,225 314,215',
+   'M140,330 C160,336 180,340 196,342','M204,342 C220,340 240,336 260,330',
+   'M120,100 C148,108 172,106 196,102','M204,102 C228,106 252,108 280,100',
+   'M108,148 C140,156 168,154 196,150','M204,150 C232,154 260,156 292,148',
+   'M120,260 C148,268 172,266 196,262','M204,262 C228,266 252,268 280,260'
+  ].forEach(function (d) { p.push('<path d="' + d + '"/>'); });
+  p.push('</g>');
+
+  // 3D lighting + outline
+  p.push('<path d="' + _BRAIN_OUTLINE + '" fill="url(#' + uid + '-light)" pointer-events="none"/>');
+  p.push('<path d="' + _BRAIN_OUTLINE + '" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1.5"/>');
+
+  // Electrodes
+  if (showElectrodes) {
+    Object.keys(BRAIN_3D_ELECTRODE_POS).forEach(function (ch) {
+      var pos = BRAIN_3D_ELECTRODE_POS[ch];
+      var v = bandPowers ? bandPowers[ch] : undefined;
+      var hasVal = v !== undefined && v !== null && Number.isFinite(v);
+      var t = hasVal ? (v - vMin) / range : 0;
+      var dotColor = hasVal ? _interpolateColor(palette, t) : 'rgba(30,40,60,0.8)';
+      var textVal = hasVal ? (v < 10 ? v.toFixed(1) : Math.round(v)) : '';
+      p.push('<circle cx="' + pos.x + '" cy="' + pos.y + '" r="11" fill="' + dotColor + '" stroke="rgba(255,255,255,0.55)" stroke-width="1" opacity="0.9"/>');
+      p.push('<text x="' + pos.x + '" y="' + (pos.y - 1) + '" text-anchor="middle" font-size="6.5" font-weight="700" fill="rgba(255,255,255,0.95)" font-family="system-ui,sans-serif">' + ch + '</text>');
+      if (textVal) p.push('<text x="' + pos.x + '" y="' + (pos.y + 7) + '" text-anchor="middle" font-size="5.5" fill="rgba(255,255,255,0.7)" font-family="system-ui,sans-serif">' + textVal + '</text>');
+    });
+  }
+
+  // Legend
+  var lY = 380, lW = 240, lX = 80;
+  for (var i = 0; i < lW; i++) { p.push('<rect x="' + (lX + i) + '" y="' + lY + '" width="1.5" height="10" fill="' + _interpolateColor(palette, i / lW) + '"/>'); }
+  p.push('<rect x="' + lX + '" y="' + lY + '" width="' + lW + '" height="10" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="0.5" rx="2"/>');
+  p.push('<text x="' + lX + '" y="' + (lY + 22) + '" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + vMin.toFixed(1) + '</text>');
+  p.push('<text x="' + (lX + lW) + '" y="' + (lY + 22) + '" text-anchor="end" font-size="9" fill="rgba(255,255,255,0.6)" font-family="system-ui,sans-serif">' + vMax.toFixed(1) + '</text>');
+  p.push('<text x="200" y="' + (lY + 22) + '" text-anchor="middle" font-size="9" font-weight="600" fill="rgba(255,255,255,0.8)" font-family="system-ui,sans-serif">' + (bandColor.label || band) + '</text>');
+  p.push('</svg>');
+  return p.join('');
+}
+
+export function render3DBrainMapMini(activeBand) {
+  var band = activeBand || 'alpha';
+  var bc = QEEG_BAND_COLORS[band] || QEEG_BAND_COLORS.alpha;
+  var uid = 'bm-' + Math.random().toString(36).substr(2, 5);
+  var brainD = 'M24,5 C18,5.3 13,7.5 9.5,11 C6,14.8 4.2,19.5 3.8,24.5 C3.4,29.5 4,34.2 6.2,38 C8.4,41.8 12,44.5 16.5,45.5 C20,46.2 22.5,46.2 24,46.2 C25.5,46.2 28,46.2 31.5,45.5 C36,44.5 39.6,41.8 41.8,38 C44,34.2 44.6,29.5 44.2,24.5 C43.8,19.5 42,14.8 38.5,11 C35,7.5 30,5.3 24,5 Z';
+  var svg = '<svg class="ds-brain-3d-mini" viewBox="0 0 48 48" width="42" height="42" xmlns="http://www.w3.org/2000/svg">';
+  svg += '<defs><radialGradient id="' + uid + '-rg" cx="40%" cy="35%" r="65%"><stop offset="0%" stop-color="' + bc.base + '" stop-opacity="0.35"/><stop offset="60%" stop-color="' + bc.glow + '" stop-opacity="0.2"/><stop offset="100%" stop-color="#0a1428" stop-opacity="0.6"/></radialGradient>';
+  svg += '<filter id="' + uid + '-gl"><feGaussianBlur stdDeviation="1.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>';
+  svg += '<path d="' + brainD + '" fill="url(#' + uid + '-rg)" stroke="' + bc.base + '" stroke-width="0.8" stroke-opacity="0.5"/>';
+  svg += '<line x1="24" y1="6" x2="24" y2="45" stroke="rgba(255,255,255,0.15)" stroke-width="0.6"/>';
+  svg += '<path d="M8,23 C14,21 19,22.5 24,22.5" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="0.5"/>';
+  svg += '<path d="M24,22.5 C29,22.5 34,21 40,23" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="0.5"/>';
+  svg += '<path d="' + brainD + '" fill="none" stroke="' + bc.base + '" stroke-width="1.2" filter="url(#' + uid + '-gl)"><animate attributeName="stroke-opacity" values="0.2;0.6;0.2" dur="3s" repeatCount="indefinite"/></path>';
+  [{ x:17,y:12 },{ x:31,y:12 },{ x:13,y:19 },{ x:35,y:19 },{ x:24,y:17 },{ x:10,y:27 },{ x:38,y:27 },{ x:24,y:26 },{ x:17,y:40 },{ x:31,y:40 }].forEach(function (d) {
+    svg += '<circle cx="' + d.x + '" cy="' + d.y + '" r="1.5" fill="' + bc.base + '" opacity="0.5"/>';
+  });
+  svg += '</svg>';
+  return svg;
+}

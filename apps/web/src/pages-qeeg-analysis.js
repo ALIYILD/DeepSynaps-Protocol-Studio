@@ -8,7 +8,7 @@
 //   4. Compare          — pre/post comparison
 // ─────────────────────────────────────────────────────────────────────────────
 import { api, downloadBlob } from './api.js';
-import { renderBrainMap10_20, renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap, renderConnectivityChordLite, renderICAComponents, renderWaveletHeatmap, renderChannelQualityMap, renderAsymmetryMap, renderPowerBarChart, renderTBRBarChart, renderSignalDeviationChart, renderBiomarkerGauges, renderBrodmannTable } from './brain-map-svg.js';
+import { renderBrainMap10_20, renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap, renderConnectivityChordLite, renderICAComponents, renderWaveletHeatmap, renderChannelQualityMap, renderAsymmetryMap, renderPowerBarChart, renderTBRBarChart, renderSignalDeviationChart, renderBiomarkerGauges, renderBrodmannTable, render3DBrainMap, render3DBrainMapMini } from './brain-map-svg.js';
 import { emptyState, showToast, spark } from './helpers.js';
 import { DK_LOBES, groupROIsByLobe, formatDKLabel } from './qeeg-dk-atlas.js';
 import {
@@ -3966,7 +3966,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   // Build page shell
   let pageHtml = '<div class="ch-shell">';
   pageHtml += '<div class="qeeg-hero">'
-    + '<div class="qeeg-hero__icon">&#x1F9E0;</div>'
+    + '<div class="qeeg-hero__icon qeeg-hero__icon--3d">' + render3DBrainMapMini('alpha') + '</div>'
     + '<div><div class="qeeg-hero__title">qEEG Analyzer</div>'
     + '<div class="qeeg-hero__sub">Spectral analysis &middot; AI interpretation &middot; Pre/post comparison</div>'
     + '<div style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Decision-support only. Review acquisition quality and clinician context before acting on AI summaries.</div></div>'
@@ -4201,6 +4201,30 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         + '<div id="qeeg-viz-v2-mount" style="min-height:80px"></div>'
       );
 
+      // 3D Brain Map visualization
+      if (bands && Object.keys(bands).length) {
+        var bandList3d = Object.keys(bands);
+        var defaultBand3d = bandList3d.indexOf('alpha') !== -1 ? 'alpha' : bandList3d[0];
+        var defChData3d = bands[defaultBand3d]?.channels || {};
+        var defPowerMap3d = {};
+        Object.entries(defChData3d).forEach(function (entry) {
+          defPowerMap3d[entry[0]] = entry[1].relative_pct || 0;
+        });
+        var brainHtml3d = '<div class="qeeg-3d-brain-section">';
+        brainHtml3d += '<div class="qeeg-3d-brain-controls">';
+        brainHtml3d += '<span style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px">Select Band:</span>';
+        brainHtml3d += '<div class="qeeg-3d-band-tabs" id="qeeg-3d-band-tabs">';
+        bandList3d.forEach(function (b) {
+          var bColor = BAND_COLORS[b] || '#fff';
+          brainHtml3d += '<button class="qeeg-3d-band-tab' + (b === defaultBand3d ? ' qeeg-3d-band-tab--active' : '') + '" data-band="' + b + '" style="--band-color:' + bColor + '">' + esc(b.replace('_', ' ')) + '</button>';
+        });
+        brainHtml3d += '</div></div>';
+        brainHtml3d += '<div id="qeeg-3d-brain-container" style="display:flex;justify-content:center;padding:8px 0">';
+        brainHtml3d += render3DBrainMap(defPowerMap3d, { band: defaultBand3d, size: 360, colorScale: 'warm' });
+        brainHtml3d += '</div></div>';
+        html += card('3D Brain Map', brainHtml3d);
+      }
+
       // Topographic heatmaps
       if (bands && Object.keys(bands).length) {
         let topoHtml = '<div class="qeeg-band-grid">';
@@ -4340,6 +4364,23 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
 
       // Bind advanced analyses button
       setTimeout(function () {
+        // 3D Brain Map band selector
+        var bandTabs3d = document.getElementById('qeeg-3d-band-tabs');
+        var brainCont3d = document.getElementById('qeeg-3d-brain-container');
+        if (bandTabs3d && brainCont3d) {
+          bandTabs3d.addEventListener('click', function (e) {
+            var tab = e.target.closest('.qeeg-3d-band-tab');
+            if (!tab) return;
+            var selBand = tab.dataset.band;
+            bandTabs3d.querySelectorAll('.qeeg-3d-band-tab').forEach(function (t) { t.classList.remove('qeeg-3d-band-tab--active'); });
+            tab.classList.add('qeeg-3d-band-tab--active');
+            var chData = bands[selBand]?.channels || {};
+            var pm = {};
+            Object.entries(chData).forEach(function (entry) { pm[entry[0]] = entry[1].relative_pct || 0; });
+            brainCont3d.innerHTML = render3DBrainMap(pm, { band: selBand, size: 360, colorScale: 'warm' });
+          });
+        }
+
         _bindBrainRingFrames();
         _wireQEEGSourceMRI();
         // ── Mount Viz v2 panels (lazy-loaded) ─────────────────────────────
