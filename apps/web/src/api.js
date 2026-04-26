@@ -652,6 +652,19 @@ export const api = {
   evidenceForProtocol: (protocolId, { limit = 10 } = {}) =>
     apiFetch(`/api/v1/evidence/for-protocol/${encodeURIComponent(protocolId)}?limit=${limit}`),
 
+  evidencePatientOverview: (patientId) =>
+    apiFetch(`/api/v1/evidence/patient/${encodeURIComponent(patientId)}/overview`),
+  evidenceQuery: (data = {}) =>
+    apiFetch('/api/v1/evidence/query', { method: 'POST', body: JSON.stringify(data) }),
+  evidenceByFinding: (data = {}) =>
+    apiFetch('/api/v1/evidence/by-finding', { method: 'POST', body: JSON.stringify(data) }),
+  saveEvidenceCitation: (data = {}) =>
+    apiFetch('/api/v1/evidence/save-citation', { method: 'POST', body: JSON.stringify(data) }),
+  listEvidenceSavedCitations: (patientId) =>
+    apiFetch(`/api/v1/evidence/patient/${encodeURIComponent(patientId)}/saved-citations`),
+  evidenceReportPayload: (data = {}) =>
+    apiFetch('/api/v1/evidence/report-payload', { method: 'POST', body: JSON.stringify(data) }),
+
   // Public counts + last_updated timestamp (no auth required).
   evidenceStatus: () => apiFetch('/api/v1/evidence/status'),
 

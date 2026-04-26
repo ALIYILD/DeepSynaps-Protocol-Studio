@@ -69,6 +69,10 @@ export function showLogin() {
   }
 }
 
+function _demoEnabled() {
+  return import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1';
+}
+
 export function doLogout() {
   api.logout().catch(() => {});
   api.clearToken();
@@ -122,14 +126,15 @@ window._handleSessionExpired = function() {
 
 // ── isAuthenticated (synchronous) ─────────────────────────────────────────────
 window._isAuthenticated = function() {
-  // Allow demo sessions that set currentUser directly (dev mode or VITE_ENABLE_DEMO)
-  const _demoOk = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1';
+  // Allow demo sessions that set currentUser directly only in explicit demo environments.
+  const _demoOk = _demoEnabled();
   if (_demoOk && currentUser) return true;
   return !!api.getToken();
 };
 
 function renderLoginPage() {
   _injectAuthDv2Styles();
+  const demoEnabled = _demoEnabled();
   return `<div class="dv2-auth-wrap">
     <aside class="dv2-auth-aside">
       <div class="dv2-auth-brand">
@@ -176,7 +181,7 @@ function renderLoginPage() {
         <div id="auth-tabs" class="dv2-auth-tabs" role="tablist">
           <button id="tab-login"    class="dv2-auth-tab active" onclick="switchAuthTab('login')">Sign In</button>
           <button id="tab-register" class="dv2-auth-tab"        onclick="switchAuthTab('register')">Create Account</button>
-          <button id="tab-demo"     class="dv2-auth-tab"        onclick="switchAuthTab('demo')">Demo Access</button>
+          ${demoEnabled ? '<button id="tab-demo" class="dv2-auth-tab" onclick="switchAuthTab(\'demo\')">Demo Access</button>' : ''}
         </div>
 
         <!-- ───────── SIGN IN ───────── -->
@@ -338,7 +343,7 @@ function renderLoginPage() {
         </div>
 
         <!-- ───────── DEMO ACCESS ───────── -->
-        <div id="demo-form" style="display:none">
+        <div id="demo-form" style="display:${demoEnabled ? 'none' : 'none'}">
           <div class="dv2-auth-title">Try a live demo.</div>
           <div class="dv2-auth-sub">Pick a workspace below and we'll log you in with seeded patients, protocols, and assessments. No signup required.</div>
 
@@ -382,6 +387,7 @@ function renderLoginPage() {
 
         <div class="dv2-auth-footer">
           Clinical platform for qualified neuromodulation practitioners. All protocols are for professional use only.
+          ${demoEnabled ? '' : '<div style="margin-top:8px;color:var(--text-tertiary,#7c8699)">Demo access is disabled in this environment.</div>'}
         </div>
       </div>
     </main>
@@ -682,10 +688,18 @@ function bootUser(user) {
 }
 
 window.demoLogin = async function(token) {
+  if (!_demoEnabled()) {
+    const errEl = document.getElementById('demo-error') || document.getElementById('login-error');
+    if (errEl) {
+      errEl.textContent = 'Demo access is disabled in this environment.';
+      errEl.style.display = '';
+    }
+    return;
+  }
   const errEl = document.getElementById('demo-error');
   if (errEl) errEl.style.display = 'none';
 
-  // Try real demo-login endpoint first (works in all environments)
+  // Try real demo-login endpoint first when demo mode is explicitly enabled.
   try {
     const res = await Promise.race([
       api.demoLogin(token),
@@ -705,8 +719,7 @@ window.demoLogin = async function(token) {
 
   // Offline demo fallback — active in local dev OR when the build was
   // produced with VITE_ENABLE_DEMO=1 (used for preview / Netlify demo deploys).
-  const _demoEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1';
-  if (_demoEnabled) {
+  if (_demoEnabled()) {
     const demoUser = DEMO_USERS[token];
     if (demoUser) {
       api.setToken(token);

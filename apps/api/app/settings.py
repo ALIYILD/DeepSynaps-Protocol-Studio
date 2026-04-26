@@ -27,16 +27,45 @@ except ImportError:
 _INSECURE_JWT_DEFAULT = "CHANGE-THIS-IN-PRODUCTION-use-openssl-rand-hex-32"
 
 
+def _truthy_env(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _falsy_env(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"0", "false", "no", "off"}
+
+
+def resolve_enable_deeptwin_simulation(
+    *,
+    app_env: str,
+    raw_env: str | None,
+) -> bool:
+    """Resolve the DeepTwin simulation feature flag.
+
+    Defaults: False in production/staging, True in development/test.
+    DEEPSYNAPS_ENABLE_DEEPTWIN_SIMULATION (truthy) forces on; (falsy) forces off.
+    Shared between apps/api/app/settings.py and apps/worker so both layers
+    agree on whether the simulation surface is live for the environment.
+    """
+    if _truthy_env(raw_env):
+        return True
+    if _falsy_env(raw_env):
+        return False
+    return app_env not in ("production", "staging")
+
+
 def _parse_cors_origins(value: str | None) -> list[str]:
+    # When DEEPSYNAPS_CORS_ORIGINS is unset we return an empty list so that
+    # production deployments cannot inherit a stale baked-in allow-list (the
+    # previous default whitelisted https://deepsynaps-web.fly.dev even when
+    # the operator never opted in). fly.toml sets DEEPSYNAPS_CORS_ORIGINS
+    # explicitly, so prod is unaffected; local dev sets it via .env.example.
     if not value:
-        return [
-            "http://127.0.0.1:5173", "http://localhost:5173",
-            "http://127.0.0.1:5174", "http://localhost:5174",
-            "http://127.0.0.1:5175", "http://localhost:5175",
-            "http://127.0.0.1:5176", "http://localhost:5176",
-            "http://127.0.0.1:5177", "http://localhost:5177",
-            "https://deepsynaps-web.fly.dev",
-        ]
+        return []
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
@@ -48,16 +77,9 @@ class AppSettings(BaseModel):
     api_port: int = 8000
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     database_url: str = "sqlite:///./deepsynaps_protocol_studio.db"
-    cors_origins: list[str] = Field(
-        default_factory=lambda: [
-            "http://127.0.0.1:5173", "http://localhost:5173",
-            "http://127.0.0.1:5174", "http://localhost:5174",
-            "http://127.0.0.1:5175", "http://localhost:5175",
-            "http://127.0.0.1:5176", "http://localhost:5176",
-            "http://127.0.0.1:5177", "http://localhost:5177",
-            "https://deepsynaps-web.fly.dev",
-        ]
-    )
+    # Default to empty so production must opt in via DEEPSYNAPS_CORS_ORIGINS.
+    # Local dev should set this in apps/api/.env (see .env.example).
+    cors_origins: list[str] = Field(default_factory=list)
     clinical_data_root: Path = REPO_ROOT / "data" / "imports" / "clinical-database"
     clinical_snapshot_root: Path = REPO_ROOT / "data" / "snapshots" / "clinical-database"
     database_backup_root: Path = REPO_ROOT / "data" / "backups"
@@ -106,8 +128,9 @@ class AppSettings(BaseModel):
 
     # Wearable token encryption (Fernet key — generate with:
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-    # Required before enabling real OAuth device connections. If absent, tokens
-    # are stored as plaintext and a warning is logged on every write.)
+    # Required in production/staging — load_settings() refuses to boot if
+    # WEARABLE_TOKEN_ENC_KEY is unset there. In dev/test, tokens fall back to
+    # plaintext storage and a warning is logged on every write.
     wearable_token_enc_key: str = Field(default="")
 
     # Settings API secrets key (Fernet — encrypts TOTP secrets and 2FA backup
@@ -137,6 +160,15 @@ class AppSettings(BaseModel):
     feature_store_default_tenant_id: str = Field(default="default")
     feature_store_registry_url: str = Field(default="")
 
+    enable_deeptwin_simulation: bool = Field(
+        default=False,
+        description=(
+            "Gates DeepTwin simulation worker. Default off in production until "
+            "clinical validation packet exists. "
+            "Set DEEPSYNAPS_ENABLE_DEEPTWIN_SIMULATION=1 to override."
+        ),
+    )
+
     @field_validator("database_url")
     @classmethod
     def validate_database_url(cls, value: str) -> str:
@@ -149,8 +181,10 @@ class AppSettings(BaseModel):
     @field_validator("cors_origins")
     @classmethod
     def validate_cors_origins(cls, value: list[str]) -> list[str]:
-        if not value:
-            raise ValueError("cors_origins must contain at least one origin.")
+        # Empty list is now valid (the new default). When unset in production
+        # the CORSMiddleware simply rejects all cross-origin requests, which
+        # is the correct fail-closed behaviour. Operators must populate
+        # DEEPSYNAPS_CORS_ORIGINS to allow browser-based clients.
         return value
 
     @field_validator("clinical_data_root", "clinical_snapshot_root", "database_backup_root")
@@ -171,6 +205,20 @@ def load_settings() -> AppSettings:
                 f"{_app_env} environments. "
                 "Generate one with: openssl rand -hex 32"
             )
+
+    # Wearable OAuth token encryption (Fernet). Required in staging/production
+    # so OAuth refresh/access tokens are encrypted at rest. In dev/test we
+    # tolerate an unset key and let app.crypto fall back to plaintext (with a
+    # warning) so local boot works without provisioning a key.
+    _wearable_enc_key = os.getenv("WEARABLE_TOKEN_ENC_KEY", "")
+    if _app_env in ("production", "staging") and not _wearable_enc_key:
+        raise RuntimeError(
+            "WEARABLE_TOKEN_ENC_KEY must be set to a Fernet key (32-byte "
+            f"base64) in {_app_env} environments so wearable OAuth tokens "
+            "are encrypted at rest. Generate one with: "
+            "python -c 'from cryptography.fernet import Fernet; "
+            "print(Fernet.generate_key().decode())'"
+        )
 
     # Settings API: Fernet key for TOTP/2FA secret encryption. In dev/test we
     # fall back to an ephemeral key (with a stderr warning) so local boot works
@@ -290,6 +338,11 @@ def load_settings() -> AppSettings:
                 "feature_store_backend": os.getenv("DEEPSYNAPS_FEATURE_STORE_BACKEND", "disabled"),
                 "feature_store_default_tenant_id": os.getenv("DEEPSYNAPS_FEATURE_STORE_DEFAULT_TENANT_ID", "default"),
                 "feature_store_registry_url": os.getenv("DEEPSYNAPS_FEATURE_STORE_REGISTRY_URL", ""),
+                # DeepTwin simulation gate (F6 from launch-readiness review).
+                "enable_deeptwin_simulation": resolve_enable_deeptwin_simulation(
+                    app_env=_app_env,
+                    raw_env=os.getenv("DEEPSYNAPS_ENABLE_DEEPTWIN_SIMULATION"),
+                ),
             }
         )
     except ValidationError as exc:

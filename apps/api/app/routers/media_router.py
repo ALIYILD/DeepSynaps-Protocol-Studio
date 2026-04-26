@@ -358,6 +358,7 @@ def get_consents(
             )
     else:
         _require_clinician_or_reviewer(actor)
+        _check_patient_access(patient_id, actor, db)
 
     consents = db.query(MediaConsent).filter_by(patient_id=patient_id).all()
     return [
@@ -1347,6 +1348,7 @@ async def clinician_note_audio(
 ) -> dict:
     """Clinician uploads an audio note; transcribed and drafted by AI immediately."""
     _require_clinician_staff(actor)
+    _check_patient_access(patient_id, actor, db)
 
     settings = get_settings()
 
@@ -1567,6 +1569,11 @@ def approve_clinician_draft(
     if draft is None:
         raise ApiServiceError(code="not_found", message="Draft not found.", status_code=404)
 
+    note = db.query(ClinicianMediaNote).filter_by(id=draft.note_id).first()
+    if note is None:
+        raise ApiServiceError(code="not_found", message="Clinician note not found.", status_code=404)
+    _check_patient_access(note.patient_id, actor, db)
+
     draft.status = "approved"
     draft.approved_by = actor.actor_id
     draft.approved_at = datetime.now(timezone.utc)
@@ -1584,9 +1591,7 @@ def approve_clinician_draft(
     if body.included_tasks is not None:
         draft.task_suggestions = json.dumps(body.included_tasks)
 
-    note = db.query(ClinicianMediaNote).filter_by(id=draft.note_id).first()
-    if note:
-        note.status = "finalized"
+    note.status = "finalized"
 
     _write_audit(
         db,
@@ -1635,6 +1640,7 @@ async def delete_patient_upload(
             )
     else:
         _require_clinician(actor)
+        _check_patient_access(upload.patient_id, actor, db)
 
     settings = get_settings()
 
@@ -1697,6 +1703,7 @@ async def serve_media_file(
         raise ApiServiceError(code="forbidden", message="Access denied.", status_code=403)
     elif actor.role not in ("patient",):
         _require_clinician_or_reviewer(actor)
+        _check_patient_access(owner_patient_id, actor, db)
 
     settings = get_settings()
     try:

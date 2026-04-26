@@ -280,41 +280,41 @@ export function bindHomeTherapyActions(patientId, apiObj) {
         instructions_text: instructions, parameters: {},
       });
       window.switchPT('home-therapy');
-    } catch (_e) { alert('Could not assign device: ' + (_e?.message || 'error')); }
+    } catch (_e) { window._showToast?.('Could not assign device: ' + (_e?.message || 'error'), 'error'); }
   };
 
   window._htPauseAssignment = async function(id) {
     if (!confirm('Pause this home device assignment?')) return;
     try { await a.updateHomeAssignment(id, { status: 'paused' }); window.switchPT('home-therapy'); }
-    catch (_e) { alert('Could not pause: ' + (_e?.message || '')); }
+    catch (_e) { window._showToast?.('Could not pause: ' + (_e?.message || ''), 'error'); }
   };
 
   window._htRevokeAssignment = async function(id) {
     const reason = prompt('Revoke home therapy assignment?\n\nThe patient will lose access to their home device program.\nPlease provide a clinical reason (minimum 10 characters):');
     if (!reason || reason.trim().length < 10) {
-      alert('A clinical reason of at least 10 characters is required.');
+      window._showToast?.('A clinical reason of at least 10 characters is required.', 'warning');
       return;
     }
     try { await a.updateHomeAssignment(id, { status: 'revoked', revoke_reason: reason.trim() }); window.switchPT('home-therapy'); }
-    catch (_e) { alert('Could not revoke: ' + (_e?.message || '')); }
+    catch (_e) { window._showToast?.('Could not revoke: ' + (_e?.message || ''), 'error'); }
   };
 
   window._htReviewLog = async function(logId, status) {
     const note = status === 'flagged' ? (prompt('Flag note (describe the concern):') || null) : null;
     try { await a.reviewHomeSessionLog(logId, { status, review_note: note }); window.switchPT('home-therapy'); }
-    catch (_e) { alert('Could not update log: ' + (_e?.message || '')); }
+    catch (_e) { window._showToast?.('Could not update log: ' + (_e?.message || ''), 'error'); }
   };
 
   window._htAckEvent = async function(eventId) {
     const note = prompt('Acknowledgment note (optional):') || null;
     try { await a.acknowledgeAdherenceEvent(eventId, { status: 'acknowledged', resolution_note: note }); window.switchPT('home-therapy'); }
-    catch (_e) { alert('Could not acknowledge: ' + (_e?.message || '')); }
+    catch (_e) { window._showToast?.('Could not acknowledge: ' + (_e?.message || ''), 'error'); }
   };
 
   window._htDismissFlag = async function(flagId) {
     const resolution = prompt('Resolution note (optional):') || null;
     try { await a.dismissHomeReviewFlag(flagId, { resolution }); window.switchPT('home-therapy'); }
-    catch (_e) { alert('Could not dismiss flag: ' + (_e?.message || '')); }
+    catch (_e) { window._showToast?.('Could not dismiss flag: ' + (_e?.message || ''), 'error'); }
   };
 
   let _htAiInProgress = false;

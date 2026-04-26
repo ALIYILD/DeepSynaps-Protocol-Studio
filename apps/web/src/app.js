@@ -93,7 +93,7 @@ if (localStorage.getItem('ds_high_contrast') === '1') document.body.classList.ad
   wrap.style.cssText = 'position:relative;display:inline-block;';
   wrap.innerHTML = `
     <button id="lang-btn" class="lang-btn" title="Language" aria-label="Switch language" onclick="window._toggleLangMenu()" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;width:34px;height:34px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:0.9rem;flex-shrink:0;gap:4px;font-size:11px;font-weight:500;padding:0 6px;width:auto;white-space:nowrap;">
-      🌐 <span id="lang-btn-label">${getLocale().toUpperCase()}</span>
+      <span role="img" aria-label="Language" style="line-height:1">🌐</span> <span id="lang-btn-label">${getLocale().toUpperCase()}</span>
     </button>
     <div id="lang-menu" class="lang-menu" style="display:none;" role="menu">
       ${Object.entries(LOCALES).map(([code, name]) =>
@@ -828,6 +828,11 @@ function setTopbar(title, html = '') {
   const _ta = document.getElementById('topbar-actions');
   if (_pt) _pt.textContent = title;
   if (_ta) _ta.innerHTML = html;
+  // PHI-out-of-titles (HIPAA 2026 best-practice): never let per-page topbar
+  // titles (which sometimes carry patient names) leak into the document
+  // <title>, browser history, or screen-share previews. Lock document.title
+  // to a generic product label regardless of what the page passes.
+  try { document.title = 'DeepSynaps Studio'; } catch {}
 }
 
 // ── Loading bar ───────────────────────────────────────────────────────────────
@@ -1000,6 +1005,10 @@ window._openCourse = function(id) {
 };
 
 // ── Public page routing ───────────────────────────────────────────────────────
+// Routes that don't require authentication. Used by both renderPage()'s auth
+// guard and init()'s deep-link gate so an unauth visitor to ?page=<private>
+// gets the login overlay rather than silently landing on the marketing home.
+const _PUBLIC_ROUTES = ['home', 'login', 'register', 'onboarding', 'onboarding-wizard', 'pricing'];
 let currentPublicPage = 'home';
 
 async function renderPublicPage() {
@@ -1161,8 +1170,7 @@ async function renderPage() {
   el.scrollTop = 0;
 
   // ── Auth guard (synchronous — runs before any async data fetch) ───────────
-  const _publicRoutes = ['home', 'login', 'register', 'onboarding', 'onboarding-wizard', 'pricing'];
-  if (!_publicRoutes.includes(currentPage) && !window._isAuthenticated?.()) {
+  if (!_PUBLIC_ROUTES.includes(currentPage) && !window._isAuthenticated?.()) {
     el.innerHTML = `
       <div class="auth-required-notice">
         <div class="auth-required-icon">🔒</div>
@@ -1187,6 +1195,7 @@ async function renderPage() {
     case 'rx-tab':       { window._patientHubTab = 'prescriptions'; window._nav('patients-hub'); break; }
     case 'patients-hub': { const m = await loadClinicalHubs(); await m.pgPatientHub(setTopbar, navigate); break; }
     case 'patients-full':{ const m = await loadClinical(); await m.pgPatients(setTopbar, navigate); break; }
+    case 'patient-analytics': { const m = await import('./pages-patient-analytics.js'); await m.pgPatientAnalyticsDetail(setTopbar, window._paPatientId); break; }
     case 'patient':
     case 'patient-profile': { const m = await loadClinical(); await m.pgPatientProfile(setTopbar); break; }
     case 'homework-builder': { const m = await loadPatient(); await m.pgHomeworkBuilder(setTopbar); break; }
@@ -2210,6 +2219,16 @@ async function init() {
   const token = api.getToken();
   if (!token) {
     navigatePublic('home');
+    // Honor ?page=<private-route> deep links for unauth visitors: pop the login
+    // overlay so the URL is preserved and bootApp() can route on success.
+    try {
+      const deepLinkId = new URL(location.href).searchParams.get('page');
+      if (deepLinkId
+          && /^[a-z0-9][a-z0-9-]{0,63}$/i.test(deepLinkId)
+          && !_PUBLIC_ROUTES.includes(normalizeRouteId(deepLinkId))) {
+        showLogin();
+      }
+    } catch {}
     return;
   }
   try {

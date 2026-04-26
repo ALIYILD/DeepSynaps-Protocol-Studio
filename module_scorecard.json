@@ -1,0 +1,107 @@
+{
+  "qEEG Analyzer": {
+    "current_score": 7.4,
+    "upgraded_score": 8.3,
+    "rationale": "Already uses MNE-oriented ingestion, PyPREP/ICLabel/autoreject fallbacks, spectral parameterization, connectivity, source localization, longitudinal comparison, and RAG narrative hooks. Upgrade adds structured clinical summary, QC confidence, observed-vs-derived separation, method provenance, and machine-readable report JSON.",
+    "blockers_remaining": [
+      "Prospective validation against site-specific qEEG normative data",
+      "Broader connectivity measures and reproducibility reports across devices",
+      "Patient-specific EEG-MRI source coregistration"
+    ]
+  },
+  "MRI / fMRI Analyzer": {
+    "current_score": 7.1,
+    "upgraded_score": 8.0,
+    "rationale": "Supports NIfTI/DICOM-oriented staged pipeline, structural/fMRI/DTI outputs, MRIQC wrapper, incidental-review triage, region metrics, targeting, and longitudinal change. Upgrade adds report-level clinical summary, confidence/readiness, limitations, modality warnings, and machine-readable JSON.",
+    "blockers_remaining": [
+      "Production deployment of full MRIQC/ANTs/FastSurfer/SynthSeg dependencies",
+      "Validated age/sex normative volumetric percentile database",
+      "Routine radiologist QC adjudication loop"
+    ]
+  },
+  "Risk Scores": {
+    "current_score": 6.3,
+    "upgraded_score": 7.2,
+    "rationale": "qEEG similarity scores already include CIs and non-diagnostic posture; risk stratification uses validated assessments and evidence maps. Upgrade adds driver attribution, calibration cautions, and feature provenance to qEEG similarity outputs.",
+    "blockers_remaining": [
+      "Clinic-specific calibration datasets",
+      "Dedicated tests for app-level risk stratification categories",
+      "External validation by condition and demographic subgroup"
+    ]
+  },
+  "Digital Twin / Predictions": {
+    "current_score": 6.6,
+    "upgraded_score": 7.4,
+    "rationale": "Engine is deterministic/demo-safe with uncertainty bands, evidence grades, and approval flags. Upgrade adds explicit simulation provenance, uncertainty methods, feature attribution style, and auditable assumptions.",
+    "blockers_remaining": [
+      "Real patient feature-store integration for scenario inputs",
+      "Causal validation and calibration",
+      "Treatment-effect model governance"
+    ]
+  },
+  "Decision-support Scores": {
+    "current_score": 6.8,
+    "upgraded_score": 7.5,
+    "rationale": "Existing traffic-light and logistic risk layers are transparent but unevenly calibrated. Upgrade improves attribution/caution payloads and documents the validated-assessment anchoring direction.",
+    "blockers_remaining": [
+      "Unified score schema across qEEG, PROMs, wearables, MRI, and adherence",
+      "Reliability diagrams and calibration monitoring"
+    ]
+  },
+  "Report Generation": {
+    "current_score": 6.7,
+    "upgraded_score": 8.0,
+    "rationale": "Reports already render HTML/PDF and include modality results and citations. Upgrade adds clinician review summaries, limitations, confidence, observed-vs-derived separation, and downstream JSON payloads.",
+    "blockers_remaining": [
+      "Shared report block renderer across all analyzers",
+      "Export QA checks for every generated report"
+    ]
+  },
+  "Evidence / Citation Layer": {
+    "current_score": 7.0,
+    "upgraded_score": 7.4,
+    "rationale": "RAG and citation validation surfaces exist with evidence governance docs. Upgrade adds method provenance citations in qEEG summaries and benchmarked evidence-grading expectations.",
+    "blockers_remaining": [
+      "Counter-evidence retrieval and evidence quality grading in every recommendation",
+      "Claim-level citation fidelity tests for generated reports"
+    ]
+  },
+  "Multimodal Fusion Layer": {
+    "current_score": 5.9,
+    "upgraded_score": 7.0,
+    "rationale": "Fusion is explicitly lightweight and uses persisted qEEG/MRI payloads. Upgrade adds modality agreement/disagreement, missing modality handling, uncertainty factors, and cautious recommendations.",
+    "blockers_remaining": [
+      "Validated late-fusion model with calibration",
+      "Timeline-aware subject-level fusion",
+      "Patient-specific EEG-MRI source integration"
+    ]
+  },
+  "Confidence / Uncertainty Layer": {
+    "current_score": 6.2,
+    "upgraded_score": 7.5,
+    "rationale": "CIs, evidence grades, and confidence fields were present but scattered. Upgrade makes confidence/readiness structured in qEEG/MRI summaries, risk drivers, fusion uncertainty factors, and DeepTwin provenance.",
+    "blockers_remaining": [
+      "Conformal prediction or calibrated uncertainty where trained models exist",
+      "Continuous monitoring of confidence-vs-outcome calibration"
+    ]
+  },
+  "Explainability Layer": {
+    "current_score": 6.4,
+    "upgraded_score": 7.3,
+    "rationale": "qEEG explainability and personalization snapshots exist. Upgrade adds explicit top contributing factors for qEEG similarity scores and interpretable modality agreement for fusion.",
+    "blockers_remaining": [
+      "SHAP/GradCAM only for validated deployed models",
+      "Clinician-facing visual explanations for MRI model outputs"
+    ]
+  },
+  "API / Serving Architecture": {
+    "current_score": 7.2,
+    "upgraded_score": 7.6,
+    "rationale": "FastAPI routers, worker jobs, optional-heavy-dependency facades, and graceful failure are already strong. Upgrade extends response payloads without breaking existing fields.",
+    "blockers_remaining": [
+      "Versioned schemas for all analyzer outputs",
+      "OpenAPI examples for new clinical summary blocks",
+      "Service-level observability for analyzer confidence and failures"
+    ]
+  }
+}

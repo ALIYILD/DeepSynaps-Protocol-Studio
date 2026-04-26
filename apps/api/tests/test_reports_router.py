@@ -5,11 +5,25 @@ GET  /api/v1/reports  -> list current clinician's reports (newest first)
 """
 from __future__ import annotations
 
+import uuid
+
 from fastapi.testclient import TestClient
 
 
+def _create_patient(client: TestClient, auth_headers: dict) -> str:
+    resp = client.post(
+        "/api/v1/patients",
+        json={"first_name": "Report", "last_name": "Patient"},
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
 def test_create_report_round_trip(client: TestClient, auth_headers: dict):
+    patient_id = _create_patient(client, auth_headers)
     body = {
+        "patient_id": patient_id,
         "type": "clinician",
         "title": "Course 1 Treatment Summary — TMS Depression",
         "content": "PHQ-9 reduced from 22 to 8 over 20 sessions. Patient in remission.",
@@ -31,10 +45,11 @@ def test_create_report_round_trip(client: TestClient, auth_headers: dict):
 
 
 def test_list_reports_newest_first(client: TestClient, auth_headers: dict):
+    patient_id = _create_patient(client, auth_headers)
     for title in ["Intake #1", "Progress #2", "Discharge #3"]:
         r = client.post(
             "/api/v1/reports",
-            json={"type": "progress", "title": title, "content": "body"},
+            json={"patient_id": patient_id, "type": "progress", "title": title, "content": "body"},
             headers=auth_headers["clinician"],
         )
         assert r.status_code == 201, r.text
@@ -49,9 +64,10 @@ def test_list_reports_newest_first(client: TestClient, auth_headers: dict):
 def test_clinician_cannot_see_other_clinician_reports(
     client: TestClient, auth_headers: dict
 ):
+    patient_id = _create_patient(client, auth_headers)
     r = client.post(
         "/api/v1/reports",
-        json={"type": "clinician", "title": "Mine"},
+        json={"patient_id": patient_id, "type": "clinician", "title": "Mine"},
         headers=auth_headers["clinician"],
     )
     assert r.status_code == 201, r.text
@@ -102,9 +118,10 @@ def test_create_requires_clinician_role(client: TestClient, auth_headers: dict):
 
 
 def test_list_with_since_filter_future(client: TestClient, auth_headers: dict):
+    patient_id = _create_patient(client, auth_headers)
     r = client.post(
         "/api/v1/reports",
-        json={"type": "clinician", "title": "Recent"},
+        json={"patient_id": patient_id, "type": "clinician", "title": "Recent"},
         headers=auth_headers["clinician"],
     )
     assert r.status_code == 201
@@ -117,11 +134,74 @@ def test_list_with_since_filter_future(client: TestClient, auth_headers: dict):
 
 
 def test_invalid_since_is_ignored_not_400(client: TestClient, auth_headers: dict):
+    patient_id = _create_patient(client, auth_headers)
     client.post(
         "/api/v1/reports",
-        json={"type": "clinician", "title": "Alive"},
+        json={"patient_id": patient_id, "type": "clinician", "title": "Alive"},
         headers=auth_headers["clinician"],
     )
     r = client.get("/api/v1/reports?since=not-a-date", headers=auth_headers["clinician"])
     assert r.status_code == 200
     assert r.json()["total"] >= 1
+
+
+def test_create_report_without_patient_id_is_rejected(client: TestClient, auth_headers: dict):
+    r = client.post(
+        "/api/v1/reports",
+        json={"type": "clinician", "title": "No patient"},
+        headers=auth_headers["clinician"],
+    )
+    assert r.status_code == 422, r.text
+
+
+def test_ai_summary_requires_report_owner(client: TestClient, auth_headers: dict):
+    patient_id = _create_patient(client, auth_headers)
+    own = client.post(
+        "/api/v1/reports",
+        json={"patient_id": patient_id, "type": "clinician", "title": "Owned report", "content": "body"},
+        headers=auth_headers["clinician"],
+    )
+    assert own.status_code == 201, own.text
+    report_id = own.json()["id"]
+
+    other = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "report-other@example.com",
+            "display_name": "Other Clinician",
+            "password": "testpass1234",
+            "role": "clinician",
+        },
+    )
+    assert other.status_code in (200, 201), other.text
+    other_headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
+
+    denied = client.post(f"/api/v1/reports/{report_id}/ai-summary", headers=other_headers)
+    assert denied.status_code == 404, denied.text
+
+
+def test_ai_summary_requires_patient_access(client: TestClient, auth_headers: dict):
+    patient_id = _create_patient(client, auth_headers)
+
+    report = client.post(
+        "/api/v1/reports",
+        json={"type": "clinician", "title": "Scoped report", "patient_id": patient_id, "content": "body"},
+        headers=auth_headers["clinician"],
+    )
+    assert report.status_code == 201, report.text
+    report_id = report.json()["id"]
+
+    other = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": f"report-scope-{uuid.uuid4().hex[:8]}@example.com",
+            "display_name": "Other Clinician",
+            "password": "testpass1234",
+            "role": "clinician",
+        },
+    )
+    assert other.status_code in (200, 201), other.text
+    other_headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
+
+    denied = client.post(f"/api/v1/reports/{report_id}/ai-summary", headers=other_headers)
+    assert denied.status_code == 404, denied.text

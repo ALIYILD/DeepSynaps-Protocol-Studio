@@ -87,6 +87,13 @@ def test_patient_can_submit_completion_and_read_back(client, auth_headers):
     data2 = r2.json()
     assert data2["rating"] == 5
 
+    listed = client.get("/api/v1/patient-portal/home-program-tasks", headers=auth_headers["patient"])
+    assert listed.status_code == 200
+    task = listed.json()[0]
+    assert task["server_task_id"] == "11111111-1111-1111-1111-111111111111"
+    assert task["completed"] is True
+    assert task["rating"] == 5
+
 
 def test_patient_rating_bounds_validated(client, auth_headers):
     from app.database import SessionLocal

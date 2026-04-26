@@ -112,9 +112,58 @@ const _deviceLabel = deviceId => DEVICES.find(d => d.id === deviceId)?.label || 
 const _condLabel = cid => CONDITIONS.find(c => c.id === cid)?.label || cid;
 const _typeColor = type => PROTOCOL_TYPES.find(t => t.id === type)?.color || '#64748b';
 
+function _hasReviewedGovernance(proto) {
+  const gov = proto?.governance || [];
+  return gov.includes('reviewed') || gov.includes('approved');
+}
+
+function _canUseProtocol(proto) {
+  if (!proto) return false;
+  const gov = proto.governance || [];
+  if (!gov.includes('off-label')) return true;
+
+  if (!_hasReviewedGovernance(proto)) {
+    window._showNotifToast?.({
+      title: 'Review Required',
+      body: 'This off-label protocol cannot be used until clinician review is recorded in the registry.',
+      severity: 'warn',
+    });
+    return false;
+  }
+
+  window._protOffLabelUseAcks = window._protOffLabelUseAcks || {};
+  if (window._protOffLabelUseAcks[proto.id]) return true;
+
+  const acknowledged = window.confirm(
+    [
+      'Off-label protocol acknowledgement',
+      '',
+      `"${proto.name}" is marked off-label and has clinician review on file.`,
+      'Confirm that off-label documentation and informed acknowledgement are complete before opening the course wizard.',
+    ].join('\n')
+  );
+  if (!acknowledged) {
+    window._showNotifToast?.({
+      title: 'Off-Label Not Acknowledged',
+      body: 'Course launch cancelled. Acknowledge off-label use before continuing.',
+      severity: 'info',
+    });
+    return false;
+  }
+
+  window._protOffLabelUseAcks[proto.id] = true;
+  window._showNotifToast?.({
+    title: 'Off-Label Acknowledged',
+    body: 'Session acknowledgement recorded. Course wizard unlocked for this protocol.',
+    severity: 'info',
+  });
+  return true;
+}
+
 // ── Window state for cross-page navigation ────────────────────────────────────
 window._protDetailId = window._protDetailId || null;
 window._protFromCondition = window._protFromCondition || null;
+window._protOffLabelUseAcks = window._protOffLabelUseAcks || {};
 
 // =============================================================================
 // pgProtocolSearch — Browse, filter, and launch all protocols
@@ -394,6 +443,7 @@ export async function pgProtocolSearch(setTopbar, navigate) {
     window._protDetailId = id;
     const proto = LIBRARY.find(p => p.id === id);
     if (proto) {
+      if (!_canUseProtocol(proto)) return;
       window._wizardProtocolId = id;
       window._nav('courses');
       window._showNotifToast?.({ title: 'Protocol Selected', body: `"${proto.name}" ready to use in course wizard.`, severity: 'success' });
@@ -650,6 +700,8 @@ export async function pgProtocolDetail(setTopbar, navigate) {
     _refreshBtn.onclick = async () => {
       _refreshBtn.disabled = true;
       _refreshBtn.textContent = '\u21BB Refreshing\u2026';
+      let _finalStatus = null;
+      let _polledOk = false;
       try {
         const res = await fetch(`/api/v1/protocols/${encodeURIComponent(proto.id)}/refresh-literature`, {
           method: 'POST',
@@ -661,20 +713,47 @@ export async function pgProtocolDetail(setTopbar, navigate) {
           // Poll for completion (max 30s)
           for (let i = 0; i < 15; i++) {
             await new Promise(r => setTimeout(r, 2000));
-            const jobsRes = await fetch(`/api/v1/protocols/${encodeURIComponent(proto.id)}/refresh-literature/jobs`);
-            if (!jobsRes.ok) break;
-            const jobs = await jobsRes.json();
+            let jobsRes;
+            try {
+              jobsRes = await fetch(`/api/v1/protocols/${encodeURIComponent(proto.id)}/refresh-literature/jobs`);
+            } catch (_netErr) {
+              window._showToast?.('Literature refresh: network lost while polling. Please try again.', 'error');
+              _polledOk = false;
+              break;
+            }
+            if (!jobsRes.ok) {
+              window._showToast?.(`Literature refresh polling failed (HTTP ${jobsRes.status}).`, 'error');
+              _polledOk = false;
+              break;
+            }
+            const jobs = await jobsRes.json().catch(() => []);
             const me = jobs.find?.(j => j.id === job.job_id) || jobs[0];
             if (me && (me.status === 'succeeded' || me.status === 'failed' || me.status === 'rate_limited')) {
+              _finalStatus = me.status;
+              _polledOk = true;
               window._litWatchData = null; // bust cache
               _loadLit();
               break;
             }
           }
+          if (!_polledOk && _finalStatus === null) {
+            window._showToast?.('Literature refresh did not complete within 30s. Check back shortly.', 'warning');
+          } else if (_finalStatus === 'succeeded') {
+            window._showToast?.('Literature refreshed.', 'success');
+          } else if (_finalStatus === 'failed') {
+            window._showToast?.('Literature refresh failed on the server.', 'error');
+          } else if (_finalStatus === 'rate_limited') {
+            window._showToast?.('Literature refresh rate-limited. Try again later.', 'warning');
+          }
         } else if (res.status === 402) {
-          alert('Monthly literature budget exceeded. Refresh refused.');
+          window._showToast?.('Monthly literature budget exceeded. Refresh refused.', 'warning');
+        } else {
+          window._showToast?.(`Literature refresh failed (HTTP ${res.status}).`, 'error');
         }
-      } catch (e) { console.warn('refresh failed', e); }
+      } catch (e) {
+        console.warn('refresh failed', e);
+        window._showToast?.('Literature refresh failed. Please try again.', 'error');
+      }
       _refreshBtn.disabled = false;
       _refreshBtn.textContent = '\u21BB Refresh (PubMed)';
     };
@@ -1166,9 +1245,6 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
     if (!_b.name || !_b.conditionId) {
       window._showNotifToast?.({ title:'Required', body:'Complete required fields before submitting.', severity:'warn' }); return;
     }
-    const gov = [..._b.governance];
-    if (!gov.includes('reviewed')) gov.push('reviewed');
-    _b.governance = gov;
     const custom = _buildCustomRecord('submitted');
     const saved = JSON.parse(localStorage.getItem('ds_custom_protocols') || '[]');
     saved.push(custom);
@@ -1178,8 +1254,8 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
     _b.saved = false;
     renderBuilder();
     const body = backend.pushed
-      ? `"${_b.name}" submitted to backend review queue.`
-      : `"${_b.name}" saved locally. Attach a patient and resubmit to route to review.`;
+      ? `"${_b.name}" submitted to backend review queue. Review status remains unchanged until a clinician records it.`
+      : `"${_b.name}" saved locally. Attach a patient and resubmit to route to review. Review status remains unchanged.`;
     window._showNotifToast?.({ title:'Submitted for Review', body, severity:'success' });
   };
 

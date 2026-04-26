@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- HIPAA hygiene: never leak the source URL (which may carry IDs that
+     correlate to a patient) via the Referer header on outbound links or
+     resource requests. -->
+<meta name="referrer" content="no-referrer">
 <script>
   try {
     const t = localStorage.getItem('ds_theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
@@ -12,6 +16,7 @@
 <title>DeepSynaps Protocol Studio — Clinical OS</title>
 <meta name="description" content="DeepSynaps Protocol Studio — Clinical OS for Neuromodulation Clinics">
 <meta name="theme-color" content="#00d4bc">
+<link rel="icon" type="image/svg+xml" href="/deepsynaps-logo.svg">
 <link rel="icon" type="image/png" href="/deepsynaps-logo.png">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <meta property="og:title" content="DeepSynaps Protocol Studio — Clinical OS">

@@ -1,7 +1,17 @@
 import { defineConfig } from "vite";
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base: './',
+  esbuild: {
+    // Strip noisy debug calls in prod builds. console.error / console.warn
+    // are kept because the codebase uses them for legitimate error logging
+    // (53 call sites across 11 files in src/).
+    pure:
+      mode === 'production'
+        ? ['console.log', 'console.debug', 'console.info']
+        : [],
+    drop: mode === 'production' ? ['debugger'] : [],
+  },
   build: {
     // Raised from 500: pages-clinical (18 258 lines) and pages-knowledge
     // are single source files — they cannot be split further by manualChunks
@@ -52,13 +62,13 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:8001",
+        target: "http://127.0.0.1:8000",
         changeOrigin: true,
       },
       "/health": {
-        target: "http://127.0.0.1:8001",
+        target: "http://127.0.0.1:8000",
         changeOrigin: true,
       },
     },
   },
-});
+}));

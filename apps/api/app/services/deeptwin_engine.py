@@ -407,6 +407,22 @@ def estimate_trajectory(
         ],
         "evidence_grade": "moderate",
         "uncertainty_widens_with_horizon": True,
+        "provenance": {
+            "engine": "deeptwin_engine",
+            "mode": "deterministic_demo",
+            "seed_salt": f"traj_{horizon}",
+            "generated_at": _now_iso(),
+            "inputs_used": [name for name, _baseline, _drift in metrics],
+            "calibration_status": "illustrative_not_clinically_calibrated",
+        },
+        "explainability": {
+            "method": "transparent_metric_drift_with_uncertainty_band",
+            "top_assumptions": [
+                "Recent adherence trend persists.",
+                "No new contraindications or major medication changes occur.",
+                "Sampling quality remains comparable to the current record.",
+            ],
+        },
         "disclaimer": (
             "Predictions are model-estimated. Confidence band is illustrative — clinician must review."
         ),
@@ -487,6 +503,7 @@ def simulate_intervention_scenario(
 
     # responder / non-responder hint based on baseline drift bag
     responder_prob = float(min(0.85, max(0.15, 0.55 - rng.normal(0, 0.1))))
+    uncertainty_width = _round(max(ci_high) - min(ci_low), 3) if ci_low and ci_high else None
 
     return {
         "patient_id": patient_id,
@@ -512,6 +529,10 @@ def simulate_intervention_scenario(
         },
         "expected_domains": expected_domains,
         "responder_probability": _round(responder_prob, 3),
+        "responder_probability_ci95": [
+            _round(max(0.0, responder_prob - 0.18), 3),
+            _round(min(1.0, responder_prob + 0.18), 3),
+        ],
         "non_responder_flag": responder_prob < 0.35,
         "safety_concerns": safety_concerns,
         "missing_data": ["No sham comparator", "Limited within-patient history (<60 days)"],
@@ -525,6 +546,49 @@ def simulate_intervention_scenario(
             "Within-patient baseline + cohort literature.",
             "See Evidence panel for cited papers.",
         ],
+        "scenario_comparison": {
+            "baseline_reference": "no_protocol_change_counterfactual_not_observed",
+            "expected_direction": "improvement" if point and point[-1] < 0 else "uncertain",
+            "uncertainty_width": uncertainty_width,
+            "adherence_assumption_pct": adherence_assumption_pct,
+        },
+        "uncertainty": {
+            "method": "deterministic_scenario_band",
+            "ci95_interpretation": "illustrative interval, not calibrated clinical prediction interval",
+            "widens_with_horizon": True,
+            "width": uncertainty_width,
+        },
+        "feature_attribution": [
+            {"factor": "protocol_class", "direction": "supports_effect", "detail": modality},
+            {"factor": "target", "direction": "contextual", "detail": target},
+            {
+                "factor": "adherence_assumption_pct",
+                "direction": "higher_adherence_increases_expected_effect",
+                "value": adherence_assumption_pct,
+            },
+            {
+                "factor": "contraindications",
+                "direction": "increases_review_burden" if contraindications else "none_flagged",
+                "value": contraindications or [],
+            },
+        ],
+        "provenance": {
+            "engine": "deeptwin_engine",
+            "mode": "deterministic_demo",
+            "scenario_id": scenario_id or f"scn_{modality}_{target}_{weeks}w",
+            "inputs": {
+                "modality": modality,
+                "target": target,
+                "frequency_hz": frequency_hz,
+                "duration_min": duration_min,
+                "sessions_per_week": sessions_per_week,
+                "weeks": weeks,
+                "adherence_assumption_pct": adherence_assumption_pct,
+            },
+            "seed_salt": f"sim_{scenario_id or modality}_{target}_{weeks}",
+            "generated_at": _now_iso(),
+            "calibration_status": "illustrative_not_clinically_calibrated",
+        },
         "evidence_grade": "moderate",
         "approval_required": True,
         "labels": {

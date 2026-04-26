@@ -28,7 +28,7 @@ from app.persistence.models import (
     RiskStratificationResult,
 )
 from app.services.risk_evidence_map import RISK_CATEGORIES, RISK_CATEGORY_LABELS
-from app.services.risk_stratification import compute_risk_profile, recompute_categories
+from app.services.risk_stratification import compute_risk_profile
 
 router = APIRouter(prefix="/api/v1/risk", tags=["Risk Stratification"])
 

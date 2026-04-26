@@ -114,7 +114,7 @@ def test_generate_overlay_html_safe_returns_placeholder_when_missing(monkeypatch
         report={"stim_targets": [{"target_id": "rTMS_F3"}], "overlays": {}},
     )
     assert isinstance(html, str)
-    assert "Overlay unavailable" in html
+    assert "overlay unavailable" in html.lower()
     assert "rTMS_F3" in html
     # Regulatory disclaimer must be surfaced per CLAUDE.md §Regulatory.
     assert "Not a medical device" in html

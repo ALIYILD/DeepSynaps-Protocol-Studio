@@ -61,6 +61,21 @@ from app.services.neuromodulation_research import (
     research_health as neuromodulation_research_health,
     search_ranked_papers as search_research_ranked_papers,
 )
+from app.services.evidence_intelligence import (
+    EvidencePaper,
+    EvidenceQuery,
+    EvidenceResult,
+    PatientEvidenceOverview,
+    ReportPayloadRequest,
+    SaveCitationRequest,
+    build_default_query,
+    build_patient_overview,
+    build_report_payload,
+    get_paper_detail as get_intelligence_paper_detail,
+    list_saved_citations,
+    query_evidence,
+    save_citation,
+)
 
 # ── Cross-platform temp paths for admin-refresh lock + log ──────────────────
 # `/tmp` is POSIX-only; on Windows it resolves to C:\tmp which may not exist.
@@ -264,6 +279,19 @@ class HealthOut(BaseModel):
 class PromoteOut(BaseModel):
     library_id: str
     title: str
+
+
+class ByFindingRequest(BaseModel):
+    patient_id: str
+    context_type: str = "biomarker"
+    target_name: str
+    finding_label: Optional[str] = None
+    modality: Optional[str] = None
+    diagnosis: Optional[str] = None
+    intervention: Optional[str] = None
+    phenotype_tags: list[str] = Field(default_factory=list)
+    feature_summary: list[dict] = Field(default_factory=list)
+    max_results: int = Field(default=8, ge=1, le=50)
 
 
 class ResearchDatasetOut(BaseModel):
@@ -543,6 +571,18 @@ class StatusOut(BaseModel):
     last_updated: Optional[str] = None
 
 
+class ByFindingRequest(BaseModel):
+    patient_id: str
+    context_type: str = "biomarker"
+    target_name: str
+    modality: Optional[str] = None
+    diagnosis: Optional[str] = None
+    intervention: Optional[str] = None
+    phenotype_tags: list[str] = Field(default_factory=list)
+    feature_summary: list[dict] = Field(default_factory=list)
+    max_results: int = Field(default=8, ge=1, le=50)
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("/health", response_model=HealthOut)
@@ -557,6 +597,106 @@ def evidence_health(actor: AuthenticatedActor = Depends(get_authenticated_actor)
     finally:
         conn.close()
     return HealthOut(ok=True, db_path=_default_db_path(), counts=counts)
+
+
+@router.get("/patient/{patient_id}/overview", response_model=PatientEvidenceOverview)
+def evidence_patient_overview(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PatientEvidenceOverview:
+    require_minimum_role(actor, "clinician")
+    overview = build_patient_overview(patient_id, db)
+    _audit("intelligence.patient_overview", actor, patient_id=patient_id, result_count=len(overview.highlights))
+    return overview
+
+
+@router.post("/query", response_model=EvidenceResult)
+def evidence_query(
+    body: EvidenceQuery,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> EvidenceResult:
+    require_minimum_role(actor, "clinician")
+    result = query_evidence(body, db)
+    _audit(
+        "intelligence.query",
+        actor,
+        patient_id=body.patient_id,
+        target_name=body.target_name,
+        result_count=len(result.supporting_papers),
+    )
+    return result
+
+
+@router.post("/by-finding", response_model=EvidenceResult)
+def evidence_by_finding(
+    body: ByFindingRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> EvidenceResult:
+    require_minimum_role(actor, "clinician")
+    query = EvidenceQuery(
+        patient_id=body.patient_id,
+        context_type=body.context_type,  # type: ignore[arg-type]
+        target_name=body.target_name,
+        modality_filters=[body.modality] if body.modality else [],
+        diagnosis_filters=[body.diagnosis] if body.diagnosis else [],
+        intervention_filters=[body.intervention] if body.intervention else [],
+        phenotype_tags=body.phenotype_tags,
+        feature_summary=body.feature_summary,
+        max_results=body.max_results,
+    )
+    result = query_evidence(query, db)
+    _audit("intelligence.by_finding", actor, patient_id=body.patient_id, target_name=body.target_name, result_count=len(result.supporting_papers))
+    return result
+
+
+@router.get("/papers/{paper_id}/intelligence", response_model=EvidencePaper)
+def evidence_intelligence_paper(
+    paper_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> EvidencePaper:
+    require_minimum_role(actor, "clinician")
+    paper = get_intelligence_paper_detail(paper_id, db)
+    if paper is None:
+        raise HTTPException(status_code=404, detail="paper not found")
+    return paper
+
+
+@router.post("/save-citation", status_code=status.HTTP_201_CREATED)
+def save_evidence_citation(
+    body: SaveCitationRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    require_minimum_role(actor, "clinician")
+    record = save_citation(body, _actor_id(actor), db)
+    _audit("intelligence.save_citation", actor, patient_id=body.patient_id, finding_id=body.finding_id, paper_id=body.paper_id)
+    return record
+
+
+@router.get("/patient/{patient_id}/saved-citations")
+def get_saved_evidence_citations(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> list[dict]:
+    require_minimum_role(actor, "clinician")
+    return list_saved_citations(patient_id, db)
+
+
+@router.post("/report-payload")
+def evidence_report_payload(
+    body: ReportPayloadRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    require_minimum_role(actor, "clinician")
+    payload = build_report_payload(body, db)
+    _audit("intelligence.report_payload", actor, patient_id=body.patient_id, result_count=len(payload.get("citations", [])))
+    return payload
 
 
 @router.get("/status", response_model=StatusOut)

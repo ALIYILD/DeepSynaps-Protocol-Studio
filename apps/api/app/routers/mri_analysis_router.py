@@ -34,7 +34,12 @@ from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import (
@@ -45,10 +50,20 @@ from app.persistence.models import (
     OutcomeSeries,
     QEEGRecord,
 )
+from app.repositories.patients import resolve_patient_clinic_id
 from app.services import mri_pipeline as mri_pipeline_facade
 from app.settings import get_settings
 
 _log = logging.getLogger(__name__)
+
+
+def _gate_patient_access(
+    actor: AuthenticatedActor, patient_id: str, db: Session
+) -> None:
+    """Cross-clinic ownership gate. See deeptwin_router for context."""
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 
 try:
     from deepsynaps_mri.niivue_payload import StimTarget as ViewerStimTarget
@@ -105,7 +120,13 @@ def _dump(value: Any) -> Optional[str]:
 
 
 def _load(raw: Optional[str]) -> Any:
+    """Deserialise a JSON string previously produced by :func:`_dump`."""
     if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError) as exc:
+        _log.warning("JSON load failed (%s): %s", type(exc).__name__, exc)
         return None
 
 
@@ -293,11 +314,6 @@ def _build_patient_timeline_payload(
         },
         "links": links,
     }
-    try:
-        return json.loads(raw)
-    except (TypeError, ValueError):
-        _log.warning("JSON load failed; returning None for MRI column")
-        return None
 
 
 def _report_from_row(row: MriAnalysis) -> dict[str, Any]:
@@ -478,6 +494,7 @@ async def upload_mri(
         ``{"upload_id", "path", "patient_id"}`` — per api_contract.md §1.
     """
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     filename = file.filename or "upload.bin"
     ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ".bin"
@@ -561,6 +578,7 @@ async def analyze_mri(
         ``{"job_id": str, "state": str}`` — per api_contract.md §2.
     """
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     condition_lower = (condition or "").strip().lower()
     if condition_lower not in _VALID_CONDITIONS:
@@ -747,6 +765,7 @@ def get_report(
             message=f"analysis_id {analysis_id!r} not found",
             status_code=404,
         )
+    _gate_patient_access(actor, row.patient_id, db)
     return JSONResponse(_report_from_row(row))
 
 
@@ -870,6 +889,7 @@ def get_patient_timeline(
 ) -> dict[str, Any]:
     """Aggregate sessions, qEEG, MRI, and outcomes into a 4-lane timeline."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
     return _build_patient_timeline_payload(patient_id, actor, db)
 
 
@@ -919,6 +939,7 @@ def list_patient_analyses(
     which needs ≥ 2 completed analyses to enable the longitudinal button.
     """
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     rows = (
         db.query(MriAnalysis)

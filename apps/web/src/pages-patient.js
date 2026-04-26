@@ -478,6 +478,32 @@ export async function pgPatientDashboard(user) {
     (api.patientPortalSummary ? api.patientPortalSummary().catch(() => null) : Promise.resolve(null)),
   ]);
 
+  const _hmLoadFailed =
+    portalSessions == null &&
+    portalCourses == null &&
+    portalOutcomes == null &&
+    portalMessagesRaw == null &&
+    wearableSummaryRaw == null &&
+    homeTasksRaw == null &&
+    homeTasksPortalRaw == null &&
+    wellnessLogsRaw == null &&
+    dashboardRaw == null &&
+    patientSummaryRaw == null;
+
+  if (_hmLoadFailed) {
+    el.innerHTML = `
+      <div class="pt-portal-empty">
+        <div class="pt-portal-empty-ico" aria-hidden="true">&#9888;</div>
+        <div class="pt-portal-empty-title">We couldn't load your Home page</div>
+        <div class="pt-portal-empty-body">Your portal data is temporarily unavailable. Please refresh the page, or message your care team if this keeps happening.</div>
+        <div style="display:flex;gap:10px;justify-content:center;margin-top:16px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="window.location.reload()">Refresh</button>
+          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">Message care team</button>
+        </div>
+      </div>`;
+    return;
+  }
+
   const sessions     = Array.isArray(portalSessions) ? portalSessions : [];
   const outcomes     = Array.isArray(portalOutcomes) ? portalOutcomes : [];
   const coursesArr   = Array.isArray(portalCourses) ? portalCourses : [];
@@ -490,7 +516,7 @@ export async function pgPatientDashboard(user) {
   // ── Demo seed — populates every array when the backend returned nothing so
   //    first-time preview users see a fully-rendered home dashboard. Gated
   //    on "everything empty" — any real patient data and we skip the seed.
-  const _hmDemo = sessions.length === 0 && coursesArr.length === 0 && outcomes.length === 0 && messages.length === 0 && wearableDays.length === 0;
+  const _hmDemo = false;
   if (_hmDemo) {
     coursesArr.push({
       id: 'demo-crs-001',
@@ -912,7 +938,7 @@ export async function pgPatientDashboard(user) {
     </button>`);
     // 2. Homework
     const openCount = openTasks.length;
-    tiles.push(`<button class="pth-tile${openCount ? ' pth-tile--pending' : ''}" onclick="window._navPatient('pt-wellness')">
+    tiles.push(`<button class="pth-tile${openCount ? ' pth-tile--pending' : ''}" onclick="window._navPatient('patient-homework')">
       <span class="pth-tile-ico pth-tile-ico--blue" aria-hidden="true">✓</span>
       <span class="pth-tile-title">Homework</span>
       <span class="pth-tile-meta">${openCount ? openCount + ' pending' : 'All done'}</span>
@@ -976,7 +1002,7 @@ export async function pgPatientDashboard(user) {
               <div class="pth-hw-title">${esc(title)}</div>
               <div class="pth-hw-sub">${esc(sub)}</div>
             </div>
-            <button class="pth-hw-btn" onclick="window._navPatient('pt-wellness')">Start</button>
+            <button class="pth-hw-btn" onclick="window._navPatient('patient-homework')">Start</button>
           </div>`;
         }).join('')
       : `<div class="pth-empty">
@@ -987,7 +1013,7 @@ export async function pgPatientDashboard(user) {
       <div class="pth-card pth-card--homework">
         <div class="pth-card-head">
           <div class="pth-card-title">Your homework</div>
-          <button class="pth-ghost-btn" onclick="window._navPatient('pt-wellness')">View all →</button>
+          <button class="pth-ghost-btn" onclick="window._navPatient('patient-homework')">View all →</button>
         </div>
         <div class="pth-hw-list">${rows}</div>
       </div>`;
@@ -1154,7 +1180,7 @@ export async function pgPatientDashboard(user) {
     const nextTask = openTasks[0] || null;
     if (nextTask) {
       tiles.push(`
-        <button class="pth2-tile pth2-tile--blue" onclick="window._navPatient('pt-wellness')">
+        <button class="pth2-tile pth2-tile--blue" onclick="window._navPatient('patient-homework')">
           <div class="pth2-tile-ico pth2-tile-ico--blue" aria-hidden="true">
             <svg width="18" height="18"><use href="#i-video"/></svg>
           </div>
@@ -1164,7 +1190,7 @@ export async function pgPatientDashboard(user) {
         </button>`);
     } else {
       tiles.push(`
-        <button class="pth2-tile pth2-tile--blue" onclick="window._navPatient('pt-wellness')">
+        <button class="pth2-tile pth2-tile--blue" onclick="window._navPatient('patient-homework')">
           <div class="pth2-tile-ico pth2-tile-ico--blue" aria-hidden="true">
             <svg width="18" height="18"><use href="#i-video"/></svg>
           </div>
@@ -1387,7 +1413,7 @@ export async function pgPatientDashboard(user) {
           <div class="pth2-hw-action">
             ${done
               ? '<span class="pth2-chip pth2-chip--green">&check; Done</span>'
-              : '<button class="pth2-inline-btn" onclick="window._navPatient(\'pt-wellness\')">Open</button>'}
+              : '<button class="pth2-inline-btn" onclick="window._navPatient(\'patient-homework\')">Open</button>'}
           </div>
         </div>`;
     }).join('');
@@ -1912,6 +1938,9 @@ export async function pgPatientDashboard(user) {
           </div>
         </div>
       </div>` : ''}
+      <div style="margin-top:${_hmNudge ? '10px' : '0'};padding:10px 12px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.03);font-size:12px;line-height:1.5;color:rgba(255,255,255,.76);">
+        <strong style="color:#fff;">Decision-support only.</strong> This summary and assistant guidance may be incomplete and do not replace advice from your clinician or emergency care.
+      </div>
 
       <!-- ═══ Main grid ═══ -->
       <div class="hm-grid">
@@ -1926,7 +1955,7 @@ export async function pgPatientDashboard(user) {
                 <h3>Today's plan</h3>
                 <p>${homeTasks.length} item${homeTasks.length === 1 ? '' : 's'} · ${homeTasks.filter(t => t.completed || t.done).length} done · ${openTasks.length ? 'next up when you are' : 'all caught up'}</p>
               </div>
-              <button class="hm-card-link" onclick="window._navPatient('pt-wellness')">Full homework →</button>
+              <button class="hm-card-link" onclick="window._navPatient('patient-homework')">Full homework →</button>
             </div>
             <div class="hm-timeline">${_hmPlanHtml()}</div>
           </div>
@@ -2032,10 +2061,10 @@ export async function pgPatientDashboard(user) {
             <div class="hm-q-t">Log today\u2019s mood</div>
             <div class="hm-q-s">${streak > 0 ? 'Continue your ' + streak + '-day streak' : 'Start a streak today'}</div>
           </button>
-          <button class="hm-q-tile" onclick="window._navPatient('patient-messages')">
+          <button class="hm-q-tile" onclick="window._navPatient('patient-sessions')">
             <div class="hm-q-ico pink"><svg width="16" height="16"><use href="#i-calendar"/></svg></div>
-            <div class="hm-q-t">Book a consult</div>
-            <div class="hm-q-s">Ask your clinician for an open slot</div>
+            <div class="hm-q-t">View sessions</div>
+            <div class="hm-q-s">Check scheduled visits or request a slot</div>
           </button>
         </div>
       </div>
@@ -2052,7 +2081,7 @@ export async function pgPatientDashboard(user) {
         <button class="ptd-asst-close" onclick="window._ptdCloseAssistant()" aria-label="Close">\u2715</button>
       </div>
       <div class="ptd-asst-body">
-        <div class="ptd-asst-intro">Ask about your scores, next session, or wellbeing &mdash; answers use your dashboard snapshot. For medical decisions, contact your care team.</div>
+        <div class="ptd-asst-intro">Decision-support only. Ask about your scores, next session, or wellbeing &mdash; answers summarise your dashboard snapshot and may be incomplete. For medical decisions or urgent concerns, contact your care team.</div>
         <div class="ptd-asst-prompts">
           ${[
             { icon: '\ud83d\udcc8', q: 'Explain my progress' },
@@ -2107,7 +2136,7 @@ export async function pgPatientDashboard(user) {
     if (kind === 'walk') {
       _hmShowToast('Walk timer started \u2014 20 min');
       // Navigate to wellness page where the timer could live
-      setTimeout(() => window._navPatient && window._navPatient('pt-wellness'), 600);
+      setTimeout(() => window._navPatient && window._navPatient('patient-homework'), 600);
     } else if (kind === 'tdcs') {
       window._navPatient && window._navPatient('patient-home-devices');
     } else {
@@ -2116,7 +2145,7 @@ export async function pgPatientDashboard(user) {
   };
   window._hmAiAction = function(action) {
     if (action === 'walk') { window._hmStartTask(null, 'walk'); return; }
-    if (action === 'plan') { window._navPatient && window._navPatient('pt-wellness'); return; }
+    if (action === 'plan') { window._navPatient && window._navPatient('patient-homework'); return; }
     _hmShowToast('Noted');
   };
   window._hmDismissNudge = function() {
@@ -3861,6 +3890,30 @@ async function _pgPatientHomeworkImpl() {
     _race(api.patientPortalCourses()),
     _race(api.patientPortalSessions()),
   ]);
+  const _homeworkLoadFailed =
+    homeTasksRaw === null &&
+    homeTasksPortalRaw === null &&
+    coursesRaw === null &&
+    sessionsRaw === null;
+  if (_homeworkLoadFailed) {
+    throw new Error('homework_data_unavailable');
+  }
+  let _portalTaskCompletions = new Map();
+  if (Array.isArray(homeTasksPortalRaw) && homeTasksPortalRaw.length && api.portalGetHomeProgramTaskCompletion) {
+    const completionRows = await Promise.all(
+      homeTasksPortalRaw.map(async function(taskRow) {
+        const serverTaskId = taskRow?.server_task_id;
+        if (!serverTaskId) return null;
+        const completion = await _race(api.portalGetHomeProgramTaskCompletion(serverTaskId));
+        return completion && typeof completion === 'object'
+          ? [serverTaskId, completion]
+          : [serverTaskId, null];
+      })
+    );
+    completionRows.forEach(function(entry) {
+      if (entry && entry[0]) _portalTaskCompletions.set(entry[0], entry[1]);
+    });
+  }
 
   // ── Normalise home tasks ──────────────────────────────────────────────────
   let tasks = [];
@@ -3873,7 +3926,10 @@ async function _pgPatientHomeworkImpl() {
       title: r.title || r.task?.title || r.task?.name || 'Task',
       category: r.category || r.task?.category || '',
       instructions: r.instructions || r.task?.instructions || '',
-      completed: !!(r.task?.completed || r.task?.done),
+      completed: (_portalTaskCompletions.get(r.server_task_id)?.completed === true) || !!(r.completed || r.task?.completed || r.task?.done),
+      completed_at: (_portalTaskCompletions.get(r.server_task_id)?.completed_at || r.completed_at)
+        ? new Date(_portalTaskCompletions.get(r.server_task_id)?.completed_at || r.completed_at).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' })
+        : null,
       due_on: r.task?.due_on || r.task?.dueOn || null,
       task_type: r.task?.task_type || r.task?.type || null,
       raw: r,
@@ -4364,6 +4420,8 @@ async function _pgPatientHomeworkImpl() {
   window._hwToggle = async function(taskId) {
     const task = _taskById.get(String(taskId));
     if (!task) return;
+    const prevCompleted = !!(task.completed || task.done);
+    const prevCompletedAt = task.completed_at;
     const nowDone = !(task.completed || task.done);
     task.completed = nowDone;
     task.done = nowDone;
@@ -4376,17 +4434,25 @@ async function _pgPatientHomeworkImpl() {
     checks.forEach(b => b.classList.toggle('is-on', nowDone));
     _hwToast(nowDone ? 'Marked complete' : 'Reopened');
     // Persist via API (no-op in demo / offline mode).
-    if (!_isDemo && api.mutateHomeProgramTask) {
+    if (!_isDemo) {
       try {
-        await api.mutateHomeProgramTask({
-          ...task,
-          id: task.id,
-          serverTaskId: task.serverTaskId || task.server_task_id,
-          patient_id: uid,
-          completed: nowDone,
-        });
+        const serverTaskId = task.serverTaskId || task.server_task_id;
+        if (serverTaskId && api.portalCompleteHomeProgramTask) {
+          const saved = await api.portalCompleteHomeProgramTask(serverTaskId, { completed: nowDone });
+          task.completed = !!saved?.completed;
+          task.done = !!saved?.completed;
+          task.completed_at = saved?.completed_at
+            ? new Date(saved.completed_at).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' })
+            : null;
+        }
       } catch (e) {
-        console.warn('[homework] persist failed, keeping local state:', e);
+        task.completed = prevCompleted;
+        task.done = prevCompleted;
+        task.completed_at = prevCompletedAt;
+        cards.forEach(c => c.classList.toggle('done', prevCompleted));
+        checks.forEach(b => b.classList.toggle('is-on', prevCompleted));
+        console.warn('[homework] persist failed, reverting local state:', e);
+        _hwToast('Could not save');
       }
     }
   };
@@ -6761,20 +6827,20 @@ export async function pgPatientMessages() {
       <header class="ptmsg-header">
         <div class="ptmsg-header-title">
           <div class="ptmsg-title">Your care team</div>
-          <div class="ptmsg-subtitle">Send a message, or jump on a call.</div>
+          <div class="ptmsg-subtitle">Send a message, or request a call from your care team.</div>
         </div>
         <div class="ptmsg-header-actions">
           <button type="button"
                   class="btn btn-primary btn-sm ptmsg-btn-call ptmsg-btn-call-video"
-                  aria-label="Start video call"
+                  aria-label="Request video call"
                   onclick="window._ptmsgStartCall('video')">
-            ${SVG_VIDEO} <span>Start video call</span>
+            ${SVG_VIDEO} <span>Request video call</span>
           </button>
           <button type="button"
                   class="btn btn-ghost btn-sm ptmsg-btn-call ptmsg-btn-call-voice"
-                  aria-label="Start voice call"
+                  aria-label="Request voice call"
                   onclick="window._ptmsgStartCall('voice')">
-            ${SVG_PHONE} <span>Start voice call</span>
+            ${SVG_PHONE} <span>Request voice call</span>
           </button>
           <button type="button"
                   class="btn btn-ghost btn-sm ptmsg-btn-refresh"
@@ -14548,7 +14614,7 @@ export async function pgHomeworkBuilder(setTopbarFn) {
     if (nameEl)  _editorPlan.name      = nameEl.value.trim();
     if (condEl)  _editorPlan.condition = condEl.value.trim();
     if (weeksEl) _editorPlan.weeks     = parseInt(weeksEl.value, 10) || 4;
-    if (!_editorPlan.name) { alert('Please enter a plan name.'); return; }
+    if (!_editorPlan.name) { window._showToast?.('Please enter a plan name.', 'warning'); return; }
     saveHWPlan(_editorPlan);
     renderSavedPlansList();
     const statusEl = document.getElementById('hw-assign-status');
@@ -14583,14 +14649,14 @@ export async function pgHomeworkBuilder(setTopbarFn) {
     const idEl        = document.getElementById('hw-assign-patient-id');
     const patientName = nameEl ? nameEl.value.trim() : '';
     const patientId   = (idEl && idEl.value.trim()) ? idEl.value.trim() : 'demo-patient';
-    if (!patientName) { alert('Please enter a patient name.'); return; }
+    if (!patientName) { window._showToast?.('Please enter a patient name.', 'warning'); return; }
     const nameInputEl = document.getElementById('hw-plan-name');
     const condEl      = document.getElementById('hw-plan-condition');
     const weeksEl     = document.getElementById('hw-plan-weeks');
     if (nameInputEl) _editorPlan.name      = nameInputEl.value.trim();
     if (condEl)      _editorPlan.condition = condEl.value.trim();
     if (weeksEl)     _editorPlan.weeks     = parseInt(weeksEl.value, 10) || 4;
-    if (!_editorPlan.name) { alert('Please enter a plan name before assigning.'); return; }
+    if (!_editorPlan.name) { window._showToast?.('Please enter a plan name before assigning.', 'warning'); return; }
     saveHWPlan(_editorPlan);
     const assignment = assignHWPlan(_editorPlan.id, patientId, patientName);
     if (assignment) {
@@ -15027,7 +15093,7 @@ window._patShareProgress = async function() {
       const btn = document.getElementById('share-btn');
       if (btn) { const orig = btn.textContent; btn.textContent = t('patient.share.copied'); setTimeout(() => { btn.textContent = orig; }, 2000); }
     } catch (_) {
-      alert(t('patient.share.unavailable') + ' ' + url);
+      window._showToast?.(t('patient.share.unavailable') + ' ' + url, 'warning');
     }
   }
 };
@@ -15865,6 +15931,14 @@ window._importSwitchTab = function(tab) { _renderImportPage(tab); };
 
 window._importHandleFile = function(type, file) {
   if (!file) return;
+  // Client-side size guard: backend rejects >100MB but giving the user
+  // immediate, specific feedback is much friendlier than waiting for the
+  // upload to fail with a generic 413. Closes ISSUE-AUDIT-027.
+  const MAX_BYTES = 100 * 1024 * 1024;
+  if (file.size > MAX_BYTES) {
+    window._showToast?.(`File is too large (${Math.round(file.size / 1024 / 1024)} MB). Maximum is 100 MB.`, 'error');
+    return;
+  }
   if (type === 'protocol') {
     const reader = new FileReader();
     reader.onload = e => {
@@ -15875,7 +15949,7 @@ window._importHandleFile = function(type, file) {
         _importState.protocol.step = 2;
         _renderImportPage('protocol');
       } catch (_err) {
-        alert('Invalid JSON file. Please check the file and try again.');
+        window._showToast?.('Invalid JSON file. Please check the file and try again.', 'error');
       }
     };
     reader.readAsText(file);
@@ -15925,7 +15999,7 @@ window._importValidate = function(type) {
   if (!csvData) return;
   const missingRequired = schema.required.filter(f => !mappings[f]);
   if (missingRequired.length > 0) {
-    alert('Please map required fields: ' + missingRequired.join(', '));
+    window._showToast?.('Please map required fields: ' + missingRequired.join(', '), 'warning');
     return;
   }
   const validRows = [];
@@ -16026,7 +16100,7 @@ window._importExecuteSessions = async function() {
 
 window._importProtocolFromPaste = function() {
   const ta = document.getElementById('protocol-paste-area');
-  if (!ta || !ta.value.trim()) { alert('Please paste valid JSON first.'); return; }
+  if (!ta || !ta.value.trim()) { window._showToast?.('Please paste valid JSON first.', 'warning'); return; }
   try {
     const json = JSON.parse(ta.value.trim());
     _importState.protocol.jsonData = json;
@@ -16034,7 +16108,7 @@ window._importProtocolFromPaste = function() {
     _importState.protocol.step = 2;
     _renderImportPage('protocol');
   } catch (_err) {
-    alert('Invalid JSON. Please check the syntax and try again.');
+    window._showToast?.('Invalid JSON. Please check the syntax and try again.', 'error');
   }
 };
 
@@ -16067,7 +16141,7 @@ window._importExecuteProtocol = function() {
 window._importDownloadErrors = function(importId) {
   const history = getImportHistory();
   const record = history.find(r => r.id === importId);
-  if (!record || record.errors.length === 0) { alert('No errors to download.'); return; }
+  if (!record || record.errors.length === 0) { window._showToast?.('No errors to download.', 'info'); return; }
   const header = 'row,field,value,error\n';
   const body = record.errors.map(e =>
     e.row + ',"' + e.field + '","' + String(e.value).replace(/"/g, '""') + '","' + e.message.replace(/"/g, '""') + '"'
@@ -18280,7 +18354,7 @@ window._ptoCopyProgress = function () {
 
 window._ptoDownloadChart = function () {
   const svg = document.getElementById('pgp-trend-svg') || document.getElementById('pto-trend-svg');
-  if (!svg) { alert('Chart not found.'); return; }
+  if (!svg) { window._showToast?.('Chart not found.', 'error'); return; }
   const svgData = new XMLSerializer().serializeToString(svg);
   const canvas = document.createElement('canvas');
   const bbox = svg.getBoundingClientRect();
@@ -18300,7 +18374,7 @@ window._ptoDownloadChart = function () {
     a.href = canvas.toDataURL('image/png');
     a.click();
   };
-  img.onerror = function () { URL.revokeObjectURL(url); alert('Could not render chart image.'); };
+  img.onerror = function () { URL.revokeObjectURL(url); window._showToast?.('Could not render chart image.', 'error'); };
   img.src = url;
 };
 

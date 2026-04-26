@@ -588,6 +588,9 @@ def create_session_endpoint(
     session: Session = Depends(get_db_session),
 ) -> SessionOut:
     require_minimum_role(actor, "clinician")
+    patient = session.query(Patient).filter_by(id=body.patient_id, clinician_id=actor.actor_id).first()
+    if patient is None:
+        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
 
     # Validate appointment_type
     if body.appointment_type not in VALID_APPOINTMENT_TYPES:

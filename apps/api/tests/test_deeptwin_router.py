@@ -213,3 +213,36 @@ def test_agent_handoff_endpoint(
     assert body["audit_ref"].startswith("twin_handoff:")
     assert body["approval_required"] is True
     assert "DeepTwin Summary" in body["summary_markdown"]
+
+
+def test_deeptwin_patient_routes_require_clinician_role(
+    client: TestClient,
+    auth_headers: dict[str, dict[str, str]],
+) -> None:
+    response = client.get(
+        f"/api/v1/deeptwin/patients/{PID}/summary",
+        headers=auth_headers["patient"],
+    )
+
+    assert response.status_code == 403
+    payload = response.json()
+    assert payload["code"] == "insufficient_role"
+
+
+def test_deeptwin_simulate_requires_clinician_role(
+    client: TestClient,
+    auth_headers: dict[str, dict[str, str]],
+) -> None:
+    response = client.post(
+        "/api/v1/deeptwin/simulate",
+        headers=auth_headers["guest"],
+        json={
+            "patient_id": "patient-deeptwin-1",
+            "protocol_id": "rtms_fp2_10hz",
+            "horizon_days": 35,
+        },
+    )
+
+    assert response.status_code == 403
+    payload = response.json()
+    assert payload["code"] == "insufficient_role"

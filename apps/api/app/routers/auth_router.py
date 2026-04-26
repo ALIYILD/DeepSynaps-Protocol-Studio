@@ -8,7 +8,7 @@ import string
 from datetime import datetime, timedelta, timezone
 
 import pyotp
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -401,6 +401,7 @@ def register(
         email=user.email,
         role=user.role,
         package_id=user.package_id,
+        clinic_id=user.clinic_id,
     )
     refresh_token = auth_service.create_refresh_token(user_id=user.id)
     _record_user_session(db, user_id=user.id, refresh_token=refresh_token, request=request)
@@ -448,6 +449,7 @@ def login(
         email=user.email,
         role=user.role,
         package_id=user.package_id,
+        clinic_id=user.clinic_id,
     )
     refresh_token = auth_service.create_refresh_token(user_id=user.id)
     _record_user_session(db, user_id=user.id, refresh_token=refresh_token, request=request)
@@ -505,6 +507,7 @@ def refresh_token(
         email=user.email,
         role=user.role,
         package_id=user.package_id,
+        clinic_id=user.clinic_id,
     )
 
     new_refresh_token = auth_service.create_refresh_token(user_id=user.id)
@@ -614,7 +617,11 @@ class DemoLoginRequest(BaseModel):
 
 @router.post("/api/v1/auth/demo-login", response_model=TokenResponse)
 def demo_login(body: DemoLoginRequest) -> TokenResponse:
-    """Issue real JWTs for demo roles — works in all environments."""
+    """Issue demo JWTs only in explicitly non-production environments."""
+    settings = get_settings()
+    # In production/staging, do not reveal that this endpoint exists.
+    if settings.app_env not in ("development", "test"):
+        raise HTTPException(status_code=404, detail="Not Found")
     demo = DEMO_ACTOR_TOKENS.get(body.token)
     if demo is None:
         raise ApiServiceError(
@@ -828,6 +835,7 @@ def activate_patient(
         email=user.email,
         role=user.role,
         package_id=user.package_id,
+        clinic_id=user.clinic_id,
     )
     refresh_token = auth_service.create_refresh_token(user_id=user.id)
     _record_user_session(db, user_id=user.id, refresh_token=refresh_token, request=request)

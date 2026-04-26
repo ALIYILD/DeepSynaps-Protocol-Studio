@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import builtins
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -208,9 +210,14 @@ def test_analyze_mne_pipeline_failure_marks_row_failed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Pipeline failures should surface on the persisted analysis row."""
+    _fail_fn = lambda *a, **k: {"success": False, "error": "pipeline dependency missing"}
     monkeypatch.setattr(
         "app.services.qeeg_pipeline.run_pipeline_safe",
-        lambda *a, **k: {"success": False, "error": "pipeline dependency missing"},
+        _fail_fn,
+    )
+    monkeypatch.setattr(
+        "app.services.qeeg_pipeline_job.run_pipeline_safe",
+        _fail_fn,
     )
 
     resp = client.post(
@@ -246,11 +253,19 @@ def test_analyze_mne_prefers_celery_enqueue_when_available(
     calls: list[str] = []
     queued_job_id = "celery-job-123"
 
-    monkeypatch.setattr(
-        "apps.worker.app.jobs.run_mne_pipeline_job.delay",
-        lambda analysis_id: (calls.append(analysis_id), type("QueuedJob", (), {"id": queued_job_id})())[1],
-        raising=False,
-    )
+    # Create a fake worker module hierarchy so the router's
+    # ``from apps.worker.app.jobs import run_mne_pipeline_job`` succeeds.
+    fake_task = type("FakeTask", (), {
+        "delay": staticmethod(
+            lambda analysis_id: (calls.append(analysis_id), type("QueuedJob", (), {"id": queued_job_id})())[1]
+        ),
+    })()
+    jobs_mod = types.ModuleType("apps.worker.app.jobs")
+    jobs_mod.run_mne_pipeline_job = fake_task  # type: ignore[attr-defined]
+    for mod_name in ("apps", "apps.worker", "apps.worker.app", "apps.worker.app.jobs"):
+        monkeypatch.setitem(sys.modules, mod_name, types.ModuleType(mod_name))
+    monkeypatch.setitem(sys.modules, "apps.worker.app.jobs", jobs_mod)
+
     monkeypatch.setattr(
         "app.services.qeeg_pipeline_job.run_mne_pipeline_job_sync",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("background fallback should not run")),

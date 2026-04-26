@@ -11,6 +11,7 @@
     "dev:web": "npm run dev --workspace @deepsynaps/web",
     "build:web": "npm run build --workspace @deepsynaps/web",
     "lint:web": "npm run lint --workspace @deepsynaps/web",
-    "test:web": "npm run test --workspace @deepsynaps/web"
+    "test:web": "npm run test --workspace @deepsynaps/web",
+    "overnight:summary": ".\\.venv\\Scripts\\python.exe scripts/generate_overnight_swarm_summary.py"
   }
 }

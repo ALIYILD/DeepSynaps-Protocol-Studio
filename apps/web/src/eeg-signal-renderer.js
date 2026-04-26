@@ -123,9 +123,22 @@ export class EEGSignalRenderer {
     this.annotations = [];
 
     // Montage
-    this.montage = 'referential'; // 'referential' | 'bipolar_long' | 'bipolar_trans' | 'average'
+    this.montage = 'referential'; // 'referential' | 'bipolar_long' | 'bipolar_trans' | 'average' | 'laplacian'
     this._montageChannels = [];
     this._montageData = [];
+
+    // Channel visibility & quality
+    this.hiddenChannels = new Set();
+    this.channelQuality = {}; // {chName: {grade: 'good'|'moderate'|'bad'|'flat'}}
+
+    // Event markers (from EEGEventEditor)
+    this.eventMarkers = []; // [{time, label, color}]
+
+    // Measurement tool ref (from EEGMeasurementTool)
+    this.measurementTool = null;
+
+    // Zoom range (for zoom-to-selection)
+    this.zoomRange = null; // {tStart, tEnd} or null
 
     // Interaction
     this.badChannels = new Set();
@@ -148,6 +161,11 @@ export class EEGSignalRenderer {
     this.onSegmentSelect = null;
     this.onTimeNavigate = null;
     this.onCursorMove = null;
+    this.onMeasurementPoint = null; // (timeSec, amplitudeUV, chName)
+    this.onEventPlace = null; // (timeSec)
+
+    // Interaction mode: 'select' (default drag-annotate) | 'measure' | 'event'
+    this.interactionMode = 'select';
 
     // Events
     this._onMouseDown = this._onMouseDown.bind(this);
@@ -241,19 +259,71 @@ export class EEGSignalRenderer {
     if (this._rafId) cancelAnimationFrame(this._rafId);
   }
 
+  // ── New public API (v2 features) ────────────────────────────────────
+
+  setHiddenChannels(hidden) {
+    this.hiddenChannels = new Set(hidden || []);
+    this._applyMontage();
+    this.render();
+  }
+
+  toggleChannelVisibility(chName) {
+    if (this.hiddenChannels.has(chName)) this.hiddenChannels.delete(chName);
+    else this.hiddenChannels.add(chName);
+    this._applyMontage();
+    this.render();
+  }
+
+  setEventMarkers(events) {
+    this.eventMarkers = events || [];
+    this.render();
+  }
+
+  setMeasurementTool(tool) {
+    this.measurementTool = tool;
+    this.render();
+  }
+
+  setInteractionMode(mode) {
+    this.interactionMode = mode || 'select';
+  }
+
+  setChannelQuality(qualityMap) {
+    this.channelQuality = qualityMap || {};
+    this.render();
+  }
+
+  zoomToSelection(tStart, tEnd) {
+    this.zoomRange = { tStart: tStart, tEnd: tEnd };
+    if (this.onTimeNavigate) this.onTimeNavigate(tStart);
+  }
+
+  clearZoom() {
+    this.zoomRange = null;
+  }
+
+  getSignalDataAtTime(timeSec) {
+    var nSamples = this._montageData[0] ? this._montageData[0].length : 0;
+    if (!nSamples) return null;
+    var windowSec = nSamples / this.sfreq;
+    var idx = Math.round(((timeSec - this.tStart) / windowSec) * nSamples);
+    if (idx < 0 || idx >= nSamples) return null;
+    var result = {};
+    for (var ch = 0; ch < this._montageChannels.length; ch++) {
+      result[this._montageChannels[ch]] = this._montageData[ch] ? this._montageData[ch][idx] : 0;
+    }
+    return result;
+  }
+
   // ── Montage processing ──────────────────────────────────────────────────
 
   _applyMontage() {
     if (this.montage === 'referential' || !this.channels.length) {
       this._montageChannels = this.channels.slice();
       this._montageData = this.data.slice();
-      return;
-    }
-
-    var chMap = {};
-    for (var i = 0; i < this.channels.length; i++) chMap[this.channels[i]] = i;
-
-    if (this.montage === 'bipolar_long' || this.montage === 'bipolar_trans') {
+    } else if (this.montage === 'bipolar_long' || this.montage === 'bipolar_trans') {
+      var chMap = {};
+      for (var i = 0; i < this.channels.length; i++) chMap[this.channels[i]] = i;
       var pairs = this.montage === 'bipolar_long' ? BIPOLAR_LONGITUDINAL : BIPOLAR_TRANSVERSE;
       this._montageChannels = [];
       this._montageData = [];
@@ -267,20 +337,15 @@ export class EEGSignalRenderer {
           this._montageData.push(diff);
         }
       }
-      return;
-    }
-
-    if (this.montage === 'average') {
+    } else if (this.montage === 'average') {
       var nCh = this.channels.length;
       var nSamp = this.data[0] ? this.data[0].length : 0;
-      // Compute average across channels per sample
       var avg = new Array(nSamp).fill(0);
       for (var ci = 0; ci < nCh; ci++) {
         if (!this.data[ci]) continue;
         for (var si = 0; si < nSamp; si++) avg[si] += this.data[ci][si];
       }
       for (si = 0; si < nSamp; si++) avg[si] /= nCh;
-
       this._montageChannels = this.channels.slice();
       this._montageData = [];
       for (ci = 0; ci < nCh; ci++) {
@@ -289,12 +354,26 @@ export class EEGSignalRenderer {
         for (si = 0; si < nSamp; si++) sub[si] = this.data[ci][si] - avg[si];
         this._montageData.push(sub);
       }
-      return;
+    } else {
+      this._montageChannels = this.channels.slice();
+      this._montageData = this.data.slice();
     }
 
-    // Fallback
-    this._montageChannels = this.channels.slice();
-    this._montageData = this.data.slice();
+    // Filter out hidden channels (applies to all montage types)
+    if (this.hiddenChannels.size > 0) {
+      var visChans = [];
+      var visData = [];
+      for (var hi = 0; hi < this._montageChannels.length; hi++) {
+        var mcName = this._montageChannels[hi];
+        var baseName = mcName.split('-')[0];
+        if (!this.hiddenChannels.has(mcName) && !this.hiddenChannels.has(baseName)) {
+          visChans.push(mcName);
+          visData.push(this._montageData[hi]);
+        }
+      }
+      this._montageChannels = visChans;
+      this._montageData = visData;
+    }
   }
 
   // ── Rendering ───────────────────────────────────────────────────────────
@@ -429,10 +508,25 @@ export class EEGSignalRenderer {
     // ── Annotations ──────────────────────────────────────────────────
     this._drawAnnotations(ctx, signalW, signalTop, signalH, pxPerSec, windowSec);
 
+    // ── Event markers ─────────────────────────────────────────────────
+    this._drawEventMarkers(ctx, signalW, signalTop, signalH, pxPerSec, windowSec);
+
+    // ── Quality badges on channel labels ──────────────────────────────
+    this._drawQualityBadges(ctx, nCh, chH, signalTop, scrollY);
+
     // ── Cursor crosshair ─────────────────────────────────────────────
     if (this._showCursor && this._cursorX > o.labelWidth && this._cursorX < W - o.scaleBarWidth
         && this._cursorY > signalTop && this._cursorY < signalTop + signalH && !this._dragging) {
       this._drawCursor(ctx, signalW, signalTop, signalH, pxPerSec, windowSec, nSamples);
+    }
+
+    // ── Measurement tool overlay ──────────────────────────────────────
+    if (this.measurementTool && this.measurementTool.isActive && this.measurementTool.isActive()) {
+      this.measurementTool.drawOverlay(ctx, {
+        labelWidth: o.labelWidth, signalW: signalW, signalTop: signalTop, signalH: signalH,
+        tStart: this.tStart, windowSec: windowSec, sensitivity: this.sensitivity,
+        channelHeight: chH, channels: this._montageChannels,
+      });
     }
 
     // ── Minimap ──────────────────────────────────────────────────────
@@ -656,6 +750,72 @@ export class EEGSignalRenderer {
     }
   }
 
+  _drawEventMarkers(ctx, signalW, signalTop, signalH, pxPerSec, windowSec) {
+    if (!this.eventMarkers || !this.eventMarkers.length) return;
+    var o = this.opts;
+    for (var ei = 0; ei < this.eventMarkers.length; ei++) {
+      var evt = this.eventMarkers[ei];
+      var evtTime = evt.time != null ? evt.time : evt.timeSec;
+      if (evtTime < this.tStart || evtTime > this.tStart + windowSec) continue;
+      var ex = o.labelWidth + (evtTime - this.tStart) * pxPerSec;
+      var color = evt.color || '#4caf50';
+
+      // Vertical line
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 3]);
+      ctx.beginPath();
+      ctx.moveTo(ex, signalTop);
+      ctx.lineTo(ex, signalTop + signalH);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Triangle marker at top
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(ex - 5, signalTop);
+      ctx.lineTo(ex + 5, signalTop);
+      ctx.lineTo(ex, signalTop + 7);
+      ctx.closePath();
+      ctx.fill();
+
+      // Label pill
+      var label = evt.label || 'Event';
+      ctx.font = 'bold 9px "JetBrains Mono", monospace';
+      var lw = ctx.measureText(label).width;
+      ctx.fillStyle = 'rgba(0,0,0,0.8)';
+      ctx.beginPath();
+      ctx.roundRect(ex - lw / 2 - 4, signalTop + 9, lw + 8, 14, 3);
+      ctx.fill();
+      ctx.fillStyle = color;
+      ctx.textAlign = 'center';
+      ctx.fillText(label, ex, signalTop + 20);
+    }
+  }
+
+  _drawQualityBadges(ctx, nCh, chH, signalTop, scrollY) {
+    if (!this.channelQuality || !Object.keys(this.channelQuality).length) return;
+    var o = this.opts;
+    var QUALITY_COLORS = { good: '#4caf50', moderate: '#ff9800', bad: '#ef5350', flat: '#9e9e9e' };
+
+    for (var ch = 0; ch < nCh; ch++) {
+      var cy = signalTop + ch * chH + chH / 2 - scrollY;
+      if (cy + chH / 2 < signalTop || cy - chH / 2 > signalTop + (this._height - o.timeRulerHeight - o.minimapHeight)) continue;
+
+      var chName = this._montageChannels[ch];
+      var baseCh = chName.split('-')[0];
+      var q = this.channelQuality[chName] || this.channelQuality[baseCh];
+      if (!q || !q.grade) continue;
+
+      var bColor = QUALITY_COLORS[q.grade] || QUALITY_COLORS.good;
+      // Small dot badge next to label
+      ctx.fillStyle = bColor;
+      ctx.beginPath();
+      ctx.arc(o.labelWidth - 5, cy, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   _drawCursor(ctx, signalW, signalTop, signalH, pxPerSec, windowSec, nSamples) {
     var o = this.opts;
     var cx = this._cursorX;
@@ -875,9 +1035,43 @@ export class EEGSignalRenderer {
       return;
     }
 
-    // Signal area → start drag annotation
+    // Signal area interaction (depends on mode)
     if (mx >= o.labelWidth && mx < this._width - o.scaleBarWidth
         && my > o.timeRulerHeight && my < this._height - o.minimapHeight) {
+
+      // Measurement mode: emit point data
+      if (this.interactionMode === 'measure') {
+        var signalW2 = this._width - o.labelWidth - o.scaleBarWidth;
+        var nSamp2 = this._montageData[0] ? this._montageData[0].length : 0;
+        var winSec2 = nSamp2 / this.sfreq;
+        var relX2 = mx - o.labelWidth;
+        var timeSec = this.tStart + (relX2 / signalW2) * winSec2;
+        var chIdx2 = this._getChannelAtY(my);
+        var ampUV = null;
+        var chN = null;
+        if (chIdx2 >= 0 && chIdx2 < this._montageChannels.length) {
+          chN = this._montageChannels[chIdx2];
+          var sIdx = Math.round(relX2 / signalW2 * nSamp2);
+          if (this._montageData[chIdx2] && sIdx >= 0 && sIdx < nSamp2) {
+            ampUV = this._montageData[chIdx2][sIdx];
+          }
+        }
+        if (this.onMeasurementPoint) this.onMeasurementPoint(timeSec, ampUV, chN);
+        return;
+      }
+
+      // Event mode: emit event placement
+      if (this.interactionMode === 'event') {
+        var signalW3 = this._width - o.labelWidth - o.scaleBarWidth;
+        var nSamp3 = this._montageData[0] ? this._montageData[0].length : 0;
+        var winSec3 = nSamp3 / this.sfreq;
+        var relX3 = mx - o.labelWidth;
+        var evtTime = this.tStart + (relX3 / signalW3) * winSec3;
+        if (this.onEventPlace) this.onEventPlace(evtTime);
+        return;
+      }
+
+      // Default select mode: start drag annotation
       this._dragging = true;
       this._dragStartX = mx;
       this._dragCurrentX = mx;

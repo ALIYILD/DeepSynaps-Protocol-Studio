@@ -424,8 +424,11 @@ export async function pgPatientHub(setTopbar, navigate) {
           const delivered = p.sessions_delivered ?? 0;
           const planned   = p.planned_sessions_total ?? 0;
           const prog = planned > 0 ? Math.min(100, Math.round(delivered / planned * 100)) : 0;
-          return '<div class="queue-row pt-row" style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 90px" ' +
-            'onclick="window._selectedPatientId=\'' + esc(p.id) + '\';window._profilePatientId=\'' + esc(p.id) + '\';try{sessionStorage.setItem(\'ds_pat_selected_id\',\'' + esc(p.id) + '\')}catch(e){}window._nav(\'patient-profile\')">' +
+          // Row click → Analytics terminal (per-patient Bloomberg dashboard).
+          // The chevron still opens the standard profile for clinicians who
+          // want the full chart. Demo patients render with seeded telemetry.
+          return '<div class="queue-row pt-row" style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 120px" ' +
+            'onclick="window._paPatientId=\'' + esc(p.id) + '\';window._selectedPatientId=\'' + esc(p.id) + '\';try{sessionStorage.setItem(\'ds_pat_selected_id\',\'' + esc(p.id) + '\')}catch(e){}window._nav(\'patient-analytics\')">' +
               '<div class="queue-pt"><div class="pt-av ' + av + '">' + esc(ini) + '</div>' +
                 '<div><div class="queue-pt-name">' + esc(name) + demoChip + (p.is_responder ? ' <span class="pl-responder-chip">Responder</span>' : '') + '</div>' +
                   '<div class="queue-pt-cond">' + esc(sub) + '</div></div></div>' +
@@ -434,8 +437,12 @@ export async function pgPatientHub(setTopbar, navigate) {
                 '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-tertiary)">' + delivered + '/' + (planned||'—') + '</span></div>' +
               '<div>' + outcomeCell(p) + '</div>' +
               '<div>' + nextStepChip(p) + '</div>' +
-              '<div style="text-align:right"><button class="topbar-btn d2p7-chev" aria-label="Open patient" style="width:26px;height:26px" onclick="event.stopPropagation();window._selectedPatientId=\'' + esc(p.id) + '\';window._profilePatientId=\'' + esc(p.id) + '\';window._nav(\'patient-profile\')">' +
-                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button></div>' +
+              '<div style="text-align:right;display:flex;gap:4px;justify-content:flex-end">' +
+                '<button class="topbar-btn d2p7-chev" aria-label="Open analytics" title="Open analytics" style="width:26px;height:26px" onclick="event.stopPropagation();window._paPatientId=\'' + esc(p.id) + '\';window._nav(\'patient-analytics\')">' +
+                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg></button>' +
+                '<button class="topbar-btn d2p7-chev" aria-label="Open patient profile" title="Open profile" style="width:26px;height:26px" onclick="event.stopPropagation();window._selectedPatientId=\'' + esc(p.id) + '\';window._profilePatientId=\'' + esc(p.id) + '\';window._nav(\'patient-profile\')">' +
+                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>' +
+              '</div>' +
             '</div>';
         }).join('');
       }
@@ -1297,25 +1304,12 @@ export async function pgPatientHub(setTopbar, navigate) {
   }
 
   // ── ANALYTICS TAB ─────────────────────────────────────────────────────────
+  // Delegated to pages-patient-analytics.js — the design-system Bloomberg-style
+  // cohort view with one row per demo patient and click-through to a per-patient
+  // data terminal (which itself links into DeepTwin).
   else if (tab === 'analytics') {
-    setTopbar('Patients', '');
-    el.innerHTML = `<div class="ch-shell">
-      <div class="d2p7-tab-bar">${tabBar()}</div>
-      <div class="card" style="padding:32px;text-align:center">
-        <div style="font-size:32px;margin-bottom:12px">&#128202;</div>
-        <h3 style="color:var(--text-primary);margin:0 0 8px">Cohort Analytics</h3>
-        <p style="color:var(--text-secondary);font-size:13px;max-width:420px;margin:0 auto 16px">
-          Population-level outcome trends, treatment response rates, and cohort comparisons.
-          Select a patient to view their full Bloomberg-style data terminal.
-        </p>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-top:20px;text-align:left">
-          <div class="card" style="padding:14px"><div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:6px">Avg PHQ-9 Change</div><div style="font-size:22px;font-weight:700;color:var(--green);font-family:var(--font-display)">-6.2</div><div style="font-size:11px;color:var(--text-secondary)">across 5 patients</div></div>
-          <div class="card" style="padding:14px"><div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:6px">Response Rate</div><div style="font-size:22px;font-weight:700;color:var(--teal);font-family:var(--font-display)">64%</div><div style="font-size:11px;color:var(--text-secondary)">3 of 5 responding</div></div>
-          <div class="card" style="padding:14px"><div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:6px">Avg Adherence</div><div style="font-size:22px;font-weight:700;color:var(--blue);font-family:var(--font-display)">78%</div><div style="font-size:11px;color:var(--text-secondary)">session attendance</div></div>
-          <div class="card" style="padding:14px"><div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:6px">Active Courses</div><div style="font-size:22px;font-weight:700;color:var(--violet);font-family:var(--font-display)">4</div><div style="font-size:11px;color:var(--text-secondary)">across modalities</div></div>
-        </div>
-      </div>
-    </div>`;
+    const { pgPatientAnalyticsCohort } = await import('./pages-patient-analytics.js');
+    await pgPatientAnalyticsCohort(setTopbar);
   }
 
   // ── ALERTS TAB ────────────────────────────────────────────────────────────
@@ -1358,22 +1352,29 @@ export async function pgPatientHub(setTopbar, navigate) {
       <div class="d2p7-tab-bar">${tabBar()}</div>
       <div class="card" style="padding:24px">
         <h3 style="color:var(--text-primary);margin:0 0 16px;font-size:15px">&#128196; Clinical Reports</h3>
+        <div style="font-size:12px;color:var(--text-secondary);margin:0 0 14px">
+          Reporting exports are being wired to governed backend generators. The items below are roadmap placeholders and are intentionally disabled until export, audit, and reviewer stamps are complete.
+        </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
-          <div class="card" style="padding:16px;cursor:pointer;border-left:3px solid var(--teal)" onclick="alert('Report generation coming soon')">
+          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--teal)">
             <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Treatment Summary</div>
             <div style="font-size:11px;color:var(--text-secondary)">Generate a comprehensive treatment summary report for any patient.</div>
+            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
           </div>
-          <div class="card" style="padding:16px;cursor:pointer;border-left:3px solid var(--blue)" onclick="alert('Report generation coming soon')">
+          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--blue)">
             <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Outcome Report</div>
             <div style="font-size:11px;color:var(--text-secondary)">Export outcome measures, trends, and response rates as PDF or FHIR.</div>
+            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
           </div>
-          <div class="card" style="padding:16px;cursor:pointer;border-left:3px solid var(--violet)" onclick="alert('Report generation coming soon')">
+          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--violet)">
             <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">DeepTwin Report</div>
             <div style="font-size:11px;color:var(--text-secondary)">Full digital twin analysis including EEG, MRI, and biometric correlations.</div>
+            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
           </div>
-          <div class="card" style="padding:16px;cursor:pointer;border-left:3px solid var(--amber)" onclick="alert('Report generation coming soon')">
+          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--amber)">
             <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Cohort Comparison</div>
             <div style="font-size:11px;color:var(--text-secondary)">Compare patient outcomes against similar cohorts and benchmarks.</div>
+            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
           </div>
         </div>
       </div>
@@ -1981,7 +1982,7 @@ export async function pgProtocolStudio(setTopbar, navigate) {
         }).join('') +
       '</div>' +
       '<div class="studio-save-bar">' +
-        '<button class="btn btn-ghost btn-sm" onclick="window._studioExport()">Export to patient course</button>' +
+        '<button class="btn btn-ghost btn-sm" onclick="window._studioExport()">Submit draft for review</button>' +
         '<button class="btn btn-primary btn-sm" onclick="window._studioSave()">Save as protocol</button>' +
       '</div>' +
     '</div>';
@@ -2279,11 +2280,11 @@ export async function pgProtocolStudio(setTopbar, navigate) {
     // If the studio was opened without a patient context, we surface that
     // honestly rather than silently firing a 4xx.
     if (!S.patientId) {
-      try { alert('Select a patient before saving a protocol draft.'); } catch {}
+      try { window._showToast?.('Select a patient before saving a protocol draft.', 'warning'); } catch {}
       return;
     }
     if (!S.condition) {
-      try { alert('Pick a condition before saving.'); } catch {}
+      try { window._showToast?.('Pick a condition before saving.', 'warning'); } catch {}
       return;
     }
     try {
@@ -2308,12 +2309,12 @@ export async function pgProtocolStudio(setTopbar, navigate) {
           governance_state: 'draft',
         });
       }
-      try { alert('Protocol saved.'); } catch {}
+      try { window._showToast?.('Protocol saved.', 'success'); } catch {}
       // Surface the saved draft in the right-column drafts panel so the user
       // sees their save land without having to reload.
       window._studioDraftsCache = null;
       try { window._studioRenderDrafts?.(); } catch {}
-    } catch (e) { try { alert('Could not save: ' + (e?.message || 'endpoint error') + '. State preserved locally.'); } catch {} }
+    } catch (e) { try { window._showToast?.('Could not save: ' + (e?.message || 'endpoint error') + '. State preserved locally.', 'error'); } catch {} }
   };
 
   // ── My Drafts panel — /api/v1/protocols/saved ─────────────────────────────
@@ -2365,7 +2366,7 @@ export async function pgProtocolStudio(setTopbar, navigate) {
     // so we save-as-draft via /api/v1/protocols/saved and leave course
     // creation to the review-queue → activate path downstream.
     if (!S.patientId || !S.condition) {
-      try { alert('Select a patient and condition before exporting.'); } catch {}
+      try { window._showToast?.('Select a patient and condition before submitting for review.', 'warning'); } catch {}
       return;
     }
     try {
@@ -2387,8 +2388,8 @@ export async function pgProtocolStudio(setTopbar, navigate) {
         window._studioDraftsCache = null;
         try { window._studioRenderDrafts?.(); } catch {}
       }
-      try { alert('Draft submitted for review. Promote to a treatment course from the review queue.'); } catch {}
-    } catch (e) { try { alert('Export failed: ' + (e?.message || 'endpoint error') + '. Draft preserved locally.'); } catch {} }
+      try { window._showToast?.('Draft submitted for review. Promote to a treatment course from the review queue.', 'success'); } catch {}
+    } catch (e) { try { window._showToast?.('Review submission failed: ' + (e?.message || 'endpoint error') + '. Draft preserved locally.', 'error'); } catch {} }
   };
 
   paint();
@@ -3016,6 +3017,17 @@ export async function pgProtocolHub(setTopbar, navigate) {
     W.saving = true; W.error = null; W.result = null;
     _renderGenerate();
     try {
+      if (olEl && olEl.checked) {
+        const proceed = window.confirm(
+          'This protocol is marked off-label. Continue only if a clinician has reviewed the indication and you acknowledge off-label use before generating a draft.'
+        );
+        if (!proceed) {
+          W.error = 'Off-label generation cancelled until clinician review acknowledgement is confirmed.';
+          W.saving = false;
+          _renderGenerate();
+          return;
+        }
+      }
       const payload = {
         condition,
         symptom_cluster: 'General',
@@ -9530,7 +9542,7 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
       return;
     }
     const verb = l.unit === 'month' ? 'Subscribe to' : l.unit === 'course' ? 'Enroll in' : l.unit === 'free' ? 'Get' : 'Book';
-    alert(verb + ': "' + l.title + '"\n\nProvider: ' + l.clinic + '\nPrice: ' + (l.unit === 'free' ? 'Free' : '\u00A3' + l.price + '/' + l.unit) + '\n\nPlease contact the provider directly to proceed.');
+    window._showToast?.(verb + ': "' + l.title + '" - Provider: ' + l.clinic + ' Price: ' + (l.unit === 'free' ? 'Free' : '\u00A3' + l.price + '/' + l.unit) + '. Please contact the provider directly to proceed.', 'info');
   };
   window._mpListNew = (editItem) => {
     const existing = document.getElementById('mp-list-modal');
@@ -9610,7 +9622,7 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
         modal.innerHTML = '<div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:420px;width:100%;padding:40px 32px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)"><div style="font-size:2.5rem;margin-bottom:12px">&#10003;</div><h3 style="color:var(--text-primary);margin:0 0 8px">' + (isEdit ? 'Listing Updated' : 'Listing Published!') + '</h3><p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;line-height:1.5">Your ' + esc(payload.kind) + ' <strong>' + esc(payload.name) + '</strong> is now live on the marketplace.</p><div style="display:flex;gap:8px;justify-content:center"><button onclick="window._mpMyListings();document.getElementById(\'mp-list-modal\').remove()" style="padding:8px 20px;background:rgba(155,127,255,.15);color:#9b7fff;border:1px solid rgba(155,127,255,.25);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">View My Listings</button><button onclick="document.getElementById(\'mp-list-modal\').remove()" style="padding:8px 20px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer">Close</button></div></div>';
       } catch (err) {
         btn.disabled = false; btn.textContent = isEdit ? 'Update Listing' : 'Publish Listing';
-        alert('Failed to ' + (isEdit ? 'update' : 'publish') + ' listing: ' + (err.message || 'Please try again.'));
+        window._showToast?.('Failed to ' + (isEdit ? 'update' : 'publish') + ' listing: ' + (err.message || 'Please try again.'), 'error');
       }
     });
   };
@@ -9685,7 +9697,7 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
             await api.marketplaceSellerUpdateItem(btn.dataset.idx, { active: newActive });
             modal.remove();
             window._mpMyListings();
-          } catch (err) { alert('Update failed: ' + (err.message || 'try again')); }
+          } catch (err) { window._showToast?.('Update failed: ' + (err.message || 'try again'), 'error'); }
         });
       });
       // Delete buttons
@@ -9696,7 +9708,7 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
             await api.marketplaceSellerDeleteItem(btn.dataset.idx);
             modal.remove();
             window._mpMyListings();
-          } catch (err) { alert('Delete failed: ' + (err.message || 'try again')); }
+          } catch (err) { window._showToast?.('Delete failed: ' + (err.message || 'try again'), 'error'); }
         });
       });
     } catch (err) {

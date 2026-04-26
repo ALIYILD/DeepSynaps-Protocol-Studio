@@ -1871,7 +1871,7 @@ export async function pgSettings(setTopbar, currentUser) {
             </select>
             <button class="btn btn-sm" onclick="window._nav('protocols')">Customize protocol defaults →</button>
           </div>
-          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">TODO: wire ds_default_protocol to intake flow's protocol picker</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Used as the pre-selected option when starting a new course.</div>
         </div>
 
         <!-- Default Session Duration -->
@@ -1921,7 +1921,7 @@ export async function pgSettings(setTopbar, currentUser) {
               </label>
             `).join('')}
           </div>
-          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">TODO: wire ds_default_assessments to intake auto-assign</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Selected assessments will be pre-checked on the patient intake form.</div>
         </div>
 
         <!-- Adverse Event Protocol -->
@@ -1983,7 +1983,7 @@ export async function pgSettings(setTopbar, currentUser) {
                   <div style="font-weight:500">Install App</div>
                   <div style="font-size:0.8rem;color:var(--text-secondary)">Add to home screen for offline access</div>
                 </div>
-                <button class="btn-secondary" onclick="window._installPWA?.() || alert('To install: tap Share then Add to Home Screen (iOS) or use browser menu (Android/Chrome)')" style="font-size:0.8rem">
+                <button class="btn-secondary" onclick="window._installPWA?.() || window._showToast?.('To install: tap Share then Add to Home Screen (iOS) or use browser menu (Android/Chrome)', 'info')" style="font-size:0.8rem">
                   📱 Install
                 </button>
               </div>`;
@@ -2036,7 +2036,7 @@ export async function pgSettings(setTopbar, currentUser) {
   // ── Account editable wiring ────────────────────────────────────────────────
   const toast = (msg, kind) => {
     if (window._showToast) { window._showToast(msg, kind || 'success'); return; }
-    alert(msg);
+    try { console.warn('[practice] toast fallback:', msg); } catch {}
   };
 
   // Avatar: upload via multipart to backend; on failure, keep client-side crop
@@ -4051,7 +4051,7 @@ export async function pgReferrals(setTopbar) {
     const priority = document.getElementById('nref-priority')?.value || 'routine';
     const notes = document.getElementById('nref-notes')?.value?.trim() || '';
     if (!patient || !condition || !from || !to || !reason) {
-      alert('Please fill in all required fields.');
+      window._showToast?.('Please fill in all required fields.', 'warning');
       return;
     }
     const r = {
@@ -4137,7 +4137,7 @@ export async function pgReferrals(setTopbar) {
     const npi = document.getElementById('nprov-npi')?.value?.trim() || '';
     const notes = document.getElementById('nprov-notes')?.value?.trim() || '';
     if (!name || !specialty || !clinic || !phone || !email) {
-      alert('Please fill in all required fields.');
+      window._showToast?.('Please fill in all required fields.', 'warning');
       return;
     }
     const p = { id: 'rp' + Date.now(), name, specialty, clinic, phone, email, fax, npi, notes, lastReferralDate: '' };
@@ -4201,9 +4201,9 @@ export async function pgReferrals(setTopbar) {
   window._saveCareTeam = function() {
     const patient = document.getElementById('new-team-patient')?.value?.trim();
     const courseId = document.getElementById('new-team-course')?.value?.trim();
-    if (!patient || !courseId) { alert('Patient name and Course ID are required.'); return; }
+    if (!patient || !courseId) { window._showToast?.('Patient name and Course ID are required.', 'warning'); return; }
     const members = newTeamMembers.filter(m => m.name.trim());
-    if (!members.length) { alert('Add at least one team member.'); return; }
+    if (!members.length) { window._showToast?.('Add at least one team member.', 'warning'); return; }
     const team = {
       id: 'ct' + Date.now(),
       courseId,
@@ -4642,7 +4642,7 @@ export async function pgClinicSettings(setTopbar) {
     saveClinicConfig(cfg);
     const ok = await _csPersistCoreClinic();
     const msg = ok ? 'Identity saved.' : 'Identity cached locally — server sync failed.';
-    window._showToast?.(msg, ok ? 'success' : 'warning') || alert(msg);
+    window._showToast?.(msg, ok ? 'success' : 'warning');
   };
 
   window._csSaveTemplates = function() {
@@ -4650,7 +4650,7 @@ export async function pgClinicSettings(setTopbar) {
     cfg.appointmentReminderTemplate = document.getElementById('cs-appt-reminder')?.value   ?? cfg.appointmentReminderTemplate;
     cfg.sessionCompleteTemplate     = document.getElementById('cs-session-complete')?.value ?? cfg.sessionCompleteTemplate;
     saveClinicConfig(cfg);
-    window._showToast?.('Templates saved.') || alert('Templates saved.');
+    window._showToast?.('Templates saved.', 'success');
   };
 
   window._csTestTemplate = function(key) {
@@ -4680,7 +4680,7 @@ export async function pgClinicSettings(setTopbar) {
     cfg.tosLastUpdated     = document.getElementById('cs-tos-date')?.value      ?? cfg.tosLastUpdated;
     cfg.privacyLastUpdated = document.getElementById('cs-privacy-date')?.value ?? cfg.privacyLastUpdated;
     saveClinicConfig(cfg);
-    window._showToast?.('Legal documents saved.') || alert('Legal documents saved.');
+    window._showToast?.('Legal documents saved.', 'success');
   };
 
   function openTextModal(title, text) {
@@ -4735,7 +4735,7 @@ export async function pgClinicSettings(setTopbar) {
     const msg = ok
       ? 'Clinic identity saved to server. Branding/templates/legal stored locally until a server endpoint exists.'
       : 'Not saved to server — cached locally, please retry.';
-    window._showToast?.(msg, ok ? 'success' : 'warning') || alert(msg);
+    window._showToast?.(msg, ok ? 'success' : 'warning');
   };
 }
 
@@ -6129,7 +6129,7 @@ export async function pgInsuranceVerification(setTopbar) {
     const dob = document.getElementById('ins-chk-dob')?.value;
     if (!name || !memberId) {
       if (btn) { btn.disabled = false; btn.textContent = 'Check Eligibility'; }
-      alert('Patient name and Member ID are required.'); return;
+      window._showToast?.('Patient name and Member ID are required.', 'warning'); return;
     }
     const resultEl = document.getElementById('ins-chk-result');
     if (resultEl) resultEl.innerHTML = `<div style="margin-top:12px;display:flex;align-items:center;gap:8px;color:var(--text-secondary)">
@@ -6226,7 +6226,7 @@ export async function pgInsuranceVerification(setTopbar) {
     const clin = document.getElementById('pa-clin')?.value.trim();
     const units = parseInt(document.getElementById('pa-units')?.value) || 20;
     const notes = document.getElementById('pa-justification')?.value.trim();
-    if (!pat || !cpt) { alert('Patient name and CPT code are required.'); return; }
+    if (!pat || !cpt) { window._showToast?.('Patient name and CPT code are required.', 'warning'); return; }
     const pa = {
       id: 'pa-' + Date.now(), patientName: pat, payer, cptCode: cpt, diagnosisCode: dx || '',
       requestDate: new Date().toISOString().slice(0, 10), approvedDate: '', expiryDate: '',
@@ -6377,7 +6377,7 @@ export async function pgInsuranceVerification(setTopbar) {
     const cptRaw = document.getElementById('clm-cpt')?.value.trim();
     const dxRaw = document.getElementById('clm-dx')?.value.trim();
     const billed = parseFloat(document.getElementById('clm-billed')?.value) || 0;
-    if (!pat || !cptRaw) { alert('Patient name and CPT codes are required.'); return; }
+    if (!pat || !cptRaw) { window._showToast?.('Patient name and CPT codes are required.', 'warning'); return; }
     const claim = {
       id: 'clm-' + Date.now(), patientName: pat, payer,
       dos: dos || new Date().toISOString().slice(0, 10),
@@ -8307,7 +8307,7 @@ export async function pgReminderAutomation(setTopbar) {
           message_body: m.preview || '(resend)',
         });
         await _remLoadFromBackend();
-        window.alert('Re-queued on backend. No delivery provider is configured yet — message will stay in Queued until a provider is wired.');
+        window._showToast?.('Re-queued on backend. No delivery provider is configured yet — message will stay in Queued until a provider is wired.', 'info');
       } catch (_e) {
         m.status = 'Failed';
         lsSet('ds_reminder_outbox', outbox);
@@ -8352,8 +8352,8 @@ export async function pgReminderAutomation(setTopbar) {
       }
     }
     if (backendCount) await _remLoadFromBackend();
-    alert('Queued adherence boost reminders for ' + atRisk.length + ' at-risk patient' + (atRisk.length > 1 ? 's' : '') + '.' +
-      (backendCount ? ' (' + backendCount + ' on backend — provider not wired, will stay Queued.)' : ' (local only — backend sync pending.)'));
+    window._showToast?.('Queued adherence boost reminders for ' + atRisk.length + ' at-risk patient' + (atRisk.length > 1 ? 's' : '') + '.' +
+      (backendCount ? ' (' + backendCount + ' on backend — provider not wired, will stay Queued.)' : ' (local only — backend sync pending.)'), 'success');
     window._remSwitchTab('outbox');
   };
 
@@ -8407,9 +8407,9 @@ export async function pgReminderAutomation(setTopbar) {
       lsSet('ds_reminder_outbox', outbox);
     }
     window._remCloseModal();
-    alert(backendOk
+    window._showToast?.(backendOk
       ? 'Reminder queued on backend for ' + patientName + '. Note: no delivery provider is wired yet — message will stay in Queued.'
-      : 'Reminder queued locally for ' + patientName + ' — backend sync pending.');
+      : 'Reminder queued locally for ' + patientName + ' — backend sync pending.', backendOk ? 'success' : 'warning');
     renderOutbox();
   };
 
@@ -8488,7 +8488,7 @@ export async function pgReminderAutomation(setTopbar) {
       preview: t.body.slice(0, 80) + '...',
     });
     lsSet('ds_reminder_outbox', outbox);
-    alert('Test message queued in Outbox for template "' + t.name + '".');
+    window._showToast?.('Test message queued in Outbox for template "' + t.name + '".', 'success');
   };
 
   // ── Tab switching ──────────────────────────────────────────────────────────
@@ -11489,7 +11489,7 @@ window._acEduListNew = (editItem) => {
       modal.innerHTML = '<div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:420px;width:100%;padding:40px 32px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)"><div style="font-size:2.5rem;margin-bottom:12px">&#10003;</div><h3 style="color:var(--text-primary);margin:0 0 8px">' + (isEdit ? 'Listing Updated' : 'Course Published!') + '</h3><p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;line-height:1.5">Your ' + esc(payload.kind) + ' <strong>' + esc(payload.name) + '</strong> is now live in the Academy.</p><div style="display:flex;gap:8px;justify-content:center"><button onclick="window._acEduMyCourses();document.getElementById(\'ac-edu-modal\').remove()" style="padding:8px 20px;background:rgba(16,185,129,.15);color:#10b981;border:1px solid rgba(16,185,129,.25);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">View My Courses</button><button onclick="document.getElementById(\'ac-edu-modal\').remove();location.reload()" style="padding:8px 20px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer">Close</button></div></div>';
     } catch (err) {
       btn.disabled = false; btn.textContent = isEdit ? 'Update Listing' : 'Publish Course';
-      alert('Failed to ' + (isEdit ? 'update' : 'publish') + ': ' + (err.message || 'Please make sure you are logged in.'));
+      window._showToast?.('Failed to ' + (isEdit ? 'update' : 'publish') + ': ' + (err.message || 'Please make sure you are logged in.'), 'error');
     }
   });
 };
@@ -11562,7 +11562,7 @@ window._acEduMyCourses = async () => {
           await api.marketplaceSellerUpdateItem(btn.dataset.idx, { active: newActive });
           modal.remove();
           window._acEduMyCourses();
-        } catch (err) { alert('Update failed: ' + (err.message || 'try again')); }
+        } catch (err) { window._showToast?.('Update failed: ' + (err.message || 'try again'), 'error'); }
       });
     });
     contentEl.querySelectorAll('.ac-edu-ml-delete').forEach(btn => {
@@ -11572,7 +11572,7 @@ window._acEduMyCourses = async () => {
           await api.marketplaceSellerDeleteItem(btn.dataset.idx);
           modal.remove();
           window._acEduMyCourses();
-        } catch (err) { alert('Delete failed: ' + (err.message || 'try again')); }
+        } catch (err) { window._showToast?.('Delete failed: ' + (err.message || 'try again'), 'error'); }
       });
     });
   } catch (err) {

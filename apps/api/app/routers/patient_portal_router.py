@@ -1183,6 +1183,11 @@ class PortalHomeProgramTaskOut(BaseModel):
     title: str | None = None
     category: str | None = None
     instructions: str | None = None
+    completed: bool = False
+    completed_at: Optional[str] = None
+    rating: Optional[int] = None
+    difficulty: Optional[int] = None
+    feedback_text: Optional[str] = None
     task: dict
 
 
@@ -1228,6 +1233,14 @@ def list_home_program_tasks(
         .order_by(ClinicianHomeProgramTask.updated_at.desc())
         .all()
     )
+    completion_rows = (
+        db.query(PatientHomeProgramTaskCompletion)
+        .filter(PatientHomeProgramTaskCompletion.patient_id == patient.id)
+        .all()
+    )
+    completion_by_server_id = {
+        row.server_task_id: row for row in completion_rows
+    }
     out: list[PortalHomeProgramTaskOut] = []
     for r in rows:
         try:
@@ -1240,6 +1253,7 @@ def list_home_program_tasks(
                 safe["homeProgramSelection"] = patient_safe_home_program_selection(safe["homeProgramSelection"])
         except Exception:
             pass
+        completion = completion_by_server_id.get(r.server_task_id)
         out.append(
             PortalHomeProgramTaskOut(
                 id=r.id,
@@ -1247,6 +1261,11 @@ def list_home_program_tasks(
                 title=safe.get("title"),
                 category=safe.get("category") or safe.get("type"),
                 instructions=safe.get("instructions") or safe.get("notes"),
+                completed=bool(completion.completed) if completion else False,
+                completed_at=_dt(completion.completed_at) if completion and completion.completed_at else None,
+                rating=completion.rating if completion else None,
+                difficulty=completion.difficulty if completion else None,
+                feedback_text=completion.feedback_text if completion else None,
                 task=safe,
             )
         )

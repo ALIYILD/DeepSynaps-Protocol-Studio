@@ -123,6 +123,7 @@ from app.services.clinical_data import seed_clinical_dataset
 from app.services.devices import list_devices
 from app.services.evidence import list_evidence
 from app.services.generation import generate_handbook, generate_protocol_draft
+from app.services.log_sanitizer import sanitize_path
 from app.services.preview import build_intake_preview
 from app.services.qeeg import list_qeeg_biomarkers, list_qeeg_condition_map
 from app.services.review import record_review_action
@@ -246,9 +247,17 @@ app.add_middleware(SlowAPIMiddleware)
 
 
 class MaxBodySizeMiddleware(BaseHTTPMiddleware):
+    """Reject oversized requests before they hit the route handler.
+
+    The limit is read from ``settings.media_max_upload_bytes`` so that the
+    middleware ceiling and the media-router upload ceiling cannot drift
+    apart. Previously a hard-coded 10 MiB cap rejected uploads under the
+    50 MiB media limit with a 413 before they reached the router.
+    """
+
     async def dispatch(self, request: Request, call_next):
         content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > 10 * 1024 * 1024:  # 10MB
+        if content_length and int(content_length) > settings.media_max_upload_bytes:
             return JSONResponse({"error": "Request body too large"}, status_code=413)
         return await call_next(request)
 
@@ -270,12 +279,29 @@ async def security_headers_middleware(request: Request, call_next):
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data: https:; "
-        "connect-src 'self'; "
+        # Allow the Sentry browser SDK to POST events / session replays.
+        # Without these origins the in-browser SDK is silently blocked by CSP.
+        "connect-src 'self' https://*.sentry.io https://*.ingest.sentry.io; "
         "frame-ancestors 'none';"
     )
     if settings.app_env == "production":
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
+
+
+def _safe_log_path(request: Request) -> str:
+    """Return a PHI-safe path label for structured logs / Sentry.
+
+    Prefers the matched route template (`/api/v1/patients/{patient_id}/timeline`)
+    so identifiers never reach the log payload. Falls back to a sanitised raw
+    path when no route matched (404, malformed path, ASGI-level errors). See
+    apps/api/app/services/log_sanitizer.py for the redaction rules.
+    """
+    route = request.scope.get("route") if hasattr(request, "scope") else None
+    template = getattr(route, "path", None) if route is not None else None
+    if isinstance(template, str) and template:
+        return template
+    return sanitize_path(request.url.path)
 
 
 @app.middleware("http")
@@ -293,7 +319,7 @@ async def log_requests(request: Request, call_next):
             extra={
                 "request_id": request_id,
                 "method": request.method,
-                "path": request.url.path,
+                "path": _safe_log_path(request),
                 "duration_ms": duration_ms,
             },
         )
@@ -306,7 +332,7 @@ async def log_requests(request: Request, call_next):
         extra={
             "request_id": request_id,
             "method": request.method,
-            "path": request.url.path,
+            "path": _safe_log_path(request),
             "status_code": response.status_code,
             "duration_ms": duration_ms,
         },
@@ -409,7 +435,7 @@ async def unexpected_error_handler(
         extra={
             "request_id": getattr(request.state, "request_id", None),
             "method": request.method,
-            "path": request.url.path,
+            "path": _safe_log_path(request),
         },
     )
     payload = ErrorResponse(

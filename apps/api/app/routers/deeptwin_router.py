@@ -10,8 +10,15 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
+from app.errors import ApiServiceError
+from app.repositories.patients import resolve_patient_clinic_id
 from app.services.deeptwin_engine import (
     REPORT_BUILDERS,
     align_timeline_events,
@@ -25,9 +32,43 @@ from app.services.deeptwin_engine import (
 )
 from app.services.fusion_service import build_fusion_recommendation
 from app.services.neuromodulation_research import bundle_root_or_none, search_ranked_papers
+from app.settings import get_settings
 
 router = APIRouter(prefix="/api/v1/deeptwin", tags=["deeptwin"])
 brain_twin_router = APIRouter(prefix="/api/v1/brain-twin", tags=["brain-twin"])
+
+
+def _gate_patient_access(
+    actor: AuthenticatedActor,
+    patient_id: str,
+    db: Session | None = None,
+) -> None:
+    """Cross-clinic ownership gate for the deeptwin patient endpoints.
+
+    These endpoints generate decision-support outputs from synthetic /
+    deterministic builders seeded by ``patient_id``, so they previously
+    accepted any string. We now look up the patient's owning clinic and
+    block requests where the actor's clinic doesn't match.
+
+    Patients that do not exist in the DB (synthetic / demo IDs used by
+    older tests and the read-only stub renderers) are permitted to pass —
+    there is no real-tenant data to leak in that case. This preserves
+    backward-compat with seeded demo flows while still slamming the door on
+    the real cross-clinic IDOR (an existing patient at clinic B being
+    pulled by a clinician at clinic A).
+    """
+    from app.database import SessionLocal
+
+    owns_session = db is None
+    if owns_session:
+        db = SessionLocal()
+    try:
+        exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+        if exists:
+            require_patient_owner(actor, clinic_id)
+    finally:
+        if owns_session and db is not None:
+            db.close()
 
 
 ModalityKey = Literal[
@@ -372,6 +413,17 @@ def _normalize_number(value: Any, fallback: float) -> float:
         return fallback
 
 
+def _require_clinician_review_actor(actor: AuthenticatedActor) -> None:
+    require_minimum_role(
+        actor,
+        "clinician",
+        warnings=[
+            "DeepTwin outputs are clinician decision support only.",
+            "Patient-specific simulations and predictions require clinician or admin access.",
+        ],
+    )
+
+
 def _build_simulation_outputs(
     patient_id: str,
     protocol_id: str,
@@ -477,6 +529,8 @@ def deeptwin_analyze(
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> DeeptwinAnalyzeResponse:
+    _require_clinician_review_actor(_actor)
+    _gate_patient_access(_actor, payload.patient_id, session)
     used = payload.modalities or ["qeeg_features", "assessments", "wearables"]
     weights = _safe_weights(used, payload.combine, payload.custom_weights)
 
@@ -535,6 +589,21 @@ def deeptwin_simulate(
     payload: DeeptwinSimulateRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> DeeptwinSimulateResponse:
+    _require_clinician_review_actor(_actor)
+    _gate_patient_access(_actor, payload.patient_id)
+    if not get_settings().enable_deeptwin_simulation:
+        raise ApiServiceError(
+            code="deeptwin_simulation_disabled",
+            message=(
+                "DeepTwin simulation is gated off in this environment. "
+                "Contact admin to enable."
+            ),
+            status_code=503,
+            details={
+                "reason": "deeptwin_simulation_not_enabled_in_environment",
+                "env_flag": "DEEPSYNAPS_ENABLE_DEEPTWIN_SIMULATION",
+            },
+        )
     inputs = {
         "patient_id": payload.patient_id,
         "protocol_id": payload.protocol_id,
@@ -593,6 +662,8 @@ def deeptwin_evidence(
     payload: DeeptwinEvidenceRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> DeeptwinEvidenceResponse:
+    _require_clinician_review_actor(_actor)
+    _gate_patient_access(_actor, payload.patient_id)
     trace_id = str(uuid.uuid4())
     snapshot_id = _snapshot_id_for_research_bundle()
 
@@ -773,6 +844,8 @@ def deeptwin_get_summary(
     patient_id: str,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinSummaryOut:
+    _require_clinician_review_actor(_actor)
+    _gate_patient_access(_actor, patient_id)
     return TwinSummaryOut(**build_twin_summary(patient_id))
 
 
@@ -782,6 +855,8 @@ def deeptwin_get_timeline(
     days: int = 90,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinTimelineOut:
+    _require_clinician_review_actor(_actor)
+    _gate_patient_access(_actor, patient_id)
     days = max(7, min(365, days))
     return TwinTimelineOut(**align_timeline_events(patient_id, days=days))
 
@@ -791,6 +866,8 @@ def deeptwin_get_signals(
     patient_id: str,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinSignalsOut:
+    _require_clinician_review_actor(_actor)
+    _gate_patient_access(_actor, patient_id)
     return TwinSignalsOut(**build_signal_matrix(patient_id))
 
 
@@ -799,6 +876,8 @@ def deeptwin_get_correlations(
     patient_id: str,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinCorrelationsOut:
+    _require_clinician_review_actor(_actor)
+    _gate_patient_access(_actor, patient_id)
     corr = detect_correlations(patient_id)
     caus = generate_causal_hypotheses(patient_id)
     return TwinCorrelationsOut(
@@ -818,6 +897,8 @@ def deeptwin_get_predictions(
     horizon: Literal["2w", "6w", "12w"] = "6w",
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinPredictionOut:
+    _require_clinician_review_actor(_actor)
+    _gate_patient_access(_actor, patient_id)
     return TwinPredictionOut(**estimate_trajectory(patient_id, horizon=horizon))
 
 
@@ -827,6 +908,8 @@ def deeptwin_post_simulation(
     payload: TwinSimulationRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinSimulationOut:
+    _require_clinician_review_actor(_actor)
+    _gate_patient_access(_actor, patient_id)
     result = simulate_intervention_scenario(
         patient_id,
         scenario_id=payload.scenario_id,
@@ -851,6 +934,8 @@ def deeptwin_post_report(
     payload: TwinReportRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinReportOut:
+    _require_clinician_review_actor(_actor)
+    _gate_patient_access(_actor, patient_id)
     builder = REPORT_BUILDERS.get(payload.kind)
     if builder is None:
         builder = REPORT_BUILDERS["clinician_deep"]
@@ -880,6 +965,8 @@ def deeptwin_post_agent_handoff(
     payload: TwinAgentHandoffRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TwinAgentHandoffOut:
+    _require_clinician_review_actor(_actor)
+    _gate_patient_access(_actor, patient_id)
     result = create_agent_handoff_summary(patient_id, kind=payload.kind, note=payload.note)
     return TwinAgentHandoffOut(**result)
 

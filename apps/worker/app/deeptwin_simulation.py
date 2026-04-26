@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import importlib
+import logging
+import os
 from typing import Any
 
 import numpy as np
 from pydantic import BaseModel, Field
+
+
+_log = logging.getLogger(__name__)
 
 
 class DeeptwinSimulationJob(BaseModel):
@@ -17,14 +22,58 @@ class DeeptwinSimulationJob(BaseModel):
     scenario: dict[str, Any] = Field(default_factory=dict)
 
 
+_TRUTHY = {"1", "true", "yes", "on"}
+_FALSY = {"0", "false", "no", "off"}
+
+
+def _is_simulation_enabled() -> bool:
+    """Mirror of apps/api/app/settings.resolve_enable_deeptwin_simulation.
+
+    The worker is a separate Python package and cannot import the API's
+    settings module, so the env-var resolution is duplicated here. Both
+    sides read DEEPSYNAPS_ENABLE_DEEPTWIN_SIMULATION + DEEPSYNAPS_APP_ENV
+    so behavior agrees between API and worker process boundaries.
+
+    Defaults: False in production/staging, True in development/test.
+    """
+    raw = os.getenv("DEEPSYNAPS_ENABLE_DEEPTWIN_SIMULATION")
+    if raw is not None:
+        normalized = raw.strip().lower()
+        if normalized in _TRUTHY:
+            return True
+        if normalized in _FALSY:
+            return False
+    app_env = os.getenv("DEEPSYNAPS_APP_ENV", "development").strip().lower()
+    return app_env not in ("production", "staging")
+
+
 def run_deeptwin_simulation(job: DeeptwinSimulationJob) -> dict[str, Any]:
     """
     Worker entry point for Deeptwin simulation.
 
     v1 behavior:
-    - If `autoresearch` is importable, return a structured placeholder describing integration state.
-    - Otherwise run a deterministic stub simulation so the UI and audit plumbing can ship.
+    - If the env-aware feature flag is off, return a structured ``disabled``
+      response so the API surface can render a clean clinician-visible
+      message rather than 500ing.
+    - If `autoresearch` is importable, return a structured placeholder
+      describing integration state (``not_implemented``).
+    - Otherwise run a deterministic stub simulation so the UI and audit
+      plumbing can ship.
     """
+    if not _is_simulation_enabled():
+        _log.warning(
+            "DeepTwin simulation called but ENABLE_DEEPTWIN_SIMULATION=False; "
+            "returning disabled status"
+        )
+        return {
+            "status": "disabled",
+            "reason": "deeptwin_simulation_not_enabled_in_environment",
+            "message": (
+                "DeepTwin simulation is gated off in this environment. "
+                "Contact admin to enable."
+            ),
+        }
+
     try:
         importlib.import_module("autoresearch")
         return {
@@ -56,4 +105,3 @@ def run_deeptwin_simulation(job: DeeptwinSimulationJob) -> dict[str, Any]:
         "modalities_used": job.modalities,
         "scenario": job.scenario,
     }
-

@@ -955,7 +955,7 @@ export function pgHome() {
           route: 'pricing',
           label: 'Step 5 of 5',
           title: "Ready to start?",
-          desc: "14-day free trial, no credit card required. Clinic Starter covers solo practices; Clinic Pro for multi-clinician teams.",
+          desc: "14-day free trial, no credit card required. Clinician Pro covers solo practitioners; Clinic Team is built for multi-clinician practices.",
           hint: null,
         },
       ]
@@ -1772,83 +1772,92 @@ export function pgHome() {
 
       <div class="pub-pricing-grid">
 
-        <!-- Starter -->
+        <!-- Explorer (free) -->
         <div class="pub-plan-card">
           <div class="pub-plan-header">
-            <div class="pub-plan-name">Starter</div>
-            <div class="pub-plan-sub">For solo practitioners</div>
+            <div class="pub-plan-name">Explorer</div>
+            <div class="pub-plan-sub">Evaluate the platform before committing</div>
+            <div class="pub-plan-price"><span class="pub-plan-amount">Free</span></div>
+          </div>
+          <ul class="pub-plan-features">
+            <li>1 seat</li>
+            <li>Evidence library &mdash; read access</li>
+            <li>Device registry &mdash; limited view</li>
+            <li>Conditions &amp; modalities &mdash; limited browsing</li>
+            <li>No protocol generation, uploads, or exports</li>
+            <li>No review queue or team features</li>
+          </ul>
+          <button class="pub-plan-cta" onclick="window._navPublic('signup-professional')" data-plan-id="explorer">
+            Get Started Free &rarr;
+          </button>
+        </div>
+
+        <!-- Resident / Fellow -->
+        <div class="pub-plan-card">
+          <div class="pub-plan-header">
+            <div class="pub-plan-name">Resident / Fellow</div>
+            <div class="pub-plan-sub">For trainees and early-career clinicians</div>
             <div class="pub-plan-price"><span class="pub-plan-amount">$99</span><span class="pub-plan-period">/mo</span></div>
           </div>
           <ul class="pub-plan-features">
-            <li>1 professional seat</li>
-            <li>50 active patients</li>
-            <li>10 qEEG reports /mo</li>
-            <li>10 personalized protocols /mo</li>
-            <li>Basic qEEG 2D topomaps + z-scores</li>
-            <li>Device-aware session runner (all modalities)</li>
-            <li>Evidence-graded protocol library (EV-A / EV-B)</li>
-            <li>Patient portal (DeepSynaps-branded)</li>
-            <li>Personal wearable sync</li>
-            <li>DOCX / PDF exports</li>
+            <li>1 seat</li>
+            <li>Full evidence library, device registry, conditions</li>
+            <li>Protocol generation &mdash; EV-A / EV-B (no off-label)</li>
+            <li>Assessment builder &mdash; limited</li>
+            <li>Handbook generation &mdash; limited</li>
+            <li>PDF export</li>
             <li>Email support</li>
           </ul>
-          <button class="pub-plan-cta" onclick="window._navPublic('signup-professional')">
+          <button class="pub-plan-cta" onclick="window._navPublic('signup-professional')" data-plan-id="resident">
             Start Free Trial &rarr;
           </button>
         </div>
 
-        <!-- Professional — highlighted -->
+        <!-- Clinician Pro — highlighted -->
         <div class="pub-plan-card pub-plan-card--featured">
           <div class="pub-plan-popular-badge">Most Popular</div>
           <div class="pub-plan-header">
-            <div class="pub-plan-name" style="color:var(--teal)">Professional</div>
-            <div class="pub-plan-sub">For solo practitioners running full workflows</div>
-            <div class="pub-plan-price"><span class="pub-plan-amount">$299</span><span class="pub-plan-period">/mo</span></div>
+            <div class="pub-plan-name" style="color:var(--teal)">Clinician Pro</div>
+            <div class="pub-plan-sub">For independent clinicians managing patient protocols</div>
+            <div class="pub-plan-price"><span class="pub-plan-amount">$199</span><span class="pub-plan-period">/mo</span></div>
           </div>
           <ul class="pub-plan-features">
-            <li>Everything in Starter</li>
-            <li>Unlimited patients</li>
-            <li>50 qEEG reports /mo</li>
-            <li>10 MRI analyses /mo</li>
-            <li>50 personalized protocols /mo</li>
-            <li>qEEG v2 full stack (3D brain, sLORETA, connectivity, animated)</li>
-            <li>MRI Analyzer full (structural, fMRI, dMRI, SimNIBS targeting)</li>
-            <li>15 TIER A qEEG analysis modules</li>
-            <li>EV-C off-label governance</li>
-            <li>Home device integrations (Flow, Muse, Nurosym, Alpha-Stim)</li>
-            <li>Virtual Care with live vitals</li>
-            <li>Clinical-grade PDF reports with your logo</li>
-            <li>Priority email support</li>
+            <li>Everything in Resident / Fellow</li>
+            <li>Full protocol generator (EV-C clinician override; EV-D blocked)</li>
+            <li>Uploads &mdash; qEEG / MRI / PDFs</li>
+            <li>Personalized case summaries</li>
+            <li>Assessment builder &mdash; full</li>
+            <li>Handbook generation &mdash; full</li>
+            <li>PDF + DOCX export (patient-facing where governance allows)</li>
+            <li>Personal review queue &amp; audit trail</li>
+            <li>Monthly monitoring digest</li>
+            <li>Add-on: Phenotype mapping</li>
           </ul>
-          <button class="pub-plan-cta pub-plan-cta--featured" onclick="window._navPublic('signup-professional')">
+          <button class="pub-plan-cta pub-plan-cta--featured" onclick="window._navPublic('signup-professional')" data-plan-id="clinician_pro">
             Start Free Trial &rarr;
           </button>
         </div>
 
-        <!-- Clinic -->
+        <!-- Clinic Team -->
         <div class="pub-plan-card">
           <div class="pub-plan-header">
-            <div class="pub-plan-name">Clinic</div>
-            <div class="pub-plan-sub">For multi-user clinics running treatment operations together</div>
-            <div class="pub-plan-price"><span class="pub-plan-amount">$999</span><span class="pub-plan-period">/mo</span></div>
+            <div class="pub-plan-name">Clinic Team</div>
+            <div class="pub-plan-sub">For clinical teams sharing review queues and governance</div>
+            <div class="pub-plan-price"><span class="pub-plan-amount">$699</span><span class="pub-plan-period">/mo</span></div>
           </div>
           <ul class="pub-plan-features">
-            <li>Everything in Professional</li>
-            <li>Up to 10 seats ($79 /seat /mo beyond)</li>
-            <li>300 qEEG / 50 MRI / 300 protocols /mo (pooled)</li>
-            <li>Full Monitor page &mdash; 26 integrations</li>
-            <li>EHR: Epic, Cerner, Athena, DrChrono, NHS Spine</li>
-            <li>Labs &amp; Imaging: LabCorp, Quest, PACS (DICOMweb)</li>
-            <li>Messaging: Twilio, SendGrid, Slack, PagerDuty</li>
-            <li>AI Agents (7-agent draft mode)</li>
-            <li>DeepSynaps Core &mdash; RiskEngine, PatientGraph, FeatureStore</li>
-            <li>Shared protocol &amp; review queue</li>
-            <li>Clinic outcomes dashboard</li>
-            <li>Team audit trail &amp; governance</li>
-            <li>Light white-label (logo + accent)</li>
-            <li>Dedicated onboarding support</li>
+            <li>Everything in Clinician Pro</li>
+            <li>Up to 10 seats</li>
+            <li>Phenotype mapping included</li>
+            <li>Shared team review queue</li>
+            <li>Team comments &amp; assignments</li>
+            <li>Full audit trail (personal + team)</li>
+            <li>Team templates &amp; governance workflows</li>
+            <li>Seat management</li>
+            <li>Basic white-label branding</li>
+            <li>Queue-fed monitoring updates</li>
           </ul>
-          <button class="pub-plan-cta" onclick="window._navPublic('signup-professional')" title="Start with a 14-day trial or contact us for a guided demo">
+          <button class="pub-plan-cta" onclick="window._navPublic('signup-professional')" data-plan-id="clinic_team" title="Start with a 14-day trial or contact us for a guided demo">
             Start Trial or Book Demo &rarr;
           </button>
         </div>
@@ -1857,24 +1866,22 @@ export function pgHome() {
         <div class="pub-plan-card pub-plan-card--enterprise">
           <div class="pub-plan-header">
             <div class="pub-plan-name" style="color:var(--blue)">Enterprise</div>
-            <div class="pub-plan-sub">For multi-site groups and hospitals</div>
+            <div class="pub-plan-sub">For multi-site groups, hospitals, and research networks</div>
             <div class="pub-plan-price"><span class="pub-plan-amount pub-plan-amount--custom">Custom</span></div>
-            <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">starts at $2,499 /mo</div>
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">from $2,500 /mo</div>
           </div>
           <ul class="pub-plan-features">
-            <li>Unlimited seats, sites, and volume</li>
-            <li>Full white-label (brand, domain, email, patient app)</li>
-            <li>SSO (Okta, Azure AD, SAML)</li>
-            <li>API access (REST + FHIR R4 + webhooks)</li>
-            <li>Custom workflows and AI agents</li>
-            <li>Multi-site governance</li>
-            <li>Bring your own normative DB</li>
-            <li>99.9% SLA, dedicated success manager</li>
-            <li>Private cloud / on-prem / regional residency</li>
-            <li>HIPAA BAA, UK DSPT, GDPR DPA</li>
-            <li>Implementation support</li>
+            <li>Everything in Clinic Team</li>
+            <li>Unlimited seats</li>
+            <li>Advanced governance rules</li>
+            <li>Full white-label branding</li>
+            <li>API / integrations</li>
+            <li>Automated monitoring workspace</li>
+            <li>Advanced audit retention</li>
+            <li>SSO-ready structure</li>
+            <li>Data residency flags</li>
           </ul>
-          <button class="pub-plan-cta pub-plan-cta--ghost" onclick="window._navPublic('signup-professional')">
+          <button class="pub-plan-cta pub-plan-cta--ghost" onclick="window._navPublic('signup-professional')" data-plan-id="enterprise">
             Talk to Sales &rarr;
           </button>
         </div>
@@ -3685,7 +3692,7 @@ export async function pgMultiSiteDashboard(setTopbar) {
     const from    = document.getElementById('hhh-tr-from')?.value;
     const to      = document.getElementById('hhh-tr-to')?.value;
     const reason  = document.getElementById('hhh-tr-reason')?.value?.trim() || 'Not specified';
-    if (from === to) { alert('From and To sites must be different.'); return; }
+    if (from === to) { window._showToast?.('From and To sites must be different.', 'warning'); return; }
     const newT = {
       id: 't' + Date.now(),
       patient, from, to, reason,

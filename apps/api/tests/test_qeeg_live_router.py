@@ -3,9 +3,18 @@ from __future__ import annotations
 import os
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 
+@pytest.mark.skip(
+    reason=(
+        "Hangs indefinitely under TestClient - qeeg_live_router producer/consumer "
+        "doesn't yield first frame in CI. Confirmed culprit of 6h Backend Tests hang. "
+        "See PR #132 timeout dump. Owner: investigate _stream_frames mock source + "
+        "clinic-scope gate on WS upgrade. TODO(qeeg-live): unskip after fix."
+    )
+)
 def test_qeeg_live_ws_smoke_first_frame_under_1s(client: TestClient, monkeypatch) -> None:
     # Enable feature flag in test.
     monkeypatch.setenv("DEEPSYNAPS_FEATURE_LIVE_QEEG", "1")

@@ -95,7 +95,6 @@ async def _stream_frames(
                 n_ch = len(ch_names)
                 win_n = int(round(sfreq * 1.0))
                 hop_n = int(round(sfreq * 0.25))
-                t = np.arange(win_n) / sfreq
                 rng = np.random.default_rng(123)
                 # Pre-generate a buffer of 10 seconds for deterministic streaming.
                 total_n = int(round(sfreq * 10.0))

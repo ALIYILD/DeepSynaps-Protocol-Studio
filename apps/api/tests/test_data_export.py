@@ -182,3 +182,30 @@ def test_export_bids_derivatives_returns_zip(client: TestClient, auth_headers: d
     assert resp.status_code == 200, resp.text
     assert resp.headers["content-type"].startswith("application/zip")
     assert resp.content[:2] == b"PK"
+
+
+def test_export_endpoints_hide_other_clinicians_patients(client: TestClient, auth_headers: dict) -> None:
+    other_token = _register(client, "export-other@example.com")
+    other_headers = {"Authorization": f"Bearer {other_token}"}
+
+    patient = client.post(
+        "/api/v1/patients",
+        json={"first_name": "Hidden", "last_name": "Patient"},
+        headers=auth_headers["clinician"],
+    )
+    assert patient.status_code == 201, patient.text
+    patient_id = patient.json()["id"]
+
+    fhir = client.post(
+        "/api/v1/export/fhir-r4-bundle",
+        json={"patient_id": patient_id},
+        headers=other_headers,
+    )
+    assert fhir.status_code == 404, fhir.text
+
+    bids = client.post(
+        "/api/v1/export/bids-derivatives",
+        json={"patient_id": patient_id},
+        headers=other_headers,
+    )
+    assert bids.status_code == 404, bids.text

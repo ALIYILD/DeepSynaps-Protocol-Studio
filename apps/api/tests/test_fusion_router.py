@@ -67,6 +67,8 @@ def test_fusion_recommendation_combines_latest_qeeg_and_mri(
     assert body["recommendations"]
     assert body["confidence"] >= 0.5
     assert "Dual-modality fusion available" in body["summary"]
+    assert body["modality_agreement"]["status"] == "multimodal_available"
+    assert "limitations" in body and body["limitations"]
 
 
 def test_fusion_recommendation_fails_soft_for_single_modality(
@@ -102,6 +104,7 @@ def test_fusion_recommendation_fails_soft_for_single_modality(
     assert body["partial"] is True
     assert "Partial fusion available" in body["summary"]
     assert any("Add MRI" in item or "missing" in item for item in body["recommendations"])
+    assert "MRI" in body["missing_modalities"]
 
 
 def test_fusion_recommendation_returns_empty_state_when_no_modalities_exist(

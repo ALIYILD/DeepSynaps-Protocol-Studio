@@ -735,11 +735,26 @@ export async function pgDash(setTopbar, navigate) {
     if (wearableAlertsRes) wearableAlertSummary = wearableAlertsRes; else _apiFailCount++;
     if (riskRes) riskSummaryData = riskRes.patients || []; // no _apiFailCount++ — risk is optional
   } catch (e) { console.error('[Dashboard] Data load failed:', e); _apiFailCount = 8; }
+  // Treat "both core endpoints failed" as a hard load failure even if the
+  // total fail count is < 8 — without patients/courses the dashboard is
+  // unusable and the demo fallback would mask a real backend outage.
+  const _coreLoadFailed = (allPatients.length === 0 && allCourses.length === 0 && _apiFailCount > 0);
 
   // ── Demo-mode fallback ────────────────────────────────────────────────────
   // When clinic has no data (fresh install or API down), seed demo content so
   // the dashboard always shows something. _isDemo drives the DEMO badge.
   let _isDemo = false;
+  if (_coreLoadFailed) {
+    if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
+    el.innerHTML = `<div style="padding:48px 24px;text-align:center">
+      <div style="font-size:24px;margin-bottom:12px;opacity:0.4">&#9888;</div>
+      <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Dashboard data unavailable</div>
+      <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:16px">The clinical backend did not respond. Please refresh, or contact support if the problem persists.</div>
+      <button class="btn btn-primary" onclick="location.reload()">Retry</button>
+    </div>`;
+    window.removeEventListener('hashchange', _onLeave);
+    return;
+  }
   if (allPatients.length === 0 && allCourses.length === 0) {
     _isDemo = true;
     allPatients = [

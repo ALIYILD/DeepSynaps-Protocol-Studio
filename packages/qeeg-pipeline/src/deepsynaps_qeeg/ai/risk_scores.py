@@ -56,7 +56,7 @@ LABELS: tuple[str, ...] = (
 
 DISCLAIMER: str = (
     "Neurophysiological similarity indices for research/wellness use only. "
-    "NOT diagnostic."
+    "NOT diagnostic. Scores describe pattern similarity, not calibrated disorder probability."
 )
 
 
@@ -149,7 +149,7 @@ def _real_inference(
         hi = min(1.0, mean + 1.96 * sd)
         payload[label] = {"score": round(mean, 4), "ci95": [round(lo, 4), round(hi, 4)]}
 
-    payload["disclaimer"] = DISCLAIMER
+    payload.update(_decision_support_metadata(features, chronological_age))
     return payload
 
 
@@ -220,15 +220,128 @@ def _stub_scores(
         score = _clip01(base[label])
         lo = _clip01(score - 0.08)
         hi = _clip01(score + 0.08)
-        payload[label] = {"score": round(score, 4), "ci95": [round(lo, 4), round(hi, 4)]}
+        payload[label] = {
+            "score": round(score, 4),
+            "ci95": [round(lo, 4), round(hi, 4)],
+            "drivers": _drivers_for_label(label, features, chronological_age),
+            "calibration": "uncalibrated_stub",
+        }
 
-    payload["disclaimer"] = DISCLAIMER
+    payload.update(_decision_support_metadata(features, chronological_age))
     return payload
 
 
 # -------------------------------------------------------------------- helpers
 def _clip01(x: float) -> float:
     return max(0.0, min(1.0, float(x)))
+
+
+def _decision_support_metadata(
+    features: dict[str, Any],
+    chronological_age: int | None,
+) -> dict[str, Any]:
+    """Attach confidence/explainability metadata without changing score labels."""
+    available_signals = []
+    if _safe_get(features, "spectral", "bands"):
+        available_signals.append("spectral_bandpower")
+    if _safe_get(features, "spectral", "peak_alpha_freq"):
+        available_signals.append("peak_alpha_frequency")
+    if features.get("asymmetry"):
+        available_signals.append("frontal_asymmetry")
+    if features.get("connectivity"):
+        available_signals.append("connectivity")
+    if chronological_age is not None:
+        available_signals.append("age_context")
+
+    completeness = min(1.0, len(available_signals) / 5.0)
+    level = "high" if completeness >= 0.8 else "moderate" if completeness >= 0.45 else "low"
+    return {
+        "disclaimer": DISCLAIMER,
+        "score_type": "neurophysiological_similarity_index",
+        "calibration": {
+            "status": "not_clinic_calibrated",
+            "confidence": {"score": round(0.35 + completeness * 0.5, 2), "level": level},
+            "available_signals": available_signals,
+        },
+        "confidence": {
+            "score": round(0.35 + completeness * 0.5, 2),
+            "level": level,
+            "rationale": "Completeness-based confidence for the similarity-index payload.",
+        },
+        "evidence_policy": {
+            "primary_anchor": "validated clinical assessments and clinician review",
+            "biomarker_role": "supporting evidence only",
+            "caution": "Similarity indices are not autonomous risk predictions.",
+        },
+    }
+
+
+def _drivers_for_label(
+    label: str,
+    features: dict[str, Any],
+    chronological_age: int | None,
+) -> list[dict[str, Any]]:
+    """Return transparent feature drivers for the deterministic score path."""
+    drivers: list[dict[str, Any]] = []
+    if label == "mdd_like":
+        value = _safe_get(features, "asymmetry", "frontal_alpha_F3_F4")
+        if isinstance(value, (int, float)):
+            drivers.append({
+                "feature": "frontal_alpha_asymmetry",
+                "value": round(float(value), 4),
+                "direction": "higher_similarity_when_elevated",
+            })
+    elif label == "adhd_like":
+        value = _theta_beta_ratio(features)
+        if value is not None:
+            drivers.append({
+                "feature": "theta_beta_ratio",
+                "value": round(float(value), 4),
+                "direction": "higher_similarity_when_elevated",
+            })
+    elif label == "anxiety_like":
+        value = _posterior_alpha(features)
+        if value is not None:
+            drivers.append({
+                "feature": "posterior_alpha",
+                "value": round(float(value), 4),
+                "direction": "higher_similarity_when_elevated",
+            })
+    elif label == "cognitive_decline_like":
+        value = _mean_paf(features)
+        if value is not None:
+            drivers.append({
+                "feature": "peak_alpha_frequency",
+                "value": round(float(value), 4),
+                "direction": "higher_similarity_when_reduced",
+            })
+        if chronological_age is not None:
+            drivers.append({
+                "feature": "chronological_age_context",
+                "value": int(chronological_age),
+                "direction": "contextual_support_only",
+            })
+    elif label == "tbi_residual_like":
+        value = _frontal_delta(features)
+        if value is not None:
+            drivers.append({
+                "feature": "frontal_delta",
+                "value": round(float(value), 4),
+                "direction": "higher_similarity_when_elevated",
+            })
+    elif label == "insomnia_like" and _has_flag(features, "reduced_sleep_spindles"):
+        drivers.append({
+            "feature": "reduced_sleep_spindles",
+            "value": True,
+            "direction": "higher_similarity_when_present",
+        })
+    if not drivers:
+        drivers.append({
+            "feature": _BIOMARKER_PRIORS.get(label, "embedding_prior"),
+            "value": None,
+            "direction": "weak_or_unavailable_in_payload",
+        })
+    return drivers[:3]
 
 
 def _safe_get(d: Any, *keys: str, default: Any = None) -> Any:
