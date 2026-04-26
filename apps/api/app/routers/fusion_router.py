@@ -10,8 +10,10 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
+from app.errors import ApiServiceError
+from app.repositories.patients import resolve_patient_clinic_id
 from app.services.fusion_service import build_fusion_recommendation
 
 router = APIRouter(prefix="/api/v1/fusion", tags=["fusion"])
@@ -35,6 +37,9 @@ def recommend_fusion(
     db: Session = Depends(get_db_session),
 ) -> FusionRecommendationResponse:
     require_minimum_role(actor, "clinician")
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
     payload = build_fusion_recommendation(db, patient_id)
     payload["partial"] = not (payload.get("qeeg_analysis_id") and payload.get("mri_analysis_id"))
     return FusionRecommendationResponse(**payload)

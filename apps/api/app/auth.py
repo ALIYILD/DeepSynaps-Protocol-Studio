@@ -50,13 +50,31 @@ def get_authenticated_actor(authorization: str | None = Header(default=None)) ->
     if _settings.app_env in ("development", "test"):
         demo_actor = DEMO_ACTOR_TOKENS.get(token)
         if demo_actor is not None:
+            # If a User row exists in the DB matching the demo actor_id, lift
+            # the live clinic_id off it. This lets test fixtures seed a real
+            # Clinic + User pair under a demo token id and exercise the
+            # cross-clinic ownership gate without minting JWTs.
+            demo_clinic_id = getattr(demo_actor, "clinic_id", None)
+            if demo_clinic_id is None:
+                try:
+                    from app.database import SessionLocal
+                    from app.repositories.users import get_user_by_id
+                    _db = SessionLocal()
+                    try:
+                        _u = get_user_by_id(_db, demo_actor.actor_id)
+                        if _u is not None and _u.clinic_id:
+                            demo_clinic_id = _u.clinic_id
+                    finally:
+                        _db.close()
+                except Exception:
+                    pass
             return AuthenticatedActor(
                 actor_id=demo_actor.actor_id,
                 display_name=demo_actor.display_name,
                 role=demo_actor.role,
                 package_id=demo_actor.package_id,
                 token_id=token,
-                clinic_id=getattr(demo_actor, "clinic_id", None),
+                clinic_id=demo_clinic_id,
             )
 
     # Try real JWT

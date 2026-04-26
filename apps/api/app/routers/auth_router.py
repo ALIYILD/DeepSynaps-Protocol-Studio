@@ -23,6 +23,7 @@ from ..repositories.users import (
     get_user_by_id,
 )
 from ..services import auth_service
+from ..auth import AuthenticatedActor, get_authenticated_actor
 from ..persistence.models import (
     PasswordResetToken,
     PatientInvite,
@@ -605,9 +606,39 @@ def me(
     )
 
 
+class LogoutRequest(BaseModel):
+    refresh_token: str | None = None
+
+
 @router.post("/api/v1/auth/logout", response_model=MessageResponse)
-def logout() -> MessageResponse:
-    # Token invalidation is client-side; server issues no-op acknowledgement.
+def logout(
+    body: LogoutRequest | None = None,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> MessageResponse:
+    """Revoke the caller's refresh-token session server-side."""
+    now = datetime.now(timezone.utc)
+    refresh_token = (body.refresh_token if body else None) or ""
+    if refresh_token:
+        token_hash = auth_service.hash_refresh_token(refresh_token)
+        row = db.scalar(
+            select(UserSession).where(UserSession.refresh_token_hash == token_hash)
+        )
+        if row and row.revoked_at is None:
+            row.revoked_at = now
+            db.commit()
+    elif actor.actor_id and actor.actor_id != "anonymous":
+        # No specific token supplied — revoke all active sessions for this user.
+        rows = db.scalars(
+            select(UserSession).where(
+                UserSession.user_id == actor.actor_id,
+                UserSession.revoked_at.is_(None),
+            )
+        ).all()
+        for row in rows:
+            row.revoked_at = now
+        if rows:
+            db.commit()
     return MessageResponse(message="Successfully logged out.")
 
 
@@ -894,11 +925,11 @@ def change_password(
             status_code=401,
         )
 
-    if len(body.new_password) < 10:
+    if len(body.new_password) < 8:
         raise ApiServiceError(
             code="password_too_short",
-            message="New password must be at least 10 characters long.",
-            warnings=["Choose a password with 10 or more characters."],
+            message="Password must be at least 8 characters long.",
+            warnings=["Choose a password with 8 or more characters."],
             status_code=400,
         )
 

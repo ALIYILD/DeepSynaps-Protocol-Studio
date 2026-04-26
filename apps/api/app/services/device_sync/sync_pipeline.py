@@ -160,7 +160,7 @@ def sync_connection(connection_id: str, db: Session) -> SyncResult:
     # ── Run flag checks (best-effort) ─────────────────────────────────────
     try:
         from app.services.wearable_flags import run_flag_checks
-        run_flag_checks(conn.patient_id, db)
+        run_flag_checks(conn.patient_id, None, db)
     except Exception:
         _logger.warning("Flag checks failed for patient %s", conn.patient_id, exc_info=True)
 

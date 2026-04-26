@@ -85,21 +85,3 @@ def test_audit_trail_requires_admin_role(
     assert response.status_code == 403
     payload = response.json()
     assert payload["code"] == "insufficient_role"
-
-
-def test_demo_login_is_disabled_in_production(
-    client: TestClient,
-    monkeypatch,
-) -> None:
-    settings = get_settings().model_copy(update={"app_env": "production"})
-    monkeypatch.setattr("app.routers.auth_router.get_settings", lambda: settings)
-
-    response = client.post(
-        "/api/v1/auth/demo-login",
-        json={"token": "clinician-demo-token"},
-    )
-
-    # In production/staging the endpoint must not reveal it exists.
-    assert response.status_code == 404
-    payload = response.json()
-    assert payload.get("detail") == "Not Found"

@@ -499,6 +499,23 @@ async def upload_mri(
     filename = file.filename or "upload.bin"
     ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ".bin"
 
+    _ALLOWED_MRI_EXTENSIONS = frozenset({"zip", "nii", "gz", "dcm", "dicom", "img", "hdr"})
+    _fn_lower = filename.lower()
+    _ext_valid = (
+        _fn_lower.endswith(".nii.gz")
+        or _fn_lower.endswith(".tar.gz")
+        or ext.lstrip(".") in _ALLOWED_MRI_EXTENSIONS
+    )
+    if not _ext_valid:
+        raise ApiServiceError(
+            code="invalid_file_type",
+            message=(
+                f"File type '{ext}' is not accepted. "
+                "Allowed: .zip, .nii, .nii.gz, .dcm, .dicom, .img, .hdr"
+            ),
+            status_code=422,
+        )
+
     file_bytes = await file.read()
     if not file_bytes:
         raise ApiServiceError(
@@ -692,6 +709,7 @@ def get_status(
             status_code=404,
         )
 
+    _gate_patient_access(actor, row.patient_id, db)
     return _status_payload_from_row(row, job_id)
 
 
@@ -714,6 +732,8 @@ async def stream_status_events(
             message=f"job_id {job_id!r} not found",
             status_code=404,
         )
+
+    _gate_patient_access(actor, row.patient_id, db)
 
     async def event_generator():
         last_payload: str | None = None

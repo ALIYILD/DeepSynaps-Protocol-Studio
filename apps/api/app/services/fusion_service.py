@@ -85,10 +85,25 @@ def _latest_mri_analysis(db: Session, patient_id: str) -> MriAnalysis | None:
 
 
 def build_fusion_recommendation(db: Session, patient_id: str) -> dict[str, Any]:
-    from deepsynaps_qeeg.ai.fusion import synthesize_fusion_recommendation
+    try:
+        from deepsynaps_qeeg.ai.fusion import synthesize_fusion_recommendation
+        _has_fusion = True
+    except ImportError:
+        _has_fusion = False
 
     qeeg_row = _latest_qeeg_analysis(db, patient_id)
     mri_row = _latest_mri_analysis(db, patient_id)
+
+    if not _has_fusion:
+        return {
+            "patient_id": patient_id,
+            "recommendation": None,
+            "summary": "Fusion AI module not available in this environment.",
+            "confidence": None,
+            "qeeg_analysis_id": qeeg_row.id if qeeg_row else None,
+            "mri_analysis_id": mri_row.analysis_id if mri_row else None,
+            "error": "deepsynaps_qeeg.ai.fusion not installed",
+        }
 
     return synthesize_fusion_recommendation(
         patient_id=patient_id,
