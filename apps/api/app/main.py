@@ -247,9 +247,17 @@ app.add_middleware(SlowAPIMiddleware)
 
 
 class MaxBodySizeMiddleware(BaseHTTPMiddleware):
+    """Reject oversized requests before they hit the route handler.
+
+    The limit is read from ``settings.media_max_upload_bytes`` so that the
+    middleware ceiling and the media-router upload ceiling cannot drift
+    apart. Previously a hard-coded 10 MiB cap rejected uploads under the
+    50 MiB media limit with a 413 before they reached the router.
+    """
+
     async def dispatch(self, request: Request, call_next):
         content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > 10 * 1024 * 1024:  # 10MB
+        if content_length and int(content_length) > settings.media_max_upload_bytes:
             return JSONResponse({"error": "Request body too large"}, status_code=413)
         return await call_next(request)
 
