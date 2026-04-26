@@ -21,8 +21,13 @@ apps/worker/deepsynaps_worker.egg-info/
 
 # Local env / secrets
 .env
+.env.local
+.env.production
+.env.*.local
 *.env
 !.env.example
+*.pem
+*.key
 
 # OS
 .DS_Store
@@ -73,3 +78,12 @@ apps/api/data/exports/
 data/imports/neuromodulation-research/
 data/research/neuromodulation/raw/
 data/research/neuromodulation/derived/*.csv
+
+# Uploads & backups
+media_uploads/
+/data/backups/
+
+# Sibling repo clones present in the working tree (not tracked)
+/conductor-playground/
+/deepsynaps-protocol-studio/
+/deepsynaps-protocol-studio-v1/

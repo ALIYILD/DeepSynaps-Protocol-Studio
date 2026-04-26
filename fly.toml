@@ -42,6 +42,10 @@ primary_region = "lhr"
   timeout = "5s"
   path = "/health"
 
+# Persistent volume backing /data (evidence DB, media uploads, sqlite fallback).
+# Prerequisite: create the volume once per region before the first deploy:
+#   fly volumes create deepsynaps_data --region lhr --size 1
+# See DEPLOYMENT.md § 4 for full first-time setup.
 [[mounts]]
   source = "deepsynaps_data"
   destination = "/data"

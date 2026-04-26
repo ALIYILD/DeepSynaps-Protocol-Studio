@@ -247,9 +247,17 @@ app.add_middleware(SlowAPIMiddleware)
 
 
 class MaxBodySizeMiddleware(BaseHTTPMiddleware):
+    """Reject oversized requests before they hit the route handler.
+
+    The limit is read from ``settings.media_max_upload_bytes`` so that the
+    middleware ceiling and the media-router upload ceiling cannot drift
+    apart. Previously a hard-coded 10 MiB cap rejected uploads under the
+    50 MiB media limit with a 413 before they reached the router.
+    """
+
     async def dispatch(self, request: Request, call_next):
         content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > 10 * 1024 * 1024:  # 10MB
+        if content_length and int(content_length) > settings.media_max_upload_bytes:
             return JSONResponse({"error": "Request body too large"}, status_code=413)
         return await call_next(request)
 
@@ -271,7 +279,9 @@ async def security_headers_middleware(request: Request, call_next):
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data: https:; "
-        "connect-src 'self'; "
+        # Allow the Sentry browser SDK to POST events / session replays.
+        # Without these origins the in-browser SDK is silently blocked by CSP.
+        "connect-src 'self' https://*.sentry.io https://*.ingest.sentry.io; "
         "frame-ancestors 'none';"
     )
     if settings.app_env == "production":

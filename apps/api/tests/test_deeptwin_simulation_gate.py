@@ -56,6 +56,7 @@ def _base_prod_env() -> dict[str, str]:
         "DEEPSYNAPS_APP_ENV": "production",
         "JWT_SECRET_KEY": "x" * 64,  # not the insecure placeholder
         "DEEPSYNAPS_SECRETS_KEY": "Pn7p4xBz2vQ8fJ-bCe1rXkS5lYgM3hUaTwDoVqIeZ8U=",
+        "WEARABLE_TOKEN_ENC_KEY": "Pn7p4xBz2vQ8fJ-bCe1rXkS5lYgM3hUaTwDoVqIeZ8U=",
         "DEEPSYNAPS_DATABASE_URL": "sqlite:///./test_gate.db",
         "DEEPSYNAPS_CORS_ORIGINS": "http://localhost:5173",
     }

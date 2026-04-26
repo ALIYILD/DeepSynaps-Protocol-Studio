@@ -107,6 +107,12 @@ fly auth login
 # First-time: create the app (skip if already created)
 fly launch --no-deploy
 
+# First-time: create the persistent volume that backs /data (declared in fly.toml
+# as `[[mounts]] source = "deepsynaps_data"`). Without this volume, the evidence
+# DB at /data/evidence.db and uploaded media at /data/media_uploads reset on
+# every deploy. Run once per region:
+fly volumes create deepsynaps_data --region lhr --size 1
+
 # Set required secrets (never commit these — set them once via CLI)
 fly secrets set \
   DEEPSYNAPS_DATABASE_URL="postgresql://user:pass@host:5432/deepsynaps_prod?sslmode=require" \
