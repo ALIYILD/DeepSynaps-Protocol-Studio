@@ -1721,7 +1721,7 @@ export function bindHandbooks() {
   window._hbTlibPreview = function(id) {
     const templates = window._HB_TEMPLATES || [];
     const item = templates.find(x => x.id === id);
-    if (item) alert(item.title + '\nType: ' + item.type + ' | Modality/Condition: ' + item.tag + '\n\n' + item.desc);
+    if (item) window._showToast?.(item.title + ' — Type: ' + item.type + ' | Modality/Condition: ' + item.tag + '. ' + item.desc, 'info');
   };
   window._hbTlibAssign = function(id, title) {
     const t = document.createElement('div');
@@ -3501,7 +3501,7 @@ export async function pgReportBuilder(setTopbar) {
     navigator.clipboard.writeText(text).then(() => {
       const btn = document.querySelector('[onclick="window._reportCopySummary()"]');
       if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = orig; }, 1500); }
-    }).catch(() => { alert('Clipboard unavailable.\n\n' + text); });
+    }).catch(() => { window._showToast?.('Clipboard unavailable. ' + text, 'warning'); });
   };
 
   window._reportCalcROI = function() {
@@ -4709,7 +4709,7 @@ export async function pgDeviceManagement(setTopbar) {
 
   window._deviceSave = function() {
     var name = (document.getElementById('dm-f-name') || {}).value;
-    if (!name || !name.trim()) { alert('Device name is required.'); return; }
+    if (!name || !name.trim()) { window._showToast?.('Device name is required.', 'warning'); return; }
     var id = ((document.getElementById('dm-f-id') || {}).value || '').trim();
     var devices = getDevices();
     var newId = id || ('DEV-' + String(devices.length + 1).padStart(3,'0') + '-' + Math.random().toString(36).slice(2,5).toUpperCase());
@@ -4800,7 +4800,7 @@ export async function pgDeviceManagement(setTopbar) {
   window._deviceLogSave = function() {
     var deviceId = (document.getElementById('dm-log-device') || {}).value;
     var date     = (document.getElementById('dm-log-date')   || {}).value;
-    if (!deviceId || !date) { alert('Device and date are required.'); return; }
+    if (!deviceId || !date) { window._showToast?.('Device and date are required.', 'warning'); return; }
     var devices = getDevices();
     var dev  = devices.find(function(d) { return d.id === deviceId; });
     var logs = getDeviceLogs();
@@ -4840,7 +4840,7 @@ export async function pgDeviceManagement(setTopbar) {
 
   window._deviceScheduleSave = function(deviceId, type) {
     var newDate = (document.getElementById('dm-sched-date') || {}).value;
-    if (!newDate) { alert('Please select a date.'); return; }
+    if (!newDate) { window._showToast?.('Please select a date.', 'warning'); return; }
     var d = getDevices().find(function(x) { return x.id === deviceId; });
     if (!d) return;
     if (type === 'calibration') d.nextCalibration = newDate;
@@ -5611,7 +5611,7 @@ export async function pgClinicalTrials(setTopbar) {
 
     window._trialSave = function() {
       var title = (document.getElementById('wiz-title') || {}).value;
-      if (!title || !title.trim()) { alert('Please enter a trial title.'); return; }
+      if (!title || !title.trim()) { window._showToast?.('Please enter a trial title.', 'warning'); return; }
       var arms = [];
       document.querySelectorAll('.wiz-arm-row').forEach(function(row) {
         arms.push({
@@ -5690,7 +5690,7 @@ export async function pgClinicalTrials(setTopbar) {
       var result = randomizeArm(trialId, participantId);
       if (!result) return;
       var msg2 = result.blinded ? 'Arm assigned \u2014 blinding maintained.' : ('Randomized to: ' + result.armName);
-      alert(msg2);
+      window._showToast?.(msg2, 'success');
       render();
     };
 
@@ -6381,7 +6381,7 @@ export async function pgStaffScheduling(setTopbar) {
     var statusEl = document.getElementById('_sh-status');
     var status = statusEl ? statusEl.value : 'scheduled';
     var notes = document.getElementById('_sh-notes') ? document.getElementById('_sh-notes').value : '';
-    if (!date || !startTime || !endTime) { alert('Please fill in date and times'); return; }
+    if (!date || !startTime || !endTime) { window._showToast?.('Please fill in date and times', 'warning'); return; }
     var staff = getStaffRoster();
     var member = staff.find(function(s) { return s.id === staffId; });
     saveShift({
@@ -6407,7 +6407,7 @@ export async function pgStaffScheduling(setTopbar) {
     var ws = window._staffWeekStart;
     var suggestions = suggestSchedule(staff, ws, shifts);
     if (suggestions.length === 0) {
-      alert('All staff members already have shifts this week. No suggestions to make.');
+      window._showToast?.('All staff members already have shifts this week. No suggestions to make.', 'info');
       return;
     }
     var rows = suggestions.map(function(s, i) {
@@ -6535,7 +6535,7 @@ export async function pgStaffScheduling(setTopbar) {
 
   window._staffSaveMember = function(existingId) {
     var name = (document.getElementById('_sm-name') || {}).value;
-    if (!name || !name.trim()) { alert('Name is required'); return; }
+    if (!name || !name.trim()) { window._showToast?.('Name is required', 'warning'); return; }
     var dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri'];
     var defaultHours = {};
     dayKeys.forEach(function(k) {
@@ -6593,8 +6593,8 @@ export async function pgStaffScheduling(setTopbar) {
     var endDate = (document.getElementById('_pto-end') || {}).value;
     var type = (document.getElementById('_pto-type') || {}).value;
     var reason = (document.getElementById('_pto-reason') || {}).value || '';
-    if (!startDate || !endDate) { alert('Please select start and end dates'); return; }
-    if (endDate < startDate) { alert('End date must be on or after start date'); return; }
+    if (!startDate || !endDate) { window._showToast?.('Please select start and end dates', 'warning'); return; }
+    if (endDate < startDate) { window._showToast?.('End date must be on or after start date', 'warning'); return; }
     var staff = getStaffRoster();
     var member = staff.find(function(s) { return s.id === staffId; });
     savePTORequest({
@@ -6662,7 +6662,7 @@ export async function pgStaffScheduling(setTopbar) {
     var coverId = (document.getElementById('_sw-cover') || {}).value;
     var coverShiftId = (document.getElementById('_sw-cover-shift') || {}).value;
     var reason = (document.getElementById('_sw-reason') || {}).value || '';
-    if (!requestorShiftId || !coverShiftId) { alert('Please select shifts for both parties'); return; }
+    if (!requestorShiftId || !coverShiftId) { window._showToast?.('Please select shifts for both parties', 'warning'); return; }
     var staff = getStaffRoster();
     var reqMember = staff.find(function(s) { return s.id === requestorId; });
     var covMember = staff.find(function(s) { return s.id === coverId; });
@@ -9246,7 +9246,7 @@ export async function pgDataExport(setTopbar) {
 
   window._nnnbGenerateExport = function() {
     if (_sel.domains.length === 0) {
-      alert('Please select at least one data domain in Step 1 before generating an export.');
+      window._showToast?.('Please select at least one data domain in Step 1 before generating an export.', 'warning');
       return;
     }
     // ── Pre-download confirmation gate (clinical safety requirement) ──
@@ -9364,7 +9364,7 @@ export async function pgDataExport(setTopbar) {
     const eff     = document.getElementById('nnnb-dsa-eff')?.value;
     const exp     = document.getElementById('nnnb-dsa-exp')?.value;
     if (!inst || !purpose || !eff || !exp) {
-      alert('Please fill in Institution, Purpose, Effective Date, and Expiry Date.');
+      window._showToast?.('Please fill in Institution, Purpose, Effective Date, and Expiry Date.', 'warning');
       return;
     }
     const domains = [...document.querySelectorAll('.nnnb-dsa-domain-cb:checked')].map(cb => cb.value);
