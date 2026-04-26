@@ -1871,7 +1871,7 @@ export async function pgSettings(setTopbar, currentUser) {
             </select>
             <button class="btn btn-sm" onclick="window._nav('protocols')">Customize protocol defaults →</button>
           </div>
-          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">TODO: wire ds_default_protocol to intake flow's protocol picker</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Used as the pre-selected option when starting a new course.</div>
         </div>
 
         <!-- Default Session Duration -->
@@ -1921,7 +1921,7 @@ export async function pgSettings(setTopbar, currentUser) {
               </label>
             `).join('')}
           </div>
-          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">TODO: wire ds_default_assessments to intake auto-assign</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Selected assessments will be pre-checked on the patient intake form.</div>
         </div>
 
         <!-- Adverse Event Protocol -->
