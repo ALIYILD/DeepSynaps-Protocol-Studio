@@ -1281,6 +1281,37 @@ def _assert_clinician_owns_patient(session: Session, actor: AuthenticatedActor, 
         )
 
 
+def _assert_patient_owns_thread(session: Session, actor: AuthenticatedActor, patient_id: str) -> None:
+    """Authorise a patient actor for their own messaging thread only."""
+    from app.persistence.models import Patient as _Patient, User as _User
+
+    patient = session.query(_Patient).filter_by(id=patient_id).first()
+    if patient is None:
+        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+
+    if actor.actor_id == patient_id:
+        return
+
+    if actor.actor_id == "actor-patient-demo":
+        if patient.email in {"patient@deepsynaps.com", "patient@demo.com"}:
+            return
+        raise ApiServiceError(
+            code="forbidden",
+            message="You are not authorised for this patient's messages.",
+            status_code=403,
+        )
+
+    user = session.query(_User).filter_by(id=actor.actor_id).first()
+    if user is None or not user.email:
+        raise ApiServiceError(code="not_found", message="User account not found.", status_code=404)
+    if patient.email != user.email:
+        raise ApiServiceError(
+            code="forbidden",
+            message="You are not authorised for this patient's messages.",
+            status_code=403,
+        )
+
+
 @router.get("/{patient_id}/messages", response_model=PatientMessagesResponse)
 def get_patient_messages(
     patient_id: str,
@@ -1290,14 +1321,11 @@ def get_patient_messages(
     """List messages associated with a patient thread."""
     from app.persistence.models import Message
 
-    # Patients see messages where they are sender or recipient.
-    # Clinicians must be the assigned clinician on the Patient record.
     if actor.role == "patient":
+        _assert_patient_owns_thread(session, actor, patient_id)
         rows = session.scalars(
             select(Message).where(
-                (Message.patient_id == patient_id)
-                | (Message.sender_id == actor.actor_id)
-                | (Message.recipient_id == actor.actor_id)
+                Message.patient_id == patient_id
             ).order_by(Message.created_at)
         ).all()
     else:
@@ -1589,9 +1617,18 @@ def send_patient_message(
     # For clinician senders, enforce ownership so a clinician cannot post
     # into another clinician's thread.
     if actor.role == "patient":
+        _assert_patient_owns_thread(session, actor, patient_id)
         sender_id = actor.actor_id
         _patient_rec = session.query(_Patient).filter_by(id=patient_id).first()
-        recipient_id = _patient_rec.clinician_id if _patient_rec and _patient_rec.clinician_id else patient_id
+        if _patient_rec is None:
+            raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+        if not _patient_rec.clinician_id:
+            raise ApiServiceError(
+                code="no_clinician_assigned",
+                message="No clinician is assigned to this patient thread.",
+                status_code=422,
+            )
+        recipient_id = _patient_rec.clinician_id
     else:
         require_minimum_role(actor, "clinician")
         _assert_clinician_owns_patient(session, actor, patient_id)

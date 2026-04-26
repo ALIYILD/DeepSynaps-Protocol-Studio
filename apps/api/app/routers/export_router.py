@@ -18,6 +18,7 @@ from deepsynaps_core_schema import (
 from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.persistence.models import Patient
 from app.services.clinical_data import (
     generate_handbook_from_clinical_data,
     generate_protocol_draft_from_clinical_data,
@@ -33,6 +34,18 @@ DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingm
 def _safe_filename_part(value: str) -> str:
     """Normalize a string to a safe filename segment."""
     return re.sub(r"[^a-zA-Z0-9]+", "_", value).strip("_")
+
+
+def _assert_export_patient_access(db: Session, actor: AuthenticatedActor, patient_id: str) -> None:
+    if actor.role == "admin":
+        return
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if patient is None or patient.clinician_id != actor.actor_id:
+        raise ApiServiceError(
+            code="not_found",
+            message="Patient not found.",
+            status_code=404,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +292,7 @@ def export_fhir_r4_bundle(
 ) -> StreamingResponse:
     if actor.role not in ("clinician", "admin"):
         raise HTTPException(status_code=403, detail="Export endpoints require clinician or admin role.")
+    _assert_export_patient_access(db, actor, payload.patient_id)
 
     bundle = build_neuromodulation_fhir_bundle(
         db,
@@ -302,6 +316,7 @@ def export_bids_derivatives(
 ) -> StreamingResponse:
     if actor.role not in ("clinician", "admin"):
         raise HTTPException(status_code=403, detail="Export endpoints require clinician or admin role.")
+    _assert_export_patient_access(db, actor, payload.patient_id)
 
     archive_bytes, filename = build_bids_derivatives_zip(
         db,

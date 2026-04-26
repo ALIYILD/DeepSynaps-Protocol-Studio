@@ -112,9 +112,58 @@ const _deviceLabel = deviceId => DEVICES.find(d => d.id === deviceId)?.label || 
 const _condLabel = cid => CONDITIONS.find(c => c.id === cid)?.label || cid;
 const _typeColor = type => PROTOCOL_TYPES.find(t => t.id === type)?.color || '#64748b';
 
+function _hasReviewedGovernance(proto) {
+  const gov = proto?.governance || [];
+  return gov.includes('reviewed') || gov.includes('approved');
+}
+
+function _canUseProtocol(proto) {
+  if (!proto) return false;
+  const gov = proto.governance || [];
+  if (!gov.includes('off-label')) return true;
+
+  if (!_hasReviewedGovernance(proto)) {
+    window._showNotifToast?.({
+      title: 'Review Required',
+      body: 'This off-label protocol cannot be used until clinician review is recorded in the registry.',
+      severity: 'warn',
+    });
+    return false;
+  }
+
+  window._protOffLabelUseAcks = window._protOffLabelUseAcks || {};
+  if (window._protOffLabelUseAcks[proto.id]) return true;
+
+  const acknowledged = window.confirm(
+    [
+      'Off-label protocol acknowledgement',
+      '',
+      `"${proto.name}" is marked off-label and has clinician review on file.`,
+      'Confirm that off-label documentation and informed acknowledgement are complete before opening the course wizard.',
+    ].join('\n')
+  );
+  if (!acknowledged) {
+    window._showNotifToast?.({
+      title: 'Off-Label Not Acknowledged',
+      body: 'Course launch cancelled. Acknowledge off-label use before continuing.',
+      severity: 'info',
+    });
+    return false;
+  }
+
+  window._protOffLabelUseAcks[proto.id] = true;
+  window._showNotifToast?.({
+    title: 'Off-Label Acknowledged',
+    body: 'Session acknowledgement recorded. Course wizard unlocked for this protocol.',
+    severity: 'info',
+  });
+  return true;
+}
+
 // ── Window state for cross-page navigation ────────────────────────────────────
 window._protDetailId = window._protDetailId || null;
 window._protFromCondition = window._protFromCondition || null;
+window._protOffLabelUseAcks = window._protOffLabelUseAcks || {};
 
 // =============================================================================
 // pgProtocolSearch — Browse, filter, and launch all protocols
@@ -394,6 +443,7 @@ export async function pgProtocolSearch(setTopbar, navigate) {
     window._protDetailId = id;
     const proto = LIBRARY.find(p => p.id === id);
     if (proto) {
+      if (!_canUseProtocol(proto)) return;
       window._wizardProtocolId = id;
       window._nav('courses');
       window._showNotifToast?.({ title: 'Protocol Selected', body: `"${proto.name}" ready to use in course wizard.`, severity: 'success' });
@@ -1166,9 +1216,6 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
     if (!_b.name || !_b.conditionId) {
       window._showNotifToast?.({ title:'Required', body:'Complete required fields before submitting.', severity:'warn' }); return;
     }
-    const gov = [..._b.governance];
-    if (!gov.includes('reviewed')) gov.push('reviewed');
-    _b.governance = gov;
     const custom = _buildCustomRecord('submitted');
     const saved = JSON.parse(localStorage.getItem('ds_custom_protocols') || '[]');
     saved.push(custom);
@@ -1178,8 +1225,8 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
     _b.saved = false;
     renderBuilder();
     const body = backend.pushed
-      ? `"${_b.name}" submitted to backend review queue.`
-      : `"${_b.name}" saved locally. Attach a patient and resubmit to route to review.`;
+      ? `"${_b.name}" submitted to backend review queue. Review status remains unchanged until a clinician records it.`
+      : `"${_b.name}" saved locally. Attach a patient and resubmit to route to review. Review status remains unchanged.`;
     window._showNotifToast?.({ title:'Submitted for Review', body, severity:'success' });
   };
 

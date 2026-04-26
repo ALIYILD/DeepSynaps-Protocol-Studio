@@ -1,7 +1,8 @@
+<!-- /autoplan restore point: /c/Users/yildi/.gstack/projects/ALIYILD-DeepSynaps-Protocol-Studio/launch-readiness-audit-autoplan-restore-20260426-001508.md -->
 # Launch Readiness Report
 
 Branch: `launch-readiness-audit`
-Date: `2026-04-25`
+Date: `2026-04-26`
 Product: `DeepSynaps Studio`
 
 ## Scope
@@ -134,6 +135,11 @@ npm.cmd run test:unit --workspace @deepsynaps/web
 .\.venv\Scripts\python.exe -m pytest apps/api/tests/test_health.py apps/api/tests/test_patient_portal.py apps/api/tests/test_home_program_tasks.py apps/api/tests/test_evidence_router.py -q
 .\.venv\Scripts\python.exe -m pytest apps/api/tests/test_auth_persistence.py apps/api/tests/test_deeptwin_router.py -q
 .\.venv\Scripts\python.exe -m pytest apps/api/tests/test_security.py apps/api/tests/test_production_hardening.py apps/api/tests/test_2fa_flow.py apps/api/tests/test_course_safety_gate.py apps/api/tests/test_consent_records.py -q
+.\.venv\Scripts\python.exe -m pytest apps/api/tests/test_reports_router.py apps/api/tests/test_data_export.py apps/api/tests/test_patient_home_program_tasks_completion.py apps/api/tests/test_security.py -q --basetemp=.pytest_tmp -o cache_dir=.pytest_cache_local
+node --check apps/web/src/pages-protocols.js
+node --check apps/web/src/pages-patient.js
+node --check apps/web/src/pages-patient-timeline.js
+.\.venv\Scripts\python.exe -m py_compile apps/api/app/routers/patients_router.py apps/api/app/routers/patient_portal_router.py apps/api/app/routers/export_router.py apps/api/app/routers/media_router.py apps/api/app/routers/reports_router.py
 ```
 
 ## Current Findings
@@ -146,6 +152,13 @@ npm.cmd run test:unit --workspace @deepsynaps/web
   - `48 passed` in health + patient portal + home-program + evidence smoke
   - `16 passed` in auth + DeepTwin regression coverage
   - `64 passed` in security + production-hardening + 2FA + course-safety + consent slices
+- Additional targeted launch-hardening slice passes:
+  - `43 passed` in reports + data export + patient home-program completion + security regressions
+- Syntax checks pass for the launch-touch frontend files:
+  - `pages-protocols.js`
+  - `pages-patient.js`
+  - `pages-patient-timeline.js`
+- Python compile checks pass for the updated API routers.
 
 ### Confirmed blockers fixed
 
@@ -162,8 +175,41 @@ npm.cmd run test:unit --workspace @deepsynaps/web
    Fix:
    - replaced clickable `coming soon` alert cards with disabled roadmap items and explanatory copy.
 
+4. Patient thread access allowed patient actors to probe other patients' message threads.
+   Fix:
+   - patient messaging on `/api/v1/patients/{patient_id}/messages` now resolves the authenticated patient identity and only permits that exact patient thread.
+   - patient sends now require an assigned clinician instead of silently routing to the patient id.
+
+5. Export endpoints allowed clinicians to request FHIR/BIDS exports for other clinicians' patients.
+   Fix:
+   - `/api/v1/export/fhir-r4-bundle` and `/api/v1/export/bids-derivatives` now enforce patient ownership for non-admin actors.
+
+6. Media file serving did not re-check clinician ownership of the underlying patient.
+   Fix:
+   - `/api/v1/media/file/{file_ref}` now applies patient ownership checks for clinician/reviewer callers before streaming files.
+
+7. Patient portal homework completion was not authoritative on reload.
+   Fix:
+   - patient-portal task listing now joins completion state from `PatientHomeProgramTaskCompletion`.
+   - patient homework UI now uses `portalCompleteHomeProgramTask(...)` and rolls back optimistic state on save failure.
+
+8. Patient MRI timeline silently fell back to fabricated demo data on fetch failure.
+   Fix:
+   - the page now shows explicit unavailable/empty states instead of injecting a fake timeline.
+
+9. Protocol builder submit flow self-applied `reviewed` status and let off-label protocols route directly into course creation.
+   Fix:
+   - submit no longer upgrades governance to `reviewed`.
+   - off-label protocol use is blocked until reviewed, and reviewed off-label use requires an explicit acknowledgement before entering the course wizard.
+
+10. Reports API trusted report ids without enough ownership/patient checks, and create could fabricate a patient scope fallback.
+    Fix:
+    - persisted report creation now requires an explicit `patient_id`.
+    - AI summary now requires report ownership and valid patient access.
+
 ### Residual risks
 
 - The full backend suite still has not been completed end-to-end within this audit window; a broad run exceeded the current timeout and needs a longer unattended pass.
 - The repo is very large, and many frontend pages still need explicit manual/functional review for empty/error/loading states and true backend wiring.
+- Local branch contains unrelated concurrent edits outside this launch tranche (`Makefile`, `package.json`, `apps/api/app/auth.py`, `apps/web/src/auth.js`, and a few untracked helper docs/scripts); they were not audited in this pass and should be reviewed before merge.
 - README readiness claims remain broader than the verification evidence gathered in this pass.

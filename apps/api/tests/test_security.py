@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -22,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.persistence.models import (
+    PatientMediaUpload,
     ReviewQueueItem,
     WearableAlertFlag,
 )
@@ -429,3 +431,81 @@ def test_jwt_default_allowed_in_development() -> None:
     with patch.dict(os.environ, env, clear=False):
         settings = load_settings()
         assert settings.jwt_secret_key == _INSECURE_JWT_DEFAULT
+
+
+def test_patient_cannot_read_other_patient_thread(client: TestClient, auth_headers: dict) -> None:
+    db: Session = SessionLocal()
+    try:
+        from app.persistence.models import Message, Patient
+
+        db.add_all(
+            [
+                Patient(
+                    id="pt-own",
+                    clinician_id="actor-clinician-demo",
+                    first_name="Own",
+                    last_name="Patient",
+                    email="patient@demo.com",
+                    status="active",
+                ),
+                Patient(
+                    id="pt-other",
+                    clinician_id="actor-clinician-demo",
+                    first_name="Other",
+                    last_name="Patient",
+                    email="other@example.com",
+                    status="active",
+                ),
+            ]
+        )
+        db.flush()
+        db.add(
+            Message(
+                id=str(uuid.uuid4()),
+                sender_id="actor-clinician-demo",
+                recipient_id="pt-other",
+                patient_id="pt-other",
+                body="private thread",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    resp = client.get("/api/v1/patients/pt-other/messages", headers=auth_headers["patient"])
+    assert resp.status_code == 403, resp.text
+
+
+def test_media_file_download_requires_patient_ownership(
+    client: TestClient, monkeypatch
+) -> None:
+    from app.settings import get_settings
+
+    token_a = _register_clinician(client, "media_a")
+    token_b = _register_clinician(client, "media_b")
+    patient_id = _create_patient(client, token_a)
+
+    settings = get_settings()
+    media_root = Path("C:/Users/yildi/DeepSynaps-Protocol-Studio/.runtime-test-media")
+    media_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(settings, "media_storage_root", str(media_root))
+    (media_root / "voice.webm").write_bytes(b"webm-bytes")
+
+    db: Session = SessionLocal()
+    try:
+        db.add(
+            PatientMediaUpload(
+                id=str(uuid.uuid4()),
+                patient_id=patient_id,
+                uploaded_by=patient_id,
+                media_type="audio",
+                file_ref="voice.webm",
+                deleted_at=None,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    denied = client.get("/api/v1/media/file/voice.webm", headers=_auth(token_b))
+    assert denied.status_code == 404, denied.text

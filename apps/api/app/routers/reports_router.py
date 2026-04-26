@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import PatientMediaUpload
+from app.persistence.models import Patient, PatientMediaUpload
 from app.settings import get_settings
 
 router = APIRouter(tags=["reports"])
@@ -118,6 +118,18 @@ def _save_report_file(
     return f"/media/reports/{patient_id}/{upload_id}.{ext}"
 
 
+def _assert_report_patient_access(db: Session, actor: AuthenticatedActor, patient_id: str | None) -> None:
+    if not patient_id or actor.role == "admin":
+        return
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if patient is None or patient.clinician_id != actor.actor_id:
+        raise ApiServiceError(
+            code="not_found",
+            message="Patient not found.",
+            status_code=404,
+        )
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────────
 
 
@@ -141,6 +153,7 @@ async def upload_report(
     fallback for offline persistence).
     """
     require_minimum_role(actor, "clinician")
+    _assert_report_patient_access(db, actor, patient_id)
 
     upload_id = str(uuid.uuid4())
     file_url: Optional[str] = None
@@ -279,6 +292,13 @@ def create_report(
     ``/upload`` with ``media_type="text"`` and ``file_ref=None``. Clinician-only.
     """
     require_minimum_role(actor, "clinician")
+    if not body.patient_id:
+        raise ApiServiceError(
+            code="patient_id_required",
+            message="patient_id is required to persist a report.",
+            status_code=422,
+        )
+    _assert_report_patient_access(db, actor, body.patient_id)
 
     import json as _json
     note_meta = _json.dumps({
@@ -290,7 +310,7 @@ def create_report(
 
     record = PatientMediaUpload(
         id=str(uuid.uuid4()),
-        patient_id=body.patient_id or actor.actor_id,   # fallback: self-scope
+        patient_id=body.patient_id,
         uploaded_by=actor.actor_id,
         media_type="text",
         file_ref=None,
@@ -362,6 +382,9 @@ def ai_summarize_report(
     )
 
     if record is not None:
+        if actor.role != "admin" and record.uploaded_by != actor.actor_id:
+            raise ApiServiceError(code="not_found", message="Report not found.", status_code=404)
+        _assert_report_patient_access(db, actor, record.patient_id)
         # Parse metadata stored in patient_note
         title = report_id   # fallback
         report_type = "clinical"

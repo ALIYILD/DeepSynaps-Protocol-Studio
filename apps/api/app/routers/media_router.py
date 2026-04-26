@@ -1697,6 +1697,7 @@ async def serve_media_file(
         raise ApiServiceError(code="forbidden", message="Access denied.", status_code=403)
     elif actor.role not in ("patient",):
         _require_clinician_or_reviewer(actor)
+        _check_patient_access(owner_patient_id, actor, db)
 
     settings = get_settings()
     try:

@@ -478,6 +478,32 @@ export async function pgPatientDashboard(user) {
     (api.patientPortalSummary ? api.patientPortalSummary().catch(() => null) : Promise.resolve(null)),
   ]);
 
+  const _hmLoadFailed =
+    portalSessions == null &&
+    portalCourses == null &&
+    portalOutcomes == null &&
+    portalMessagesRaw == null &&
+    wearableSummaryRaw == null &&
+    homeTasksRaw == null &&
+    homeTasksPortalRaw == null &&
+    wellnessLogsRaw == null &&
+    dashboardRaw == null &&
+    patientSummaryRaw == null;
+
+  if (_hmLoadFailed) {
+    el.innerHTML = `
+      <div class="pt-portal-empty">
+        <div class="pt-portal-empty-ico" aria-hidden="true">&#9888;</div>
+        <div class="pt-portal-empty-title">We couldn't load your Home page</div>
+        <div class="pt-portal-empty-body">Your portal data is temporarily unavailable. Please refresh the page, or message your care team if this keeps happening.</div>
+        <div style="display:flex;gap:10px;justify-content:center;margin-top:16px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="window.location.reload()">Refresh</button>
+          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">Message care team</button>
+        </div>
+      </div>`;
+    return;
+  }
+
   const sessions     = Array.isArray(portalSessions) ? portalSessions : [];
   const outcomes     = Array.isArray(portalOutcomes) ? portalOutcomes : [];
   const coursesArr   = Array.isArray(portalCourses) ? portalCourses : [];
@@ -490,7 +516,7 @@ export async function pgPatientDashboard(user) {
   // ── Demo seed — populates every array when the backend returned nothing so
   //    first-time preview users see a fully-rendered home dashboard. Gated
   //    on "everything empty" — any real patient data and we skip the seed.
-  const _hmDemo = sessions.length === 0 && coursesArr.length === 0 && outcomes.length === 0 && messages.length === 0 && wearableDays.length === 0;
+  const _hmDemo = false;
   if (_hmDemo) {
     coursesArr.push({
       id: 'demo-crs-001',
@@ -3861,6 +3887,30 @@ async function _pgPatientHomeworkImpl() {
     _race(api.patientPortalCourses()),
     _race(api.patientPortalSessions()),
   ]);
+  const _homeworkLoadFailed =
+    homeTasksRaw === null &&
+    homeTasksPortalRaw === null &&
+    coursesRaw === null &&
+    sessionsRaw === null;
+  if (_homeworkLoadFailed) {
+    throw new Error('homework_data_unavailable');
+  }
+  let _portalTaskCompletions = new Map();
+  if (Array.isArray(homeTasksPortalRaw) && homeTasksPortalRaw.length && api.portalGetHomeProgramTaskCompletion) {
+    const completionRows = await Promise.all(
+      homeTasksPortalRaw.map(async function(taskRow) {
+        const serverTaskId = taskRow?.server_task_id;
+        if (!serverTaskId) return null;
+        const completion = await _race(api.portalGetHomeProgramTaskCompletion(serverTaskId));
+        return completion && typeof completion === 'object'
+          ? [serverTaskId, completion]
+          : [serverTaskId, null];
+      })
+    );
+    completionRows.forEach(function(entry) {
+      if (entry && entry[0]) _portalTaskCompletions.set(entry[0], entry[1]);
+    });
+  }
 
   // ── Normalise home tasks ──────────────────────────────────────────────────
   let tasks = [];
@@ -3873,7 +3923,10 @@ async function _pgPatientHomeworkImpl() {
       title: r.title || r.task?.title || r.task?.name || 'Task',
       category: r.category || r.task?.category || '',
       instructions: r.instructions || r.task?.instructions || '',
-      completed: !!(r.task?.completed || r.task?.done),
+      completed: (_portalTaskCompletions.get(r.server_task_id)?.completed === true) || !!(r.completed || r.task?.completed || r.task?.done),
+      completed_at: (_portalTaskCompletions.get(r.server_task_id)?.completed_at || r.completed_at)
+        ? new Date(_portalTaskCompletions.get(r.server_task_id)?.completed_at || r.completed_at).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' })
+        : null,
       due_on: r.task?.due_on || r.task?.dueOn || null,
       task_type: r.task?.task_type || r.task?.type || null,
       raw: r,
@@ -4364,6 +4417,8 @@ async function _pgPatientHomeworkImpl() {
   window._hwToggle = async function(taskId) {
     const task = _taskById.get(String(taskId));
     if (!task) return;
+    const prevCompleted = !!(task.completed || task.done);
+    const prevCompletedAt = task.completed_at;
     const nowDone = !(task.completed || task.done);
     task.completed = nowDone;
     task.done = nowDone;
@@ -4376,17 +4431,25 @@ async function _pgPatientHomeworkImpl() {
     checks.forEach(b => b.classList.toggle('is-on', nowDone));
     _hwToast(nowDone ? 'Marked complete' : 'Reopened');
     // Persist via API (no-op in demo / offline mode).
-    if (!_isDemo && api.mutateHomeProgramTask) {
+    if (!_isDemo) {
       try {
-        await api.mutateHomeProgramTask({
-          ...task,
-          id: task.id,
-          serverTaskId: task.serverTaskId || task.server_task_id,
-          patient_id: uid,
-          completed: nowDone,
-        });
+        const serverTaskId = task.serverTaskId || task.server_task_id;
+        if (serverTaskId && api.portalCompleteHomeProgramTask) {
+          const saved = await api.portalCompleteHomeProgramTask(serverTaskId, { completed: nowDone });
+          task.completed = !!saved?.completed;
+          task.done = !!saved?.completed;
+          task.completed_at = saved?.completed_at
+            ? new Date(saved.completed_at).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' })
+            : null;
+        }
       } catch (e) {
-        console.warn('[homework] persist failed, keeping local state:', e);
+        task.completed = prevCompleted;
+        task.done = prevCompleted;
+        task.completed_at = prevCompletedAt;
+        cards.forEach(c => c.classList.toggle('done', prevCompleted));
+        checks.forEach(b => b.classList.toggle('is-on', prevCompleted));
+        console.warn('[homework] persist failed, reverting local state:', e);
+        _hwToast('Could not save');
       }
     }
   };

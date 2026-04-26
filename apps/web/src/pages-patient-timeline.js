@@ -17,33 +17,6 @@ function _timelinePatientId() {
   }
 }
 
-function _demoTimeline(patientId) {
-  return {
-    patient_id: patientId || 'DS-2026-000123',
-    generated_at: new Date().toISOString(),
-    lanes: {
-      sessions: [
-        { id: 'sess-1', at: '2026-01-10T10:00:00Z', title: 'Session 1', status: 'completed', meta: { modality: 'rtms' } },
-        { id: 'sess-12', at: '2026-03-28T10:00:00Z', title: 'Session 12', status: 'completed', meta: { modality: 'rtms' } },
-      ],
-      qeeg: [
-        { id: 'qeeg-1', at: '2026-01-08', title: 'resting qEEG', status: 'recorded', meta: { equipment: 'NeuroGuide 19ch' } },
-      ],
-      mri: [
-        { id: 'mri-1', at: '2026-01-06T12:00:00Z', title: 'MRI MDD', status: 'SUCCESS', meta: { condition: 'mdd' } },
-      ],
-      outcomes: [
-        { id: 'out-1', at: '2026-03-30T09:00:00Z', title: 'PHQ-9', status: 'post', meta: { score_numeric: 8 } },
-      ],
-    },
-    links: [
-      { from_lane: 'sessions', from_id: 'sess-1', to_lane: 'qeeg', to_id: 'qeeg-1', kind: 'temporal' },
-      { from_lane: 'sessions', from_id: 'sess-1', to_lane: 'mri', to_id: 'mri-1', kind: 'temporal' },
-      { from_lane: 'qeeg', from_id: 'qeeg-1', to_lane: 'outcomes', to_id: 'out-1', kind: 'course' },
-    ],
-  };
-}
-
 function _toDate(raw) {
   if (!raw) return null;
   try {
@@ -186,7 +159,12 @@ export async function pgPatientTimeline(setTopbar, navigate) {
   try {
     payload = await api.getMRIPatientTimeline(patientId);
   } catch (_err) {
-    payload = _demoTimeline(patientId);
+    el.innerHTML = emptyState('&#x1F4C5;', 'Patient timeline unavailable', 'We could not load the patient timeline right now. Please try again shortly.');
+    return;
+  }
+  if (!payload || typeof payload !== 'object') {
+    el.innerHTML = emptyState('&#x1F4C5;', 'Patient timeline unavailable', 'Timeline data is not available for this patient yet.');
+    return;
   }
   el.innerHTML = _renderTimeline(payload);
   _wireTimelineActions(navigate, payload);
