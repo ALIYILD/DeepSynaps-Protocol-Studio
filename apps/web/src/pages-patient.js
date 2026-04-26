@@ -15931,6 +15931,14 @@ window._importSwitchTab = function(tab) { _renderImportPage(tab); };
 
 window._importHandleFile = function(type, file) {
   if (!file) return;
+  // Client-side size guard: backend rejects >100MB but giving the user
+  // immediate, specific feedback is much friendlier than waiting for the
+  // upload to fail with a generic 413. Closes ISSUE-AUDIT-027.
+  const MAX_BYTES = 100 * 1024 * 1024;
+  if (file.size > MAX_BYTES) {
+    window._showToast?.(`File is too large (${Math.round(file.size / 1024 / 1024)} MB). Maximum is 100 MB.`, 'error');
+    return;
+  }
   if (type === 'protocol') {
     const reader = new FileReader();
     reader.onload = e => {
