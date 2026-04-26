@@ -478,7 +478,7 @@ export async function pgResearch(setTopbar, _navigate) {
   // success alerts. Only claims success when the API method actually exists
   // and the call resolves; otherwise reports an honest unavailable / failed.
   const _toast = (title, body, severity) =>
-    (window._dsToast?.({ title, body, severity }) || alert(`${title}: ${body}`));
+    (window._dsToast?.({ title, body, severity }) || window._showToast?.(`${title}: ${body}`, severity === 'warn' ? 'warning' : (severity === 'error' ? 'error' : 'info')));
   const _runApi = async (label, fn) => {
     if (typeof fn !== 'function') { _toast(label, 'Endpoint not available on this build.', 'warn'); return false; }
     try { await fn(); _toast(label, 'Submitted.', 'ok'); return true; }
