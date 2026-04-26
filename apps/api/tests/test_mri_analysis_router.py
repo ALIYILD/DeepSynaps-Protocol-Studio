@@ -20,13 +20,16 @@ from fastapi.testclient import TestClient
 from app.database import SessionLocal
 from app.persistence.models import (
     AiSummaryAudit,
+    Clinic,
     ClinicalSession,
     MriAnalysis,
     MriUpload,
     OutcomeSeries,
     Patient,
     QEEGRecord,
+    User,
 )
+from app.services.auth_service import create_access_token
 from app.settings import get_settings
 
 
@@ -487,14 +490,33 @@ def test_overlay_returns_html_response(
 
 def test_patient_timeline_returns_four_lanes(
     client: TestClient,
-    auth_headers: dict,
 ) -> None:
+    # Seed Clinic + clinician User first so resolve_patient_clinic_id can
+    # resolve patients.clinician_id -> users.clinic_id. The demo-token actor
+    # has clinic_id=None, which would trip the cross-clinic ownership gate
+    # (apps/api/app/auth.py:160). Mint a real JWT instead. See
+    # tests/test_cross_clinic_ownership.py:111-183 for the canonical pattern.
+    clinic_id = "clinic-test-default"
+    clinician_user_id = "user-test-clinician"
     db = SessionLocal()
     try:
+        db.add(Clinic(id=clinic_id, name="Test Clinic"))
+        db.add(
+            User(
+                id=clinician_user_id,
+                email="clinician-test@example.com",
+                display_name="Test Clinician",
+                hashed_password="x",
+                role="clinician",
+                package_id="clinician_pro",
+                clinic_id=clinic_id,
+            )
+        )
+        db.flush()
         db.add(
             Patient(
                 id="pat-timeline-1",
-                clinician_id="actor-clinician-demo",
+                clinician_id=clinician_user_id,
                 first_name="Timeline",
                 last_name="Patient",
             )
@@ -511,7 +533,7 @@ def test_patient_timeline_returns_four_lanes(
             ClinicalSession(
                 id="sess-timeline-1",
                 patient_id="pat-timeline-1",
-                clinician_id="actor-clinician-demo",
+                clinician_id=clinician_user_id,
                 scheduled_at="2026-01-12T09:00:00Z",
                 modality="rtms",
                 appointment_type="session",
@@ -523,7 +545,7 @@ def test_patient_timeline_returns_four_lanes(
             QEEGRecord(
                 id="qeeg-timeline-1",
                 patient_id="pat-timeline-1",
-                clinician_id="actor-clinician-demo",
+                clinician_id=clinician_user_id,
                 course_id="course-1",
                 recording_type="resting",
                 recording_date="2026-01-10",
@@ -541,7 +563,7 @@ def test_patient_timeline_returns_four_lanes(
                 score_numeric=8.0,
                 measurement_point="post",
                 administered_at=datetime(2026, 1, 20, tzinfo=timezone.utc),
-                clinician_id="actor-clinician-demo",
+                clinician_id=clinician_user_id,
             )
         )
         db.add(
@@ -562,9 +584,16 @@ def test_patient_timeline_returns_four_lanes(
     finally:
         db.close()
 
+    token = create_access_token(
+        user_id=clinician_user_id,
+        email="clinician-test@example.com",
+        role="clinician",
+        package_id="clinician_pro",
+        clinic_id=clinic_id,
+    )
     resp = client.get(
         "/api/v1/mri/patients/pat-timeline-1/timeline",
-        headers=auth_headers["clinician"],
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
