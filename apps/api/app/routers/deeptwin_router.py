@@ -969,3 +969,338 @@ def deeptwin_post_agent_handoff(
     _gate_patient_access(_actor, patient_id)
     result = create_agent_handoff_summary(patient_id, kind=payload.kind, note=payload.note)
     return TwinAgentHandoffOut(**result)
+
+
+# ---------------------------------------------------------------------------
+# DeepTwin TRIBE-inspired layer (modality encoders → fusion → adapter →
+# simulation heads → explanation). Additive: lives alongside the v1
+# endpoints above without replacing any existing surface.
+# ---------------------------------------------------------------------------
+
+from app.services.deeptwin_tribe import (  # noqa: E402  (intentional late import)
+    GENERIC_DISCLAIMER as TRIBE_DISCLAIMER,
+    ProtocolSpec as TribeProtocolSpec,
+    compare_protocols as tribe_compare_protocols,
+    compute_patient_latent as tribe_compute_patient_latent,
+    encode_all as tribe_encode_all,
+    simulate_protocol as tribe_simulate_protocol,
+    to_jsonable as tribe_to_jsonable,
+)
+
+
+class TribeProtocolModel(BaseModel):
+    protocol_id: str = Field(..., min_length=1)
+    label: str | None = None
+    modality: Literal[
+        "tms", "tdcs", "tacs", "ces", "pbm", "behavioural",
+        "therapy", "medication", "lifestyle",
+    ] = "tdcs"
+    target: str | None = None
+    frequency_hz: float | None = None
+    current_ma: float | None = None
+    duration_min: int | None = None
+    sessions_per_week: int | None = None
+    weeks: int | None = None
+    contraindications: list[str] = Field(default_factory=list)
+    adherence_assumption_pct: float = Field(80.0, ge=0.0, le=100.0)
+    notes: str | None = None
+
+    def to_spec(self) -> TribeProtocolSpec:
+        return TribeProtocolSpec(**self.model_dump())
+
+
+class TribeSamplesModel(BaseModel):
+    """Optional raw modality samples (for callers that want to override demo data)."""
+
+    qeeg: dict[str, Any] | None = None
+    mri: dict[str, Any] | None = None
+    assessments: dict[str, Any] | None = None
+    wearables: dict[str, Any] | None = None
+    treatment_history: dict[str, Any] | None = None
+    demographics: dict[str, Any] | None = None
+    medications: dict[str, Any] | None = None
+    text: dict[str, Any] | None = None
+    voice: dict[str, Any] | None = None
+
+    def to_dict(self) -> dict[str, dict[str, Any]] | None:
+        out = {k: v for k, v in self.model_dump().items() if v is not None}
+        return out or None
+
+
+class TribeSimulateRequest(BaseModel):
+    patient_id: str = Field(..., min_length=1)
+    protocol: TribeProtocolModel
+    horizon_weeks: int = Field(6, ge=1, le=26)
+    samples: TribeSamplesModel | None = None
+    profile: dict[str, Any] | None = None
+    only_modalities: list[str] | None = None
+    include_explanations: bool = True
+    include_evidence: bool = True
+    include_uncertainty: bool = True
+
+
+class TribeSimulateResponse(BaseModel):
+    patient_id: str
+    horizon_weeks: int
+    output: dict[str, Any]
+    disclaimer: str = TRIBE_DISCLAIMER
+
+
+class TribeCompareRequest(BaseModel):
+    patient_id: str = Field(..., min_length=1)
+    protocols: list[TribeProtocolModel] = Field(..., min_length=2, max_length=8)
+    horizon_weeks: int = Field(6, ge=1, le=26)
+    samples: TribeSamplesModel | None = None
+    profile: dict[str, Any] | None = None
+    only_modalities: list[str] | None = None
+
+
+class TribeCompareResponse(BaseModel):
+    patient_id: str
+    horizon_weeks: int
+    comparison: dict[str, Any]
+    disclaimer: str = TRIBE_DISCLAIMER
+
+
+class TribeLatentRequest(BaseModel):
+    patient_id: str = Field(..., min_length=1)
+    samples: TribeSamplesModel | None = None
+    profile: dict[str, Any] | None = None
+    only_modalities: list[str] | None = None
+
+
+class TribeLatentResponse(BaseModel):
+    patient_id: str
+    embeddings: list[dict[str, Any]]
+    latent: dict[str, Any]
+    adapted: dict[str, Any]
+    disclaimer: str = TRIBE_DISCLAIMER
+
+
+class TribeExplainRequest(BaseModel):
+    patient_id: str = Field(..., min_length=1)
+    protocol: TribeProtocolModel
+    horizon_weeks: int = Field(6, ge=1, le=26)
+    samples: TribeSamplesModel | None = None
+    profile: dict[str, Any] | None = None
+    only_modalities: list[str] | None = None
+
+
+class TribeExplainResponse(BaseModel):
+    patient_id: str
+    protocol_id: str
+    explanation: dict[str, Any]
+    response_probability: float
+    response_confidence: str
+    evidence_grade: str
+    disclaimer: str = TRIBE_DISCLAIMER
+
+
+class TribeReportPayloadRequest(BaseModel):
+    patient_id: str = Field(..., min_length=1)
+    protocol: TribeProtocolModel
+    horizon_weeks: int = Field(6, ge=1, le=26)
+    samples: TribeSamplesModel | None = None
+    profile: dict[str, Any] | None = None
+    kind: Literal[
+        "clinician_intelligence",
+        "patient_progress",
+        "protocol_comparison",
+        "governance",
+    ] = "clinician_intelligence"
+
+
+class TribeReportPayloadResponse(BaseModel):
+    patient_id: str
+    kind: str
+    title: str
+    sections: list[dict[str, Any]]
+    audit_ref: str
+    generated_at: str
+    disclaimer: str = TRIBE_DISCLAIMER
+
+
+@router.post("/simulate-tribe", response_model=TribeSimulateResponse, tags=["deeptwin-tribe"])
+def deeptwin_simulate_tribe(
+    payload: TribeSimulateRequest,
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> TribeSimulateResponse:
+    sim = tribe_simulate_protocol(
+        payload.patient_id,
+        payload.protocol.to_spec(),
+        horizon_weeks=payload.horizon_weeks,
+        samples=payload.samples.to_dict() if payload.samples else None,
+        profile=payload.profile,
+        only=payload.only_modalities,
+    )
+    out = tribe_to_jsonable(sim)
+    if not payload.include_explanations:
+        out.pop("explanation", None)
+    if not payload.include_uncertainty:
+        for traj in out.get("heads", {}).get("symptom_trajectories", []):
+            for p in traj.get("points", []):
+                p.pop("ci_low", None)
+                p.pop("ci_high", None)
+    return TribeSimulateResponse(
+        patient_id=payload.patient_id,
+        horizon_weeks=payload.horizon_weeks,
+        output=out,
+    )
+
+
+@router.post("/compare-protocols", response_model=TribeCompareResponse, tags=["deeptwin-tribe"])
+def deeptwin_compare_protocols(
+    payload: TribeCompareRequest,
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> TribeCompareResponse:
+    cmp_obj = tribe_compare_protocols(
+        payload.patient_id,
+        [p.to_spec() for p in payload.protocols],
+        horizon_weeks=payload.horizon_weeks,
+        samples=payload.samples.to_dict() if payload.samples else None,
+        profile=payload.profile,
+        only=payload.only_modalities,
+    )
+    return TribeCompareResponse(
+        patient_id=payload.patient_id,
+        horizon_weeks=payload.horizon_weeks,
+        comparison=tribe_to_jsonable(cmp_obj),
+    )
+
+
+@router.post("/patient-latent", response_model=TribeLatentResponse, tags=["deeptwin-tribe"])
+def deeptwin_patient_latent(
+    payload: TribeLatentRequest,
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> TribeLatentResponse:
+    embs, latent, adapted = tribe_compute_patient_latent(
+        payload.patient_id,
+        samples=payload.samples.to_dict() if payload.samples else None,
+        profile=payload.profile,
+        only=payload.only_modalities,
+    )
+    return TribeLatentResponse(
+        patient_id=payload.patient_id,
+        embeddings=[tribe_to_jsonable(e) for e in embs],
+        latent=tribe_to_jsonable(latent),
+        adapted=tribe_to_jsonable(adapted),
+    )
+
+
+@router.post("/explain", response_model=TribeExplainResponse, tags=["deeptwin-tribe"])
+def deeptwin_explain(
+    payload: TribeExplainRequest,
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> TribeExplainResponse:
+    sim = tribe_simulate_protocol(
+        payload.patient_id,
+        payload.protocol.to_spec(),
+        horizon_weeks=payload.horizon_weeks,
+        samples=payload.samples.to_dict() if payload.samples else None,
+        profile=payload.profile,
+        only=payload.only_modalities,
+    )
+    out = tribe_to_jsonable(sim)
+    return TribeExplainResponse(
+        patient_id=payload.patient_id,
+        protocol_id=payload.protocol.protocol_id,
+        explanation=out.get("explanation", {}),
+        response_probability=out["heads"]["response_probability"],
+        response_confidence=out["heads"]["response_confidence"],
+        evidence_grade=out["explanation"]["evidence_grade"],
+    )
+
+
+@router.post("/report-payload", response_model=TribeReportPayloadResponse, tags=["deeptwin-tribe"])
+def deeptwin_report_payload(
+    payload: TribeReportPayloadRequest,
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> TribeReportPayloadResponse:
+    sim = tribe_simulate_protocol(
+        payload.patient_id,
+        payload.protocol.to_spec(),
+        horizon_weeks=payload.horizon_weeks,
+        samples=payload.samples.to_dict() if payload.samples else None,
+        profile=payload.profile,
+    )
+    sim_dict = tribe_to_jsonable(sim)
+    audit_ref = f"twin_tribe_report:{payload.patient_id}:{payload.kind}:{payload.protocol.protocol_id}"
+    sections: list[dict[str, Any]] = [
+        {
+            "id": "summary",
+            "title": "Patient summary",
+            "items": [
+                f"Patient {payload.patient_id}",
+                f"Modalities used: {len(sim_dict['explanation']['top_modalities'])}",
+                f"Coverage ratio: {sim_dict['explanation'].get('evidence_grade', 'low')}",
+                f"Horizon: {payload.horizon_weeks} weeks",
+            ],
+        },
+        {
+            "id": "scenario",
+            "title": "Scenario",
+            "items": [
+                f"Protocol: {payload.protocol.protocol_id}",
+                f"Modality: {payload.protocol.modality}",
+                f"Target: {payload.protocol.target or '—'}",
+                f"Sessions/week: {payload.protocol.sessions_per_week or '—'}",
+                f"Weeks: {payload.protocol.weeks or '—'}",
+            ],
+        },
+        {
+            "id": "predictions",
+            "title": "Predicted response",
+            "items": [
+                f"Response probability: {sim_dict['heads']['response_probability']}",
+                f"Confidence: {sim_dict['heads']['response_confidence']}",
+                f"Latent state change: {sim_dict['heads']['latent_state_change']['direction']}",
+            ],
+        },
+        {
+            "id": "drivers",
+            "title": "Top drivers",
+            "items": [
+                f"{d['modality']} · {d['feature']} · {d['direction']}"
+                for d in sim_dict["explanation"]["top_drivers"]
+            ],
+        },
+        {
+            "id": "risks",
+            "title": "Risks and monitoring",
+            "items": [
+                f"Adverse risk level: {sim_dict['heads']['adverse_risk']['level']}",
+                *sim_dict["heads"]["adverse_risk"]["monitoring_plan"],
+            ],
+        },
+        {
+            "id": "limitations",
+            "title": "Limitations and missing data",
+            "items": list(sim_dict["explanation"]["missing_data_notes"])
+            or ["No notable missing-modality gaps detected."],
+        },
+        {
+            "id": "review",
+            "title": "Recommended clinician review points",
+            "items": list(sim_dict["explanation"]["cautions"]),
+        },
+        {
+            "id": "audit",
+            "title": "Audit",
+            "items": [audit_ref],
+        },
+    ]
+    title_map = {
+        "clinician_intelligence": "DeepTwin Clinical Intelligence Report",
+        "patient_progress": "DeepTwin Patient Progress Report",
+        "protocol_comparison": "DeepTwin Protocol Comparison Report",
+        "governance": "DeepTwin Governance Report",
+    }
+    from datetime import datetime, timezone
+    return TribeReportPayloadResponse(
+        patient_id=payload.patient_id,
+        kind=payload.kind,
+        title=title_map.get(payload.kind, "DeepTwin Report"),
+        sections=sections,
+        audit_ref=audit_ref,
+        generated_at=datetime.now(timezone.utc).isoformat(),
+    )
