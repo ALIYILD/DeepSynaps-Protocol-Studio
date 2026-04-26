@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_patient_owner
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import (
@@ -28,6 +28,7 @@ from app.persistence.models import (
     WearableDailySummary,
     WearableObservation,
 )
+from app.repositories.patients import resolve_patient_clinic_id
 from app.services.wearable_flags import compute_readiness_score, run_flag_checks
 
 router = APIRouter(prefix="/api/v1/wearables", tags=["Wearable Monitoring"])
@@ -48,11 +49,15 @@ def _require_clinician_access(actor: AuthenticatedActor) -> None:
 
 
 def _require_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> Patient:
-    """Verify actor can access this patient (clinician or admin)."""
+    """Verify actor can access this patient (role gate + cross-clinic owner gate)."""
     _require_clinician_access(actor)
     patient = db.query(Patient).filter_by(id=patient_id).first()
     if patient is None:
         raise ApiServiceError(code='not_found', message='Patient not found.', status_code=404)
+    # Cross-clinic ownership: clinicians/reviewers/technicians may only see
+    # patients whose owning clinician shares their clinic_id. Admins bypass.
+    _, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    require_patient_owner(actor, clinic_id)
     return patient
 
 

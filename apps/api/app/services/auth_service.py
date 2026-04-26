@@ -33,9 +33,24 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
-def create_access_token(user_id: str, email: str, role: str, package_id: str) -> str:
+def create_access_token(
+    user_id: str,
+    email: str,
+    role: str,
+    package_id: str,
+    clinic_id: str | None = None,
+) -> str:
+    """Mint a short-lived access JWT.
+
+    ``clinic_id`` is the tenant scope from ``users.clinic_id`` and is included
+    only when present. Tokens for users without a clinic (e.g. platform admins
+    or freshly registered clinicians who have not yet joined a clinic) omit the
+    claim so :class:`AuthenticatedActor.clinic_id` resolves to ``None`` —
+    this is what the cross-clinic ownership gate uses to decide whether the
+    actor passes.
+    """
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_access_token_expire_minutes)
-    payload = {
+    payload: dict[str, object] = {
         "sub": user_id,
         "email": email,
         "role": role,
@@ -43,6 +58,8 @@ def create_access_token(user_id: str, email: str, role: str, package_id: str) ->
         "type": "access",
         "exp": expire,
     }
+    if clinic_id:
+        payload["clinic_id"] = clinic_id
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
