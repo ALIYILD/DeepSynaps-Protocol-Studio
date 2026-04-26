@@ -2713,7 +2713,7 @@ export async function pgPricing(setTopbar) {
     return `<div style="border-top:1px solid var(--border);padding:40px 0 24px;text-align:center">
       <div style="font-family:var(--font-display);font-size:22px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Start your 14-day free trial today</div>
       <div style="font-size:13px;color:var(--text-tertiary);margin-bottom:20px;max-width:500px;margin-left:auto;margin-right:auto;line-height:1.6">
-        Full Professional access. 3 qEEG reports, 1 MRI analysis, and 3 personalized protocols included. No credit card required to explore.
+        Full Clinician Pro access during the trial. No credit card required to explore.
       </div>
       <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap">
         <button class="btn btn-primary" style="padding:10px 22px;font-size:13px;font-weight:700;border-radius:var(--radius-md)" onclick="window._pricingCta('trial')">Start Free Trial \u2192</button>
