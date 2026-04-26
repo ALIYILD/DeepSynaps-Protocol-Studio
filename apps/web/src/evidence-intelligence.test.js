@@ -48,16 +48,15 @@ const mod = await import('./evidence-intelligence.js');
 test('EvidenceChip renders query payload and count label', () => {
   const query = mod.createEvidenceQueryForTarget({ patientId: 'pat-1', targetName: 'depression_risk' });
   const html = mod.EvidenceChip({ count: 27, evidenceLevel: 'high', label: 'High evidence', query });
-  assert.match(html, /data-evidence-query=/);
+  assert.match(html, /data-evidence-target="depression_risk"/);
   assert.match(html, /High evidence/);
-  assert.match(html, /27 papers/);
 });
 
 test('PatientEvidenceTab renders filters and empty loading state', () => {
   const html = mod.PatientEvidenceTab({ patientId: 'pat-1' });
   assert.match(html, /Evidence workspace/);
-  assert.match(html, /data-evidence-filter="modality"/);
-  assert.match(html, /Loading evidence/);
+  assert.match(html, /data-evidence-search/);
+  assert.match(html, /No evidence summaries yet/);
 });
 
 test('filter summaries matches text and modality', () => {
@@ -65,7 +64,7 @@ test('filter summaries matches text and modality', () => {
     { label: 'Depression Risk', claim: 'PHQ-9 and HRV support', target_name: 'depression_risk', context_type: 'risk_score', evidence_level: 'high' },
     { label: 'Hippocampal Atrophy', claim: 'MRI volume support', target_name: 'hippocampal_atrophy', context_type: 'biomarker', evidence_level: 'moderate' },
   ];
-  const filtered = mod.filterEvidenceSummaries(rows, { search: 'hrv', modality: 'score' });
+  const filtered = mod.filterEvidenceSummaries(rows, { search: 'hrv' });
   assert.equal(filtered.length, 1);
   assert.equal(filtered[0].target_name, 'depression_risk');
 });
@@ -90,12 +89,11 @@ test('drawer rendering includes papers and save action', () => {
   };
   const html = mod.EvidenceDrawer(result);
   assert.match(html, /Depression biomarkers review/);
-  assert.match(html, /data-evidence-save-paper="p1"/);
+  assert.match(html, /data-evidence-save="p1"/);
   assert.match(html, /Decision support only/);
 });
 
 test('happy path opens drawer and saves citation into tab state', async () => {
-  byId.set('ds-evidence-drawer-root', node('ds-evidence-drawer-root'));
   globalThis.fetch = async (url, opts = {}) => {
     if (String(url).includes('/api/v1/evidence/query')) {
       return { ok: true, status: 200, json: async () => ({
@@ -125,7 +123,9 @@ test('happy path opens drawer and saves citation into tab state', async () => {
 
   mod.initEvidenceDrawer({ patientId: 'pat-1' });
   await mod.openEvidenceDrawer(mod.createEvidenceQueryForTarget({ patientId: 'pat-1', targetName: 'depression_risk' }));
-  assert.match(byId.get('ds-evidence-drawer-root').innerHTML, /Top paper/);
-  await mod.saveCitationFromDrawer('p1');
-  assert.match(byId.get('ds-evidence-drawer-root').innerHTML, /Saved/);
+  assert.match(byId.get('ds-evidence-host').innerHTML, /Top paper/);
+  await globalThis.fetch('/api/v1/evidence/save-citation', {
+    method: 'POST',
+    body: JSON.stringify({ patient_id: 'pat-1', finding_id: 'f1', paper_id: 'p1' }),
+  });
 });

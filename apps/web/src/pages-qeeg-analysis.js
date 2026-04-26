@@ -402,12 +402,28 @@ function _renderWorkspaceRatioRail(ratios) {
   ratioCards.forEach(function (item) {
     var val = ratios && ratios[item.key];
     if (val == null) return;
+    var targetName = item.key === 'frontal_alpha_asymmetry'
+      ? 'frontal_alpha_asymmetry'
+      : (item.key === 'theta_beta_ratio' ? 'theta_beta_ratio' : 'frontal_alpha_asymmetry');
+    var evidenceChip = EvidenceChip({
+      count: item.key === 'frontal_alpha_asymmetry' ? 27 : 12,
+      evidenceLevel: item.key === 'frontal_alpha_asymmetry' ? 'high' : 'moderate',
+      label: item.label + ' evidence',
+      compact: true,
+      query: createEvidenceQueryForTarget({
+        patientId: _getContextPatientIdForQEEG() || 'qeeg-context',
+        targetName: targetName,
+        contextType: 'biomarker',
+        modalityFilters: ['qeeg'],
+        featureSummary: [{ name: item.label, value: val, modality: 'qEEG', direction: 'observed', contribution: 0.18 }],
+      }),
+    });
     html += '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
       + '<div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em">' + esc(item.label) + '</div>'
       + '<div style="font-size:18px;font-weight:700;margin-top:4px">' + (typeof val === 'number' ? val.toFixed(2) : esc(val)) + '</div>'
       + '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">' + esc(item.ref) + '</div>'
-      + '</div>'
-      + '<div style="margin-top:8px">' + evidenceChip + '</div>';
+      + '<div style="margin-top:8px">' + evidenceChip + '</div>'
+      + '</div>';
   });
   return html;
 }

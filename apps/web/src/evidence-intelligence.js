@@ -23,12 +23,41 @@ export function EvidenceChip({
   compact = false,
   showIcon = true,
   target = '',
+  query = null,
 } = {}) {
   const text = label || (count ? `${count} papers` : 'Evidence');
-  return `<button type="button" class="ds-evidence-chip ds-evidence-chip--${esc(evidenceLevel)}${compact ? ' ds-evidence-chip--compact' : ''}" data-evidence-target="${esc(target)}" aria-label="Open evidence for ${esc(text)}">
+  const payload = query ? esc(JSON.stringify(query)) : '';
+  const targetName = target || query?.target_name || '';
+  return `<button type="button" class="ds-evidence-chip ds-evidence-chip--${esc(evidenceLevel)}${compact ? ' ds-evidence-chip--compact' : ''}" data-evidence-target="${esc(targetName)}" ${payload ? `data-evidence-query="${payload}"` : ''} aria-label="Open evidence for ${esc(text)}">
     ${showIcon ? '<span class="ds-evidence-chip__icon" aria-hidden="true">E</span>' : ''}
     <span>${esc(text)}</span>
+    ${count ? `<span class="ds-evidence-chip__count">${esc(count)} papers</span>` : ''}
   </button>`;
+}
+
+export function createEvidenceQueryForTarget({
+  patientId = 'demo-patient',
+  targetName = 'depression_risk',
+  contextType = 'biomarker',
+  modalityFilters = [],
+  diagnosisFilters = [],
+  interventionFilters = [],
+  phenotypeTags = [],
+  featureSummary = [],
+  maxResults = 8,
+} = {}) {
+  return {
+    patient_id: patientId,
+    context_type: contextType,
+    target_name: targetName,
+    modality_filters: modalityFilters,
+    diagnosis_filters: diagnosisFilters,
+    intervention_filters: interventionFilters,
+    phenotype_tags: phenotypeTags,
+    feature_summary: featureSummary,
+    max_results: maxResults,
+    include_counter_evidence: true,
+  };
 }
 
 export function EvidenceStrengthBadge(type = 'review') {
@@ -63,7 +92,7 @@ export function EvidencePaperList(papers = [], result = null) {
         <span class="mono">score ${Number(paper.score_breakdown?.total || 0).toFixed(2)}</span>
         ${paper.citation_count != null ? `<span>${esc(paper.citation_count)} cites</span>` : ''}
         ${paper.url ? `<a href="${esc(paper.url)}" target="_blank" rel="noreferrer">Open</a>` : ''}
-        <button type="button" data-evidence-save="${esc(paper.paper_id)}">Save</button>
+        <button type="button" data-evidence-save="${esc(paper.paper_id)}" data-evidence-save-paper="${esc(paper.paper_id)}">Save</button>
       </div>
     </article>`).join('')}</div>`;
 }
@@ -139,6 +168,9 @@ export function EvidenceDrawer(result, { patientId = '' } = {}) {
 }
 
 export function PatientEvidenceTab(overview, filter = {}) {
+  if (overview && overview.patientId && !overview.highlights && !overview.by_score) {
+    overview = { patient_id: overview.patientId, highlights: [], by_score: [], by_protocol: [], by_modality: {}, saved_citations: [] };
+  }
   const all = [
     ...(overview?.highlights || []),
     ...(overview?.by_score || []),
@@ -146,19 +178,15 @@ export function PatientEvidenceTab(overview, filter = {}) {
     ...Object.values(overview?.by_modality || {}).flat(),
   ];
   const seen = new Set();
-  const unique = all.filter((item) => {
+  const unique = filterEvidenceSummaries(all.filter((item) => {
     if (!item || seen.has(item.finding_id)) return false;
     seen.add(item.finding_id);
     return true;
-  }).filter((item) => {
-    const q = String(filter.search || '').toLowerCase();
-    if (!q) return true;
-    return `${item.label} ${item.claim} ${item.target_name}`.toLowerCase().includes(q);
-  });
+  }), filter);
   const saved = overview?.saved_citations || [];
   return `<div class="ds-evidence-tab">
     <div class="ds-evidence-tab__hero">
-      <div><div class="ds-evidence-eyebrow">Patient 360 Evidence</div><h2>Grounded literature workspace</h2><p>Aggregates evidence linked to biomarkers, scores, longitudinal changes, recommendations, and saved report citations.</p></div>
+      <div><div class="ds-evidence-eyebrow">Patient 360 Evidence</div><h2>Evidence workspace</h2><p>Aggregates evidence linked to biomarkers, scores, longitudinal changes, recommendations, and saved report citations.</p></div>
       <input class="ds-evidence-search" data-evidence-search placeholder="Search title, abstract, entity, concept" value="${esc(filter.search || '')}" />
     </div>
     <div class="ds-evidence-tab__sections">
@@ -173,13 +201,15 @@ export function PatientEvidenceTab(overview, filter = {}) {
   </div>`;
 }
 
-export async function openEvidenceDrawer({ patientId, target, featureSummary = [] } = {}) {
-  const spec = EVIDENCE_TARGETS[target] || EVIDENCE_TARGETS[target?.replaceAll('_', '-')] || { target_name: target || 'depression_risk', context_type: 'biomarker' };
+export async function openEvidenceDrawer({ patientId, target, featureSummary = [], query = null, ...rest } = {}) {
+  const directQuery = query || (rest.target_name ? { patient_id: patientId, target_name: rest.target_name, ...rest } : null);
+  const spec = EVIDENCE_TARGETS[target] || EVIDENCE_TARGETS[target?.replaceAll?.('_', '-')] || { target_name: target || directQuery?.target_name || 'depression_risk', context_type: 'biomarker' };
   const host = ensureEvidenceHost();
   host.innerHTML = '<div class="ds-evidence-backdrop" data-evidence-close="1"></div><aside class="ds-evidence-drawer"><div class="ds-evidence-loading">Loading evidence...</div></aside>';
-  host.classList.add('is-open');
+  host.classList?.add?.('is-open');
   try {
-    const result = await api.queryEvidence({
+    const queryFn = api.queryEvidence || api.evidenceQuery;
+    const result = await queryFn(directQuery || {
       patient_id: patientId || 'demo-patient',
       context_type: spec.context_type || 'biomarker',
       target_name: spec.target_name || target,
@@ -199,11 +229,22 @@ export async function openEvidenceDrawer({ patientId, target, featureSummary = [
   }
 }
 
+export function initEvidenceDrawer({ patientId = '', onOpenFullTab = null } = {}) {
+  const host = ensureEvidenceHost();
+  host.dataset = host.dataset || {};
+  host.dataset.patientId = patientId;
+  if (onOpenFullTab) {
+    window.__dsEvidenceOpenFullTab = onOpenFullTab;
+  }
+  return host;
+}
+
 export async function renderPatientEvidenceWorkspace(patientId, host, filter = {}) {
   if (!host) return;
   host.innerHTML = '<div class="ds-evidence-loading">Loading patient evidence...</div>';
   try {
-    const overview = await api.getPatientEvidenceOverview(patientId);
+    const overviewFn = api.getPatientEvidenceOverview || api.evidencePatientOverview;
+    const overview = await overviewFn(patientId);
     host.innerHTML = PatientEvidenceTab(overview, filter);
     host.querySelectorAll('[data-evidence-target]').forEach((node) => {
       node.addEventListener('click', () => openEvidenceDrawer({ patientId, target: node.getAttribute('data-evidence-target') }));
@@ -226,12 +267,38 @@ export async function renderPatientEvidenceWorkspace(patientId, host, filter = {
 }
 
 export function wireEvidenceChips(root, patientId) {
+  if (!root || typeof root.querySelectorAll !== 'function') return;
+  const options = typeof patientId === 'object' && patientId !== null ? patientId : null;
   root.querySelectorAll('[data-evidence-target]').forEach((node) => {
     node.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      openEvidenceDrawer({ patientId, target: node.getAttribute('data-evidence-target') });
+      let parsed = null;
+      const raw = node.getAttribute('data-evidence-query');
+      if (raw) {
+        try { parsed = JSON.parse(raw); } catch {}
+      }
+      if (options?.onOpen) {
+        options.onOpen(parsed || { target: node.getAttribute('data-evidence-target') });
+      } else {
+        openEvidenceDrawer(parsed || { patientId, target: node.getAttribute('data-evidence-target') });
+      }
     });
+  });
+}
+
+export function filterEvidenceSummaries(rows = [], filter = {}) {
+  const q = String(filter.search || '').toLowerCase();
+  const modality = String(filter.modality || '').toLowerCase();
+  return rows.filter((item) => {
+    if (!item) return false;
+    const haystack = `${item.label || ''} ${item.claim || ''} ${item.target_name || ''} ${item.context_type || ''}`.toLowerCase();
+    if (q && !haystack.includes(q)) return false;
+    if (modality) {
+      if (modality === 'score' && !['prediction', 'risk_score'].includes(item.context_type)) return false;
+      if (modality !== 'score' && !haystack.includes(modality)) return false;
+    }
+    return true;
   });
 }
 
@@ -248,7 +315,7 @@ function ensureEvidenceHost() {
 
 function wireDrawer(host, result, patientId) {
   host.querySelectorAll('[data-evidence-close]').forEach((node) => node.addEventListener('click', () => {
-    host.classList.remove('is-open');
+    host.classList?.remove?.('is-open');
     host.innerHTML = '';
   }));
   host.querySelectorAll('[data-evidence-save]').forEach((node) => node.addEventListener('click', async () => {
@@ -270,6 +337,10 @@ function wireDrawer(host, result, patientId) {
     node.disabled = true;
   }));
   host.querySelectorAll('[data-evidence-full-tab]').forEach((node) => node.addEventListener('click', () => {
+    if (typeof window.__dsEvidenceOpenFullTab === 'function') {
+      window.__dsEvidenceOpenFullTab();
+      return;
+    }
     window._paEvidenceTab = true;
     window._paPatientId = node.getAttribute('data-evidence-full-tab') || patientId;
     window._nav?.('patient-analytics');

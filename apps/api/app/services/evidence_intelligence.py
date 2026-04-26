@@ -701,24 +701,22 @@ def summary_from_result(result: EvidenceResult, saved: bool = False) -> Evidence
 def save_citation(body: SaveCitationRequest, actor_id: str, db: Session) -> dict[str, Any]:
     existing = db.scalar(select(EvidenceSavedCitation).where(
         EvidenceSavedCitation.patient_id == body.patient_id,
-        EvidenceSavedCitation.claim_id == body.finding_id,
+        EvidenceSavedCitation.finding_id == body.finding_id,
         EvidenceSavedCitation.paper_id == body.paper_id,
-        EvidenceSavedCitation.user_id == actor_id,
+        EvidenceSavedCitation.actor_id == actor_id,
     ))
     if existing is None:
         existing = EvidenceSavedCitation(
             id=str(uuid.uuid4()),
             patient_id=body.patient_id,
-            user_id=actor_id,
-            claim_id=body.finding_id,
+            actor_id=actor_id,
+            finding_id=body.finding_id,
+            finding_label=body.finding_label,
             claim=body.claim,
             paper_id=body.paper_id,
-            paper_payload_json=json.dumps({
-                "title": body.paper_title,
-                "pmid": body.pmid,
-                "doi": body.doi,
-                "finding_label": body.finding_label,
-            }),
+            paper_title=body.paper_title,
+            pmid=body.pmid,
+            doi=body.doi,
             citation_payload_json=json.dumps(body.citation_payload),
         )
         db.add(existing)
@@ -741,20 +739,16 @@ def saved_record_to_dict(row: EvidenceSavedCitation) -> dict[str, Any]:
         payload = json.loads(row.citation_payload_json or "{}")
     except json.JSONDecodeError:
         payload = {}
-    try:
-        paper_payload = json.loads(row.paper_payload_json or "{}")
-    except json.JSONDecodeError:
-        paper_payload = {}
     return {
         "id": row.id,
         "patient_id": row.patient_id,
-        "finding_id": row.claim_id,
-        "finding_label": paper_payload.get("finding_label") or row.claim_id,
+        "finding_id": row.finding_id,
+        "finding_label": row.finding_label,
         "claim": row.claim,
         "paper_id": row.paper_id,
-        "paper_title": paper_payload.get("title") or payload.get("title") or row.paper_id,
-        "pmid": paper_payload.get("pmid") or payload.get("pmid"),
-        "doi": paper_payload.get("doi") or payload.get("doi"),
+        "paper_title": row.paper_title,
+        "pmid": row.pmid,
+        "doi": row.doi,
         "citation_payload": payload,
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
@@ -1066,6 +1060,6 @@ def _dedupe(values: list[str]) -> list[str]:
 def _is_saved(db: Session, patient_id: str, finding_id: str) -> bool:
     return db.scalar(select(EvidenceSavedCitation.id).where(
         EvidenceSavedCitation.patient_id == patient_id,
-        EvidenceSavedCitation.claim_id == finding_id,
+        EvidenceSavedCitation.finding_id == finding_id,
     ).limit(1)) is not None
 
