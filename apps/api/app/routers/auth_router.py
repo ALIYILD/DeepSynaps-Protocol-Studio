@@ -401,6 +401,7 @@ def register(
         email=user.email,
         role=user.role,
         package_id=user.package_id,
+        clinic_id=user.clinic_id,
     )
     refresh_token = auth_service.create_refresh_token(user_id=user.id)
     _record_user_session(db, user_id=user.id, refresh_token=refresh_token, request=request)
@@ -448,6 +449,7 @@ def login(
         email=user.email,
         role=user.role,
         package_id=user.package_id,
+        clinic_id=user.clinic_id,
     )
     refresh_token = auth_service.create_refresh_token(user_id=user.id)
     _record_user_session(db, user_id=user.id, refresh_token=refresh_token, request=request)
@@ -505,6 +507,7 @@ def refresh_token(
         email=user.email,
         role=user.role,
         package_id=user.package_id,
+        clinic_id=user.clinic_id,
     )
 
     new_refresh_token = auth_service.create_refresh_token(user_id=user.id)
@@ -828,6 +831,7 @@ def activate_patient(
         email=user.email,
         role=user.role,
         package_id=user.package_id,
+        clinic_id=user.clinic_id,
     )
     refresh_token = auth_service.create_refresh_token(user_id=user.id)
     _record_user_session(db, user_id=user.id, refresh_token=refresh_token, request=request)

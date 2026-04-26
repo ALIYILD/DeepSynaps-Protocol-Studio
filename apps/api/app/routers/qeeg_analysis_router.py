@@ -17,7 +17,12 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import (
@@ -27,11 +32,25 @@ from app.persistence.models import (
     QEEGComparison,
     QEEGRecord,
 )
+from app.repositories.patients import resolve_patient_clinic_id
 from app.settings import get_settings
 
 _log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/qeeg-analysis", tags=["qeeg-analysis"])
+
+
+def _gate_patient_access(
+    actor: AuthenticatedActor, patient_id: str, db: Session
+) -> None:
+    """Cross-clinic ownership gate. Real (DB-existing) patients only.
+
+    See ``deeptwin_router._gate_patient_access`` for the rationale on why
+    non-existent patient_ids are allowed through (synthetic / demo flows).
+    """
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 
 # New local recommender (qeeg-pipeline package).
 try:  # optional import guard for older deployments
@@ -466,6 +485,7 @@ async def upload_edf(
 ) -> AnalysisOut:
     """Upload an EDF/BDF/EEG file for qEEG analysis."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     # Validate file extension
     filename = file.filename or "recording.edf"
@@ -565,6 +585,8 @@ async def analyze_edf(
     analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
     if not analysis:
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    _gate_patient_access(actor, analysis.patient_id, db)
 
     if analysis.analysis_status == "completed":
         return AnalysisOut.from_record(analysis)
@@ -835,6 +857,7 @@ def get_analysis(
     if not analysis:
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
 
+    _gate_patient_access(actor, analysis.patient_id, db)
     return AnalysisOut.from_record(analysis)
 
 
@@ -848,6 +871,7 @@ def list_patient_analyses(
 ) -> AnalysisListResponse:
     """List all qEEG analyses for a patient."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     analyses = (
         db.query(QEEGAnalysis)
@@ -2037,6 +2061,7 @@ def longitudinal_trending(
     classification (improving / stable / declining).
     """
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, body.patient_id, db)
 
     # ── Demo mode fallback ────────────────────────────────────────────────
     if _is_demo_id(body.patient_id):
@@ -2992,6 +3017,7 @@ def patient_trajectory_endpoint(
     longitudinal module is missing from the worker.
     """
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     try:
         from app.services import qeeg_ai_bridge
