@@ -3685,7 +3685,7 @@ export async function pgMultiSiteDashboard(setTopbar) {
     const from    = document.getElementById('hhh-tr-from')?.value;
     const to      = document.getElementById('hhh-tr-to')?.value;
     const reason  = document.getElementById('hhh-tr-reason')?.value?.trim() || 'Not specified';
-    if (from === to) { alert('From and To sites must be different.'); return; }
+    if (from === to) { window._showToast?.('From and To sites must be different.', 'warning'); return; }
     const newT = {
       id: 't' + Date.now(),
       patient, from, to, reason,

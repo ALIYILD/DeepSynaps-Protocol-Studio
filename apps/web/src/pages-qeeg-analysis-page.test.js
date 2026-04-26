@@ -14,20 +14,24 @@ if (typeof globalThis.document === 'undefined') {
     body: { appendChild() {} },
   };
 }
-if (typeof globalThis.localStorage === 'undefined') {
-  globalThis.localStorage = {
-    getItem() { return null; },
-    setItem() {},
-    removeItem() {},
-  };
+// Node 22+ has built-in localStorage/sessionStorage whose getter throws
+// SecurityError without --localstorage-file. Probe via descriptor and
+// install a stub when the descriptor is a getter (built-in) or absent.
+function installStorageStub(name) {
+  const desc = Object.getOwnPropertyDescriptor(globalThis, name);
+  if (desc && desc.value && typeof desc.value.getItem === 'function') return;
+  Object.defineProperty(globalThis, name, {
+    configurable: true,
+    writable: true,
+    value: {
+      getItem() { return null; },
+      setItem() {},
+      removeItem() {},
+    },
+  });
 }
-if (typeof globalThis.sessionStorage === 'undefined') {
-  globalThis.sessionStorage = {
-    getItem() { return null; },
-    setItem() {},
-    removeItem() {},
-  };
-}
+installStorageStub('localStorage');
+installStorageStub('sessionStorage');
 if (typeof globalThis.window.open !== 'function') {
   globalThis.window.open = function () {};
 }

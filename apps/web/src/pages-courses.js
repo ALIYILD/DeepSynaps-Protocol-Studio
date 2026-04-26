@@ -109,16 +109,24 @@ function _courseFinalizationSummary(sessions, adverseEvents, aeSummary) {
 // ── Clinical Intelligence — Risk Scoring ──────────────────────────────────────
 
 function computeRiskScore(course) {
+  // Defensive: bail early if no course at all so callers never see NaN.
+  if (!course || typeof course !== 'object') return 0;
   let score = 0;
   const gradeRisk = { A: 0, B: 10, C: 25, D: 40 };
-  score += gradeRisk[course.evidence_grade] ?? 20;
+  // evidence_grade may be missing/null/lowercase; fall back to mid-risk (20)
+  // when not in the {A,B,C,D} set instead of letting `undefined` propagate.
+  const grade = typeof course.evidence_grade === 'string' ? course.evidence_grade.toUpperCase() : null;
+  score += (grade && grade in gradeRisk) ? gradeRisk[grade] : 20;
   if (course.on_label === false) score += 30;
-  score += (course.governance_warnings || []).length * 15;
+  score += (Array.isArray(course.governance_warnings) ? course.governance_warnings.length : 0) * 15;
   if (course.review_required) score += 10;
-  if (course.planned_intensity_pct_rmt > 110) score += 15;
-  if (course.planned_intensity_pct_rmt > 120) score += 15;
-  if (course.planned_frequency_hz > 20) score += 10;
-  if (course.planned_sessions_total > 40) score += 5;
+  const intensity = Number(course.planned_intensity_pct_rmt);
+  if (Number.isFinite(intensity) && intensity > 110) score += 15;
+  if (Number.isFinite(intensity) && intensity > 120) score += 15;
+  const freq = Number(course.planned_frequency_hz);
+  if (Number.isFinite(freq) && freq > 20) score += 10;
+  const sessions = Number(course.planned_sessions_total);
+  if (Number.isFinite(sessions) && sessions > 40) score += 5;
   return Math.min(100, score);
 }
 
@@ -6920,7 +6928,7 @@ export async function pgClinicalReports(setTopbar) {
   window._rhToggleCompare = function(reportId, checked) {
     if (checked) {
       if (window._rhCompareSelected.length < 2) window._rhCompareSelected.push(reportId);
-      else { alert('Only 2 reports can be compared at a time.'); }
+      else { window._showToast?.('Only 2 reports can be compared at a time.', 'warning'); }
     } else {
       window._rhCompareSelected = window._rhCompareSelected.filter(id => id !== reportId);
     }
@@ -6954,7 +6962,7 @@ export async function pgClinicalReports(setTopbar) {
 
   window._rhGenerateOutcome = function() {
     const ptId = window._rhSelectedPt || document.getElementById('rh-pt-select')?.value;
-    if (!ptId) { alert('Select a patient to generate an outcome report.'); return; }
+    if (!ptId) { window._showToast?.('Select a patient to generate an outcome report.', 'warning'); return; }
     const win = window.open('', '_blank', 'width=900,height=700');
     if (!win) return;
     const ptN = ptName(ptId);
@@ -6976,7 +6984,7 @@ export async function pgClinicalReports(setTopbar) {
 
   window._rhGenerateCourse = function() {
     const ptId = window._rhSelectedPt || document.getElementById('rh-pt-select')?.value;
-    if (!ptId) { alert('Select a patient to generate a course report.'); return; }
+    if (!ptId) { window._showToast?.('Select a patient to generate a course report.', 'warning'); return; }
     const ptN = ptName(ptId);
     const win = window.open('', '_blank', 'width=900,height=700');
     if (!win) return;
@@ -7531,8 +7539,8 @@ window._calSaveAppt = function(existingId) {
   const room    = document.getElementById('cal-f-room')?.value;
   const rec     = document.getElementById('cal-f-rec')?.value || 'none';
   const notes   = document.getElementById('cal-f-notes')?.value || '';
-  if (!patient) { alert('Patient name is required.'); return; }
-  if (!date)    { alert('Date is required.'); return; }
+  if (!patient) { window._showToast?.('Patient name is required.', 'warning'); return; }
+  if (!date)    { window._showToast?.('Date is required.', 'warning'); return; }
   const existing = existingId ? getAppointments().find(a => a.id === existingId) : null;
   saveAppointment({
     id:          existingId || ('appt_' + Date.now()),
@@ -7855,14 +7863,14 @@ window._monitorStart = async function() {
   const freqSlider = document.getElementById('monitor-form-freq');
   const notesInput = document.getElementById('monitor-form-notes');
 
-  if (!patientSelect.value) { alert('Please select a patient.'); return; }
-  if (!courseSelect?.value) { alert('Please select an active course.'); return; }
+  if (!patientSelect.value) { window._showToast?.('Please select a patient.', 'warning'); return; }
+  if (!courseSelect?.value) { window._showToast?.('Please select an active course.', 'warning'); return; }
 
   const patientId = patientSelect.value;
   const patientName = patientSelect.options[patientSelect.selectedIndex].text;
   const courseId = courseSelect.value;
   const activeCourse = _monitorCourseCatalog.find((course) => course.id === courseId);
-  if (!activeCourse) { alert('Selected course is no longer available.'); return; }
+  if (!activeCourse) { window._showToast?.('Selected course is no longer available.', 'error'); return; }
   const modality = modalitySelect.value;
   const protocol = protocolInput.value.trim() || activeCourse.protocol_id || _MONITOR_DEFAULT_PROTOCOLS[modality];
   const targetDuration = parseInt(durationSelect.value, 10) || activeCourse.planned_session_duration_minutes || 30;
@@ -8976,7 +8984,7 @@ export async function pgOutcomePrediction(setTopbar) {
       actualScore: null,
       notes,
     });
-    alert('Prediction saved to history.');
+    window._showToast?.('Prediction saved to history.', 'success');
   };
 
   window._qqEnterActual = function(id, score) {
@@ -9598,7 +9606,7 @@ export async function pgRulesEngine(setTopbar) {
     const triggerEl = document.getElementById('re-trigger');
     if (!_reCurrentRule || !nameEl || !triggerEl) return;
     const name = nameEl.value.trim();
-    if (!name) { alert('Rule name is required.'); return; }
+    if (!name) { window._showToast?.('Rule name is required.', 'warning'); return; }
     _reCurrentRule.name = name;
     _reCurrentRule.trigger = triggerEl.value;
     if (_reCurrentRule.id.startsWith('new-')) {
@@ -9654,7 +9662,7 @@ export async function pgRulesEngine(setTopbar) {
     }).flat();
     const count = triggered.length;
     if (typeof window._announce === 'function') window._announce(`Evaluation complete. ${count} rule${count !== 1 ? 's' : ''} fired.`, count > 0);
-    else alert(`Evaluation complete. ${count} rule${count !== 1 ? 's' : ''} fired.`);
+    else window._showToast?.(`Evaluation complete. ${count} rule${count !== 1 ? 's' : ''} fired.`, count > 0 ? 'warning' : 'success');
     _reRender();
   };
 

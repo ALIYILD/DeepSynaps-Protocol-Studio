@@ -1,5 +1,20 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ── Accessibility: prefers-reduced-motion (global, applies first) ──────────
+   WCAG 2.2 SC 2.3.3: respect user reduced-motion preference for vestibular-
+   sensitive users. Applies to every element + pseudo-element so individual
+   component-level overrides cannot accidentally re-enable motion. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 :root {
   --navy-950: #050810;
   --navy-900: #080d1a;
@@ -36,7 +51,7 @@
 
   --text-primary:   #e8edf5;
   --text-secondary: #a8b3c1;
-  --text-tertiary:  #8b97a8;
+  --text-tertiary:  #9ba6b8;
   --text-teal:      var(--teal);
   --text-blue:      var(--blue);
   --text-green:     var(--green);

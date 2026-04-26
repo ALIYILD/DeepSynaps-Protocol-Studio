@@ -203,9 +203,20 @@ function _wireSimulationLab() {
     if (detail) detail.innerHTML = loadingBlock('Simulating…');
     try {
       const params = _readSimForm();
-      const sim = await runTwinSimulation(STATE.patientId, params);
+      // Race the simulation against a 30s timeout so a stalled backend can't
+      // hang the clinician indefinitely. The backend job continues server-
+      // side; the UI just stops waiting and shows a clear timeout block.
+      const TIMEOUT_MS = 30000;
+      const timeoutP = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Simulation timed out after 30s. The backend may still be processing — try again or refresh shortly.')), TIMEOUT_MS)
+      );
+      const sim = await Promise.race([runTwinSimulation(STATE.patientId, params), timeoutP]);
       if (addToCompare) {
+        const willEvict = STATE.scenarios.length >= 3;
         STATE.scenarios = [...STATE.scenarios, sim].slice(-3);
+        if (willEvict) {
+          window._showToast?.('Comparison limit is 3. Oldest scenario removed.', 'info');
+        }
       } else {
         STATE.scenarios = [sim];
       }
@@ -260,6 +271,12 @@ function _wireHandoffButtons() {
     btn.addEventListener('click', async () => {
       const kind = btn.dataset.handoffKind;
       const note = document.getElementById('dt-handoff-note')?.value || '';
+      // Confirm before sending — handoffs notify another clinician/agent and
+      // are awkward to retract. Fat-finger clicks have triggered accidental
+      // handoffs in QA. Use the native confirm dialog so we get the same
+      // accessibility/affordance as a real modal without adding a new one.
+      const target = (kind || 'agent').replace(/_/g, ' ');
+      if (!window.confirm(`Send handoff to ${target}?`)) return;
       try { await startHandoff(STATE.patientId, kind, note); }
       catch (e) {
         if (window._showToast) window._showToast('Handoff failed: ' + (e.message || e), 'warning');
