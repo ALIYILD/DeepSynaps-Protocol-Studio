@@ -205,7 +205,11 @@ function _wireSimulationLab() {
       const params = _readSimForm();
       const sim = await runTwinSimulation(STATE.patientId, params);
       if (addToCompare) {
+        const willEvict = STATE.scenarios.length >= 3;
         STATE.scenarios = [...STATE.scenarios, sim].slice(-3);
+        if (willEvict) {
+          window._showToast?.('Comparison limit is 3. Oldest scenario removed.', 'info');
+        }
       } else {
         STATE.scenarios = [sim];
       }
