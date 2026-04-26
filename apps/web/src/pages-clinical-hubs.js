@@ -424,8 +424,11 @@ export async function pgPatientHub(setTopbar, navigate) {
           const delivered = p.sessions_delivered ?? 0;
           const planned   = p.planned_sessions_total ?? 0;
           const prog = planned > 0 ? Math.min(100, Math.round(delivered / planned * 100)) : 0;
-          return '<div class="queue-row pt-row" style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 90px" ' +
-            'onclick="window._selectedPatientId=\'' + esc(p.id) + '\';window._profilePatientId=\'' + esc(p.id) + '\';try{sessionStorage.setItem(\'ds_pat_selected_id\',\'' + esc(p.id) + '\')}catch(e){}window._nav(\'patient-profile\')">' +
+          // Row click → Analytics terminal (per-patient Bloomberg dashboard).
+          // The chevron still opens the standard profile for clinicians who
+          // want the full chart. Demo patients render with seeded telemetry.
+          return '<div class="queue-row pt-row" style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 120px" ' +
+            'onclick="window._paPatientId=\'' + esc(p.id) + '\';window._selectedPatientId=\'' + esc(p.id) + '\';try{sessionStorage.setItem(\'ds_pat_selected_id\',\'' + esc(p.id) + '\')}catch(e){}window._nav(\'patient-analytics\')">' +
               '<div class="queue-pt"><div class="pt-av ' + av + '">' + esc(ini) + '</div>' +
                 '<div><div class="queue-pt-name">' + esc(name) + demoChip + (p.is_responder ? ' <span class="pl-responder-chip">Responder</span>' : '') + '</div>' +
                   '<div class="queue-pt-cond">' + esc(sub) + '</div></div></div>' +
@@ -434,8 +437,12 @@ export async function pgPatientHub(setTopbar, navigate) {
                 '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-tertiary)">' + delivered + '/' + (planned||'—') + '</span></div>' +
               '<div>' + outcomeCell(p) + '</div>' +
               '<div>' + nextStepChip(p) + '</div>' +
-              '<div style="text-align:right"><button class="topbar-btn d2p7-chev" aria-label="Open patient" style="width:26px;height:26px" onclick="event.stopPropagation();window._selectedPatientId=\'' + esc(p.id) + '\';window._profilePatientId=\'' + esc(p.id) + '\';window._nav(\'patient-profile\')">' +
-                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button></div>' +
+              '<div style="text-align:right;display:flex;gap:4px;justify-content:flex-end">' +
+                '<button class="topbar-btn d2p7-chev" aria-label="Open analytics" title="Open analytics" style="width:26px;height:26px" onclick="event.stopPropagation();window._paPatientId=\'' + esc(p.id) + '\';window._nav(\'patient-analytics\')">' +
+                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg></button>' +
+                '<button class="topbar-btn d2p7-chev" aria-label="Open patient profile" title="Open profile" style="width:26px;height:26px" onclick="event.stopPropagation();window._selectedPatientId=\'' + esc(p.id) + '\';window._profilePatientId=\'' + esc(p.id) + '\';window._nav(\'patient-profile\')">' +
+                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>' +
+              '</div>' +
             '</div>';
         }).join('');
       }
@@ -1297,25 +1304,12 @@ export async function pgPatientHub(setTopbar, navigate) {
   }
 
   // ── ANALYTICS TAB ─────────────────────────────────────────────────────────
+  // Delegated to pages-patient-analytics.js — the design-system Bloomberg-style
+  // cohort view with one row per demo patient and click-through to a per-patient
+  // data terminal (which itself links into DeepTwin).
   else if (tab === 'analytics') {
-    setTopbar('Patients', '');
-    el.innerHTML = `<div class="ch-shell">
-      <div class="d2p7-tab-bar">${tabBar()}</div>
-      <div class="card" style="padding:32px;text-align:center">
-        <div style="font-size:32px;margin-bottom:12px">&#128202;</div>
-        <h3 style="color:var(--text-primary);margin:0 0 8px">Cohort Analytics</h3>
-        <p style="color:var(--text-secondary);font-size:13px;max-width:420px;margin:0 auto 16px">
-          Population-level outcome trends, treatment response rates, and cohort comparisons.
-          Select a patient to view their full Bloomberg-style data terminal.
-        </p>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-top:20px;text-align:left">
-          <div class="card" style="padding:14px"><div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:6px">Avg PHQ-9 Change</div><div style="font-size:22px;font-weight:700;color:var(--green);font-family:var(--font-display)">-6.2</div><div style="font-size:11px;color:var(--text-secondary)">across 5 patients</div></div>
-          <div class="card" style="padding:14px"><div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:6px">Response Rate</div><div style="font-size:22px;font-weight:700;color:var(--teal);font-family:var(--font-display)">64%</div><div style="font-size:11px;color:var(--text-secondary)">3 of 5 responding</div></div>
-          <div class="card" style="padding:14px"><div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:6px">Avg Adherence</div><div style="font-size:22px;font-weight:700;color:var(--blue);font-family:var(--font-display)">78%</div><div style="font-size:11px;color:var(--text-secondary)">session attendance</div></div>
-          <div class="card" style="padding:14px"><div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:6px">Active Courses</div><div style="font-size:22px;font-weight:700;color:var(--violet);font-family:var(--font-display)">4</div><div style="font-size:11px;color:var(--text-secondary)">across modalities</div></div>
-        </div>
-      </div>
-    </div>`;
+    const { pgPatientAnalyticsCohort } = await import('./pages-patient-analytics.js');
+    await pgPatientAnalyticsCohort(setTopbar);
   }
 
   // ── ALERTS TAB ────────────────────────────────────────────────────────────

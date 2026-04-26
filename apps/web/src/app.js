@@ -1195,6 +1195,7 @@ async function renderPage() {
     case 'rx-tab':       { window._patientHubTab = 'prescriptions'; window._nav('patients-hub'); break; }
     case 'patients-hub': { const m = await loadClinicalHubs(); await m.pgPatientHub(setTopbar, navigate); break; }
     case 'patients-full':{ const m = await loadClinical(); await m.pgPatients(setTopbar, navigate); break; }
+    case 'patient-analytics': { const m = await import('./pages-patient-analytics.js'); await m.pgPatientAnalyticsDetail(setTopbar, window._paPatientId); break; }
     case 'patient':
     case 'patient-profile': { const m = await loadClinical(); await m.pgPatientProfile(setTopbar); break; }
     case 'homework-builder': { const m = await loadPatient(); await m.pgHomeworkBuilder(setTopbar); break; }
