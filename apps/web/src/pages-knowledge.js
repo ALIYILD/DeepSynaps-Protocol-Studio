@@ -2353,173 +2353,176 @@ export async function pgAuditTrail(setTopbar) {
 }
 
 // ── Pricing ───────────────────────────────────────────────────────────────────
-// Source of truth: PRICING_PAGE_SPEC.md (2025-04). Four tiers: Starter,
-// Professional (featured), Clinic, Enterprise. Annual = 15% off.
-// Stripe price IDs are placeholders until the Stripe config task lands.
+// Source of truth: apps/api/app/packages.py and PRICING_PACKAGES.md.
+// Five tiers: Explorer (free), Resident / Fellow, Clinician Pro (featured),
+// Clinic Team, Enterprise. Annual pricing is offered for the three middle
+// paid tiers; Enterprise is custom. Real Stripe price IDs are read from the
+// backend env (STRIPE_PRICE_RESIDENT / STRIPE_PRICE_CLINICIAN_PRO /
+// STRIPE_PRICE_CLINIC_TEAM); the front-end only sends a package_id, never a
+// Stripe price ID, so STRIPE_PRICE_IDS below is now empty by design.
 
 const PRICING_PLANS = [
   {
-    id: 'starter',
-    name: 'Starter',
-    tagline: 'For solo practitioners',
+    id: 'explorer',
+    name: 'Explorer',
+    tagline: 'Evaluate the platform before committing',
+    priceMonthly: 0,
+    priceAnnual: 0,
+    featured: false,
+    accent: 'slate',
+    cta: { label: 'Get Started Free \u2192', href: '/signup?plan=explorer' },
+    features: [
+      '1 seat',
+      'Evidence library \u2014 read access',
+      'Device registry \u2014 limited view',
+      'Conditions & modalities \u2014 limited browsing',
+      'No protocol generation, uploads, or exports',
+      'No review queue or team features',
+    ],
+  },
+  {
+    id: 'resident',
+    name: 'Resident / Fellow',
+    tagline: 'For trainees and early-career clinicians',
     priceMonthly: 99,
     priceAnnual: 84,
     featured: false,
     accent: 'slate',
-    cta: { label: 'Start Free Trial \u2192', href: '/signup?plan=starter' },
+    cta: { label: 'Start Free Trial \u2192', href: '/signup?plan=resident' },
     features: [
-      '1 professional seat',
-      '50 active patients',
-      '10 qEEG reports /mo',
-      '10 personalized protocols /mo',
-      'Basic qEEG 2D topomaps + z-scores',
-      'Device-aware session runner (all modalities)',
-      'Evidence-graded protocol library (EV-A / EV-B)',
-      'Patient portal (DeepSynaps-branded)',
-      'Personal wearable sync',
-      'DOCX / PDF exports',
+      '1 seat',
+      'Full evidence library, device registry, conditions',
+      'Protocol generation \u2014 EV-A / EV-B (no off-label)',
+      'Assessment builder \u2014 limited',
+      'Handbook generation \u2014 limited',
+      'PDF export',
       'Email support',
     ],
   },
   {
-    id: 'professional',
-    name: 'Professional',
-    tagline: 'For solo practitioners running full workflows',
-    priceMonthly: 299,
-    priceAnnual: 254,
+    id: 'clinician_pro',
+    name: 'Clinician Pro',
+    tagline: 'For independent clinicians managing patient protocols',
+    priceMonthly: 199,
+    priceAnnual: 169,
     featured: true,
     accent: 'teal',
-    cta: { label: 'Start Free Trial \u2192', href: '/signup?plan=professional' },
+    cta: { label: 'Start Free Trial \u2192', href: '/signup?plan=clinician_pro' },
     features: [
-      'Everything in Starter',
-      'Unlimited patients',
-      '50 qEEG reports /mo',
-      '10 MRI analyses /mo',
-      '50 personalized protocols /mo',
-      'qEEG v2 full stack (3D brain, sLORETA, connectivity, animated)',
-      'MRI Analyzer full (structural, fMRI, dMRI, SimNIBS targeting)',
-      '15 TIER A qEEG analysis modules',
-      'EV-C off-label governance',
-      'Home device integrations (Flow, Muse, Nurosym, Alpha-Stim)',
-      'Virtual Care with live vitals',
-      'Clinical-grade PDF reports with your logo',
-      'Priority email support',
+      'Everything in Resident / Fellow',
+      'Full protocol generator (EV-C clinician override; EV-D blocked)',
+      'Uploads \u2014 qEEG / MRI / PDFs',
+      'Personalized case summaries',
+      'Assessment builder \u2014 full',
+      'Handbook generation \u2014 full',
+      'PDF + DOCX export (patient-facing where governance allows)',
+      'Personal review queue & audit trail',
+      'Monthly monitoring digest',
+      'Add-on: Phenotype mapping',
     ],
   },
   {
-    id: 'clinic',
-    name: 'Clinic',
-    tagline: 'For multi-user clinics running treatment operations together',
-    priceMonthly: 999,
-    priceAnnual: 849,
+    id: 'clinic_team',
+    name: 'Clinic Team',
+    tagline: 'For clinical teams sharing review queues and governance',
+    priceMonthly: 699,
+    priceAnnual: 594,
     featured: false,
     accent: 'slate',
-    cta: { label: 'Start Trial or Book Demo \u2192', href: '/signup?plan=clinic' },
+    cta: { label: 'Start Trial or Book Demo \u2192', href: '/signup?plan=clinic_team' },
     features: [
-      'Everything in Professional',
-      'Up to 10 seats ($79 /seat /mo beyond)',
-      '300 qEEG / 50 MRI / 300 protocols /mo (pooled)',
-      'Full Monitor page \u2014 26 integrations',
-      'EHR: Epic, Cerner, Athena, DrChrono, NHS Spine',
-      'Labs & Imaging: LabCorp, Quest, PACS (DICOMweb)',
-      'Messaging: Twilio, SendGrid, Slack, PagerDuty',
-      'AI Agents (7-agent draft mode)',
-      'DeepSynaps Core \u2014 RiskEngine, PatientGraph, FeatureStore',
-      'Shared protocol & review queue',
-      'Clinic outcomes dashboard',
-      'Team audit trail & governance',
-      'Light white-label (logo + accent)',
-      'Dedicated onboarding support',
+      'Everything in Clinician Pro',
+      'Up to 10 seats',
+      'Phenotype mapping included',
+      'Shared team review queue',
+      'Team comments & assignments',
+      'Full audit trail (personal + team)',
+      'Team templates & governance workflows',
+      'Seat management',
+      'Basic white-label branding',
+      'Queue-fed monitoring updates',
     ],
   },
   {
     id: 'enterprise',
     name: 'Enterprise',
-    tagline: 'For multi-site groups and hospitals',
+    tagline: 'For multi-site groups, hospitals, and research networks',
     priceMonthly: null,
     priceAnnual: null,
-    priceFloor: 2499,
+    priceFloor: 2500,
     featured: false,
     accent: 'blue',
     cta: { label: 'Talk to Sales \u2192', href: '/contact/sales' },
     features: [
-      'Unlimited seats, sites, and volume',
-      'Full white-label (brand, domain, email, patient app)',
-      'SSO (Okta, Azure AD, SAML)',
-      'API access (REST + FHIR R4 + webhooks)',
-      'Custom workflows and AI agents',
-      'Multi-site governance',
-      'Bring your own normative DB',
-      '99.9% SLA, dedicated success manager',
-      'Private cloud / on-prem / regional residency',
-      'HIPAA BAA, UK DSPT, GDPR DPA',
-      'Implementation support',
+      'Everything in Clinic Team',
+      'Unlimited seats',
+      'Advanced governance rules',
+      'Full white-label branding',
+      'API / integrations',
+      'Automated monitoring workspace',
+      'Advanced audit retention',
+      'SSO-ready structure',
+      'Data residency flags',
     ],
   },
 ];
 
-const STRIPE_PRICE_IDS = {
-  starter:      { monthly: 'price_starter_m',  annual: 'price_starter_y' },
-  professional: { monthly: 'price_pro_m',      annual: 'price_pro_y' },
-  clinic:       { monthly: 'price_clinic_m',   annual: 'price_clinic_y' },
-};
+// The web client never sends Stripe price IDs directly. Instead it POSTs
+// {package_id: "<canonical>"} to /api/v1/payments/create-checkout, which
+// resolves the price_id from STRIPE_PRICE_RESIDENT / STRIPE_PRICE_CLINICIAN_PRO
+// / STRIPE_PRICE_CLINIC_TEAM in the backend env. Kept as an empty constant
+// for backwards compatibility with anything that imports the symbol.
+const STRIPE_PRICE_IDS = {};
 
 // Lightweight analytics stub — replace with real provider when available.
 function _pricingTrack(event, payload) {
   try { console.debug('[pricing]', event, payload || ''); } catch {}
 }
 
-// Full feature comparison matrix (Section 8 of spec).
+// Feature comparison matrix. Columns: [Explorer, Resident, Clinician Pro,
+// Clinic Team, Enterprise]. Rows derived from the canonical Feature enum in
+// apps/api/app/packages.py — keep these in sync with the backend so
+// entitlement claims on the marketing site never out-promise the API.
 const COMPARISON_ROWS = [
-  { feature: 'Professional seats',                vals: ['1', '1', 'up to 10', 'Unlimited'] },
-  { feature: 'Active patients',                   vals: ['50', 'Unlimited', 'Unlimited', 'Unlimited'] },
-  { feature: 'qEEG reports / mo',                 vals: ['10', '50', '300', 'Unlimited'] },
-  { feature: 'MRI analyses / mo',                 vals: ['\u2014', '10', '50', 'Unlimited'] },
-  { feature: 'Personalized protocols / mo',        vals: ['10', '50', '300', 'Unlimited'] },
-  { feature: 'Evidence-graded protocol library',   vals: ['\u2713', '\u2713', '\u2713', '\u2713'] },
-  { feature: 'Treatment-course runner',            vals: ['\u2713', '\u2713', '\u2713', '\u2713'] },
-  { feature: 'Device-aware session execution',     vals: ['\u2713', '\u2713', '\u2713', '\u2713'] },
-  { feature: 'Patient portal',                     vals: ['\u2713', '\u2713', '\u2713', '\u2713'] },
-  { feature: 'qEEG v2 (2D topomaps, z-scores)',   vals: ['\u2713', '\u2713', '\u2713', '\u2713'] },
-  { feature: 'qEEG v2 3D (three-brain-js, sLORETA)', vals: ['\u2014', '\u2713', '\u2713', '\u2713'] },
-  { feature: 'MRI Analyzer',                       vals: ['\u2014', '\u2713', '\u2713', '\u2713'] },
-  { feature: '15 TIER A qEEG modules',             vals: ['\u2014', '\u2713', '\u2713', '\u2713'] },
-  { feature: 'EV-C off-label governance',           vals: ['\u2014', '\u2713', '\u2713', '\u2713'] },
-  { feature: 'Home device integrations',            vals: ['\u2014', '\u2713', '\u2713', '\u2713'] },
-  { feature: 'Virtual Care with live vitals',       vals: ['\u2014', '\u2713', '\u2713', '\u2713'] },
-  { feature: 'Personal wearable sync',              vals: ['\u2713', '\u2713', '\u2713', '\u2713'] },
-  { feature: 'Monitor page (26 integrations)',      vals: ['\u2014', '\u2014', '\u2713', '\u2713'] },
-  { feature: 'EHR / EMR connectors',                vals: ['\u2014', '\u2014', '\u2713', '\u2713'] },
-  { feature: 'Lab & imaging connectors',             vals: ['\u2014', '\u2014', '\u2713', '\u2713'] },
-  { feature: 'Messaging connectors',                vals: ['\u2014', '\u2014', '\u2713', '\u2713'] },
-  { feature: 'AI Agents (7-agent draft mode)',       vals: ['\u2014', '\u2014', '\u2713', '\u2713'] },
-  { feature: 'DeepSynaps Core (RiskEngine, PatientGraph)', vals: ['\u2014', '\u2014', '\u2713', '\u2713'] },
-  { feature: 'Shared protocol & review queue',       vals: ['\u2014', '\u2014', '\u2713', '\u2713'] },
-  { feature: 'Clinic outcomes dashboard',            vals: ['\u2014', '\u2014', '\u2713', '\u2713'] },
-  { feature: 'Team audit trail & RBAC',              vals: ['\u2014', '\u2014', '\u2713', '\u2713'] },
-  { feature: 'Multi-site governance',                vals: ['\u2014', '\u2014', '\u2014', '\u2713'] },
-  { feature: 'SSO (Okta, Azure AD, SAML)',           vals: ['\u2014', '\u2014', '\u2014', '\u2713'] },
-  { feature: 'API access (REST + FHIR + webhooks)',  vals: ['\u2014', '\u2014', '\u2014', '\u2713'] },
-  { feature: 'Custom workflows',                     vals: ['\u2014', '\u2014', '\u2014', '\u2713'] },
-  { feature: 'White-label',                          vals: ['\u2014', 'Logo on reports', 'Light (logo + accent)', 'Full (brand, domain, email, app)'] },
-  { feature: 'Bring your own normative DB',          vals: ['\u2014', '\u2014', '\u2014', '\u2713'] },
-  { feature: 'Support',                              vals: ['Email', 'Priority email', 'Dedicated onboarding', 'Dedicated success manager + SLA'] },
+  { feature: 'Seats',                                 vals: ['1', '1', '1', 'Up to 10', 'Unlimited'] },
+  { feature: 'Evidence library',                      vals: ['Read only', 'Full', 'Full', 'Full', 'Full'] },
+  { feature: 'Device registry',                       vals: ['Limited', 'Full', 'Full', 'Full', 'Full'] },
+  { feature: 'Conditions & modalities browsing',       vals: ['Limited', 'Full', 'Full', 'Full', 'Full'] },
+  { feature: 'Protocol generation',                   vals: ['\u2014', 'EV-A / EV-B', 'Full + EV-C override', 'Full + EV-C override', 'Full + EV-C override'] },
+  { feature: 'Uploads (qEEG / MRI / PDFs)',            vals: ['\u2014', '\u2014', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'Personalized case summaries',            vals: ['\u2014', '\u2014', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'Assessment builder',                    vals: ['\u2014', 'Limited', 'Full', 'Full', 'Full'] },
+  { feature: 'Handbook generation',                   vals: ['\u2014', 'Limited', 'Full', 'Full', 'Full'] },
+  { feature: 'PDF export',                            vals: ['\u2014', '\u2713', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'DOCX export',                           vals: ['\u2014', '\u2014', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'Patient-facing exports',                 vals: ['\u2014', '\u2014', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'Phenotype mapping',                     vals: ['\u2014', '\u2014', 'Add-on', 'Included', 'Included'] },
+  { feature: 'Personal review queue',                  vals: ['\u2014', '\u2014', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'Team review queue',                     vals: ['\u2014', '\u2014', '\u2014', '\u2713', '\u2713'] },
+  { feature: 'Personal audit trail',                   vals: ['\u2014', '\u2014', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'Team audit trail',                      vals: ['\u2014', '\u2014', '\u2014', '\u2713', '\u2713'] },
+  { feature: 'Monitoring digest',                     vals: ['\u2014', '\u2014', '\u2713', '\u2713', '\u2713'] },
+  { feature: 'Monitoring workspace',                  vals: ['\u2014', '\u2014', '\u2014', '\u2014', '\u2713'] },
+  { feature: 'Seat management',                       vals: ['\u2014', '\u2014', '\u2014', '\u2713', '\u2713'] },
+  { feature: 'Team templates & comments',              vals: ['\u2014', '\u2014', '\u2014', '\u2713', '\u2713'] },
+  { feature: 'Live qEEG (wellness/research)',          vals: ['\u2014', '\u2014', '\u2014', '\u2713', '\u2713'] },
+  { feature: 'White-label branding',                   vals: ['\u2014', '\u2014', '\u2014', 'Basic', 'Full'] },
+  { feature: 'API / integrations',                     vals: ['\u2014', '\u2014', '\u2014', '\u2014', '\u2713'] },
+  { feature: 'EV-D evidence in patient exports',       vals: ['Blocked', 'Blocked', 'Blocked', 'Blocked', 'Blocked'] },
 ];
 
 const PRICING_FAQS = [
   { q: 'What happens if I exceed my monthly qEEG or MRI quota?', a: 'Your account does not lock. Extra qEEG reports are billed at $15, MRI at $35, and protocols at $18. You can also prepay a credit pack ($200 / $500 / $2,000) for a 10% discount on all overage.' },
   { q: 'Can I switch between plans?', a: 'Yes. Upgrades take effect immediately with prorated billing. Downgrades take effect at the end of your current billing period.' },
-  { q: 'Is there a free trial?', a: 'Yes. Every plan includes a 14-day free trial with full Professional access, including 3 qEEG reports, 1 MRI analysis, and 3 personalized protocols during the trial window. No charge until day 14.' },
-  { q: 'Does DeepSynaps replace my existing EHR?', a: 'Professional and above can run as your primary clinical system. Clinic and Enterprise integrate with Epic, Cerner, Athena, DrChrono, and NHS Spine if you already have an EHR and want DeepSynaps to sit alongside it.' },
-  { q: 'How does white-labeling work?', a: 'Clinic includes light white-labeling (your logo and accent colour on reports, patient portal, and share links). Enterprise includes full white-labeling \u2014 your brand, your domain, your email sender, and a branded patient app.' },
-  { q: 'What compliance certifications do you hold?', a: 'HIPAA BAA available on Professional and above. UK DSPT and EU GDPR DPA available on Clinic and above. SOC 2 Type II completed. HITRUST in progress. Enterprise supports regional data residency in US, UK, and EU.' },
+  { q: 'Is there a free trial?', a: 'Yes. The Explorer plan is permanently free for evaluators. Resident, Clinician Pro, and Clinic Team include a 14-day free trial with full Clinician Pro features during the trial window. No charge until day 14.' },
+  { q: 'Does DeepSynaps replace my existing EHR?', a: 'Clinician Pro and above can run as your primary clinical workflow tool. Clinic Team and Enterprise integrate alongside your EHR if you already have one in place.' },
+  { q: 'How does white-labeling work?', a: 'Clinic Team includes basic white-label branding (logo and accent colour on patient-facing exports). Enterprise includes full white-labeling \u2014 your brand, domain, email sender, and patient experience.' },
+  { q: 'What compliance certifications do you hold?', a: 'HIPAA BAA available on Clinician Pro and above. UK DSPT and EU GDPR DPA available on Clinic Team and above. Enterprise supports regional data residency in US, UK, and EU.' },
 ];
 
 const DISCOUNT_CHIPS = [
-  { label: 'Annual billing', pct: '-15%', detail: 'All tiers' },
-  { label: 'Annual prepay', pct: '-20%', detail: 'Pro and Clinic' },
+  { label: 'Annual billing', pct: '-15%', detail: 'Resident / Clinician Pro / Clinic Team' },
   { label: 'Academic / research', pct: '-40%', detail: '.edu / .ac.uk verification' },
-  { label: 'Resident / fellow / trainee', pct: '-50%', detail: 'On Starter' },
   { label: 'Early adopter', pct: '-25%', detail: 'First 100 clinics, 12 months' },
   { label: 'Referral', pct: '1 month free', detail: 'Per successful referral' },
 ];
@@ -2556,7 +2559,9 @@ export async function pgPricing(setTopbar) {
     let priceBlock;
     if (isCustom) {
       priceBlock = `<div style="font-family:var(--font-display);font-size:36px;font-weight:600;color:var(--blue)">Custom</div>
-        ${plan.priceFloor ? `<div style="margin-top:4px;font-size:11px;color:var(--text-tertiary)">starts at $${plan.priceFloor.toLocaleString()} /mo</div>` : ''}`;
+        ${plan.priceFloor ? `<div style="margin-top:4px;font-size:11px;color:var(--text-tertiary)">from $${plan.priceFloor.toLocaleString()} /mo</div>` : ''}`;
+    } else if (displayPrice === 0) {
+      priceBlock = `<div style="font-family:var(--font-display);font-size:36px;font-weight:600;color:var(--text-primary)">Free</div>`;
     } else {
       priceBlock = `<div style="display:flex;align-items:baseline;gap:6px">
         <span style="font-family:var(--font-display);font-size:36px;font-weight:600;color:var(--text-primary)">$${displayPrice}</span>
@@ -2613,7 +2618,7 @@ export async function pgPricing(setTopbar) {
 
   // ── Comparison table ────────────────────────────────────────────────────
   function _comparisonTable() {
-    const headerCells = ['Feature', 'Starter', 'Professional', 'Clinic', 'Enterprise']
+    const headerCells = ['Feature', 'Explorer', 'Resident / Fellow', 'Clinician Pro', 'Clinic Team', 'Enterprise']
       .map((h, i) => `<th style="padding:10px 12px;text-align:${i === 0 ? 'left' : 'center'};font-size:11px;font-weight:600;color:var(--text-primary);white-space:nowrap;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.2);position:sticky;top:0">${h}</th>`)
       .join('');
 
@@ -2708,7 +2713,7 @@ export async function pgPricing(setTopbar) {
     return `<div style="border-top:1px solid var(--border);padding:40px 0 24px;text-align:center">
       <div style="font-family:var(--font-display);font-size:22px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Start your 14-day free trial today</div>
       <div style="font-size:13px;color:var(--text-tertiary);margin-bottom:20px;max-width:500px;margin-left:auto;margin-right:auto;line-height:1.6">
-        Full Professional access. 3 qEEG reports, 1 MRI analysis, and 3 personalized protocols included. No credit card required to explore.
+        Full Clinician Pro access during the trial. No credit card required to explore.
       </div>
       <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap">
         <button class="btn btn-primary" style="padding:10px 22px;font-size:13px;font-weight:700;border-radius:var(--radius-md)" onclick="window._pricingCta('trial')">Start Free Trial \u2192</button>
@@ -2801,7 +2806,7 @@ export async function pgPricing(setTopbar) {
       return;
     }
     if (planId === 'trial') {
-      localStorage.setItem('ds_selected_plan', 'professional');
+      localStorage.setItem('ds_selected_plan', 'clinician_pro');
       localStorage.setItem('ds_selected_billing', _pricingAnnual ? 'annual' : 'monthly');
       if (window._navPublic) { window._navPublic('signup-professional'); }
       else if (window._nav) { window._nav('signup-professional'); }
