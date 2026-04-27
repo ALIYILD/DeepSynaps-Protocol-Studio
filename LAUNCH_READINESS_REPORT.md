@@ -306,6 +306,12 @@ afe2d53 fix(patient): demo-mode seeding for dashboard and homework when backend 
 3. **Demo fallback behavior** still exists in messages, virtual care, assessments, and care-team views. These are gated on `VITE_ENABLE_DEMO` or `import.meta.env.DEV`, but any accidental enabling in production could surface synthetic data.
 4. **MNE pipeline cold-start latency** (~3–4 sec on first request) is noted but not yet warmed at boot.
 5. **Stripe webhook retry worker** is a standalone script; it needs a cron job or systemd timer configured in production.
+6. **Some frontend operational flows remain backend-limited rather than fully integrated.**
+   - Schedule conflict validation is still local-only.
+   - Telehealth/video/voice launch is gated as provider-required from the clinician UI.
+   - Consent follow-up and document signature delivery are not sent from the current Studio surfaces; the UI now tracks local status honestly instead of pretending delivery occurred.
+   - Standalone consent capture is modeled as clinic-device capture; the page does not verify remote patient e-sign completion.
+   - Telegram linking from Studio issues a link code but does not verify completed linkage in-app.
 
 ---
 
@@ -347,4 +353,4 @@ All pre-GA blockers from the overnight audit (§6.A–D) are now closed. The two
 3. Configure the Stripe webhook retry worker as a cron job (e.g., `*/5 * * * *` via systemd or Fly Machines).
 4. Complete a manual click-through of the remaining 18 Studio pages not covered by overnight browse audit.
 5. Remove or explicitly label all demo fallback surfaces before real clinic rollout.
-
+6. Add or verify backend endpoints for server-side schedule conflict checks, telehealth launch, consent delivery, signature-request delivery, and messaging-link verification if those actions must remain beta-visible as live workflows.

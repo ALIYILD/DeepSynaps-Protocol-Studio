@@ -898,6 +898,14 @@ def get_analysis_brain_payload(
     analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
     if not analysis:
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    # Cross-clinic gate — the brain payload contains source-localised
+    # per-ROI band power and within-subject z-scores for the patient
+    # (PHI). Without this, any authenticated clinician can fetch any
+    # other clinic's analysis by guessing or scraping ids. Mirrors the
+    # canonical gate in get_analysis above.
+    _gate_patient_access(actor, analysis.patient_id, db)
+
     if analysis.analysis_status != "completed":
         raise ApiServiceError(code="analysis_not_ready", message="Analysis not completed", status_code=400)
 
