@@ -94,21 +94,30 @@ def build_fusion_recommendation(db: Session, patient_id: str) -> dict[str, Any]:
     qeeg_row = _latest_qeeg_analysis(db, patient_id)
     mri_row = _latest_mri_analysis(db, patient_id)
 
+    _disclaimer = (
+        "Confidence score is algorithmic heuristic and not evidence-graded clinical validation. "
+        "Always review recommendations against patient-specific context."
+    )
     if not _has_fusion:
         return {
             "patient_id": patient_id,
             "recommendation": None,
             "summary": "Fusion AI module not available in this environment.",
             "confidence": None,
+            "confidence_disclaimer": _disclaimer,
+            "confidence_grade": "heuristic",
             "qeeg_analysis_id": qeeg_row.id if qeeg_row else None,
             "mri_analysis_id": mri_row.analysis_id if mri_row else None,
             "error": "deepsynaps_qeeg.ai.fusion not installed",
         }
 
-    return synthesize_fusion_recommendation(
+    result = synthesize_fusion_recommendation(
         patient_id=patient_id,
         qeeg_analysis_id=qeeg_row.id if qeeg_row else None,
         qeeg=_qeeg_payload(qeeg_row),
         mri_analysis_id=mri_row.analysis_id if mri_row else None,
         mri=_mri_payload(mri_row),
     )
+    result.setdefault("confidence_disclaimer", _disclaimer)
+    result.setdefault("confidence_grade", "heuristic")
+    return result

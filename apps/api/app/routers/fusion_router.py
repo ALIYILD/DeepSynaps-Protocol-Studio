@@ -24,7 +24,9 @@ class FusionRecommendationResponse(BaseModel):
     qeeg_analysis_id: str | None = None
     mri_analysis_id: str | None = None
     summary: str
-    confidence: float
+    confidence: float | None = None
+    confidence_disclaimer: str
+    confidence_grade: str = "heuristic"
     recommendations: list[str] = Field(default_factory=list)
     partial: bool = False
     generated_at: str

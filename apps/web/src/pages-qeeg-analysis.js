@@ -661,6 +661,8 @@ function _demoFusionSummary(patientId) {
     recommendations: ['qEEG data is available. Add MRI targeting to upgrade this into a dual-modality recommendation.'],
     summary: 'Partial fusion available from one modality only. Add MRI data to strengthen target confidence.',
     confidence: 0.4,
+    confidence_disclaimer: 'Confidence score is algorithmic heuristic and not evidence-graded clinical validation. Always review recommendations against patient-specific context.',
+    confidence_grade: 'heuristic',
     generated_at: new Date().toISOString(),
   };
 }
@@ -689,17 +691,23 @@ export function renderFusionSummaryCard(fusion, patientId) {
   if (fusion.qeeg_analysis_id) meta.push('qEEG ready');
   if (fusion.mri_analysis_id) meta.push('MRI ready');
   if (fusion.confidence != null) meta.push('confidence ' + Math.round(Number(fusion.confidence || 0) * 100) + '%');
+  if (fusion.confidence_grade) meta.push('grade: ' + esc(fusion.confidence_grade));
   var recHtml = recs.length
     ? '<ul style="margin:10px 0 0 18px;padding:0;color:var(--text-secondary);font-size:12.5px;line-height:1.5">'
         + recs.map(function (item) { return '<li>' + esc(item) + '</li>'; }).join('')
       + '</ul>'
     : '<div style="margin-top:10px;color:var(--text-tertiary);font-size:12px">No recommendations yet.</div>';
+  var disclaimerHtml = fusion.confidence_disclaimer
+    ? '<div style="margin-top:10px;font-size:11px;color:var(--text-tertiary);line-height:1.5;border-left:2px solid var(--amber);padding-left:8px">'
+        + esc(fusion.confidence_disclaimer) + '</div>'
+    : '';
   return card('Fusion summary',
     '<div style="font-size:13px;color:var(--text-primary);line-height:1.55">' + esc(fusion.summary || '') + '</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">' + meta.map(function (item) {
       return badge(item, 'var(--teal)');
     }).join('') + '</div>'
     + recHtml
+    + disclaimerHtml
   );
 }
 
