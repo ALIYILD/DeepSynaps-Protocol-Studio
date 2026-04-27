@@ -3096,14 +3096,14 @@ function _lsRender() {
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <div>
           <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:14px;font-weight:600">Video consult</div>
-          <div style="font-size:11px;color:var(--text-tertiary)">Telehealth session \u00B7 patient connected remotely</div>
+          <div style="font-size:11px;color:var(--text-tertiary)">Telehealth preview \u00B7 remote connection not verified from this panel</div>
         </div>
-        <span class="chip ${s.videoActive ? 'teal' : ''}" style="${s.videoActive ? '' : 'color:var(--text-tertiary)'}">${s.videoActive ? '\u25CF Live' : 'Idle'}</span>
+        <span class="chip ${s.videoActive ? 'teal' : ''}" style="${s.videoActive ? '' : 'color:var(--text-tertiary)'}">${s.videoActive ? '\u25CF Preview Active' : 'Idle'}</span>
       </div>
       <div style="aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:rgba(0,0,0,0.35);border:1px solid var(--border);display:flex;align-items:center;justify-content:center">
         ${s.videoActive
           ? `<iframe id="ls-video-iframe" src="https://meet.jit.si/ds-live-${_e(session.id)}" allow="camera;microphone;autoplay" style="width:100%;height:100%;border:none"></iframe>`
-          : `<div style="text-align:center;color:var(--text-tertiary);font-size:12px"><div style="font-size:28px;margin-bottom:6px">\uD83D\uDCF9</div>Video not started</div>`}
+          : `<div style="text-align:center;color:var(--text-tertiary);font-size:12px"><div style="font-size:28px;margin-bottom:6px">\uD83D\uDCF9</div>Preview not started</div>`}
       </div>
       <div style="display:flex;gap:6px;margin-top:10px">
         ${s.videoActive
@@ -3326,7 +3326,7 @@ function _lsRender() {
                 <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:13px;font-weight:600">Patient biometrics</div>
                 <div style="font-size:11px;color:var(--text-tertiary)">Live wearable telemetry</div>
               </div>
-              <span class="chip ${s.videoActive ? 'teal' : ''}" style="${s.videoActive ? '' : 'color:var(--text-tertiary)'}" id="ls-bio-status">${s.videoActive ? '● Live' : 'Idle'}</span>
+              <span class="chip ${s.videoActive ? 'teal' : ''}" style="${s.videoActive ? '' : 'color:var(--text-tertiary)'}" id="ls-bio-status">${s.videoActive ? '● Preview Active' : 'Idle'}</span>
             </div>
             <div id="ls-bio-grid" style="display:flex;flex-direction:column;gap:10px;font-size:11px">
               <div style="display:flex;align-items:center;gap:8px">
@@ -3849,7 +3849,7 @@ function _lsUpdateBioDisplay(hr, hrv, spo2, stress) {
   if (hrvEl) hrvEl.textContent = hrv != null ? Math.round(hrv) : '--';
   if (spo2El) spo2El.textContent = spo2 != null ? Math.round(spo2) : '--';
   if (stressEl) stressEl.textContent = stress != null ? Math.round(stress) : '--';
-  if (statusEl) { statusEl.textContent = '● Live'; statusEl.className = 'chip teal'; statusEl.style.color = ''; }
+  if (statusEl) { statusEl.textContent = '● Preview Active'; statusEl.className = 'chip teal'; statusEl.style.color = ''; }
   // Compute anxiety from HRV + HR
   const anxiety = (hrv != null && hr != null)
     ? Math.min(100, Math.max(0, Math.round((1 - hrv / 70) * 60 + ((hr - 55) / 45) * 40)))

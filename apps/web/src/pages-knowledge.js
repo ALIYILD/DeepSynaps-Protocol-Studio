@@ -50,50 +50,6 @@ export async function pgEvidence(setTopbar) {
   const modalitySet = new Set(items.map(e => e.modality).filter(Boolean));
 
   el.innerHTML = `
-<<<<<<< HEAD
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:18px">
-    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg,10px);padding:14px 16px;text-align:center">
-      <div style="font-size:20px;font-weight:800;color:var(--teal);font-family:var(--font-display)">${(_tp/1000).toFixed(0)}K</div>
-      <div style="font-size:10.5px;color:var(--text-tertiary)">Curated papers</div>
-    </div>
-    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg,10px);padding:14px 16px;text-align:center">
-      <div style="font-size:20px;font-weight:800;color:var(--blue);font-family:var(--font-display)">${_tt.toLocaleString()}</div>
-      <div style="font-size:10.5px;color:var(--text-tertiary)">Clinical trials</div>
-    </div>
-    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg,10px);padding:14px 16px;text-align:center">
-      <div style="font-size:20px;font-weight:800;color:var(--violet);font-family:var(--font-display)">${_tm.toLocaleString()}</div>
-      <div style="font-size:10.5px;color:var(--text-tertiary)">Meta-analyses</div>
-    </div>
-    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg,10px);padding:14px 16px;text-align:center">
-      <div style="font-size:20px;font-weight:800;color:var(--rose);font-family:var(--font-display)">${_tc}</div>
-      <div style="font-size:10.5px;color:var(--text-tertiary)">Conditions covered</div>
-    </div>
-    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg,10px);padding:14px 16px;text-align:center">
-      <div style="font-size:20px;font-weight:800;color:var(--amber);font-family:var(--font-display)">${PROTOCOL_LIBRARY?.length || 0}</div>
-      <div style="font-size:10.5px;color:var(--text-tertiary)">Protocols</div>
-    </div>
-  </div>
-  <div id="live-evidence-host"></div>
-  <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-    <input class="form-control" id="ev-search" placeholder="Search conditions, modalities, summaries…" style="flex:1;min-width:200px" oninput="window.filterEvidence()">
-    <select class="form-control" id="ev-level" style="width:auto" onchange="window.filterEvidence()">
-      <option value="">All Evidence Levels</option>
-      <option value="A" style="color:#00d4bc;background:#0a1628">Grade A — Strong RCT</option>
-      <option value="B" style="color:#4a9eff;background:#0a1628">Grade B — Moderate</option>
-      <option value="C" style="color:#f59e0b;background:#0a1628">Grade C — Emerging</option>
-      <option value="D" style="color:#f87171;background:#0a1628">Grade D — Limited</option>
-    </select>
-    <select class="form-control" id="ev-modality" style="width:auto" onchange="window.filterEvidence()">
-      <option value="">All Modalities</option>
-      ${[...modalitySet].sort().map(m => `<option value="${m}">${m}</option>`).join('')}
-    </select>
-  </div>
-  <div id="ev-count" style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:10px">${items.length} evidence records · ${(_tp/1000).toFixed(0)}K papers indexed across ${_tc} conditions</div>
-  <div id="ev-body">
-    ${items.length === 0
-      ? emptyState('◈', 'No evidence records loaded. Start the backend to load clinical data. 87K papers are indexed in the local evidence dataset.')
-      : renderEvidenceTable(items)}
-=======
   <style>
     .ev-tabbar{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:14px}
     .ev-tab{background:transparent;border:0;border-bottom:2px solid transparent;padding:8px 14px;font-size:12.5px;color:var(--text-secondary);cursor:pointer;font-weight:500}
@@ -168,7 +124,6 @@ export async function pgEvidence(setTopbar) {
     </div>
     <div id="ev-cp-status" style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:8px">Loading corpus…</div>
     <div id="ev-cp-body"></div>
->>>>>>> origin/feat/biomarkers-reference-page
   </div>`;
 
   // Mount the live-evidence panel (PubMed / OpenAlex / CT.gov / FDA via our
@@ -377,7 +332,6 @@ function renderEvidenceTable(items) {
   </div>`;
 }
 
-<<<<<<< HEAD
 // Evidence detail modal
 function _openEvidenceModal(evidence) {
   const old = document.getElementById('ds-evidence-modal');
@@ -500,7 +454,8 @@ window._openEvidenceDetail = function(idx) {
   const evidence = (window._evidenceData || [])[idx];
   if (!evidence) return;
   _openEvidenceModal(evidence);
-=======
+};
+
 // ── Corpus paper row renderer (87k DB) ───────────────────────────────────────
 // All user-facing strings (title, journal, abstract) are passed through esc()
 // since they come from the backend paper record and may contain HTML.
@@ -578,7 +533,6 @@ window._toggleEvidence = function(idx) {
   panel.style.display = open ? 'none' : '';
   if (chev) chev.textContent = open ? '›' : '↓';
   if (chev) chev.style.transform = open ? '' : 'rotate(0deg)';
->>>>>>> origin/feat/biomarkers-reference-page
 };
 
 // ── Device Registry ───────────────────────────────────────────────────────────
@@ -6576,7 +6530,7 @@ export async function pgStaffScheduling(setTopbar) {
           '<button class="btn btn-sm btn-ghost" style="color:#ef4444;margin-left:4px" onclick="window._staffDenySwap(\'' + req.id + '\')">Deny</button>'
         : '';
       var notif = req.status === 'approved'
-        ? '<div style="font-size:.72rem;color:var(--text-muted);margin-top:6px">Cover clinician will be notified via Virtual Care</div>'
+        ? '<div style="font-size:.72rem;color:var(--text-muted);margin-top:6px">Cover clinician handoff should be coordinated in Virtual Care. This staffing page does not send the notification.</div>'
         : '';
       return '<div class="swap-card">' +
         '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
@@ -7513,7 +7467,7 @@ export async function pgClinicAnalytics(setTopbar) {
 
   // ── Re-engagement action ────────────────────────────────────────────────────
   window._caSendReEngage = function(name) {
-    window._caShowToast(`Re-engagement message queued for ${name}`);
+    window._caShowToast(`Re-engagement follow-up logged locally for ${name}. Message delivery is not wired from this page.`);
   };
 
   // ── Toast helper ──────────────────────────────────────────────────────────

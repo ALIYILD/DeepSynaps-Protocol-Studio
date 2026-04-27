@@ -5756,7 +5756,7 @@ async function _pgPatientAssessmentsImpl() {
   };
 
   window._asToggleReminder = function(on) { _toast('Daily reminder ' + (on ? 'on' : 'off')); };
-  window._asViewHistory = function(_id) { _toast('Opening history entry…'); };
+  window._asViewHistory = function(_id) { _toast('Assessment history details are unavailable from this beta portal.'); };
 }
 
 // \u2500\u2500 Reports \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -10508,7 +10508,7 @@ export async function pgPatientMarketplace(_user) {
       ? (isAmazon
         ? `<button class="mp-cta mp-cta--amazon" data-mp-buy="${esc(i.id)}">View on Amazon · ${esc(i.price)}</button>`
         : `<button class="mp-cta mp-cta--buy" data-mp-buy="${esc(i.id)}">View Product · ${esc(i.price)}</button>`)
-      : `<button class="mp-cta mp-cta--buy" data-mp-buy="${esc(i.id)}">${esc(i.price)}</button>`;
+      : `<button class="mp-cta mp-cta--buy" disabled style="opacity:.55;cursor:not-allowed" title="External product link is unavailable in this beta portal">Unavailable · ${esc(i.price)}</button>`;
     const price = `<div class="mp-price">${esc(i.price)}</div>`;
     return `
       <article class="mp-card" data-kind="${esc(i.kind)}" data-id="${esc(i.id)}">
@@ -10847,8 +10847,6 @@ function _wireMarketplace(CATALOG) {
         window.open(item.external_url, '_blank', 'noopener,noreferrer');
         const isAmz = item.external_url.includes('amazon');
         mpToast(isAmz ? `Opening Amazon…` : `Opening ${item.name}…`);
-      } else {
-        mpToast(`${item.name} · link coming soon`);
       }
     });
   });

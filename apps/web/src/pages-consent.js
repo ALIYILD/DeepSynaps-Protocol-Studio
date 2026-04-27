@@ -194,12 +194,12 @@ const DEMO_CONSENTS = [
 
 // ── Demo audit log ───────────────────────────────────────────────────────────
 const DEMO_AUDIT = [
-  { id: _uid(), action: 'consent_created', patient_name: 'Sarah M. Johnson', template: 'TMS / rTMS Consent Form', actor: 'Dr. Emily Chen', timestamp: '2026-04-20T14:25:00Z', ip: '192.168.1.45', details: 'Consent form generated and sent to patient' },
+  { id: _uid(), action: 'consent_created', patient_name: 'Sarah M. Johnson', template: 'TMS / rTMS Consent Form', actor: 'Dr. Emily Chen', timestamp: '2026-04-20T14:25:00Z', ip: '192.168.1.45', details: 'Consent draft created and marked pending signature capture' },
   { id: _uid(), action: 'consent_signed', patient_name: 'Sarah M. Johnson', template: 'TMS / rTMS Consent Form', actor: 'Sarah M. Johnson (patient)', timestamp: '2026-04-20T14:30:00Z', ip: '192.168.1.45', details: 'Digital signature captured' },
   { id: _uid(), action: 'consent_countersigned', patient_name: 'Sarah M. Johnson', template: 'TMS / rTMS Consent Form', actor: 'Dr. Emily Chen', timestamp: '2026-04-20T14:32:00Z', ip: '192.168.1.45', details: 'Clinician attestation completed' },
   { id: _uid(), action: 'consent_created', patient_name: 'Michael R. Torres', template: 'tDCS Consent Form', actor: 'Dr. Emily Chen', timestamp: '2026-04-18T09:10:00Z', ip: '192.168.1.52', details: 'Consent form generated' },
   { id: _uid(), action: 'consent_signed', patient_name: 'Michael R. Torres', template: 'tDCS Consent Form', actor: 'Michael R. Torres (patient)', timestamp: '2026-04-18T09:15:00Z', ip: '192.168.1.52', details: 'Digital signature captured' },
-  { id: _uid(), action: 'consent_sent', patient_name: 'Lisa A. Park', template: 'TMS / rTMS Consent Form', actor: 'Dr. James Wilson', timestamp: '2026-04-22T08:00:00Z', ip: '192.168.1.33', details: 'Consent form sent to patient for review' },
+  { id: _uid(), action: 'consent_sent', patient_name: 'Lisa A. Park', template: 'TMS / rTMS Consent Form', actor: 'Dr. James Wilson', timestamp: '2026-04-22T08:00:00Z', ip: '192.168.1.33', details: 'Consent record marked pending external review follow-up' },
   { id: _uid(), action: 'consent_revoked', patient_name: 'Robert J. Garcia', template: 'tDCS Consent Form', actor: 'Dr. Emily Chen', timestamp: '2026-04-01T10:00:00Z', ip: '192.168.1.61', details: 'Patient withdrew from treatment; consent revoked at patient request' },
   { id: _uid(), action: 'consent_expired', patient_name: 'Jennifer L. Adams', template: 'TMS / rTMS Consent Form', actor: 'System', timestamp: '2026-03-10T00:00:00Z', ip: 'system', details: 'Consent passed 12-month validity window' },
 ];
