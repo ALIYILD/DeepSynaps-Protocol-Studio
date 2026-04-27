@@ -14,6 +14,9 @@ if (typeof globalThis.document === 'undefined') {
     body: { appendChild() {} },
   };
 }
+if (typeof globalThis.requestAnimationFrame === 'undefined') {
+  globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
+}
 // Node 22+ has built-in localStorage/sessionStorage whose getter throws
 // SecurityError without --localstorage-file. Probe via descriptor and
 // install a stub when the descriptor is a getter (built-in) or absent.
