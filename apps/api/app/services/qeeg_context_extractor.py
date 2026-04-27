@@ -81,6 +81,7 @@ def strip_qeeg_context(notes: Optional[str]) -> str:
     return _BLOCK_RE.sub("", notes).strip()
 
 
+<<<<<<< HEAD
 _UNTRUSTED_OPEN = "<untrusted_clinician_input>"
 _UNTRUSTED_CLOSE = "</untrusted_clinician_input>"
 
@@ -134,3 +135,23 @@ def format_context_for_prompt(ctx: dict[str, Any]) -> str:
         f"{header}\n\n"
         f"{_UNTRUSTED_OPEN}\n```json\n{body}\n```\n{_UNTRUSTED_CLOSE}"
     )
+=======
+def format_context_for_prompt(ctx: dict[str, Any]) -> str:
+    """Render a survey dict as a compact LLM-prompt block.
+
+    The embedded ``_instructions_for_llm`` field (if present) is surfaced
+    as a preamble so the model sees the intent before the JSON body. The
+    full JSON follows so the model can reason over any field it needs.
+    """
+    instructions = ctx.get("_instructions_for_llm")
+    red_flags = ctx.get("red_flags") or {}
+    active_flags = [k for k, v in red_flags.items() if v]
+    header_lines = ["## CLINICIAN-PROVIDED CLINICAL CONTEXT"]
+    if instructions:
+        header_lines.append(str(instructions))
+    if active_flags:
+        header_lines.append("RED FLAGS RAISED: " + ", ".join(active_flags))
+    header = "\n".join(header_lines)
+    body = json.dumps(ctx, indent=2, sort_keys=False)
+    return f"{header}\n\n```json\n{body}\n```"
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity

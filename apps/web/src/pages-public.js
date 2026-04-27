@@ -347,12 +347,17 @@ export function pgHome() {
       <div id="ev-view-treemap" class="pub-ev3-view">${treemapView}</div>
       <div id="ev-view-radial" class="pub-ev3-view">${radialView}</div>
 <<<<<<< HEAD
+<<<<<<< HEAD
       <div style="font-size:11px;color:var(--text-tertiary);margin-top:12px;text-align:right">
         DeepSynaps Evidence Pipeline — ${EVIDENCE_TOTAL_PAPERS.toLocaleString('en-US')} papers · ${EVIDENCE_TOTAL_TRIALS.toLocaleString('en-US')} trials · ${EVIDENCE_TOTAL_META.toLocaleString('en-US')} meta-analyses &amp; reviews
 =======
       <div data-ev-pipeline-footer style="font-size:11px;color:var(--text-tertiary);margin-top:12px;text-align:right">
         DeepSynaps Evidence Pipeline — 87,654 papers · 1,922 trials · 1,324 FDA device records
 >>>>>>> origin/feat/biomarkers-reference-page
+=======
+      <div data-ev-pipeline-footer style="font-size:11px;color:var(--text-tertiary);margin-top:12px;text-align:right">
+        DeepSynaps Evidence Pipeline — 87,654 papers · 1,922 trials · 1,324 FDA device records
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
       </div>`;
   }
 
@@ -559,6 +564,7 @@ export function pgHome() {
       </div>
       <div class="dv2-cond-tabs" role="tablist">
         <button class="dv2-cond-tab active" data-cond="ALL" onclick="window._dv2CondFilter('ALL', this)">All</button>
+<<<<<<< HEAD
         <button class="dv2-cond-tab" data-cond="Depressive Disorders" onclick="window._dv2CondFilter('Depressive Disorders', this)">Depression</button>
         <button class="dv2-cond-tab" data-cond="Anxiety &amp; OCD" onclick="window._dv2CondFilter('Anxiety &amp; OCD', this)">Anxiety &amp; OCD</button>
         <button class="dv2-cond-tab" data-cond="Neurodevelopmental" onclick="window._dv2CondFilter('Neurodevelopmental', this)">Neurodev</button>
@@ -569,6 +575,14 @@ export function pgHome() {
         <button class="dv2-cond-tab" data-cond="Neurological &amp; Rehab" onclick="window._dv2CondFilter('Neurological &amp; Rehab', this)">Neuro &amp; Rehab</button>
         <button class="dv2-cond-tab" data-cond="Post-COVID &amp; Functional" onclick="window._dv2CondFilter('Post-COVID &amp; Functional', this)">Post-COVID</button>
         <button class="dv2-cond-tab" data-cond="Comorbid &amp; Special" onclick="window._dv2CondFilter('Comorbid &amp; Special', this)">Comorbid</button>
+=======
+        <button class="dv2-cond-tab" data-cond="Psychiatric" onclick="window._dv2CondFilter('Psychiatric', this)">Psychiatric</button>
+        <button class="dv2-cond-tab" data-cond="OCD &amp; Compulsive" onclick="window._dv2CondFilter('OCD &amp; Compulsive', this)">OCD</button>
+        <button class="dv2-cond-tab" data-cond="Neurological" onclick="window._dv2CondFilter('Neurological', this)">Neurological</button>
+        <button class="dv2-cond-tab" data-cond="Pain" onclick="window._dv2CondFilter('Pain', this)">Pain</button>
+        <button class="dv2-cond-tab" data-cond="Cognitive" onclick="window._dv2CondFilter('Cognitive', this)">Cognitive</button>
+        <button class="dv2-cond-tab" data-cond="Sleep &amp; Autonomic" onclick="window._dv2CondFilter('Sleep &amp; Autonomic', this)">Sleep</button>
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
       </div>
 
       <!-- Live counts from /api/v1/evidence/stats (public endpoint).
@@ -576,6 +590,7 @@ export function pgHome() {
            and FDA device records; real values are swapped in on page load. -->
       <div id="phome-ev-live-stats" class="dv2-ev-mini-stats">
         <div class="dv2-ev-mini">
+<<<<<<< HEAD
 <<<<<<< HEAD
           <div class="dv2-ev-mini-n" id="phome-ev-stat-papers">${EVIDENCE_TOTAL_PAPERS.toLocaleString('en-US')}</div>
           <div class="dv2-ev-mini-l">peer-reviewed papers</div>
@@ -595,6 +610,12 @@ export function pgHome() {
           <div class="dv2-ev-mini-l">peer-reviewed papers</div>
         </div>
         <div class="dv2-ev-mini">
+=======
+          <div class="dv2-ev-mini-n" id="phome-ev-stat-papers">87,654</div>
+          <div class="dv2-ev-mini-l">peer-reviewed papers</div>
+        </div>
+        <div class="dv2-ev-mini">
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
           <div class="dv2-ev-mini-n" id="phome-ev-stat-abstracts">82,245</div>
           <div class="dv2-ev-mini-l">with full abstract</div>
         </div>
@@ -641,7 +662,10 @@ export function pgHome() {
         Europe PMC &middot; PubMed &middot; OpenAlex &middot; ClinicalTrials.gov &middot; FDA &middot; Unpaywall
         &nbsp;&middot;&nbsp; <span id="phome-ev-updated-note">refreshed daily</span>
       </div>
+<<<<<<< HEAD
 >>>>>>> origin/feat/biomarkers-reference-page
+=======
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
 
       <div class="pub-ev-section phome-ev-section">
         ${_buildEvMatrix()}
@@ -968,11 +992,14 @@ export function pgHome() {
         if (el && Number.isFinite(v)) el.textContent = fmt(v);
       };
 <<<<<<< HEAD
+<<<<<<< HEAD
       setN('phome-ev-stat-papers', papers);
       setN('phome-ev-stat-trials', trials);
       setN('phome-ev-stat-indications', indications);
       // Also update the stats strip
 =======
+=======
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
       // ── Main 4-tile counts (papers / with-abstract / trials / FDA) ─────
       setN('phome-ev-stat-papers',    c.papers);
       setN('phome-ev-stat-abstracts', c.papers_with_abstract);
@@ -980,7 +1007,10 @@ export function pgHome() {
       setN('phome-ev-stat-devices',   c.devices);
 
       // ── Hero strip (used in the design-v2 hero) ────────────────────────
+<<<<<<< HEAD
 >>>>>>> origin/feat/biomarkers-reference-page
+=======
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
       const setStrip = (id, v, suffix) => {
         const el = document.getElementById(id);
         if (el && Number.isFinite(v)) el.textContent = fmt(v) + (suffix || '');
@@ -1053,7 +1083,10 @@ export function pgHome() {
       if (footer && Number.isFinite(c.papers) && Number.isFinite(c.trials)) {
         footer.textContent = `DeepSynaps Evidence Pipeline — ${fmt(c.papers)} papers · ${fmt(c.trials)} trials · ${fmt(c.devices || 0)} FDA device records`;
       }
+<<<<<<< HEAD
 >>>>>>> origin/feat/biomarkers-reference-page
+=======
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
     } catch (_) {
       // Silently keep fallback numbers; console.debug is filtered by default.
       console.debug('[evidence/stats] fetch failed; using fallback');
