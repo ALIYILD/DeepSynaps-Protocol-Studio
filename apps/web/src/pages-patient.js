@@ -8110,7 +8110,7 @@ async function _pgPatientVirtualCareImpl() {
     if (action === 'call') {
       window.location.href = 'tel:988';
     } else if (action === 'plan') {
-      _showToast('Opening safety plan…');
+      _showToast('Safety plan access is unavailable from this beta portal. Contact your care team or use emergency resources if you need help now.');
     } else if (action === 'dismiss') {
       const c = document.getElementById('vc-crisis');
       if (c) c.classList.add('hidden');
