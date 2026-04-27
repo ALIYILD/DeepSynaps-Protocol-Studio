@@ -20055,32 +20055,34 @@ export async function pgPatientTickets() {
   if (!el) return;
   el.innerHTML = spinner();
 
+  const LOCAL_TICKET_KEY = 'ds_patient_tickets_local';
+  const loadLocalTickets = () => {
+    try {
+      const rows = JSON.parse(localStorage.getItem(LOCAL_TICKET_KEY) || '[]');
+      return Array.isArray(rows) ? rows : [];
+    } catch (_e) {
+      return [];
+    }
+  };
+  const saveLocalTickets = (rows) => {
+    try { localStorage.setItem(LOCAL_TICKET_KEY, JSON.stringify(Array.isArray(rows) ? rows : [])); } catch (_e) {}
+  };
+
   let tickets = [];
+  const hasTicketBackend = typeof api.patientTickets === 'function';
+  const hasReplyBackend = typeof api.patientTicketReply === 'function';
+  const hasCreateBackend = typeof api.patientTicketCreate === 'function';
+  const backendReady = hasTicketBackend && hasReplyBackend && hasCreateBackend;
   try {
     const res = await Promise.race([
-      api.patientTickets ? api.patientTickets() : Promise.resolve([]),
+      hasTicketBackend ? api.patientTickets() : Promise.resolve([]),
       new Promise((_, rej) => setTimeout(() => rej('timeout'), 3000))
     ]);
     if (Array.isArray(res)) tickets = res;
   } catch (_e) {}
 
-  // Demo seed when API returns empty
   if (!tickets.length) {
-    const now = new Date();
-    tickets = [
-      { id: 'TK-1001', title: 'Question about home device setup', category: 'question', status: 'resolved', priority: 'medium', created: new Date(now - 7 * 86400000).toISOString(), messages: [
-        { from: 'You', text: 'I am having trouble pairing the Synaps One device. The LED stays amber.', ts: new Date(now - 7 * 86400000).toISOString() },
-        { from: 'Support', text: 'Please try holding the reset button for 5 seconds, then attempt pairing again. Ensure Bluetooth is enabled on your phone.', ts: new Date(now - 6.5 * 86400000).toISOString() },
-        { from: 'You', text: 'That worked, thank you!', ts: new Date(now - 6 * 86400000).toISOString() },
-      ]},
-      { id: 'TK-1002', title: 'Side effect after session 8', category: 'question', status: 'open', priority: 'high', created: new Date(now - 2 * 86400000).toISOString(), messages: [
-        { from: 'You', text: 'I experienced a mild headache lasting about 2 hours after my last tDCS session. Is this normal?', ts: new Date(now - 2 * 86400000).toISOString() },
-        { from: 'Dr. Kolmar', text: 'Mild headaches can occur and typically resolve quickly. If they persist or worsen, please let us know immediately. We can adjust the protocol if needed.', ts: new Date(now - 1.5 * 86400000).toISOString() },
-      ]},
-      { id: 'TK-1003', title: 'Reschedule request for next week', category: 'other', status: 'in-progress', priority: 'low', created: new Date(now - 1 * 86400000).toISOString(), messages: [
-        { from: 'You', text: 'I will be travelling next Tuesday. Can we move my session to Wednesday or Thursday?', ts: new Date(now - 1 * 86400000).toISOString() },
-      ]},
-    ];
+    tickets = loadLocalTickets();
   }
 
   const catIcon = { question: '&#10067;', bug: '&#128027;', feature: '&#10024;', maintenance: '&#128295;', other: '&#128203;' };
@@ -20097,10 +20099,14 @@ export async function pgPatientTickets() {
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
           <div>
             <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 4px">Support Requests</h2>
-            <p style="font-size:12.5px;color:var(--text-secondary);margin:0">Track your questions and requests to the care team.</p>
+            <p style="font-size:12.5px;color:var(--text-secondary);margin:0">${backendReady ? 'Track your questions and requests to the care team.' : 'Track draft requests on this device until live support messaging is enabled for your clinic.'}</p>
           </div>
-          <button class="btn btn-primary btn-sm" onclick="window._ptNewTicket()">+ New Request</button>
+          <button class="btn btn-primary btn-sm" onclick="window._ptNewTicket()">+ ${backendReady ? 'New Request' : 'New Local Request'}</button>
         </div>
+        ${backendReady ? '' : `
+        <div style="margin-bottom:16px;padding:12px 14px;border:1px solid rgba(255,181,71,0.24);border-radius:12px;background:rgba(255,181,71,0.08);font-size:12.5px;line-height:1.5;color:var(--text-secondary)">
+          Live support messaging is not connected for this beta environment. Requests and replies on this page are stored only on this device and are not sent to your clinic.
+        </div>`}
 
         <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:16px;min-height:400px" class="pt-tickets-grid">
           <!-- Ticket list -->
@@ -20121,7 +20127,7 @@ export async function pgPatientTickets() {
                     <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${prioColor[t.priority] || '#94a3b8'}"></span>
                     <span style="margin-left:auto">${new Date(t.created).toLocaleDateString()}</span>
                   </div>
-                </div>`).join('')}
+                </div>`).join('') || `<div style="padding:28px 18px;text-align:center;color:var(--text-tertiary);font-size:12.5px">${backendReady ? 'No support requests yet.' : 'No local draft requests yet.'}</div>`}
             </div>
           </div>
 
@@ -20173,9 +20179,17 @@ export async function pgPatientTickets() {
     const sel = tickets.find(t => t.id === selectedId);
     if (!sel) return;
     sel.messages.push({ from: 'You', text: inp.value.trim(), ts: new Date().toISOString() });
-    if (api.patientTicketReply) api.patientTicketReply(sel.id, inp.value.trim()).catch(() => {});
+    if (hasReplyBackend) {
+      api.patientTicketReply(sel.id, inp.value.trim()).catch(() => {});
+    } else {
+      saveLocalTickets(tickets);
+    }
     _renderTickets();
-    window._showNotifToast && window._showNotifToast({ title: 'Message sent', body: 'Your care team will respond soon.', severity: 'success' });
+    window._showNotifToast && window._showNotifToast({
+      title: hasReplyBackend ? 'Message sent' : 'Message saved locally',
+      body: hasReplyBackend ? 'Your care team will respond soon.' : 'This reply is stored on this device only.',
+      severity: hasReplyBackend ? 'success' : 'warning'
+    });
   };
   window._ptNewTicket = function() {
     const modal = document.createElement('div');
@@ -20183,7 +20197,11 @@ export async function pgPatientTickets() {
     modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5)';
     modal.innerHTML = `
       <div style="background:var(--bg-primary,#0f172a);border:1px solid var(--border);border-radius:14px;padding:24px;width:90%;max-width:420px">
-        <h3 style="font-size:15px;font-weight:700;color:var(--text-primary);margin:0 0 14px">New Support Request</h3>
+        <h3 style="font-size:15px;font-weight:700;color:var(--text-primary);margin:0 0 14px">${backendReady ? 'New Support Request' : 'New Local Support Request'}</h3>
+        ${backendReady ? '' : `
+        <div style="margin-bottom:14px;padding:10px 12px;border:1px solid rgba(255,181,71,0.24);border-radius:10px;background:rgba(255,181,71,0.08);font-size:12px;line-height:1.45;color:var(--text-secondary)">
+          This request will be stored only on this device. It is not delivered to your clinic from this beta page yet.
+        </div>`}
         <div style="margin-bottom:12px">
           <label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:4px">Category</label>
           <select id="pt-tk-cat" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary,rgba(255,255,255,0.04));color:var(--text-primary);font-size:12.5px">
@@ -20202,7 +20220,7 @@ export async function pgPatientTickets() {
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
           <button class="btn btn-ghost btn-sm" onclick="document.getElementById('pt-tk-modal').remove()">Cancel</button>
-          <button class="btn btn-primary btn-sm" onclick="window._ptSubmitTicket()">Submit</button>
+          <button class="btn btn-primary btn-sm" onclick="window._ptSubmitTicket()">${backendReady ? 'Submit' : 'Save Local Request'}</button>
         </div>
       </div>`;
     document.body.appendChild(modal);
@@ -20215,11 +20233,19 @@ export async function pgPatientTickets() {
     const t = { id: 'TK-' + (1000 + tickets.length + 1), title: title, category: cat, status: 'open', priority: 'medium', created: new Date().toISOString(), messages: [{ from: 'You', text: body, ts: new Date().toISOString() }] };
     tickets.unshift(t);
     selectedId = t.id;
-    if (api.patientTicketCreate) api.patientTicketCreate({ title: title, body: body, category: cat }).catch(() => {});
+    if (hasCreateBackend) {
+      api.patientTicketCreate({ title: title, body: body, category: cat }).catch(() => {});
+    } else {
+      saveLocalTickets(tickets);
+    }
     const m = document.getElementById('pt-tk-modal');
     if (m) m.remove();
     _renderTickets();
-    window._showNotifToast && window._showNotifToast({ title: 'Request submitted', body: 'Your care team has been notified.', severity: 'success' });
+    window._showNotifToast && window._showNotifToast({
+      title: hasCreateBackend ? 'Request submitted' : 'Request saved locally',
+      body: hasCreateBackend ? 'Your care team has been notified.' : 'This request is stored on this device only.',
+      severity: hasCreateBackend ? 'success' : 'warning'
+    });
   };
 
   _renderTickets();

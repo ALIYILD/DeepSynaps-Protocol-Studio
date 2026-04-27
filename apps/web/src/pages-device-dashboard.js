@@ -140,6 +140,7 @@ function demoDashboardData(connectionId, provider, days) {
 
   const latest = summaries[summaries.length - 1] || {};
   return {
+    _demo: true,
     connection: {
       id: connectionId,
       source: provider,
@@ -261,18 +262,20 @@ function renderConnectionHeader(data) {
   const conn = data.connection || {};
   const meta = providerMeta(conn.source);
   const statusClass = conn.status === 'active' ? 'ok' : conn.status === 'error' ? 'error' : 'warn';
+  const isDemo = !!data._demo;
   return `<div class="dd-conn-header">
     <div class="dd-conn-icon" style="color:${meta.color}">${meta.icon}</div>
     <div class="dd-conn-info">
       <h2 class="dd-conn-name">${esc(meta.label)}</h2>
       <div class="dd-conn-meta">
-        <span class="dd-badge dd-badge--${statusClass}">${esc(conn.status || 'unknown')}</span>
+        <span class="dd-badge dd-badge--${isDemo ? 'warn' : statusClass}">${esc(isDemo ? 'demo data' : (conn.status || 'unknown'))}</span>
         <span class="dd-muted">Last sync: ${esc(fmtAgo(conn.last_sync_at))}</span>
         ${conn.patient_name ? `<span class="dd-muted">Patient: <strong>${esc(conn.patient_name)}</strong></span>` : ''}
       </div>
+      ${isDemo ? `<div class="dd-muted" style="margin-top:8px;max-width:720px">This dashboard is showing generated sample device data because a live device-sync backend was not available. Sync actions on this page refresh demo data only.</div>` : ''}
     </div>
     <div class="dd-conn-actions">
-      <button class="btn btn-sm btn-primary" onclick="window._ddTriggerSync()">Sync Now</button>
+      <button class="btn btn-sm btn-primary" onclick="window._ddTriggerSync()">${isDemo ? 'Refresh Demo Data' : 'Sync Now'}</button>
       <select class="dd-range-select" onchange="window._ddSetRange(this.value)">
         <option value="7" ${state().days === 7 ? 'selected' : ''}>7 days</option>
         <option value="14" ${state().days === 14 ? 'selected' : ''}>14 days</option>
@@ -387,6 +390,16 @@ export async function pgDeviceDashboard(setTopbar) {
   await loadDashboard();
 
   window._ddTriggerSync = async function() {
+    if (state().data?._demo || typeof api.deviceSyncTrigger !== 'function') {
+      state().data = null;
+      await loadDashboard();
+      window._dsToast?.({
+        title: 'Demo data refreshed',
+        body: 'Live device sync is not available in this environment yet.',
+        severity: 'warn'
+      });
+      return;
+    }
     try {
       await api.deviceSyncTrigger(state().connectionId);
     } catch {}
