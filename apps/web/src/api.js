@@ -1182,6 +1182,18 @@ export const api = {
   fetchQEEGPatientTrajectory: (patientId) =>
     apiFetch(`/api/v1/qeeg-analysis/patients/${patientId}/trajectory`),
 
+  // ── Multi-modal fusion (CONTRACT_V3 §1) ──────────────────────────────────
+  // Loads the most-recent qEEG + MRI analyses for `patientId`, fuses them on
+  // the server, and returns a FusionRecommendation envelope. `llmNarrative`
+  // controls whether the server rewrites the summary via LLM.
+  async fusionRecommend(patientId, { llmNarrative = true } = {}) {
+    const q = llmNarrative === false ? '?llm_narrative=false' : '?llm_narrative=true';
+    return apiFetch(
+      `/api/v1/fusion/recommend/${encodeURIComponent(patientId)}${q}`,
+      { method: 'POST' },
+    );
+  },
+
   // ── MRI Analyzer (packages/mri-pipeline; see portal_integration/api_contract.md)
   // Multipart upload (.zip DICOM or .nii.gz NIfTI). FormData must include
   //   file: File, patient_id: string
