@@ -41,6 +41,33 @@ function _on401() {
   setTimeout(() => { _401InFlight = false; }, 5000);
 }
 
+// ── Demo-mode fetch shim ─────────────────────────────────────────────────────
+// On Netlify preview / dev with VITE_ENABLE_DEMO=1 the offline demo-login
+// stores a synthetic '*-demo-token' string. Every backend call from that
+// session is rejected by the real API (401/403) or hits an endpoint the
+// preview API does not expose (404). The browser logs each failed response
+// as a console error — JS .catch() cannot suppress that browser log. To
+// keep reviewer consoles clean, short-circuit predictable demo failures by
+// returning a synthetic empty response WITHOUT firing the network call.
+// Auth endpoints still pass through so demo-login / refresh / me work.
+const _DEMO_PASSTHROUGH = /^\/api\/v1\/auth\/(demo-login|refresh|me|login|logout|register|activate-patient|forgot-password|reset-password)\b/;
+function _isDemoSession() {
+  try {
+    const flag = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+    if (!flag) return false;
+    const t = getToken();
+    return !!(t && t.endsWith('-demo-token'));
+  } catch { return false; }
+}
+function _demoSyntheticResponse(path, method) {
+  // Mutations: pretend success (return a minimal accepted-shape object).
+  if (method && method !== 'GET') return { ok: true, demo: true, id: 'demo-' + Date.now() };
+  // Reads: list-shaped endpoints get { items: [] }; singular getters get null.
+  // Heuristic: most cohort/list endpoints already expect { items: [...] }, so
+  // returning that shape matches the existing fallback path in pages.
+  return { items: [], demo: true };
+}
+
 function _extractTransport(res, extractor) {
   if (typeof extractor !== 'function') return undefined;
   try {
@@ -54,6 +81,12 @@ async function apiFetch(path, opts = {}) {
   let res;
   const { _fetch: fetchOverride, _transportExtractor: transportExtractor, ...requestOpts } = opts;
   const fetchFn = fetchOverride || globalThis.fetch;
+  // Demo-mode shim — short-circuit before any network call. See helper above.
+  if (_isDemoSession() && !_DEMO_PASSTHROUGH.test(path)) {
+    const data = _demoSyntheticResponse(path, (requestOpts.method || 'GET').toUpperCase());
+    if (transportExtractor) return { data, transport: undefined };
+    return data;
+  }
   // Detect multipart uploads: when body is FormData, omit the JSON content-type
   // so the browser can set the correct multipart/form-data boundary automatically.
   const _isFormData = (typeof FormData !== 'undefined') && (requestOpts.body instanceof FormData);
