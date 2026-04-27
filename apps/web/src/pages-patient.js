@@ -7912,7 +7912,7 @@ async function _pgPatientVirtualCareImpl() {
         t.messages.push({ id: localId, sender: 'me', senderName: 'You', at: new Date().toISOString(), body: '', kind: 'file', fileName: file.name, fileSize: file.size, fileType: file.type, objectUrl });
         const sc = document.getElementById('vc-conv-scroll');
         if (sc) { sc.innerHTML = _convHtml(activeId); sc.scrollTop = sc.scrollHeight; }
-        _showToast('Attachment sent');
+        _showToast('Attachment added locally');
         inp.value = '';
       };
       document.body.appendChild(inp);
@@ -7947,7 +7947,7 @@ async function _pgPatientVirtualCareImpl() {
         const sc = document.getElementById('vc-conv-scroll');
         if (sc) { sc.innerHTML = _convHtml(activeId); sc.scrollTop = sc.scrollHeight; }
         _vcRemoveRecOverlay();
-        _showToast('Voice note sent');
+        _showToast('Voice note recorded locally');
         // Upload to backend in background
         if (!_isDemo && api.patientUploadAudio) {
           const consentId = await _vcEnsureConsent('upload_voice');
@@ -7994,7 +7994,7 @@ async function _pgPatientVirtualCareImpl() {
         const sc = document.getElementById('vc-conv-scroll');
         if (sc) { sc.innerHTML = _convHtml(activeId); sc.scrollTop = sc.scrollHeight; }
         _vcRemoveRecOverlay();
-        _showToast('Video note sent');
+        _showToast('Video note recorded locally');
         // Upload to backend in background
         if (!_isDemo && api.patientUploadVideo) {
           const consentId = await _vcEnsureConsent('upload_video');
@@ -9545,7 +9545,7 @@ export async function pgPatientProfile(user) {
 // Full patient settings page ported from the mockup (st-* scope).
 // Self-contained: injects its own icon sprite, handlers, toast and confirm
 // modal. Local-only — no server persistence yet — save/discard produce a toast.
-export async function pgPatientSettings(user) {
+async function pgPatientSettingsLegacy(user) {
   setTopbar('Settings');
   const el = document.getElementById('patient-content');
   if (!el) return;

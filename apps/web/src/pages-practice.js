@@ -663,7 +663,7 @@ export async function pgPrograms(setTopbar) {
       if (!checked.length) { toast('No modules selected', 'Pick at least one module to assign.', 'warn'); return; }
       checked.forEach(mid => assignModuleToPatient(pid, mid));
       state.selectedPatientId = pid;
-      toast('Modules assigned', `${checked.length} module${checked.length===1?'':'s'} sent to patient.`, 'success');
+      toast('Modules assigned locally', `${checked.length} module${checked.length===1?'':'s'} added to this preview workflow. Patient delivery is not verified from this page.`, 'success');
       close();
       render();
     });
@@ -759,8 +759,8 @@ export async function pgPrograms(setTopbar) {
     el.querySelectorAll('[data-act]').forEach(b => {
       b.addEventListener('click', () => {
         const act = b.dataset.act, asg = b.dataset.asg;
-        if (act === 'resend') { setInProgress(asg); toast('Invite re-sent', 'Patient was notified (simulated).', 'info'); render(); }
-        else if (act === 'complete') { markComplete(asg); toast('Marked complete', 'Module completion recorded.', 'success'); render(); }
+        if (act === 'resend') { setInProgress(asg); toast('Follow-up logged locally', 'This preview workflow does not send a patient notification from this page.', 'info'); render(); }
+        else if (act === 'complete') { markComplete(asg); toast('Marked complete locally', 'Module completion was updated in this preview workflow.', 'success'); render(); }
         else if (act === 'unassign') { unassign(asg); toast('Unassigned', 'Module removed from patient.', 'info'); render(); }
       });
     });

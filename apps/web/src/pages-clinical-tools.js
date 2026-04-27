@@ -13362,8 +13362,8 @@ export async function pgHomePrograms(setTopbar, navigate) {
     _showModal = false; _editingTask = null;
     renderPage();
     window._showNotifToast?.({
-      title: existId ? 'Task updated' : 'Task assigned',
-      body: existId ? `Saved changes to "${title}".` : `"${title}" sent to patient.`,
+      title: existId ? 'Task updated' : 'Task saved',
+      body: existId ? `Saved changes to "${title}".` : `"${title}" was saved and queued for sync. Patient delivery depends on backend task sync.`,
       severity: 'success',
     });
   };
