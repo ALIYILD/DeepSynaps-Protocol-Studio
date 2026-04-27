@@ -8979,7 +8979,7 @@ export async function pgReminderAutomation(setTopbar) {
       preview: t.body.slice(0, 80) + '...',
     });
     lsSet('ds_reminder_outbox', outbox);
-    window._showToast?.('Test message queued in Outbox for template "' + t.name + '".', 'success');
+    window._showToast?.('Test message saved to the local Outbox for template "' + t.name + '". Delivery providers are not wired from this page.', 'success');
   };
 
   // ── Tab switching ──────────────────────────────────────────────────────────

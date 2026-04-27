@@ -4446,7 +4446,7 @@ async function _lsRemindTask(id) {
       if (res) sent = true;
     } catch {}
   }
-  _lsLogEvent('OPER', sent ? `Reminder sent: ${t.title}` : `Reminder queued locally (offline): ${t.title}`);
+  _lsLogEvent('OPER', sent ? `Reminder request accepted: ${t.title}` : `Reminder queued locally (offline): ${t.title}`);
   if (!sent) {
     const key = `ds_home_task_reminders_queue`;
     const q = _lsHtRead(key, []);
