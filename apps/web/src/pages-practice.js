@@ -11482,7 +11482,7 @@ export async function pgClinicianAccount(setTopbar, currentUser) {
               <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Admin only</button>
             </div>
             <div class="st-danger-row">
-              <div><div class="t">Transfer my patient panel</div><div class="s">Admin will assign your active cases to another clinician and notify each patient.</div></div>
+              <div><div class="t">Transfer my patient panel</div><div class="s">Patient-panel reassignment is managed by an administrator and is not started from this preview page.</div></div>
               <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Admin only</button>
             </div>
             <div class="st-danger-row">
@@ -11609,20 +11609,20 @@ function _wireClinicianAccount() {
   st.querySelectorAll('[data-st-unlink]').forEach(b => {
     b.addEventListener('click', () => {
       const svc = b.dataset.stUnlink;
-      stToast(svc.charAt(0).toUpperCase() + svc.slice(1) + ' unlinked');
+      stToast((svc.charAt(0).toUpperCase() + svc.slice(1)) + ' management is unavailable from this beta page.');
     });
   });
   st.querySelectorAll('[data-st-link]').forEach(b => {
     b.addEventListener('click', () => {
       const svc = b.dataset.stLink;
-      stToast('Linking ' + svc + '…');
+      stToast('Linking ' + svc + ' is handled outside this beta page.');
     });
   });
   st.querySelectorAll('[data-st-export]').forEach(b => {
     b.addEventListener('click', () => {
       const type = b.dataset.stExport;
       const labels = { activity: 'Activity log', signed: 'Signed documents' };
-      stToast((labels[type] || 'Export') + ' queued · ready in ~1 hour');
+      stToast((labels[type] || 'Export') + ' export is unavailable from this beta page.');
     });
   });
   const bd = document.getElementById('st-confirm-bd');

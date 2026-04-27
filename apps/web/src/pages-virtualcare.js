@@ -2753,6 +2753,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
     const textEl = document.getElementById('vc-cap-text');
     const text = textEl ? textEl.value : _vc.recording.transcription;
     let created = null;
+    let savedLocallyOnly = false;
     try {
       created = await api.createClinicianNote?.({
         patient_id: _vc.recording.patientId,
@@ -2762,7 +2763,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
         session_id: null,
       });
     } catch {
-      window._showNotifToast?.({ title: 'Saved locally', body: 'Note saved locally — API unavailable.', severity: 'warning' });
+      savedLocallyOnly = true;
     }
     VC_DATA.clinicianNotes.unshift({
       id: created?.note_id || ('cn-' + Date.now()),
@@ -2778,8 +2779,13 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
       status: 'awaiting-signoff',
       actionsTaken: [],
       draftId: created?.draft_id || null,
+      localOnly: savedLocallyOnly || !created,
     });
-    window._showNotifToast?.({ title:'Note Saved', body:'Note saved and queued for sign-off.', severity:'success' });
+    window._showNotifToast?.(
+      savedLocallyOnly || !created
+        ? { title: 'Saved locally', body: 'Note saved locally — sign-off workflow is unavailable until note sync succeeds.', severity: 'warning' }
+        : { title:'Note Saved', body:'Draft saved and ready for clinician review.', severity:'success' }
+    );
     _vc.recording = null;
     _vc.tab = 'ai-notes';
     renderPage();

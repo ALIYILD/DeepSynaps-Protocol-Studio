@@ -634,8 +634,8 @@ function widgetPredictions(_tel, patientId) {
 
 function widgetEhr() {
   return `<div class="pa-ehr">
-    <div><span>Connected EMR</span><span>Epic Hyperspace</span></div>
-    <div><span>Last sync</span><span class="mono">14m ago</span></div>
+    <div><span>EMR preview</span><span>Epic sample feed</span></div>
+    <div><span>Last sample refresh</span><span class="mono">14m ago</span></div>
     <div><span>Documents</span><span>132</span></div>
     <div><span>Lab panels</span><span>14</span></div>
     <div><span>Allergies</span><span style="color:#F6B23C">Penicillin</span></div>
@@ -657,7 +657,7 @@ const WIDGETS = [
   { id: 'video',       title: 'Video / facial affect',   icon: '🎥', source: 'Session capture',           col: 'span 2', h: 180, body: widgetVideo, ai: true, color: '#FF6B8B' },
   { id: 'text',        title: 'Text sentiment',          icon: '💬', source: 'Journals + chat',           col: 'span 2', h: 180, body: widgetText,  ai: true, color: '#5BB6FF' },
   { id: 'location',    title: 'Location & mobility',     icon: '📍', source: 'GPS · activity',            col: 'span 3', h: 140, body: () => widgetLocation(), color: '#B6E66A' },
-  { id: 'ehr',         title: 'EMR & medical records',   icon: '📄', source: 'Connected: Epic',           col: 'span 3', h: 140, body: () => widgetEhr(),  color: '#9BAEC2' },
+  { id: 'ehr',         title: 'EMR & medical records',   icon: '📄', source: 'Preview: Epic sample feed', col: 'span 3', h: 140, body: () => widgetEhr(),  color: '#9BAEC2' },
 ];
 
 function renderWidget(w, body) {
@@ -845,6 +845,9 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
   el.innerHTML = `<div class="pa-shell">
     ${header}
     <div class="pa-body" style="${activeTab === 'analytics' ? '' : 'display:none'}">
+      <div style="margin-bottom:14px;padding:12px 14px;border:1px solid rgba(245,158,11,0.28);border-radius:12px;background:rgba(245,158,11,0.08);font-size:12px;line-height:1.5;color:var(--text-secondary)">
+        Demo analytics preview. This patient analytics page is currently rendered from sample telemetry, not a live EMR or device feed.
+      </div>
       ${timeline}
       <div class="pa-grid-head">
         <div class="pa-overline">DOMAIN GRID</div>
@@ -861,9 +864,9 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
       <span>·</span>
       <span>HIPAA · GDPR · 21 CFR Part 11</span>
       <span style="flex:1"></span>
-      <span>Last sync 4m ago</span>
+      <span>Last sample refresh 4m ago</span>
       <span>·</span>
-      <span class="pa-foot-live"><span class="pa-foot-dot"></span> All systems live</span>
+      <span class="pa-foot-live"><span class="pa-foot-dot"></span> Demo preview</span>
     </footer>
   </div>`;
 
