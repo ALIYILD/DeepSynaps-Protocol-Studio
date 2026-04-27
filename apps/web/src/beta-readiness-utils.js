@@ -22,6 +22,9 @@ const SCHEDULE_TYPE_MAP = {
   consultation: { appointment_type: 'consultation', modality: null, label: 'Consultation' },
 };
 
+const CLOSED_REFERRAL_STAGES = new Set(['booked', 'dismissed', 'lost']);
+const ACTIVE_REFERRAL_STAGES = ['new', 'contacted', 'qualified'];
+
 export function getScheduleTypeSubmission(type) {
   const key = String(type || 'session').trim().toLowerCase();
   return SCHEDULE_TYPE_MAP[key] || SCHEDULE_TYPE_MAP.session;
@@ -61,6 +64,58 @@ export function parsePatientNameForCreate(name) {
     first_name: parts[0],
     last_name: parts.slice(1).join(' '),
   };
+}
+
+export function normalizeReferralLead(lead) {
+  const stageRaw = String(lead?.stage || 'new').trim().toLowerCase();
+  const stage = ['new', 'contacted', 'qualified', 'booked', 'dismissed', 'lost'].includes(stageRaw)
+    ? stageRaw
+    : 'new';
+  return {
+    id: lead?.id,
+    name: String(lead?.name || '').trim() || 'Unnamed referral',
+    email: lead?.email || '',
+    phone: lead?.phone || '',
+    source: String(lead?.source || 'referral').trim() || 'referral',
+    condition: lead?.condition || '',
+    stage,
+    notes: lead?.notes || '',
+    follow_up: lead?.follow_up || '',
+    converted_appointment_id: lead?.converted_appointment_id || null,
+    created: String(lead?.created_at || lead?.created || '').slice(0, 10),
+    updated: String(lead?.updated_at || lead?.updated || '').slice(0, 10),
+  };
+}
+
+export function getReferralNextStage(stage) {
+  const normalized = normalizeReferralLead({ stage }).stage;
+  if (normalized === 'new') return 'contacted';
+  if (normalized === 'contacted') return 'qualified';
+  return null;
+}
+
+export function summarizeReferralLeads(leads, todayIso = new Date().toISOString().slice(0, 10)) {
+  const normalized = (leads || []).map(normalizeReferralLead);
+  return normalized.reduce((summary, lead) => {
+    if (!CLOSED_REFERRAL_STAGES.has(lead.stage)) summary.open += 1;
+    if (lead.stage === 'booked') summary.booked += 1;
+    if (lead.stage === 'dismissed' || lead.stage === 'lost') summary.closed += 1;
+    if (
+      !CLOSED_REFERRAL_STAGES.has(lead.stage)
+      && lead.follow_up
+      && String(lead.follow_up).slice(0, 10) <= todayIso
+    ) {
+      summary.followUpDue += 1;
+    }
+    if (ACTIVE_REFERRAL_STAGES.includes(lead.stage)) summary.pipeline += 1;
+    return summary;
+  }, {
+    open: 0,
+    booked: 0,
+    closed: 0,
+    followUpDue: 0,
+    pipeline: 0,
+  });
 }
 
 export function buildReportFallbackContent({

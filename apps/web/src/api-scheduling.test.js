@@ -65,3 +65,31 @@ test('listReferrals delegates to the real leads endpoint', async () => {
     api.listLeads = orig;
   }
 });
+
+test('renderStoredReport requests the backend HTML/PDF render endpoint with auth', async () => {
+  installLocalStorageStub();
+  globalThis.localStorage.getItem = (key) => key === 'ds_access_token' ? 'token-123' : null;
+  let request = null;
+  globalThis.fetch = async (url, opts = {}) => {
+    request = { url, opts };
+    return {
+      ok: true,
+      status: 200,
+      headers: {
+        get: (name) => {
+          if (name === 'Content-Type') return 'application/pdf';
+          if (name === 'Content-Disposition') return 'attachment; filename="report-abc.pdf"';
+          return null;
+        },
+      },
+      blob: async () => new Blob(['pdf-bytes'], { type: 'application/pdf' }),
+    };
+  };
+  const { api } = await import('./api.js');
+  const res = await api.renderStoredReport('abc', { format: 'pdf', audience: 'patient' });
+  assert.equal(request?.url, 'http://127.0.0.1:8000/api/v1/reports/abc/render?format=pdf&audience=patient');
+  assert.equal(request?.opts?.method, 'GET');
+  assert.equal(request?.opts?.headers?.Authorization, 'Bearer token-123');
+  assert.equal(res.filename, 'report-abc.pdf');
+  assert.equal(res.contentType, 'application/pdf');
+});

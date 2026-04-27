@@ -7378,14 +7378,70 @@ export async function pgReportsHubNew(setTopbar, navigate) {
           <button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='generate';window._nav('reports-hub')">+ New Report</button>
         </div>
         ${rows.length ? rows.map(r=>
+          (() => {
+            const canRender = r._source === 'backend' && r.status !== 'local-only';
+            const actionHtml = canRender
+              ? '<button class="ch-btn-sm" onclick="window._repOpenRenderedHtml(\''+r.id+'\')">HTML</button><button class="ch-btn-sm" onclick="window._repDownloadPdf(\''+r.id+'\')">PDF</button>'
+              : '<span style="font-size:10.5px;color:var(--amber);padding:0 6px">Local only</span>';
+            return (
           '<div class="book-row">'+
             '<div class="book-datetime"><div class="book-date">'+r.date+'</div><div class="book-time">'+r.type+'</div></div>'+
             '<div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+r.patient+'</div></div>'+
             '<div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[r.status]||'var(--teal)')+';background:'+(stC[r.status]||'var(--teal)')+'22">'+r.status+'</span></div>'+
-            '<div class="book-actions"><button class="ch-btn-sm" onclick="window._repViewSaved(\''+r.id+'\')">View</button><button class="ch-btn-sm" onclick="window._repPrintSaved(\''+r.id+'\')">Print</button></div>'+
+            '<div class="book-actions"><button class="ch-btn-sm" onclick="window._repViewSaved(\''+r.id+'\')">View</button><button class="ch-btn-sm" onclick="window._repPrintSaved(\''+r.id+'\')">Print</button>'+actionHtml+'</div>'+
           '</div>'
+            );
+          })()
         ).join('') : '<div class="ch-empty">No reports yet. <a onclick="window._reportsHubTab=\'generate\';window._nav(\'reports-hub\')" style="color:var(--teal);cursor:pointer">Generate one now →</a></div>'}
       </div>`;
+
+    window._repOpenRenderedHtml = async (id) => {
+      const r = findSavedReportRecord(id);
+      if (!r) {
+        window._dsToast?.({ title:'Not found', body:'Report record is no longer available.', severity:'warn' });
+        return;
+      }
+      if (r._source !== 'backend' || r.status === 'local-only') {
+        window._dsToast?.({ title:'HTML unavailable', body:'This report only exists in the local browser cache.', severity:'warn' });
+        return;
+      }
+      try {
+        const file = await api.renderStoredReport?.(id, { format: 'html', audience: 'both' });
+        if (!file?.blob) throw new Error('Rendered report was empty.');
+        const url = URL.createObjectURL(file.blob);
+        window.open(url, '_blank', 'noopener,noreferrer');
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      } catch (err) {
+        window._dsToast?.({ title:'HTML render failed', body: err?.message || 'The report could not be rendered.', severity:'warn' });
+      }
+    };
+
+    window._repDownloadPdf = async (id) => {
+      const r = findSavedReportRecord(id);
+      if (!r) {
+        window._dsToast?.({ title:'Not found', body:'Report record is no longer available.', severity:'warn' });
+        return;
+      }
+      if (r._source !== 'backend' || r.status === 'local-only') {
+        window._dsToast?.({ title:'PDF unavailable', body:'This report only exists in the local browser cache.', severity:'warn' });
+        return;
+      }
+      try {
+        const file = await api.renderStoredReport?.(id, { format: 'pdf', audience: 'both' });
+        if (!file?.blob) throw new Error('PDF render returned no file.');
+        const url = URL.createObjectURL(file.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.filename || ('report-' + id + '.pdf');
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        window._dsToast?.({ title:'PDF ready', body:(file.filename || ('report-' + id + '.pdf')) + ' downloaded.', severity:'success' });
+      } catch (err) {
+        window._dsToast?.({ title:'PDF export failed', body: err?.message || 'The report PDF could not be generated.', severity:'warn' });
+      }
+    };
 
     // Open a saved report in a real modal with its stored content.
     window._repViewSaved = (id) => {
@@ -7412,9 +7468,25 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     };
 
     // Print a saved report by rendering its content into a transient print window.
-    window._repPrintSaved = (id) => {
+    window._repPrintSaved = async (id) => {
       const r = findSavedReportRecord(id);
       if (!r) { window._dsToast?.({ title:'Not found', body:'Report record is no longer available.', severity:'warn' }); return; }
+      if (r._source === 'backend' && r.status !== 'local-only') {
+        try {
+          const file = await api.renderStoredReport?.(id, { format: 'html', audience: 'both' });
+          if (!file?.blob) throw new Error('Rendered report was empty.');
+          const url = URL.createObjectURL(file.blob);
+          const w = window.open(url, '_blank', 'width=900,height=700');
+          if (!w) throw new Error('Popup blocked.');
+          setTimeout(() => {
+            try { w.focus(); w.print(); } catch {}
+          }, 400);
+          setTimeout(() => URL.revokeObjectURL(url), 60_000);
+          return;
+        } catch (err) {
+          window._dsToast?.({ title:'Print render failed', body: err?.message || 'Falling back to plain text print.', severity:'warn' });
+        }
+      }
       const w = window.open('', '_blank', 'width=800,height=600');
       if (!w) { window.print(); return; }
       const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -7761,6 +7833,13 @@ export async function pgFinanceHub(setTopbar, navigate) {
   const claimsApproved = Number(summary.claims_approved ?? 0);
   const claimsPending  = Number(summary.claims_pending  ?? 0);
   const claimsValue    = Number(summary.claims_value    ?? 0);
+  const invoiceOptionsHtml = ['<option value="">No linked invoice</option>'].concat(
+    invoices.map((inv) =>
+      '<option value="' + String(inv.id).replace(/"/g, '&quot;') + '">'
+      + (inv.invoice_number || inv.id) + ' — ' + (inv.patient_name || '—') + ' — ' + fmtC(inv.total, inv.currency)
+      + '</option>'
+    )
+  ).join('');
 
   window._finNewInvoice = () => document.getElementById('fin-new-inv-modal')?.classList.remove('ch-hidden');
   window._finLogPayment = () => document.getElementById('fin-log-pay-modal')?.classList.remove('ch-hidden');
@@ -7847,12 +7926,47 @@ export async function pgFinanceHub(setTopbar, navigate) {
                 '<div style="flex-shrink:0;text-align:right;min-width:80px"><div style="font-size:14px;font-weight:700;color:var(--text-primary)">'+symTotal+'</div><div style="font-size:11px;color:var(--text-tertiary)">+VAT incl.</div></div>'+
                 '<div class="book-status-col"><span class="book-status-badge" style="color:'+(invStC[inv.status]||'var(--text-tertiary)')+';background:'+(invStC[inv.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+(inv.status||'')+'</span></div>'+
                 '<div class="book-actions">'+
+                  '<button class="ch-btn-sm" onclick="window._finViewInvoice(\''+safeId+'\')">View</button>'+
                   (inv.status!=='paid'?'<button class="ch-btn-sm ch-btn-teal" onclick="window._finMarkPaid(\''+safeId+'\')">Mark Paid</button>':'')+
+                  (inv.status==='draft'?'<button class="ch-btn-sm" onclick="window._finDeleteInvoice(\''+safeId+'\', \''+safeNum+'\')">Delete</button>':'')+
                   '<button class="ch-btn-sm" disabled title="Invoice delivery is not enabled in this beta build">Delivery unavailable</button>'+
                 '</div>'+
               '</div>';
             }).join('')}
       </div>`;
+
+    window._finViewInvoice = (id) => {
+      const inv = invoices.find((row) => String(row.id) === String(id));
+      if (!inv) {
+        window._dsToast?.({ title:'Invoice not found', body:'This invoice is no longer available.', severity:'warn' });
+        return;
+      }
+      const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const ov = document.createElement('div');
+      ov.className = 'rh-modal-overlay';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:1000;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 16px';
+      ov.innerHTML = '<div style="background:var(--bg-card,#0e1628);border:1px solid var(--border);border-radius:12px;width:100%;max-width:620px;padding:20px 24px;max-height:90vh;overflow-y:auto">'
+        + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">'
+          + '<div style="flex:1;min-width:0">'
+            + '<div style="font-size:14px;font-weight:700;color:var(--text-primary)">' + esc(inv.invoice_number || inv.id) + '</div>'
+            + '<div style="font-size:11.5px;color:var(--text-tertiary);margin-top:2px">' + esc(inv.patient_name || 'Unknown patient') + ' · ' + esc(inv.service || 'Invoice') + '</div>'
+          + '</div>'
+          + '<button class="ch-btn-sm" onclick="this.closest(\'.rh-modal-overlay\').remove()" style="padding:4px 10px">Close</button>'
+        + '</div>'
+        + '<div style="display:grid;grid-template-columns:140px 1fr;gap:10px;font-size:12px;line-height:1.6">'
+          + '<div style="color:var(--text-tertiary)">Status</div><div style="color:var(--text-primary)">' + esc(inv.status || '—') + '</div>'
+          + '<div style="color:var(--text-tertiary)">Amount</div><div style="color:var(--text-primary)">' + esc(fmtC(inv.amount, inv.currency)) + '</div>'
+          + '<div style="color:var(--text-tertiary)">VAT</div><div style="color:var(--text-primary)">' + esc(fmtC(inv.vat, inv.currency)) + ' (' + Math.round(Number(inv.vat_rate || 0) * 100) + '%)</div>'
+          + '<div style="color:var(--text-tertiary)">Total</div><div style="color:var(--text-primary)">' + esc(fmtC(inv.total, inv.currency)) + '</div>'
+          + '<div style="color:var(--text-tertiary)">Paid</div><div style="color:var(--text-primary)">' + esc(fmtC(inv.paid, inv.currency)) + '</div>'
+          + '<div style="color:var(--text-tertiary)">Issue date</div><div style="color:var(--text-primary)">' + esc(inv.issue_date || '—') + '</div>'
+          + '<div style="color:var(--text-tertiary)">Due date</div><div style="color:var(--text-primary)">' + esc(inv.due_date || '—') + '</div>'
+          + '<div style="color:var(--text-tertiary)">Notes</div><div style="color:var(--text-primary);white-space:pre-wrap">' + esc(inv.notes || '—') + '</div>'
+        + '</div>'
+      + '</div>';
+      ov.addEventListener('click', (event) => { if (event.target === ov) ov.remove(); });
+      document.body.appendChild(ov);
+    };
 
     window._finMarkPaid = async (id) => {
       try {
@@ -7865,6 +7979,16 @@ export async function pgFinanceHub(setTopbar, navigate) {
         window._nav('finance-hub');
       } catch (err) {
         window._dsToast?.({ title:'Mark paid failed', body: err?.message || 'Server error', severity:'warn' });
+      }
+    };
+    window._finDeleteInvoice = async (id, label) => {
+      if (!confirm('Delete draft invoice ' + label + '?')) return;
+      try {
+        await api.finance.deleteInvoice(id);
+        window._dsToast?.({ title:'Draft deleted', body: label + ' was removed.', severity:'success' });
+        window._nav('finance-hub');
+      } catch (err) {
+        window._dsToast?.({ title:'Delete failed', body: err?.message || 'Server error', severity:'warn' });
       }
     };
   }
@@ -7975,7 +8099,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
       </div>
       <div class="ch-two-col">
         <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Monthly Revenue</span><button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='generate';window._nav('reports-hub')">Export Report</button></div>
+          <div class="ch-card-hd"><span class="ch-card-title">Monthly Revenue</span><button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='analytics';window._nav('reports-hub')">Open Reports</button></div>
           ${monthlyData.length === 0
             ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No monthly data yet.</div>'
             : monthlyData.map(d =>
@@ -8042,7 +8166,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
           <div class="ch-form-group"><label class="ch-label">Method</label><select id="pay-method" class="ch-select ch-select--full"><option value="card">Card</option><option value="bacs">BACS</option><option value="cash">Cash</option><option value="manual">Manual</option><option value="other">Other</option></select></div>
           <div class="ch-form-group"><label class="ch-label">Reference (optional)</label><input id="pay-ref" class="ch-select ch-select--full" placeholder="e.g. TXN-8821"></div>
           <div class="ch-form-group"><label class="ch-label">Payment Date</label><input id="pay-date" type="date" class="ch-select ch-select--full" value="${td}"></div>
-          <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Invoice ID (optional)</label><input id="pay-invoice" class="ch-select ch-select--full" placeholder="Link to an invoice (optional)"></div>
+          <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Linked Invoice (optional)</label><select id="pay-invoice" class="ch-select ch-select--full" onchange="window._finSelectInvoiceForPayment(this.value)">${invoiceOptionsHtml}</select></div>
         </div>
         <div style="display:flex;gap:8px;margin-top:8px">
           <button class="btn btn-primary" onclick="window._finSavePayment()">Log Payment</button>
@@ -8103,6 +8227,16 @@ export async function pgFinanceHub(setTopbar, navigate) {
     } catch (err) {
       window._dsToast?.({ title:'Create failed', body: err?.message || 'Server error', severity:'warn' });
     }
+  };
+
+  window._finSelectInvoiceForPayment = (invoiceId) => {
+    const invoice = invoices.find((row) => String(row.id) === String(invoiceId));
+    const patientInput = document.getElementById('pay-patient');
+    const amountInput = document.getElementById('pay-amount');
+    if (!invoice || !patientInput || !amountInput) return;
+    patientInput.value = invoice.patient_name || '';
+    const remaining = Math.max(0, Number(invoice.total || 0) - Number(invoice.paid || 0));
+    amountInput.value = remaining ? String(remaining) : String(Number(invoice.total || 0));
   };
 
   window._finSavePayment = async () => {

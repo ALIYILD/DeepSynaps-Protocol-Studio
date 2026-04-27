@@ -4,9 +4,12 @@ import assert from 'node:assert/strict';
 import {
   buildReportFallbackContent,
   buildSchedulingSessionPayload,
+  getReferralNextStage,
   getScheduleTypeSubmission,
   mergeSavedReports,
+  normalizeReferralLead,
   parsePatientNameForCreate,
+  summarizeReferralLeads,
 } from './beta-readiness-utils.js';
 
 test('schedule type submission maps neuromodulation sessions to backend-safe payload types', () => {
@@ -59,6 +62,51 @@ test('parsePatientNameForCreate requires first and last name', () => {
     first_name: 'Jean',
     last_name: 'Luc Picard',
   });
+});
+
+test('normalizeReferralLead and summarizeReferralLeads keep beta-safe referral semantics', () => {
+  const normalized = normalizeReferralLead({
+    id: 'lead-1',
+    name: ' Alex Morgan ',
+    source: 'website',
+    stage: 'CONTACTED',
+    follow_up: '2026-04-27T09:00:00Z',
+    created_at: '2026-04-20T10:00:00Z',
+  });
+  assert.deepEqual(normalized, {
+    id: 'lead-1',
+    name: 'Alex Morgan',
+    email: '',
+    phone: '',
+    source: 'website',
+    condition: '',
+    stage: 'contacted',
+    notes: '',
+    follow_up: '2026-04-27T09:00:00Z',
+    converted_appointment_id: null,
+    created: '2026-04-20',
+    updated: '',
+  });
+
+  const summary = summarizeReferralLeads([
+    normalized,
+    { id: 'lead-2', name: 'Booked', stage: 'booked' },
+    { id: 'lead-3', name: 'Closed', stage: 'lost' },
+  ], '2026-04-27');
+  assert.deepEqual(summary, {
+    open: 1,
+    booked: 1,
+    closed: 1,
+    followUpDue: 1,
+    pipeline: 1,
+  });
+});
+
+test('getReferralNextStage advances only live referral pipeline stages', () => {
+  assert.equal(getReferralNextStage('new'), 'contacted');
+  assert.equal(getReferralNextStage('contacted'), 'qualified');
+  assert.equal(getReferralNextStage('qualified'), null);
+  assert.equal(getReferralNextStage('booked'), null);
 });
 
 test('buildReportFallbackContent is explicit about AI unavailability and available data', () => {
