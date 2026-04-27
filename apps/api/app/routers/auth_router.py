@@ -421,15 +421,30 @@ def register(
     )
 
 
-@limiter.limit("10/minute")
+@limiter.limit("5/minute")
 @router.post("/api/v1/auth/login", response_model=TokenResponse)
 def login(
     request: Request,
     body: LoginRequest,
     db: Session = Depends(get_db_session),
 ) -> TokenResponse:
+    # Always run a bcrypt verify even when the user does not exist — bcrypt
+    # is slow enough that a missing-user short-circuit becomes a measurable
+    # timing oracle for user enumeration. Use a static dummy hash with the
+    # supplied password; the result is discarded.
+    _DUMMY_BCRYPT_HASH = (
+        "$2b$12$abcdefghijklmnopqrstuuOXLkfHJZBYvT4Q3ZKmtH8pHj3nYtEWO"
+    )
     user = get_user_by_email(db, body.email)
-    if user is None or not auth_service.verify_password(body.password, user.hashed_password):
+    if user is None:
+        auth_service.verify_password(body.password, _DUMMY_BCRYPT_HASH)
+        raise ApiServiceError(
+            code="invalid_credentials",
+            message="Incorrect email or password.",
+            warnings=["Double-check the email and password and try again."],
+            status_code=401,
+        )
+    if not auth_service.verify_password(body.password, user.hashed_password):
         raise ApiServiceError(
             code="invalid_credentials",
             message="Incorrect email or password.",

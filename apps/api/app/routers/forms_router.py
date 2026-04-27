@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -111,7 +111,11 @@ class FormListResponse(BaseModel):
 
 
 class FormDeployRequest(BaseModel):
-    patient_ids: list[str]
+    # Cap at 200 patients per deploy. Each id triggers a DB lookup via
+    # _gate_patient_access; without a cap a clinician (or attacker with a
+    # leaked token) could fan out a single request into thousands of
+    # cross-clinic ownership probes.
+    patient_ids: list[str] = Field(..., max_length=200)
     message: Optional[str] = None
 
 

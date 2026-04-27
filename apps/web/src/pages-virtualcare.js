@@ -2272,7 +2272,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
               <div class="vc-update-body">
                 <div class="vc-update-name">${_e(n.patientName)}</div>
                 <div class="vc-update-subject">${_e(n.subject)}</div>
-                <div class="vc-update-meta">${_statusBadge(n.status)} \u00B7 ${_ago(n.recordedAt)}</div>
+                <div class="vc-update-meta">${_statusBadge(n.status)}${n.localOnly ? ' \u00B7 Local only' : ''} \u00B7 ${_ago(n.recordedAt)}</div>
               </div>
             </div>`).join('')}
         </div>
@@ -2290,6 +2290,10 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
 
             <div class="vc-update-detail-card">
               <div class="vc-update-subject-lg">${_e(sel.subject)}</div>
+              ${sel.localOnly ? `
+                <div style="margin-bottom:12px;padding:10px 12px;border-radius:10px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);font-size:11.5px;color:var(--text-secondary)">
+                  This note exists only in this browser. Backend sign-off and finalization were not created.
+                </div>` : ''}
               <div class="vc-transcription-block">
                 <div class="vc-block-label">Clinical Note (Transcribed)</div>
                 <div class="vc-transcription-text">${_e(sel.transcription)}</div>
@@ -2303,7 +2307,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
 
               ${sel.status !== 'signed' ? `
                 <div class="vc-note-sign-bar">
-                  <button class="vc-sign-btn" onclick="window._vcSignNote('${sel.id}')">\u2713 Sign Note</button>
+                  <button class="vc-sign-btn" onclick="window._vcSignNote('${sel.id}')">${sel.localOnly ? '\u2713 Mark Signed Locally' : '\u2713 Sign Note'}</button>
                   <button class="vc-edit-note-btn" onclick="window._vcEditNote('${sel.id}')">Edit</button>
                 </div>` : '<div class="vc-note-signed">\u2713 Note signed</div>'}
             </div>
@@ -2550,12 +2554,22 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
   window._vcAcceptCall = async (id, type) => {
     const cr = VC_DATA.callRequests.find(c => c.id === id);
     if (!cr) return;
-    try { await api.resolveCallRequest?.(cr.messageId || cr.id); } catch {}
+    if (_vc.live.callRequests) {
+      try {
+        await api.resolveCallRequest?.(cr.messageId || cr.id);
+      } catch (e) {
+        window._showNotifToast?.({ title:'Accept failed', body:(e?.body?.message || e?.message || 'Unable to resolve call request.'), severity:'warning' });
+        return;
+      }
+    }
     const idx = VC_DATA.callRequests.findIndex(c => c.id === id);
     if (idx >= 0) VC_DATA.callRequests.splice(idx, 1);
     _vc.activeCall = { type, item:cr, phase:'connecting' };
     _vc.activeCall.roomName = 'ds-' + (window._clinicId || 'clinic') + '-' + (cr.patientId || id).replace(/[^a-z0-9]/gi,'') + '-' + Date.now();
     renderPage();
+    if (!_vc.live.callRequests) {
+      window._showNotifToast?.({ title:'Preview row removed', body:'This call request was removed locally only.', severity:'info' });
+    }
     setTimeout(() => { if(_vc.activeCall) { _vc.activeCall.phase = 'active'; renderPage(); _startLiveTranscription(); _vcStartAnalysis(_vc.activeCall); } }, 2000);
   };
 
@@ -2612,14 +2626,20 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
     const idx = VC_DATA.callRequests.findIndex(c => c.id === id);
     if (idx < 0) return;
     const item = VC_DATA.callRequests[idx];
-    try {
-      await api.resolveCallRequest?.(item.messageId || item.id);
-      VC_DATA.callRequests.splice(idx, 1);
-      renderPage();
-      window._showNotifToast?.({ title:'Dismissed', body:'Call request resolved in the live inbox.', severity:'success' });
-    } catch (e) {
-      window._showNotifToast?.({ title:'Dismiss failed', body:(e?.body?.message || e?.message || 'Unable to resolve call request.'), severity:'warning' });
+    if (_vc.live.callRequests) {
+      try {
+        await api.resolveCallRequest?.(item.messageId || item.id);
+        VC_DATA.callRequests.splice(idx, 1);
+        renderPage();
+        window._showNotifToast?.({ title:'Dismissed', body:'Call request resolved in the live inbox.', severity:'success' });
+      } catch (e) {
+        window._showNotifToast?.({ title:'Dismiss failed', body:(e?.body?.message || e?.message || 'Unable to resolve call request.'), severity:'warning' });
+      }
+      return;
     }
+    VC_DATA.callRequests.splice(idx, 1);
+    renderPage();
+    window._showNotifToast?.({ title:'Preview row removed', body:'This call request was removed locally only.', severity:'info' });
   };
 
   window._vcScheduleCall = id => {
