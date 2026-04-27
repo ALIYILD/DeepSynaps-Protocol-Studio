@@ -2254,10 +2254,15 @@ export async function pgPatientDashboard(user) {
     } catch (_e) {}
     let syncedToClinic = false;
     try {
-      const uid = user?.patient_id || user?.id;
-      if (uid) {
-        await api.submitAssessment(uid, { type: 'wellness_checkin', ...payload });
+      if (typeof api.patientPortalSubmitWellnessLog === 'function') {
+        await api.patientPortalSubmitWellnessLog(payload);
         syncedToClinic = true;
+      } else {
+        const uid = user?.patient_id || user?.id;
+        if (uid) {
+          await api.submitAssessment(uid, { type: 'wellness_checkin', ...payload });
+          syncedToClinic = true;
+        }
       }
     } catch (_e) {}
     const form = document.getElementById('pt-checkin-form');
@@ -13257,7 +13262,7 @@ export async function pgPatientWearables() {
       <div class="pdw-ble-copy">
         <div class="pdw-ble-badge">Web Bluetooth</div>
         <div class="pdw-ble-heading">Direct Bluetooth connection</div>
-        <p class="pdw-ble-text">Pair a Bluetooth heart rate monitor (chest strap, watch, or armband supporting BLE 0x180D) to stream live BPM into your care record. Chrome or Edge required.</p>
+        <p class="pdw-ble-text">Pair a Bluetooth heart rate monitor (chest strap, watch, or armband supporting BLE 0x180D) to view live BPM in this browser session. A summary is uploaded only if secure sync succeeds. Chrome or Edge required.</p>
       </div>
     </div>
   </div>
@@ -13465,8 +13470,17 @@ export async function pgPatientWearables() {
       try { if (server && server.connected) server.disconnect(); } catch (_) {}
       setStatus(latestBpm ? 'Connected ✓' : '');
       if (latestBpm > 0) {
-        try { await api.submitWearableObservations({ rhr_bpm: latestBpm, source: 'web_bluetooth_hrm', samples }); }
-        catch (_) { /* offline backend is fine; BLE flow already succeeded */ }
+        let synced = false;
+        try {
+          await api.submitWearableObservations({ rhr_bpm: latestBpm, source: 'web_bluetooth_hrm', samples });
+          synced = true;
+        } catch (_) {}
+        _bleToast(
+          synced
+            ? 'Bluetooth reading captured and shared with your clinic.'
+            : 'Bluetooth reading captured in this browser session. Clinic sync was not confirmed.',
+          synced ? 'var(--teal,#00d4bc)' : '#d97706',
+        );
       }
     };
     function onChange(ev) {
@@ -20173,7 +20187,7 @@ export async function pgPatientTickets() {
               ${sel.status !== 'resolved' ? `
               <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px">
                 <input id="pt-tk-reply" type="text" placeholder="Add a message..." style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary,rgba(255,255,255,0.04));color:var(--text-primary);font-size:12.5px">
-                <button class="btn btn-primary btn-sm" onclick="window._ptReplyTicket()">Send</button>
+                <button class="btn btn-primary btn-sm" onclick="window._ptReplyTicket()">${backendReady ? 'Reply' : 'Save local note'}</button>
               </div>` : `
               <div style="padding:12px 16px;border-top:1px solid var(--border);text-align:center;font-size:12px;color:var(--text-tertiary)">This request has been resolved.</div>`}
             ` : `<div style="display:flex;align-items:center;justify-content:center;flex:1;color:var(--text-tertiary);font-size:13px">Select a request to view details</div>`}
@@ -20190,22 +20204,26 @@ export async function pgPatientTickets() {
   window._ptTicketFilter = 'all';
   window._ptFilterTickets = function(s) { window._ptTicketFilter = s; _renderTickets(); };
   window._ptSelectTicket = function(id) { selectedId = id; _renderTickets(); };
-  window._ptReplyTicket = function() {
+  window._ptReplyTicket = async function() {
     const inp = document.getElementById('pt-tk-reply');
     if (!inp || !inp.value.trim()) return;
     const sel = tickets.find(t => t.id === selectedId);
     if (!sel) return;
-    sel.messages.push({ from: 'You', text: inp.value.trim(), ts: new Date().toISOString() });
+    const messageText = inp.value.trim();
+    sel.messages.push({ from: 'You', text: messageText, ts: new Date().toISOString() });
+    let savedToBackend = false;
     if (hasReplyBackend) {
-      api.patientTicketReply(sel.id, inp.value.trim()).catch(() => {});
-    } else {
-      saveLocalTickets(tickets);
+      try {
+        await api.patientTicketReply(sel.id, messageText);
+        savedToBackend = true;
+      } catch (_e) {}
     }
+    if (!savedToBackend) saveLocalTickets(tickets);
     _renderTickets();
     window._showNotifToast && window._showNotifToast({
-      title: hasReplyBackend ? 'Message sent' : 'Message saved locally',
-      body: hasReplyBackend ? 'Your care team will respond soon.' : 'This reply is stored on this device only.',
-      severity: hasReplyBackend ? 'success' : 'warning'
+      title: savedToBackend ? 'Reply sent' : 'Reply saved locally',
+      body: savedToBackend ? 'Your clinic can review this request thread.' : 'This reply is stored on this device only.',
+      severity: savedToBackend ? 'success' : 'warning'
     });
   };
   window._ptNewTicket = function() {
@@ -20242,7 +20260,7 @@ export async function pgPatientTickets() {
       </div>`;
     document.body.appendChild(modal);
   };
-  window._ptSubmitTicket = function() {
+  window._ptSubmitTicket = async function() {
     const title = (document.getElementById('pt-tk-title') || {}).value;
     const body = (document.getElementById('pt-tk-body') || {}).value;
     const cat = (document.getElementById('pt-tk-cat') || {}).value || 'question';
@@ -20250,18 +20268,21 @@ export async function pgPatientTickets() {
     const t = { id: 'TK-' + (1000 + tickets.length + 1), title: title, category: cat, status: 'open', priority: 'medium', created: new Date().toISOString(), messages: [{ from: 'You', text: body, ts: new Date().toISOString() }] };
     tickets.unshift(t);
     selectedId = t.id;
+    let savedToBackend = false;
     if (hasCreateBackend) {
-      api.patientTicketCreate({ title: title, body: body, category: cat }).catch(() => {});
-    } else {
-      saveLocalTickets(tickets);
+      try {
+        await api.patientTicketCreate({ title: title, body: body, category: cat });
+        savedToBackend = true;
+      } catch (_e) {}
     }
+    if (!savedToBackend) saveLocalTickets(tickets);
     const m = document.getElementById('pt-tk-modal');
     if (m) m.remove();
     _renderTickets();
     window._showNotifToast && window._showNotifToast({
-      title: hasCreateBackend ? 'Request submitted' : 'Request saved locally',
-      body: hasCreateBackend ? 'Your care team has been notified.' : 'This request is stored on this device only.',
-      severity: hasCreateBackend ? 'success' : 'warning'
+      title: savedToBackend ? 'Request submitted' : 'Request saved locally',
+      body: savedToBackend ? 'Your clinic can review this support request.' : 'This request is stored on this device only.',
+      severity: savedToBackend ? 'success' : 'warning'
     });
   };
 
