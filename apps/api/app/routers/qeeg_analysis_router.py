@@ -24,6 +24,7 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.persistence.models import (
     AiSummaryAudit,
     Patient,
@@ -895,7 +896,9 @@ class AIReportRequest(BaseModel):
 
 
 @router.post("/{analysis_id}/ai-report", response_model=AIReportOut, status_code=201)
+@limiter.limit("20/minute")
 async def generate_ai_report_endpoint(
+    request: Request,
     analysis_id: str,
     body: AIReportRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
