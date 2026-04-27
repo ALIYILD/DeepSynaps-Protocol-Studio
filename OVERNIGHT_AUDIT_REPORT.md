@@ -13,7 +13,7 @@
 
 The platform's core safety architecture is sound — the cross-clinic ownership gate, role-based access control, JWT auth, 2FA, OAuth flows, and audit trail are correctly designed and (now) consistently enforced after this audit. The code is well-organized, has 800+ passing tests, and the deploy pipeline (Fly + Netlify) is reproducible.
 
-This audit found and fixed **6 high-severity bugs**, including one P0 IDOR that exposed safety-critical clinical data (suicide risk, seizure risk, self-harm) across clinics. Without those fixes, the system would have leaked PHI in a multi-clinic deployment. With them, the platform is safe to operate in a controlled clinical-pilot context with two or three early-adopter clinics.
+This audit found and fixed **33 issues across 3 rounds**, including **two P0 IDORs** (risk stratification + qEEG copilot WebSocket) that respectively exposed safety-critical clinical data (suicide risk, seizure risk, self-harm) AND let any unauthenticated user stream LLM queries against any clinic's qEEG analyses. Without those fixes, the system would have leaked PHI in a multi-clinic deployment. With them, the platform is safe to operate in a controlled clinical-pilot context with two or three early-adopter clinics.
 
 For general-availability, four medium-severity items remain (§6) and need closing before scale: subscription billing edge-case handling, MRI pipeline error-state UX in the SPA, automated wearable-flag re-checks under sync failure, and a fusion-service hardening pass for the partial-modality path. None are blockers for pilot.
 
@@ -134,6 +134,15 @@ For general-availability, four medium-severity items remain (§6) and need closi
 | 22 | `clinic_router.py` | 5 MB cap on clinic logo upload (was unbounded) | P2 | ✅ |
 | 23 | `profile_router.py` | 5 MB cap on avatar upload (was unbounded) | P2 | ✅ |
 | 24 | `apps/web/src/api.js` | Pass refresh_token to logout so only current session revokes | UX | ✅ |
+| 25 | `migrations/047_pipeline_failure_reason.py` + `mri_analysis_router.py` | Persist + surface MRI pipeline failure_reason in status/SSE | §6.B closed | ✅ |
+| 26 | `auth.py` | Structured `security.cross_clinic` log on every denial — SOC/SIEM signal | P3 | ✅ |
+| 27 | `payments_router.py` + `device_sync/demo_data_generator.py` | Kill remaining `utcnow`/`utcfromtimestamp` (deprecated, tz-naive) | P2 | ✅ |
+| 28 | `chat_router.py` | Rate-limit 5 LLM endpoints (incl. unauthenticated `/public`) | P2 | ✅ |
+| 29 | `assessments_router.py` + `reports_router.py` | Rate-limit AI-summary endpoints at 20/min | P2 | ✅ |
+| 30 | `qeeg_copilot_router.py` + `qeeg-ai-panels.js` | **P1: WebSocket auth + cross-clinic gate** (was wide open) | P1 | ✅ |
+| 31 | `tests/test_qeeg_copilot_router.py` | New file: 4 WS auth gate regression tests | coverage | ✅ |
+| 32 | `qeeg_analysis_router.py` | Cross-clinic gate on qEEG SSE event stream | P2 | ✅ |
+| 33 | `main.py` | Make qa_router conditional so app boots without `deepsynaps_qa` | robustness | ✅ |
 
 ---
 
