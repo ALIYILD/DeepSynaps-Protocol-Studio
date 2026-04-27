@@ -129,6 +129,11 @@ For general-availability, four medium-severity items remain (§6) and need closi
 | 17 | `app/auth.py` | Demo token lifts clinic_id from DB User row | enhancement | ✅ |
 | 18 | `tests/test_risk_stratification_router.py` | New file: 14 tests | coverage | ✅ |
 | 19 | `tests/test_fusion_router.py` | Seed real Clinic+User for demo clinician | test fixture | ✅ |
+| 20 | `auth_router.py` | Rate-limit demo-login at 10/min | P2 | ✅ |
+| 21 | `auth_router.py` | Rate-limit 2fa/setup at 5/min | P2 | ✅ |
+| 22 | `clinic_router.py` | 5 MB cap on clinic logo upload (was unbounded) | P2 | ✅ |
+| 23 | `profile_router.py` | 5 MB cap on avatar upload (was unbounded) | P2 | ✅ |
+| 24 | `apps/web/src/api.js` | Pass refresh_token to logout so only current session revokes | UX | ✅ |
 
 ---
 
