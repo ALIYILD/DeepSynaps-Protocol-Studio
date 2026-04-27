@@ -11,6 +11,8 @@ const PROVIDERS = [
   { id: 'openai', label: 'GPT-4o', desc: 'Requires your own API key.', icon: '✦' },
 ];
 let _taskFilter = 'all';
+let _taskSort = 'due'; // 'due' | 'priority' | 'status' | 'created'
+let _skillSort = 'default'; // 'default' | 'name' | 'name-desc' | 'category'
 let _configAgent = 'clinician';
 let _activeSkill = null;
 let _tasksCache = [];
@@ -473,24 +475,53 @@ function _renderHub(setTopbar) {
       </button>
     </div>
 
+    <!-- Skills Sort Bar -->
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <span style="font-size:11px;color:var(--text-tertiary)">Sort:</span>
+      ${[['default','Default'],['name','Name A→Z'],['name-desc','Name Z→A'],['category','Category']].map(([k,l]) =>
+        `<button class="btn btn-sm ${_skillSort===k?'btn-primary':'btn-ghost'}" style="font-size:10px;padding:3px 10px" onclick="window._agentSetSkillSort('${k}')">${l}</button>`
+      ).join('')}
+    </div>
+
     <!-- Skills Grid -->
-    ${SKILL_CATEGORIES.map(cat => {
-      const skills = CLINICIAN_SKILLS.filter(s => s.cat === cat.id);
-      return `<div style="margin-bottom:16px">
-        <div style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;padding-left:2px">${cat.icon} ${cat.label}</div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">
-          ${skills.map(s => `
-            <button class="card" style="cursor:pointer;text-align:left;padding:10px 14px;transition:border-color .15s,transform .15s" onmouseenter="this.style.borderColor='var(--violet)';this.style.transform='translateY(-1px)'" onmouseleave="this.style.borderColor='';this.style.transform=''" onclick="window._agentRunSkill('clinician','${s.id}')">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
-                <span style="font-size:14px">${s.icon}</span>
-                <span style="font-size:12px;font-weight:600;color:var(--text-primary)">${s.label}</span>
-              </div>
-              <div style="font-size:10.5px;color:var(--text-tertiary);line-height:1.4;padding-left:22px">${s.desc}</div>
-            </button>
-          `).join('')}
-        </div>
+    ${(() => {
+      let skills = CLINICIAN_SKILLS.slice();
+      if (_skillSort === 'name') skills.sort((a,b) => a.label.localeCompare(b.label));
+      else if (_skillSort === 'name-desc') skills.sort((a,b) => b.label.localeCompare(a.label));
+      else if (_skillSort === 'category') skills.sort((a,b) => (a.cat||'').localeCompare(b.cat||'') || a.label.localeCompare(b.label));
+      if (_skillSort === 'default') {
+        return SKILL_CATEGORIES.map(cat => {
+          const catSkills = skills.filter(s => s.cat === cat.id);
+          if (!catSkills.length) return '';
+          return `<div style="margin-bottom:16px">
+            <div style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;padding-left:2px">${cat.icon} ${cat.label}</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">
+              ${catSkills.map(s => `
+                <button class="card" style="cursor:pointer;text-align:left;padding:10px 14px;transition:border-color .15s,transform .15s" onmouseenter="this.style.borderColor='var(--violet)';this.style.transform='translateY(-1px)'" onmouseleave="this.style.borderColor='';this.style.transform=''" onclick="window._agentRunSkill('clinician','${s.id}')">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+                    <span style="font-size:14px">${s.icon}</span>
+                    <span style="font-size:12px;font-weight:600;color:var(--text-primary)">${s.label}</span>
+                  </div>
+                  <div style="font-size:10.5px;color:var(--text-tertiary);line-height:1.4;padding-left:22px">${s.desc}</div>
+                </button>
+              `).join('')}
+            </div>
+          </div>`;
+        }).join('');
+      }
+      return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-bottom:16px">
+        ${skills.map(s => `
+          <button class="card" style="cursor:pointer;text-align:left;padding:10px 14px;transition:border-color .15s,transform .15s" onmouseenter="this.style.borderColor='var(--violet)';this.style.transform='translateY(-1px)'" onmouseleave="this.style.borderColor='';this.style.transform=''" onclick="window._agentRunSkill('clinician','${s.id}')">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+              <span style="font-size:14px">${s.icon}</span>
+              <span style="font-size:12px;font-weight:600;color:var(--text-primary)">${s.label}</span>
+            </div>
+            <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">${SKILL_CATEGORIES.find(c=>c.id===s.cat)?.label||s.cat||''}</div>
+            <div style="font-size:10.5px;color:var(--text-tertiary);line-height:1.4;padding-left:22px">${s.desc}</div>
+          </button>
+        `).join('')}
       </div>`;
-    }).join('')}
+    })()}
 
     <!-- Active Tasks (compact) -->
     ${pendingTasks.length > 0 ? `
@@ -732,16 +763,27 @@ function _renderConfig(setTopbar) {
             { id: 'in_progress', label: 'In progress' },
             { id: 'done', label: 'Done' },
           ];
+          const sortBar = '<div style="padding:4px 16px;display:flex;gap:6px;align-items:center;border-bottom:1px solid var(--border)">' +
+            '<span style="font-size:10px;color:var(--text-tertiary)">Sort:</span>' +
+            [['due','Due date'],['priority','Priority'],['status','Status'],['created','Created']].map(([k,l]) =>
+              '<button class="btn btn-sm '+(_taskSort===k?'btn-primary':'btn-ghost')+'" style="font-size:10px;padding:3px 10px" onclick="window._agentSetTaskSort(\''+k+'\')">'+l+'</button>'
+            ).join('') + '</div>';
           const filterBar = '<div style="padding:8px 16px;display:flex;gap:6px;border-bottom:1px solid var(--border)">' +
             _FILTERS.map(f => '<button class="btn btn-sm '+(_taskFilter===f.id?'btn-primary':'btn-ghost')+'" style="font-size:10px;padding:3px 10px" onclick="window._agentSetTaskFilter(\''+f.id+'\')">'+f.label+' ('+(f.id==='all'?tasksAll.length:tasksAll.filter(x=>x.status===f.id).length)+')</button>').join('') + '</div>';
-          const tasks = _taskFilter === 'all' ? tasksAll : tasksAll.filter(t => t.status === _taskFilter);
-          if (!tasks.length) return filterBar + '<div style="padding:20px;text-align:center;font-size:12px;color:var(--text-tertiary)">No tasks match this filter.</div>';
-          return filterBar + `<div style="padding:8px 16px">${tasks.slice(0, 20).map(t => `
+          let tasks = _taskFilter === 'all' ? tasksAll : tasksAll.filter(t => t.status === _taskFilter);
+          const _p = { critical:0, high:1, normal:2, low:3 };
+          if (_taskSort === 'due') tasks.sort((a,b) => (a.due||'9999-12-31').localeCompare(b.due||'9999-12-31') || a.title.localeCompare(b.title));
+          else if (_taskSort === 'priority') tasks.sort((a,b) => (_p[a.priority]||2) - (_p[b.priority]||2) || a.title.localeCompare(b.title));
+          else if (_taskSort === 'status') tasks.sort((a,b) => (a.status||'').localeCompare(b.status||'') || a.title.localeCompare(b.title));
+          else if (_taskSort === 'created') tasks.sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||'') || a.title.localeCompare(b.title));
+          if (!tasks.length) return sortBar + filterBar + '<div style="padding:20px;text-align:center;font-size:12px;color:var(--text-tertiary)">No tasks match this filter.</div>';
+          return sortBar + filterBar + `<div style="padding:8px 16px">${tasks.slice(0, 20).map(t => `
             <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
               <button style="width:18px;height:18px;border-radius:4px;border:1.5px solid ${t.status==='done'?'var(--green,#22c55e)':'var(--text-tertiary)'};background:${t.status==='done'?'rgba(74,222,128,0.2)':'none'};cursor:pointer;flex-shrink:0;font-size:10px;color:${t.status==='done'?'var(--green)':'var(--text-tertiary)'};display:flex;align-items:center;justify-content:center"
                 onclick="window._agentCompleteTask('${t.id}')">${t.status==='done'?'✓':''}</button>
               <span style="flex:1;font-size:12px;color:${t.status==='done'?'var(--text-tertiary)':'var(--text-primary)'};${t.status==='done'?'text-decoration:line-through':''}">${_esc(t.title)}</span>
               ${t.due?`<span style="font-size:10px;color:var(--text-tertiary)">${t.due}</span>`:''}
+              ${t.priority && t.priority !== 'normal' ? `<span style="font-size:9px;padding:1px 6px;border-radius:99px;background:${t.priority==='critical'?'rgba(239,68,68,0.12)':t.priority==='high'?'rgba(245,158,11,0.12)':'rgba(74,222,128,0.12)'};color:${t.priority==='critical'?'var(--red)':t.priority==='high'?'var(--amber)':'var(--green)'};flex-shrink:0">${t.priority}</span>` : ''}
               <button class="btn btn-sm btn-ghost" style="font-size:9px;color:var(--red,#ef4444);padding:2px 6px" onclick="window._agentDeleteTask('${t.id}')">×</button>
             </div>`).join('')}</div>`;
         })()}
@@ -947,6 +989,8 @@ window._agentDeleteTask = async function(id) {
   pgAgentChat(_lastSetTopbar);
 };
 window._agentSetTaskFilter = function(f) { _taskFilter = f; pgAgentChat(_lastSetTopbar); };
+window._agentSetTaskSort = function(key) { _taskSort = key; pgAgentChat(_lastSetTopbar); };
+window._agentSetSkillSort = function(key) { _skillSort = key; pgAgentChat(_lastSetTopbar); };
 
 window._agentSetProvider = function(provider) {
   _agentProvider = provider; localStorage.setItem('ds_agent_provider', provider);
