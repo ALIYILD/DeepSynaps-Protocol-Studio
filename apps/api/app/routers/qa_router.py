@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from deepsynaps_qa.audit import emit_audit_record
 from deepsynaps_qa.demotion import apply_demotion, should_demote
 from deepsynaps_qa.engine import QAEngine
@@ -68,8 +69,12 @@ class CheckListResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.post("/run", response_model=QARunResponse)
-def qa_run(payload: QARunRequest) -> QARunResponse:
+def qa_run(
+    payload: QARunRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> QARunResponse:
     """Run QA on an artifact and return score, verdict, and audit record."""
+    require_minimum_role(actor, "clinician")
     spec = get_spec(payload.spec_id)
     if spec is None:
         raise HTTPException(
@@ -100,8 +105,11 @@ def qa_run(payload: QARunRequest) -> QARunResponse:
 
 
 @router.get("/specs", response_model=SpecListResponse)
-def qa_specs() -> SpecListResponse:
+def qa_specs(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> SpecListResponse:
     """List all available QA specs."""
+    require_minimum_role(actor, "clinician")
     items = []
     for s in list_specs():
         items.append(
@@ -116,8 +124,11 @@ def qa_specs() -> SpecListResponse:
 
 
 @router.get("/checks", response_model=CheckListResponse)
-def qa_checks() -> CheckListResponse:
+def qa_checks(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> CheckListResponse:
     """List all registered check classes."""
+    require_minimum_role(actor, "clinician")
     from deepsynaps_qa.checks import CheckRegistry, _ensure_checks_imported
 
     _ensure_checks_imported()
