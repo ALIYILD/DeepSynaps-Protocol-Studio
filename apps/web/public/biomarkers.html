@@ -1589,6 +1589,7 @@ function tickClock() {
 // ===================== CONFIG =====================
 // Defaults target the live DeepSynaps Studio API (Fly) using the unauthenticated
 <<<<<<< HEAD
+<<<<<<< HEAD
 // /api/v1/chat/public endpoint (GLM-4.5-Air via OpenRouter). Override via
 // <script>window.DEEPSYNAPS_CONFIG = { aiEndpoint:'/api/v1/chat/clinician' }</script>
 // to use the authenticated clinician chat when embedded in the logged-in SPA.
@@ -1629,6 +1630,8 @@ function _isClinicianChat() {
     && CONFIG.aiEndpoint.indexOf('/clinician') !== -1;
 }
 =======
+=======
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
 // /api/chat/public endpoint (GLM-4.5-Air via OpenRouter). Override via
 // <script>window.DEEPSYNAPS_CONFIG = { aiEndpoint:'/api/chat/clinician' }</script>
 // to use the authenticated clinician chat when embedded in the logged-in SPA.
@@ -1639,7 +1642,10 @@ const CONFIG = Object.assign({
   casesEndpoint: '/api/patients/by-biomarker',
   model: 'glm-4.5-air'
 }, (window.DEEPSYNAPS_CONFIG || {}));
+<<<<<<< HEAD
 >>>>>>> origin/feat/biomarkers-reference-page
+=======
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
 
 let CURRENT = null;
 let BACKEND_LIVE = false;
@@ -1661,10 +1667,13 @@ async function probeBackend() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
 <<<<<<< HEAD
+<<<<<<< HEAD
       // Public probe — never attach the session cookie.
       credentials: _isClinicianChat() ? 'include' : 'omit',
 =======
 >>>>>>> origin/feat/biomarkers-reference-page
+=======
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
       body: JSON.stringify({ messages: [{ role: 'user', content: 'ping' }] }),
       signal: ctrl.signal
     });
@@ -1741,6 +1750,7 @@ async function sendAI() {
 
   let reply;
 <<<<<<< HEAD
+<<<<<<< HEAD
   // `replyIsTrusted` distinguishes locally-built HTML (safe to render via
   // innerHTML) from LLM-supplied strings (must be rendered via
   // textContent to avoid XSS — the LLM is attacker-influenced through
@@ -1748,6 +1758,8 @@ async function sendAI() {
   let replyIsTrusted = false;
 =======
 >>>>>>> origin/feat/biomarkers-reference-page
+=======
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
   if (BACKEND_LIVE) {
     try {
       // Build a messages array: a context priming message, then the user question.
@@ -1764,6 +1776,7 @@ async function sendAI() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
 <<<<<<< HEAD
+<<<<<<< HEAD
         // Only attach the session cookie when the override has explicitly
         // pointed us at the clinician chat endpoint. The public endpoint
         // is unauthenticated and cookies must not be sent to it (and
@@ -1772,6 +1785,9 @@ async function sendAI() {
 =======
         credentials: 'include',
 >>>>>>> origin/feat/biomarkers-reference-page
+=======
+        credentials: 'include',
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
         body: JSON.stringify({
           messages: [
             { role: 'user', content: ctx },
@@ -1784,6 +1800,7 @@ async function sendAI() {
       });
       if (r.status === 401 || r.status === 403) {
         reply = simulateAI(q, CURRENT) + `<div class="sig">ℹ authenticated endpoint — sign in to use the clinician chat; showing local reasoning</div>`;
+<<<<<<< HEAD
 <<<<<<< HEAD
         replyIsTrusted = true;
       } else if (!r.ok) {
@@ -1801,6 +1818,8 @@ async function sendAI() {
       reply = simulateAI(q, CURRENT) + `<div class="sig">⚠ backend request failed — showing simulated response</div>`;
       replyIsTrusted = true;
 =======
+=======
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
       } else if (!r.ok) {
         reply = simulateAI(q, CURRENT) + `<div class="sig">⚠ backend returned ${r.status} — showing simulated response</div>`;
       } else {
@@ -1809,11 +1828,15 @@ async function sendAI() {
       }
     } catch (e) {
       reply = simulateAI(q, CURRENT) + `<div class="sig">⚠ backend request failed — showing simulated response</div>`;
+<<<<<<< HEAD
 >>>>>>> origin/feat/biomarkers-reference-page
+=======
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
     }
   } else {
     await new Promise(r => setTimeout(r, 420 + Math.random() * 380));
     reply = simulateAI(q, CURRENT);
+<<<<<<< HEAD
 <<<<<<< HEAD
     replyIsTrusted = true;
   }
@@ -1834,6 +1857,10 @@ async function sendAI() {
   }
   typing.querySelector('.body').innerHTML = reply;
 >>>>>>> origin/feat/biomarkers-reference-page
+=======
+  }
+  typing.querySelector('.body').innerHTML = reply;
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
   document.getElementById('ai-thread').scrollTop = 9e9;
 }
 
@@ -1974,6 +2001,7 @@ async function renderCases(b) {
   }
   meta.textContent = `${rows.length} matched · ${rows.filter(r => Math.abs(r.z) > 2).length} abnormal`;
 <<<<<<< HEAD
+<<<<<<< HEAD
   // Each row may come from `casesEndpoint` (server-supplied JSON) so every
   // textual field gets escapeHtml — `r.pid`, `r.name`, `r.cond`, `r.session`
   // are otherwise concatenated raw into innerHTML.
@@ -1990,6 +2018,8 @@ async function renderCases(b) {
         <div class="meta">${name}<span class="sub">${cond} · session ${session}/30</span></div>
         <span class="z ${cls}">${z >= 0 ? '+' : ''}${z.toFixed(2)}</span>
 =======
+=======
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
   host.innerHTML = rows.map(r => {
     const cls = Math.abs(r.z) > 2 ? '' : Math.abs(r.z) > 1.5 ? 'mid' : 'ok';
     return `
@@ -1997,7 +2027,10 @@ async function renderCases(b) {
         <span class="pid">${r.pid}</span>
         <div class="meta">${r.name}<span class="sub">${r.cond} · session ${r.session}/30</span></div>
         <span class="z ${cls}">${r.z >= 0 ? '+' : ''}${r.z.toFixed(2)}</span>
+<<<<<<< HEAD
 >>>>>>> origin/feat/biomarkers-reference-page
+=======
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
       </div>`;
   }).join('');
   host.querySelectorAll('.case-row').forEach(row => {
@@ -2038,6 +2071,7 @@ async function renderEvidence(b) {
       const indication = encodeURIComponent(b.cond[0] || '');
       const url = `${CONFIG.apiBase}${CONFIG.evidenceEndpoint}?indication=${indication}&limit=8`;
 <<<<<<< HEAD
+<<<<<<< HEAD
       // Same cookie-exfil rationale as in sendAI(): only attach the
       // session cookie when the override has explicitly pointed us at a
       // clinician endpoint.
@@ -2047,6 +2081,9 @@ async function renderEvidence(b) {
 =======
       const r = await fetch(url, { credentials: 'include' });
 >>>>>>> origin/feat/biomarkers-reference-page
+=======
+      const r = await fetch(url, { credentials: 'include' });
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
       if (r.ok) {
         const j = await r.json();
         const papers = Array.isArray(j) ? j : (j.papers || j.items || []);
@@ -2125,6 +2162,7 @@ function downloadFile(name, content, mime) {
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 // Defence against CSV-injection: any cell starting with =, +, -, or @ is
 // interpreted by Excel/Numbers as a formula. Prefix with a single quote
 // so the spreadsheet renders the cell as text. The evidence titles are
@@ -2146,6 +2184,8 @@ function exportEvidenceCSV() {
     return `"${t}",${meta.join(',')}`;
   }).join('\r\n');
 =======
+=======
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
 function exportEvidenceCSV() {
   const rows = Array.from(document.querySelectorAll('#evidence-list .ev-row'));
   const csv = 'title,tier,year,journal,citations\n' + rows.map(r => {
@@ -2153,7 +2193,10 @@ function exportEvidenceCSV() {
     const meta = r.querySelector('.ev-meta').textContent.split(/\s+/);
     return `"${t}",${meta.join(',')}`;
   }).join('\n');
+<<<<<<< HEAD
 >>>>>>> origin/feat/biomarkers-reference-page
+=======
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
   downloadFile((CURRENT?.name || 'evidence').replace(/\s+/g, '_') + '_refs.csv', csv, 'text/csv');
   toast('evidence CSV exported');
 }

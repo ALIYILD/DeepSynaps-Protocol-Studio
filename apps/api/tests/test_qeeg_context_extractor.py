@@ -114,6 +114,7 @@ def test_format_context_omits_red_flag_line_when_none_active():
     ctx = {"schema": "deepsynaps.qeeg_clinical_context.v1", "red_flags": {}}
     out = format_context_for_prompt(ctx)
     assert "RED FLAGS RAISED" not in out
+<<<<<<< HEAD
 
 
 # ---------------------------------------------------------------------------
@@ -169,3 +170,5 @@ def test_format_context_does_not_promote_instructions_to_header() -> None:
     # standalone above it.
     pre_block, _, _ = out.partition("<untrusted_clinician_input>")
     assert "PROMOTED_TO_HEADER_MARKER" not in pre_block
+=======
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity

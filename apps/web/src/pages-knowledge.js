@@ -25,6 +25,25 @@ const CORPUS_STUDY_DESIGNS = ['rct','review','meta_analysis','systematic_review'
 const CORPUS_EFFECTS = ['positive','null','mixed'];
 const CORPUS_SOURCES = ['MED','PMC','PPR','AGR','ETH'];
 
+// Minimal XSS-safe escaper for any user-backend data injected into innerHTML.
+// Matches the inline pattern used throughout the SPA (see pages-patient.js).
+function esc(v) {
+  if (v == null) return '';
+  return String(v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
+// Registry option lists for the 87k corpus filter row.
+const CORPUS_MODALITIES = ['tms','dbs','tdcs','scs','vns','pns','tacs','snm','rns','tvns','tfus','mcs','ons','gen'];
+const CORPUS_CONDITIONS = ['parkinsons','mdd','chronic_pain','stroke','ocd','alzheimers','anxiety','ptsd','tbi','adhd','insomnia','tinnitus','long_covid','asd','ms','epilepsy'];
+const CORPUS_STUDY_DESIGNS = ['rct','review','meta_analysis','systematic_review','clinical_trial','case_series','cross_sectional','cohort','case_control','case_report','animal_study','in_vitro','protocol'];
+const CORPUS_EFFECTS = ['positive','null','mixed'];
+const CORPUS_SOURCES = ['MED','PMC','PPR','AGR','ETH'];
+
 // ── Evidence Library ──────────────────────────────────────────────────────────
 export async function pgEvidence(setTopbar) {
   setTopbar('Evidence Library', '');
@@ -50,6 +69,7 @@ export async function pgEvidence(setTopbar) {
   const modalitySet = new Set(items.map(e => e.modality).filter(Boolean));
 
   el.innerHTML = `
+<<<<<<< HEAD
 <<<<<<< HEAD
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:18px">
     <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg,10px);padding:14px 16px;text-align:center">
@@ -110,6 +130,24 @@ export async function pgEvidence(setTopbar) {
     <button class="ev-tab active" id="ev-tab-curated" role="tab" aria-selected="true" aria-controls="ev-panel-curated" onclick="window._evSwitchTab('curated')">Curated library</button>
     <button class="ev-tab" id="ev-tab-corpus" role="tab" aria-selected="false" aria-controls="ev-panel-corpus" onclick="window._evSwitchTab('corpus')">Full corpus (87k)</button>
   </div>
+=======
+  <style>
+    .ev-tabbar{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:14px}
+    .ev-tab{background:transparent;border:0;border-bottom:2px solid transparent;padding:8px 14px;font-size:12.5px;color:var(--text-secondary);cursor:pointer;font-weight:500}
+    .ev-tab.active{color:var(--teal);border-bottom-color:var(--teal)}
+    .ev-tab:focus{outline:2px solid var(--teal);outline-offset:-2px}
+    .ev-corpus-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:12px}
+    .ev-corpus-filters input,.ev-corpus-filters select{font-size:12px}
+    .ev-corpus-row{border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;background:var(--surface-0,#0a1628)}
+    .ev-corpus-badge{display:inline-flex;align-items:center;font-size:10px;font-weight:600;padding:2px 6px;border-radius:3px;font-family:var(--font-mono,monospace);letter-spacing:.3px;margin-right:4px}
+    .ev-similar-modal{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999}
+    .ev-similar-modal-inner{background:var(--surface-1,#0d1a2b);border:1px solid var(--border);border-radius:10px;width:min(720px,92vw);max-height:80vh;overflow:auto;padding:16px}
+  </style>
+  <div class="ev-tabbar" role="tablist" aria-label="Evidence source">
+    <button class="ev-tab active" id="ev-tab-curated" role="tab" aria-selected="true" aria-controls="ev-panel-curated" onclick="window._evSwitchTab('curated')">Curated library</button>
+    <button class="ev-tab" id="ev-tab-corpus" role="tab" aria-selected="false" aria-controls="ev-panel-corpus" onclick="window._evSwitchTab('corpus')">Full corpus (87k)</button>
+  </div>
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
 
   <div id="ev-panel-curated" role="tabpanel" aria-labelledby="ev-tab-curated">
     <div id="live-evidence-host"></div>
@@ -168,7 +206,10 @@ export async function pgEvidence(setTopbar) {
     </div>
     <div id="ev-cp-status" style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:8px">Loading corpus…</div>
     <div id="ev-cp-body"></div>
+<<<<<<< HEAD
 >>>>>>> origin/feat/biomarkers-reference-page
+=======
+>>>>>>> origin/feat/qeeg-analyzer-mne-parity
   </div>`;
 
   // Mount the live-evidence panel (PubMed / OpenAlex / CT.gov / FDA via our
@@ -501,6 +542,75 @@ window._openEvidenceDetail = function(idx) {
   if (!evidence) return;
   _openEvidenceModal(evidence);
 =======
+// ── Corpus paper row renderer (87k DB) ───────────────────────────────────────
+// All user-facing strings (title, journal, abstract) are passed through esc()
+// since they come from the backend paper record and may contain HTML.
+function renderCorpusPaperRow(p) {
+  if (!p) return '';
+  const title   = esc(p.title || '(untitled)');
+  const year    = esc(p.year || '');
+  const journal = esc(p.journal || '');
+  const design  = p.study_design ? esc(p.study_design).replace(/_/g, ' ') : '';
+  const sample  = (p.sample_size != null && p.sample_size !== '') ? esc(p.sample_size) : '';
+  const cites   = (p.cited_by_count != null) ? esc(p.cited_by_count) : '';
+  const source  = p.source ? esc(p.source) : '';
+  const pmid    = p.pmid ? esc(p.pmid) : '';
+  const doi     = p.doi ? esc(p.doi) : '';
+  const oaUrl   = p.is_oa && p.oa_url ? esc(p.oa_url) : '';
+  const linkHref = p.europe_pmc_url ? esc(p.europe_pmc_url)
+                 : pmid ? `https://pubmed.ncbi.nlm.nih.gov/${pmid}`
+                 : doi ? `https://doi.org/${doi}`
+                 : '';
+
+  // Effect-direction badge with explicit colour mapping.
+  let effBadge = '';
+  if (p.effect_direction === 'positive') {
+    effBadge = `<span class="ev-corpus-badge" style="background:rgba(74,222,128,0.12);color:#4ade80">positive</span>`;
+  } else if (p.effect_direction === 'null') {
+    effBadge = `<span class="ev-corpus-badge" style="background:rgba(122,138,165,0.12);color:var(--text-tertiary)">null</span>`;
+  } else if (p.effect_direction === 'mixed') {
+    effBadge = `<span class="ev-corpus-badge" style="background:rgba(245,158,11,0.12);color:#f59e0b">mixed</span>`;
+  }
+
+  const designBadge = design
+    ? `<span class="ev-corpus-badge" style="background:rgba(74,158,255,0.12);color:var(--blue)">${design}</span>`
+    : '';
+  const sampleChip = sample
+    ? `<span class="ev-corpus-badge" style="background:rgba(255,255,255,0.05);color:var(--text-secondary)">n=${sample}</span>`
+    : '';
+  const oaBadge = oaUrl
+    ? `<a href="${oaUrl}" target="_blank" rel="noopener" class="ev-corpus-badge" style="background:rgba(0,212,188,0.12);color:var(--teal);text-decoration:none">OA</a>`
+    : '';
+  const sourceBadge = source
+    ? `<span class="ev-corpus-badge" style="background:rgba(255,255,255,0.04);color:var(--text-tertiary)">${source}</span>`
+    : '';
+  const citesChip = cites !== ''
+    ? `<span style="font-size:11px;color:var(--text-tertiary);margin-right:6px">${cites} cites</span>`
+    : '';
+
+  const titleHtml = linkHref
+    ? `<a href="${linkHref}" target="_blank" rel="noopener" style="color:var(--text-primary);text-decoration:none">${title}</a>`
+    : title;
+
+  const similarBtn = p.id != null
+    ? `<button class="btn btn-sm ev-cp-similar" data-id="${esc(p.id)}" data-title="${title}">Similar</button>`
+    : '';
+
+  return `
+    <div class="ev-corpus-row">
+      <div style="display:flex;gap:10px;align-items:baseline;margin-bottom:4px">
+        <div style="flex:1;font-weight:600;font-size:13px;line-height:1.35">${titleHtml}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);white-space:nowrap">${year}</div>
+      </div>
+      ${journal ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:6px">${journal}</div>` : ''}
+      <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+        ${designBadge}${effBadge}${sampleChip}${oaBadge}${sourceBadge}
+        ${citesChip}
+        ${similarBtn}
+      </div>
+    </div>`;
+}
+
 // ── Corpus paper row renderer (87k DB) ───────────────────────────────────────
 // All user-facing strings (title, journal, abstract) are passed through esc()
 // since they come from the backend paper record and may contain HTML.
