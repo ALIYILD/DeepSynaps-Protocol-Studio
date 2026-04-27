@@ -1038,7 +1038,7 @@ export async function pgCourseDetail(setTopbar, navigate) {
   setTopbar(
     `${course.condition_slug ? course.condition_slug.replace(/-/g,' ') : 'Course'} · ${course.modality_slug || ''}`,
     `<button class="btn btn-ghost btn-sm" onclick="window._nav('courses')">← Courses</button>
-     <button class="btn btn-sm" onclick="window._showExportPanel()">↓ Export Report</button>
+     <button class="btn btn-sm" onclick="window._showExportPanel()">↓ Export Options</button>
      ${course.status === 'pending_approval'
        ? `<button class="btn btn-primary btn-sm" onclick="window._activateCourseDetail('${course.id}')">Approve &amp; Activate</button>`
        : course.status === 'active'
@@ -1688,7 +1688,7 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
       <span style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;font-weight:600;align-self:center;margin-right:4px">Quick actions</span>
       <button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')">▶ Start Session</button>
       <button class="btn btn-sm" onclick="window._nav('review-queue')">◱ Request Review</button>
-      <button class="btn btn-sm" onclick="window._showExportPanel()">↓ Export Report</button>
+      <button class="btn btn-sm" onclick="window._showExportPanel()">↓ Export Options</button>
     </div>
     <div class="g2">
       <div>
@@ -6580,7 +6580,7 @@ export async function pgClinicalReports(setTopbar) {
             <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
               <button class="btn btn-sm" onclick="window._rhView('${r.id}')">View</button>
               <button class="btn btn-sm" onclick="window._rhAISummarize('${r.id}')" title="AI Summary">🤖 AI Summary</button>
-              ${r.file_url ? `<button class="btn btn-sm" onclick="window.open('${r.file_url}','_blank')" title="Download">📎 Download</button>` : ''}
+              ${r.file_url ? `<button class="btn btn-sm" onclick="window._rhDownload('${r.id}')" title="Download">📎 Download</button>` : ''}
               <button class="btn btn-sm" onclick="window._rhLinkToCourse('${r.id}')">🔗 Link to Course</button>
               <button class="btn btn-sm" style="color:var(--red)" onclick="window._rhDelete('${r.id}')">🗑 Delete</button>
             </div>
@@ -6888,6 +6888,30 @@ export async function pgClinicalReports(setTopbar) {
     }
   };
 
+  async function _rhFetchProtectedUrl(url) {
+    const token = localStorage.getItem('ds_access_token');
+    const res = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`Download failed (${res.status})`);
+    const blob = await res.blob();
+    const dispo = res.headers.get('content-disposition') || '';
+    const match = dispo.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+    const filename = match ? decodeURIComponent(match[1].replace(/"/g, '')) : '';
+    return { blob, filename };
+  }
+
+  window._rhDownload = async function(reportId) {
+    const r = (window._rhReports || []).find(x => String(x.id) === String(reportId));
+    if (!r?.file_url) return;
+    try {
+      const file = await _rhFetchProtectedUrl(r.file_url);
+      downloadBlob(file.blob, file.filename || `${(r.title || 'report').replace(/\s+/g, '_')}`);
+    } catch (e) {
+      window._showToast?.(e.message || 'Download failed.', 'warning');
+    }
+  };
+
   window._rhView = function(reportId) {
     const r = (window._rhReports || []).find(x => String(x.id) === String(reportId));
     if (!r) return;
@@ -6901,7 +6925,7 @@ export async function pgClinicalReports(setTopbar) {
       <p><strong>Date:</strong> ${r.date || r.report_date || '—'}</p>
       <p><strong>Source:</strong> ${r.source || '—'}</p>
       <p><strong>Notes:</strong> ${r.notes || '—'}</p>
-      ${r.file_url ? `<p><a href="${r.file_url}" target="_blank">Download file</a></p>` : ''}
+      ${r.file_url ? `<p><button onclick="window.opener && window.opener._rhDownload && window.opener._rhDownload(${JSON.stringify(String(reportId))})">Download attached file</button></p>` : ''}
     </body></html>`);
   };
 

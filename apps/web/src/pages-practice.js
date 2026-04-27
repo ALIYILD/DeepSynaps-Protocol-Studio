@@ -2509,26 +2509,13 @@ export async function pgSettings(setTopbar, currentUser) {
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:4px 0">
           <div>
             <div style="font-size:13px;font-weight:500;color:var(--text-primary);margin-bottom:3px">Delete Account</div>
-            <div style="font-size:12px;color:var(--text-secondary)">Permanently delete your account and all associated data. This action cannot be undone.</div>
+            <div style="font-size:12px;color:var(--text-secondary)">Formal account deletion is not started from this beta page. Contact support or your clinic administrator to begin the verified deletion process.</div>
           </div>
-          <button class="btn btn-danger btn-sm" onclick="window._requestAccountDeletion()">Delete Account</button>
+          <button class="btn btn-danger btn-sm" disabled style="opacity:0.55;cursor:not-allowed">Unavailable</button>
         </div>
       </div>
     </div>
   `;
-
-  window._requestAccountDeletion = function() {
-    const dangerEl = document.querySelector('.btn-danger');
-    if (!confirm('Are you absolutely sure? This will permanently delete your account and all patient data. This cannot be undone.')) return;
-    const typed = prompt('Type DELETE to confirm account deletion:');
-    if (typed !== 'DELETE') { return; }
-    if (dangerEl) { dangerEl.disabled = true; dangerEl.textContent = 'Request submitted'; }
-    const notice = document.createElement('div');
-    notice.className = 'notice notice-warn';
-    notice.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:380px';
-    notice.textContent = 'Account deletion requested. Our team will process this within 48 hours.';
-    document.body.appendChild(notice); setTimeout(() => notice.remove(), 8000);
-  };
 
   window._openBillingPortal = async function() {
     const status = document.getElementById('portal-status');

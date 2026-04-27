@@ -165,8 +165,54 @@ def update_assessment(session: Session, assessment_id: str, clinician_id: str, *
     # If escalated flipped true and no explicit escalated_at, stamp it.
     if kwargs.get("escalated") and record.escalated_at is None and not kwargs.get("escalated_at"):
         kwargs["escalated_at"] = datetime.now(timezone.utc)
+    # Defense-in-depth allowlist: even though the route's Pydantic schema
+    # (AssessmentUpdate) defaults to dropping extras, an open `setattr` loop
+    # gated only by `hasattr(record, key)` is a foot-gun — any future schema
+    # broadening would silently let callers mutate sensitive columns
+    # (reviewed_by, reviewed_at, escalated, escalated_at, ai_summary,
+    # clinician_id, etc.) via crafted JSON. Restrict updates to the column
+    # set the route is documented to mutate.
+    _UPDATABLE_FIELDS = frozenset({
+        # Patient-supplied or clinician-PATCH content (gated by the route's
+        # Pydantic schema — AssessmentUpdate exposes these and only these to
+        # the public endpoint; the schema is the primary mass-assignment
+        # gate, this allowlist is defense-in-depth).
+        "patient_id",
+        "data_json",
+        "items_json",
+        "subscales_json",
+        "clinician_notes",
+        "status",
+        "score",
+        "score_numeric",
+        "interpretation",
+        "severity",
+        "respondent_type",
+        "phase",
+        "due_date",
+        "completed_at",
+        "scale_version",
+        "bundle_id",
+        # Governance fields written by dedicated internal route handlers
+        # only (`/{id}/approve`, `/{id}/escalate`, `/{id}/ai-summary`) which
+        # build the kwargs dict explicitly — never reachable via the generic
+        # PATCH endpoint because AssessmentUpdate schema does not expose
+        # them. Listed here so those internal handlers continue to work.
+        "approved_status",
+        "reviewed_by",
+        "ai_summary",
+        "ai_model",
+        "ai_confidence",
+        "escalated",
+        "escalated_by",
+        "escalation_reason",
+        # Timestamps stamped by this function above (not from caller payload).
+        "reviewed_at",
+        "ai_generated_at",
+        "escalated_at",
+    })
     for key, value in kwargs.items():
-        if hasattr(record, key):
+        if key in _UPDATABLE_FIELDS and hasattr(record, key):
             setattr(record, key, value)
     session.commit()
     session.refresh(record)

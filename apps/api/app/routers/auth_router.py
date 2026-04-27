@@ -722,12 +722,14 @@ def forgot_password(
     db.add(reset_record)
     db.commit()
 
-    # Log only the first 8 characters so the token cannot be extracted from logs.
-    # Replace this block with real email dispatch when the email service is wired.
+    # Do NOT log any portion of the raw token or the user's email — log
+    # aggregation pipelines (Fly logs, Datadog, etc.) widen the blast radius
+    # of a stolen log dump. Once the email service is wired the raw token
+    # leaves this process via the email payload and we drop all on-disk
+    # references.
     logger.info(
-        "Password reset token issued for user %s: %s... (expires %s)",
-        user.email,
-        raw_token[:8],
+        "Password reset token issued (user_id=%s, expires=%s)",
+        user.id,
         expires_at.isoformat(),
     )
 

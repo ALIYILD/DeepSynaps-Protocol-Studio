@@ -886,7 +886,11 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
   el.querySelectorAll('[data-pa-action="reports"]').forEach(b =>
     b.addEventListener('click', () => { window._patientHubTab = 'reports'; window._nav('patients-hub'); }));
   el.querySelectorAll('[data-pa-action="report"]').forEach(b =>
-    b.addEventListener('click', () => { window._dsToast?.({ title: 'Report', body: 'Per-widget report generation queued.', severity: 'info' }); }));
+    b.addEventListener('click', () => {
+      window._patientHubTab = 'reports';
+      window._dsToast?.({ title: 'Reports Hub', body: 'Open the reports hub to generate or review patient reports.', severity: 'info' });
+      window._nav('patients-hub');
+    }));
   el.querySelectorAll('[data-pa-tab]').forEach(t => t.addEventListener('click', () => {
     const which = t.getAttribute('data-pa-tab');
     if (which === 'analytics' || which === 'evidence') {

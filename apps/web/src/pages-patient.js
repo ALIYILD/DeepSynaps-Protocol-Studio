@@ -7586,7 +7586,7 @@ async function _pgPatientVirtualCareImpl() {
             <button data-tf="ai" onclick="window._vcThreadFilter && window._vcThreadFilter('ai')">AI</button>
           </div>
           <div class="vc-thread-list" id="vc-thread-list">
-            ${threadList.length ? threadList.map(_threadItemHtml).join('') : '<div class="pth2-empty" style="padding:24px 16px"><div class="pth2-empty-title">No conversations yet</div><div class="pth2-empty-sub">Your care team will reach out soon.</div></div>'}
+            ${threadList.length ? threadList.map(_threadItemHtml).join('') : '<div class="pth2-empty" style="padding:24px 16px"><div class="pth2-empty-title">No conversations yet</div><div class="pth2-empty-sub">Use this portal to send a support request or message your clinic.</div></div>'}
           </div>
           <div class="vc-threads-foot">
             <button class="btn btn-ghost btn-sm" onclick="window._navPatient && window._navPatient('patient-careteam')"><svg width="12" height="12"><use href="#i-plus"/></svg>Start new conversation</button>
@@ -10314,10 +10314,10 @@ function _wireSettingsPage() {
   const DANGER_COPY = {
     pause: {
       title: 'Pause your treatment plan?',
-      body: 'Sessions, reminders, and homework will stop. Your care team is notified. You can resume anytime from Settings.',
+      body: 'Sessions, reminders, and homework will stop in this portal preview. Resume from Settings or contact your clinic for care-plan changes.',
       ok: 'Pause plan',
       needInput: false,
-      success: 'Treatment plan paused · care team notified'
+      success: 'Treatment plan paused in this portal preview'
     },
     revoke: {
       title: 'Revoke all data sharing?',
@@ -10328,17 +10328,17 @@ function _wireSettingsPage() {
     },
     transfer: {
       title: 'Start record transfer?',
-      body: "Your coordinator will prepare a full FHIR export and reach out within 1 business day to coordinate with your new clinic.",
+      body: "Record transfer requests are handled by your clinic. This beta portal does not start the verified transfer workflow.",
       ok: 'Request transfer',
       needInput: false,
-      success: 'Transfer requested · your coordinator will contact you'
+      success: 'Transfer request is unavailable from this portal'
     },
     delete: {
       title: 'Delete your account?',
-      body: "This removes all personal identifiers after the 7-year HIPAA retention window. This cannot be reversed.",
+      body: "Account deletion is clinic-managed and is not started from this beta portal.",
       ok: 'Delete forever',
       needInput: true,
-      success: 'Account deletion scheduled · you have 30 days to cancel'
+      success: 'Account deletion is unavailable from this portal'
     }
   };
 
@@ -16289,7 +16289,7 @@ function _pgpStatus(pct) {
   if (pct >= 30)  return { key: 'improving', label: 'Improving',        icon: '↑', color: '#2dd4bf', bg: 'rgba(45,212,191,0.08)',  tagline: 'Your scores show meaningful improvement since you started.' };
   if (pct >= 10)  return { key: 'improving', label: 'Slowly Improving', icon: '↗', color: '#2dd4bf', bg: 'rgba(45,212,191,0.06)',  tagline: 'You\'re heading in the right direction — progress takes time.' };
   if (pct >= -10) return { key: 'steady',    label: 'Holding Steady',   icon: '→', color: '#60a5fa', bg: 'rgba(96,165,250,0.08)',  tagline: 'Your scores are stable. Keep attending sessions and checking in.' };
-  return               { key: 'review',   label: 'Let\'s Check In',  icon: '!', color: '#fbbf24', bg: 'rgba(251,191,36,0.08)',   tagline: 'Your care team has been notified and will reach out soon.' };
+  return               { key: 'review',   label: 'Let\'s Check In',  icon: '!', color: '#fbbf24', bg: 'rgba(251,191,36,0.08)',   tagline: 'Your recent check-ins suggest you may want to contact your clinic.' };
 }
 
 // ── Single-measure trend chart ────────────────────────────────────────────────
