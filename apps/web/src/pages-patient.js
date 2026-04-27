@@ -11568,10 +11568,10 @@ function _wireSettingsPage() {
     b.addEventListener('click', () => {
       const a = b.dataset.stAction;
       const msgs = {
-        'edit-profile': 'Opening profile editor…',
-        'change-password': 'Opening password change flow…',
-        'manage-2fa': 'Opening 2FA management…',
-        'backup-codes': 'Revealing backup codes…'
+        'edit-profile': 'Profile changes are managed by your clinic in this beta portal.',
+        'change-password': 'Password changes are unavailable from this beta portal.',
+        'manage-2fa': '2FA management is unavailable from this beta portal.',
+        'backup-codes': 'Backup codes are unavailable from this beta portal.'
       };
       stToast(msgs[a] || 'Action: ' + a);
     });
@@ -11602,7 +11602,7 @@ function _wireSettingsPage() {
     b.addEventListener('click', () => {
       const type = b.dataset.stExport;
       const labels = { summary:'Session summary', qeeg:'qEEG export', messages:'Message history', fhir:'FHIR bundle' };
-      stToast((labels[type] || 'Export') + ' queued · ready in ~1 hour');
+      stToast((labels[type] || 'Export') + ' is unavailable from this beta portal.');
     });
   });
 
@@ -11623,10 +11623,10 @@ function _wireSettingsPage() {
   const DANGER_COPY = {
     pause: {
       title: 'Pause your treatment plan?',
-      body: 'Sessions, reminders, and homework will stop. Your care team is notified. You can resume anytime from Settings.',
+      body: 'Sessions, reminders, and homework will stop in this portal view. Care-team notification is not confirmed from this beta portal. You can resume anytime from Settings.',
       ok: 'Pause plan',
       needInput: false,
-      success: 'Treatment plan paused · care team notified'
+      success: 'Treatment plan paused in this portal view'
     },
     revoke: {
       title: 'Revoke all data sharing?',
@@ -13403,12 +13403,12 @@ export async function pgPatientMediaUpload() {
         resultEl.className = 'notice notice-success';
         resultEl.style.display = '';
         resultEl.innerHTML = `
-          <div style="font-weight:600;margin-bottom:8px">&#x2713; Update sent successfully.</div>
+          <div style="font-weight:600;margin-bottom:8px">&#x2713; Update uploaded.</div>
           <div style="font-size:11.5px;line-height:1.7;margin-bottom:10px">
             <strong>What happens next:</strong><br>
-            1. Your care team will review your update — usually within 1&ndash;2 business days.<br>
-            2. If approved, it may be analyzed to help prepare your next appointment.<br>
-            3. Any feedback from your clinician will appear in your <a href="#" onclick="window._navPatient('pt-media-history');return false" style="color:var(--teal)">Media History</a>.
+            1. Your upload was accepted by the portal.<br>
+            2. Care-team review timing depends on clinic workflow and is not guaranteed from this page.<br>
+            3. Any returned feedback will appear in your <a href="#" onclick="window._navPatient('pt-media-history');return false" style="color:var(--teal)">Media History</a> when available.
           </div>
           <a href="#" onclick="window._navPatient('pt-media-history');return false" style="color:var(--teal);font-size:12px">View Media History →</a>`;
       }
@@ -20703,7 +20703,7 @@ export async function pgPatientAdherenceEvents() {
       if (statusEl) {
         statusEl.style.display='';
         statusEl.style.color='var(--teal)';
-        statusEl.textContent='Report submitted successfully. Your clinic can review it from the portal.';
+        statusEl.textContent='Report submitted successfully. Clinic review timing depends on portal sync and workflow.';
       }
       if (btn) { btn.disabled = false; btn.textContent = 'Submit Report →'; }
       setTimeout(() => pgPatientAdherenceEvents(), 1000);
