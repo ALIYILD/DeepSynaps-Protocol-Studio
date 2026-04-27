@@ -238,8 +238,18 @@ def disconnect_integration(actor: AuthenticatedActor, db: Session, integration_i
 
 def list_fleet(actor: AuthenticatedActor, db: Session) -> dict:
     require_minimum_role(actor, 'clinician')
-    grouped = {}
-    for row in db.query(DeviceConnection).filter(DeviceConnection.status != 'disconnected').all():
+    # Scope DeviceConnection rows to the actor's patients — pre-fix this
+    # query had no clinic/clinician filter and returned every connected
+    # device across every clinic (cross-clinic info disclosure).
+    patients = _patients(actor, db)
+    patient_ids = [p.id for p in patients]
+    grouped: dict = {}
+    if not patient_ids:
+        return {'clinic_id': _clinic_id(actor), 'devices': []}
+    for row in db.query(DeviceConnection).filter(
+        DeviceConnection.status != 'disconnected',
+        DeviceConnection.patient_id.in_(patient_ids),
+    ).all():
         item = grouped.setdefault(row.source, {
             'id': row.source,
             'device_key': row.source,
