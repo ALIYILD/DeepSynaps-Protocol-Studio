@@ -36,6 +36,87 @@ ARTEFACT_ROOT = Path(os.environ.get("MRI_ARTEFACT_ROOT", "/tmp/deepsynaps_mri/ru
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 ARTEFACT_ROOT.mkdir(parents=True, exist_ok=True)
 
+# Zip-extract hardening caps. Defaults are deliberately generous for real
+# DICOM series (a head MRI study can run 5–20k slices, each ~500 KB) but
+# refuse pathological inputs. Override via env for special-case studies.
+_MAX_ZIP_MEMBERS = int(os.environ.get("MRI_MAX_ZIP_MEMBERS", "50000"))
+_MAX_ZIP_BYTES = int(os.environ.get("MRI_MAX_ZIP_BYTES", str(20 * 1024 ** 3)))  # 20 GB
+# Allowlist of file suffixes we are willing to extract from an upload zip.
+# Anything else (executables, scripts, archives-in-archives, …) is rejected
+# so an attacker cannot smuggle a payload through the imaging pipeline.
+_ALLOWED_ZIP_SUFFIXES = frozenset({
+    ".dcm", ".dicom", ".ima",          # DICOM
+    ".nii", ".gz",                      # NIfTI (.nii, .nii.gz — `.gz` is the trailing suffix)
+    ".img", ".hdr",                     # Analyze
+    ".json", ".txt", ".csv", ".tsv",   # sidecars (BIDS metadata, sequence params)
+    ".bval", ".bvec",                   # diffusion gradient tables
+    "",                                 # extension-less DICOM (common from scanner export)
+})
+
+
+def _safe_extract_zip(zip_path: Path, dest: Path) -> None:
+    """Extract ``zip_path`` into ``dest`` with zip-slip / zip-bomb protection.
+
+    Rejects with ``HTTPException(400)`` on any of:
+      * member count > ``_MAX_ZIP_MEMBERS``
+      * cumulative uncompressed size > ``_MAX_ZIP_BYTES``
+      * member name resolves outside ``dest`` (zip-slip)
+      * member uses an absolute path or ``..`` segment
+      * member suffix not in ``_ALLOWED_ZIP_SUFFIXES``
+    """
+    import zipfile
+
+    dest_resolved = dest.resolve()
+    with zipfile.ZipFile(zip_path) as z:
+        members = z.infolist()
+        if len(members) > _MAX_ZIP_MEMBERS:
+            raise HTTPException(
+                400,
+                f"zip contains {len(members)} members, exceeds cap "
+                f"{_MAX_ZIP_MEMBERS}",
+            )
+
+        total_size = 0
+        for info in members:
+            total_size += info.file_size
+            if total_size > _MAX_ZIP_BYTES:
+                raise HTTPException(
+                    400,
+                    "zip uncompressed size exceeds cap "
+                    f"{_MAX_ZIP_BYTES} bytes (likely zip-bomb)",
+                )
+
+            name = info.filename
+            # Reject absolute paths and Windows-style drive letters outright.
+            if name.startswith(("/", "\\")) or (len(name) > 1 and name[1] == ":"):
+                raise HTTPException(400, f"zip member has absolute path: {name!r}")
+            # Reject any traversal segment regardless of OS path separator.
+            parts = name.replace("\\", "/").split("/")
+            if any(p == ".." for p in parts):
+                raise HTTPException(400, f"zip member has traversal segment: {name!r}")
+
+            target = (dest_resolved / name).resolve()
+            try:
+                target.relative_to(dest_resolved)
+            except ValueError as exc:
+                raise HTTPException(
+                    400, f"zip member escapes upload directory: {name!r}"
+                ) from exc
+
+            # Directory entries are fine — skip the suffix check for them.
+            if info.is_dir() or name.endswith("/"):
+                continue
+            suffix = Path(name).suffix.lower()
+            if suffix not in _ALLOWED_ZIP_SUFFIXES:
+                raise HTTPException(
+                    400,
+                    f"zip member has disallowed suffix {suffix!r}: {name!r}",
+                )
+
+        # Validation passed — extract.
+        z.extractall(dest_resolved)
+
+
 app = FastAPI(title="DeepSynaps MRI Analyzer", version="0.1.0")
 
 
@@ -63,12 +144,15 @@ async def upload(
         while chunk := await file.read(8 * 1024 * 1024):
             fh.write(chunk)
 
-    # Auto-unzip .zip
+    # Auto-unzip .zip with zip-slip / zip-bomb / extension-allowlist guards.
+    # Defense-in-depth: this sidecar is not currently mounted in the main
+    # FastAPI app, but the upload path is reachable in any environment that
+    # serves this module directly. See _safe_extract_zip for the policy.
     if out.suffix.lower() == ".zip":
-        import zipfile
-        with zipfile.ZipFile(out) as z:
-            z.extractall(dest)
-        out.unlink(missing_ok=True)
+        try:
+            _safe_extract_zip(out, dest)
+        finally:
+            out.unlink(missing_ok=True)
     return {"upload_id": upload_id, "path": str(dest), "patient_id": patient_id}
 
 
