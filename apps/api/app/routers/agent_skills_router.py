@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -31,6 +31,7 @@ router = APIRouter(prefix="/api/v1/agent-skills", tags=["agent-skills"])
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
+_CATEGORY_ID_MAX = 64
 _LABEL_MAX = 120
 _CATEGORY_MAX = 40
 _ICON_MAX = 16
@@ -42,21 +43,32 @@ _PAYLOAD_MAX = 50_000
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 
+# Pydantic field caps. Pre-fix every str field was uncapped at the
+# schema layer (the runtime ``_validate`` helper enforced the label
+# cap but only after model parse, and ``description``/``icon`` had
+# no cap at all). DoS via megabyte free-text is closed here.
+_DESCRIPTION_MAX = 4_000
+_ICON_MAX = 200
+
+
 class AgentSkillCreate(BaseModel):
-    category_id: str
-    label: str
-    description: str = ""
-    icon: str = ""
-    run_payload: dict[str, Any] = {}
+    category_id: str = Field(..., max_length=_CATEGORY_ID_MAX)
+    label: str = Field(..., max_length=_LABEL_MAX)
+    description: str = Field(default="", max_length=_DESCRIPTION_MAX)
+    icon: str = Field(default="", max_length=_ICON_MAX)
+    # ``Field(default_factory=dict)`` so each request body gets a fresh
+    # dict; the bare ``= {}`` literal would have shared one mutable
+    # object across calls.
+    run_payload: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = True
     sort_order: int = 0
 
 
 class AgentSkillUpdate(BaseModel):
-    category_id: Optional[str] = None
-    label: Optional[str] = None
-    description: Optional[str] = None
-    icon: Optional[str] = None
+    category_id: Optional[str] = Field(default=None, max_length=_CATEGORY_ID_MAX)
+    label: Optional[str] = Field(default=None, max_length=_LABEL_MAX)
+    description: Optional[str] = Field(default=None, max_length=_DESCRIPTION_MAX)
+    icon: Optional[str] = Field(default=None, max_length=_ICON_MAX)
     run_payload: Optional[dict[str, Any]] = None
     enabled: Optional[bool] = None
     sort_order: Optional[int] = None

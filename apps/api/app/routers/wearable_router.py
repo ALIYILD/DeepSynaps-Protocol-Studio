@@ -8,19 +8,21 @@ clinical-grade unless explicitly sourced from a certified medical device.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_patient_owner
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.persistence.models import (
     DeviceConnection,
     Patient,
@@ -33,6 +35,26 @@ from app.services.wearable_flags import compute_readiness_score, run_flag_checks
 
 router = APIRouter(prefix="/api/v1/wearables", tags=["Wearable Monitoring"])
 _logger = logging.getLogger(__name__)
+
+
+# Cap on a single ingest batch — pre-fix `BulkObservationIn.observations`
+# was unbounded, so a connector or compromised clinician could push a
+# 500k-row batch in one request and stall the worker. 5000 rows fits
+# every realistic 24h sync (Whoop 5-min cadence ~= 288/day, Fitbit
+# minute-level ~= 1440/day, even multi-day catch-up stays well under
+# the cap).
+_MAX_OBS_PER_BATCH = 5_000
+
+# Cap on the free-form `data_json` blob attached to a daily summary.
+# 32 KB is more than enough for the structured raw-vendor payload that
+# downstream analyzers consume; without a cap a malicious payload can
+# bloat the WearableDailySummary table and exhaust storage.
+_MAX_DATA_JSON_BYTES = 32 * 1024
+
+
+def _hash_pid(pid: str) -> str:
+    """Short hash of a patient_id for log/audit correlation without PHI."""
+    return hashlib.sha256(pid.encode("utf-8")).hexdigest()[:12]
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -202,13 +224,20 @@ def dismiss_alert(
 
 
 @router.post("/patients/{patient_id}/run-flag-checks")
+@limiter.limit("10/minute")
 def trigger_flag_checks(
+    request: Request,
     patient_id: str,
     course_id: Optional[str] = None,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> dict:
-    """Manually trigger deterministic flag rules for a patient."""
+    """Manually trigger deterministic flag rules for a patient.
+
+    Rate-limited to keep an authenticated clinician from looping on
+    this endpoint and DB-flooding `run_flag_checks` (which scans the
+    last 7 days of summaries and writes new alert rows).
+    """
     _require_patient_access(actor, patient_id, db)
     new_flags = run_flag_checks(patient_id, course_id, db)
     return {'new_flags_created': len(new_flags), 'flag_ids': [f.id for f in new_flags]}
@@ -230,11 +259,16 @@ class ObservationIn(BaseModel):
 
 
 class BulkObservationIn(BaseModel):
-    observations: list[ObservationIn]
+    # Cap on a single ingest batch — without it a single POST can stall
+    # the worker by inserting 500k rows. 5000 rows covers any realistic
+    # 24h sync from Whoop / Fitbit / Oura / Apple Health.
+    observations: list[ObservationIn] = Field(..., max_length=_MAX_OBS_PER_BATCH)
 
 
 @router.post("/patients/{patient_id}/observations")
+@limiter.limit("60/minute")
 def ingest_observations(
+    request: Request,
     patient_id: str,
     body: BulkObservationIn,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -243,15 +277,19 @@ def ingest_observations(
     """Ingest raw wearable observations for a patient.
 
     Intended for connector services and developer testing. All data is
-    timestamped, source-labeled, and carries a quality flag.
+    timestamped, source-labeled, and carries a quality flag. Rate-
+    limited to 60 requests/min/IP — well above realistic vendor sync
+    cadence, well below DB-flood territory.
     """
     _require_patient_access(actor, patient_id, db)
 
     created = 0
+    skipped = 0
     for obs in body.observations:
         try:
             observed_at = datetime.fromisoformat(obs.observed_at.replace('Z', '+00:00'))
         except ValueError:
+            skipped += 1
             continue  # skip malformed timestamps
 
         record = WearableObservation(
@@ -273,13 +311,16 @@ def ingest_observations(
 
     db.commit()
 
+    # PHI-safe logging: substitute the raw patient_id with a short
+    # SHA-12 prefix so ops can correlate across records without
+    # writing the actual identifier to disk.
     _logger.info(
-        "wearable_observations_ingested patient=%s actor=%s role=%s count=%d sources=%s",
-        patient_id, actor.actor_id, actor.role, created,
+        "wearable_observations_ingested patient=%s role=%s count=%d skipped=%d sources=%s",
+        _hash_pid(patient_id), actor.role, created, skipped,
         sorted({obs.source for obs in body.observations}),
     )
 
-    return {'created': created}
+    return {'created': created, 'skipped': skipped}
 
 
 # ── Daily summary upsert ──────────────────────────────────────────────────────
@@ -302,7 +343,9 @@ class DailySummaryIn(BaseModel):
 
 
 @router.post("/patients/{patient_id}/daily-summaries")
+@limiter.limit("60/minute")
 def upsert_daily_summary(
+    request: Request,
     patient_id: str,
     body: DailySummaryIn,
     run_flags: bool = Query(default=True),
@@ -319,6 +362,18 @@ def upsert_daily_summary(
     )
 
     data_json_str = json.dumps(body.data_json) if body.data_json else None
+    if data_json_str is not None and len(data_json_str) > _MAX_DATA_JSON_BYTES:
+        # Enforced server-side because Pydantic does not have a clean
+        # serialised-size limit on dict-shaped fields. 32 KB matches
+        # the comment above the cap declaration.
+        raise ApiServiceError(
+            code="data_json_too_large",
+            message=(
+                f"data_json payload exceeds {_MAX_DATA_JSON_BYTES} bytes; "
+                "trim before resubmitting."
+            ),
+            status_code=422,
+        )
 
     if existing:
         for field in ('rhr_bpm', 'hrv_ms', 'sleep_duration_h', 'sleep_consistency_score',
@@ -360,8 +415,8 @@ def upsert_daily_summary(
         new_flags = run_flag_checks(patient_id, None, db)
 
     _logger.info(
-        "wearable_daily_summary_upserted patient=%s actor=%s role=%s source=%s date=%s new_flags=%d",
-        patient_id, actor.actor_id, actor.role, body.source, body.date, len(new_flags),
+        "wearable_daily_summary_upserted patient=%s role=%s source=%s date=%s new_flags=%d",
+        _hash_pid(patient_id), actor.role, body.source, body.date, len(new_flags),
     )
 
     return {'summary_id': summary_id, 'new_flags': len(new_flags)}
