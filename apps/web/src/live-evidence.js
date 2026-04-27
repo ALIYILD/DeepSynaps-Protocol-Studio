@@ -137,6 +137,20 @@ export async function renderLiveEvidencePanel(host, opts = {}) {
     status.textContent = `Could not load indications: ${_esc(e.message || e)}`;
   }
 
+  // Corpus overview — pulls /papers/stats (87k-paper DB summary). Rendered
+  // directly under the filter row so admins can see ingest health at a glance.
+  // Non-fatal: if the stats endpoint is missing/503, we just skip the panel.
+  try {
+    const stats = await api.evidenceStats();
+    const overviewHtml = _renderCorpusOverview(stats);
+    if (overviewHtml) {
+      const overviewHost = document.createElement('div');
+      overviewHost.className = 'live-ev-corpus-overview';
+      overviewHost.innerHTML = overviewHtml;
+      status.parentNode.insertBefore(overviewHost, status);
+    }
+  } catch (_) { /* overview is an enhancement — silently degrade */ }
+
   const doSearch = async () => {
     status.textContent = 'Searching…';
     results.innerHTML = '';
@@ -217,5 +231,58 @@ function _renderPaperCard(p) {
         ${doi}
       </div>
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">${oaBtn}${saveBtn}</div>
+    </div>`;
+}
+
+// Renders a compact "Corpus overview" block from /evidence/papers/stats.
+// Pure presentation — tolerates missing fields so a partial stats payload
+// still renders something useful.
+function _renderCorpusOverview(stats) {
+  if (!stats || typeof stats !== 'object') return '';
+  const total = Number(stats.total || 0);
+  const withAbs = Number(stats.with_abstract || 0);
+  const pctAbs = total > 0 ? Math.round((withAbs / total) * 100) : 0;
+
+  const topMods = Array.isArray(stats.top_modalities) ? stats.top_modalities.slice(0, 5) : [];
+  const topConds = Array.isArray(stats.top_conditions) ? stats.top_conditions.slice(0, 5) : [];
+  const byDesign = stats.by_study_design || {};
+  const byEffect = stats.by_effect_direction || {};
+
+  const designEntries = Object.entries(byDesign)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 3);
+
+  const chip = (label, count) =>
+    `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 7px;border-radius:4px;background:rgba(74,158,255,0.08);color:var(--text-secondary,#b7c4d9);margin-right:4px;margin-bottom:4px">
+       ${_esc(label)} <span style="color:var(--text-tertiary,#7a8aa5);font-family:var(--font-mono,monospace)">${_esc(count)}</span>
+     </span>`;
+
+  const effChip = (key, color) => {
+    const v = Number(byEffect[key] || 0);
+    return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 7px;border-radius:4px;background:${color}22;color:${color};margin-right:4px">
+       ${_esc(key)} <span style="font-family:var(--font-mono,monospace)">${v}</span>
+     </span>`;
+  };
+
+  return `
+    <div style="border:1px solid var(--border,#1f2e4a);border-radius:8px;padding:10px 12px;margin-bottom:10px;background:var(--surface-0,#0a1628)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <div style="font-weight:600;font-size:12px;color:var(--text-primary,#e5edf5)">Corpus overview</div>
+        <div style="font-size:11px;color:var(--text-tertiary,#7a8aa5)">
+          ${_esc(total.toLocaleString())} papers · ${pctAbs}% with abstract
+        </div>
+      </div>
+      ${topMods.length ? `<div style="font-size:11px;color:var(--text-tertiary,#7a8aa5);margin-bottom:4px">Top modalities</div>
+        <div style="margin-bottom:6px">${topMods.map(m => chip(m.key, m.count)).join('')}</div>` : ''}
+      ${topConds.length ? `<div style="font-size:11px;color:var(--text-tertiary,#7a8aa5);margin-bottom:4px">Top conditions</div>
+        <div style="margin-bottom:6px">${topConds.map(c => chip(c.key, c.count)).join('')}</div>` : ''}
+      ${designEntries.length ? `<div style="font-size:11px;color:var(--text-tertiary,#7a8aa5);margin-bottom:4px">Top study designs</div>
+        <div style="margin-bottom:6px">${designEntries.map(([k, v]) => chip(k, v)).join('')}</div>` : ''}
+      <div style="font-size:11px;color:var(--text-tertiary,#7a8aa5);margin-bottom:4px">Effect direction</div>
+      <div>
+        ${effChip('positive', '#4ade80')}
+        ${effChip('null', '#7a8aa5')}
+        ${effChip('mixed', '#f59e0b')}
+      </div>
     </div>`;
 }

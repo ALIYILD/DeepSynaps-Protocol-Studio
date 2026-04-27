@@ -8,6 +8,82 @@ from app.settings import get_settings
 _llm_log = logging.getLogger(__name__)
 
 
+# ── Clinical-context extraction for evidence RAG ─────────────────────────────
+# Heuristic mapping of surface tokens the clinician might type into the chat
+# to the canonical modality / condition slugs used in the evidence DB's
+# modalities_json / conditions_json columns. Kept intentionally small and
+# deterministic: a regex-based matcher runs in <1ms per message and is
+# predictable enough for tests. New synonyms can be added inline.
+
+# Modality surface forms → canonical slug stored in modalities_json.
+# Order matters only for overlapping aliases (rtms before tms to avoid
+# swallowing rtms mentions as plain tms).
+_MODALITY_SYNONYMS: tuple[tuple[str, str], ...] = (
+    (r"\brtms\b", "rtms"),
+    (r"\btacs\b", "tacs"),
+    (r"\btdcs\b", "tdcs"),
+    (r"\btms\b",  "tms"),
+    (r"\bdbs\b",  "dbs"),
+    (r"\bscs\b",  "scs"),
+    (r"\bvns\b",  "vns"),
+    (r"\bpns\b",  "pns"),
+    (r"\brns\b",  "rns"),
+    (r"\bdcs\b",  "dcs"),
+)
+
+# Condition surface forms → canonical slug stored in conditions_json.
+# Keys are regexes (word-boundary anchored); values are the DB slug.
+_CONDITION_SYNONYMS: tuple[tuple[str, str], ...] = (
+    (r"\bmdd\b",                            "mdd"),
+    (r"\bmajor depressive\b",               "mdd"),
+    (r"\bdepression\b",                     "mdd"),
+    (r"\bparkinson[\'s]*\b",                "parkinsons"),
+    (r"\bocd\b",                            "ocd"),
+    (r"\bobsessive[- ]compulsive\b",        "ocd"),
+    (r"\bchronic pain\b",                   "chronic_pain"),
+    (r"\bstroke\b",                         "stroke"),
+    (r"\balzheimer[\'s]*\b",                "alzheimers"),
+    (r"\banxiety\b",                        "anxiety"),
+    (r"\bptsd\b",                           "ptsd"),
+    (r"\badhd\b",                           "adhd"),
+    (r"\btbi\b",                            "tbi"),
+    (r"\btraumatic brain injury\b",         "tbi"),
+    (r"\bepilepsy\b",                       "epilepsy"),
+)
+
+# Triggers that flip prefer_rct on when scoring evidence results.
+_RCT_CUES_RE = re.compile(
+    r"\b(evidence|rct|randomi[sz]ed|meta[- ]analysis|systematic review)\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_clinical_context(message: str) -> tuple[str | None, str | None]:
+    """Return (modality_slug, condition_slug) heuristically extracted from the
+    user's message, or (None, None) when nothing confidently matches.
+
+    First match wins for each axis; we don't try to be clever about multiple
+    modalities in one message (picking the first keeps results focused).
+    """
+    text = message or ""
+    if not text:
+        return None, None
+
+    modality: str | None = None
+    for pattern, slug in _MODALITY_SYNONYMS:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            modality = slug
+            break
+
+    condition: str | None = None
+    for pattern, slug in _CONDITION_SYNONYMS:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            condition = slug
+            break
+
+    return modality, condition
+
+
 # ── LLM output sanitization ───────────────────────────────────────────────────
 
 # Patterns to strip from LLM output before returning to clients.
@@ -247,28 +323,15 @@ def chat_public_faq(messages: list[dict]) -> str:
     )
 
 
-def chat_agent(
+def _agent_llm_dispatch(
+    system: str,
     messages: list[dict],
-    provider: str = "auto",
-    openai_key: str | None = None,
-    context: str | None = None,
+    provider: str,
+    openai_key: str | None,
 ) -> str:
-    """
-    Doctor practice management agent.
-    provider: "auto"/"glm-free" (default) → GLM with Anthropic fallback;
-              "openai" uses doctor's own key;
-              "anthropic" forces Anthropic directly.
-    """
+    """Shared LLM dispatch for the practice-management agent. Extracted so
+    chat_agent and chat_agent_with_evidence can share the provider routing."""
     settings = get_settings()
-    system = AGENT_SYSTEM
-
-    # Add dashboard context as a user message, not system prompt, to prevent
-    # prompt injection via clinician-supplied context overriding system instructions.
-    if context:
-        messages = [
-            {"role": "user", "content": f"[Dashboard context for this session]\n{context}"},
-            {"role": "assistant", "content": "Understood. I have the dashboard context."},
-        ] + messages
 
     if provider == "openai":
         key = openai_key or settings.openai_api_key
@@ -306,6 +369,119 @@ def chat_agent(
         max_tokens=1024,
         not_configured_message="AI agent is not configured. Set GLM_API_KEY or ANTHROPIC_API_KEY.",
     )
+
+
+def chat_agent(
+    messages: list[dict],
+    provider: str = "auto",
+    openai_key: str | None = None,
+    context: str | None = None,
+) -> str:
+    """
+    Doctor practice management agent.
+    provider: "auto"/"glm-free" (default) → GLM with Anthropic fallback;
+              "openai" uses doctor's own key;
+              "anthropic" forces Anthropic directly.
+
+    Backward-compatible wrapper that returns only the reply string. Callers
+    that also want the evidence papers used to augment the answer should use
+    `chat_agent_with_evidence` instead.
+    """
+    system = AGENT_SYSTEM
+
+    # Add dashboard context as a user message, not system prompt, to prevent
+    # prompt injection via clinician-supplied context overriding system instructions.
+    if context:
+        messages = [
+            {"role": "user", "content": f"[Dashboard context for this session]\n{context}"},
+            {"role": "assistant", "content": "Understood. I have the dashboard context."},
+        ] + messages
+
+    return _agent_llm_dispatch(system, messages, provider, openai_key)
+
+
+def chat_agent_with_evidence(
+    messages: list[dict],
+    provider: str = "auto",
+    openai_key: str | None = None,
+    context: str | None = None,
+) -> tuple[str, list[dict]]:
+    """Same as chat_agent but also performs evidence-paper retrieval on the
+    user's latest message and augments the system prompt with real citations.
+
+    Returns (reply, cited_papers). cited_papers is a list of dicts shaped for
+    the frontend "Papers cited" panel: {id, pmid, title, url}. Always a list —
+    empty when the evidence DB is missing, the message had no clinical cues,
+    or the search returned zero rows. Failures inside the RAG path are
+    swallowed so chat keeps working.
+    """
+    system = AGENT_SYSTEM
+    cited_papers: list[dict] = []
+
+    # Pull the most recent user message as the retrieval query. Falls back to
+    # the whole concatenated transcript if somehow no user role is present.
+    latest_user = ""
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            latest_user = (m.get("content") or "").strip()
+            break
+    if not latest_user:
+        latest_user = " ".join((m.get("content") or "") for m in messages).strip()
+
+    try:
+        modality, condition = _extract_clinical_context(latest_user)
+        # Only hit the DB when we have at least some clinical signal — a
+        # modality, a condition, or an explicit evidence-cue. Saves an IO
+        # roundtrip on plain practice-management questions.
+        prefer_rct = bool(_RCT_CUES_RE.search(latest_user))
+        if modality or condition or prefer_rct:
+            # Local import to keep chat_service importable when the evidence
+            # pipeline package layout changes.
+            from app.services.evidence_rag import (
+                search_evidence,
+                format_evidence_context,
+            )
+            papers = search_evidence(
+                query=latest_user,
+                modality=modality,
+                condition=condition,
+                top_k=5,
+                prefer_rct=prefer_rct,
+            )
+            if papers:
+                ctx = format_evidence_context(papers)
+                system = (
+                    AGENT_SYSTEM
+                    + "\n\nYou have access to the following real papers from our "
+                    "evidence database. Cite them inline as [1], [2]... when "
+                    "relevant.\n\n<papers>\n"
+                    + ctx
+                    + "\n</papers>\n\nAlways prefer these papers over general "
+                    "knowledge when they apply to the user's question."
+                )
+                # Shape for the API response. Only the fields the frontend
+                # needs for the "Papers cited" panel.
+                for i, p in enumerate(papers[:5], start=1):
+                    cited_papers.append({
+                        "id": i,
+                        "pmid": p.get("pmid"),
+                        "title": p.get("title"),
+                        "url": p.get("url"),
+                    })
+    except Exception as exc:  # noqa: BLE001 — RAG must never 500 the chat
+        _llm_log.warning("chat_agent evidence RAG failed, continuing without: %s", exc)
+        cited_papers = []
+
+    # Add dashboard context as a user message, not system prompt, to prevent
+    # prompt injection via clinician-supplied context overriding system instructions.
+    if context:
+        messages = [
+            {"role": "user", "content": f"[Dashboard context for this session]\n{context}"},
+            {"role": "assistant", "content": "Understood. I have the dashboard context."},
+        ] + messages
+
+    reply = _agent_llm_dispatch(system, messages, provider, openai_key)
+    return reply, cited_papers
 
 
 # ── Wearable copilot system prompts ──────────────────────────────────────────

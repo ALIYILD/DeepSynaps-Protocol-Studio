@@ -215,11 +215,23 @@ def _build_research_bundle(root: Path) -> None:
 
 
 def _build_fixture_db(path: str) -> None:
-    """Create a minimal evidence.db with one indication + one paper + one trial."""
+    """Create a minimal evidence.db with one indication + one paper + one trial.
+
+    Also applies every `migrations/*.sql` so the new enrichment columns exist
+    and the router's SELECTs don't break. Idempotent — safe on a fresh file.
+    """
     with open(PIPELINE / "schema.sql") as f:
         schema = f.read()
     conn = sqlite3.connect(path)
     conn.executescript(schema)
+    # Migration scripts reference this ledger; create it before applying.
+    conn.executescript(
+        "CREATE TABLE IF NOT EXISTS schema_migrations "
+        "(filename TEXT PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"
+    )
+    for migration in sorted((PIPELINE / "migrations").glob("*.sql")):
+        with open(migration, encoding="utf-8") as mf:
+            conn.executescript(mf.read())
     conn.execute(
         "INSERT INTO indications(slug, label, modality, condition, evidence_grade, regulatory) "
         "VALUES ('rtms_mdd', 'rTMS for MDD', 'rTMS', 'Major depressive disorder', 'A', 'FDA-cleared 2008')"
@@ -255,7 +267,7 @@ def _build_fixture_db(path: str) -> None:
 
 def test_evidence_health_returns_503_when_db_missing(client: TestClient, auth_headers) -> None:
     # Point EVIDENCE_DB_PATH at a non-existent file.
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         missing = Path(tmp) / "nope.db"
         os.environ["EVIDENCE_DB_PATH"] = str(missing)
         r = client.get("/api/v1/evidence/health", headers=auth_headers["clinician"])
@@ -265,7 +277,7 @@ def test_evidence_health_returns_503_when_db_missing(client: TestClient, auth_he
 
 
 def test_evidence_endpoints_work_with_fixture_db(client: TestClient, auth_headers) -> None:
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         db_path = str(Path(tmp) / "evidence.db")
         _build_fixture_db(db_path)
         os.environ["EVIDENCE_DB_PATH"] = db_path
@@ -308,7 +320,7 @@ def test_evidence_health_requires_auth(client: TestClient) -> None:
 
 
 def test_evidence_papers_filters_oa_only(client: TestClient, auth_headers) -> None:
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         db_path = str(Path(tmp) / "evidence.db")
         _build_fixture_db(db_path)
         os.environ["EVIDENCE_DB_PATH"] = db_path
@@ -325,7 +337,7 @@ def test_evidence_papers_filters_oa_only(client: TestClient, auth_headers) -> No
 
 
 def test_research_papers_use_enriched_bundle_ranking(client: TestClient, auth_headers) -> None:
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         bundle_root = Path(tmp) / "bundle"
         _build_research_bundle(bundle_root)
         os.environ["DEEPSYNAPS_NEUROMODULATION_RESEARCH_BUNDLE_ROOT"] = str(bundle_root)
@@ -347,7 +359,7 @@ def test_research_papers_use_enriched_bundle_ranking(client: TestClient, auth_he
 
 
 def test_research_protocol_coverage_uses_bundle_summary(client: TestClient, auth_headers) -> None:
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         bundle_root = Path(tmp) / "bundle"
         _build_research_bundle(bundle_root)
         os.environ["DEEPSYNAPS_NEUROMODULATION_RESEARCH_BUNDLE_ROOT"] = str(bundle_root)
