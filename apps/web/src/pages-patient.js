@@ -10915,10 +10915,8 @@ export async function pgPatientSettings(user) {
         <div class="st-nav-item" data-target="st-notifications"><svg><use href="#st-i-bell"/></svg>Notifications</div>
         <div class="st-nav-item" data-target="st-care"><svg><use href="#st-i-heart"/></svg>Care preferences</div>
         <div class="st-nav-item" data-target="st-privacy"><svg><use href="#st-i-lock"/></svg>Privacy &amp; data</div>
-        <div class="st-nav-item" data-target="st-integrations"><svg><use href="#st-i-repeat"/></svg>Integrations</div>
         <div class="st-nav-item" data-target="st-accessibility"><svg><use href="#st-i-eye"/></svg>Accessibility</div>
         <div class="st-nav-item" data-target="st-security"><svg><use href="#st-i-shield"/></svg>Security</div>
-        <div class="st-nav-item" data-target="st-about"><svg><use href="#st-i-info"/></svg>About &amp; legal</div>
         <div class="st-nav-item" data-target="st-danger" style="color:rgba(255,138,138,0.85);"><svg><use href="#st-i-alert"/></svg>Danger zone</div>
       </aside>
 
@@ -11264,75 +11262,6 @@ export async function pgPatientSettings(user) {
           </div>
         </section>
 
-        <section class="st-section" id="st-integrations">
-          <div class="st-section-head">
-            <div class="st-section-ico green"><svg width="18" height="18"><use href="#st-i-repeat"/></svg></div>
-            <div>
-              <h3>Integrations</h3>
-              <p>Connected identity providers and health platforms.</p>
-            </div>
-          </div>
-          <div class="st-body">
-            <div class="st-link-row">
-              <div class="st-link-logo google">G</div>
-              <div class="st-link-body">
-                <div class="n">Google account</div>
-                <div class="s">${email || 'Not linked'} · sign-in + calendar sync</div>
-              </div>
-              <div style="display:flex;gap:8px;align-items:center;">
-                <span class="st-link-state ${email ? 'on' : 'off'}">${email ? 'Linked' : 'Not linked'}</span>
-                <button class="st-sess-btn ghost" data-st-unlink="google">${email ? 'Unlink' : 'Link'}</button>
-              </div>
-            </div>
-
-            <div class="st-link-row">
-              <div class="st-link-logo apple">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M16.5 3c-1.1 0-2.5.7-3.3 1.6-.7.8-1.4 2.1-1.2 3.4 1.3.1 2.6-.7 3.4-1.5.8-.9 1.3-2.1 1.1-3.5zm3.3 14.7c-.7 1.6-1.1 2.3-2 3.7-1.3 1.9-3.2 4.3-5.5 4.3-2 0-2.6-1.3-5.4-1.3-2.8 0-3.4 1.3-5.4 1.3-2.3 0-4.1-2.1-5.4-4.1-3.7-5.6-4.1-12.2-1.8-15.7 1.6-2.5 4.2-4 6.6-4 2.5 0 4 1.4 6 1.4s3.2-1.4 6-1.4c2.2 0 4.4 1.2 6 3.3-5.3 2.9-4.4 10.5.9 12.5z" transform="translate(2,0)"/></svg>
-              </div>
-              <div class="st-link-body">
-                <div class="n">Apple Health</div>
-                <div class="s">Sleep, heart rate, activity</div>
-              </div>
-              <div style="display:flex;gap:8px;align-items:center;">
-                <span class="st-link-state off">Not linked</span>
-                <button class="btn btn-ghost btn-sm" data-st-link="apple">Link</button>
-              </div>
-            </div>
-
-            <div class="st-link-row">
-              <div class="st-link-logo ms">M</div>
-              <div class="st-link-body">
-                <div class="n">Microsoft account</div>
-                <div class="s">Sign-in disabled · not linked</div>
-              </div>
-              <div style="display:flex;gap:8px;align-items:center;">
-                <span class="st-link-state off">Not linked</span>
-                <button class="btn btn-ghost btn-sm" data-st-link="ms">Link</button>
-              </div>
-            </div>
-
-            <div class="st-link-row">
-              <div class="st-link-logo fitbit">F</div>
-              <div class="st-link-body">
-                <div class="n">Fitbit</div>
-                <div class="s">Not linked</div>
-              </div>
-              <div style="display:flex;gap:8px;align-items:center;">
-                <span class="st-link-state off">Not linked</span>
-                <button class="btn btn-ghost btn-sm" data-st-link="fitbit">Link</button>
-              </div>
-            </div>
-
-            <div class="st-row">
-              <div>
-                <div class="st-row-label">Sync calendar events</div>
-                <div class="st-row-sub">Sessions and consults appear in your Google Calendar automatically.</div>
-              </div>
-              <div class="st-toggle on" data-st-toggle></div>
-            </div>
-          </div>
-        </section>
-
         <section class="st-section" id="st-accessibility">
           <div class="st-section-head">
             <div class="st-section-ico orange"><svg width="18" height="18"><use href="#st-i-eye"/></svg></div>
@@ -11468,34 +11397,6 @@ export async function pgPatientSettings(user) {
                 <div class="st-row-sub">Email + push notification for every new sign-in.</div>
               </div>
               <div class="st-toggle on" data-st-toggle></div>
-            </div>
-          </div>
-        </section>
-
-        <section class="st-section" id="st-about">
-          <div class="st-section-head">
-            <div class="st-section-ico"><svg width="18" height="18"><use href="#st-i-info"/></svg></div>
-            <div>
-              <h3>About &amp; legal</h3>
-              <p>Version, compliance, and the legal fine print.</p>
-            </div>
-          </div>
-          <div class="st-body">
-            <div class="st-about-grid">
-              <div class="st-about-item"><div class="l">App version</div><div class="v mono">DeepSynaps Studio</div></div>
-              <div class="st-about-item"><div class="l">Portal release channel</div><div class="v">Preview</div></div>
-              <div class="st-about-item"><div class="l">Compliance</div><div class="v">HIPAA · GDPR · SOC 2 Type II</div></div>
-              <div class="st-about-item"><div class="l">Data residency</div><div class="v">EU (Dublin) · mirrored US-East</div></div>
-              <div class="st-about-item"><div class="l">Encryption</div><div class="v mono">AES-256 at rest · TLS 1.3 in transit</div></div>
-              <div class="st-about-item"><div class="l">Clinical license</div><div class="v">CE Mark · FDA De Novo pending</div></div>
-            </div>
-            <div class="st-legal-links">
-              <a data-st-legal="privacy">Privacy policy</a>
-              <a data-st-legal="tos">Terms of service</a>
-              <a data-st-legal="hipaa">HIPAA notice</a>
-              <a data-st-legal="research">Research consent</a>
-              <a data-st-legal="licenses">Open-source licenses</a>
-              <a data-st-legal="contact">Contact us</a>
             </div>
           </div>
         </section>
@@ -11647,7 +11548,7 @@ function _wireSettingsPage() {
     });
   }
 
-  const sectionIds = ['st-account','st-notifications','st-care','st-privacy','st-integrations','st-accessibility','st-security','st-about','st-danger'];
+  const sectionIds = ['st-account','st-notifications','st-care','st-privacy','st-accessibility','st-security','st-danger'];
   const sections = sectionIds.map(id => document.getElementById(id)).filter(Boolean);
   const navItems = nav ? nav.querySelectorAll('.st-nav-item') : [];
   function updateActiveNav() {
