@@ -3290,6 +3290,8 @@ export async function pgProfile(setTopbar, navigate) {
   };
 
   window._patDashExport = function() {
+    const canExportFHIR = typeof api.exportFHIRBundle === 'function';
+    const canExportDocx = typeof api.exportProtocolDocx === 'function';
     const existing = document.getElementById('ptd-export-modal');
     if (existing) { existing.remove(); return; }
     const modal = document.createElement('div');
@@ -3297,9 +3299,10 @@ export async function pgProfile(setTopbar, navigate) {
     modal.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center';
     modal.innerHTML = `<div style="background:var(--bg-card,var(--navy-900));border:1px solid var(--border);border-radius:14px;padding:24px 28px;max-width:420px;width:90%;position:relative">
       <div style="font-size:15px;font-weight:700;margin-bottom:6px;color:var(--text-primary)">Export Patient Data</div>
-      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:16px">Choose an export format for ${pt.first_name} ${pt.last_name}'s records.</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">Choose an export format for ${pt.first_name} ${pt.last_name}'s records.</div>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:16px">FHIR and DOCX options are only available when their backend export endpoints are enabled. Print is always browser-based.</div>
       <div style="display:flex;flex-direction:column;gap:8px">
-        <button class="btn" onclick="window._runExportFHIR()" style="text-align:left;padding:10px 14px">
+        <button class="btn" onclick="window._runExportFHIR()" style="text-align:left;padding:10px 14px;${canExportFHIR ? '' : 'opacity:.55;cursor:not-allowed'}" ${canExportFHIR ? '' : 'disabled'}>
           <div style="font-weight:600;font-size:13px">Export FHIR R4 Bundle</div>
           <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">HL7 FHIR-compliant interoperability package</div>
         </button>
@@ -3307,7 +3310,7 @@ export async function pgProfile(setTopbar, navigate) {
           <div style="font-weight:600;font-size:13px">Print Summary Report</div>
           <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Browser print dialog for PDF or paper</div>
         </button>
-        <button class="btn" onclick="window._runExportDocx()" style="text-align:left;padding:10px 14px">
+        <button class="btn" onclick="window._runExportDocx()" style="text-align:left;padding:10px 14px;${canExportDocx ? '' : 'opacity:.55;cursor:not-allowed'}" ${canExportDocx ? '' : 'disabled'}>
           <div style="font-weight:600;font-size:13px">Download Protocol DOCX</div>
           <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Word document with protocol parameters</div>
         </button>
@@ -4655,7 +4658,7 @@ function renderPatientAnalytics(pt, sessions, courses, ctx = {}) {
       <option value="tasks">Tasks</option>
     </select>
     <button class="btn btn-sm" style="font-size:10px" onclick="window.switchPT('patient-dash')">Open DeepTwin Terminal</button>
-    <button class="btn btn-sm" style="font-size:10px" onclick="window._patDashExport && window._patDashExport()">Export Report</button>
+    <button class="btn btn-sm" style="font-size:10px" onclick="window._patDashExport && window._patDashExport()">Export Patient Data</button>
   </div>
 
   <!-- ═══ 4) OVERVIEW CHARTS ═══ -->
