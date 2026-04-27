@@ -165,6 +165,48 @@ def test_cross_clinic_risk_audit_blocked(
     assert resp.status_code == 403, resp.text
 
 
+def test_clinical_scores_rejects_guest(
+    client: TestClient, risk_setup: dict[str, Any]
+) -> None:
+    """Clinical scores endpoint must NOT accept guest tokens — the route
+    previously had `require_minimum_role(actor, 'guest')` which leaked
+    PHI-derived scores to anyone who could hit the URL."""
+    pid = risk_setup["patient_id"]
+    resp = client.get(
+        f"/api/v1/risk/patient/{pid}/clinical-scores",
+        headers={"Authorization": "Bearer guest-demo-token"},
+    )
+    assert resp.status_code in (401, 403), resp.text
+
+
+def test_cross_clinic_clinical_scores_blocked(
+    client: TestClient, risk_setup: dict[str, Any]
+) -> None:
+    """Clinician B must not pull clinical scores for clinician A's patient."""
+    pid = risk_setup["patient_id"]
+    resp = client.get(
+        f"/api/v1/risk/patient/{pid}/clinical-scores",
+        headers=_auth(risk_setup["token_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["code"] == "cross_clinic_access_denied"
+
+
+def test_clinical_scores_owning_clinician_succeeds(
+    client: TestClient, risk_setup: dict[str, Any]
+) -> None:
+    """Owning clinician (same clinic) reads their patient's clinical scores."""
+    pid = risk_setup["patient_id"]
+    resp = client.get(
+        f"/api/v1/risk/patient/{pid}/clinical-scores",
+        headers=_auth(risk_setup["token_a"]),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["patient_id"] == pid
+    assert "scores" in body
+
+
 # ── Profile shape ─────────────────────────────────────────────────────────────
 
 def test_risk_profile_returns_all_8_categories(
