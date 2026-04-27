@@ -324,6 +324,13 @@ async def upload_logo(
         )
     clinic = _load_user_clinic(db, user)
     data = await file.read()
+    _MAX_LOGO_BYTES = 5 * 1024 * 1024  # 5 MB
+    if len(data) > _MAX_LOGO_BYTES:
+        raise ApiServiceError(
+            code="file_too_large",
+            message="Logo exceeds 5 MB.",
+            status_code=413,
+        )
     url = _save_logo(clinic.id, data)
     clinic.logo_url = url
     db.commit()

@@ -646,8 +646,9 @@ class DemoLoginRequest(BaseModel):
     token: str
 
 
+@limiter.limit("10/minute")
 @router.post("/api/v1/auth/demo-login", response_model=TokenResponse)
-def demo_login(body: DemoLoginRequest) -> TokenResponse:
+def demo_login(request: Request, body: DemoLoginRequest) -> TokenResponse:
     """Issue demo JWTs only in explicitly non-production environments."""
     settings = get_settings()
     # In production/staging, do not reveal that this endpoint exists.
@@ -963,8 +964,10 @@ def change_password(
 # ── 2FA (TOTP) ───────────────────────────────────────────────────────────────
 
 
+@limiter.limit("5/minute")
 @router.post("/api/v1/auth/2fa/setup", response_model=TwoFactorSetupResponse)
 def twofa_setup(
+    request: Request,
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db_session),
 ) -> TwoFactorSetupResponse:

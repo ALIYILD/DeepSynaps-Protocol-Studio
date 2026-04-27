@@ -323,6 +323,13 @@ async def upload_avatar(
             status_code=400,
         )
     data = await file.read()
+    _MAX_AVATAR_BYTES = 5 * 1024 * 1024  # 5 MB
+    if len(data) > _MAX_AVATAR_BYTES:
+        raise ApiServiceError(
+            code="file_too_large",
+            message="Avatar exceeds 5 MB.",
+            status_code=413,
+        )
     url = _save_avatar(user.id, data)
     user.avatar_url = url
     db.commit()
