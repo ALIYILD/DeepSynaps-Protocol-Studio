@@ -7972,7 +7972,7 @@ export async function pgProtocolMarketplace(setTopbar) {
             <span class="kkk-evidence-badge ${evidenceClass(p.evidence)}">${evidenceShort(p.evidence)}</span>
           </div>
           <div class="kkk-preview-title">${p.name}</div>
-          <div class="kkk-preview-sub">${p.author} · ${p.institution} · Published ${p.publishDate || 'N/A'}</div>
+          <div class="kkk-preview-sub">${p.author} · ${p.institution} · ${(p.status === 'Published' ? 'Published' : (p.status === 'Local Draft' ? 'Saved locally' : 'Submitted'))} ${p.publishDate || 'N/A'}</div>
 
           <div class="kkk-star-display" style="margin-bottom:20px">
             <span class="stars">${starsHtml(p.rating)}</span>
@@ -8364,7 +8364,7 @@ export async function pgProtocolMarketplace(setTopbar) {
   };
 
   window._mpEditPublished = function(id) {
-    showToast('Opening editor for published protocol…', true);
+    showToast('Opening local share metadata editor…', true);
   };
 
   window._mpUnpublish = function(id) {
