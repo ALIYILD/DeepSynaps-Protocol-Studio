@@ -1357,6 +1357,7 @@ def deeptwin_simulate_tribe(
     payload: TribeSimulateRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TribeSimulateResponse:
+    _gate_patient_access(_actor, payload.patient_id)
     sim = tribe_simulate_protocol(
         payload.patient_id,
         payload.protocol.to_spec(),
@@ -1385,6 +1386,7 @@ def deeptwin_compare_protocols(
     payload: TribeCompareRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TribeCompareResponse:
+    _gate_patient_access(_actor, payload.patient_id)
     cmp_obj = tribe_compare_protocols(
         payload.patient_id,
         [p.to_spec() for p in payload.protocols],
@@ -1405,6 +1407,7 @@ def deeptwin_patient_latent(
     payload: TribeLatentRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TribeLatentResponse:
+    _gate_patient_access(_actor, payload.patient_id)
     embs, latent, adapted = tribe_compute_patient_latent(
         payload.patient_id,
         samples=payload.samples.to_dict() if payload.samples else None,
@@ -1424,6 +1427,7 @@ def deeptwin_explain(
     payload: TribeExplainRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TribeExplainResponse:
+    _gate_patient_access(_actor, payload.patient_id)
     sim = tribe_simulate_protocol(
         payload.patient_id,
         payload.protocol.to_spec(),
@@ -1448,6 +1452,7 @@ def deeptwin_report_payload(
     payload: TribeReportPayloadRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TribeReportPayloadResponse:
+    _gate_patient_access(_actor, payload.patient_id)
     sim = tribe_simulate_protocol(
         payload.patient_id,
         payload.protocol.to_spec(),

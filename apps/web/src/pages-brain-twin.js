@@ -139,6 +139,10 @@ function _workspaceState() {
       loadingAnalysis: false,
       loadingSimulation: false,
       loadingEvidence: false,
+      loadingReports: false,
+      analysisError: '',
+      simulationError: '',
+      reportsError: '',
     };
   }
   return window._brain_twin_workspace;
@@ -603,6 +607,15 @@ function _buildReportDrafts(snapshot, findings, hypotheses, analysis, simulation
   ];
 }
 
+const TWIN_REPORT_TYPES = [
+  { id: 'clinician_deep', label: 'Clinician Deep' },
+  { id: 'prediction', label: 'Prediction' },
+  { id: 'correlation', label: 'Correlation' },
+  { id: 'simulation', label: 'Simulation' },
+  { id: 'governance', label: 'Governance' },
+  { id: 'data_completeness', label: 'Data completeness' },
+];
+
 function _analysisPayload(patientId) {
   return {
     patient_id: patientId,
@@ -673,6 +686,7 @@ function _renderHero(snapshot, findings, workspace) {
         <button class="btn btn-primary btn-sm" onclick="window._brainTwinRefreshAll()">Refresh patient context</button>
         <button class="btn btn-ghost btn-sm" onclick="window._brainTwinRun()">Run DeepTwin analysis</button>
         <button class="btn btn-ghost btn-sm" onclick="window._brainTwinOpenTimeline()">Open patient timeline</button>
+        ${workspace.analysisError ? `<div style="font-size:12px;color:var(--amber);line-height:1.6">${_esc(workspace.analysisError)}</div>` : ''}
         <div style="font-size:12.5px;color:var(--text-tertiary);line-height:1.6">
           ${_esc(workspace.simulation?.outputs?.clinical_forecast?.summary || 'Define a protocol and run a what-if scenario to estimate biomarker and outcome movement.')}
         </div>
@@ -865,6 +879,7 @@ function _renderSimulationLab(workspace) {
           <div style="font-size:14px;font-weight:700;color:var(--text)">Clinical forecast</div>
           ${_pill(simulation?.engine?.name || 'Awaiting run', simulation ? 'blue' : 'slate')}
         </div>
+        ${workspace.simulationError ? `<div style="font-size:12px;color:var(--amber);line-height:1.7;margin-top:8px">${_esc(workspace.simulationError)}</div>` : ''}
         <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin-top:8px">${_esc(clinical.summary || 'No scenario has been executed yet. Use the structured fields on the left rather than an opaque protocol id so the workspace can explain the forecast.')}</div>
         ${clinical.expected_direction ? `<div style="font-size:12px;color:var(--text-tertiary);margin-top:10px">Expected direction: ${_esc(clinical.expected_direction)}</div>` : ''}
         ${clinical.caveat ? `<div style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Uncertainty: ${_esc(clinical.caveat)}</div>` : ''}
@@ -924,21 +939,30 @@ function _renderEvidencePanel(workspace, snapshot, findings) {
   ${evidence?.notes?.length ? `<div style="font-size:12px;color:var(--text-tertiary);line-height:1.7;margin-top:10px">${_esc(evidence.notes.join(' '))}</div>` : ''}`);
 }
 
-function _renderReportStudio(reports) {
+function _renderReportStudio(workspace, reports) {
   return _card('Report Studio', `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-    <button class="btn btn-ghost btn-sm" onclick="window._brainTwinGenerateReports()">Generate drafts</button>
+    ${TWIN_REPORT_TYPES.map((item) => `<button class="btn btn-ghost btn-sm" onclick="window._brainTwinGenerateReport('${item.id}')">${_esc(item.label)}</button>`).join('')}
     ${reports.map((item) => `<button class="btn btn-ghost btn-sm" onclick="window._brainTwinOpenDraft('${_esc(item.id)}')">${_esc(item.title)}</button>`).join('')}
   </div>
-  <div id="brain-twin-report-draft">${reports[0] ? _renderDraftBody(reports[0]) : '<div style="font-size:12.5px;color:var(--text-tertiary)">Generate a report draft from the current patient state, analysis, and scenario.</div>'}</div>`);
+  ${workspace.loadingReports ? '<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:10px">Generating DeepTwin report from the backend…</div>' : ''}
+  ${workspace.reportsError ? `<div style="font-size:12px;color:var(--amber);line-height:1.7;margin-bottom:10px">${_esc(workspace.reportsError)}</div>` : ''}
+  <div id="brain-twin-report-draft">${reports[0] ? _renderDraftBody(reports[0]) : '<div style="font-size:12.5px;color:var(--text-tertiary)">Generate a backend report from the current patient context, analysis, and scenario.</div>'}</div>`);
 }
 
 function _renderDraftBody(report) {
+  const body = report?.body || {};
+  const summary = body.executive_summary || body.summary || body.body || report.body;
+  const reviewPoints = Array.isArray(report?.review_points) ? report.review_points : [];
+  const limitations = Array.isArray(report?.limitations) ? report.limitations : [];
   return `<div style="padding:12px;border-radius:14px;border:1px solid rgba(74,158,255,.16);background:rgba(74,158,255,.06)">
     <div style="display:flex;justify-content:space-between;gap:10px;align-items:center">
       <div style="font-size:14px;font-weight:700;color:var(--text)">${_esc(report.title)}</div>
-      ${_pill('Draft', 'blue')}
+      ${_pill(report.evidence_grade || 'Draft', 'blue')}
     </div>
-    <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.8;margin-top:10px">${_esc(report.body)}</div>
+    ${report.generated_at ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Generated ${_esc(_fmtDate(report.generated_at))}</div>` : ''}
+    <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.8;margin-top:10px">${_esc(typeof summary === 'string' ? summary : JSON.stringify(summary || {}))}</div>
+    ${reviewPoints.length ? `<div style="margin-top:12px"><div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em">Review points</div><div style="font-size:12px;color:var(--text-secondary);line-height:1.7;margin-top:6px">${_esc(reviewPoints.join(' · '))}</div></div>` : ''}
+    ${limitations.length ? `<div style="margin-top:12px"><div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em">Limitations</div><div style="font-size:12px;color:var(--text-secondary);line-height:1.7;margin-top:6px">${_esc(limitations.join(' · '))}</div></div>` : ''}
   </div>`;
 }
 
@@ -966,7 +990,7 @@ function _renderWorkspace(setTopbar) {
   const snapshot = context ? _buildSnapshot(context) : null;
   const findings = context ? _buildFindings(context, workspace.analysis) : [];
   const hypotheses = context ? _buildCrossModalHypotheses(context, workspace.analysis) : [];
-  const reports = snapshot ? _buildReportDrafts(snapshot, findings, hypotheses, workspace.analysis, workspace.simulation) : [];
+  const reports = Array.isArray(workspace.reports) ? workspace.reports : [];
   const pairs = _buildPairRanking(workspace.analysis);
 
   setTopbar?.({
@@ -1004,7 +1028,7 @@ function _renderWorkspace(setTopbar) {
         ${_renderCorrelationPairs(pairs)}
         ${_renderSimulationLab(workspace)}
         ${snapshot ? _renderEvidencePanel(workspace, snapshot, findings) : ''}
-        ${snapshot ? _renderReportStudio(reports) : ''}
+        ${snapshot ? _renderReportStudio(workspace, reports) : ''}
         ${_renderTransparency()}
       </div>
     </div>
@@ -1046,11 +1070,13 @@ async function _runAnalysis() {
   if (!patientId) return;
   const workspace = _workspaceState();
   workspace.loadingAnalysis = true;
+  workspace.analysisError = '';
   _renderWorkspace(window._brainTwinSetTopbar);
   try {
     workspace.analysis = await api.brainTwinAnalyze(_analysisPayload(patientId));
   } catch (error) {
-    workspace.analysis = { prediction: { executive_summary: `DeepTwin analysis failed: ${error?.message || error}`, prediction_band: 'Unavailable' } };
+    workspace.analysis = null;
+    workspace.analysisError = `DeepTwin analysis failed: ${error?.message || error}`;
   } finally {
     workspace.loadingAnalysis = false;
     _renderWorkspace(window._brainTwinSetTopbar);
@@ -1062,14 +1088,13 @@ async function _runSimulation() {
   if (!patientId) return;
   const workspace = _workspaceState();
   workspace.loadingSimulation = true;
+  workspace.simulationError = '';
   _renderWorkspace(window._brainTwinSetTopbar);
   try {
     workspace.simulation = await api.brainTwinSimulate(_simulationPayload(patientId));
   } catch (error) {
-    workspace.simulation = {
-      engine: { name: 'error' },
-      outputs: { clinical_forecast: { summary: `Simulation failed: ${error?.message || error}`, caveat: 'Check protocol structure and backend availability.' } },
-    };
+    workspace.simulation = null;
+    workspace.simulationError = `Simulation failed: ${error?.message || error}. Check protocol structure and backend availability.`;
   } finally {
     workspace.loadingSimulation = false;
     _renderWorkspace(window._brainTwinSetTopbar);
@@ -1150,14 +1175,29 @@ function _wireHandlers(setTopbar) {
     if (input) input.value = question;
     _runEvidence(question);
   };
-  window._brainTwinGenerateReports = function () {
+  window._brainTwinGenerateReport = async function (kind) {
     const workspace = _workspaceState();
-    if (!workspace.context) return;
-    const snapshot = _buildSnapshot(workspace.context);
-    const findings = _buildFindings(workspace.context, workspace.analysis);
-    const hypotheses = _buildCrossModalHypotheses(workspace.context, workspace.analysis);
-    workspace.reports = _buildReportDrafts(snapshot, findings, hypotheses, workspace.analysis, workspace.simulation);
+    const patientId = _ensurePatientOrPrompt();
+    if (!patientId) return;
+    workspace.loadingReports = true;
+    workspace.reportsError = '';
     _renderWorkspace(setTopbar);
+    try {
+      const report = await api.generateTwinReport(patientId, {
+        kind: kind || 'clinician_deep',
+        horizon: '6w',
+        simulation: workspace.simulation || {},
+      });
+      const existing = Array.isArray(workspace.reports)
+        ? workspace.reports.filter((item) => item.id !== report.kind)
+        : [];
+      workspace.reports = [{ id: report.kind, ...report }, ...existing];
+    } catch (error) {
+      workspace.reportsError = `Report generation failed: ${error?.message || error}`;
+    } finally {
+      workspace.loadingReports = false;
+      _renderWorkspace(setTopbar);
+    }
   };
   window._brainTwinOpenDraft = function (id) {
     const report = (_workspaceState().reports || []).find((item) => item.id === id);

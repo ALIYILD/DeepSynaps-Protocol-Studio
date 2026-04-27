@@ -1414,7 +1414,7 @@ export function renderTargetCard(target, analysisId) {
   var aid = esc(analysisId || _mriAnalysisId || (_report && _report.analysis_id) || 'demo');
 
   var actions = '<div class="ds-mri-target-actions">'
-    + '<button class="btn btn-sm ds-mri-send-nav" data-target="' + tid + '">Send to Neuronav</button>'
+    + '<button class="btn btn-sm" disabled title="Neuronav integration is not enabled in this beta build">Neuronav unavailable</button>'
     + '<button class="btn btn-sm ds-mri-view-overlay" data-target="' + tid + '">View overlay</button>'
     + '<button class="btn btn-sm ds-mri-download-target" data-target="' + tid + '">Download target JSON</button>'
     + '</div>';
@@ -2043,8 +2043,8 @@ function renderBottomStrip(report) {
     + '</div>'
     + '<div class="ds-mri-bottom-strip__group">'
     + _mriAnnotationButton({ patient_id: patientId, target_id: aid, anchor_label: 'MRI analysis' })
-    + '<button class="btn btn-sm ds-mri-share"' + disabled + '>Share with referring provider</button>'
-    + '<button class="btn btn-sm ds-mri-open-neuronav"' + disabled + '>Open in Neuronav</button>'
+    + '<button class="btn btn-sm" disabled title="Provider-sharing workflow is not enabled in this beta build">Sharing unavailable</button>'
+    + '<button class="btn btn-sm" disabled title="Neuronav integration is not enabled in this beta build">Neuronav unavailable</button>'
     + '</div>'
     + '</div>'
     + '<div id="mri-annotation-drawer-host" class="analysis-anno-host"></div>';
@@ -2607,18 +2607,18 @@ function _wireRightColumn(navigate) {
     });
   });
   document.querySelectorAll('.ds-mri-view-overlay, .ds-mri-open-overlay').forEach(function (btn) {
-    btn.addEventListener('click', function () {
+    btn.addEventListener('click', async function () {
       var tid = btn.getAttribute('data-target');
       var aid = btn.getAttribute('data-aid')
         || (_report && _report.analysis_id)
         || _mriAnalysisId
         || 'demo';
-      _openOverlayModal(aid, tid);
-    });
-  });
-  document.querySelectorAll('.ds-mri-send-nav').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      showToast('Sent target to Neuronav (stub)', 'info');
+      try {
+        var overlayFile = await api.getMRIOverlayHtml(aid, tid);
+        _openOverlayModal(aid, tid, overlayFile);
+      } catch (err) {
+        showToast('Overlay unavailable: ' + (err && err.message ? err.message : err), 'error');
+      }
     });
   });
   document.querySelectorAll('.ds-mri-download-target').forEach(function (btn) {
@@ -2638,16 +2638,30 @@ function _wireRightColumn(navigate) {
 
   // Bottom-strip buttons
   var aid = (_report && _report.analysis_id) || _mriAnalysisId || null;
-  var _apiBase = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
   var pdfBtn = document.querySelector('.ds-mri-dl-pdf');
-  if (pdfBtn) pdfBtn.addEventListener('click', function () {
+  if (pdfBtn) pdfBtn.addEventListener('click', async function () {
     if (!aid) return;
-    window.open(_apiBase + '/api/v1/mri/report/' + encodeURIComponent(aid) + '/pdf', '_blank');
+    try {
+      var file = await api.getMRIReportPdf(aid);
+      if (!file || !file.blob) throw new Error('PDF file was empty.');
+      downloadBlob(file.blob, file.filename || ('mri_report_' + aid + '.pdf'));
+      showToast('MRI PDF downloaded', 'success');
+    } catch (err) {
+      showToast('PDF unavailable: ' + (err && err.message ? err.message : err), 'error');
+    }
   });
   var htmlBtn = document.querySelector('.ds-mri-dl-html');
-  if (htmlBtn) htmlBtn.addEventListener('click', function () {
+  if (htmlBtn) htmlBtn.addEventListener('click', async function () {
     if (!aid) return;
-    window.open(_apiBase + '/api/v1/mri/report/' + encodeURIComponent(aid) + '/html', '_blank');
+    try {
+      var file = await api.getMRIReportHtml(aid);
+      if (!file || !file.blob) throw new Error('HTML report was empty.');
+      var url = URL.createObjectURL(file.blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+    } catch (err) {
+      showToast('HTML report unavailable: ' + (err && err.message ? err.message : err), 'error');
+    }
   });
   var jsonBtn = document.querySelector('.ds-mri-dl-json');
   if (jsonBtn) jsonBtn.addEventListener('click', function () {
@@ -2666,15 +2680,6 @@ function _wireRightColumn(navigate) {
   if (bidsBtn) bidsBtn.addEventListener('click', function () {
     window._mriExportBIDSPackage();
   });
-  var shareBtn = document.querySelector('.ds-mri-share');
-  if (shareBtn) shareBtn.addEventListener('click', function () {
-    showToast('Sharing coming soon', 'info');
-  });
-  var navBtn = document.querySelector('.ds-mri-open-neuronav');
-  if (navBtn) navBtn.addEventListener('click', function () {
-    showToast('Neuronav integration coming soon', 'info');
-  });
-
   // New analysis → reset state.
   var newBtn = document.getElementById('ds-mri-new-analysis');
   if (newBtn) newBtn.addEventListener('click', function () {
@@ -2716,26 +2721,33 @@ async function _exportMRIArtifact(kind) {
 window._mriExportFHIRBundle = function () { return _exportMRIArtifact('fhir'); };
 window._mriExportBIDSPackage = function () { return _exportMRIArtifact('bids'); };
 
-function _openOverlayModal(aid, tid) {
-  var _apiBase = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
-  var url = _apiBase + '/api/v1/mri/overlay/' + encodeURIComponent(aid) + '/' + encodeURIComponent(tid);
+function _openOverlayModal(aid, tid, overlayFile) {
   var existing = document.getElementById('ds-mri-overlay-modal');
   if (existing) existing.remove();
   var modal = document.createElement('div');
   modal.id = 'ds-mri-overlay-modal';
   modal.className = 'ds-mri-overlay-modal';
+  var overlayUrl = overlayFile && overlayFile.blob ? URL.createObjectURL(overlayFile.blob) : null;
   modal.innerHTML =
     '<div class="ds-mri-overlay-modal__panel">'
     + '<div class="ds-mri-overlay-modal__head">'
     + '<strong>Overlay · ' + esc(tid) + '</strong>'
     + '<button class="btn btn-sm" id="ds-mri-overlay-close">Close</button>'
     + '</div>'
-    + '<iframe class="ds-mri-overlay-modal__iframe" src="' + esc(url) + '" title="MRI overlay"></iframe>'
+    + (overlayUrl
+      ? '<iframe class="ds-mri-overlay-modal__iframe" src="' + esc(overlayUrl) + '" title="MRI overlay"></iframe>'
+      : '<div style="padding:20px;color:var(--text-secondary)">Overlay HTML was unavailable for this analysis.</div>')
     + '</div>';
   document.body.appendChild(modal);
+  var close = function () {
+    if (overlayUrl) {
+      try { URL.revokeObjectURL(overlayUrl); } catch (_) {}
+    }
+    modal.remove();
+  };
   var closeBtn = document.getElementById('ds-mri-overlay-close');
-  if (closeBtn) closeBtn.addEventListener('click', function () { modal.remove(); });
-  modal.addEventListener('click', function (e) { if (e.target === modal) modal.remove(); });
+  if (closeBtn) closeBtn.addEventListener('click', close);
+  modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
 }
 
 function _openViewerPayloadModal(aid, payload) {
