@@ -218,6 +218,12 @@ async def qeeg_live_sse(
         actor = get_authenticated_actor(authorization=f"Bearer {token}")
     _gate(actor)
 
+    # Validate mock-source params synchronously, before StreamingResponse
+    # starts the body — otherwise the FastAPI exception handler can't write
+    # a 4xx because the response head has already been flushed.
+    if source == "mock":
+        _validate_mock_source(edf_path)
+
     async def sse_gen() -> AsyncIterator[str]:
         async for payload in _stream_frames(
             request=request,
@@ -250,13 +256,21 @@ async def qeeg_live_ws(
     token = websocket.query_params.get("token")
     actor = get_authenticated_actor(authorization=f"Bearer {token}" if token else None)
     _gate(actor)
-    await websocket.accept()
 
     # Query params: source=lsl|mock, stream_name=..., edf_path=..., age=..., sex=...
     qp = dict(websocket.query_params)
     source = qp.get("source", "lsl")
     stream_name = qp.get("stream_name")
     edf_path = qp.get("edf_path")
+    if source == "mock":
+        # Validate before websocket.accept() so we can close with a real
+        # error code rather than starting the producer with an unsafe path.
+        try:
+            _validate_mock_source(edf_path)
+        except ApiServiceError as exc:
+            await websocket.close(code=4400, reason=exc.code)
+            return
+    await websocket.accept()
     try:
         age = int(qp["age"]) if "age" in qp and qp["age"] != "" else None
     except Exception:
