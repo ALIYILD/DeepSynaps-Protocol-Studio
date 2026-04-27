@@ -173,7 +173,5 @@ def synthesize_fusion_recommendation(
         ),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
-=======
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508

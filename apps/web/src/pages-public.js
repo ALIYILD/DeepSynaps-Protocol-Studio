@@ -348,10 +348,6 @@ export function pgHome() {
       <div id="ev-view-radial" class="pub-ev3-view">${radialView}</div>
       <div style="font-size:11px;color:var(--text-tertiary);margin-top:12px;text-align:right">
         DeepSynaps Evidence Pipeline — ${EVIDENCE_TOTAL_PAPERS.toLocaleString('en-US')} papers · ${EVIDENCE_TOTAL_TRIALS.toLocaleString('en-US')} trials · ${EVIDENCE_TOTAL_META.toLocaleString('en-US')} meta-analyses &amp; reviews
-=======
-      <div data-ev-pipeline-footer style="font-size:11px;color:var(--text-tertiary);margin-top:12px;text-align:right">
-        DeepSynaps Evidence Pipeline — 87,654 papers · 1,922 trials · 1,324 FDA device records
->>>>>>> origin/feat/qeeg-analyzer-mne-parity
       </div>`;
   }
 
@@ -570,9 +566,7 @@ export function pgHome() {
         <button class="dv2-cond-tab" data-cond="Comorbid &amp; Special" onclick="window._dv2CondFilter('Comorbid &amp; Special', this)">Comorbid</button>
       </div>
 
-      <!-- Live counts from /api/v1/evidence/stats (public endpoint).
-           Fallback numbers reflect the 87k EuropePMC corpus + curated trials
-           and FDA device records; real values are swapped in on page load. -->
+      <!-- Live counts from /api/v1/evidence/stats (public endpoint) -->
       <div id="phome-ev-live-stats" class="dv2-ev-mini-stats">
         <div class="dv2-ev-mini">
           <div class="dv2-ev-mini-n" id="phome-ev-stat-papers">${EVIDENCE_TOTAL_PAPERS.toLocaleString('en-US')}</div>
@@ -588,54 +582,6 @@ export function pgHome() {
         </div>
       </div>
       <div id="phome-ev-stat-note" style="text-align:center;font-size:10.5px;color:var(--text-tertiary);margin-bottom:18px">${EVIDENCE_SOURCES.join(' · ')}</div>
-          <div class="dv2-ev-mini-n" id="phome-ev-stat-abstracts">82,245</div>
-          <div class="dv2-ev-mini-l">with full abstract</div>
-        </div>
-        <div class="dv2-ev-mini">
-          <div class="dv2-ev-mini-n" id="phome-ev-stat-trials">1,922</div>
-          <div class="dv2-ev-mini-l">registered clinical trials</div>
-        </div>
-        <div class="dv2-ev-mini">
-          <div class="dv2-ev-mini-n" id="phome-ev-stat-devices">1,324</div>
-          <div class="dv2-ev-mini-l">FDA device records</div>
-        </div>
-      </div>
-
-      <!-- Corpus-composition strip. Labels swap in live counts (RCTs, reviews,
-           meta-analyses) plus the top-5 modality chips. Silently falls back
-           to the static hints below when the API isn't reachable. -->
-      <div id="phome-ev-corpus-strip" class="dv2-ev-corpus-strip">
-        <div class="dv2-ev-corpus-row">
-          <span class="dv2-ev-corpus-chip" id="phome-ev-mix-rct">10,972 RCTs &amp; reviews</span>
-          <span class="dv2-ev-corpus-chip" id="phome-ev-mix-meta">2,790 meta-analyses</span>
-          <span class="dv2-ev-corpus-chip" id="phome-ev-mix-sr">2,097 systematic reviews</span>
-          <span class="dv2-ev-corpus-chip" id="phome-ev-mix-positive">15,266 positive-effect studies</span>
-          <span class="dv2-ev-corpus-chip" id="phome-ev-mix-years">2020&ndash;2026</span>
-        </div>
-        <div class="dv2-ev-corpus-row dv2-ev-corpus-mods" id="phome-ev-corpus-mods">
-          <span class="dv2-ev-corpus-mod-label">Top modalities:</span>
-          <span class="dv2-ev-corpus-mod-chip" data-mod="tms">TMS &bull; 15,077</span>
-          <span class="dv2-ev-corpus-mod-chip" data-mod="dbs">DBS &bull; 11,742</span>
-          <span class="dv2-ev-corpus-mod-chip" data-mod="scs">SCS &bull; 10,083</span>
-          <span class="dv2-ev-corpus-mod-chip" data-mod="tdcs">tDCS &bull; 7,649</span>
-          <span class="dv2-ev-corpus-mod-chip" data-mod="pns">PNS &bull; 6,217</span>
-        </div>
-        <div class="dv2-ev-corpus-row dv2-ev-corpus-conds" id="phome-ev-corpus-conds">
-          <span class="dv2-ev-corpus-mod-label">Top conditions:</span>
-          <span class="dv2-ev-corpus-cond-chip" data-cond="parkinsons">Parkinson&rsquo;s &bull; 5,439</span>
-          <span class="dv2-ev-corpus-cond-chip" data-cond="chronic_pain">Chronic pain &bull; 4,575</span>
-          <span class="dv2-ev-corpus-cond-chip" data-cond="stroke">Stroke &bull; 3,782</span>
-          <span class="dv2-ev-corpus-cond-chip" data-cond="mdd">MDD &bull; 3,585</span>
-          <span class="dv2-ev-corpus-cond-chip" data-cond="alzheimers">Alzheimer&rsquo;s &bull; 2,667</span>
-        </div>
-      </div>
-
-      <div id="phome-ev-stat-note" style="text-align:center;font-size:10.5px;color:var(--text-tertiary);margin-bottom:18px">
-        Europe PMC &middot; PubMed &middot; OpenAlex &middot; ClinicalTrials.gov &middot; FDA &middot; Unpaywall
-        &nbsp;&middot;&nbsp; <span id="phome-ev-updated-note">refreshed daily</span>
-      </div>
-=======
->>>>>>> origin/feat/qeeg-analyzer-mne-parity
 
       <div class="pub-ev-section phome-ev-section">
         ${_buildEvMatrix()}
@@ -860,26 +806,6 @@ export function pgHome() {
         font-weight: 700; color: var(--teal); }
       .dv2-ev-mini-l { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
 
-      /* Corpus-composition strip — under the 4 main tiles. */
-      .dv2-ev-corpus-strip { max-width: 920px; margin: 0 auto 14px; display: flex;
-        flex-direction: column; gap: 8px; padding: 0 8px; }
-      .dv2-ev-corpus-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
-        align-items: center; }
-      .dv2-ev-corpus-chip { display: inline-flex; align-items: center;
-        padding: 5px 11px; border-radius: 999px;
-        border: 1px solid var(--border); background: var(--bg-card);
-        font-size: 11.5px; color: var(--text-secondary); letter-spacing: 0.1px; }
-      .dv2-ev-corpus-mod-label { font-size: 11px; color: var(--text-tertiary);
-        text-transform: uppercase; letter-spacing: 0.5px; margin-right: 2px; }
-      .dv2-ev-corpus-mod-chip,
-      .dv2-ev-corpus-cond-chip { display: inline-flex; align-items: center;
-        padding: 4px 10px; border-radius: 999px;
-        border: 1px solid var(--border-teal, rgba(0,212,188,0.35));
-        background: rgba(0,212,188,0.06);
-        font-size: 11.5px; color: var(--text-primary); font-weight: 500; }
-      .dv2-ev-corpus-cond-chip { border-color: rgba(74,158,255,0.35);
-        background: rgba(74,158,255,0.06); }
-
       .pub-cta { padding: 64px; border-radius: 28px;
         background:
           radial-gradient(ellipse 60% 80% at 20% 20%, rgba(0,212,188,0.12), transparent 60%),
@@ -965,21 +891,12 @@ export function pgHome() {
       setN('phome-ev-stat-trials', trials);
       setN('phome-ev-stat-indications', indications);
       // Also update the stats strip
-      // ── Main 4-tile counts (papers / with-abstract / trials / FDA) ─────
-      setN('phome-ev-stat-papers',    c.papers);
-      setN('phome-ev-stat-abstracts', c.papers_with_abstract);
-      setN('phome-ev-stat-trials',    c.trials);
-      setN('phome-ev-stat-devices',   c.devices);
-
-      // ── Hero strip (used in the design-v2 hero) ────────────────────────
-=======
->>>>>>> origin/feat/qeeg-analyzer-mne-parity
       const setStrip = (id, v, suffix) => {
         const el = document.getElementById(id);
         if (el && Number.isFinite(v)) el.textContent = fmt(v) + (suffix || '');
       };
-=======
->>>>>>> origin/feat/qeeg-analyzer-mne-parity
+      setStrip('strip-stat-papers', papers, '+');
+      setStrip('strip-stat-trials', trials, '');
     } catch (_) {
       // Silently keep fallback numbers; console.debug is filtered by default.
       console.debug('[evidence/stats] fetch failed; using fallback');

@@ -1,11 +1,7 @@
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 from __future__ import annotations
 
 import json
 import logging
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -125,5 +121,3 @@ def build_fusion_recommendation(db: Session, patient_id: str) -> dict[str, Any]:
     result.setdefault("confidence_disclaimer", _disclaimer)
     result.setdefault("confidence_grade", "heuristic")
     return result
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
