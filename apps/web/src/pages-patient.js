@@ -10148,10 +10148,10 @@ async function pgPatientSettingsLegacy(user) {
     </div>
   `;
 
-  _wireSettingsPage();
+  _wireSettingsPageLegacy();
 }
 
-function _wireSettingsPage() {
+function _wireSettingsPageLegacy() {
   const st = document.getElementById('pt-route-settings');
   if (!st) return;
 

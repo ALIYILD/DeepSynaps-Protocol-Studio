@@ -109,7 +109,15 @@ class AppSettings(BaseModel):
     telegram_bot_token: str = Field(default="")
     telegram_bot_token_patient: str = Field(default="")
     telegram_bot_token_clinician: str = Field(default="")
+    # Shared fallback secret. Per-bot secrets below are preferred — if they
+    # are set, they override this for the corresponding webhook route.
     telegram_webhook_secret: str = Field(default="")
+    # Per-bot Telegram webhook secrets. Telegram lets the operator pin a
+    # secret per webhook URL via setWebhook(secret_token=...). We accept
+    # bot-specific secrets so a leaked patient secret cannot authenticate
+    # clinician posts and vice versa.
+    telegram_patient_webhook_secret: str = Field(default="")
+    telegram_clinician_webhook_secret: str = Field(default="")
     telegram_bot_username_patient: str = Field(default="")
     telegram_bot_username_clinician: str = Field(default="")
     telegram_sales_chat_id: str = Field(default="")
