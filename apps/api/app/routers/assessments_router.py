@@ -811,13 +811,17 @@ class BulkAssignmentItem(BaseModel):
 class BulkAssignRequest(BaseModel):
     # Legacy shape (pages-clinical-tools.js): one patient, many templates.
     patient_id: Optional[str] = None
-    template_ids: Optional[list[str]] = None
+    # Cap at 50 templates per request — prevents memory/CPU DoS via a
+    # massive template_ids array and bounds the per-request commit count.
+    template_ids: Optional[list[str]] = Field(default=None, max_length=50)
     phase: Optional[str] = None
     due_date: Optional[str] = None
     bundle_id: Optional[str] = None
     clinician_notes: Optional[str] = None
-    # New shape (design-v2 Hub): list of per-patient assignments.
-    assignments: Optional[list[BulkAssignmentItem]] = None
+    # New shape (design-v2 Hub): list of per-patient assignments. Cap at 100
+    # — same DoS argument; legitimate clinic workflows assign tens, not
+    # thousands, of items at once.
+    assignments: Optional[list[BulkAssignmentItem]] = Field(default=None, max_length=100)
 
 
 class BulkAssignResponse(BaseModel):
