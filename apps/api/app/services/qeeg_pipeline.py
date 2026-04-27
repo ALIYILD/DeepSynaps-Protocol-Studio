@@ -87,6 +87,13 @@ def _pipeline_result_to_dict(result: Any) -> dict[str, Any]:
         "quality": getattr(result, "quality", {}) or {},
         "report_html": getattr(result, "report_html", None),
         "report_pdf_path": report_pdf_path,
+        # 2026-04-26 night-shift: top-level decision-support arrays. Surfaced
+        # so the frontend can render qc_flags / confidence / method_provenance
+        # / limitations badges without descending into features.clinical_summary.
+        "qc_flags": list(getattr(result, "qc_flags", []) or []),
+        "confidence": dict(getattr(result, "confidence", {}) or {}),
+        "method_provenance": dict(getattr(result, "method_provenance", {}) or {}),
+        "limitations": list(getattr(result, "limitations", []) or []),
     }
 
 

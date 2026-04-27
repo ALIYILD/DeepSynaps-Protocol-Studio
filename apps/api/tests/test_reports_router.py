@@ -180,6 +180,202 @@ def test_ai_summary_requires_report_owner(client: TestClient, auth_headers: dict
     assert denied.status_code == 404, denied.text
 
 
+# ── Structured report payload + render contract tests ────────────────────────
+
+
+def _create_minimal_report(client: TestClient, auth_headers: dict) -> str:
+    patient_id = _create_patient(client, auth_headers)
+    r = client.post(
+        "/api/v1/reports",
+        json={
+            "patient_id": patient_id,
+            "type": "clinician",
+            "title": "Structured payload test",
+            "content": "PHQ-9 reduced from 22 to 8 over 20 sessions.",
+        },
+        headers=auth_headers["clinician"],
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
+
+
+def test_preview_payload_returns_sample_when_empty(client: TestClient, auth_headers: dict):
+    r = client.post(
+        "/api/v1/reports/preview-payload",
+        json={},
+        headers=auth_headers["clinician"],
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # Schema id + generator stamps are mandatory.
+    assert body["schema_id"].startswith("deepsynaps.report-payload/")
+    assert body["generator_version"]
+    assert body["generated_at"]
+    # Sample payload always carries the required structural fields.
+    assert body["sections"], "sample payload must include sections"
+    for section in body["sections"]:
+        assert "observed" in section
+        assert "interpretations" in section
+        assert "suggested_actions" in section
+        assert "cautions" in section
+        assert "limitations" in section
+
+
+def test_preview_payload_separates_observed_and_interpretation(
+    client: TestClient, auth_headers: dict
+):
+    r = client.post(
+        "/api/v1/reports/preview-payload",
+        json={
+            "title": "Custom",
+            "summary": "Just a probe",
+            "audience": "clinician",
+            "sections": [
+                {
+                    "section_id": "s1",
+                    "title": "qEEG",
+                    "observed": ["frontal alpha asymmetry: -0.12"],
+                    "interpretations": [
+                        {
+                            "text": "consistent with depression phenotype",
+                            "evidence_strength": "Moderate",
+                            "evidence_refs": [],
+                        }
+                    ],
+                    "cautions": ["confirm with clean re-record"],
+                    "limitations": ["single-session"],
+                }
+            ],
+            "references": [
+                "Lefaucheur JP et al. doi:10.1016/j.clinph.2019.11.002",
+                "Cash R et al. (no identifier)",
+            ],
+        },
+        headers=auth_headers["clinician"],
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body["sections"]) == 1
+    s = body["sections"][0]
+    # Observed and interpretation are separate, not collapsed.
+    assert s["observed"] and s["interpretations"]
+    assert s["observed"] != [i["text"] for i in s["interpretations"]]
+    # cautions + limitations always present.
+    assert s["cautions"] and s["limitations"]
+    # Citations: at least one carries DOI; one is unverified (no identifier).
+    assert body["citations"], "references must surface as citations"
+    statuses = {c["status"] for c in body["citations"]}
+    # The text-only ref ("Cash R et al. (no identifier)") must be unverified —
+    # never invented. The DOI-bearing one is unverified too unless the LiteraturePaper
+    # row is present in the test DB; either way one of them must be unverified.
+    assert "unverified" in statuses
+    for c in body["citations"]:
+        # Every citation must declare retrieved_at.
+        assert c["retrieved_at"], "retrieved_at must be stamped on every citation"
+        # And carry an explicit evidence_level OR the unverified marker.
+        if c["status"] == "unverified":
+            assert c["evidence_level"] is None or c["evidence_level"]
+        # And an identifier (doi/pmid/url) OR raw_text fallback.
+        has_id = any(c.get(k) for k in ("doi", "pmid", "url"))
+        assert has_id or c.get("raw_text"), (
+            "citations must carry doi/pmid/url OR raw_text — never empty"
+        )
+
+
+def test_get_payload_for_stored_report_has_required_fields(
+    client: TestClient, auth_headers: dict
+):
+    rid = _create_minimal_report(client, auth_headers)
+    r = client.get(f"/api/v1/reports/{rid}/payload", headers=auth_headers["clinician"])
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["report_id"] == rid
+    assert body["sections"]
+    # Cautions/limitations always rendered, even on legacy rows.
+    assert any("cautions" in s for s in body["sections"])
+    assert any("limitations" in s for s in body["sections"])
+
+
+def test_render_html_returns_text_html_non_empty(
+    client: TestClient, auth_headers: dict
+):
+    rid = _create_minimal_report(client, auth_headers)
+    r = client.get(
+        f"/api/v1/reports/{rid}/render?format=html",
+        headers=auth_headers["clinician"],
+    )
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("text/html"), r.headers["content-type"]
+    body = r.text
+    assert body, "HTML response must not be empty"
+    # Decision-support disclaimer must appear in the rendered output.
+    assert "decision-support" in body.lower() or "decision support" in body.lower()
+    # Observed-vs-interpretation labels must be visible.
+    assert "Observed findings" in body
+    # Audience toggle present in the default 'both' view.
+    assert "data-ds-view" in body or "Clinician view" in body
+
+
+def test_render_pdf_returns_503_or_pdf_bytes(
+    client: TestClient, auth_headers: dict, monkeypatch
+):
+    """PDF endpoint must either return real bytes (when weasyprint is installed)
+    OR a clean 503 with a clear message. It must NEVER return empty content
+    or a 200 with a blank body — that would silently produce broken artefacts.
+    """
+    rid = _create_minimal_report(client, auth_headers)
+
+    # Force the PDF renderer into the "lib missing" state to exercise the 503
+    # branch deterministically regardless of host environment.
+    from app.routers import reports_router as _rr
+    from deepsynaps_render_engine.renderers import PdfRendererUnavailable
+
+    def _raise(_):
+        raise PdfRendererUnavailable("weasyprint not installed in test env")
+
+    monkeypatch.setattr(_rr, "render_report_pdf", _raise)
+
+    r = client.get(
+        f"/api/v1/reports/{rid}/render?format=pdf",
+        headers=auth_headers["clinician"],
+    )
+    assert r.status_code == 503, r.text
+    body = r.json()
+    # Clear, actionable error code + message — surface uses ErrorResponse shape.
+    assert body.get("code") == "pdf_renderer_unavailable", body
+    assert "weasyprint" in body.get("message", "").lower()
+
+
+def test_render_pdf_returns_bytes_when_lib_present(
+    client: TestClient, auth_headers: dict, monkeypatch
+):
+    """Sanity check: when the renderer succeeds we get application/pdf bytes,
+    never an empty 200."""
+    rid = _create_minimal_report(client, auth_headers)
+    from app.routers import reports_router as _rr
+
+    def _ok(_payload):
+        return b"%PDF-1.4 fake bytes"
+
+    monkeypatch.setattr(_rr, "render_report_pdf", _ok)
+    r = client.get(
+        f"/api/v1/reports/{rid}/render?format=pdf",
+        headers=auth_headers["clinician"],
+    )
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"] == "application/pdf"
+    assert r.content.startswith(b"%PDF"), "must return real PDF bytes"
+    assert len(r.content) > 0, "never serve empty PDF"
+
+
+def test_render_unknown_report_404(client: TestClient, auth_headers: dict):
+    r = client.get(
+        "/api/v1/reports/does-not-exist/render?format=html",
+        headers=auth_headers["clinician"],
+    )
+    assert r.status_code == 404, r.text
+
+
 def test_ai_summary_requires_patient_access(client: TestClient, auth_headers: dict):
     patient_id = _create_patient(client, auth_headers)
 

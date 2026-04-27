@@ -37,6 +37,11 @@ if TYPE_CHECKING:  # pragma: no cover
 
 log = logging.getLogger(__name__)
 
+# NumPy 2.0 renamed ``trapz`` → ``trapezoid``. Use whichever exists so the
+# pipeline runs on both 1.x and 2.x — older code in this module + the new SNR
+# helper both go through this alias.
+_trapz = getattr(np, "trapezoid", None) or getattr(np, "trapz")
+
 WELCH_WINDOW_SEC = 4.0
 WELCH_OVERLAP = 0.5
 PSD_FREQ_RANGE = (1.0, 45.0)
@@ -90,6 +95,16 @@ def compute(
     # --- SpecParam aperiodic + PAF ---
     slope, offset, r_squared, paf = _fit_specparam(freqs, psd_uv2, ch_names)
 
+    # --- Per-feature confidence + QC flags ---
+    n_epochs = int(epochs.get_data().shape[0]) if hasattr(epochs, "get_data") else 0
+    snr_per_ch = _estimate_per_channel_snr(freqs, psd_uv2)
+    confidence = _build_spectral_confidence(
+        ch_names=ch_names,
+        n_epochs=n_epochs,
+        r_squared=r_squared,
+        snr=snr_per_ch,
+    )
+
     return {
         "bands": bands_out,
         "aperiodic": {
@@ -98,7 +113,106 @@ def compute(
             "r_squared": {ch: _maybe_float(r_squared[i]) for i, ch in enumerate(ch_names)},
         },
         "peak_alpha_freq": {ch: _maybe_float(paf[i]) for i, ch in enumerate(ch_names)},
+        "confidence": confidence,
+        "method_provenance": {
+            "psd_method": "welch",
+            "welch_window_sec": float(WELCH_WINDOW_SEC),
+            "welch_overlap": float(WELCH_OVERLAP),
+            "fooof_available": _fooof_available(),
+            "fooof_freq_range": list(FOOOF_FREQ_RANGE),
+            "fooof_peak_width_limits": list(FOOOF_PEAK_WIDTH_LIMITS),
+            "n_epochs_contributing": int(n_epochs),
+        },
     }
+
+
+def _fooof_available() -> bool:
+    try:
+        import fooof  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _estimate_per_channel_snr(freqs: np.ndarray, psd: np.ndarray) -> list[float | None]:
+    """Crude SNR proxy: ratio of in-band (1-45 Hz) to high-frequency-tail power.
+
+    Used purely as a confidence indicator on spectral features when no
+    explicit SNR is available. Returns one float per channel (or None when the
+    estimate is not finite).
+    """
+    if psd.size == 0:
+        return []
+    band_mask = (freqs >= 1.0) & (freqs <= 45.0)
+    tail_mask = freqs >= 35.0
+    if not np.any(band_mask) or not np.any(tail_mask):
+        return [None] * psd.shape[0]
+    in_band = _trapz(psd[:, band_mask], freqs[band_mask], axis=-1)
+    tail = _trapz(psd[:, tail_mask], freqs[tail_mask], axis=-1)
+    out: list[float | None] = []
+    for i in range(psd.shape[0]):
+        denom = float(tail[i]) if tail[i] > 0 else 0.0
+        if denom <= 0:
+            out.append(None)
+            continue
+        ratio = float(in_band[i] / denom)
+        out.append(ratio if np.isfinite(ratio) else None)
+    return out
+
+
+def _build_spectral_confidence(
+    *,
+    ch_names: list[str],
+    n_epochs: int,
+    r_squared: list[float | None],
+    snr: list[float | None],
+) -> dict[str, Any]:
+    """Per-channel confidence dict for spectral / aperiodic features.
+
+    Logic mirrors community heuristics used by Brainstorm and Persyst:
+    - reliable when ≥40 epochs contributed AND FOOOF R² ≥ 0.9 AND SNR proxy ≥ 5
+    - degraded when 20-40 epochs OR R² 0.7-0.9 OR SNR proxy 2-5
+    - unreliable when <20 epochs OR R² <0.7 OR SNR proxy <2
+
+    The structure is intentionally machine-readable so the API + frontend can
+    badge per-channel without re-deriving the logic.
+    """
+    per_channel: dict[str, dict[str, Any]] = {}
+    for i, ch in enumerate(ch_names):
+        r2 = r_squared[i] if i < len(r_squared) else None
+        ch_snr = snr[i] if i < len(snr) else None
+
+        flags: list[str] = []
+        if n_epochs < 20:
+            flags.append("very_few_epochs")
+        elif n_epochs < 40:
+            flags.append("few_epochs")
+        if r2 is not None:
+            if r2 < 0.7:
+                flags.append("poor_fooof_fit")
+            elif r2 < 0.9:
+                flags.append("moderate_fooof_fit")
+        if ch_snr is not None:
+            if ch_snr < 2.0:
+                flags.append("low_snr")
+            elif ch_snr < 5.0:
+                flags.append("moderate_snr")
+
+        if any(f in flags for f in ("very_few_epochs", "poor_fooof_fit", "low_snr")):
+            level = "low"
+        elif any(f in flags for f in ("few_epochs", "moderate_fooof_fit", "moderate_snr")):
+            level = "moderate"
+        else:
+            level = "high"
+
+        per_channel[ch] = {
+            "level": level,
+            "n_epochs_contributing": int(n_epochs),
+            "fooof_r_squared": _maybe_float(r2),
+            "snr_proxy": _maybe_float(ch_snr),
+            "flags": flags,
+        }
+    return {"per_channel": per_channel, "n_epochs_contributing": int(n_epochs)}
 
 
 def _compute_psd(
@@ -149,7 +263,7 @@ def _integrate_band(freqs: np.ndarray, psd: np.ndarray, lo: float, hi: float) ->
     mask = (freqs >= lo) & (freqs <= hi)
     if not np.any(mask):
         return np.zeros(psd.shape[0])
-    return np.trapz(psd[:, mask], freqs[mask], axis=-1)
+    return _trapz(psd[:, mask], freqs[mask], axis=-1)
 
 
 def _fit_specparam(

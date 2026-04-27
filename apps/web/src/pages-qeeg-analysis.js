@@ -1743,9 +1743,167 @@ export function renderAINarrativeWithCitations(narrative, literatureRefs) {
 // Composite renderer — returns all MNE sections, in the order the contract
 // dictates, concatenated. Null-guarded at every step so analyses without
 // these fields render zero extra HTML.
+// ── QC flags + observed-vs-inferred decision-support card (2026-04-26) ──────
+//
+// Reads the night-shift-promoted top-level keys (`qc_flags`, `confidence`,
+// `limitations`, `clinical_summary.observed_findings`,
+// `clinical_summary.derived_interpretations`) and renders three badged
+// sub-blocks. Designed as a no-op when the keys are absent so existing
+// non-MNE analyses still render unchanged.
+export function renderQEEGDecisionSupport(analysis) {
+  if (!analysis) return '';
+  var cs = analysis.clinical_summary || (analysis.features && analysis.features.clinical_summary) || {};
+  var qcFlags = Array.isArray(analysis.qc_flags) && analysis.qc_flags.length
+    ? analysis.qc_flags
+    : (Array.isArray(cs.qc_flags) ? cs.qc_flags : []);
+  var limitations = Array.isArray(analysis.limitations) && analysis.limitations.length
+    ? analysis.limitations
+    : (Array.isArray(cs.limitations) ? cs.limitations : []);
+  var confidence = analysis.confidence && Object.keys(analysis.confidence).length
+    ? analysis.confidence
+    : (cs.confidence || {});
+  var observed = Array.isArray(cs.observed_findings) ? cs.observed_findings : [];
+  var derived = Array.isArray(cs.derived_interpretations) ? cs.derived_interpretations : [];
+
+  if (!qcFlags.length && !limitations.length && !observed.length && !derived.length
+      && !(confidence && confidence.level)) {
+    return '';
+  }
+
+  function severityColor(s) {
+    s = String(s || '').toLowerCase();
+    if (s === 'high') return 'var(--red)';
+    if (s === 'medium') return 'var(--amber)';
+    if (s === 'low') return 'var(--blue)';
+    if (s === 'info') return 'var(--text-secondary)';
+    return 'var(--text-secondary)';
+  }
+
+  var html = '';
+
+  // Confidence banner
+  if (confidence && confidence.level) {
+    html += '<div class="qeeg-ds-confidence" data-testid="qeeg-ds-confidence" '
+      + 'style="display:flex;align-items:center;gap:12px;padding:10px 14px;'
+      + 'background:var(--surface-1);border-radius:8px;margin-bottom:12px;font-size:13px">'
+      + '<span style="font-weight:600">Overall confidence</span>'
+      + '<span style="padding:3px 10px;border-radius:99px;background:var(--surface-2);color:'
+      + severityColor(confidence.level === 'low' ? 'high' : confidence.level === 'moderate' ? 'medium' : 'low')
+      + ';font-weight:700;text-transform:uppercase">' + esc(String(confidence.level)) + '</span>'
+      + (confidence.score != null ? '<span style="color:var(--text-secondary)">'
+        + 'score ' + esc(String(confidence.score)) + '</span>' : '')
+      + (confidence.rationale ? '<span style="color:var(--text-secondary);font-size:12px">'
+        + esc(String(confidence.rationale)) + '</span>' : '')
+      + '</div>';
+  }
+
+  // QC flags grid
+  if (qcFlags.length) {
+    html += '<div class="qeeg-ds-flags" data-testid="qeeg-ds-flags" style="margin-bottom:14px">'
+      + '<div style="font-weight:600;margin-bottom:6px">Quality flags</div>'
+      + '<ul style="list-style:none;padding:0;margin:0;display:grid;gap:6px">';
+    qcFlags.forEach(function (f) {
+      html += '<li style="display:flex;align-items:flex-start;gap:8px;'
+        + 'padding:8px 10px;background:var(--surface-1);border-left:3px solid '
+        + severityColor(f.severity) + ';border-radius:4px">'
+        + '<span style="font-weight:700;color:' + severityColor(f.severity)
+        + ';text-transform:uppercase;font-size:11px;min-width:60px">'
+        + esc(String(f.severity || 'info')) + '</span>'
+        + '<span style="flex:1">'
+        + '<span style="font-family:monospace;font-size:12px;color:var(--text-secondary);'
+        + 'margin-right:8px">' + esc(String(f.code || '')) + '</span>'
+        + esc(String(f.message || '')) + '</span></li>';
+    });
+    html += '</ul></div>';
+  }
+
+  // Observed findings (signal-level — not inference)
+  if (observed.length) {
+    html += '<div class="qeeg-ds-observed" data-testid="qeeg-ds-observed" style="margin-bottom:14px">'
+      + '<div style="font-weight:600;margin-bottom:6px">Observed (signal features)</div>'
+      + '<ul style="list-style:none;padding:0;margin:0;display:grid;gap:6px">';
+    observed.forEach(function (o) {
+      var ev = o.evidence || {};
+      var evChip;
+      if (ev.status === 'found' && Array.isArray(ev.citations) && ev.citations.length) {
+        evChip = '<span style="padding:2px 8px;border-radius:99px;background:rgba(0,180,120,0.12);'
+          + 'color:var(--green);font-size:11px;font-weight:600">'
+          + ev.citations.length + ' refs</span>';
+      } else {
+        evChip = '<span data-testid="evidence-pending-chip" style="padding:2px 8px;'
+          + 'border-radius:99px;background:rgba(255,180,0,0.12);color:var(--amber);'
+          + 'font-size:11px;font-weight:600">evidence pending</span>';
+      }
+      html += '<li style="padding:8px 10px;background:var(--surface-1);border-radius:4px">'
+        + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+        + '<span style="font-weight:600">' + esc(String(o.label || o.type || 'finding')) + '</span>'
+        + (o.value != null ? '<span style="font-family:monospace;color:var(--text-secondary)">'
+          + esc(String(o.value)) + (o.unit ? ' ' + esc(String(o.unit)) : '') + '</span>' : '')
+        + evChip
+        + '</div>'
+        + '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">'
+        + esc(String(o.statement || '')) + '</div>';
+      if (ev.status === 'found') {
+        html += '<ul style="list-style:none;padding:0;margin:6px 0 0 0;display:grid;gap:3px">';
+        ev.citations.forEach(function (c) {
+          var label = esc(String(c.title || c.pmid || c.url || 'reference'));
+          if (c.url) {
+            html += '<li style="font-size:11px"><a href="' + esc(c.url)
+              + '" target="_blank" rel="noopener noreferrer">' + label + '</a></li>';
+          } else {
+            html += '<li style="font-size:11px">' + label + '</li>';
+          }
+        });
+        html += '</ul>';
+      }
+      html += '</li>';
+    });
+    html += '</ul></div>';
+  }
+
+  // Derived interpretations (model-derived, hedged)
+  if (derived.length) {
+    html += '<div class="qeeg-ds-derived" data-testid="qeeg-ds-derived" style="margin-bottom:14px">'
+      + '<div style="font-weight:600;margin-bottom:6px">Inferred (model-derived, hedged)</div>'
+      + '<ul style="list-style:none;padding:0;margin:0;display:grid;gap:6px">';
+    derived.forEach(function (d) {
+      html += '<li style="padding:8px 10px;background:var(--surface-1);border-radius:4px;'
+        + 'border-left:3px solid var(--violet)">'
+        + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+        + '<span style="font-weight:600">' + esc(String(d.label || 'interpretation')) + '</span>'
+        + (d.confidence ? '<span style="padding:2px 8px;border-radius:99px;'
+          + 'background:var(--surface-2);font-size:11px">conf: '
+          + esc(String(d.confidence)) + '</span>' : '')
+        + '</div>'
+        + '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">'
+        + esc(String(d.statement || '')) + '</div></li>';
+    });
+    html += '</ul></div>';
+  }
+
+  // Limitations (structured)
+  if (limitations.length) {
+    html += '<div class="qeeg-ds-limitations" data-testid="qeeg-ds-limitations">'
+      + '<div style="font-weight:600;margin-bottom:6px">Limitations</div>'
+      + '<ul style="list-style:none;padding:0;margin:0;display:grid;gap:4px;font-size:12px">';
+    limitations.forEach(function (l) {
+      var msg = typeof l === 'string' ? l : l && l.message;
+      var sev = typeof l === 'object' && l ? l.severity : 'info';
+      html += '<li style="display:flex;gap:8px"><span style="color:'
+        + severityColor(sev) + ';font-weight:700;text-transform:uppercase;font-size:10px;'
+        + 'min-width:50px">' + esc(String(sev || 'info')) + '</span><span>'
+        + esc(String(msg || '')) + '</span></li>';
+    });
+    html += '</ul></div>';
+  }
+
+  return card('Decision Support — QC, Observed vs Inferred, Evidence', html);
+}
+
 export function renderMNEPipelineSections(analysis) {
   if (!analysis) return '';
   var parts = [
+    renderQEEGDecisionSupport(analysis),
     renderPipelineQualityStrip(analysis),
     renderSpecParamPanel(analysis),
     renderELoretaROIPanel(analysis),

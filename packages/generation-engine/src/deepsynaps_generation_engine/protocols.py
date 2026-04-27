@@ -12,6 +12,13 @@ from deepsynaps_core_schema import (
     SessionStep,
     SessionStructure,
 )
+from deepsynaps_render_engine import (
+    REPORT_GENERATOR_VERSION_DEFAULT,
+    InterpretationItem,
+    ReportPayload,
+    ReportSection,
+    SuggestedAction,
+)
 from deepsynaps_safety_engine import CompatibilityResult
 
 
@@ -292,4 +299,120 @@ def build_clinician_handbook_plan(
                 bullets=[step.detail for step in session_structure.steps],
             ),
         ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Structured report payload builder
+# ---------------------------------------------------------------------------
+
+def build_report_payload_from_protocol(
+    protocol_plan: ProtocolPlan,
+    handbook_plan: ClinicianHandbookPlan | None = None,
+    *,
+    patient_id: str | None = None,
+    report_id: str | None = None,
+    audience: str = "both",
+) -> ReportPayload:
+    """Convert a deterministic ``ProtocolPlan`` (+ optional handbook) into the
+    versioned ``ReportPayload`` consumed by the render engine.
+
+    This is the bridge between the existing protocol-generation flow and the
+    new structured-report surface. Observed/interpretation/action separation
+    is preserved:
+
+    * ``Observed findings`` — protocol parameters (modality, device, session
+      structure) are presented as observed facts about the proposed plan.
+    * ``Model interpretation`` — the deterministic ``support_basis`` strings
+      drive interpretation items, each labelled ``Evidence pending`` because
+      registry-derived plans do not carry a per-claim grade by default.
+    * ``Suggested actions`` — the session structure becomes a concrete
+      schedule suggestion; safety + monitoring become decision-support items.
+
+    No fabrication: when the protocol carries no contraindication or
+    monitoring data we render explicit empty-state messages.
+    """
+    audience_norm = audience if audience in ("clinician", "patient", "both") else "both"
+
+    observed = [
+        f"Condition: {protocol_plan.condition_slug}",
+        f"Modality: {protocol_plan.modality_slug}",
+        f"Device: {protocol_plan.device_slug}",
+        f"Phenotype: {protocol_plan.phenotype}",
+        f"Total sessions: {protocol_plan.session_structure.total_sessions}",
+        f"Sessions per week: {protocol_plan.session_structure.sessions_per_week}",
+        f"Session duration: {protocol_plan.session_structure.session_duration_minutes} min",
+    ]
+
+    interpretations = [
+        InterpretationItem(
+            text=basis,
+            evidence_strength="Evidence pending",
+            evidence_refs=[],
+        )
+        for basis in protocol_plan.support_basis
+    ]
+
+    suggested_actions = [
+        SuggestedAction(
+            text=f"Step {step.order}: {step.title}",
+            rationale=step.detail,
+            requires_clinician_review=True,
+        )
+        for step in protocol_plan.session_structure.steps
+    ]
+
+    plan_section = ReportSection(
+        section_id="protocol-plan",
+        title="Proposed protocol plan",
+        observed=observed,
+        interpretations=interpretations,
+        suggested_actions=suggested_actions,
+        confidence=None,
+        cautions=list(protocol_plan.safety_notes),
+        limitations=list(protocol_plan.checks),
+        evidence_refs=[],
+    )
+
+    safety_section = ReportSection(
+        section_id="safety",
+        title="Safety, monitoring & contraindications",
+        observed=list(protocol_plan.contraindications),
+        interpretations=[],
+        suggested_actions=[
+            SuggestedAction(
+                text=item,
+                requires_clinician_review=True,
+            )
+            for item in protocol_plan.monitoring
+        ],
+        confidence=None,
+        cautions=list(protocol_plan.safety_notes),
+        limitations=[],
+        evidence_refs=[],
+    )
+
+    sections: list[ReportSection] = [plan_section, safety_section]
+
+    if handbook_plan is not None:
+        for hb in handbook_plan.sections:
+            sections.append(
+                ReportSection(
+                    section_id=f"handbook-{hb.title.lower().replace(' ', '-')[:40]}",
+                    title=hb.title,
+                    observed=list(hb.bullets),
+                )
+            )
+
+    return ReportPayload(
+        generator_version=REPORT_GENERATOR_VERSION_DEFAULT,
+        report_id=report_id,
+        patient_id=patient_id,
+        title=protocol_plan.title,
+        audience=audience_norm,  # type: ignore[arg-type]
+        summary=protocol_plan.summary,
+        sections=sections,
+        citations=[],
+        global_cautions=[],
+        global_limitations=[],
     )
