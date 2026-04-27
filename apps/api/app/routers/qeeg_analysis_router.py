@@ -3188,3 +3188,64 @@ def patient_trajectory_endpoint(
             is_stub=True,
             trajectory=None,
         )
+
+
+# CONTRACT_V3 §5.1 / §5.2 — FHIR + BIDS exports.
+@router.get("/{analysis_id}/export/fhir")
+def export_qeeg_fhir(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> Response:
+    """Export a qEEG analysis as a FHIR R4 Bundle document."""
+    require_minimum_role(actor, "clinician")
+
+    from app.services import fhir_export
+
+    row = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if row is None:
+        raise ApiServiceError(
+            code="not_found", message="Analysis not found", status_code=404,
+        )
+    bundle = fhir_export.qeeg_to_fhir_bundle(row)
+    return Response(
+        content=json.dumps(bundle, indent=2),
+        media_type="application/fhir+json",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="qeeg_fhir_{analysis_id}.json"'
+            ),
+        },
+    )
+
+
+@router.get("/{analysis_id}/export/bids")
+def export_qeeg_bids(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> StreamingResponse:
+    """Stream a BIDS-EEG derivatives zip for a qEEG analysis."""
+    require_minimum_role(actor, "clinician")
+
+    from app.services import bids_export
+
+    row = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if row is None:
+        raise ApiServiceError(
+            code="not_found", message="Analysis not found", status_code=404,
+        )
+    pseudo_id = f"qeeg{str(row.id)[:8].replace('-', '')}"
+    buf = bids_export.build_qeeg_bids_derivatives(
+        row,
+        patient_pseudo_id=pseudo_id,
+    )
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="qeeg_bids_{analysis_id}.zip"'
+            ),
+        },
+    )
