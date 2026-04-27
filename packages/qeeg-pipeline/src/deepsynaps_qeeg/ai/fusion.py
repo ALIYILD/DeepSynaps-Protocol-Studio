@@ -1,84 +1,3 @@
-"""Lightweight multi-modal fusion helpers for qEEG + MRI summaries.
-
-The functions in this module are intentionally dependency-light so the API can
-assemble patient-level recommendations from persisted JSON rows even when the
-heavier neuro stacks are unavailable.
-"""
-from __future__ import annotations
-
-from datetime import datetime, timezone
-from typing import Any
-
-
-def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
-    return max(low, min(high, value))
-
-
-def _safe_float(value: Any) -> float | None:
-    try:
-        if value is None:
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _pick_top_qeeg_signals(qeeg: dict[str, Any] | None) -> list[str]:
-    if not isinstance(qeeg, dict):
-        return []
-
-    signals: list[str] = []
-    risk_scores = qeeg.get("risk_scores") or {}
-    if isinstance(risk_scores, dict):
-        ranked: list[tuple[float, str]] = []
-        for label, payload in risk_scores.items():
-            if label == "disclaimer" or not isinstance(payload, dict):
-                continue
-            score = _safe_float(payload.get("score"))
-            if score is None:
-                continue
-            ranked.append((score, str(label).replace("_", " ")))
-        for score, label in sorted(ranked, reverse=True)[:2]:
-            signals.append(f"qEEG pattern similarity highest for {label} ({score:.0%})")
-
-    flagged = qeeg.get("flagged_conditions")
-    if isinstance(flagged, list):
-        for item in flagged[:2]:
-            if item:
-                signals.append(f"Flagged qEEG pattern: {item}")
-
-    protocol = qeeg.get("protocol_recommendation") or {}
-    if isinstance(protocol, dict):
-        modality = protocol.get("primary_modality")
-        target = protocol.get("target_region")
-        if modality or target:
-            parts = ["qEEG protocol suggestion"]
-            if modality:
-                parts.append(str(modality))
-            if target:
-                parts.append(f"targeting {target}")
-            signals.append(" ".join(parts))
-
-    brain_age = qeeg.get("brain_age") or {}
-    if isinstance(brain_age, dict):
-        gap = _safe_float(brain_age.get("gap_years"))
-        if gap is not None:
-            direction = "older" if gap >= 0 else "younger"
-            signals.append(f"qEEG brain-age gap {abs(gap):.1f} years {direction} than chronological age")
-
-    return signals[:3]
-
-
-def _pick_top_mri_signals(mri: dict[str, Any] | None) -> list[str]:
-    if not isinstance(mri, dict):
-        return []
-
-    signals: list[str] = []
-    targets = mri.get("stim_targets")
-    if isinstance(targets, list):
-        for target in targets[:2]:
-            if not isinstance(target, dict):
-                continue
             region = target.get("region_name") or target.get("region_code") or "MRI target"
             modality = target.get("modality") or "neuromodulation"
             confidence = target.get("confidence")
@@ -254,3 +173,7 @@ def synthesize_fusion_recommendation(
         ),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+=======
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508

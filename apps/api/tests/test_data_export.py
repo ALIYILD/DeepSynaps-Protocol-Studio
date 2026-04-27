@@ -73,7 +73,7 @@ def test_export_fhir_bundle_returns_patient_summary(client: TestClient, auth_hea
 
     course = client.post(
         "/api/v1/treatment-courses",
-        json={"patient_id": patient_id, "protocol_id": "PRO-FHIR"},
+        json={"patient_id": patient_id, "protocol_id": "PRO-001"},
         headers=auth_headers["clinician"],
     )
     assert course.status_code == 201, course.text
