@@ -7818,11 +7818,12 @@ export async function pgProtocolMarketplace(setTopbar) {
     const rows = published.length ? published.map(p => {
       const statusClass = p.status === 'Published' ? 'kkk-status-published' : p.status === 'Draft' ? 'kkk-status-draft' : 'kkk-status-review';
       const ratingDisp  = p.rating > 0 ? `★ ${p.rating.toFixed(1)}` : 'No ratings yet';
+      const lifecycleLabel = p.status === 'Published' ? 'Published' : (p.status === 'Local Draft' ? 'Saved locally' : 'Submitted');
       return `
         <div class="kkk-published-row">
           <div class="kkk-published-info">
             <div class="kkk-published-name">${p.name}</div>
-            <div class="kkk-published-meta">${p.modality} · Published ${p.publishDate} · ${p.downloads} downloads · ${ratingDisp}</div>
+            <div class="kkk-published-meta">${p.modality} · ${lifecycleLabel} ${p.publishDate} · ${p.downloads} downloads · ${ratingDisp}</div>
           </div>
           <span class="kkk-status-badge ${statusClass}">${p.status}</span>
           <div style="display:flex;gap:6px;flex-shrink:0">
@@ -7856,8 +7857,8 @@ export async function pgProtocolMarketplace(setTopbar) {
         <button class="kkk-tab ${_activeTab==='publish'?'active':''}" onclick="window._mpTab('publish')">Publish Protocol</button>
       </div>
       <div style="max-width:640px">
-        <h3 style="font-size:1rem;font-weight:700;margin-bottom:4px;color:var(--text)">Share a Protocol with the Community</h3>
-        <p style="font-size:.84rem;color:var(--text-muted);margin-bottom:20px">Published protocols are reviewed by our clinical team before appearing in the marketplace. Submissions are typically reviewed within 5 business days.</p>
+        <h3 style="font-size:1rem;font-weight:700;margin-bottom:4px;color:var(--text)">Prepare a Protocol for Marketplace Sharing</h3>
+        <p style="font-size:.84rem;color:var(--text-muted);margin-bottom:20px">This page stores marketplace publish drafts locally. Registry-backed submission and review routing are not wired from this view yet.</p>
         <div class="kkk-form-row">
           <label>Select Protocol from Your Library</label>
           <select id="pub-select">${opts}</select>
@@ -7892,7 +7893,7 @@ export async function pgProtocolMarketplace(setTopbar) {
           <textarea id="pub-refs" rows="3" placeholder="Author et al. (Year). Title. Journal vol:pages."></textarea>
         </div>
         <div style="display:flex;gap:10px;margin-top:20px">
-          <button class="btn-primary" style="padding:9px 22px" onclick="window._mpSubmitPublish()">Submit for Review</button>
+          <button class="btn-primary" style="padding:9px 22px" onclick="window._mpSubmitPublish()">Save Publish Draft</button>
           <button class="btn-secondary" style="padding:9px 16px" onclick="window._mpPreviewPublish()">Preview Submission</button>
         </div>
       </div>`;
@@ -8411,12 +8412,12 @@ export async function pgProtocolMarketplace(setTopbar) {
       publishDate: new Date().toISOString().slice(0,10),
       downloads: 0,
       rating: 0,
-      status: 'Under Review',
+      status: 'Local Draft',
       modality: 'Custom',
       desc, tags, conditions: conds, contraindications: contra, evidence, refs,
     });
     lsSet('ds_published_protocols', pubs);
-    showToast('Protocol submitted for review');
+    showToast('Publish draft saved locally');
     _activeTab = 'published';
     renderMain();
     const sb = document.getElementById('kkk-sidebar');
