@@ -34,6 +34,9 @@ class FusionRecommendationResponse(BaseModel):
     modality_agreement: dict = Field(default_factory=dict)
     explainability: dict = Field(default_factory=dict)
     safety_statement: str | None = None
+    limitations: list[str] = Field(default_factory=list)
+    missing_modalities: list[str] = Field(default_factory=list)
+    provenance: dict = Field(default_factory=dict)
 
 
 @router.post("/recommend/{patient_id}", response_model=FusionRecommendationResponse)
