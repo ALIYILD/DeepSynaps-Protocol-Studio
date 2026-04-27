@@ -5572,7 +5572,7 @@ async function _pgPatientAssessmentsImpl() {
     const qText = document.getElementById('as-daily-q-text');
     if (qText) qText.textContent = 'All done — great job!';
     const subText = document.getElementById('as-daily-sub-text');
-    if (subText) subText.textContent = 'Your care team will see this update.';
+    if (subText) subText.textContent = 'Your update has been saved.';
 
     // Save to localStorage
     try {
@@ -5588,12 +5588,17 @@ async function _pgPatientAssessmentsImpl() {
       localStorage.setItem('ds_last_checkin_prev', iso);
     } catch (_e) {}
     // Submit to backend
+    let syncedToClinic = false;
     if (!_isDemo && uid && api.submitAssessment) {
       try {
         await api.submitAssessment(uid, { type: 'daily_checkin', mood: s.mood, energy: s.energy, sleep: s.sleep, anxiety: s.anxiety, stress: s.stress, date: new Date().toISOString() });
+        syncedToClinic = true;
       } catch (_e) {}
     }
-    _toast('Check-in saved · 5/5');
+    if (subText) subText.textContent = syncedToClinic
+      ? 'Your clinic can review this check-in in the patient portal.'
+      : 'Saved in this browser only until clinic sync is available.';
+    _toast(syncedToClinic ? 'Check-in synced · 5/5' : 'Check-in saved locally · 5/5');
   }
 
   window._asDailyReset = function() {
@@ -5722,12 +5727,14 @@ async function _pgPatientAssessmentsImpl() {
         notes: answers.note || answers.concerns || null,
         ai_context: { score, answered_at: new Date().toISOString(), question_count: survey.questions.length },
       };
+      let savedToBackend = false;
       if (api.submitSelfAssessment) {
         await api.submitSelfAssessment(payload);
+        savedToBackend = true;
       }
       setSelfAssessmentLastFiled(key, new Date().toISOString());
       clearSelfAssessmentDraft(key);
-      _toast(survey.shortTitle + ' check-in saved');
+      _toast(savedToBackend ? (survey.shortTitle + ' check-in saved') : (survey.shortTitle + ' saved locally'));
       // Refresh the card grid
       const grid = document.getElementById('as-selfassess-grid');
       if (grid) {
@@ -14562,7 +14569,7 @@ export async function pgHomeworkBuilder(setTopbarFn) {
       const title = card.querySelector('.pthtask-title');
       if (title) title.classList.add('pthtask-title--done');
     }
-    window._showNotifToast && window._showNotifToast({ title: 'Done!', body: 'Task marked complete.', severity: 'success' });
+    window._showNotifToast && window._showNotifToast({ title: 'Saved locally', body: 'Task completion was saved in this browser only.', severity: 'warning' });
     // Refresh streak display without full re-render
     const streakEl = document.querySelector('.pthtask-streak');
     const newStreak = _pttStreak();
@@ -14589,7 +14596,7 @@ export async function pgHomeworkBuilder(setTopbarFn) {
     };
     tasks.push(newTask);
     try { localStorage.setItem(_pttTasksKey(), JSON.stringify(tasks)); } catch (_e) {}
-    window._showNotifToast && window._showNotifToast({ title: 'Task added', body: newTask.title, severity: 'success' });
+    window._showNotifToast && window._showNotifToast({ title: 'Task saved locally', body: newTask.title + ' was added in this browser only.', severity: 'warning' });
     // Re-render task sections
     const taskWrap = document.querySelector('.pthtask-page');
     if (taskWrap) {
@@ -18533,10 +18540,18 @@ window._pgpSaSubmit = async function(key) {
       notes: answers.note || answers.concerns || null,
       ai_context: { score: score, answered_at: new Date().toISOString(), question_count: survey.questions.length }
     };
-    await api.submitSelfAssessment(payload);
+    let savedToBackend = false;
+    if (typeof api.submitSelfAssessment === 'function') {
+      await api.submitSelfAssessment(payload);
+      savedToBackend = true;
+    }
     setSelfAssessmentLastFiled(key, new Date().toISOString());
     clearSelfAssessmentDraft(key);
-    window._showNotifToast && window._showNotifToast({ title: 'Check-in saved', body: survey.title + ' submitted. Great work!', severity: 'success' });
+    window._showNotifToast && window._showNotifToast({
+      title: savedToBackend ? 'Check-in saved' : 'Check-in saved locally',
+      body: savedToBackend ? survey.title + ' submitted.' : survey.title + ' was stored in this browser only.',
+      severity: savedToBackend ? 'success' : 'warning'
+    });
     _renderProgressPage();
   } catch (e) {
     if (saving) saving.textContent = '';
