@@ -2091,8 +2091,8 @@ function _renderComprehensiveReport(report, analysis) {
 
   // ── Print / Download button bar ─────────────────────────────────────────
   html += '<div class="qeeg-export-bar" style="justify-content:flex-end;margin-bottom:8px">'
-    + '<button class="btn btn-sm btn-outline" aria-label="Print AI report" onclick="window._qeegPrintReport()">Print Report</button>'
-    + '<button class="btn btn-sm btn-outline" aria-label="Download PDF" onclick="window._qeegDownloadPDF()">Download PDF</button></div>';
+    + '<button class="btn btn-sm btn-outline" aria-label="Print AI report" onclick="window._qeegPrintReport()">Print HTML Report</button>'
+    + '<button class="btn btn-sm btn-outline" aria-label="Download printable report" onclick="window._qeegDownloadPDF()">Download Printable Report</button></div>';
   if (hasPrintableReport || callouts.length) {
     html += '<div class="qeeg-report-layout">';
     if (hasPrintableReport) {

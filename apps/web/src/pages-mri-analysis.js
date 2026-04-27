@@ -1493,7 +1493,7 @@ export function renderBrainAtlasViewer(report) {
   // Actions toolbar
   var actions = '<div class="ds-atlas-actions">'
     + '<button class="btn btn-sm" id="ds-atlas-clear-custom"' + (_customTargets.length ? '' : ' disabled') + '>Clear custom targets</button>'
-    + '<button class="btn btn-sm" id="ds-atlas-export">Export to protocol</button>'
+    + '<button class="btn btn-sm" id="ds-atlas-export">Download targets JSON</button>'
     + '<button class="btn btn-sm" id="ds-atlas-toggle-labels">' + (_atlasLabelsVisible ? 'Hide labels' : 'Show labels') + '</button>'
     + '<button class="btn btn-sm" id="ds-atlas-toggle-efield">' + (_atlasEfieldVisible ? 'Hide E-field' : 'Show E-field') + '</button>'
     + '<span class="ds-atlas-hint">Click any slice to place a custom target</span>'
@@ -2557,7 +2557,7 @@ function _wireRightColumn(navigate) {
     var a = document.createElement('a');
     a.href = url; a.download = 'stim_targets_export.json'; a.click();
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-    showToast(targets.length + ' target(s) exported', 'success');
+    showToast(targets.length + ' target(s) downloaded as JSON', 'success');
   });
   var toggleBtn = document.getElementById('ds-atlas-toggle-labels');
   if (toggleBtn) toggleBtn.addEventListener('click', function () {
@@ -2592,7 +2592,7 @@ function _wireRightColumn(navigate) {
       var text = _apiBase + '/api/v1/mri/' + encodeURIComponent(aid) + '/viewer.json';
       try {
         await navigator.clipboard.writeText(text);
-        showToast('Viewer endpoint copied', 'success');
+        showToast('Authenticated viewer API path copied', 'success');
       } catch (_err) {
         showToast(text, 'info');
       }

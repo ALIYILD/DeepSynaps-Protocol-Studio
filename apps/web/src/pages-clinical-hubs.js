@@ -3692,7 +3692,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     } else if (VIEW === 'resources') {
       const d = new Date(window._schedAnchor + 'T12:00:00');
       range = d.toLocaleDateString('en-GB',{ day:'numeric', month:'short', year:'numeric' });
-      sub = 'Resources · rooms';
+      sub = roomDataLimited ? 'Resources · estimated rooms' : 'Resources · rooms';
     } else if (VIEW === 'month') {
       const d = new Date(window._schedAnchor + 'T12:00:00');
       range = d.toLocaleDateString('en-GB',{ month:'long', year:'numeric' });
@@ -3720,6 +3720,8 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       + (VIEW === 'resources' ? '' : rooms.slice(0,3).map(roomChip).join(''))
       + typeChip('tdcs','tDCS') + typeChip('rtms','rTMS') + typeChip('nf','NF') + typeChip('bio','Bio') + typeChip('assess','Assess') + typeChip('intake','Intake') + typeChip('tele','Telehealth')
       + '<button class="dv2s-chip warn'+(F.conflictsOnly?' is-active':'')+'" onclick="window._schedToggleConflicts()">&#9888; '+conflictCount+' conflicts'+(prereqCount?(' &middot; &#9680; '+prereqCount+' prereqs'):'')+'</button>'
+      + (roomDataLimited ? '<span class="dv2s-chip warn" style="cursor:default">Rooms estimated locally</span>' : '')
+      + '<span class="dv2s-chip'+(F.conflictsOnly?' warn':'')+'" style="cursor:default">Conflict checks local-only</span>'
       + '<div class="dv2s-legend">'
         + '<span class="dv2s-legend-item"><span class="dv2s-legend-sw" style="background:var(--teal)"></span>tDCS</span>'
         + '<span class="dv2s-legend-item"><span class="dv2s-legend-sw" style="background:var(--blue)"></span>rTMS</span>'
@@ -3885,7 +3887,10 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       grid += '</div>';
     });
     grid += '</div>';
-    return heads + grid;
+    const banner = roomDataLimited
+      ? '<div class="dv2s-error-banner" style="margin-bottom:10px">Room availability is estimated from the loaded schedule because the room service is unavailable.</div>'
+      : '';
+    return banner + heads + grid;
   }
 
   function buildMonthView() {
@@ -3975,7 +3980,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     const initials = String(sel.patient||'').split(/\s+/).map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
     const rem = (sel.course_total && sel.course_position) ? (sel.course_total - sel.course_position) : 0;
     const warns = [];
-    if (sel.warn === 'err') warns.push('<div class="dv2s-warn err"><div class="dv2s-warn-ico">&#9888;</div><div><div class="dv2s-warn-title">Device / clinician conflict</div><div class="dv2s-warn-body">Overlapping booking detected. Review resource assignment.</div></div></div>');
+    if (sel.warn === 'err') warns.push('<div class="dv2s-warn err"><div class="dv2s-warn-ico">&#9888;</div><div><div class="dv2s-warn-title">Local overlap detected</div><div class="dv2s-warn-body">The loaded schedule shows an overlapping clinician or room assignment. Server-side resource validation is unavailable here.</div></div></div>');
     if (sel.warn === 'amb') warns.push('<div class="dv2s-warn amb"><div class="dv2s-warn-ico">&#9680;</div><div><div class="dv2s-warn-title">Prereq outstanding</div><div class="dv2s-warn-body">Assessment or consent overdue for this course.</div></div></div>');
     // Heuristic warnings — deterministic
     const noShowScore = Math.abs(String(sel.id||'').split('').reduce((s,c)=>s+c.charCodeAt(0),0)) % 40;
@@ -4019,7 +4024,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       + '<div class="dv2s-side-foot">'
         + '<button class="btn btn-ghost btn-sm" style="flex:1" onclick="window._schedReschedule(\''+esc(sel.id)+'\')">Reschedule</button>'
         + '<button class="btn btn-ghost btn-sm" onclick="window._schedCancelEvent(\''+esc(sel.id)+'\')">Cancel</button>'
-        + '<button class="btn btn-ghost btn-sm" onclick="window._schedCheckConflictsBtn(\''+esc(sel.id)+'\')">Conflicts</button>'
+        + '<button class="btn btn-ghost btn-sm" onclick="window._schedCheckConflictsBtn(\''+esc(sel.id)+'\')">Local conflicts</button>'
         + '<button class="btn btn-primary btn-sm" style="flex:1" onclick="window._schedOpenChart(\''+esc(sel.id)+'\')">Open chart &rarr;</button>'
       + '</div>'
     + '</aside>';
@@ -4276,8 +4281,10 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     }
     const n = (result.conflicts || []).length;
     window._dsToast?.({
-      title: n ? (n + ' conflict(s) detected') : 'No conflicts',
-      body: n ? 'Overlapping with: ' + result.conflicts.slice(0,3).map(c=>c.patient||c.id).join(', ') : 'This slot is clear.',
+      title: n ? (n + ' local conflict(s) detected') : 'No local conflicts',
+      body: n
+        ? 'Loaded schedule overlap with: ' + result.conflicts.slice(0,3).map(c=>c.patient||c.id).join(', ') + '. Server-side room/device validation is unavailable.'
+        : 'No overlap was found in the loaded schedule. Server-side room/device validation is unavailable here.',
       severity: n ? 'warn' : 'success',
     });
   };
@@ -4505,9 +4512,9 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       body += '<div class="dv2s-side-row"><div class="lbl">Clinician</div><div class="val">'+esc(clin?.name||'—')+'</div></div>';
       body += '<div class="dv2s-side-row"><div class="lbl">Type</div><div class="val">'+esc(typeMeta(w.type).label)+' · '+w.duration+' min</div></div>';
       if (localConflicts.length) {
-        body += '<div class="dv2s-warn err" style="margin-top:10px"><div class="dv2s-warn-ico">&#9888;</div><div><div class="dv2s-warn-title">'+localConflicts.length+' conflict(s) at this slot</div><div class="dv2s-warn-body">Overlap with: '+localConflicts.slice(0,3).map(c=>esc(c.patient)).join(', ')+'</div></div></div>';
+        body += '<div class="dv2s-warn err" style="margin-top:10px"><div class="dv2s-warn-ico">&#9888;</div><div><div class="dv2s-warn-title">'+localConflicts.length+' local overlap(s) at this slot</div><div class="dv2s-warn-body">Loaded schedule overlap with: '+localConflicts.slice(0,3).map(c=>esc(c.patient)).join(', ')+' . Server-side room/device validation is unavailable here.</div></div></div>';
       } else {
-        body += '<div class="dv2s-warn ok" style="margin-top:10px"><div class="dv2s-warn-ico">&#10003;</div><div><div class="dv2s-warn-title">Slot clear</div><div class="dv2s-warn-body">No overlapping bookings detected for clinician.</div></div></div>';
+        body += '<div class="dv2s-warn ok" style="margin-top:10px"><div class="dv2s-warn-ico">&#10003;</div><div><div class="dv2s-warn-title">No local clinician overlap found</div><div class="dv2s-warn-body">The loaded schedule shows no clinician overlap. Server-side room/device validation may still be required.</div></div></div>';
       }
       if (!w.patient) {
         body += '<div class="dv2s-warn amb" style="margin-top:6px"><div class="dv2s-warn-ico">&#9680;</div><div><div class="dv2s-warn-title">Missing patient</div><div class="dv2s-warn-body">Pick or create a patient in step 1 before booking.</div></div></div>';
@@ -4522,7 +4529,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     bd.innerHTML = '<div class="dv2s-modal" role="dialog" aria-label="Booking wizard">'
       + '<div class="dv2s-modal-head">'
         + '<div><div class="dv2s-modal-title">' + (w.mode === 'reschedule' ? 'Reschedule appointment' : w.mode === 'intake' ? 'Book intake' : 'New booking') + '</div>'
-        + '<div class="dv2s-modal-sub">Step '+step+' of 5</div></div>'
+        + '<div class="dv2s-modal-sub">Step '+step+' of 4</div></div>'
         + '<button class="dv2s-side-close" onclick="window._schedCloseWizard()">&#10005;</button>'
       + '</div>'
       + '<div class="dv2s-modal-body">'+body+'</div>'
@@ -6800,6 +6807,15 @@ export async function pgReportsHubNew(setTopbar, navigate) {
   const savedReports = await fetchSavedReports();
   const stC = { final:'var(--green)', draft:'var(--amber)', generated:'var(--teal)', error:'var(--red)', 'local-only':'var(--amber)' };
 
+  function canRenderSavedReport(row) {
+    return !!(row && row._source === 'backend' && row.status !== 'local-only' && typeof api.renderStoredReport === 'function');
+  }
+
+  function reportPersistenceLabel(row) {
+    if (row?._source === 'backend' && row.status !== 'local-only') return 'Saved on server';
+    return 'Stored in this browser only';
+  }
+
   function findSavedReportRecord(id) {
     return savedReports.find((row) => String(row.id) === String(id))
       || loadReports().find((row) => String(row.id) === String(id))
@@ -7383,14 +7399,14 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         </div>
         ${rows.length ? rows.map(r=>
           (() => {
-            const canRender = r._source === 'backend' && r.status !== 'local-only';
+            const canRender = canRenderSavedReport(r);
             const actionHtml = canRender
-              ? '<button class="ch-btn-sm" onclick="window._repOpenRenderedHtml(\''+r.id+'\')">HTML</button><button class="ch-btn-sm" onclick="window._repDownloadPdf(\''+r.id+'\')">PDF</button>'
-              : '<span style="font-size:10.5px;color:var(--amber);padding:0 6px">Local only</span>';
+              ? '<button class="ch-btn-sm" onclick="window._repOpenRenderedHtml(\''+r.id+'\')">Open HTML</button><button class="ch-btn-sm" onclick="window._repDownloadPdf(\''+r.id+'\')">Download PDF</button>'
+              : '<span style="font-size:10.5px;color:var(--amber);padding:0 6px">'+reportPersistenceLabel(r)+'</span>';
             return (
           '<div class="book-row">'+
             '<div class="book-datetime"><div class="book-date">'+r.date+'</div><div class="book-time">'+r.type+'</div></div>'+
-            '<div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+r.patient+'</div></div>'+
+            '<div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+r.patient+' · '+reportPersistenceLabel(r)+'</div></div>'+
             '<div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[r.status]||'var(--teal)')+';background:'+(stC[r.status]||'var(--teal)')+'22">'+r.status+'</span></div>'+
             '<div class="book-actions"><button class="ch-btn-sm" onclick="window._repViewSaved(\''+r.id+'\')">View</button><button class="ch-btn-sm" onclick="window._repPrintSaved(\''+r.id+'\')">Print</button>'+actionHtml+'</div>'+
           '</div>'
@@ -7405,8 +7421,8 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         window._dsToast?.({ title:'Not found', body:'Report record is no longer available.', severity:'warn' });
         return;
       }
-      if (r._source !== 'backend' || r.status === 'local-only') {
-        window._dsToast?.({ title:'HTML unavailable', body:'This report only exists in the local browser cache.', severity:'warn' });
+      if (!canRenderSavedReport(r)) {
+        window._dsToast?.({ title:'HTML unavailable', body:'Only server-saved reports can open rendered HTML from this hub.', severity:'warn' });
         return;
       }
       try {
@@ -7426,8 +7442,8 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         window._dsToast?.({ title:'Not found', body:'Report record is no longer available.', severity:'warn' });
         return;
       }
-      if (r._source !== 'backend' || r.status === 'local-only') {
-        window._dsToast?.({ title:'PDF unavailable', body:'This report only exists in the local browser cache.', severity:'warn' });
+      if (!canRenderSavedReport(r)) {
+        window._dsToast?.({ title:'PDF unavailable', body:'Only server-saved reports can generate PDF from this hub.', severity:'warn' });
         return;
       }
       try {
@@ -7459,7 +7475,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">'
           + '<div style="flex:1;min-width:0">'
             + '<div style="font-size:14px;font-weight:700;color:var(--text-primary)">' + esc(r.name) + '</div>'
-            + '<div style="font-size:11.5px;color:var(--text-tertiary);margin-top:2px">' + esc(r.type) + ' &middot; ' + esc(r.patient) + ' &middot; ' + esc(r.date) + '</div>'
+            + '<div style="font-size:11.5px;color:var(--text-tertiary);margin-top:2px">' + esc(r.type) + ' &middot; ' + esc(r.patient) + ' &middot; ' + esc(r.date) + ' &middot; ' + esc(reportPersistenceLabel(r)) + '</div>'
           + '</div>'
           + '<button class="ch-btn-sm" onclick="this.closest(\'.rh-modal-overlay\').remove()" style="padding:4px 10px">Close</button>'
         + '</div>'
@@ -7475,7 +7491,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     window._repPrintSaved = async (id) => {
       const r = findSavedReportRecord(id);
       if (!r) { window._dsToast?.({ title:'Not found', body:'Report record is no longer available.', severity:'warn' }); return; }
-      if (r._source === 'backend' && r.status !== 'local-only') {
+      if (canRenderSavedReport(r)) {
         try {
           const file = await api.renderStoredReport?.(id, { format: 'html', audience: 'both' });
           if (!file?.blob) throw new Error('Rendered report was empty.');

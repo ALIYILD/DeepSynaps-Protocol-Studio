@@ -1770,10 +1770,12 @@ export async function pgSettings(setTopbar, currentUser) {
         <!-- Export My Data -->
         ${cardWrap('📤 Export My Data (GDPR Article 20)', `
           <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.6;margin-bottom:10px">
-            Download a complete copy of your account, patient, session, and protocol data in JSON format. Processing may take up to 24 hours for large accounts.
+            ${typeof api.requestDataExport === 'function'
+              ? 'Request a complete copy of your account, patient, session, and protocol data. Processing may take up to 24 hours for large accounts.'
+              : 'Administrative export is not enabled in this beta environment. Use your clinic administrator or support channel for authoritative exports.'}
           </div>
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-            <button class="btn btn-primary btn-sm" id="dp-export-btn">Download Data Export →</button>
+            <button class="btn btn-primary btn-sm" id="dp-export-btn" ${typeof api.requestDataExport === 'function' ? '' : 'disabled style="opacity:0.55;cursor:not-allowed"'}>${typeof api.requestDataExport === 'function' ? 'Request Data Export →' : 'Unavailable'}</button>
             <span id="dp-export-msg" style="font-size:11.5px;color:var(--text-tertiary)">${lastExport ? 'Last export: ' + escAttr(lastExport) : ''}</span>
           </div>
         `)}
@@ -2921,37 +2923,32 @@ export async function pgSettings(setTopbar, currentUser) {
   const exportBtn = document.getElementById('dp-export-btn');
   const exportMsg = document.getElementById('dp-export-msg');
   if (exportBtn) exportBtn.addEventListener('click', async () => {
+    if (!(api && typeof api.requestDataExport === 'function')) {
+      if (exportMsg) {
+        exportMsg.textContent = 'Administrative export is not enabled in this beta environment.';
+        exportMsg.style.color = 'var(--amber)';
+      }
+      return;
+    }
     exportBtn.disabled = true;
     const origLabel = exportBtn.textContent;
     exportBtn.textContent = 'Preparing export…';
-    let usedApi = false;
     try {
-      if (api && typeof api.requestDataExport === 'function') {
-        await api.requestDataExport();
-        usedApi = true;
-        if (exportMsg) exportMsg.textContent = 'Export requested — you will receive an email when ready.';
+      await api.requestDataExport();
+      if (exportMsg) {
+        exportMsg.textContent = 'Export requested — you will receive an email when ready.';
+        exportMsg.style.color = 'var(--text-tertiary)';
       }
-    } catch { /* fall through to localStorage bundle */ }
-
-    if (!usedApi) {
-      try {
-        const data = { user: currentUser, exported_at: new Date().toISOString(), settings: {} };
-        Object.keys(localStorage).filter(k => k.startsWith('ds_')).forEach(k => { data.settings[k] = localStorage.getItem(k); });
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `deepsynaps-export-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-        const ts = new Date().toISOString();
-        try { localStorage.setItem('ds_last_export', ts); } catch {}
-        if (exportMsg) exportMsg.textContent = 'Last export: ' + ts;
-      } catch (e) {
-        if (exportMsg) { exportMsg.textContent = 'Export failed: ' + (e?.message || 'unknown error'); exportMsg.style.color = 'var(--red)'; }
+      const ts = new Date().toISOString();
+      try { localStorage.setItem('ds_last_export', ts); } catch {}
+    } catch (e) {
+      if (exportMsg) {
+        exportMsg.textContent = 'Export request failed: ' + (e?.message || 'unknown error');
+        exportMsg.style.color = 'var(--red)';
       }
+      exportBtn.disabled = false;
+      exportBtn.textContent = origLabel;
+      return;
     }
     exportBtn.disabled = false;
     exportBtn.textContent = origLabel;

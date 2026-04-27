@@ -2252,12 +2252,29 @@ export async function pgPatientDashboard(user) {
       localStorage.setItem('ds_wellness_streak', String(lastDay === yesterday ? cur + 1 : 1));
       localStorage.setItem('ds_last_checkin_prev', todayIso);
     } catch (_e) {}
-    try { const uid = user?.patient_id || user?.id; if (uid) await api.submitAssessment(uid, { type: 'wellness_checkin', ...payload }).catch(() => {}); } catch (_e) {}
+    let syncedToClinic = false;
+    try {
+      const uid = user?.patient_id || user?.id;
+      if (uid) {
+        await api.submitAssessment(uid, { type: 'wellness_checkin', ...payload });
+        syncedToClinic = true;
+      }
+    } catch (_e) {}
     const form = document.getElementById('pt-checkin-form');
-    if (form) form.outerHTML = '<div class="ptd-checkin-done"><span style="color:var(--teal,#2dd4bf)">\u2713</span><span>Check-in saved. Your care team will see your update.</span></div>';
+    if (form) {
+      form.outerHTML = syncedToClinic
+        ? '<div class="ptd-checkin-done"><span style="color:var(--teal,#2dd4bf)">\u2713</span><span>Check-in saved and synced to your clinic.</span></div>'
+        : '<div class="ptd-checkin-done"><span style="color:var(--teal,#2dd4bf)">\u2713</span><span>Check-in saved in this browser. Clinic sync is unavailable right now.</span></div>';
+    }
     const tile = document.getElementById('pth-tile-checkin');
     if (tile) tile.classList.remove('pth-tile--pending');
-    if (typeof window._showNotifToast === 'function') window._showNotifToast({ title: 'Check-in saved', body: 'Good job \u2014 keep it up!', severity: 'success' });
+    if (typeof window._showNotifToast === 'function') {
+      window._showNotifToast({
+        title: syncedToClinic ? 'Check-in synced' : 'Check-in saved locally',
+        body: syncedToClinic ? 'Your clinic can review this update.' : 'This update is stored on this device only.',
+        severity: 'success',
+      });
+    }
   };
 
   // ── Today's-focus snooze handler ──────────────────────────────────────────
@@ -19827,7 +19844,7 @@ export async function pgPatientAdherenceEvents() {
       if (statusEl) {
         statusEl.style.display='';
         statusEl.style.color='var(--teal)';
-        statusEl.textContent='Report submitted successfully. Your care team has been notified.';
+        statusEl.textContent='Report submitted successfully. Your clinic can review it from the portal.';
       }
       if (btn) { btn.disabled = false; btn.textContent = 'Submit Report →'; }
       setTimeout(() => pgPatientAdherenceEvents(), 1000);
@@ -20517,8 +20534,8 @@ export async function pgPatientHelp() {
   const el = document.getElementById('patient-content');
   if (!el) return;
   const faqs = [
-    { q: 'How do I complete an assessment?', a: 'Go to <strong>Assessments</strong> in the menu. Click on any due assessment, answer each question, and press Submit. Your responses are sent securely to your care team.' },
-    { q: 'How do I contact my care team?', a: 'Use the <strong>Messages</strong> section to send a secure message. Your clinic typically responds within 1 business day. For urgent concerns, call your clinic directly.' },
+    { q: 'How do I complete an assessment?', a: 'Go to <strong>Assessments</strong> in the menu. Click on any due assessment, answer each question, and press Submit. When portal sync is available, your responses are shared with your clinic from there.' },
+    { q: 'How do I contact my care team?', a: 'Use the <strong>Messages</strong> or <strong>Support</strong> section to contact your clinic. Some beta environments store requests only on this device, so call your clinic directly for anything urgent or time-sensitive.' },
     { q: 'What if I feel unwell after a session?', a: 'Contact your clinic immediately or call your local crisis line. <strong>UK: 111 or 999 in emergencies. US: 988 (crisis line) or 911 in emergencies.</strong> Do not use this app for medical emergencies.' },
     { q: 'How do I view my treatment progress?', a: 'Go to the <strong>Progress</strong> section in the menu. You can see your scores over time, session history, and how your symptoms are changing.' },
     { q: 'How do I update my profile?', a: 'Go to <strong>Profile</strong> in the menu. Contact your clinic directly if you need to update personal or medical details they hold.' },

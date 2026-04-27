@@ -329,8 +329,8 @@ test('report tab renders report actions and preserves any PDF viewer side panel 
   assert.match(tab.innerHTML, /Report Versions/);
   assert.match(tab.innerHTML, /v2/);
   assert.match(tab.innerHTML, /v1/);
-  assert.match(tab.innerHTML, /Print Report/);
-  assert.match(tab.innerHTML, /Download PDF/);
+  assert.match(tab.innerHTML, /Print HTML Report/);
+  assert.match(tab.innerHTML, /Download Printable Report/);
   assert.match(tab.innerHTML, /Frontal theta remains elevated/);
   assert.match(tab.innerHTML, /qEEG report context/);
 

@@ -161,6 +161,37 @@ function _ensurePatientOrPrompt() {
   return '';
 }
 
+function _hasSimulationOutputs(result) {
+  const outputs = result && result.outputs ? result.outputs : null;
+  if (!outputs || typeof outputs !== 'object') return false;
+  const clinical = outputs.clinical_forecast;
+  const biomarkers = _toArray(outputs.biomarker_forecast);
+  const timeline = _toArray(outputs.timecourse);
+  const guardrails = _toArray(outputs.safety_guardrails);
+  return !!(
+    (clinical && typeof clinical === 'object' && Object.keys(clinical).length) ||
+    biomarkers.length ||
+    timeline.length ||
+    guardrails.length
+  );
+}
+
+function _hasTwinReportContent(report) {
+  if (!report || typeof report !== 'object') return false;
+  const body = report.body;
+  const summary = body && typeof body === 'object'
+    ? (body.executive_summary || body.summary || body.body)
+    : body;
+  const reviewPoints = Array.isArray(report.review_points) ? report.review_points : [];
+  const limitations = Array.isArray(report.limitations) ? report.limitations : [];
+  return !!(
+    (typeof summary === 'string' && summary.trim()) ||
+    (summary && typeof summary === 'object' && Object.keys(summary).length) ||
+    reviewPoints.length ||
+    limitations.length
+  );
+}
+
 function _latestByDate(rows, key = 'date') {
   return rows
     .filter(Boolean)
@@ -870,7 +901,7 @@ function _renderSimulationLab(workspace) {
       <label class="bt-field"><span>Clinical goal</span><input class="bt-input" value="${_esc(scenario.clinical_goal || '')}" oninput="window._brainTwinSetScenarioField('clinical_goal', this.value)"></label>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-ghost btn-sm" onclick="window._brainTwinApplyPreset('rtms_fp2_10hz')">Use 10 Hz Fp2 preset</button>
-        <button class="btn btn-primary btn-sm" onclick="window._brainTwinSimulate()">Run scenario</button>
+        <button class="btn btn-primary btn-sm" onclick="window._brainTwinSimulate()" ${workspace.loadingSimulation ? 'disabled' : ''}>${workspace.loadingSimulation ? 'Running backend simulation…' : 'Run backend scenario'}</button>
       </div>
     </div>
     <div style="display:grid;gap:10px">
@@ -941,7 +972,7 @@ function _renderEvidencePanel(workspace, snapshot, findings) {
 
 function _renderReportStudio(workspace, reports) {
   return _card('Report Studio', `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-    ${TWIN_REPORT_TYPES.map((item) => `<button class="btn btn-ghost btn-sm" onclick="window._brainTwinGenerateReport('${item.id}')">${_esc(item.label)}</button>`).join('')}
+    ${TWIN_REPORT_TYPES.map((item) => `<button class="btn btn-ghost btn-sm" onclick="window._brainTwinGenerateReport('${item.id}')" ${workspace.loadingReports ? 'disabled' : ''}>${workspace.loadingReports ? 'Generating…' : _esc(item.label)}</button>`).join('')}
     ${reports.map((item) => `<button class="btn btn-ghost btn-sm" onclick="window._brainTwinOpenDraft('${_esc(item.id)}')">${_esc(item.title)}</button>`).join('')}
   </div>
   ${workspace.loadingReports ? '<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:10px">Generating DeepTwin report from the backend…</div>' : ''}
@@ -1087,11 +1118,16 @@ async function _runSimulation() {
   const patientId = _ensurePatientOrPrompt();
   if (!patientId) return;
   const workspace = _workspaceState();
+  if (workspace.loadingSimulation) return;
   workspace.loadingSimulation = true;
   workspace.simulationError = '';
   _renderWorkspace(window._brainTwinSetTopbar);
   try {
-    workspace.simulation = await api.brainTwinSimulate(_simulationPayload(patientId));
+    const result = await api.brainTwinSimulate(_simulationPayload(patientId));
+    if (!_hasSimulationOutputs(result)) {
+      throw new Error('Simulation completed without forecast outputs');
+    }
+    workspace.simulation = result;
   } catch (error) {
     workspace.simulation = null;
     workspace.simulationError = `Simulation failed: ${error?.message || error}. Check protocol structure and backend availability.`;
@@ -1179,6 +1215,7 @@ function _wireHandlers(setTopbar) {
     const workspace = _workspaceState();
     const patientId = _ensurePatientOrPrompt();
     if (!patientId) return;
+    if (workspace.loadingReports) return;
     workspace.loadingReports = true;
     workspace.reportsError = '';
     _renderWorkspace(setTopbar);
@@ -1188,6 +1225,9 @@ function _wireHandlers(setTopbar) {
         horizon: '6w',
         simulation: workspace.simulation || {},
       });
+      if (!_hasTwinReportContent(report)) {
+        throw new Error('Report endpoint returned no usable narrative content');
+      }
       const existing = Array.isArray(workspace.reports)
         ? workspace.reports.filter((item) => item.id !== report.kind)
         : [];
