@@ -6,6 +6,25 @@ import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence, getTopCondi
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition } from './protocols-data.js';
 import { renderBrainMap10_20, SITES_10_20 } from './brain-map-svg.js';
 
+// Minimal XSS-safe escaper for any user-backend data injected into innerHTML.
+// Matches the inline pattern used throughout the SPA (see pages-patient.js).
+function esc(v) {
+  if (v == null) return '';
+  return String(v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
+// Registry option lists for the 87k corpus filter row.
+const CORPUS_MODALITIES = ['tms','dbs','tdcs','scs','vns','pns','tacs','snm','rns','tvns','tfus','mcs','ons','gen'];
+const CORPUS_CONDITIONS = ['parkinsons','mdd','chronic_pain','stroke','ocd','alzheimers','anxiety','ptsd','tbi','adhd','insomnia','tinnitus','long_covid','asd','ms','epilepsy'];
+const CORPUS_STUDY_DESIGNS = ['rct','review','meta_analysis','systematic_review','clinical_trial','case_series','cross_sectional','cohort','case_control','case_report','animal_study','in_vitro','protocol'];
+const CORPUS_EFFECTS = ['positive','null','mixed'];
+const CORPUS_SOURCES = ['MED','PMC','PPR','AGR','ETH'];
+
 // ── Evidence Library ──────────────────────────────────────────────────────────
 export async function pgEvidence(setTopbar) {
   setTopbar('Evidence Library', '');
@@ -31,6 +50,7 @@ export async function pgEvidence(setTopbar) {
   const modalitySet = new Set(items.map(e => e.modality).filter(Boolean));
 
   el.innerHTML = `
+<<<<<<< HEAD
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:18px">
     <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg,10px);padding:14px 16px;text-align:center">
       <div style="font-size:20px;font-weight:800;color:var(--teal);font-family:var(--font-display)">${(_tp/1000).toFixed(0)}K</div>
@@ -73,6 +93,82 @@ export async function pgEvidence(setTopbar) {
     ${items.length === 0
       ? emptyState('◈', 'No evidence records loaded. Start the backend to load clinical data. 87K papers are indexed in the local evidence dataset.')
       : renderEvidenceTable(items)}
+=======
+  <style>
+    .ev-tabbar{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:14px}
+    .ev-tab{background:transparent;border:0;border-bottom:2px solid transparent;padding:8px 14px;font-size:12.5px;color:var(--text-secondary);cursor:pointer;font-weight:500}
+    .ev-tab.active{color:var(--teal);border-bottom-color:var(--teal)}
+    .ev-tab:focus{outline:2px solid var(--teal);outline-offset:-2px}
+    .ev-corpus-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:12px}
+    .ev-corpus-filters input,.ev-corpus-filters select{font-size:12px}
+    .ev-corpus-row{border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;background:var(--surface-0,#0a1628)}
+    .ev-corpus-badge{display:inline-flex;align-items:center;font-size:10px;font-weight:600;padding:2px 6px;border-radius:3px;font-family:var(--font-mono,monospace);letter-spacing:.3px;margin-right:4px}
+    .ev-similar-modal{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999}
+    .ev-similar-modal-inner{background:var(--surface-1,#0d1a2b);border:1px solid var(--border);border-radius:10px;width:min(720px,92vw);max-height:80vh;overflow:auto;padding:16px}
+  </style>
+  <div class="ev-tabbar" role="tablist" aria-label="Evidence source">
+    <button class="ev-tab active" id="ev-tab-curated" role="tab" aria-selected="true" aria-controls="ev-panel-curated" onclick="window._evSwitchTab('curated')">Curated library</button>
+    <button class="ev-tab" id="ev-tab-corpus" role="tab" aria-selected="false" aria-controls="ev-panel-corpus" onclick="window._evSwitchTab('corpus')">Full corpus (87k)</button>
+  </div>
+
+  <div id="ev-panel-curated" role="tabpanel" aria-labelledby="ev-tab-curated">
+    <div id="live-evidence-host"></div>
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <input class="form-control" id="ev-search" placeholder="Search conditions, modalities, summaries…" style="flex:1;min-width:200px" oninput="window.filterEvidence()">
+      <select class="form-control" id="ev-level" style="width:auto" onchange="window.filterEvidence()">
+        <option value="">All Evidence Levels</option>
+        <option value="A" style="color:#00d4bc;background:#0a1628">Grade A — Strong RCT</option>
+        <option value="B" style="color:#4a9eff;background:#0a1628">Grade B — Moderate</option>
+        <option value="C" style="color:#f59e0b;background:#0a1628">Grade C — Emerging</option>
+        <option value="D" style="color:#f87171;background:#0a1628">Grade D — Limited</option>
+      </select>
+      <select class="form-control" id="ev-modality" style="width:auto" onchange="window.filterEvidence()">
+        <option value="">All Modalities</option>
+        ${[...modalitySet].sort().map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('')}
+      </select>
+    </div>
+    <div id="ev-count" style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:10px">${items.length} evidence records</div>
+    <div id="ev-body">
+      ${items.length === 0
+        ? emptyState('◈', 'No evidence records loaded. Start the backend to load clinical data.')
+        : renderEvidenceTable(items)}
+    </div>
+  </div>
+
+  <div id="ev-panel-corpus" role="tabpanel" aria-labelledby="ev-tab-corpus" style="display:none">
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <input class="form-control" id="ev-cp-q" placeholder="Full-text search title+abstract…" style="flex:1;min-width:240px">
+    </div>
+    <div class="ev-corpus-filters">
+      <select class="form-control" id="ev-cp-modality">
+        <option value="">All modalities</option>
+        ${CORPUS_MODALITIES.map(m => `<option value="${m}">${m}</option>`).join('')}
+      </select>
+      <select class="form-control" id="ev-cp-condition">
+        <option value="">All conditions</option>
+        ${CORPUS_CONDITIONS.map(c => `<option value="${c}">${c.replace(/_/g,' ')}</option>`).join('')}
+      </select>
+      <select class="form-control" id="ev-cp-design">
+        <option value="">Any design</option>
+        ${CORPUS_STUDY_DESIGNS.map(d => `<option value="${d}">${d.replace(/_/g,' ')}</option>`).join('')}
+      </select>
+      <select class="form-control" id="ev-cp-effect">
+        <option value="">Any effect</option>
+        ${CORPUS_EFFECTS.map(f => `<option value="${f}">${f}</option>`).join('')}
+      </select>
+      <select class="form-control" id="ev-cp-source">
+        <option value="">Any source</option>
+        ${CORPUS_SOURCES.map(s => `<option value="${s}">${s}</option>`).join('')}
+      </select>
+      <input class="form-control" id="ev-cp-ymin" type="number" placeholder="Year min" min="1900" max="2100">
+      <input class="form-control" id="ev-cp-ymax" type="number" placeholder="Year max" min="1900" max="2100">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);padding:6px 8px">
+        <input type="checkbox" id="ev-cp-abs"> has abstract
+      </label>
+    </div>
+    <div id="ev-cp-status" style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:8px">Loading corpus…</div>
+    <div id="ev-cp-body"></div>
+>>>>>>> origin/feat/biomarkers-reference-page
   </div>`;
 
   // Mount the live-evidence panel (PubMed / OpenAlex / CT.gov / FDA via our
@@ -82,6 +178,128 @@ export async function pgEvidence(setTopbar) {
   renderLiveEvidencePanel(document.getElementById('live-evidence-host'));
 
   window._evidenceData = items;
+
+  // ── Tab switcher ───────────────────────────────────────────────────────────
+  window._evSwitchTab = function(which) {
+    const curatedPanel = document.getElementById('ev-panel-curated');
+    const corpusPanel  = document.getElementById('ev-panel-corpus');
+    const curatedTab   = document.getElementById('ev-tab-curated');
+    const corpusTab    = document.getElementById('ev-tab-corpus');
+    if (!curatedPanel || !corpusPanel) return;
+    const isCorpus = which === 'corpus';
+    curatedPanel.style.display = isCorpus ? 'none' : '';
+    corpusPanel.style.display  = isCorpus ? '' : 'none';
+    curatedTab.classList.toggle('active', !isCorpus);
+    corpusTab.classList.toggle('active', isCorpus);
+    curatedTab.setAttribute('aria-selected', String(!isCorpus));
+    corpusTab.setAttribute('aria-selected', String(isCorpus));
+    if (isCorpus && !window._evCorpusLoaded) {
+      window._evCorpusLoaded = true;
+      window._evCorpusSearch();
+    }
+  };
+
+  // ── Corpus (87k) search wiring ─────────────────────────────────────────────
+  const cpInputs = ['ev-cp-q','ev-cp-modality','ev-cp-condition','ev-cp-design','ev-cp-effect','ev-cp-source','ev-cp-ymin','ev-cp-ymax','ev-cp-abs'];
+  let _cpTimer = null;
+
+  function readCorpusFilters() {
+    const val = id => document.getElementById(id)?.value || '';
+    return {
+      q: val('ev-cp-q').trim(),
+      modality: val('ev-cp-modality'),
+      condition: val('ev-cp-condition'),
+      study_design: val('ev-cp-design'),
+      effect_direction: val('ev-cp-effect'),
+      source: val('ev-cp-source'),
+      year_min: val('ev-cp-ymin') ? Number(val('ev-cp-ymin')) : null,
+      year_max: val('ev-cp-ymax') ? Number(val('ev-cp-ymax')) : null,
+      has_abstract: !!document.getElementById('ev-cp-abs')?.checked,
+      limit: 50,
+    };
+  }
+
+  window._evCorpusSearch = async function() {
+    const status = document.getElementById('ev-cp-status');
+    const body   = document.getElementById('ev-cp-body');
+    if (!status || !body) return;
+    status.textContent = 'Searching…';
+    body.innerHTML = '';
+    try {
+      const filters = readCorpusFilters();
+      const papers = await api.searchEvidencePapers(filters);
+      const list = Array.isArray(papers) ? papers : (papers?.items || []);
+      if (!list.length) {
+        status.textContent = '0 results — widen filters or reingest the corpus DB.';
+        body.innerHTML = emptyState('◈', 'No papers match the current filters.');
+        return;
+      }
+      status.textContent = `${list.length} paper${list.length === 1 ? '' : 's'}`;
+      body.innerHTML = list.map(renderCorpusPaperRow).join('');
+      // Wire "Similar" buttons.
+      body.querySelectorAll('.ev-cp-similar').forEach(btn => {
+        btn.addEventListener('click', () => window._evShowSimilar(btn.dataset.id, btn.dataset.title));
+      });
+    } catch (e) {
+      if (e?.status === 503) {
+        status.textContent = 'Corpus DB not ingested yet.';
+      } else {
+        status.textContent = `Search failed: ${esc(e?.message || e)}`;
+      }
+    }
+  };
+
+  // Debounced refetch. Text inputs get 300ms debounce; selects fire immediately.
+  function scheduleCorpusSearch(debounced) {
+    clearTimeout(_cpTimer);
+    if (debounced) {
+      _cpTimer = setTimeout(() => window._evCorpusSearch(), 300);
+    } else {
+      window._evCorpusSearch();
+    }
+  }
+  cpInputs.forEach(id => {
+    const node = document.getElementById(id);
+    if (!node) return;
+    const tag = node.tagName;
+    if (tag === 'INPUT' && node.type !== 'checkbox' && node.type !== 'number') {
+      node.addEventListener('input', () => scheduleCorpusSearch(true));
+    } else {
+      node.addEventListener('change', () => scheduleCorpusSearch(false));
+      if (node.type === 'number') node.addEventListener('input', () => scheduleCorpusSearch(true));
+    }
+  });
+
+  // ── Similar-papers modal ───────────────────────────────────────────────────
+  window._evShowSimilar = async function(paperId, paperTitle) {
+    if (!paperId) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'ev-similar-modal';
+    wrap.addEventListener('click', e => { if (e.target === wrap) wrap.remove(); });
+    wrap.innerHTML = `
+      <div class="ev-similar-modal-inner" role="dialog" aria-modal="true" aria-label="Similar papers">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <div style="font-weight:600;font-size:13px;color:var(--text-primary);flex:1">Similar papers — ${esc((paperTitle || '').slice(0, 90))}${(paperTitle || '').length > 90 ? '…' : ''}</div>
+          <button class="btn btn-sm" id="ev-similar-close">Close</button>
+        </div>
+        <div id="ev-similar-body" style="font-size:12px;color:var(--text-secondary)">Loading…</div>
+      </div>`;
+    document.body.appendChild(wrap);
+    wrap.querySelector('#ev-similar-close').addEventListener('click', () => wrap.remove());
+    try {
+      const sim = await api.evidenceSimilarPapers(paperId, 10);
+      const list = Array.isArray(sim) ? sim : (sim?.items || []);
+      const host = wrap.querySelector('#ev-similar-body');
+      if (!list.length) {
+        host.innerHTML = emptyState('◈', 'No similar papers found.');
+      } else {
+        host.innerHTML = list.map(renderCorpusPaperRow).join('');
+      }
+    } catch (e) {
+      wrap.querySelector('#ev-similar-body').innerHTML =
+        `<div class="notice notice-warn">Could not load similar papers: ${esc(e?.message || e)}</div>`;
+    }
+  };
 
   window.filterEvidence = function() {
     const q   = document.getElementById('ev-search')?.value.toLowerCase() || '';
@@ -159,6 +377,7 @@ function renderEvidenceTable(items) {
   </div>`;
 }
 
+<<<<<<< HEAD
 // Evidence detail modal
 function _openEvidenceModal(evidence) {
   const old = document.getElementById('ds-evidence-modal');
@@ -281,6 +500,85 @@ window._openEvidenceDetail = function(idx) {
   const evidence = (window._evidenceData || [])[idx];
   if (!evidence) return;
   _openEvidenceModal(evidence);
+=======
+// ── Corpus paper row renderer (87k DB) ───────────────────────────────────────
+// All user-facing strings (title, journal, abstract) are passed through esc()
+// since they come from the backend paper record and may contain HTML.
+function renderCorpusPaperRow(p) {
+  if (!p) return '';
+  const title   = esc(p.title || '(untitled)');
+  const year    = esc(p.year || '');
+  const journal = esc(p.journal || '');
+  const design  = p.study_design ? esc(p.study_design).replace(/_/g, ' ') : '';
+  const sample  = (p.sample_size != null && p.sample_size !== '') ? esc(p.sample_size) : '';
+  const cites   = (p.cited_by_count != null) ? esc(p.cited_by_count) : '';
+  const source  = p.source ? esc(p.source) : '';
+  const pmid    = p.pmid ? esc(p.pmid) : '';
+  const doi     = p.doi ? esc(p.doi) : '';
+  const oaUrl   = p.is_oa && p.oa_url ? esc(p.oa_url) : '';
+  const linkHref = p.europe_pmc_url ? esc(p.europe_pmc_url)
+                 : pmid ? `https://pubmed.ncbi.nlm.nih.gov/${pmid}`
+                 : doi ? `https://doi.org/${doi}`
+                 : '';
+
+  // Effect-direction badge with explicit colour mapping.
+  let effBadge = '';
+  if (p.effect_direction === 'positive') {
+    effBadge = `<span class="ev-corpus-badge" style="background:rgba(74,222,128,0.12);color:#4ade80">positive</span>`;
+  } else if (p.effect_direction === 'null') {
+    effBadge = `<span class="ev-corpus-badge" style="background:rgba(122,138,165,0.12);color:var(--text-tertiary)">null</span>`;
+  } else if (p.effect_direction === 'mixed') {
+    effBadge = `<span class="ev-corpus-badge" style="background:rgba(245,158,11,0.12);color:#f59e0b">mixed</span>`;
+  }
+
+  const designBadge = design
+    ? `<span class="ev-corpus-badge" style="background:rgba(74,158,255,0.12);color:var(--blue)">${design}</span>`
+    : '';
+  const sampleChip = sample
+    ? `<span class="ev-corpus-badge" style="background:rgba(255,255,255,0.05);color:var(--text-secondary)">n=${sample}</span>`
+    : '';
+  const oaBadge = oaUrl
+    ? `<a href="${oaUrl}" target="_blank" rel="noopener" class="ev-corpus-badge" style="background:rgba(0,212,188,0.12);color:var(--teal);text-decoration:none">OA</a>`
+    : '';
+  const sourceBadge = source
+    ? `<span class="ev-corpus-badge" style="background:rgba(255,255,255,0.04);color:var(--text-tertiary)">${source}</span>`
+    : '';
+  const citesChip = cites !== ''
+    ? `<span style="font-size:11px;color:var(--text-tertiary);margin-right:6px">${cites} cites</span>`
+    : '';
+
+  const titleHtml = linkHref
+    ? `<a href="${linkHref}" target="_blank" rel="noopener" style="color:var(--text-primary);text-decoration:none">${title}</a>`
+    : title;
+
+  const similarBtn = p.id != null
+    ? `<button class="btn btn-sm ev-cp-similar" data-id="${esc(p.id)}" data-title="${title}">Similar</button>`
+    : '';
+
+  return `
+    <div class="ev-corpus-row">
+      <div style="display:flex;gap:10px;align-items:baseline;margin-bottom:4px">
+        <div style="flex:1;font-weight:600;font-size:13px;line-height:1.35">${titleHtml}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);white-space:nowrap">${year}</div>
+      </div>
+      ${journal ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:6px">${journal}</div>` : ''}
+      <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+        ${designBadge}${effBadge}${sampleChip}${oaBadge}${sourceBadge}
+        ${citesChip}
+        ${similarBtn}
+      </div>
+    </div>`;
+}
+
+window._toggleEvidence = function(idx) {
+  const panel = document.getElementById(`ev-expand-${idx}`);
+  const chev  = document.getElementById(`ev-chevron-${idx}`);
+  if (!panel) return;
+  const open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : '';
+  if (chev) chev.textContent = open ? '›' : '↓';
+  if (chev) chev.style.transform = open ? '' : 'rotate(0deg)';
+>>>>>>> origin/feat/biomarkers-reference-page
 };
 
 // ── Device Registry ───────────────────────────────────────────────────────────
