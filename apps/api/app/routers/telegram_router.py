@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
+from app.limiter import limiter
 from app.services import telegram_service as tg
 from app.services.chat_service import chat_agent, chat_patient
 from app.settings import get_settings
@@ -172,6 +173,7 @@ def get_link_code(
 
 
 @router.post("/webhook")
+@limiter.limit("60/minute")
 async def telegram_webhook_legacy(
     request: Request,
     x_telegram_bot_api_secret_token: str | None = Header(default=None),
@@ -182,6 +184,7 @@ async def telegram_webhook_legacy(
 
 
 @router.post("/webhook/patient")
+@limiter.limit("60/minute")
 async def telegram_webhook_patient(
     request: Request,
     x_telegram_bot_api_secret_token: str | None = Header(default=None),
@@ -191,6 +194,7 @@ async def telegram_webhook_patient(
 
 
 @router.post("/webhook/clinician")
+@limiter.limit("60/minute")
 async def telegram_webhook_clinician(
     request: Request,
     x_telegram_bot_api_secret_token: str | None = Header(default=None),
