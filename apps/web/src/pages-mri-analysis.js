@@ -2021,6 +2021,9 @@ function renderBottomStrip(report) {
   var aid = report && report.analysis_id ? report.analysis_id : _mriAnalysisId;
   var disabled = aid ? '' : ' disabled';
   var patientId = report && report.patient && report.patient.patient_id ? report.patient.patient_id : '';
+  // Beta gating: "Share with referring provider" and "Open in Neuronav" are
+  // not yet wired to a real backend action. Per beta-readiness rules, we hide
+  // them rather than display fake buttons that show a "coming soon" toast.
   return '<div class="ds-mri-bottom-strip">'
     + '<div class="ds-mri-bottom-strip__group">'
     + '<span class="ds-mri-bottom-strip__label">Download report</span>'
@@ -2032,8 +2035,6 @@ function renderBottomStrip(report) {
     + '</div>'
     + '<div class="ds-mri-bottom-strip__group">'
     + _mriAnnotationButton({ patient_id: patientId, target_id: aid, anchor_label: 'MRI analysis' })
-    + '<button class="btn btn-sm ds-mri-share"' + disabled + '>Share with referring provider</button>'
-    + '<button class="btn btn-sm ds-mri-open-neuronav"' + disabled + '>Open in Neuronav</button>'
     + '</div>'
     + '</div>'
     + '<div id="mri-annotation-drawer-host" class="analysis-anno-host"></div>';
@@ -2590,9 +2591,24 @@ function _wireRightColumn(navigate) {
       _openOverlayModal(aid, tid);
     });
   });
+  // Beta gating: real Neuronav integration is not yet wired, so the
+  // "Send to Neuronav" button is replaced with a JSON download of the target.
   document.querySelectorAll('.ds-mri-send-nav').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      showToast('Sent target to Neuronav (stub)', 'info');
+      var tid = btn.getAttribute('data-target');
+      var target = _report && Array.isArray(_report.stim_targets)
+        ? _report.stim_targets.find(function (t) { return t.target_id === tid; })
+        : null;
+      if (!target) {
+        showToast('Target not found.', 'warn');
+        return;
+      }
+      var blob = new Blob([JSON.stringify(target, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = 'neuronav_' + (tid || 'mri_target') + '.json'; a.click();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      showToast('Target exported as JSON for manual import into Neuronav.', 'success');
     });
   });
   document.querySelectorAll('.ds-mri-download-target').forEach(function (btn) {
@@ -2640,14 +2656,13 @@ function _wireRightColumn(navigate) {
   if (bidsBtn) bidsBtn.addEventListener('click', function () {
     window._mriExportBIDSPackage();
   });
+  // ds-mri-share / ds-mri-open-neuronav buttons are no longer rendered (see
+  // renderBottomStrip). Selectors kept as no-ops for any externally injected
+  // markup so existing test harnesses do not throw.
   var shareBtn = document.querySelector('.ds-mri-share');
-  if (shareBtn) shareBtn.addEventListener('click', function () {
-    showToast('Sharing coming soon', 'info');
-  });
+  if (shareBtn) shareBtn.disabled = true;
   var navBtn = document.querySelector('.ds-mri-open-neuronav');
-  if (navBtn) navBtn.addEventListener('click', function () {
-    showToast('Neuronav integration coming soon', 'info');
-  });
+  if (navBtn) navBtn.disabled = true;
 
   // New analysis → reset state.
   var newBtn = document.getElementById('ds-mri-new-analysis');

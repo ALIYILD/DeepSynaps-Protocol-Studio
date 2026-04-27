@@ -9776,9 +9776,55 @@ export async function pgDocumentsHub(setTopbar) {
     window._showNotifToast?.({ title:'Fill Form', body:'In-platform form filling — select a patient first.', severity:'info' });
   };
 
-  window._dhFill       = function(id) { window._showNotifToast?.({ title:'Open Form', body:'In-platform form filling not yet wired — patients can complete this form via the patient portal.', severity:'info' }); };
-  window._dhOpen       = function(id) { const d=docs.find(x=>x.id===id); if(d?.url) window.open(d.url,'_blank'); else window._showNotifToast?.({ title:'No file attached', body:'No URL or file attached yet.', severity:'info' }); };
-  window._dhDownload   = function(id) { const d=docs.find(x=>x.id===id); if(d?.url) window.open(d.url,'_blank'); else window._showNotifToast?.({ title:'Download', body:'PDF generation coming soon.', severity:'info' }); };
+  window._dhFill       = function(id) {
+    const d = docs.find(x => x.id === id);
+    if (!d) return;
+    // For Consent forms, route into the in-app consent capture surface.
+    if (d.category === 'Consent') {
+      try { window.location.hash = ''; } catch {}
+      window._docsHubTab = 'consent';
+      window._nav?.('consent-management');
+      return;
+    }
+    // For Intake / clinical forms, route into the patient portal so the
+    // patient (or the clinician via the impersonation flow) can fill it in.
+    window._showNotifToast?.({
+      title: 'Open Form',
+      body: 'Forms are filled in the patient portal. Send for signature to assign.',
+      severity: 'info',
+    });
+  };
+  window._dhOpen       = function(id) {
+    const d = docs.find(x => x.id === id);
+    if (!d) return;
+    if (d._apiId && api.documentDownloadUrl) {
+      window.open(api.documentDownloadUrl(d._apiId), '_blank', 'noopener');
+      return;
+    }
+    if (d.url) { window.open(d.url, '_blank', 'noopener'); return; }
+    window._showNotifToast?.({ title: 'No file attached', body: 'This document has no uploaded file yet — use Replace to upload.', severity: 'info' });
+  };
+  window._dhDownload   = function(id) {
+    const d = docs.find(x => x.id === id);
+    if (!d) return;
+    // If an authoritative API record exists, download via the authenticated
+    // documents endpoint. Otherwise fall back to the document's own URL.
+    if (d._apiId && api.documentDownloadUrl) {
+      const a = document.createElement('a');
+      a.href = api.documentDownloadUrl(d._apiId);
+      a.download = (d.name || 'document') + '.pdf';
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.click();
+      return;
+    }
+    if (d.url) { window.open(d.url, '_blank', 'noopener'); return; }
+    window._showNotifToast?.({
+      title: 'Download unavailable',
+      body: 'No file is attached to this document yet. Upload one with Replace.',
+      severity: 'warn',
+    });
+  };
   window._dhRegenerate = function(id) { docs=loadDocs(); const d=docs.find(x=>x.id===id); if(!d) return; d.updatedDate=today(); saveDocs(docs); renderPage(); window._showNotifToast?.({ title:'Regenerated', body:`${d.name} regenerated.`, severity:'success' }); };
 
   function _dhPersistUpdate(d) {
