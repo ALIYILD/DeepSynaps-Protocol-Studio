@@ -3,6 +3,7 @@
 Handles EDF file upload, spectral analysis, AI interpretation,
 pre/post comparison, prediction, and correlation.
 """
+import hashlib
 import html as html_mod
 import json
 import logging
@@ -68,6 +69,13 @@ _MAX_EDF_BYTES = 100 * 1024 * 1024
 
 # ── Allowed extensions ───────────────────────────────────────────────────────
 _ALLOWED_EXTENSIONS = {".edf", ".edf+", ".bdf", ".bdf+", ".eeg"}
+
+# ── Max clinical-context survey JSON size ────────────────────────────────────
+# The survey is later inlined verbatim into the LLM prompt by /ai-report, so
+# this cap is effectively a per-upload LLM-cost cap. 16 KB is well above any
+# realistic v1-schema submission while staying inside Anthropic's prompt
+# budget for the rest of the report.
+_MAX_SURVEY_JSON_BYTES = 16 * 1024
 
 # ── EDF magic bytes check ────────────────────────────────────────────────────
 _EDF_MAGIC = b"0       "  # EDF files start with "0" followed by 7 spaces
@@ -547,6 +555,20 @@ async def upload_edf(
     # in stable delimiters so /ai-report can recover it verbatim later.
     wrapped_survey_notes: Optional[str] = None
     if survey_json:
+        # Hard cap on survey size — the field is later inlined verbatim into
+        # the LLM prompt by /ai-report, so an attacker who can submit a
+        # 5 MB survey blob can drive arbitrary token spend per analysis.
+        # 16 KB is well above any realistic clinical-context survey.
+        if len(survey_json) > _MAX_SURVEY_JSON_BYTES:
+            raise ApiServiceError(
+                code="survey_too_large",
+                message=(
+                    f"survey_json exceeds {_MAX_SURVEY_JSON_BYTES} bytes; "
+                    "trim non-essential free-text before resubmitting."
+                ),
+                status_code=422,
+            )
+
         from app.services.qeeg_context_extractor import wrap_qeeg_context
 
         try:
@@ -592,7 +614,14 @@ async def upload_edf(
     db.commit()
     db.refresh(analysis)
 
-    _log.info("EDF uploaded: %s (%d bytes) for patient %s", filename, len(file_bytes), patient_id)
+    # Log without raw patient_id — short SHA prefix lets ops correlate
+    # records via the audit table without writing PHI to disk.
+    _log.info(
+        "EDF uploaded: %s (%d bytes) patient=%s",
+        filename,
+        len(file_bytes),
+        hashlib.sha256(patient_id.encode("utf-8")).hexdigest()[:12],
+    )
     return AnalysisOut.from_record(analysis)
 
 
@@ -990,6 +1019,13 @@ async def generate_ai_report_endpoint(
     analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
     if not analysis:
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    # Cross-clinic gate — the AI report inlines the linked QEEGRecord's
+    # clinical-context survey (PR #166) plus full band-power features
+    # into the LLM prompt. Without this gate any clinician could fan
+    # out arbitrary analysis_id values and exfiltrate another clinic's
+    # PHI-rich survey + AI narrative.
+    _gate_patient_access(actor, analysis.patient_id, db)
 
     if analysis.analysis_status != "completed" or not analysis.band_powers_json:
         raise ApiServiceError(
