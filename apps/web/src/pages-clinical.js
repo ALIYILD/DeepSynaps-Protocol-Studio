@@ -743,8 +743,15 @@ export async function pgDash(setTopbar, navigate) {
   // ── Demo-mode fallback ────────────────────────────────────────────────────
   // When clinic has no data (fresh install or API down), seed demo content so
   // the dashboard always shows something. _isDemo drives the DEMO badge.
+  // Demo-token sessions on prod ALWAYS fail every backend call (by design —
+  // demo-login is gated to non-prod), so promote the hard-fail into demo seed
+  // when we detect a build-time demo flag.
   let _isDemo = false;
-  if (_coreLoadFailed) {
+  const _demoModeBuild = (() => {
+    try { return !!(import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'); }
+    catch (_) { return false; }
+  })();
+  if (_coreLoadFailed && !_demoModeBuild) {
     if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
     el.innerHTML = `<div style="padding:48px 24px;text-align:center">
       <div style="font-size:24px;margin-bottom:12px;opacity:0.4">&#9888;</div>
@@ -754,6 +761,12 @@ export async function pgDash(setTopbar, navigate) {
     </div>`;
     window.removeEventListener('hashchange', _onLeave);
     return;
+  }
+  // In demo build, normalise the fail count so the demo seed below triggers
+  // (allPatients/allCourses are still empty here, so the next branch hits).
+  if (_coreLoadFailed && _demoModeBuild) {
+    allPatients = [];
+    allCourses = [];
   }
   if (allPatients.length === 0 && allCourses.length === 0) {
     _isDemo = true;
@@ -3447,7 +3460,17 @@ export async function pgProfile(setTopbar, navigate) {
               </tr>`).join('')}
             </tbody></table>`;
           }
-        } catch { bodyEl.innerHTML = `<div style="color:var(--text-tertiary);font-size:12px">Could not load assessments.</div>`; }
+        } catch (err) {
+          // Demo build → backend rejects demo tokens. Show "no data yet"
+          // instead of an error so the rest of the patient tab stays usable.
+          let _demoBuild = false;
+          try { _demoBuild = !!(import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'); } catch (_) { _demoBuild = false; }
+          if (_demoBuild) {
+            bodyEl.innerHTML = `<div style="color:var(--text-tertiary);font-size:12.5px;padding:8px 0">No assessments recorded for this patient yet.</div>`;
+          } else {
+            bodyEl.innerHTML = `<div style="color:var(--text-tertiary);font-size:12px">Could not load assessments.</div>`;
+          }
+        }
       }, 0);
       return;
     }

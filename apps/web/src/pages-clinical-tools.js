@@ -5584,9 +5584,20 @@ export async function pgAssessmentsHub(setTopbar) {
       });
       DATA.assignments = Object.values(groups).map(_groupToAssignment);
     } catch (err) {
-      DATA.assignments = [];
-      DATA.error = (err && err.message) || 'Failed to load assessments';
-      console.warn('[assessments-hub] hydrate failed:', err);
+      // Demo build: backend rejects demo tokens. Render an empty-but-valid hub
+      // (template library + scale registry are bundled in the JS, no backend
+      // needed) instead of an error banner so reviewers see usable copy.
+      let _demoBuild = false;
+      try { _demoBuild = !!(import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'); } catch (_) { _demoBuild = false; }
+      const _isDemoSession = (err && (err.code === 'demo_session' || /demo session/i.test(String(err.message || ''))));
+      if (_demoBuild && _isDemoSession) {
+        DATA.assignments = [];
+        DATA.error = null;
+      } else {
+        DATA.assignments = [];
+        DATA.error = (err && err.message) || 'Failed to load assessments';
+        console.warn('[assessments-hub] hydrate failed:', err);
+      }
     } finally {
       DATA.loading = false;
     }

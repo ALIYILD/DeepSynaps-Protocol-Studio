@@ -7806,18 +7806,30 @@ export async function pgFinanceHub(setTopbar, navigate) {
   ]).catch(err => { console.error('[FinanceHub] load failed', err); return [null,null,null,null,null]; });
 
   if (!summary || !invoicesResp || !paymentsResp || !claimsResp || !monthlyResp) {
-    el.innerHTML = `
-      <div class="ch-shell">
-        <div class="ch-tab-bar">${tabBar()}</div>
-        <div class="ch-body">
-          <div class="ch-card" style="padding:28px;text-align:center">
-            <div style="font-size:14px;font-weight:600;color:var(--red);margin-bottom:6px">Failed to load finance data</div>
-            <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:14px">The server returned an error. Please retry.</div>
-            <button class="btn btn-primary btn-sm" onclick="window._nav('finance-hub')">Retry</button>
+    // Demo build: backend rejects demo tokens. Seed an empty-but-valid finance
+    // hub so the page renders chrome + zero-state KPIs instead of a hard error.
+    let _demoBuild = false;
+    try { _demoBuild = !!(import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'); } catch (_) { _demoBuild = false; }
+    if (_demoBuild) {
+      summary = summary || { revenue_paid: 0, outstanding: 0, overdue: 0, total_invoices: 0, total_payments: 0, claims_approved: 0, claims_pending: 0, claims_value: 0 };
+      invoicesResp = invoicesResp || { items: [] };
+      paymentsResp = paymentsResp || { items: [] };
+      claimsResp   = claimsResp   || { items: [] };
+      monthlyResp  = monthlyResp  || { items: [] };
+    } else {
+      el.innerHTML = `
+        <div class="ch-shell">
+          <div class="ch-tab-bar">${tabBar()}</div>
+          <div class="ch-body">
+            <div class="ch-card" style="padding:28px;text-align:center">
+              <div style="font-size:14px;font-weight:600;color:var(--red);margin-bottom:6px">Failed to load finance data</div>
+              <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:14px">The server returned an error. Please retry.</div>
+              <button class="btn btn-primary btn-sm" onclick="window._nav('finance-hub')">Retry</button>
+            </div>
           </div>
-        </div>
-      </div>`;
-    return;
+        </div>`;
+      return;
+    }
   }
 
   const invoices = Array.isArray(invoicesResp.items) ? invoicesResp.items : [];
