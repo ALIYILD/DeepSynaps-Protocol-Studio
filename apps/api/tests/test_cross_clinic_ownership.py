@@ -565,3 +565,49 @@ def test_wearable_summary_same_clinic_succeeds(
         headers=_auth(cross_clinic_setup["token_clin_a"]),
     )
     assert resp.status_code == 200, resp.text
+
+
+# ── Outcomes events: cross-clinic write poisoning ────────────────────────────
+# Pre-fix: clinic B could POST /api/v1/outcomes/events with patient_id of a
+# clinic A patient + severity="critical". monitor_service surfaces those rows
+# to clinic A via a patient_id-scoped query, so the false "critical" alert
+# would appear next to the wrong clinic's patient and could trigger an
+# escalation. Fix: validate body.patient_id against the actor's clinic.
+
+def test_outcomes_events_cross_clinic_poisoning_blocked(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    pid = cross_clinic_setup["patient_id"]
+    resp = client.post(
+        "/api/v1/outcomes/events",
+        json={
+            "patient_id": pid,
+            "event_type": "adverse",
+            "title": "Severe adverse event",
+            "summary": "fake critical event injected by clinic B",
+            "severity": "critical",
+        },
+        headers=_auth(cross_clinic_setup["token_clin_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["code"] == "cross_clinic_access_denied"
+
+
+def test_outcomes_events_owning_clinician_succeeds(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    """Owning clinician (same clinic) can record an outcome event for
+    their patient — positive control so the gate isn't over-restrictive."""
+    pid = cross_clinic_setup["patient_id"]
+    resp = client.post(
+        "/api/v1/outcomes/events",
+        json={
+            "patient_id": pid,
+            "event_type": "milestone",
+            "title": "Course start",
+            "severity": "info",
+        },
+        headers=_auth(cross_clinic_setup["token_clin_a"]),
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["patient_id"] == pid
