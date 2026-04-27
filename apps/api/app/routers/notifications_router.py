@@ -6,15 +6,31 @@ import time
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Request, Header, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func as sa_func, select
 from sqlalchemy.orm import Session
 from ..auth import get_authenticated_actor, AuthenticatedActor, require_minimum_role
 from ..database import get_db_session
+from ..errors import ApiServiceError
+from ..limiter import limiter
 from ..services.auth_service import decode_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="", tags=["notifications"])
+
+# Hard cap on the page_id (used as a key in `_presence`). Pre-fix this was
+# uncapped — an authenticated clinician could blow up server memory by
+# POSTing /presence with megabyte-scale page_ids.
+_MAX_PAGE_ID_LEN = 200
+
+# Roles that are permitted to subscribe to the SSE stream. Pre-fix the
+# stream had no role gate after token decode, so a guest token (or any
+# valid access token) opened a stream and saw everything broadcast to
+# its `sub`. Cross-clinic info still flows through `broadcast_to_user`
+# decisions in other routers, so this is the last line of defence.
+_STREAM_ALLOWED_ROLES = frozenset({
+    "clinician", "admin", "supervisor", "technician", "reviewer", "patient",
+})
 
 # In-memory event queue per user_id (simple broadcast for single-server dev)
 _queues: dict[str, asyncio.Queue] = {}
@@ -76,27 +92,65 @@ async def notification_stream(
     token: str | None = Query(default=None),
     authorization: str | None = Header(default=None),
 ):
-    """SSE stream for real-time notifications."""
-    # Extract token — query param takes priority (EventSource can't send headers)
-    raw_token = token
-    if not raw_token and authorization and authorization.lower().startswith("bearer "):
-        raw_token = authorization[7:].strip()
+    """SSE stream for real-time notifications.
 
-    user_id = None
+    Auth flow:
+
+    * Prefer the ``Authorization: Bearer …`` header — keeps the token
+      out of access logs, browser history, and Referrer headers. Modern
+      EventSource shims (and ``fetch``-based readable-stream clients)
+      can attach headers; the query-param path is kept as a fallback
+      for legacy ``new EventSource(url)`` callers.
+    * Decode and validate the access token.
+    * Reject any role outside ``_STREAM_ALLOWED_ROLES`` (pre-fix any
+      decode-passing token opened a stream — including guest).
+    """
+    # Extract token — header preferred so the token never lands in
+    # ``request.url`` access logs.
+    raw_token: str | None = None
+    if authorization and authorization.lower().startswith("bearer "):
+        raw_token = authorization[7:].strip()
+    if not raw_token:
+        raw_token = token  # legacy EventSource fallback
+
+    user_id: str | None = None
+    role: str | None = None
     if raw_token:
         payload = decode_token(raw_token)
         if payload and payload.get("type") == "access":
             user_id = payload.get("sub")
+            role = payload.get("role")
 
     if not user_id:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=401, detail="Authentication required for notification stream.")
+        # Use the API service-error envelope so the response goes through
+        # the same access-log redaction as the rest of the API.
+        raise ApiServiceError(
+            code="auth_required",
+            message="Authentication required for notification stream.",
+            status_code=401,
+        )
+
+    if role not in _STREAM_ALLOWED_ROLES:
+        # Log without echoing user_id — `auth_required` is the message
+        # surfaced to the client; the audit log below is for ops only.
+        logger.warning(
+            "notification_stream rejected role=%r (sub redacted)", role
+        )
+        raise ApiServiceError(
+            code="forbidden",
+            message="This role is not permitted to open a notification stream.",
+            status_code=403,
+        )
 
     queue = get_user_queue(user_id)
 
     async def event_generator():
-        # Send a connected event immediately
-        yield f"data: {json.dumps({'type': 'connected', 'user_id': user_id})}\n\n"
+        # Send a connected event immediately. Pre-fix this echoed the
+        # ``user_id`` (subject UUID) into the SSE body — combined with
+        # the query-param token leak that amplified log exposure. Drop
+        # the user_id from the event payload; the client already knows
+        # who it is.
+        yield f"data: {json.dumps({'type': 'connected'})}\n\n"
 
         # Drain the queue, heartbeat every 25 seconds
         while True:
@@ -112,9 +166,13 @@ async def notification_stream(
         event_generator(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-store",
             "X-Accel-Buffering": "no",
             "Connection": "keep-alive",
+            # Prevent the SSE URL (with its query-param token, when used)
+            # from leaking via Referer when content embedded in the
+            # stream links to external hosts.
+            "Referrer-Policy": "no-referrer",
         },
     )
 
@@ -122,11 +180,17 @@ async def notification_stream(
 # ── Presence endpoints ────────────────────────────────────────────────────────
 
 class PresenceUpdate(BaseModel):
-    page_id: str
+    # Cap matches `_MAX_PAGE_ID_LEN` — the value is later used as a
+    # dict key in the in-process `_presence` map. Without this cap
+    # an authenticated clinician could exhaust server memory by
+    # POSTing a megabyte-scale page_id.
+    page_id: str = Field(..., min_length=1, max_length=_MAX_PAGE_ID_LEN)
 
 
 @router.post("/api/v1/notifications/presence")
+@limiter.limit("60/minute")
 async def post_presence(
+    request: Request,
     body: PresenceUpdate,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ):
@@ -167,10 +231,21 @@ async def get_page_presence(
 
 
 @router.post("/api/v1/notifications/test")
+@limiter.limit("5/minute")
 async def send_test_notification(
+    request: Request,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ):
-    """Push a test notification to the authenticated user. Requires clinician access."""
+    """Push a test notification to the authenticated user.
+
+    Pre-fix this had no rate limit and any clinician could spam an
+    ``ae_alert`` to themselves indefinitely. The ``broadcast_to_user``
+    fan-out is bounded by the in-memory queue's ``maxsize=50`` cap, but
+    the spam still drives test events into ops dashboards and any
+    downstream auditing.
+
+    Capped at 5/minute per IP — well above legitimate manual testing.
+    """
     require_minimum_role(actor, "clinician")
     await broadcast_to_user(actor.actor_id, "ae_alert", {
         "title": "Adverse Event Reported",
