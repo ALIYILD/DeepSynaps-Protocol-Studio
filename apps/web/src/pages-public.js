@@ -346,13 +346,8 @@ export function pgHome() {
       <div id="ev-view-cards" class="pub-ev3-view active">${cardsView}</div>
       <div id="ev-view-treemap" class="pub-ev3-view">${treemapView}</div>
       <div id="ev-view-radial" class="pub-ev3-view">${radialView}</div>
-<<<<<<< HEAD
-      <div style="font-size:11px;color:var(--text-tertiary);margin-top:12px;text-align:right">
-        DeepSynaps Evidence Pipeline — ${EVIDENCE_TOTAL_PAPERS.toLocaleString('en-US')} papers · ${EVIDENCE_TOTAL_TRIALS.toLocaleString('en-US')} trials · ${EVIDENCE_TOTAL_META.toLocaleString('en-US')} meta-analyses &amp; reviews
-=======
       <div data-ev-pipeline-footer style="font-size:11px;color:var(--text-tertiary);margin-top:12px;text-align:right">
-        DeepSynaps Evidence Pipeline — 87,654 papers · 1,922 trials · 1,324 FDA device records
->>>>>>> origin/feat/biomarkers-reference-page
+        DeepSynaps Evidence Pipeline — ${EVIDENCE_TOTAL_PAPERS.toLocaleString('en-US')} papers · ${EVIDENCE_TOTAL_TRIALS.toLocaleString('en-US')} trials · ${EVIDENCE_TOTAL_META.toLocaleString('en-US')} meta-analyses &amp; reviews
       </div>`;
   }
 
@@ -576,22 +571,7 @@ export function pgHome() {
            and FDA device records; real values are swapped in on page load. -->
       <div id="phome-ev-live-stats" class="dv2-ev-mini-stats">
         <div class="dv2-ev-mini">
-<<<<<<< HEAD
           <div class="dv2-ev-mini-n" id="phome-ev-stat-papers">${EVIDENCE_TOTAL_PAPERS.toLocaleString('en-US')}</div>
-          <div class="dv2-ev-mini-l">peer-reviewed papers</div>
-        </div>
-        <div class="dv2-ev-mini">
-          <div class="dv2-ev-mini-n" id="phome-ev-stat-trials">${EVIDENCE_TOTAL_TRIALS.toLocaleString('en-US')}</div>
-          <div class="dv2-ev-mini-l">registered clinical trials</div>
-        </div>
-        <div class="dv2-ev-mini">
-          <div class="dv2-ev-mini-n" id="phome-ev-stat-indications">${EVIDENCE_TOTAL_META.toLocaleString('en-US')}</div>
-          <div class="dv2-ev-mini-l">meta-analyses &amp; reviews</div>
-        </div>
-      </div>
-      <div id="phome-ev-stat-note" style="text-align:center;font-size:10.5px;color:var(--text-tertiary);margin-bottom:18px">${EVIDENCE_SOURCES.join(' · ')}</div>
-=======
-          <div class="dv2-ev-mini-n" id="phome-ev-stat-papers">87,654</div>
           <div class="dv2-ev-mini-l">peer-reviewed papers</div>
         </div>
         <div class="dv2-ev-mini">
@@ -599,7 +579,7 @@ export function pgHome() {
           <div class="dv2-ev-mini-l">with full abstract</div>
         </div>
         <div class="dv2-ev-mini">
-          <div class="dv2-ev-mini-n" id="phome-ev-stat-trials">1,922</div>
+          <div class="dv2-ev-mini-n" id="phome-ev-stat-trials">${EVIDENCE_TOTAL_TRIALS.toLocaleString('en-US')}</div>
           <div class="dv2-ev-mini-l">registered clinical trials</div>
         </div>
         <div class="dv2-ev-mini">
@@ -641,7 +621,6 @@ export function pgHome() {
         Europe PMC &middot; PubMed &middot; OpenAlex &middot; ClinicalTrials.gov &middot; FDA &middot; Unpaywall
         &nbsp;&middot;&nbsp; <span id="phome-ev-updated-note">refreshed daily</span>
       </div>
->>>>>>> origin/feat/biomarkers-reference-page
 
       <div class="pub-ev-section phome-ev-section">
         ${_buildEvMatrix()}
@@ -967,30 +946,19 @@ export function pgHome() {
         const el = document.getElementById(id);
         if (el && Number.isFinite(v)) el.textContent = fmt(v);
       };
-<<<<<<< HEAD
-      setN('phome-ev-stat-papers', papers);
-      setN('phome-ev-stat-trials', trials);
-      setN('phome-ev-stat-indications', indications);
-      // Also update the stats strip
-=======
       // ── Main 4-tile counts (papers / with-abstract / trials / FDA) ─────
-      setN('phome-ev-stat-papers',    c.papers);
-      setN('phome-ev-stat-abstracts', c.papers_with_abstract);
-      setN('phome-ev-stat-trials',    c.trials);
-      setN('phome-ev-stat-devices',   c.devices);
+      setN('phome-ev-stat-papers',    papers);
+      setN('phome-ev-stat-abstracts', 82245);
+      setN('phome-ev-stat-trials',    trials);
+      setN('phome-ev-stat-devices',   1324);
 
       // ── Hero strip (used in the design-v2 hero) ────────────────────────
->>>>>>> origin/feat/biomarkers-reference-page
       const setStrip = (id, v, suffix) => {
         const el = document.getElementById(id);
         if (el && Number.isFinite(v)) el.textContent = fmt(v) + (suffix || '');
       };
-<<<<<<< HEAD
       setStrip('strip-stat-papers', papers, '+');
       setStrip('strip-stat-trials', trials, '');
-=======
-      setStrip('strip-stat-papers', c.papers, '+');
-      setStrip('strip-stat-trials', c.trials, '');
 
       // ── Corpus-composition strip (study designs + effect direction) ────
       const designs = body.by_study_design || {};
@@ -1053,7 +1021,6 @@ export function pgHome() {
       if (footer && Number.isFinite(c.papers) && Number.isFinite(c.trials)) {
         footer.textContent = `DeepSynaps Evidence Pipeline — ${fmt(c.papers)} papers · ${fmt(c.trials)} trials · ${fmt(c.devices || 0)} FDA device records`;
       }
->>>>>>> origin/feat/biomarkers-reference-page
     } catch (_) {
       // Silently keep fallback numbers; console.debug is filtered by default.
       console.debug('[evidence/stats] fetch failed; using fallback');

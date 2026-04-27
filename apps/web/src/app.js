@@ -473,12 +473,8 @@ const NAV = [
   { section: 'Protocol', sectionId: 'protocol', collapsed: false },
   { id: 'protocol-studio',    label: 'Protocol Studio',   icon: '🧪', ai: true },
   { id: 'brainmap-v2',        label: 'Brain Map Planner', icon: '🧠' },
-<<<<<<< HEAD
   { id: 'qeeg-analysis',      label: 'qEEG Analyzer',     icon: '📊', ai: true },
-  { id: 'biomarkers',          label: 'Biomarkers',         icon: '🧬' },
-=======
-  { id: 'biomarkers-ref',     label: 'Biomarkers',        icon: '🧬', ai: true },
->>>>>>> origin/feat/biomarkers-reference-page
+  { id: 'biomarkers',         label: 'Biomarkers',        icon: '🧬', ai: true },
   { id: 'handbooks-v2',       label: 'Handbooks',         icon: '📚' },
   { id: 'research-evidence',  label: 'Research Evidence', icon: '🔬', ai: true },
 
