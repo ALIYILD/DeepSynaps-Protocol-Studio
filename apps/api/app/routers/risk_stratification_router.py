@@ -34,8 +34,15 @@ from app.persistence.models import (
     RiskStratificationResult,
 )
 from app.repositories.patients import resolve_patient_clinic_id
+from app.services.risk_clinical_scores import (
+    SCORE_IDS,
+    build_all_clinical_scores,
+)
 from app.services.risk_evidence_map import RISK_CATEGORIES, RISK_CATEGORY_LABELS
-from app.services.risk_stratification import compute_risk_profile
+from app.services.risk_stratification import (
+    assemble_patient_context,
+    compute_risk_profile,
+)
 
 router = APIRouter(prefix="/api/v1/risk", tags=["Risk Stratification"])
 
@@ -315,6 +322,61 @@ def recompute_patient_risk(
         computed_at=datetime.now(timezone.utc).isoformat(),
         categories=[CategoryOut(**c) for c in category_dicts],
     )
+
+
+@router.get("/patient/{patient_id}/clinical-scores")
+def get_patient_clinical_scores(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Unified decision-support clinical scores for a patient.
+
+    Returns the eight scores (anxiety, depression, stress, mci,
+    brain_age, relapse_risk, adherence_risk, response_probability) using
+    the ``ScoreResponse`` schema. PROM assessments are PRIMARY anchors;
+    biomarkers are supporting only. NEVER a diagnosis.
+    """
+    require_minimum_role(actor, "guest")
+
+    ctx = assemble_patient_context(patient_id, db)
+    if not ctx.patient:
+        return {"patient_id": patient_id, "scores": {}, "error": "patient_not_found"}
+
+    chronological_age: Optional[int] = None
+    age_val = (ctx.patient or {}).get("age")
+    if isinstance(age_val, (int, float)):
+        chronological_age = int(age_val)
+
+    # Adverse events — count unresolved as risk signal
+    adverse_event_count = len(ctx.adverse_events or [])
+
+    # NB: qeeg_risk_payload, brain_age_payload, trajectory_change_scores,
+    # wearable_summary and adherence_summary are intentionally NOT
+    # recomputed here — Stream 4 only consumes upstream payloads. The
+    # router accepts None and the score builders degrade gracefully.
+    wearable_summary: Optional[dict] = None
+    if ctx.wearable_summaries:
+        wearable_summary = ctx.wearable_summaries[0]
+
+    scores = build_all_clinical_scores(
+        assessments=ctx.assessments,
+        qeeg_risk_payload=None,
+        brain_age_payload=None,
+        wearable_summary=wearable_summary,
+        trajectory_change_scores=None,
+        adverse_event_count=adverse_event_count,
+        adherence_summary=None,
+        chronological_age=chronological_age,
+        response_target="depression",
+    )
+
+    return {
+        "patient_id": patient_id,
+        "score_ids": list(SCORE_IDS),
+        "scores": {sid: s.model_dump(mode="json") for sid, s in scores.items()},
+        "computed_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @router.get("/patient/{patient_id}/audit")

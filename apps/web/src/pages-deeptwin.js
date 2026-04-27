@@ -30,9 +30,11 @@ import {
   renderReportCenter, renderHandoff, renderSafetyFooter,
   loadingBlock, errorBlock, emptyPatientBlock,
 } from './deeptwin/components.js';
+import { decisionSupportBanner } from './deeptwin/safety.js';
 import { buildReport, reportToMarkdown, reportToJSONString, downloadBlob, renderReportPreview } from './deeptwin/reports.js';
 import { startHandoff } from './deeptwin/handoff.js';
 import { PRESET_SCENARIOS } from './deeptwin/mockData.js';
+import { renderTribeCompare, wireTribeCompare } from './deeptwin/tribe.js';
 
 const HOST_TIMELINE = 'dt-timeline-host';
 const HOST_CORR     = 'dt-corr-host';
@@ -106,6 +108,7 @@ function _renderAll() {
   const condition = _resolveCondition(STATE.patientId);
   const html = `
     <div class="dt-page">
+      ${decisionSupportBanner()}
       ${renderHeader({ patientLabel, condition, summary: STATE.summary })}
       ${renderDataSources({ summary: STATE.summary })}
       ${renderSignalMatrix({ signals: STATE.signals })}
@@ -114,6 +117,7 @@ function _renderAll() {
       ${renderCausal({ correlations: STATE.correlations })}
       ${renderPrediction({ prediction: STATE.prediction }, HOST_PRED)}
       ${renderSimulationLab({}, HOST_SIM)}
+      ${renderTribeCompare()}
       ${renderReportCenter()}
       ${renderHandoff()}
       ${renderSafetyFooter()}
@@ -129,6 +133,7 @@ function _renderAll() {
   _wireTimelineFilters();
   _wirePredictionTabs();
   _wireSimulationLab();
+  wireTribeCompare(() => STATE.patientId);
   _wireReportButtons();
   _wireHandoffButtons();
 }
@@ -313,16 +318,16 @@ export async function pgDeeptwin(setTopbar /* , navigate */) {
   _setTopbar(setTopbar);
 
   if (!patientId) {
-    _setMain(`<div class="dt-page">${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
+    _setMain(`<div class="dt-page">${decisionSupportBanner()}${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
     return;
   }
 
-  _setMain(`<div class="dt-page">${loadingBlock('Loading DeepTwin…')}</div>`);
+  _setMain(`<div class="dt-page">${decisionSupportBanner()}${loadingBlock('Loading DeepTwin…')}</div>`);
   try {
     await _loadAll(patientId);
     _renderAll();
     _setTopbar(setTopbar);
   } catch (e) {
-    _setMain(`<div class="dt-page">${errorBlock('Failed to load DeepTwin: ' + (e.message || e))}${renderSafetyFooter()}</div>`);
+    _setMain(`<div class="dt-page">${decisionSupportBanner()}${errorBlock('Failed to load DeepTwin: ' + (e.message || e))}${renderSafetyFooter()}</div>`);
   }
 }

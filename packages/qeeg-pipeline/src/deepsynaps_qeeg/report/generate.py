@@ -42,6 +42,8 @@ HTML_TEMPLATE = """\
   .refs li { font-size: 11px; color: #3b4a63; margin-bottom: 4px; }
   .grid { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
   .card { border: 1px solid #e0e4eb; border-radius: 10px; padding: 10px; background: #fff; }
+  .warn { color: #92400e; background: #fffbeb; border: 1px solid #fcd34d; padding: 6px 8px; border-radius: 8px; }
+  .json-block { white-space: pre-wrap; font-family: Menlo, Consolas, monospace; font-size: 10px; background: #0f172a; color: #e2e8f0; padding: 10px; border-radius: 8px; }
 </style>
 </head>
 <body>
@@ -64,6 +66,45 @@ HTML_TEMPLATE = """\
         <td>{{ quality.n_epochs_retained }} / {{ quality.n_epochs_total }}</td></tr>
     <tr><th>IC components dropped</th><td>{{ quality.ica_components_dropped }}</td></tr>
   </table>
+
+  {% if clinical_summary %}
+  <h2>Clinical review summary</h2>
+  <div class="card">
+    <p><strong>Readiness:</strong> {{ clinical_summary.readiness }}
+       · <strong>Confidence:</strong> {{ "%.0f"|format(clinical_summary.confidence.score * 100) }}%
+       ({{ clinical_summary.confidence.level }})</p>
+    <p class="note">{{ clinical_summary.safety_statement }}</p>
+    {% if clinical_summary.data_quality.flags %}
+      {% for flag in clinical_summary.data_quality.flags %}
+        <p class="warn"><strong>{{ flag.severity|upper }}:</strong> {{ flag.message }}</p>
+      {% endfor %}
+    {% else %}
+      <p class="note">No major automated data-quality warnings were generated.</p>
+    {% endif %}
+    <h3>Observed findings</h3>
+    {% if clinical_summary.observed_findings %}
+      <ul>
+      {% for finding in clinical_summary.observed_findings %}
+        <li>{{ finding.statement }}</li>
+      {% endfor %}
+      </ul>
+    {% else %}
+      <p class="note">No salient observed findings were selected for this run.</p>
+    {% endif %}
+    <h3>Model-derived interpretation</h3>
+    <ul>
+    {% for item in clinical_summary.derived_interpretations %}
+      <li>{{ item.statement }} <span class="note">Confidence: {{ item.confidence }}</span></li>
+    {% endfor %}
+    </ul>
+    <h3>Limitations / caution</h3>
+    <ul>
+    {% for item in clinical_summary.limitations %}
+      <li>{{ item }}</li>
+    {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
 
   <h2>Band power topomaps (absolute µV²)</h2>
   <div>
@@ -183,6 +224,11 @@ HTML_TEMPLATE = """\
     {% endfor %}
   </ol>
   {% endif %}
+
+  {% if clinical_summary %}
+  <h2>Machine-readable summary</h2>
+  <pre class="json-block">{{ clinical_summary_json }}</pre>
+  {% endif %}
 </body>
 </html>
 """
@@ -250,6 +296,7 @@ def build(
     except Exception as exc:
         log.warning("Narrative generation skipped (%s)", exc)
 
+    clinical_summary = (result.features or {}).get("clinical_summary") or None
     context = {
         "pipeline_version": result.quality.get("pipeline_version", PKG_VERSION),
         "norm_db_version": result.zscores.get("norm_db_version", "unknown"),
@@ -263,6 +310,8 @@ def build(
         "longitudinal": (getattr(result, "longitudinal", None) or {}) if result is not None else {},
         "narrative": narrative_html,
         "references": narrative_refs,
+        "clinical_summary": clinical_summary,
+        "clinical_summary_json": _json_dumps(clinical_summary) if clinical_summary else "",
     }
 
     html_str = _render(context)
@@ -299,6 +348,12 @@ def _fallback_render(context: dict[str, Any]) -> str:
         lines.append(str(context.get("quality")))
     lines.append("</pre></body></html>")
     return "\n".join(lines)
+
+
+def _json_dumps(value: Any) -> str:
+    import json as _json
+
+    return _json.dumps(value, indent=2, sort_keys=True, default=str)
 
 
 def _markdown_to_html(md: str) -> str:

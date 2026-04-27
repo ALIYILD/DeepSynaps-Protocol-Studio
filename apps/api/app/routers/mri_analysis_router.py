@@ -72,6 +72,27 @@ except ImportError:  # pragma: no cover - optional package path during thin inst
     ViewerStimTarget = None  # type: ignore[assignment]
     build_viewer_payload = None  # type: ignore[assignment]
 
+# Upload validation + fusion payload + safer-language helpers — added
+# 2026-04-26 night. Imported lazily through a try/except so the API still
+# loads even on slim deployments where the mri pipeline package isn't
+# installed (the demo-mode short-circuit covers that path).
+try:
+    from deepsynaps_mri.safety import (  # type: ignore[import-not-found]
+        findings_from_structural,
+        safe_brain_age,
+        to_fusion_payload,
+    )
+    from deepsynaps_mri.schemas import BrainAgePrediction  # type: ignore[import-not-found]
+    from deepsynaps_mri.validation import validate_upload_blob  # type: ignore[import-not-found]
+    HAS_MRI_VALIDATION = True
+except ImportError:  # pragma: no cover - thin-install fallback
+    findings_from_structural = None  # type: ignore[assignment]
+    safe_brain_age = None  # type: ignore[assignment]
+    to_fusion_payload = None  # type: ignore[assignment]
+    BrainAgePrediction = None  # type: ignore[assignment]
+    validate_upload_blob = None  # type: ignore[assignment]
+    HAS_MRI_VALIDATION = False
+
 
 router = APIRouter(prefix="/api/v1/mri", tags=["mri"])
 
@@ -317,7 +338,43 @@ def _build_patient_timeline_payload(
 
 
 def _report_from_row(row: MriAnalysis) -> dict[str, Any]:
-    """Assemble an ``MRIReport``-shaped dict from a persisted row."""
+    """Assemble an ``MRIReport``-shaped dict from a persisted row.
+
+    Includes the safer per-region ``findings`` array and a brain-age block
+    that's been routed through :func:`safe_brain_age` so the API never
+    surfaces an implausible predicted age. Both are optional — if the mri
+    pipeline package isn't importable the raw stored payload is returned
+    unchanged.
+    """
+    structural = _load(row.structural_json)
+    qc = _load(row.qc_json) or {}
+
+    # Safer brain-age envelope. Re-runs the wrapper on whatever the model
+    # produced so the field always carries confidence_band_years +
+    # calibration_provenance even on legacy rows persisted before the
+    # safety wrapper landed.
+    if (
+        HAS_MRI_VALIDATION
+        and safe_brain_age is not None
+        and BrainAgePrediction is not None
+        and isinstance(structural, dict)
+        and structural.get("brain_age")
+    ):
+        try:
+            raw_ba = BrainAgePrediction(**structural["brain_age"])
+            wrapped = safe_brain_age(raw_ba)
+            structural = dict(structural)
+            structural["brain_age"] = wrapped.model_dump(mode="json")
+        except Exception as exc:  # noqa: BLE001
+            _log.info("brain-age safety wrap skipped (%s: %s)", type(exc).__name__, exc)
+
+    findings: list[dict[str, Any]] = []
+    if HAS_MRI_VALIDATION and findings_from_structural is not None:
+        try:
+            findings = findings_from_structural(structural)
+        except Exception as exc:  # noqa: BLE001
+            _log.info("findings_from_structural skipped (%s: %s)", type(exc).__name__, exc)
+
     return {
         "analysis_id": row.analysis_id,
         "patient": {
@@ -326,8 +383,9 @@ def _report_from_row(row: MriAnalysis) -> dict[str, Any]:
             "sex": row.sex,
         },
         "modalities_present": _load(row.modalities_present_json) or [],
-        "qc": _load(row.qc_json) or {},
-        "structural": _load(row.structural_json),
+        "qc": qc,
+        "qc_warnings": _load(getattr(row, "qc_warnings_json", None)) or [],
+        "structural": structural,
         "functional": _load(row.functional_json),
         "diffusion": _load(row.diffusion_json),
         "stim_targets": _load(row.stim_targets_json) or [],
@@ -335,6 +393,10 @@ def _report_from_row(row: MriAnalysis) -> dict[str, Any]:
         "overlays": _load(row.overlays_json) or {},
         "pipeline_version": row.pipeline_version or "0.1.0",
         "norm_db_version": row.norm_db_version or "ISTAGING-v1",
+        # Safer per-region observations (added 2026-04-26 night). Always
+        # includes ``requires_clinical_correlation: True`` and hedged
+        # language; never says "diagnosis".
+        "findings": findings,
         "disclaimer": _DISCLAIMER,
     }
 
@@ -536,6 +598,20 @@ async def upload_mri(
             message=f"File exceeds max size of {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB",
             status_code=422,
         )
+
+    # Stronger upload validation (added 2026-04-26 night): extension whitelist
+    # + NIfTI magic-byte / zip sanity check before we ever persist the blob.
+    # Skipped only when the validator helpers aren't importable (slim
+    # deployment) — in that case the loose, pre-existing checks above are
+    # the only safety net.
+    if HAS_MRI_VALIDATION and validate_upload_blob is not None:
+        validation = validate_upload_blob(filename, file_bytes)
+        if not validation.ok:
+            raise ApiServiceError(
+                code=validation.code or "invalid_upload",
+                message=validation.message,
+                status_code=422,
+            )
 
     settings = get_settings()
     from app.services import media_storage
@@ -796,6 +872,53 @@ def get_report(
         )
     _gate_patient_access(actor, row.patient_id, db)
     return JSONResponse(_report_from_row(row))
+
+
+@router.get("/report/{analysis_id}/fusion_payload")
+def get_fusion_payload(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> JSONResponse:
+    """Return a narrow fusion-ready payload for the qEEG-MRI fusion stream.
+
+    Shape — see ``deepsynaps_mri.safety.to_fusion_payload`` docstring.
+    Decision-support only; every entry carries
+    ``requires_clinical_correlation: True``.
+    """
+    require_minimum_role(actor, "clinician")
+
+    row = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if row is None:
+        raise ApiServiceError(
+            code="analysis_not_found",
+            message=f"analysis_id {analysis_id!r} not found",
+            status_code=404,
+        )
+    _gate_patient_access(actor, row.patient_id, db)
+
+    report = _report_from_row(row)
+    if not (HAS_MRI_VALIDATION and to_fusion_payload is not None):
+        return JSONResponse(
+            {
+                "code": "fusion_payload_unavailable",
+                "message": (
+                    "MRI fusion payload helper is not available in this build "
+                    "(packages/mri-pipeline missing)."
+                ),
+            },
+            status_code=503,
+        )
+    try:
+        payload = to_fusion_payload(report, subject_id=row.patient_id)
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("to_fusion_payload failed for analysis_id=%s", analysis_id)
+        raise ApiServiceError(
+            code="fusion_payload_failed",
+            message=f"{type(exc).__name__}: {exc}",
+            status_code=500,
+        )
+    return JSONResponse(payload)
 
 
 @router.get("/{analysis_id}/viewer.json")

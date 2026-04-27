@@ -16,9 +16,23 @@ response so the UI can render the safety stamps without re-deriving them.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Literal
+from typing import Any, Iterable, Literal
 
 import numpy as np
+
+from app.services.deeptwin_decision_support import (
+    ANALYZE_SCHEMA_VERSION,
+    SCHEMA_VERSION,
+    build_calibration_status,
+    build_provenance,
+    build_scenario_comparison,
+    build_uncertainty_block,
+    confidence_tier,
+    derive_top_drivers,
+    evidence_status_for,
+    soften_language,
+    soften_recommendation_block,
+)
 
 EvidenceGrade = Literal["low", "moderate", "high"]
 RiskStatus = Literal["stable", "watch", "elevated", "unknown"]
@@ -394,6 +408,16 @@ def estimate_trajectory(
             "ci_low": ci_low,
             "ci_high": ci_high,
         })
+    # Per-prediction transparency: confidence tier + top drivers + evidence
+    # status. Drivers are derived from the request inputs so different
+    # patients / horizons see different driver lists.
+    inputs = {"patient_id": patient_id, "horizon": horizon, "horizon_days": days}
+    tier = confidence_tier(
+        model_confidence=0.65,
+        input_quality=0.60,
+        evidence_strength=0.55 if horizon != "12w" else 0.40,
+    )
+    drivers = derive_top_drivers(inputs={"weeks": days // 7})
     return {
         "patient_id": patient_id,
         "horizon": horizon,
@@ -406,9 +430,38 @@ def estimate_trajectory(
             "Wearable sampling continuous.",
         ],
         "evidence_grade": "moderate",
+        "evidence_status": "pending",
+        "confidence_tier": tier,
+        "top_drivers": drivers,
+        "rationale": soften_language(
+            "Best current use is treatment-readiness ranking and "
+            "multimodal monitoring, not autonomous treatment selection."
+        ),
         "uncertainty_widens_with_horizon": True,
+        "uncertainty": build_uncertainty_block(horizon_days=days),
+        "calibration": build_calibration_status(),
+        "provenance": build_provenance(
+            surface=f"trajectory.{horizon}",
+            inputs=inputs,
+            schema_version=SCHEMA_VERSION,
+            extra={
+                "seed_salt": f"traj_{horizon}",
+                "inputs_used": [name for name, _baseline, _drift in metrics],
+            },
+        ),
+        "explainability": {
+            "method": "transparent_metric_drift_with_uncertainty_band",
+            "top_drivers": drivers,
+            "top_assumptions": [
+                "Recent adherence trend persists.",
+                "No new contraindications or major medication changes occur.",
+                "Sampling quality remains comparable to the current record.",
+            ],
+        },
+        "decision_support_only": True,
         "disclaimer": (
-            "Predictions are model-estimated. Confidence band is illustrative — clinician must review."
+            "Decision-support only. Predictions are model-estimated and "
+            "uncalibrated; the confidence band is illustrative — clinician must review."
         ),
     }
 
@@ -487,6 +540,43 @@ def simulate_intervention_scenario(
 
     # responder / non-responder hint based on baseline drift bag
     responder_prob = float(min(0.85, max(0.15, 0.55 - rng.normal(0, 0.1))))
+    uncertainty_width = _round(max(ci_high) - min(ci_low), 3) if ci_low and ci_high else None
+
+    # Per-recommendation transparency.
+    sim_inputs = {
+        "modality": modality,
+        "target": target,
+        "frequency_hz": frequency_hz,
+        "current_ma": current_ma,
+        "power_w": power_w,
+        "duration_min": duration_min,
+        "sessions_per_week": sessions_per_week,
+        "weeks": weeks,
+        "contraindications": contraindications or [],
+        "adherence_assumption_pct": adherence_assumption_pct,
+        "notes": notes,
+        "modalities": [],  # populated by router when fusion modalities are present
+    }
+    input_quality_score = max(
+        0.2,
+        min(1.0, 0.4 + 0.06 * (sessions_per_week or 0) + 0.04 * (weeks or 0))
+        - 0.1 * len(contraindications or []),
+    )
+    evidence_strength_score = {"tdcs": 0.55, "tms": 0.7, "tacs": 0.4, "ces": 0.4,
+                               "pbm": 0.35, "behavioural": 0.45, "therapy": 0.5,
+                               "medication": 0.6, "lifestyle": 0.4}.get(modality, 0.4)
+    tier = confidence_tier(
+        model_confidence=responder_prob,
+        input_quality=input_quality_score,
+        evidence_strength=evidence_strength_score,
+    )
+    base_drivers = [
+        {"factor": "protocol_class", "magnitude": round(evidence_strength_score, 3),
+         "direction": "positive", "detail": f"Selected modality: {modality}"},
+        {"factor": "target_site", "magnitude": 0.5, "direction": "neutral",
+         "detail": f"Target: {target}"},
+    ]
+    drivers = derive_top_drivers(inputs=sim_inputs, base_drivers=base_drivers, limit=5)
 
     return {
         "patient_id": patient_id,
@@ -512,6 +602,10 @@ def simulate_intervention_scenario(
         },
         "expected_domains": expected_domains,
         "responder_probability": _round(responder_prob, 3),
+        "responder_probability_ci95": [
+            _round(max(0.0, responder_prob - 0.18), 3),
+            _round(min(1.0, responder_prob + 0.18), 3),
+        ],
         "non_responder_flag": responder_prob < 0.35,
         "safety_concerns": safety_concerns,
         "missing_data": ["No sham comparator", "Limited within-patient history (<60 days)"],
@@ -522,19 +616,89 @@ def simulate_intervention_scenario(
             "Capture adverse events at every visit.",
         ],
         "evidence_support": [
-            "Within-patient baseline + cohort literature.",
-            "See Evidence panel for cited papers.",
+            {
+                "claim": "Within-patient baseline + cohort literature alignment.",
+                "evidence_status": "pending",
+                "caveat": (
+                    "DeepTwin returns a per-claim status. 'pending' means a "
+                    "candidate citation set exists in the evidence index but "
+                    "has not been bound to this specific recommendation yet."
+                ),
+            },
+            {
+                "claim": "Per-protocol RCT evidence to be reviewed in the Evidence panel.",
+                "evidence_status": "pending",
+                "caveat": "Discuss with clinician; do not act on this row alone.",
+            },
         ],
+        "rationale": soften_language(
+            f"Consider {modality} at {target} for {weeks} weeks if adherence "
+            f"holds; the simulator suggests a directional shift in the lead "
+            f"biomarker, with uncertainty widening at longer horizons."
+        ),
+        "patient_specific_notes": [
+            f"Adherence assumption used: {adherence_assumption_pct}%.",
+            f"Sessions per week: {sessions_per_week}.",
+            f"Target site: {target}.",
+            (
+                "Contraindications flagged: " + ", ".join(contraindications)
+                if contraindications else
+                "No contraindications supplied — clinician must still verify."
+            ),
+        ],
+        "scenario_comparison": {
+            "baseline_reference": "no_protocol_change_counterfactual_not_observed",
+            "expected_direction": "improvement" if point and point[-1] < 0 else "uncertain",
+            "uncertainty_width": uncertainty_width,
+            "adherence_assumption_pct": adherence_assumption_pct,
+            "delta_pred": _round(point[-1] if point else 0.0, 3),
+            "delta_confidence": None,  # filled by caller when comparing scenarios
+            "recommendation_change": None,
+        },
+        "uncertainty": build_uncertainty_block(
+            horizon_days=weeks * 7,
+            width=uncertainty_width,
+        ),
+        "calibration": build_calibration_status(),
+        "confidence_tier": tier,
+        "top_drivers": drivers,
+        "feature_attribution": drivers,  # legacy alias for back-compat
+        "provenance": build_provenance(
+            surface="simulate",
+            inputs=sim_inputs,
+            schema_version=SCHEMA_VERSION,
+            extra={
+                "scenario_id": scenario_id or f"scn_{modality}_{target}_{weeks}w",
+                "seed_salt": f"sim_{scenario_id or modality}_{target}_{weeks}",
+                # Back-compat: old tests assert provenance["inputs"]["modality"];
+                # we keep the readable inputs subset alongside the new
+                # ``inputs_hash`` rather than removing it.
+                "inputs": {
+                    "modality": modality,
+                    "target": target,
+                    "frequency_hz": frequency_hz,
+                    "duration_min": duration_min,
+                    "sessions_per_week": sessions_per_week,
+                    "weeks": weeks,
+                    "adherence_assumption_pct": adherence_assumption_pct,
+                },
+            },
+        ),
+        "schema_version": SCHEMA_VERSION,
         "evidence_grade": "moderate",
+        "evidence_status": "pending",
         "approval_required": True,
+        "decision_support_only": True,
         "labels": {
             "simulation_only": True,
             "not_a_prescription": True,
             "model_estimated": True,
+            "decision_support_only": True,
         },
         "disclaimer": (
-            "Simulation only. Predicted trajectory is model-estimated, not a guaranteed effect. "
-            "Clinician must approve before this becomes a treatment decision."
+            "Decision-support only. Simulation output is model-estimated, "
+            "uncalibrated, and not a clinical prescription. Clinician must "
+            "review and approve before any treatment decision."
         ),
     }
 

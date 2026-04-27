@@ -1,0 +1,1410 @@
+[
+  {
+    "module": "api/routers/deeptwin",
+    "path": "apps/api/app/routers/deeptwin_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in deeptwin_router.py"
+    ],
+    "current_test_files": [
+      "apps/api/tests/test_deeptwin_router.py"
+    ],
+    "owner_stream": "DigitalTwin"
+  },
+  {
+    "module": "api/routers/documents",
+    "path": "apps/api/app/routers/documents_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in documents_router.py"
+    ],
+    "current_test_files": [
+      "apps/api/tests/test_documents_router.py"
+    ],
+    "owner_stream": "Evidence/Reports"
+  },
+  {
+    "module": "api/routers/protocols_generate",
+    "path": "apps/api/app/routers/protocols_generate_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in protocols_generate_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "Evidence/Reports"
+  },
+  {
+    "module": "api/routers/protocols_saved",
+    "path": "apps/api/app/routers/protocols_saved_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in protocols_saved_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "Evidence/Reports"
+  },
+  {
+    "module": "api/routers/reports",
+    "path": "apps/api/app/routers/reports_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in reports_router.py"
+    ],
+    "current_test_files": [
+      "apps/api/tests/test_reports_router.py"
+    ],
+    "owner_stream": "Evidence/Reports"
+  },
+  {
+    "module": "generation-engine",
+    "path": "packages/generation-engine",
+    "language": "python",
+    "kind": "service",
+    "entrypoints": [
+      "packages/generation-engine/src/deepsynaps_generation_engine/__init__.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "Evidence/Reports"
+  },
+  {
+    "module": "render-engine",
+    "path": "packages/render-engine",
+    "language": "python",
+    "kind": "service",
+    "entrypoints": [
+      "packages/render-engine/src/deepsynaps_render_engine/__init__.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "Evidence/Reports"
+  },
+  {
+    "module": "safety-engine",
+    "path": "packages/safety-engine",
+    "language": "python",
+    "kind": "service",
+    "entrypoints": [
+      "packages/safety-engine/src/deepsynaps_safety_engine/__init__.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "Evidence/Reports"
+  },
+  {
+    "module": "api/routers/fusion",
+    "path": "apps/api/app/routers/fusion_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in fusion_router.py"
+    ],
+    "current_test_files": [
+      "apps/api/tests/test_fusion_router.py"
+    ],
+    "owner_stream": "Fusion"
+  },
+  {
+    "module": "api/routers/mri_analysis",
+    "path": "apps/api/app/routers/mri_analysis_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in mri_analysis_router.py"
+    ],
+    "current_test_files": [
+      "apps/api/tests/test_mri_analysis_router.py"
+    ],
+    "owner_stream": "MRI"
+  },
+  {
+    "module": "mri-pipeline",
+    "path": "packages/mri-pipeline",
+    "language": "python",
+    "kind": "pipeline",
+    "entrypoints": [
+      "packages/mri-pipeline/src/deepsynaps_mri/__init__.py"
+    ],
+    "current_test_files": [
+      "packages/mri-pipeline/tests/test_brain_age.py",
+      "packages/mri-pipeline/tests/test_qc.py",
+      "packages/mri-pipeline/tests/test_clinical_summary.py",
+      "packages/mri-pipeline/tests/test_longitudinal.py",
+      "packages/mri-pipeline/tests/test_efield.py"
+    ],
+    "owner_stream": "MRI"
+  },
+  {
+    "module": "api",
+    "path": "apps/api",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "app/main.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/admin_pgvector",
+    "path": "apps/api/app/routers/admin_pgvector_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in admin_pgvector_router.py"
+    ],
+    "current_test_files": [
+      "apps/api/tests/test_admin_pgvector_router.py"
+    ],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/adverse_events",
+    "path": "apps/api/app/routers/adverse_events_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in adverse_events_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/agent_skills",
+    "path": "apps/api/app/routers/agent_skills_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in agent_skills_router.py"
+    ],
+    "current_test_files": [
+      "apps/api/tests/test_agent_skills_router.py"
+    ],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/annotations",
+    "path": "apps/api/app/routers/annotations_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in annotations_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/assessments",
+    "path": "apps/api/app/routers/assessments_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in assessments_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/auth",
+    "path": "apps/api/app/routers/auth_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in auth_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/chat",
+    "path": "apps/api/app/routers/chat_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in chat_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/citation_validator",
+    "path": "apps/api/app/routers/citation_validator_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in citation_validator_router.py"
+    ],
+    "current_test_files": [
+      "apps/api/tests/test_citation_validator_router.py"
+    ],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/clinic",
+    "path": "apps/api/app/routers/clinic_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in clinic_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/command_center",
+    "path": "apps/api/app/routers/command_center_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in command_center_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/consent",
+    "path": "apps/api/app/routers/consent_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in consent_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/consent_management",
+    "path": "apps/api/app/routers/consent_management_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in consent_management_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/data_privacy",
+    "path": "apps/api/app/routers/data_privacy_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in data_privacy_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/device_sync",
+    "path": "apps/api/app/routers/device_sync_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in device_sync_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/export",
+    "path": "apps/api/app/routers/export_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in export_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/feature_store",
+    "path": "apps/api/app/routers/feature_store_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in feature_store_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/finance",
+    "path": "apps/api/app/routers/finance_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in finance_router.py"
+    ],
+    "current_test_files": [
+      "apps/api/tests/test_finance_router.py"
+    ],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/forms",
+    "path": "apps/api/app/routers/forms_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in forms_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/home_device_portal",
+    "path": "apps/api/app/routers/home_device_portal_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in home_device_portal_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/home_devices",
+    "path": "apps/api/app/routers/home_devices_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in home_devices_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/home_program_tasks",
+    "path": "apps/api/app/routers/home_program_tasks_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in home_program_tasks_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/home_task_templates",
+    "path": "apps/api/app/routers/home_task_templates_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in home_task_templates_router.py"
+    ],
+    "current_test_files": [
+      "apps/api/tests/test_home_task_templates_router.py"
+    ],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/irb",
+    "path": "apps/api/app/routers/irb_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in irb_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/leads_reception",
+    "path": "apps/api/app/routers/leads_reception_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in leads_reception_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/library",
+    "path": "apps/api/app/routers/library_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in library_router.py"
+    ],
+    "current_test_files": [
+      "apps/api/tests/test_library_router.py"
+    ],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/literature",
+    "path": "apps/api/app/routers/literature_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in literature_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/literature_watch",
+    "path": "apps/api/app/routers/literature_watch_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in literature_watch_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/marketplace",
+    "path": "apps/api/app/routers/marketplace_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in marketplace_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/marketplace_seller",
+    "path": "apps/api/app/routers/marketplace_seller_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in marketplace_seller_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/media",
+    "path": "apps/api/app/routers/media_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in media_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/medications",
+    "path": "apps/api/app/routers/medications_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in medications_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/monitor",
+    "path": "apps/api/app/routers/monitor_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in monitor_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/notifications",
+    "path": "apps/api/app/routers/notifications_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in notifications_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/outcomes",
+    "path": "apps/api/app/routers/outcomes_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in outcomes_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/patient_portal",
+    "path": "apps/api/app/routers/patient_portal_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in patient_portal_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/patients",
+    "path": "apps/api/app/routers/patients_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in patients_router.py"
+    ],
+    "current_test_files": [
+      "apps/api/tests/test_patients_router.py"
+    ],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/payments",
+    "path": "apps/api/app/routers/payments_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in payments_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/personalization",
+    "path": "apps/api/app/routers/personalization_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in personalization_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/phenotype",
+    "path": "apps/api/app/routers/phenotype_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in phenotype_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/preferences",
+    "path": "apps/api/app/routers/preferences_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in preferences_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/profile",
+    "path": "apps/api/app/routers/profile_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in profile_router.py"
+    ],
+    "current_test_files": [
+      "apps/api/tests/test_profile_router.py"
+    ],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/qa",
+    "path": "apps/api/app/routers/qa_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in qa_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/recordings",
+    "path": "apps/api/app/routers/recordings_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in recordings_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/registries",
+    "path": "apps/api/app/routers/registries_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in registries_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/reminders",
+    "path": "apps/api/app/routers/reminders_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in reminders_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/sessions",
+    "path": "apps/api/app/routers/sessions_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in sessions_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/team",
+    "path": "apps/api/app/routers/team_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in team_router.py"
+    ],
+    "current_test_files": [
+      "apps/api/tests/test_team_router.py"
+    ],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/telegram",
+    "path": "apps/api/app/routers/telegram_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in telegram_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/treatment_courses",
+    "path": "apps/api/app/routers/treatment_courses_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in treatment_courses_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/virtual_care",
+    "path": "apps/api/app/routers/virtual_care_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in virtual_care_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/wearable",
+    "path": "apps/api/app/routers/wearable_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in wearable_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "condition-registry",
+    "path": "packages/condition-registry",
+    "language": "python",
+    "kind": "data",
+    "entrypoints": [
+      "packages/condition-registry/src/deepsynaps_condition_registry/__init__.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "core-schema",
+    "path": "packages/core-schema",
+    "language": "python",
+    "kind": "shared",
+    "entrypoints": [
+      "packages/core-schema/src/deepsynaps_core_schema/__init__.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "deepsynaps-core",
+    "path": "packages/deepsynaps-core",
+    "language": "python",
+    "kind": "shared",
+    "entrypoints": [
+      "packages/deepsynaps-core/src/deepsynaps_core/__init__.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "device-registry",
+    "path": "packages/device-registry",
+    "language": "python",
+    "kind": "data",
+    "entrypoints": [
+      "packages/device-registry/src/deepsynaps_device_registry/__init__.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "feature-store",
+    "path": "packages/feature-store",
+    "language": "python",
+    "kind": "data",
+    "entrypoints": [
+      "packages/feature-store/src/deepsynaps_features/__init__.py"
+    ],
+    "current_test_files": [
+      "packages/feature-store/tests/conftest.py",
+      "packages/feature-store/tests/test_batch_stream_parity.py",
+      "packages/feature-store/tests/test_tenant_isolation.py"
+    ],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "modality-registry",
+    "path": "packages/modality-registry",
+    "language": "python",
+    "kind": "data",
+    "entrypoints": [
+      "packages/modality-registry/src/deepsynaps_modality_registry/__init__.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "qa",
+    "path": "packages/qa",
+    "language": "python",
+    "kind": "service",
+    "entrypoints": [
+      "packages/qa/src/deepsynaps_qa/__init__.py"
+    ],
+    "current_test_files": [
+      "packages/qa/tests/test_checks_citations.py",
+      "packages/qa/tests/test_engine.py",
+      "packages/qa/tests/conftest.py",
+      "packages/qa/tests/test_checks_sections.py",
+      "packages/qa/tests/test_checks_banned_terms.py"
+    ],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web",
+    "path": "apps/web",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "src/app.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-agents",
+    "path": "apps/web/src/pages-agents.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-agents.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-brain-twin",
+    "path": "apps/web/src/pages-brain-twin.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-brain-twin.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-brainmap",
+    "path": "apps/web/src/pages-brainmap.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-brainmap.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-clinical",
+    "path": "apps/web/src/pages-clinical.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-clinical.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-clinical-hubs",
+    "path": "apps/web/src/pages-clinical-hubs.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-clinical-hubs.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-clinical-tools",
+    "path": "apps/web/src/pages-clinical-tools.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-clinical-tools.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-conditions",
+    "path": "apps/web/src/pages-conditions.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-conditions.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-consent",
+    "path": "apps/web/src/pages-consent.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-consent.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-courses",
+    "path": "apps/web/src/pages-courses.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-courses.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-deeptwin",
+    "path": "apps/web/src/pages-deeptwin.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-deeptwin.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-device-dashboard",
+    "path": "apps/web/src/pages-device-dashboard.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-device-dashboard.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-fusion-cards.test",
+    "path": "apps/web/src/pages-fusion-cards.test.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-fusion-cards.test.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-handbooks",
+    "path": "apps/web/src/pages-handbooks.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-handbooks.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-home-therapy",
+    "path": "apps/web/src/pages-home-therapy.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-home-therapy.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-knowledge",
+    "path": "apps/web/src/pages-knowledge.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-knowledge.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-monitor",
+    "path": "apps/web/src/pages-monitor.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-monitor.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-monitoring",
+    "path": "apps/web/src/pages-monitoring.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-monitoring.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-mri-analysis",
+    "path": "apps/web/src/pages-mri-analysis.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-mri-analysis.js"
+    ],
+    "current_test_files": [
+      "apps/web/src/pages-mri-analysis.test.js"
+    ],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-mri-analysis-brainage.test",
+    "path": "apps/web/src/pages-mri-analysis-brainage.test.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-mri-analysis-brainage.test.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-mri-analysis-compare.test",
+    "path": "apps/web/src/pages-mri-analysis-compare.test.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-mri-analysis-compare.test.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-mri-analysis-qc.test",
+    "path": "apps/web/src/pages-mri-analysis-qc.test.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-mri-analysis-qc.test.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-mri-analysis.test",
+    "path": "apps/web/src/pages-mri-analysis.test.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-mri-analysis.test.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-onboarding",
+    "path": "apps/web/src/pages-onboarding.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-onboarding.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-patient",
+    "path": "apps/web/src/pages-patient.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-patient.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-patient-analytics",
+    "path": "apps/web/src/pages-patient-analytics.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-patient-analytics.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-patient-timeline",
+    "path": "apps/web/src/pages-patient-timeline.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-patient-timeline.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-practice",
+    "path": "apps/web/src/pages-practice.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-practice.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-protocols",
+    "path": "apps/web/src/pages-protocols.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-protocols.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-public",
+    "path": "apps/web/src/pages-public.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-public.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-qeeg-analysis",
+    "path": "apps/web/src/pages-qeeg-analysis.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-qeeg-analysis.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-qeeg-analysis-ai-upgrades.test",
+    "path": "apps/web/src/pages-qeeg-analysis-ai-upgrades.test.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-qeeg-analysis-ai-upgrades.test.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-qeeg-analysis-mne.test",
+    "path": "apps/web/src/pages-qeeg-analysis-mne.test.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-qeeg-analysis-mne.test.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-qeeg-analysis-page.test",
+    "path": "apps/web/src/pages-qeeg-analysis-page.test.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-qeeg-analysis-page.test.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-qeeg-raw",
+    "path": "apps/web/src/pages-qeeg-raw.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-qeeg-raw.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-qeeg-viz",
+    "path": "apps/web/src/pages-qeeg-viz.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-qeeg-viz.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-registries",
+    "path": "apps/web/src/pages-registries.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-registries.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-research",
+    "path": "apps/web/src/pages-research.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-research.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-research-evidence",
+    "path": "apps/web/src/pages-research-evidence.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-research-evidence.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "web/pages-virtualcare",
+    "path": "apps/web/src/pages-virtualcare.js",
+    "language": "javascript",
+    "kind": "frontend-page",
+    "entrypoints": [
+      "pages-virtualcare.js"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "worker",
+    "path": "apps/worker",
+    "language": "python",
+    "kind": "service",
+    "entrypoints": [
+      "app/main.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "QA"
+  },
+  {
+    "module": "api/routers/evidence",
+    "path": "apps/api/app/routers/evidence_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in evidence_router.py"
+    ],
+    "current_test_files": [
+      "apps/api/tests/test_evidence_router.py"
+    ],
+    "owner_stream": "Scoring"
+  },
+  {
+    "module": "api/routers/risk_stratification",
+    "path": "apps/api/app/routers/risk_stratification_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in risk_stratification_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "Scoring"
+  },
+  {
+    "module": "evidence",
+    "path": "packages/evidence",
+    "language": "python",
+    "kind": "shared",
+    "entrypoints": [
+      "packages/evidence/src/deepsynaps_evidence/__init__.py"
+    ],
+    "current_test_files": [
+      "packages/evidence/tests/test_audit_hash.py",
+      "packages/evidence/tests/test_scoring.py",
+      "packages/evidence/tests/test_schemas.py"
+    ],
+    "owner_stream": "Scoring"
+  },
+  {
+    "module": "api/routers/qeeg_analysis",
+    "path": "apps/api/app/routers/qeeg_analysis_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in qeeg_analysis_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "qEEG"
+  },
+  {
+    "module": "api/routers/qeeg_copilot",
+    "path": "apps/api/app/routers/qeeg_copilot_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in qeeg_copilot_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "qEEG"
+  },
+  {
+    "module": "api/routers/qeeg_live",
+    "path": "apps/api/app/routers/qeeg_live_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in qeeg_live_router.py"
+    ],
+    "current_test_files": [
+      "apps/api/tests/test_qeeg_live_router.py"
+    ],
+    "owner_stream": "qEEG"
+  },
+  {
+    "module": "api/routers/qeeg_raw",
+    "path": "apps/api/app/routers/qeeg_raw_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in qeeg_raw_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "qEEG"
+  },
+  {
+    "module": "api/routers/qeeg_records",
+    "path": "apps/api/app/routers/qeeg_records_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in qeeg_records_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "qEEG"
+  },
+  {
+    "module": "api/routers/qeeg_viz",
+    "path": "apps/api/app/routers/qeeg_viz_router.py",
+    "language": "python",
+    "kind": "backend-api",
+    "entrypoints": [
+      "router = APIRouter(...) in qeeg_viz_router.py"
+    ],
+    "current_test_files": [],
+    "owner_stream": "qEEG"
+  },
+  {
+    "module": "qeeg-encoder",
+    "path": "packages/qeeg-encoder",
+    "language": "python",
+    "kind": "shared",
+    "entrypoints": [
+      "packages/qeeg-encoder/src/qeeg_encoder/__init__.py"
+    ],
+    "current_test_files": [
+      "packages/qeeg-encoder/tests/conftest.py",
+      "packages/qeeg-encoder/tests/test_foundation_loader.py",
+      "packages/qeeg-encoder/tests/test_lockcheck.py",
+      "packages/qeeg-encoder/tests/test_encoder.py",
+      "packages/qeeg-encoder/tests/test_tabular.py"
+    ],
+    "owner_stream": "qEEG"
+  },
+  {
+    "module": "qeeg-pipeline",
+    "path": "packages/qeeg-pipeline",
+    "language": "python",
+    "kind": "pipeline",
+    "entrypoints": [
+      "packages/qeeg-pipeline/src/deepsynaps_qeeg/__init__.py"
+    ],
+    "current_test_files": [
+      "packages/qeeg-pipeline/tests/test_brain_age.py",
+      "packages/qeeg-pipeline/tests/test_explainability.py",
+      "packages/qeeg-pipeline/tests/test_protocol_recommender.py",
+      "packages/qeeg-pipeline/tests/conftest.py",
+      "packages/qeeg-pipeline/tests/test_gamlss_normative.py"
+    ],
+    "owner_stream": "qEEG"
+  }
+]

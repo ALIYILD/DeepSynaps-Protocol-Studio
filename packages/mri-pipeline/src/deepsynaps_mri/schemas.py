@@ -133,6 +133,12 @@ class NormedValue(BaseModel):
     z: float | None = None
     percentile: float | None = None
     flagged: bool = False
+    # Optional decision-support fields surfaced to the consumer for safer
+    # interpretation. All default to ``None`` so existing payloads round-trip
+    # unchanged (back-compat for pipeline.py + the demo report).
+    reference_range: tuple[float, float] | None = None
+    confidence: Literal["low", "medium", "high"] | None = None
+    model_id: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +158,7 @@ class BrainAgePrediction(BaseModel):
     Research / wellness use only — not a clinical diagnostic.
     """
 
-    status: Literal["ok", "dependency_missing", "failed"] = "dependency_missing"
+    status: Literal["ok", "dependency_missing", "failed", "not_estimable"] = "dependency_missing"
     predicted_age_years: float | None = None
     chronological_age_years: float | None = None
     brain_age_gap_years: float | None = None
@@ -162,6 +168,29 @@ class BrainAgePrediction(BaseModel):
     mae_years_reference: float = 3.30          # Alzheimer's Res Ther 2025
     runtime_sec: float | None = None
     error_message: str | None = None
+    # Decision-support upgrades — added 2026-04-26 night-shift.
+    #
+    # ``confidence_band_years``: ± window (in years) around the prediction
+    # using the model's reference MAE. Surfaces ``[predicted - mae,
+    # predicted + mae]`` so clinicians can read "58.7 ± 3.3 y" not a raw
+    # point estimate.
+    #
+    # ``calibration_provenance``: human-readable note describing the
+    # training cohort + age range the model was calibrated on. Lets
+    # downstream callers spot out-of-distribution patients.
+    #
+    # ``not_estimable_reason``: when ``status='not_estimable'`` (added to
+    # the Literal above) the safety wrapper writes a short explanation
+    # here instead of returning a garbage age prediction.
+    #
+    # ``top_contributing_regions``: explainability hook — list of region
+    # names + signed contribution to the gap. Empty by default; populated
+    # by future per-region attribution work (Captum / SHAP). The schema
+    # field is here today so the API contract is stable.
+    confidence_band_years: tuple[float, float] | None = None
+    calibration_provenance: str | None = None
+    not_estimable_reason: str | None = None
+    top_contributing_regions: list[dict] = Field(default_factory=list)
 
 
 class StructuralMetrics(BaseModel):
@@ -321,6 +350,7 @@ class MRIReport(BaseModel):
     # something a radiologist should review. Does not block pipeline
     # progress — surfaced only.
     qc_warnings: list[str] = Field(default_factory=list)
+    clinical_summary: dict = Field(default_factory=dict)
 
     class Config:
         json_schema_extra = {

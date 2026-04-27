@@ -18,16 +18,36 @@ from deepsynaps_evidence.schemas import (
     ValidationRequest,
     ValidationResult,
 )
+from deepsynaps_evidence.score_response import (
+    Caution,
+    ConfidenceBand,
+    EvidenceRef,
+    MethodProvenance,
+    ScoreResponse,
+    ScoreScale,
+    TopContributor,
+    cap_confidence,
+    hash_inputs,
+)
 
 __all__ = [
+    "Caution",
     "Citation",
     "CitationType",
     "Claim",
+    "ConfidenceBand",
     "ConfidenceLabel",
     "EvidenceGrade",
+    "EvidenceRef",
     "IssueSeverity",
     "IssueType",
+    "MethodProvenance",
+    "ScoreResponse",
+    "ScoreScale",
+    "TopContributor",
     "ValidationIssue",
     "ValidationRequest",
     "ValidationResult",
+    "cap_confidence",
+    "hash_inputs",
 ]

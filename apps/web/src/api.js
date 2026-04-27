@@ -658,6 +658,19 @@ export const api = {
   evidenceForProtocol: (protocolId, { limit = 10 } = {}) =>
     apiFetch(`/api/v1/evidence/for-protocol/${encodeURIComponent(protocolId)}?limit=${limit}`),
 
+  evidencePatientOverview: (patientId) =>
+    apiFetch(`/api/v1/evidence/patient/${encodeURIComponent(patientId)}/overview`),
+  evidenceQuery: (data = {}) =>
+    apiFetch('/api/v1/evidence/query', { method: 'POST', body: JSON.stringify(data) }),
+  evidenceByFinding: (data = {}) =>
+    apiFetch('/api/v1/evidence/by-finding', { method: 'POST', body: JSON.stringify(data) }),
+  saveEvidenceCitation: (data = {}) =>
+    apiFetch('/api/v1/evidence/save-citation', { method: 'POST', body: JSON.stringify(data) }),
+  listEvidenceSavedCitations: (patientId) =>
+    apiFetch(`/api/v1/evidence/patient/${encodeURIComponent(patientId)}/saved-citations`),
+  evidenceReportPayload: (data = {}) =>
+    apiFetch('/api/v1/evidence/report-payload', { method: 'POST', body: JSON.stringify(data) }),
+
   // Public counts + last_updated timestamp (no auth required).
   evidenceStatus: () => apiFetch('/api/v1/evidence/status'),
 
@@ -763,6 +776,17 @@ export const api = {
     apiFetch('/api/v1/deeptwin/analyze', { method: 'POST', body: JSON.stringify(data) }),
   deeptwinSimulate: (data) =>
     apiFetch('/api/v1/deeptwin/simulate', { method: 'POST', body: JSON.stringify(data) }),
+  // TRIBE-inspired layer (additive)
+  deeptwinSimulateTribe: (data) =>
+    apiFetch('/api/v1/deeptwin/simulate-tribe', { method: 'POST', body: JSON.stringify(data) }),
+  deeptwinCompareProtocols: (data) =>
+    apiFetch('/api/v1/deeptwin/compare-protocols', { method: 'POST', body: JSON.stringify(data) }),
+  deeptwinPatientLatent: (data) =>
+    apiFetch('/api/v1/deeptwin/patient-latent', { method: 'POST', body: JSON.stringify(data) }),
+  deeptwinExplain: (data) =>
+    apiFetch('/api/v1/deeptwin/explain', { method: 'POST', body: JSON.stringify(data) }),
+  deeptwinReportPayload: (data) =>
+    apiFetch('/api/v1/deeptwin/report-payload', { method: 'POST', body: JSON.stringify(data) }),
   deeptwinEvidence: (data) =>
     apiFetch('/api/v1/deeptwin/evidence', { method: 'POST', body: JSON.stringify(data) }),
 

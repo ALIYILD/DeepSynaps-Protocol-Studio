@@ -6,6 +6,14 @@
 //     opened from a row click, deep-linked from URL, or DeepTwin tile.
 
 import { DEMO_PATIENT_ROSTER, demoPtFromRoster } from './patient-dashboard-helpers.js';
+import {
+  EvidenceChip,
+  PatientEvidenceTab,
+  createEvidenceQueryForTarget,
+  initEvidenceDrawer,
+  openEvidenceDrawer,
+  wireEvidenceChips,
+} from './evidence-intelligence.js';
 
 // ── Demo telemetry generators ────────────────────────────────────────────────
 // Deterministic pseudo-random so the same patient renders the same view
@@ -158,11 +166,11 @@ const CORRELATIONS_MATRIX = [
   [ 0.58, 0.46,-0.34,-0.30,-0.21,-0.42,-0.18, 1.00],
 ];
 const PREDICTIONS = [
-  { modality: 'tDCS — Continue',         remission: 0.62, weeks: 4, confidence: 0.78 },
-  { modality: 'rTMS DLPFC',              remission: 0.74, weeks: 4, confidence: 0.71 },
-  { modality: 'tFUS subgenual ACC',      remission: 0.69, weeks: 6, confidence: 0.62 },
-  { modality: 'Combo tDCS + CBT',        remission: 0.78, weeks: 6, confidence: 0.74 },
-  { modality: 'Taper to maintenance',    remission: 0.51, weeks: 8, confidence: 0.69 },
+  { modality: 'tDCS - Continue',         remission: 0.62, weeks: 4, confidence: 0.78, evidence: { targetName: 'protocol_ranking', label: '3 reviews + 8 cohorts', count: 27, level: 'high', modality: 'tdcs', intervention: 'tdcs' } },
+  { modality: 'rTMS DLPFC',              remission: 0.74, weeks: 4, confidence: 0.71, evidence: { targetName: 'protocol_ranking', label: 'High evidence', count: 34, level: 'high', modality: 'rtms', intervention: 'rtms' } },
+  { modality: 'tFUS subgenual ACC',      remission: 0.69, weeks: 6, confidence: 0.62, evidence: { targetName: 'protocol_ranking', label: 'Moderate evidence', count: 12, level: 'moderate', modality: 'tfus', intervention: 'tfus' } },
+  { modality: 'Combo tDCS + CBT',        remission: 0.78, weeks: 6, confidence: 0.74, evidence: { targetName: 'protocol_ranking', label: '27 papers', count: 27, level: 'high', modality: 'tdcs', intervention: 'cbt' } },
+  { modality: 'Taper to maintenance',    remission: 0.51, weeks: 8, confidence: 0.69, evidence: { targetName: 'protocol_ranking', label: '9 papers', count: 9, level: 'moderate', modality: 'neuromodulation' } },
 ];
 const HOME_TASKS = [
   { name: 'Morning mindfulness',  count: 24, expected: 28 },
@@ -384,7 +392,23 @@ function widgetBio(tel) {
     </div>`).join('')}</div>`;
 }
 
-function widgetQeeg() {
+function evidenceChipHtml(patientId, targetName, contextType, label, count, level, featureSummary = []) {
+  const query = createEvidenceQueryForTarget({
+    patientId,
+    targetName,
+    contextType,
+    featureSummary,
+  });
+  return EvidenceChip({
+    count,
+    evidenceLevel: level,
+    label,
+    compact: true,
+    query,
+  });
+}
+
+function widgetQeeg(_tel, patientId) {
   const max = 40;
   const bars = QEEG_BANDS.map(b => `
     <div class="pa-band-row">
@@ -395,13 +419,16 @@ function widgetQeeg() {
       </div>
       <span class="pa-band-val">${b.value}%</span>
     </div>`).join('');
+  const chip = evidenceChipHtml(patientId, 'frontal_alpha_asymmetry', 'biomarker', 'High evidence', 27, 'high', [
+    { name: 'Frontal alpha asymmetry', value: '+0.18', modality: 'qEEG', direction: 'elevated', contribution: 0.32 },
+  ]);
   return `<div class="pa-qeeg-row">
     ${svgHeadMap(QEEG_REGIONS, 130)}
-    <div class="pa-qeeg-bars">${bars}<div class="pa-qeeg-note">✦ Frontal alpha asymmetry +0.18 → improving</div></div>
+    <div class="pa-qeeg-bars">${bars}<div class="pa-qeeg-note">Frontal alpha asymmetry +0.18 -> improving ${chip}</div></div>
   </div>`;
 }
 
-function widgetMri() {
+function widgetMri(_tel, patientId) {
   const slice = `<svg width="100%" height="100%" viewBox="0 0 200 90" preserveAspectRatio="xMidYMid meet">
     <ellipse cx="100" cy="45" rx="78" ry="38" fill="none" stroke="rgba(91,182,255,0.4)" stroke-width="0.7"/>
     <path d="M 30 45 Q 50 20 100 22 Q 150 20 170 45" fill="none" stroke="rgba(91,182,255,0.3)" stroke-width="0.5"/>
@@ -413,11 +440,14 @@ function widgetMri() {
     <line x1="0" y1="50" x2="200" y2="50" stroke="rgba(91,182,255,0.18)" stroke-dasharray="2 3"/>
     <text x="195" y="84" font-size="6" fill="rgba(255,255,255,0.4)" text-anchor="end" font-family="var(--font-mono)">3T · T1 · axial</text>
   </svg>`;
-  const rows = MRI_FINDINGS.map(f => `
+  const rows = MRI_FINDINGS.map((f, idx) => `
     <div class="pa-mri-row">
       <span class="pa-mri-region">${esc(f.region)}</span>
       <span class="pa-mri-val">${f.current}${f.unit}</span>
       <span class="pa-mri-delta" style="color:${f.delta>0?'#3EE0C5':'#FF6B8B'}">${f.delta>0?'+':''}${f.delta}%</span>
+      ${idx < 2 ? evidenceChipHtml(patientId, 'hippocampal_atrophy', 'biomarker', idx === 0 ? 'MCI support' : 'MRI evidence', 18, 'moderate', [
+        { name: f.region, value: `${f.current}${f.unit}`, modality: 'MRI', direction: f.delta > 0 ? 'above prior' : 'below prior', contribution: 0.26 },
+      ]) : ''}
     </div>`).join('');
   return `<div class="pa-mri-slice">${slice}</div><div class="pa-mri-list">${rows}</div>`;
 }
@@ -493,7 +523,7 @@ function widgetScreen() {
   </div>`;
 }
 
-function widgetVoice() {
+function widgetVoice(_tel, patientId) {
   const bars = Array.from({ length: 50 }).map((_, i) => {
     const h = 6 + Math.abs(Math.sin(i * 0.7) * 12 + Math.cos(i * 0.3) * 6);
     return `<rect x="${i*4}" y="${18 - h/2}" width="2" height="${h}" rx="1" fill="#8B7DFF" opacity="${(0.4 + (i / 50) * 0.5).toFixed(2)}"/>`;
@@ -504,17 +534,23 @@ function widgetVoice() {
       <span class="pa-voice-cur">${v.current}</span>
       <span class="pa-voice-arrow">↗</span>
     </div>`).join('');
-  return `<svg width="100%" height="36" viewBox="0 0 200 36" preserveAspectRatio="none">${bars}</svg>
+  return `<div class="ds-evidence-card-head">${evidenceChipHtml(patientId, 'voice_affect', 'multimodal_summary', 'Voice evidence', 14, 'moderate', [
+      { name: 'Pause ratio', value: '0.18', modality: 'Voice', direction: 'down', contribution: 0.18 },
+    ])}</div>
+    <svg width="100%" height="36" viewBox="0 0 200 36" preserveAspectRatio="none">${bars}</svg>
     <div class="pa-voice-list">${rows}</div>`;
 }
 
-function widgetVideo() {
+function widgetVideo(_tel, patientId) {
   const emotions = [
     { name: 'Neutral',  v: 38, c: '#9BAEC2' }, { name: 'Calm',    v: 28, c: '#3EE0C5' },
     { name: 'Engaged',  v: 18, c: '#5BB6FF' }, { name: 'Sad',     v:  9, c: '#8B7DFF' },
     { name: 'Anxious',  v:  7, c: '#F6B23C' },
   ];
-  return `<div class="pa-video-frame">
+  return `<div class="ds-evidence-card-head">${evidenceChipHtml(patientId, 'video_affect', 'multimodal_summary', 'Affect evidence', 11, 'moderate', [
+      { name: 'Facial affect', value: 'Calm/engaged 46%', modality: 'Video', direction: 'protective', contribution: 0.16 },
+    ])}</div>
+    <div class="pa-video-frame">
       <svg width="100%" height="100%" viewBox="0 0 200 50">
         <ellipse cx="100" cy="25" rx="22" ry="18" fill="none" stroke="rgba(255,107,139,0.3)" stroke-width="0.6"/>
         <circle cx="92" cy="20" r="0.8" fill="#FF6B8B"/><circle cx="108" cy="20" r="0.8" fill="#FF6B8B"/>
@@ -527,7 +563,7 @@ function widgetVideo() {
     <div class="pa-video-legend">${emotions.slice(0,4).map(e => `<span><span class="pa-dot" style="background:${e.c}"></span>${e.name} ${e.v}%</span>`).join('')}</div>`;
 }
 
-function widgetText() {
+function widgetText(_tel, patientId) {
   const w = 200, h = 68, p = { l: 4, r: 4, t: 4, b: 4 };
   const points = TEXT_SENTIMENT.map((d, i) => ({
     x: p.l + (i / (TEXT_SENTIMENT.length - 1)) * (w - p.l - p.r),
@@ -537,7 +573,10 @@ function widgetText() {
   const yFor = (v) => p.t + (1 - v / yMax) * (h - p.t - p.b);
   const valencePath = points.map((q, i) => `${i === 0 ? 'M' : 'L'}${q.x.toFixed(1)},${yFor(q.valence).toFixed(1)}`).join(' ');
   const arousalPath = points.map((q, i) => `${i === 0 ? 'M' : 'L'}${q.x.toFixed(1)},${yFor(q.arousal).toFixed(1)}`).join(' ');
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+  return `<div class="ds-evidence-card-head">${evidenceChipHtml(patientId, 'text_sentiment', 'multimodal_summary', 'Text evidence', 19, 'moderate', [
+      { name: 'Anxious language ratio', value: '-62%', modality: 'Text', direction: 'improving', contribution: 0.22 },
+    ])}</div>
+  <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
     <path d="${valencePath} L${points.at(-1).x},${h-p.b} L${points[0].x},${h-p.b} Z" fill="#5BB6FF" fill-opacity="0.08"/>
     <path d="${valencePath}" fill="none" stroke="#5BB6FF" stroke-width="1.5"/>
     <path d="${arousalPath}" fill="none" stroke="#FF6B8B" stroke-width="1.5"/>
@@ -575,9 +614,10 @@ function widgetCorrelation() {
   return s;
 }
 
-function widgetPredictions() {
+function widgetPredictions(_tel, patientId) {
   return `<div class="pa-pred">${PREDICTIONS.map((p, i) => {
     const top = i === 3;
+    const targetName = i === 1 ? 'protocol_ranking' : 'depression_risk';
     return `<div class="pa-pred-row${top ? ' top' : ''}">
       ${top ? '<span class="pa-pred-spark">✦</span>' : ''}
       <span class="pa-pred-mod">${esc(p.modality)}</span>
@@ -585,6 +625,9 @@ function widgetPredictions() {
       <div class="pa-pred-bar"><div style="width:${(p.remission*100).toFixed(0)}%"></div></div>
       <span class="pa-pred-pct">${(p.remission*100).toFixed(0)}%</span>
       <span class="pa-pred-conf">±${((1-p.confidence)*100).toFixed(0)}% · ${p.weeks}w</span>
+      ${evidenceChipHtml(patientId, targetName, i === 1 ? 'recommendation' : 'prediction', top ? '3 reviews + 8 cohorts' : 'High evidence', top ? 31 : 27, top ? 'high' : 'moderate', [
+        { name: p.modality, value: `${(p.remission*100).toFixed(0)}% remission`, modality: 'DeepTwin', direction: 'supports', contribution: p.confidence },
+      ])}
     </div>`;
   }).join('')}</div>`;
 }
@@ -602,17 +645,17 @@ function widgetEhr() {
 
 const WIDGETS = [
   { id: 'biometrics',  title: 'Biometrics & Wearables',  icon: '❤',  source: 'Apple Watch · Oura · Whoop', col: 'span 4', h: 220, body: widgetBio,         color: '#3EE0C5' },
-  { id: 'predictions', title: 'Predictions',             icon: '✦',  source: 'DeepTwin engine',           col: 'span 4', h: 220, body: () => widgetPredictions(), ai: true, color: '#3EE0C5' },
-  { id: 'qeeg',        title: 'qEEG',                    icon: '〰', source: '32-channel · 256Hz',        col: 'span 4', h: 220, body: () => widgetQeeg(),  ai: true, color: '#8B7DFF' },
+  { id: 'predictions', title: 'Predictions',             icon: '✦',  source: 'DeepTwin engine',           col: 'span 4', h: 220, body: widgetPredictions, ai: true, color: '#3EE0C5' },
+  { id: 'qeeg',        title: 'qEEG',                    icon: '〰', source: '32-channel · 256Hz',        col: 'span 4', h: 220, body: widgetQeeg,  ai: true, color: '#8B7DFF' },
   { id: 'assessments', title: 'Assessments',             icon: '📋', source: '8 active scales',           col: 'span 3', h: 200, body: widgetAssessments,    color: '#FF6B8B' },
-  { id: 'mri',         title: 'MRI / Imaging',           icon: '🧠', source: '3T structural · fMRI',      col: 'span 3', h: 200, body: () => widgetMri(),  ai: true, color: '#5BB6FF' },
+  { id: 'mri',         title: 'MRI / Imaging',           icon: '🧠', source: '3T structural · fMRI',      col: 'span 3', h: 200, body: widgetMri,  ai: true, color: '#5BB6FF' },
   { id: 'therapy',     title: 'Therapy adherence',       icon: '🏠', source: 'Home + clinic',             col: 'span 3', h: 200, body: () => widgetTherapy(), color: '#3EE0C5' },
   { id: 'medications', title: 'Medications',             icon: '💊', source: '4 active · 1 PRN',          col: 'span 3', h: 200, body: () => widgetMeds(),    color: '#8B7DFF' },
   { id: 'screen',      title: 'Screen & digital phenotype', icon: '📱', source: 'Passive sensing',         col: 'span 3', h: 180, body: () => widgetScreen(),  color: '#F6B23C' },
   { id: 'correlation', title: 'Correlation matrix',      icon: '⫶',  source: 'All signals',               col: 'span 3', h: 180, body: () => widgetCorrelation(), ai: true, color: '#3EE0C5' },
-  { id: 'voice',       title: 'Voice & speech',          icon: '🎤', source: 'Daily 90s sample',           col: 'span 2', h: 180, body: () => widgetVoice(),  ai: true, color: '#8B7DFF' },
-  { id: 'video',       title: 'Video / facial affect',   icon: '🎥', source: 'Session capture',           col: 'span 2', h: 180, body: () => widgetVideo(), ai: true, color: '#FF6B8B' },
-  { id: 'text',        title: 'Text sentiment',          icon: '💬', source: 'Journals + chat',           col: 'span 2', h: 180, body: () => widgetText(),  ai: true, color: '#5BB6FF' },
+  { id: 'voice',       title: 'Voice & speech',          icon: '🎤', source: 'Daily 90s sample',           col: 'span 2', h: 180, body: widgetVoice,  ai: true, color: '#8B7DFF' },
+  { id: 'video',       title: 'Video / facial affect',   icon: '🎥', source: 'Session capture',           col: 'span 2', h: 180, body: widgetVideo, ai: true, color: '#FF6B8B' },
+  { id: 'text',        title: 'Text sentiment',          icon: '💬', source: 'Journals + chat',           col: 'span 2', h: 180, body: widgetText,  ai: true, color: '#5BB6FF' },
   { id: 'location',    title: 'Location & mobility',     icon: '📍', source: 'GPS · activity',            col: 'span 3', h: 140, body: () => widgetLocation(), color: '#B6E66A' },
   { id: 'ehr',         title: 'EMR & medical records',   icon: '📄', source: 'Connected: Epic',           col: 'span 3', h: 140, body: () => widgetEhr(),  color: '#9BAEC2' },
 ];
@@ -632,12 +675,12 @@ function renderWidget(w, body) {
 }
 
 // ── Patient header strip ────────────────────────────────────────────────────
-function renderHeader(p, tel) {
-  const phqDelta = Math.round(tel.seriesPHQ.at(-1) - tel.phqStart);
+function renderHeader(p, tel, activeTab = 'analytics') {
+  const phqDelta = Math.round(tel.seriesPHQ[tel.seriesPHQ.length - 1] - tel.phqStart);
   return `<div class="pa-header">
     <div class="pa-header-tabs">
-      ${['Overview','Analytics','Sessions','Notes','Documents','Protocols','Devices'].map((l, i) =>
-        `<button class="pa-tab${l === 'Analytics' ? ' is-active' : ''}" data-pa-tab="${l.toLowerCase()}">${l}</button>`).join('')}
+      ${['Overview','Analytics','Evidence','Sessions','Notes','Documents','Protocols','Devices'].map((l) =>
+        `<button class="pa-tab${l.toLowerCase() === activeTab ? ' is-active' : ''}" data-pa-tab="${l.toLowerCase()}">${l}</button>`).join('')}
     </div>
     <div class="pa-header-id">
       <div class="pa-header-avatar" style="background:${avatarColor(p)}">${initials(p)}</div>
@@ -645,7 +688,7 @@ function renderHeader(p, tel) {
         <div class="pa-header-name-row">
           <h1>${esc((p.first_name||'') + ' ' + (p.last_name||''))}</h1>
           <span class="pa-chip pa-chip-sky">DEMO PATIENT</span>
-          ${tel.seriesPHQ.at(-1) <= 10 ? '<span class="pa-chip pa-chip-mint">RESPONDER</span>' : ''}
+          ${tel.seriesPHQ[tel.seriesPHQ.length - 1] <= 10 ? '<span class="pa-chip pa-chip-mint">RESPONDER</span>' : ''}
           <span class="pa-chip pa-chip-amber">2 ALERTS</span>
         </div>
         <div class="pa-header-meta">
@@ -664,7 +707,7 @@ function renderHeader(p, tel) {
     <div class="pa-strip">
       ${stripStat('Course week', '13/14', '↑ 92% complete', '#3EE0C5')}
       ${stripStat('Sessions', `${tel.sessionsCompleted}/${tel.sessionsTotal}`, '2 missed', '#3EE0C5')}
-      ${stripStat('PHQ-9 Δ', `${phqDelta}`, `${tel.phqStart} → ${Math.round(tel.seriesPHQ.at(-1))}`, '#3EE0C5')}
+      ${stripStat('PHQ-9 Delta', `${phqDelta}`, `${tel.phqStart} -> ${Math.round(tel.seriesPHQ[tel.seriesPHQ.length - 1])}`, '#3EE0C5')}
       ${stripStat('Adherence', tel.adherence + '%', '30-day', '#3EE0C5')}
       ${stripStat('Risk index', String(tel.riskScore), '↓ low', '#F6B23C')}
       ${stripStat('Last session', 'Yesterday', '09:14 · 30 min', 'var(--text-primary)')}
@@ -793,13 +836,15 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
     `<button class="btn btn-primary btn-sm" onclick="window._selectedPatientId='${esc(id)}';window._profilePatientId='${esc(id)}';try{sessionStorage.setItem('ds_pat_selected_id','${esc(id)}')}catch(e){};window._nav('deeptwin')" style="margin-left:6px">🧠 Open DeepTwin →</button>`
   );
 
-  const header = renderHeader(p, tel);
+  const activeTab = window._paActiveTab || 'analytics';
+  const header = renderHeader(p, tel, activeTab);
   const timeline = renderTimelineHero(tel);
-  const grid = WIDGETS.map(w => renderWidget(w, w.body(tel))).join('');
+  const grid = WIDGETS.map(w => renderWidget(w, w.body(tel, id))).join('');
+  const evidenceTab = PatientEvidenceTab({ patientId: id });
 
   el.innerHTML = `<div class="pa-shell">
     ${header}
-    <div class="pa-body">
+    <div class="pa-body" style="${activeTab === 'analytics' ? '' : 'display:none'}">
       ${timeline}
       <div class="pa-grid-head">
         <div class="pa-overline">DOMAIN GRID</div>
@@ -807,6 +852,9 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
         <span class="pa-grid-count">${WIDGETS.length} panels · click any to drill in</span>
       </div>
       <div class="pa-grid">${grid}</div>
+    </div>
+    <div class="pa-body" style="${activeTab === 'evidence' ? '' : 'display:none'}">
+      ${evidenceTab}
     </div>
     <footer class="pa-foot">
       <span class="mono">DeepSynaps Studio · v3.2.1</span>
@@ -818,6 +866,14 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
       <span class="pa-foot-live"><span class="pa-foot-dot"></span> All systems live</span>
     </footer>
   </div>`;
+
+  initEvidenceDrawer({ patientId: id, onOpenFullTab: () => {
+    window._paActiveTab = 'evidence';
+    window._nav('patient-analytics');
+  }});
+  wireEvidenceChips(el, {
+    onOpen: (query) => openEvidenceDrawer(query),
+  });
 
   // Actions
   el.querySelectorAll('[data-pa-action="open-deeptwin"]').forEach(b =>
@@ -833,8 +889,23 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
     b.addEventListener('click', () => { window._dsToast?.({ title: 'Report', body: 'Per-widget report generation queued.', severity: 'info' }); }));
   el.querySelectorAll('[data-pa-tab]').forEach(t => t.addEventListener('click', () => {
     const which = t.getAttribute('data-pa-tab');
-    if (which === 'analytics') return;
+    if (which === 'analytics' || which === 'evidence') {
+      window._paActiveTab = which;
+      window._nav('patient-analytics');
+      return;
+    }
     window._profilePatientId = id;
     window._nav('patient-profile');
   }));
 }
+
+export const DS_EVIDENCE_TEST_EXPORTS = {
+  evidenceChipHtml,
+  renderHeader,
+  widgetPredictions,
+  widgetQeeg,
+  widgetMri,
+  widgetVoice,
+  widgetVideo,
+  widgetText,
+};

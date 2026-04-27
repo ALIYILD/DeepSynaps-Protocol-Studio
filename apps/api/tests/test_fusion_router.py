@@ -104,6 +104,8 @@ def test_fusion_recommendation_combines_latest_qeeg_and_mri(
     assert body["confidence_disclaimer"]
     assert "heuristic" in body["confidence_disclaimer"]
     assert body["confidence_grade"] == "heuristic"
+    assert body["modality_agreement"]["status"] == "multimodal_available"
+    assert "limitations" in body and body["limitations"]
 
 
 def test_fusion_recommendation_fails_soft_for_single_modality(
@@ -141,6 +143,7 @@ def test_fusion_recommendation_fails_soft_for_single_modality(
     assert any("Add MRI" in item or "missing" in item for item in body["recommendations"])
     assert body["confidence_disclaimer"]
     assert body["confidence_grade"] == "heuristic"
+    assert "MRI" in body["missing_modalities"]
 
 
 def test_fusion_recommendation_returns_empty_state_when_no_modalities_exist(

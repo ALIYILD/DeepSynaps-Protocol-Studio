@@ -30,6 +30,10 @@ class FusionRecommendationResponse(BaseModel):
     recommendations: list[str] = Field(default_factory=list)
     partial: bool = False
     generated_at: str
+    confidence_details: dict = Field(default_factory=dict)
+    modality_agreement: dict = Field(default_factory=dict)
+    explainability: dict = Field(default_factory=dict)
+    safety_statement: str | None = None
 
 
 @router.post("/recommend/{patient_id}", response_model=FusionRecommendationResponse)

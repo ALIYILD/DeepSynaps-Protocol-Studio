@@ -1292,6 +1292,27 @@ class LiteratureReadingList(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
+class EvidenceSavedCitation(Base):
+    """Patient-linked citation saved from an Evidence Intelligence result."""
+    __tablename__ = "evidence_saved_citations"
+    __table_args__ = (
+        UniqueConstraint("actor_id", "patient_id", "finding_id", "paper_id", name="uq_evidence_saved_citation"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    actor_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    patient_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    finding_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    finding_label: Mapped[str] = mapped_column(String(255), nullable=False)
+    claim: Mapped[str] = mapped_column(Text(), nullable=False)
+    paper_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    paper_title: Mapped[str] = mapped_column(Text(), nullable=False)
+    pmid: Mapped[Optional[str]] = mapped_column(String(60), nullable=True, index=True)
+    doi: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    citation_payload_json: Mapped[str] = mapped_column(Text(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
 class LiteratureCuration(Base):
     """Per-user curation verdict on a literature-watch paper, keyed by PMID.
 

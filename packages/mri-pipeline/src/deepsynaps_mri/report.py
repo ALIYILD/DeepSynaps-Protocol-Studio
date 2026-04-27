@@ -41,6 +41,8 @@ _HTML_TEMPLATE = r"""<!doctype html>
  .muted { color: var(--muted); }
  .grid { display:grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
  .card { background: var(--panel); border:1px solid #e5e7eb; border-radius:10px; padding:14px; }
+ .warn { color:#92400e; background:#fffbeb; border:1px solid #fcd34d; border-radius:8px; padding:8px; margin:6px 0; }
+ .json-block { white-space:pre-wrap; font-family:Menlo, Consolas, monospace; font-size:10px; background:#0f172a; color:#e2e8f0; padding:10px; border-radius:8px; }
  .target-row iframe { width:100%; height:320px; border:0; border-radius:8px; }
  .xyz { font-variant-numeric: tabular-nums; font-family: "Menlo", monospace; font-size: 12px; color: var(--muted); }
 </style>
@@ -73,6 +75,29 @@ _HTML_TEMPLATE = r"""<!doctype html>
     <tr><td>DTI outlier volumes</td><td>{{ report.qc.dti_outlier_volumes or "—" }}</td></tr>
     <tr><td>Passed</td><td>{{ "yes" if report.qc.passed else "no" }}</td></tr>
   </table>
+
+  {% if report.clinical_summary %}
+  <h2>Clinical review summary</h2>
+  <div class="card">
+    <div><b>Readiness:</b> {{ report.clinical_summary.readiness }}
+      · <b>Confidence:</b> {{ "%.0f"|format(report.clinical_summary.confidence.score * 100) }}%
+      ({{ report.clinical_summary.confidence.level }})</div>
+    <p class="muted">{{ report.clinical_summary.safety_statement }}</p>
+    {% for flag in report.clinical_summary.data_quality.flags %}
+      <div class="warn"><b>{{ flag.severity|upper }}</b>: {{ flag.message }}</div>
+    {% endfor %}
+    <h3>Observed findings</h3>
+    {% if report.clinical_summary.observed_findings %}
+      <ul>{% for finding in report.clinical_summary.observed_findings %}<li>{{ finding.statement }}</li>{% endfor %}</ul>
+    {% else %}
+      <p class="muted">No salient observed findings selected for this report.</p>
+    {% endif %}
+    <h3>Derived interpretation</h3>
+    <ul>{% for item in report.clinical_summary.derived_interpretations %}<li>{{ item.statement }} <span class="muted">Confidence: {{ item.confidence }}</span></li>{% endfor %}</ul>
+    <h3>Limitations</h3>
+    <ul>{% for item in report.clinical_summary.limitations %}<li>{{ item }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
 
   {% if report.structural %}
   <h2>Structural</h2>
@@ -139,6 +164,10 @@ _HTML_TEMPLATE = r"""<!doctype html>
     (see DOIs per target). Not a substitute for clinician judgment and not a medical device. For neuronavigation
     planning only.
   </div>
+  {% if report.clinical_summary %}
+  <h2>Machine-readable JSON payload</h2>
+  <pre class="json-block">{{ report.clinical_summary.model_dump_json(indent=2) }}</pre>
+  {% endif %}
 </div>
 </body>
 </html>
