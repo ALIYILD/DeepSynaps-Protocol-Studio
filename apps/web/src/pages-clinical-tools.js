@@ -9547,6 +9547,8 @@ export async function pgDocumentsHub(setTopbar) {
           ${d.assignedDate ? `<span>Assigned: ${esc(d.assignedDate)}</span>` : ''}
           ${d.completedDate ? `<span>Completed: ${esc(d.completedDate)}</span>` : ''}
           ${d.updatedDate && d.updatedDate !== d.completedDate ? `<span>Updated: ${esc(d.updatedDate)}</span>` : ''}
+          ${d.status === 'generated' && !d.fileRef && !d.url ? '<span>Draft only: no generated file attached</span>' : ''}
+          ${d.status === 'uploaded' && d.fileRef ? '<span>Stored file available</span>' : ''}
         </div>
       </div>
       <div class="dh-doc-actions">
@@ -9580,7 +9582,7 @@ export async function pgDocumentsHub(setTopbar) {
       required:     ['No missing documents', 'All required intake and consent forms are complete.'],
       completed:    ['No completed documents yet', 'Completed and signed forms will appear here.'],
       'pending-sig':['No pending signatures', 'Documents awaiting signature will appear here.'],
-      generated:    ['No generated documents', 'Discharge summaries, letters, and PDFs will appear here.'],
+      generated:    ['No draft documents', 'Locally saved draft letters and summaries will appear here until a real file is uploaded or generated elsewhere.'],
       uploaded:     ['No uploaded documents', 'Manually uploaded files will appear here.'],
     };
     const [title, body] = msgs[tab] || ['Nothing here', ''];
