@@ -2524,8 +2524,16 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
     if (meta) { meta.lastMsg = text; meta.lastAt = new Date().toISOString(); meta.unread = 0; }
     _vc.messageText = '';
     renderPage();
-    try { await api.sendPatientMessage?.(pid, text); } catch {}
-    window._showNotifToast?.({ title:'Sent', body:'Message delivered to patient.', severity:'success' });
+    let delivered = false;
+    try {
+      const res = await api.sendPatientMessage?.(pid, text);
+      if (res !== false) delivered = true;
+    } catch {}
+    window._showNotifToast?.(
+      delivered
+        ? { title:'Sent', body:'Message accepted by the patient messaging backend.', severity:'success' }
+        : { title:'Saved locally', body:'Message was stored in this browser only. Patient delivery did not complete.', severity:'warning' }
+    );
   };
 
   window._vcStartCall = (type, pid) => {

@@ -10920,7 +10920,7 @@ export async function pgDecisionSupport(setTopbar) {
     const info = MODALITY_INDICATIONS[modality];
     const icon = DS_MODALITY_ICONS[modality] || '&#9670;';
     const name = modality.charAt(0).toUpperCase() + modality.slice(1);
-    window._showNotifToast?.({ title: `${icon} ${name} selected`, body: `Indicated for: ${info.conditions.slice(0,3).join(', ')}${info.conditions.length > 3 ? ' +more' : ''}. Opening Protocol Builder…`, severity: 'info' });
+    window._showNotifToast?.({ title: `${icon} ${name} selected`, body: `Indicated for: ${info.conditions.slice(0,3).join(', ')}${info.conditions.length > 3 ? ' +more' : ''}. Opening protocol wizard…`, severity: 'info' });
     window._nav?.('protocol-wizard');
   };
 
