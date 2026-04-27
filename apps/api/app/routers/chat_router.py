@@ -8,7 +8,17 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_patient_owner
+from app.repositories.patients import resolve_patient_clinic_id
+
+
+def _gate_chat_patient(actor: AuthenticatedActor, patient_id: str | None, db: Session) -> None:
+    """Cross-clinic gate for chat endpoints that pull patient PHI into the LLM prompt."""
+    if not patient_id:
+        return
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.limiter import limiter
@@ -156,6 +166,7 @@ def clinician_chat(
 ) -> ChatResponse:
     from app.auth import require_minimum_role
     require_minimum_role(actor, "clinician")
+    _gate_chat_patient(actor, body.patient_id, db)
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
     # Auto-inject clinician-authored assessment context so the LLM sees current
     # severity without the caller having to stringify it manually. If
@@ -403,6 +414,7 @@ def wearable_clinician_chat(
     """Clinician requests AI summary of a patient's wearable + clinical data."""
     from app.auth import require_minimum_role
     require_minimum_role(actor, "clinician")
+    _gate_chat_patient(actor, body.patient_id, db)
 
     patient = db.query(Patient).filter_by(id=body.patient_id).first()
     if patient is None:
