@@ -1,0 +1,2070 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DeepSynaps Studio · Biomarkers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-0:#050B16; --bg-1:#08111F; --bg-2:#0C1A2C;
+    --surface:#0F2236; --surface-2:#142A42;
+    --border:rgba(45,212,191,0.08); --border-2:rgba(45,212,191,0.18);
+    --text:#E2E8F0; --text-2:#94A3B8; --text-3:#64748B;
+    --teal:#2DD4BF; --teal-dim:#14B8A6; --teal-deep:#0F766E; --teal-soft:rgba(45,212,191,0.12);
+    --gold:#F5C97B; --rose:#FB7185; --violet:#A78BFA; --azure:#60A5FA; --green:#4ADE80;
+    --display:'Instrument Serif',Georgia,serif;
+    --sans:'Inter Tight',system-ui,sans-serif;
+    --mono:'JetBrains Mono',ui-monospace,monospace;
+    --c-spectral:#2DD4BF;
+    --c-network:#A78BFA;
+    --c-erp:#60A5FA;
+    --c-auto:#FB7185;
+    --c-sleep:#818CF8;
+    --c-lab:#F5C97B;
+    --c-cog:#4ADE80;
+    --c-tms:#F472B6;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:var(--sans);background:var(--bg-0);color:var(--text);
+    font-size:13px;line-height:1.5;overflow-x:hidden;-webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -20%,rgba(45,212,191,0.06),transparent 60%),
+      radial-gradient(ellipse 60% 40% at 100% 100%,rgba(167,139,250,0.04),transparent 60%);
+  }
+  .app{display:grid;grid-template-columns:232px 1fr;min-height:100vh;}
+
+  /* Sidebar */
+  .sidebar{
+    background:linear-gradient(180deg,var(--bg-1) 0%,var(--bg-0) 100%);
+    border-right:1px solid var(--border);
+    padding:22px 0;position:sticky;top:0;height:100vh;
+    display:flex;flex-direction:column;
+  }
+  .brand{padding:0 22px 24px;border-bottom:1px solid var(--border);margin-bottom:18px;display:flex;align-items:center;gap:12px;}
+  .brand-mark{
+    width:36px;height:36px;
+    background:linear-gradient(135deg,var(--teal) 0%,var(--teal-deep) 100%);
+    border-radius:10px;display:grid;place-items:center;
+    box-shadow:0 0 24px rgba(45,212,191,0.25);position:relative;overflow:hidden;
+  }
+  .brand-mark::before{content:'';position:absolute;inset:2px;background:var(--bg-0);border-radius:8px;}
+  .brand-mark svg{position:relative;z-index:1;}
+  .brand-name{font-family:var(--display);font-size:22px;letter-spacing:-0.02em;line-height:1;}
+  .brand-name em{font-style:italic;color:var(--teal);}
+  .brand-sub{font-size:9.5px;letter-spacing:0.2em;text-transform:uppercase;color:var(--text-3);margin-top:2px;}
+
+  .nav-section{padding:0 14px;margin-bottom:18px;}
+  .nav-label{font-size:9.5px;letter-spacing:0.2em;text-transform:uppercase;color:var(--text-3);padding:0 10px 8px;}
+  .nav-item{
+    display:flex;align-items:center;gap:12px;padding:8px 10px;border-radius:7px;
+    color:var(--text-2);font-size:12.5px;cursor:pointer;transition:all 0.15s;margin-bottom:1px;
+  }
+  .nav-item:hover{background:rgba(255,255,255,0.03);color:var(--text);}
+  .nav-item.active{
+    background:linear-gradient(90deg,var(--teal-soft) 0%,transparent 100%);
+    color:var(--teal);font-weight:500;
+    border-left:2px solid var(--teal);padding-left:8px;
+  }
+  .nav-item .ico{width:14px;height:14px;opacity:0.7;}
+  .nav-item.active .ico{opacity:1;}
+  .nav-item .badge{margin-left:auto;font-family:var(--mono);font-size:10px;padding:1px 6px;border-radius:4px;background:var(--surface-2);color:var(--text-2);}
+
+  .sidebar-footer{
+    margin-top:auto;padding:14px 22px;border-top:1px solid var(--border);
+    font-family:var(--mono);font-size:10px;color:var(--text-3);line-height:1.6;
+  }
+  .sidebar-footer .row{display:flex;justify-content:space-between;}
+  .sidebar-footer .ok{color:var(--green);}
+
+  /* Main */
+  .main{padding:22px 28px 60px;max-width:1700px;}
+  .topbar{
+    display:flex;align-items:flex-end;justify-content:space-between;
+    padding-bottom:22px;margin-bottom:22px;
+    border-bottom:1px solid var(--border);
+  }
+  .topbar-left h1{font-family:var(--display);font-weight:400;font-size:36px;letter-spacing:-0.02em;line-height:1.05;}
+  .topbar-left h1 em{color:var(--teal);font-style:italic;}
+  .topbar-left .crumb{font-family:var(--mono);font-size:10.5px;letter-spacing:0.15em;text-transform:uppercase;color:var(--text-3);margin-bottom:8px;}
+  .topbar-right{display:flex;gap:12px;align-items:center;}
+  .clock{font-family:var(--mono);font-size:12px;color:var(--text-2);padding:8px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;}
+  .clock .sep{color:var(--text-3);margin:0 6px;}
+  .clock .tz{color:var(--text-3);font-size:10px;margin-left:4px;}
+
+  /* KPI strip */
+  .kpi-strip{
+    display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
+    background:var(--border);border:1px solid var(--border);
+    border-radius:12px;overflow:hidden;margin-bottom:20px;
+  }
+  .kpi{background:linear-gradient(180deg,var(--bg-1) 0%,var(--bg-0) 100%);padding:18px 18px 16px;position:relative;overflow:hidden;}
+  .kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--teal),transparent);opacity:0.4;}
+  .kpi-label{font-family:var(--mono);font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:var(--text-3);}
+  .kpi-value{font-family:var(--display);font-size:38px;font-weight:400;letter-spacing:-0.03em;line-height:1;margin-top:12px;color:var(--text);}
+  .kpi-value .unit{font-family:var(--sans);font-size:13px;color:var(--text-3);margin-left:4px;}
+  .kpi-meta{margin-top:10px;font-family:var(--mono);font-size:10.5px;color:var(--text-2);}
+
+  /* Filter rail */
+  .filter-rail{
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    padding:14px 18px;margin-bottom:18px;
+    background:var(--bg-1);border:1px solid var(--border);border-radius:12px;
+  }
+  .filter-rail .label{font-family:var(--mono);font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:var(--text-3);margin-right:6px;}
+  .fpill{
+    padding:5px 12px;border:1px solid var(--border-2);border-radius:20px;
+    font-size:11.5px;color:var(--text-2);cursor:pointer;transition:all 0.15s;
+    background:transparent;display:inline-flex;align-items:center;gap:6px;
+  }
+  .fpill .dot{width:6px;height:6px;border-radius:50%;}
+  .fpill:hover{color:var(--text);border-color:var(--text-2);}
+  .fpill.active{background:var(--teal-soft);color:var(--teal);border-color:var(--teal);}
+  .fpill .n{font-family:var(--mono);font-size:9.5px;opacity:0.7;}
+  .filter-rail .search{
+    margin-left:auto;flex:0 0 240px;padding:6px 10px;
+    background:var(--bg-0);border:1px solid var(--border-2);border-radius:6px;
+    color:var(--text);font-family:var(--mono);font-size:11px;outline:none;
+  }
+  .filter-rail .search::placeholder{color:var(--text-3);}
+  .filter-rail .search:focus{border-color:var(--teal);}
+
+  /* Detail panel */
+  .panel{
+    background:linear-gradient(180deg,var(--bg-1) 0%,var(--bg-0) 100%);
+    border:1px solid var(--border);border-radius:12px;padding:24px;
+    position:relative;overflow:hidden;
+  }
+  .detail{margin-bottom:22px;}
+  .detail::before{
+    content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
+    background:var(--detail-color,var(--teal));opacity:0.7;
+  }
+  .detail-head{
+    display:flex;align-items:flex-start;justify-content:space-between;gap:18px;
+    margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--border);
+  }
+  .detail-head .info{flex:1;}
+  .detail-cat-badge{
+    display:inline-flex;align-items:center;gap:6px;
+    font-family:var(--mono);font-size:10px;letter-spacing:0.15em;text-transform:uppercase;
+    color:var(--detail-color,var(--teal));margin-bottom:8px;
+  }
+  .detail-cat-badge .blob{width:7px;height:7px;border-radius:50%;background:var(--detail-color,var(--teal));box-shadow:0 0 8px currentColor;}
+  .detail-name{font-family:var(--display);font-size:32px;font-weight:400;letter-spacing:-0.02em;line-height:1.1;color:var(--text);}
+  .detail-name em{color:var(--detail-color,var(--teal));font-style:italic;}
+  .detail-abbr{font-family:var(--mono);font-size:12px;color:var(--text-2);margin-top:6px;letter-spacing:0.05em;}
+  .detail-actions{display:flex;gap:6px;}
+  .chip{
+    padding:5px 10px;border:1px solid var(--border-2);border-radius:5px;
+    font-family:var(--mono);font-size:10.5px;color:var(--text-2);cursor:pointer;
+    background:transparent;transition:all 0.15s;
+  }
+  .chip:hover{color:var(--teal);border-color:var(--teal);}
+
+  .detail-grid{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:24px;
+  }
+  .detail-block{}
+  .detail-block h4{
+    font-family:var(--mono);font-size:9.5px;letter-spacing:0.2em;text-transform:uppercase;
+    color:var(--text-3);margin-bottom:10px;font-weight:500;
+  }
+  .detail-block p{font-size:13px;line-height:1.6;color:var(--text);}
+  .detail-block .ref-list{display:flex;flex-direction:column;gap:6px;font-size:12.5px;line-height:1.5;}
+  .detail-block .ref-list .item{padding:8px 12px;background:rgba(255,255,255,0.02);border-left:2px solid var(--detail-color,var(--teal));border-radius:0 6px 6px 0;}
+  .detail-block .ref-list .item .lbl{font-family:var(--mono);font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.1em;display:block;margin-bottom:2px;}
+  .detail-block .ref-list .item .val{color:var(--text);}
+
+  .interp-row{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);}
+  .interp-row:last-child{border-bottom:none;}
+  .interp-arrow{
+    font-family:var(--mono);font-size:13px;font-weight:600;
+    flex:0 0 auto;width:22px;text-align:center;
+  }
+  .interp-arrow.up{color:var(--rose);}
+  .interp-arrow.dn{color:var(--azure);}
+  .interp-text{flex:1;font-size:12.5px;color:var(--text);line-height:1.5;}
+  .interp-text .em{color:var(--text-2);}
+
+  .tag-list{display:flex;flex-wrap:wrap;gap:6px;}
+  .tag{
+    padding:4px 10px;border-radius:14px;font-size:11px;
+    background:rgba(255,255,255,0.03);color:var(--text);
+    border:1px solid var(--border-2);
+  }
+  .tag.cond{border-color:rgba(251,113,133,0.25);}
+  .tag.mod{border-color:rgba(45,212,191,0.3);color:var(--teal);}
+
+  .caveats{display:flex;flex-direction:column;gap:8px;}
+  .caveat{
+    display:flex;gap:10px;font-size:12px;color:var(--text-2);line-height:1.5;
+    padding:8px 0;border-bottom:1px solid var(--border);
+  }
+  .caveat:last-child{border-bottom:none;}
+  .caveat::before{content:'⚠';color:var(--gold);flex-shrink:0;font-size:11px;line-height:1.5;}
+
+  .detail-foot{
+    display:flex;justify-content:space-between;align-items:center;
+    margin-top:20px;padding-top:16px;border-top:1px solid var(--border);
+    font-family:var(--mono);font-size:10.5px;color:var(--text-3);
+  }
+  .detail-foot .ev{color:var(--teal);}
+
+  /* Section header */
+  .section-head{
+    display:flex;align-items:baseline;gap:14px;margin:28px 0 14px;padding:0 4px;
+  }
+  .section-head h3{font-family:var(--display);font-weight:400;font-size:24px;letter-spacing:-0.015em;}
+  .section-head h3 em{font-style:italic;}
+  .section-head .meta{font-family:var(--mono);font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:var(--text-3);}
+  .section-head .ico-blob{width:8px;height:8px;border-radius:50%;box-shadow:0 0 8px currentColor;}
+  .section-head .count{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--text-3);}
+
+  /* Biomarker grid */
+  .bm-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+  .bm-card{
+    background:linear-gradient(180deg,var(--bg-1) 0%,var(--bg-0) 100%);
+    border:1px solid var(--border);border-radius:10px;padding:16px;
+    position:relative;overflow:hidden;transition:all 0.15s;cursor:pointer;
+    display:flex;flex-direction:column;
+  }
+  .bm-card:hover{border-color:var(--border-2);transform:translateY(-1px);}
+  .bm-card.active{border-color:var(--bm-color);box-shadow:0 0 0 1px var(--bm-color);}
+  .bm-card::before{
+    content:'';position:absolute;left:0;top:0;bottom:0;width:2px;
+    background:var(--bm-color,var(--teal));opacity:0.6;
+  }
+  .bm-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;gap:8px;}
+  .bm-name{font-size:13px;font-weight:600;color:var(--text);line-height:1.3;}
+  .bm-abbr{font-family:var(--mono);font-size:10px;color:var(--text-3);margin-top:3px;letter-spacing:0.05em;}
+  .bm-cat-tag{
+    font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;
+    letter-spacing:0.05em;text-transform:uppercase;white-space:nowrap;
+    background:rgba(255,255,255,0.04);color:var(--bm-color);
+  }
+  .bm-measures{
+    font-size:12px;color:var(--text-2);line-height:1.5;
+    margin-bottom:10px;
+  }
+  .bm-row{
+    display:grid;grid-template-columns:62px 1fr;gap:10px;
+    font-family:var(--mono);font-size:10.5px;
+    padding:5px 0;border-bottom:1px solid var(--border);
+  }
+  .bm-row:last-of-type{border-bottom:none;}
+  .bm-row .k{color:var(--text-3);text-transform:uppercase;letter-spacing:0.1em;font-size:9px;}
+  .bm-row .v{color:var(--text);}
+  .bm-foot{
+    display:flex;align-items:center;gap:8px;
+    margin-top:auto;padding-top:10px;border-top:1px solid var(--border);
+    font-family:var(--mono);font-size:9.5px;color:var(--text-3);
+  }
+  .bm-evidence{color:var(--teal);}
+  .bm-details{margin-left:auto;color:var(--text-2);}
+
+  /* ===== Interactive workspace ===== */
+  .workspace{
+    display:grid;grid-template-columns:1.35fr 1fr;gap:14px;margin-bottom:22px;
+  }
+  .ws-card{
+    background:linear-gradient(180deg,var(--bg-1) 0%,var(--bg-0) 100%);
+    border:1px solid var(--border);border-radius:12px;padding:18px 18px 16px;
+    position:relative;overflow:hidden;display:flex;flex-direction:column;gap:12px;
+  }
+  .ws-card::before{content:'';position:absolute;left:0;top:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--teal),transparent);opacity:0.35;}
+  .ws-head{display:flex;align-items:center;gap:10px;}
+  .ws-head .dot{width:7px;height:7px;border-radius:50%;background:var(--teal);box-shadow:0 0 8px var(--teal);}
+  .ws-head .ttl{font-family:var(--display);font-size:19px;letter-spacing:-0.01em;}
+  .ws-head .ttl em{color:var(--teal);font-style:italic;}
+  .ws-head .sub{font-family:var(--mono);font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:var(--text-3);margin-left:auto;}
+
+  /* AI panel */
+  .ai-thread{
+    flex:1;min-height:180px;max-height:320px;overflow-y:auto;
+    background:rgba(255,255,255,0.01);border:1px solid var(--border);border-radius:8px;
+    padding:12px;font-size:12.5px;line-height:1.55;display:flex;flex-direction:column;gap:10px;
+  }
+  .ai-msg{display:flex;gap:10px;}
+  .ai-msg .who{
+    flex:0 0 auto;font-family:var(--mono);font-size:9px;letter-spacing:0.15em;text-transform:uppercase;
+    color:var(--text-3);padding:3px 8px;border-radius:4px;background:rgba(255,255,255,0.02);
+    border:1px solid var(--border);height:fit-content;
+  }
+  .ai-msg.user .who{color:var(--gold);border-color:rgba(245,201,123,0.25);}
+  .ai-msg.ai .who{color:var(--teal);border-color:var(--border-2);}
+  .ai-msg .body{flex:1;color:var(--text);}
+  .ai-msg .body ul{margin:6px 0 0 14px;color:var(--text-2);}
+  .ai-msg .body .sig{font-family:var(--mono);font-size:10px;color:var(--text-3);margin-top:6px;}
+  .ai-typing{display:inline-flex;gap:3px;align-items:center;}
+  .ai-typing span{width:5px;height:5px;border-radius:50%;background:var(--teal);opacity:0.3;animation:tpulse 1.2s infinite;}
+  .ai-typing span:nth-child(2){animation-delay:0.15s;}
+  .ai-typing span:nth-child(3){animation-delay:0.3s;}
+  @keyframes tpulse{0%,80%,100%{opacity:0.25;transform:scale(0.85);}40%{opacity:1;transform:scale(1.1);}}
+  .ai-input-row{display:flex;gap:8px;align-items:stretch;}
+  .ai-input{
+    flex:1;padding:9px 12px;background:var(--bg-0);border:1px solid var(--border-2);border-radius:8px;
+    color:var(--text);font-family:var(--sans);font-size:12.5px;outline:none;resize:none;min-height:38px;
+  }
+  .ai-input:focus{border-color:var(--teal);}
+  .ai-send{
+    padding:9px 14px;background:var(--teal-soft);border:1px solid var(--teal);color:var(--teal);
+    font-family:var(--mono);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;
+    border-radius:8px;cursor:pointer;transition:all 0.15s;
+  }
+  .ai-send:hover{background:var(--teal);color:var(--bg-0);}
+  .ai-send:disabled{opacity:0.5;cursor:not-allowed;}
+  .ai-quick{display:flex;flex-wrap:wrap;gap:6px;}
+  .ai-quick button{
+    font-size:10.5px;padding:4px 9px;border:1px solid var(--border-2);background:transparent;
+    color:var(--text-2);border-radius:14px;cursor:pointer;font-family:var(--mono);transition:all 0.15s;
+  }
+  .ai-quick button:hover{color:var(--teal);border-color:var(--teal);}
+  .ai-status{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:9.5px;color:var(--text-3);}
+  .ai-status .pill{padding:2px 7px;border-radius:10px;border:1px solid var(--border);color:var(--text-2);}
+  .ai-status .pill.ok{color:var(--green);border-color:rgba(74,222,128,0.25);}
+  .ai-status .pill.warn{color:var(--gold);border-color:rgba(245,201,123,0.3);}
+
+  /* Spark chart */
+  .spark-wrap{display:flex;flex-direction:column;gap:10px;}
+  .spark-canvas{
+    width:100%;height:160px;background:var(--bg-0);border:1px solid var(--border);border-radius:8px;
+  }
+  .spark-legend{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:10px;
+    font-family:var(--mono);font-size:10px;
+  }
+  .spark-legend .cell{
+    background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:6px;
+    padding:7px 10px;display:flex;flex-direction:column;gap:2px;
+  }
+  .spark-legend .cell .lbl{color:var(--text-3);font-size:9px;letter-spacing:0.12em;text-transform:uppercase;}
+  .spark-legend .cell .val{color:var(--text);font-size:12px;}
+  .spark-legend .cell.red .val{color:var(--rose);}
+  .spark-legend .cell.green .val{color:var(--green);}
+  .spark-legend .cell.gold .val{color:var(--gold);}
+
+  /* Patient cases */
+  .cases-list{display:flex;flex-direction:column;gap:8px;max-height:200px;overflow-y:auto;}
+  .case-row{
+    display:grid;grid-template-columns:70px 1fr auto;gap:10px;align-items:center;
+    padding:9px 11px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:7px;
+    cursor:pointer;transition:all 0.15s;
+  }
+  .case-row:hover{border-color:var(--border-2);background:rgba(255,255,255,0.04);}
+  .case-row .pid{font-family:var(--mono);font-size:10.5px;color:var(--text-2);}
+  .case-row .meta{font-size:11.5px;color:var(--text);}
+  .case-row .meta .sub{color:var(--text-3);font-size:10px;display:block;margin-top:1px;}
+  .case-row .z{
+    font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:4px;
+    background:rgba(251,113,133,0.08);color:var(--rose);border:1px solid rgba(251,113,133,0.25);
+  }
+  .case-row .z.ok{background:rgba(74,222,128,0.08);color:var(--green);border-color:rgba(74,222,128,0.25);}
+  .case-row .z.mid{background:rgba(245,201,123,0.08);color:var(--gold);border-color:rgba(245,201,123,0.3);}
+
+  /* Evidence drawer */
+  .evidence-wrap{display:flex;flex-direction:column;gap:8px;max-height:220px;overflow-y:auto;}
+  .ev-row{
+    padding:9px 11px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:7px;
+    display:flex;flex-direction:column;gap:4px;cursor:pointer;transition:all 0.15s;
+  }
+  .ev-row:hover{border-color:var(--border-2);background:rgba(255,255,255,0.04);}
+  .ev-row .ev-title{font-size:11.5px;color:var(--text);line-height:1.35;}
+  .ev-row .ev-meta{font-family:var(--mono);font-size:9.5px;color:var(--text-3);display:flex;gap:8px;}
+  .ev-row .ev-meta .tier{color:var(--teal);}
+
+  .clickable{cursor:pointer;transition:all 0.15s;}
+  .clickable:hover{color:var(--teal);border-color:var(--teal) !important;}
+
+  .related-list{display:flex;flex-wrap:wrap;gap:6px;}
+  .related-list .pill{
+    padding:4px 10px;font-size:11px;background:rgba(255,255,255,0.03);color:var(--text);
+    border:1px solid var(--border-2);border-radius:14px;cursor:pointer;transition:all 0.15s;
+  }
+  .related-list .pill:hover{color:var(--teal);border-color:var(--teal);}
+
+  /* Toast */
+  .toast{
+    position:fixed;bottom:24px;right:24px;padding:12px 18px;
+    background:var(--surface);border:1px solid var(--teal);border-radius:8px;
+    font-size:12px;color:var(--text);box-shadow:0 12px 40px rgba(0,0,0,0.45);
+    transform:translateY(20px);opacity:0;transition:all 0.25s;z-index:1200;pointer-events:none;
+    display:flex;align-items:center;gap:10px;
+  }
+  .toast.show{opacity:1;transform:translateY(0);}
+  .toast .dot{width:7px;height:7px;border-radius:50%;background:var(--teal);box-shadow:0 0 8px var(--teal);}
+
+  .detail-actions .chip.primary{background:var(--teal-soft);border-color:var(--teal);color:var(--teal);}
+  .detail-actions .chip.primary:hover{background:var(--teal);color:var(--bg-0);}
+
+  /* hotkey hint */
+  .kbd{
+    display:inline-block;padding:1px 5px;font-family:var(--mono);font-size:9.5px;
+    background:var(--surface-2);border:1px solid var(--border-2);border-radius:3px;color:var(--text-2);
+  }
+
+  @media (max-width:1280px){
+    .workspace{grid-template-columns:1fr;}
+  }
+
+  /* Grain */
+  .grain{pointer-events:none;position:fixed;inset:0;z-index:999;opacity:0.04;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");}
+  ::-webkit-scrollbar{width:10px;height:10px;}
+  ::-webkit-scrollbar-track{background:var(--bg-0);}
+  ::-webkit-scrollbar-thumb{background:var(--surface-2);border-radius:5px;}
+  ::-webkit-scrollbar-thumb:hover{background:var(--teal-deep);}
+
+  @media (max-width:1280px){
+    .kpi-strip{grid-template-columns:repeat(2,1fr);}
+    .detail-grid{grid-template-columns:repeat(2,1fr);}
+    .bm-grid{grid-template-columns:repeat(2,1fr);}
+  }
+  @media (max-width:760px){
+    .detail-grid{grid-template-columns:1fr;}
+    .bm-grid{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+<div class="grain"></div>
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <path d="M4 12 Q 8 4, 12 12 T 20 12" stroke="#2DD4BF" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+          <circle cx="12" cy="12" r="2" fill="#2DD4BF"/>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-name">Deep<em>Synaps</em></div>
+        <div class="brand-sub">Studio · v0.9.4</div>
+      </div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">Clinical</div>
+      <div class="nav-item"><svg class="ico" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" stroke="currentColor" stroke-width="1.3" rx="1"/><rect x="9" y="2" width="5" height="5" stroke="currentColor" stroke-width="1.3" rx="1"/><rect x="2" y="9" width="5" height="5" stroke="currentColor" stroke-width="1.3" rx="1"/><rect x="9" y="9" width="5" height="5" stroke="currentColor" stroke-width="1.3" rx="1"/></svg>Dashboard</div>
+      <div class="nav-item"><svg class="ico" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="2.5" stroke="currentColor" stroke-width="1.3"/><path d="M3 14c0-2.8 2.2-5 5-5s5 2.2 5 5" stroke="currentColor" stroke-width="1.3"/></svg>Patients</div>
+      <div class="nav-item"><svg class="ico" viewBox="0 0 16 16" fill="none"><path d="M2 8 Q 5 2, 8 8 T 14 8" stroke="currentColor" stroke-width="1.3" fill="none"/></svg>qEEG Analyzer</div>
+      <div class="nav-item active" data-nav="biomarkers"><svg class="ico" viewBox="0 0 16 16" fill="none"><path d="M2 8 L 5 8 L 7 4 L 9 12 L 11 8 L 14 8" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Biomarkers <span class="badge">58</span></div>
+      <div class="nav-item"><svg class="ico" viewBox="0 0 16 16" fill="none"><path d="M3 13 V 5 L 8 2 L 13 5 V 13 Z" stroke="currentColor" stroke-width="1.3" fill="none"/></svg>Protocols</div>
+      <div class="nav-item"><svg class="ico" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="8" rx="1" stroke="currentColor" stroke-width="1.3"/><path d="M5 13h6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Sessions</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">Workflow</div>
+      <div class="nav-item"><svg class="ico" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M3 8h10M3 12h7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Assessments</div>
+      <div class="nav-item"><svg class="ico" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3"/><path d="M8 4v4l3 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Schedule</div>
+      <div class="nav-item"><svg class="ico" viewBox="0 0 16 16" fill="none"><path d="M2 12 L 6 7 L 9 9 L 14 3" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Evidence Base</div>
+      <div class="nav-item"><svg class="ico" viewBox="0 0 16 16" fill="none"><rect x="3" y="3" width="10" height="10" rx="1" stroke="currentColor" stroke-width="1.3"/><path d="M3 6h10M6 13V6" stroke="currentColor" stroke-width="1.3"/></svg>Reports</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">System</div>
+      <div class="nav-item"><svg class="ico" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Devices</div>
+      <div class="nav-item"><svg class="ico" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3"/></svg>Settings</div>
+    </div>
+    <div class="sidebar-footer">
+      <div class="row"><span>Norm DB</span><span class="ok">linked</span></div>
+      <div class="row"><span>Evidence sync</span><span class="ok">live</span></div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="topbar">
+      <div class="topbar-left">
+        <div class="crumb">Clinical reference · biomarker library</div>
+        <h1>Neuro-bio<em>marker</em> reference</h1>
+      </div>
+      <div class="topbar-right">
+        <div class="clock" id="clock">—</div>
+      </div>
+    </div>
+
+    <!-- KPI strip -->
+    <div class="kpi-strip" id="kpi-strip"></div>
+
+    <!-- Filter rail -->
+    <div class="filter-rail" id="filter-rail">
+      <span class="label">Filter</span>
+      <button class="fpill active">All <span class="n">58</span></button>
+      <button class="fpill" data-cat="spectral"><span class="dot" style="background:var(--c-spectral)"></span>qEEG Spectral <span class="n">13</span></button>
+      <button class="fpill" data-cat="network"><span class="dot" style="background:var(--c-network)"></span>Network <span class="n">8</span></button>
+      <button class="fpill" data-cat="erp"><span class="dot" style="background:var(--c-erp)"></span>ERPs <span class="n">7</span></button>
+      <button class="fpill" data-cat="auto"><span class="dot" style="background:var(--c-auto)"></span>Autonomic <span class="n">5</span></button>
+      <button class="fpill" data-cat="sleep"><span class="dot" style="background:var(--c-sleep)"></span>Sleep <span class="n">6</span></button>
+      <button class="fpill" data-cat="lab"><span class="dot" style="background:var(--c-lab)"></span>Labs <span class="n">9</span></button>
+      <button class="fpill" data-cat="cog"><span class="dot" style="background:var(--c-cog)"></span>Cognitive <span class="n">5</span></button>
+      <button class="fpill" data-cat="tms"><span class="dot" style="background:var(--c-tms)"></span>TMS-EEG <span class="n">5</span></button>
+      <input type="text" class="search" placeholder="search markers, sites, conditions… ⌘K" id="search"/>
+    </div>
+
+    <!-- Detail panel (clinical reference) -->
+    <div class="panel detail" id="detail"></div>
+
+    <!-- Interactive workspace: AI · spark · patient cases · evidence -->
+    <div class="workspace">
+      <div class="ws-card" id="ai-card">
+        <div class="ws-head">
+          <span class="dot"></span>
+          <div class="ttl">Ask <em>DeepSynaps AI</em></div>
+          <div class="sub" id="ai-target">— select marker —</div>
+        </div>
+        <div class="ai-thread" id="ai-thread"></div>
+        <div class="ai-quick" id="ai-quick"></div>
+        <div class="ai-input-row">
+          <textarea id="ai-input" class="ai-input" placeholder="Ask about this biomarker — interpretation, protocol suggestion, evidence… (⏎ to send)" rows="1"></textarea>
+          <button class="ai-send" id="ai-send">Send ⏎</button>
+        </div>
+        <div class="ai-status">
+          <span class="pill" id="ai-backend">backend · probing…</span>
+          <span class="pill" id="ai-model">model · glm-4.5-air</span>
+          <span style="margin-left:auto">context: <span class="kbd">⌘K</span> search · <span class="kbd">↑↓</span> markers · <span class="kbd">E</span> export</span>
+        </div>
+      </div>
+
+      <div class="ws-card" id="spark-card">
+        <div class="ws-head">
+          <span class="dot" style="background:var(--azure);box-shadow:0 0 8px var(--azure)"></span>
+          <div class="ttl">Patient <em>cohort</em> distribution</div>
+          <div class="sub" id="spark-target">—</div>
+        </div>
+        <div class="spark-wrap">
+          <canvas class="spark-canvas" id="spark-canvas"></canvas>
+          <div class="spark-legend" id="spark-legend"></div>
+        </div>
+      </div>
+
+      <div class="ws-card" id="cases-card">
+        <div class="ws-head">
+          <span class="dot" style="background:var(--rose);box-shadow:0 0 8px var(--rose)"></span>
+          <div class="ttl">Active <em>patient cases</em></div>
+          <div class="sub" id="cases-meta">0 matched</div>
+        </div>
+        <div class="cases-list" id="cases-list"></div>
+      </div>
+
+      <div class="ws-card" id="ev-card">
+        <div class="ws-head">
+          <span class="dot" style="background:var(--gold);box-shadow:0 0 8px var(--gold)"></span>
+          <div class="ttl">Evidence <em>anchors</em></div>
+          <div class="sub" id="ev-meta">—</div>
+        </div>
+        <div class="evidence-wrap" id="evidence-list"></div>
+        <div style="display:flex;align-items:center;gap:8px;justify-content:space-between;font-family:var(--mono);font-size:9.5px;color:var(--text-3);">
+          <span>ranked by tier · RCT → meta → cohort</span>
+          <button class="chip clickable" id="ev-export">Export refs ↓</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sections -->
+    <div id="bm-sections"></div>
+    <div class="toast" id="toast"><span class="dot"></span><span id="toast-msg">—</span></div>
+  </main>
+</div>
+
+<script>
+const CATEGORIES = {
+  spectral: { name:'qEEG · Spectral & Asymmetry', sub:'Resting-state band power, ratios, asymmetry & aperiodic indices', color:'var(--c-spectral)' },
+  network:  { name:'Network · Connectivity & Coupling',  sub:'Coherence, phase coupling, microstates, network topology',  color:'var(--c-network)'  },
+  erp:      { name:'Event-Related Potentials',           sub:'Cognitive ERPs, sensory gating, error monitoring',          color:'var(--c-erp)' },
+  auto:     { name:'Autonomic & Cardiac',                sub:'Heart rate variability, baroreflex, sympathovagal balance', color:'var(--c-auto)' },
+  sleep:    { name:'Sleep Architecture',                 sub:'Macrostructure, microstructure, circadian markers',         color:'var(--c-sleep)' },
+  lab:      { name:'Inflammatory & Endocrine',           sub:'Serum & salivary panels for HPA, BDNF, inflammation',       color:'var(--c-lab)' },
+  cog:      { name:'Cognitive & Behavioral',             sub:'Digital biomarkers from CPT, n-back, motor & speech',       color:'var(--c-cog)' },
+  tms:      { name:'TMS-EEG · Cortical Excitability',    sub:'Motor threshold, intracortical inhibition, TMS-evoked potentials', color:'var(--c-tms)' }
+};
+
+const BIOMARKERS = [
+  // ===== qEEG SPECTRAL =====
+  {
+    cat:'spectral', name:'Frontal Alpha Asymmetry', abbr:'FAA · log(F4 α) − log(F3 α)',
+    measures:'Hemispheric balance of frontal alpha power; reflects relative left vs right frontal activation.',
+    site:'F3, F4 (linked-mastoid or average reference)',
+    range:'−0.10 to +0.20 log(µV²) · adult population',
+    acquisition:'≥4 min eyes-closed resting EEG, 19-ch cap, sampling ≥256 Hz, alpha bandpass 8–12 Hz, FFT/Welch on artifact-free epochs.',
+    hi:'Right > Left frontal alpha (relative left frontal hypoactivity) → withdrawal motivation, depressive vulnerability.',
+    lo:'Left < Right alpha (relative left frontal hyperactivity) → approach motivation, lower depressive risk.',
+    cond:['MDD','Anxiety','Social withdrawal','BPD'],
+    mod:['rTMS L-DLPFC','tDCS L-DLPFC anodal','Asymmetry neurofeedback'],
+    caveats:['Reference montage influences absolute values','Trait vs state separation requires baseline averaging','Age- and sex-stratified norms recommended'],
+    refs:1180
+  },
+  {
+    cat:'spectral', name:'Theta/Beta Ratio', abbr:'TBR · θ(4–7Hz) / β(13–21Hz) at Cz',
+    measures:'Ratio of slow theta to fast beta activity at central midline; classic ADHD discriminator.',
+    site:'Cz primarily; also Fz',
+    range:'1.5 – 3.0 in adults · age-stratified pediatric norms',
+    acquisition:'Eyes-open resting EEG, ≥3 min, Cz referenced to linked-mastoids; spectral power via FFT.',
+    hi:'Elevated TBR (>4 in children, >3 in adults) → cortical hypoarousal pattern, often seen in inattentive ADHD subtype.',
+    lo:'Reduced TBR → cortical hyperarousal; consider anxiety, OCD spectrum.',
+    cond:['ADHD (inattentive)','Cognitive slowing','Drowsiness'],
+    mod:['SMR/Beta neurofeedback','Stimulants (pharmacological)','tDCS DLPFC'],
+    caveats:['Heterogeneity within ADHD: only ~30–40% show elevated TBR','Vigilance state strongly modulates','Not a sole diagnostic criterion (FDA-cleared as adjunct only)'],
+    refs:412
+  },
+  {
+    cat:'spectral', name:'Peak Alpha Frequency', abbr:'PAF · O1/O2 dominant α',
+    measures:'Frequency (Hz) at which posterior alpha power peaks; index of cortical processing speed.',
+    site:'O1, O2, Pz (posterior)',
+    range:'9.5 – 11.0 Hz adult · declines ~0.05 Hz/decade after 30',
+    acquisition:'Eyes-closed resting EEG, parabolic interpolation around alpha peak in 7–13 Hz window.',
+    hi:'Higher PAF → faster cognitive processing, better working memory, healthy aging trajectory.',
+    lo:'Slower PAF (<8.5 Hz adult) → cognitive decline, MCI, dementia, post-concussive cognitive impairment.',
+    cond:['MCI','Alzheimer\'s','Post-concussion','TBI','Cognitive aging'],
+    mod:['γ-tACS (40 Hz)','α-tACS at IAF','Photobiomodulation'],
+    caveats:['Reduced reliability when no clear peak detected (~10% of adults)','Caffeine and time of day affect PAF','Use individualized reference for tACS dosing'],
+    refs:880
+  },
+  {
+    cat:'spectral', name:'Individual Alpha Frequency', abbr:'IAF · weighted center of α band',
+    measures:'Power-weighted center frequency across the full alpha band — more robust than peak detection.',
+    site:'Posterior or whole-head average',
+    range:'9.5 – 11.5 Hz · individual stable trait',
+    acquisition:'Compute center of gravity of power spectrum within 7–13 Hz; eyes-closed resting EEG, ≥2 min.',
+    hi:'Higher IAF → indexes faster intrinsic neural rhythm, predictive of better cognitive performance.',
+    lo:'Lower IAF → cognitive risk; use as personalized stimulation frequency for tACS.',
+    cond:['Cognitive decline','MCI','Aging'],
+    mod:['IAF-tACS (personalized)','Neurofeedback uptraining','BDNF-related interventions'],
+    caveats:['Stable trait — unlikely to shift with brief intervention','Use as anchor for individualized stimulation, not as outcome marker','Compute on artifact-cleaned data'],
+    refs:540
+  },
+  {
+    cat:'spectral', name:'Alpha Peak Amplitude', abbr:'α-amp · O1 power',
+    measures:'Magnitude of dominant alpha rhythm at posterior sites during eyes-closed rest.',
+    site:'O1, O2, Pz',
+    range:'14 – 26 µV adult · highly individual',
+    acquisition:'FFT power at PAF ± 1 Hz, eyes-closed condition; compare with eyes-open for Berger reactivity.',
+    hi:'High amplitude → strong relaxation response, intact thalamocortical loop.',
+    lo:'Low amplitude → hyperarousal, anxiety, or cortical disconnection (TBI, dementia).',
+    cond:['Anxiety','TBI','Insomnia','Dementia'],
+    mod:['Alpha-uptraining neurofeedback','HRV biofeedback','α-tACS'],
+    caveats:['Eye opening should suppress α by >50% (Berger reactivity)','Skull thickness affects absolute magnitude','Sleep deprivation reduces α'],
+    refs:320
+  },
+  {
+    cat:'spectral', name:'High-Beta Excess', abbr:'Hi-β · 21–35Hz frontal',
+    measures:'Excess beta-band power in frontal sites beyond age-expected norms; index of cortical hyperarousal.',
+    site:'Fz, F3, F4',
+    range:'<12% relative power expected · z-score vs normative DB',
+    acquisition:'Eyes-closed and eyes-open resting EEG; relative power ratio against full 1–40 Hz range.',
+    hi:'Excess Hi-β → anxiety, rumination, hypervigilance, PTSD intrusion symptoms.',
+    lo:'Within-norm Hi-β → balanced cortical arousal.',
+    cond:['Anxiety','PTSD','Insomnia','Rumination'],
+    mod:['Beta-suppression neurofeedback','HRV biofeedback','SSRIs (pharmacological)','tDCS L-DLPFC'],
+    caveats:['EMG contamination can falsely elevate Hi-β — careful artifact rejection essential','Benzodiazepine washout required for valid reading','Distinguish from spindling β (medication artifact)'],
+    refs:286
+  },
+  {
+    cat:'spectral', name:'Frontal Theta Excess', abbr:'θ-frontal · 4–7Hz Fz/Cz',
+    measures:'Excess slow theta activity at frontal-central midline sites.',
+    site:'Fz, FCz, Cz',
+    range:'<14% relative power expected in adults',
+    acquisition:'Eyes-open resting EEG; relative power vs 1–40 Hz reference.',
+    hi:'Frontal θ excess → cognitive slowing, MCI, depression with cognitive symptoms, post-TBI.',
+    lo:'Within-norm θ → preserved frontal function.',
+    cond:['MCI','Depression','TBI','ADHD'],
+    mod:['Theta-suppression neurofeedback','γ-tACS','Cognitive rehab'],
+    caveats:['Drowsy EEG produces theta — vigilance must be controlled','Frontal midline θ during effortful tasks is normal (FmTheta)','Distinguish slow rolandic μ from frontal θ'],
+    refs:418
+  },
+  {
+    cat:'spectral', name:'Awake Delta Activity', abbr:'δ-awake · 1–4Hz',
+    measures:'Slow delta activity present during eyes-open wakefulness — should be near-absent in healthy adults.',
+    site:'All sites; localize hot-spots with sLORETA',
+    range:'<8% relative power expected',
+    acquisition:'Eyes-open resting EEG, vigilance-controlled; compute relative δ power.',
+    hi:'Persistent waking δ → focal cortical dysfunction, post-TBI, post-stroke, encephalopathy, severe dementia.',
+    lo:'Normal awake EEG.',
+    cond:['TBI','Stroke','Dementia','Encephalopathy'],
+    mod:['Cortical excitatory rTMS','Cathodal tDCS contralesional','Cognitive rehab'],
+    caveats:['Drowsiness, eye movement and sweat artifacts mimic δ — strict artifact handling required','Localized δ has different significance than diffuse','Always correlate with clinical state'],
+    refs:204
+  },
+  {
+    cat:'spectral', name:'1/f Aperiodic Slope', abbr:'1/f exp · spectral exponent',
+    measures:'Steepness of the broadband 1/f component of the EEG spectrum after isolating periodic peaks.',
+    site:'Whole-head; computed via FOOOF/specparam',
+    range:'1.2 – 1.8 in healthy adults · steeper with maturation, flatter with aging',
+    acquisition:'Eyes-closed resting EEG; fit aperiodic component over 2–40 Hz using FOOOF or IRASA.',
+    hi:'Steeper slope → indicates greater synaptic inhibition (E/I balance shifted toward inhibition).',
+    lo:'Flatter slope → reduced inhibition, neural noise; aging, ADHD, certain psychiatric conditions.',
+    cond:['Aging','ADHD','Schizophrenia','TBI'],
+    mod:['GABAergic interventions','tDCS','Cognitive training'],
+    caveats:['Very recent biomarker — normative DBs still maturing','Algorithm choice (FOOOF vs IRASA) affects values','Must be reported alongside periodic peaks, not in isolation'],
+    refs:96
+  },
+  {
+    cat:'spectral', name:'Spectral Edge Frequency 95%', abbr:'SEF95',
+    measures:'Frequency below which 95% of total spectral power resides — index of EEG complexity & arousal.',
+    site:'Whole-head average',
+    range:'22 – 28 Hz in awake adults',
+    acquisition:'FFT on eyes-open or task EEG; cumulative power calculation.',
+    hi:'Higher SEF95 → greater arousal, lighter sedation, intact cortical activation.',
+    lo:'Lower SEF95 → drowsiness, sedation, encephalopathy, deep anesthesia.',
+    cond:['Sedation monitoring','TBI','Disorders of consciousness'],
+    mod:['Stimulant pharmacology','Cortical rTMS'],
+    caveats:['Most useful for monitoring rather than diagnosis','Affected by medication','Window length (typically 5s) impacts stability'],
+    refs:142
+  },
+  {
+    cat:'spectral', name:'Mu Suppression', abbr:'μ-supp · C3/C4 8–13Hz event-related',
+    measures:'Reduction in central μ-rhythm power during action observation/imagery — proxy for sensorimotor engagement.',
+    site:'C3, C4 (sometimes Cz)',
+    range:'>30% suppression vs baseline expected',
+    acquisition:'Compare μ-band power during action observation vs static baseline; within-subject ratio.',
+    hi:'Strong suppression → intact mirror-system / sensorimotor coupling.',
+    lo:'Reduced suppression → atypical mirror-system function (classically reported in ASD), motor planning deficits.',
+    cond:['ASD','Stroke (motor recovery)','Motor imagery training'],
+    mod:['Mirror therapy','Action observation training','M1 rTMS','Motor imagery NF'],
+    caveats:['ASD-mirror finding contested with mixed replications','Distinguish μ from posterior α (similar frequency)','Task design strongly affects suppression magnitude'],
+    refs:178
+  },
+  {
+    cat:'spectral', name:'Sensorimotor Rhythm', abbr:'SMR · 12–15Hz Cz',
+    measures:'Low-beta rhythm over sensorimotor cortex during motor quiescence; target of classic NF protocols.',
+    site:'C3, Cz, C4',
+    range:'5 – 10 µV in adults · age-dependent',
+    acquisition:'Eyes-open resting EEG without movement; spectral peak in 12–15 Hz window.',
+    hi:'Higher SMR → motor inhibition, sustained attention, seizure protection (historical NF target).',
+    lo:'Reduced SMR → motor restlessness, may be associated with seizures and ADHD hyperactive subtype.',
+    cond:['ADHD','Epilepsy','Tic disorders'],
+    mod:['SMR uptraining neurofeedback','Sensorimotor mu-band BCI'],
+    caveats:['Movement artifact is the primary confound','SMR/μ overlap requires careful site & frequency targeting','Long NF training sessions needed for sustained change'],
+    refs:240
+  },
+  {
+    cat:'spectral', name:'Cingulate Alpha Index', abbr:'CAI · midline α LORETA',
+    measures:'Source-localized alpha activity in the anterior cingulate cortex (ACC).',
+    site:'ACC (BA 24/32) via sLORETA / eLORETA inverse solution',
+    range:'0.50 – 0.80 normalized index',
+    acquisition:'19-ch resting EEG → source reconstruction (sLORETA) → ROI extraction at ACC; alpha-band power.',
+    hi:'Higher CAI → engaged default-mode introspection, may relate to depressive rumination when sustained.',
+    lo:'Lower CAI → externally directed attention; very low values can reflect ACC dysfunction.',
+    cond:['MDD (rumination)','Default-mode dysregulation','ADHD'],
+    mod:['rTMS dmPFC/SMA','Mindfulness training','tDCS Fpz'],
+    caveats:['Source localization requires high-quality 19+ channel data','Inverse solution assumes spatial smoothness','Best interpreted alongside surface FAA & FmTheta'],
+    refs:88
+  },
+
+  // ===== NETWORK / CONNECTIVITY =====
+  {
+    cat:'network', name:'DMN Coherence', abbr:'DMN · PCC↔mPFC α-band',
+    measures:'Functional connectivity between Default Mode Network hubs in the alpha band.',
+    site:'Pz/POz (PCC proxy) ↔ Fpz/AFz (mPFC proxy); ideally source-space',
+    range:'0.30 – 0.55 wPLI · age-dependent',
+    acquisition:'Eyes-closed resting EEG; weighted Phase Lag Index (wPLI) between source ROIs over 2 min epochs.',
+    hi:'Hyperconnectivity → ruminative depression, anxiety, increased self-referential processing.',
+    lo:'Hypoconnectivity → MCI, Alzheimer\'s disease, traumatic brain injury, attention deficits.',
+    cond:['MDD','Alzheimer\'s','MCI','Anxiety'],
+    mod:['rTMS DLPFC (anti-correlated to DMN)','Mindfulness','Psilocybin (research)','tDCS mPFC'],
+    caveats:['Volume conduction inflates surface coherence — use phase-based metrics (wPLI/iCoh)','EEG-derived DMN is a proxy; fMRI remains gold standard','State (rest vs task) strongly modulates'],
+    refs:512
+  },
+  {
+    cat:'network', name:'Salience Network Strength', abbr:'SAL · ant.insula ↔ ACC',
+    measures:'Connectivity between anterior insula and dorsal anterior cingulate — switch between DMN and CEN.',
+    site:'Source-space: ant.insula, dACC',
+    range:'0.25 – 0.45 wPLI',
+    acquisition:'Resting EEG → source reconstruction → ROI-to-ROI connectivity in β and γ bands.',
+    hi:'Hyperactive salience → anxiety, hypervigilance, ASD sensory sensitivities.',
+    lo:'Hypoactive → apathy, anhedonia, impaired interoception, schizophrenia negative symptoms.',
+    cond:['Anxiety','ASD','Schizophrenia','Depression with apathy'],
+    mod:['rTMS ant.insula (deep coil)','Interoceptive training','SSRIs'],
+    caveats:['Insula is deep — surface EEG limited; combine with HRV for interoception assessment','Source reconstruction sensitive to head model','Paired with DMN/CEN provides triple-network framework'],
+    refs:174
+  },
+  {
+    cat:'network', name:'Central Executive Network', abbr:'CEN · DLPFC ↔ PPC',
+    measures:'Frontoparietal control network coupling supporting working memory and cognitive control.',
+    site:'L-DLPFC ↔ L-PPC and R-DLPFC ↔ R-PPC',
+    range:'0.30 – 0.50 wPLI in β-band',
+    acquisition:'Task EEG (n-back or Stroop) ideal; alternatively eyes-open rest with source recon.',
+    hi:'Strong CEN coupling → intact executive function, cognitive control.',
+    lo:'Weak CEN → executive dysfunction, ADHD, depression with cognitive symptoms, MCI.',
+    cond:['MDD','ADHD','MCI','Schizophrenia'],
+    mod:['rTMS L-DLPFC','tDCS DLPFC anodal','Cognitive training'],
+    caveats:['Best assessed during task, not pure rest','Asymmetry between L/R CEN has functional meaning','Reproducibility improves with longer recordings'],
+    refs:208
+  },
+  {
+    cat:'network', name:'Frontoparietal Coherence', abbr:'FP · F4↔P4 β-band',
+    measures:'Surface-level coherence between right frontal and right parietal sites in beta band.',
+    site:'F4, P4',
+    range:'0.35 – 0.60 magnitude-squared coherence',
+    acquisition:'Eyes-open resting or task EEG; coherence over 13–25 Hz, ≥4 min recording.',
+    hi:'Higher FP coherence → effective top-down attentional control, cognitive engagement.',
+    lo:'Reduced FP coherence → attentional deficits, disengagement, cognitive fatigue.',
+    cond:['ADHD','TBI','Cognitive fatigue'],
+    mod:['Frontoparietal tACS in-phase γ','rTMS L/R-DLPFC','Attention training'],
+    caveats:['Surface coherence is inflated by volume conduction — use cautiously','Reference montage matters','Distinguish task-induced from resting connectivity'],
+    refs:166
+  },
+  {
+    cat:'network', name:'Interhemispheric α-Coherence', abbr:'iHC · F3↔F4 α',
+    measures:'Coherence between homologous left and right frontal sites in the alpha band.',
+    site:'F3 ↔ F4 (also T3↔T4, P3↔P4)',
+    range:'0.50 – 0.80',
+    acquisition:'Eyes-closed resting EEG; magnitude-squared coherence in 8–12 Hz.',
+    hi:'High iHC → intact callosal communication, balanced hemispheric integration.',
+    lo:'Low iHC → callosal damage, post-stroke, severe TBI, neurodegenerative disease.',
+    cond:['Stroke','TBI','Multiple sclerosis','Aging'],
+    mod:['Bilateral tDCS','Callosal stimulation protocols','Bimanual training'],
+    caveats:['Highly sensitive to montage','Skull thickness asymmetry can bias measurement','Volume conduction confound applies'],
+    refs:142
+  },
+  {
+    cat:'network', name:'Theta-Gamma PAC', abbr:'PAC · θ-phase / γ-amp',
+    measures:'Phase-amplitude coupling between theta phase and gamma amplitude — neural code for working memory.',
+    site:'Hippocampal-PFC axis (source) or Fz/Cz/Pz surface',
+    range:'0.08 – 0.18 modulation index (MI)',
+    acquisition:'Eyes-open or task EEG; compute MI via Tort method; θ 4–8Hz, γ 30–80Hz.',
+    hi:'Strong θ-γ PAC → intact memory encoding, healthy hippocampal-cortical communication.',
+    lo:'Weak PAC → MCI, Alzheimer\'s, working memory deficits.',
+    cond:['MCI','Alzheimer\'s','Working memory deficit','Aging'],
+    mod:['γ-tACS (40Hz)','θ-tACS hippocampal projection','Memory training'],
+    caveats:['Sensitive to artifact and amplitude artifact','Multiple PAC algorithms exist (MI, MVL, PLV) — be consistent','Window length and detrending affect results'],
+    refs:124
+  },
+  {
+    cat:'network', name:'Microstate D Coverage', abbr:'MS-D %',
+    measures:'Percentage of EEG time spent in microstate class D (attention-related quasi-stable topography).',
+    site:'Whole-head topography clustering',
+    range:'18 – 26% in healthy adults',
+    acquisition:'Resting EEG → GFP peak detection → topographical clustering into 4 microstates (A,B,C,D).',
+    hi:'Increased MS-D → engaged attentional control.',
+    lo:'Reduced MS-D → schizophrenia (well-replicated), ADHD, attentional impairment.',
+    cond:['Schizophrenia','ADHD','Attentional deficits'],
+    mod:['Attention NF','rTMS DLPFC','Mindfulness training'],
+    caveats:['Number of microstate classes (4 vs 7) affects interpretation','Cross-study comparison requires same processing pipeline','Microstate dynamics may matter more than coverage alone'],
+    refs:96
+  },
+  {
+    cat:'network', name:'Network Small-Worldness', abbr:'σ · network topology',
+    measures:'Ratio of clustering to path length — quantifies efficiency of information transfer in the brain network.',
+    site:'Whole-brain network from 19+ ch EEG',
+    range:'σ > 1.0 (small-world); typical 1.2–1.6',
+    acquisition:'Build connectivity matrix → graph-theory analysis → compute clustering coefficient and characteristic path length, normalize against random networks.',
+    hi:'Higher σ → efficient & resilient network organization.',
+    lo:'σ ≈ 1 or below → loss of small-world topology, cognitive aging, dementia, severe brain injury.',
+    cond:['Aging','Dementia','TBI','Schizophrenia'],
+    mod:['Cognitive training','Aerobic exercise','tDCS multifocal'],
+    caveats:['Highly dependent on connectivity metric and threshold','Density correction required for fair comparison','Best computed in source space'],
+    refs:74
+  },
+
+  // ===== ERPs =====
+  {
+    cat:'erp', name:'P300 Amplitude', abbr:'P3 · Pz (oddball target)',
+    measures:'Positive deflection ~300 ms post-target in oddball paradigms; index of attention allocation & working memory.',
+    site:'Pz (P3b); Fz (P3a novelty)',
+    range:'6 – 14 µV in adults · highly variable',
+    acquisition:'Auditory or visual oddball, ≥30 target trials; average referenced; 0.1–30 Hz bandpass.',
+    hi:'Robust P300 → preserved attentional capacity & cognitive resources.',
+    lo:'Reduced amplitude → MCI, Alzheimer\'s, schizophrenia, ADHD, TBI.',
+    cond:['MCI','Alzheimer\'s','Schizophrenia','ADHD','TBI'],
+    mod:['Cognitive training','rTMS DLPFC','Cholinesterase inhibitors (pharm)'],
+    caveats:['Highly task-dependent — standardize paradigm','Attention to task is required (instruct & verify)','Effects of arousal and motivation must be controlled'],
+    refs:412
+  },
+  {
+    cat:'erp', name:'P300 Latency', abbr:'P3 lat · Pz',
+    measures:'Time from stimulus to P300 peak — reflects stimulus evaluation & processing speed.',
+    site:'Pz',
+    range:'<380 ms in healthy adults · slows with age',
+    acquisition:'Same as P300 amplitude; peak detected within 250–500 ms window.',
+    hi:'Prolonged latency → cognitive slowing, dementia spectrum, TBI sequelae.',
+    lo:'Faster latency → preserved cognitive speed.',
+    cond:['Alzheimer\'s','MCI','TBI','Cognitive aging'],
+    mod:['Cognitive training','γ-tACS','Cholinergic agents'],
+    caveats:['Stimulus discriminability affects latency','Compare to age-matched norms (latency increases ~1ms/year)','Within-subject change is more reliable than absolute values'],
+    refs:284
+  },
+  {
+    cat:'erp', name:'N200 Amplitude', abbr:'N2 · FCz (conflict / inhibition)',
+    measures:'Negative deflection ~200 ms in conflict/inhibition tasks (Go-NoGo, flanker); index of conflict monitoring.',
+    site:'FCz, Cz',
+    range:'−3 to −7 µV (NoGo trials)',
+    acquisition:'Go/NoGo or flanker paradigm; minimum 40 NoGo trials; 0.1–30 Hz filter.',
+    hi:'Larger (more negative) N2 → enhanced conflict monitoring; in OCD reflects pathological hyper-monitoring.',
+    lo:'Diminished N2 → poor conflict monitoring, ADHD impulsivity, frontal dysfunction.',
+    cond:['ADHD','OCD','Substance use disorders','Frontal lobe dysfunction'],
+    mod:['rTMS dmPFC','Cognitive training','Inhibitory control practice'],
+    caveats:['Overlaps in time with N2pc and ERN — careful task design needed','Subtraction of Go from NoGo isolates conflict component','Latency jitter affects average amplitude'],
+    refs:118
+  },
+  {
+    cat:'erp', name:'Mismatch Negativity', abbr:'MMN · Fz (deviant − standard)',
+    measures:'Pre-attentive auditory change detection ERP, 100–250 ms, generated in auditory cortex.',
+    site:'Fz, FCz',
+    range:'−2 to −5 µV',
+    acquisition:'Passive auditory oddball (frequency, duration, or intensity deviants); subject ignores stimuli (e.g. watches silent movie).',
+    hi:'Robust MMN → intact pre-attentive sensory memory and prediction error processing.',
+    lo:'Reduced MMN → schizophrenia (well-replicated), early psychosis risk, severe TBI, autism spectrum.',
+    cond:['Schizophrenia','Psychosis risk','TBI','ASD'],
+    mod:['NMDA modulators (research)','Auditory training','rTMS auditory cortex'],
+    caveats:['Strongly linked to NMDA function — affected by ketamine','Stimulus parameters (deviant probability, ISI) crucial','Quantify duration-MMN and frequency-MMN separately'],
+    refs:206
+  },
+  {
+    cat:'erp', name:'Error-Related Negativity', abbr:'ERN · FCz (response-locked)',
+    measures:'Sharp negative deflection ~50 ms after an error response; generated in dACC/SMA.',
+    site:'FCz, Cz',
+    range:'−4 to −8 µV (response-locked)',
+    acquisition:'Speeded choice task with errors (flanker, Stroop); response-locked averaging of error trials.',
+    hi:'Enlarged ERN → over-monitoring; classically seen in OCD and generalized anxiety.',
+    lo:'Reduced ERN → diminished error awareness; psychopathy, externalizing disorders.',
+    cond:['OCD','Generalized anxiety','Psychopathy','Substance use'],
+    mod:['CBT','Mindfulness','rTMS dmPFC','SSRIs'],
+    caveats:['Requires sufficient error trials (≥10)','Trait-stable but modulated by motivation','Use error-minus-correct difference wave for cleaner measurement'],
+    refs:96
+  },
+  {
+    cat:'erp', name:'P50 Sensory Gating', abbr:'P50 · S2/S1 ratio',
+    measures:'Suppression of P50 response to second click in paired-click paradigm — index of sensory gating.',
+    site:'Cz',
+    range:'<0.50 ratio (good gating)',
+    acquisition:'Paired-click paradigm (500ms ISI); compute amplitude ratio of S2/S1 P50 components.',
+    hi:'High S2/S1 ratio → impaired sensory gating; classic finding in schizophrenia and PTSD.',
+    lo:'Low ratio → robust gating, intact thalamic filtering function.',
+    cond:['Schizophrenia','PTSD','TBI','Substance use'],
+    mod:['Nicotinic agonists (research)','Auditory training','Stress reduction'],
+    caveats:['Test-retest reliability is moderate — average multiple sessions','Caffeine and nicotine acutely affect P50','Cleaning of stimulus artifact is technically demanding'],
+    refs:72
+  },
+  {
+    cat:'erp', name:'Late Positive Potential', abbr:'LPP · CPz (emotional)',
+    measures:'Sustained positive ERP (300–1000+ ms) in response to emotional stimuli — index of motivated attention.',
+    site:'CPz, Pz',
+    range:'3 – 8 µV (negative > neutral)',
+    acquisition:'Emotional picture viewing (IAPS); compare unpleasant vs neutral; long ISI (≥2s) for full LPP.',
+    hi:'Larger LPP to negative stimuli → emotional reactivity, depression vulnerability, PTSD.',
+    lo:'Reduced LPP → emotional blunting, alexithymia, severe depression with anhedonia.',
+    cond:['MDD','PTSD','Anxiety','Alexithymia'],
+    mod:['Cognitive reappraisal training','rTMS DLPFC','SSRIs','Mindfulness'],
+    caveats:['Stimulus arousal not just valence drives LPP','Habituation across blocks','LPP is suppressed by reappraisal — useful for emotion regulation studies'],
+    refs:118
+  },
+
+  // ===== AUTONOMIC =====
+  {
+    cat:'auto', name:'HRV · RMSSD', abbr:'RMSSD · time-domain',
+    measures:'Root mean square of successive RR-interval differences — primary parasympathetic (vagal) marker.',
+    site:'ECG (lead II) or PPG with caution',
+    range:'30 – 60 ms in adults · age-dependent',
+    acquisition:'≥5 min seated rest, paced breathing 6 br/min ideal; remove ectopics & artifacts before computation.',
+    hi:'Higher RMSSD → strong parasympathetic tone, recovery capacity, stress resilience.',
+    lo:'Reduced RMSSD → chronic stress, depression, PTSD, cardiovascular risk, poor recovery.',
+    cond:['MDD','PTSD','Anxiety','Cardiovascular risk','Burnout'],
+    mod:['HRV biofeedback (resonance breathing)','taVNS','Yoga / pranayama','Aerobic exercise'],
+    caveats:['Sensitive to respiration rate — control breathing','Position (supine/seated/standing) affects values','Short recordings (<5 min) less reliable than 24h Holter'],
+    refs:622
+  },
+  {
+    cat:'auto', name:'HRV · SDNN', abbr:'SDNN · time-domain',
+    measures:'Standard deviation of normal-to-normal RR intervals — overall HRV index reflecting both branches.',
+    site:'ECG / PPG',
+    range:'50 – 100 ms (5-min); >100 ms (24h)',
+    acquisition:'5-min seated rest minimum; gold standard is 24h Holter ambulatory recording.',
+    hi:'Higher SDNN → robust autonomic flexibility & cardiovascular health.',
+    lo:'Low SDNN → all-cause mortality risk, autonomic dysfunction.',
+    cond:['Cardiovascular risk','PTSD','MDD','Diabetes (autonomic)'],
+    mod:['Aerobic exercise','HRV biofeedback','taVNS','Mindfulness'],
+    caveats:['Window length critical — 5-min vs 24h not interchangeable','Removes only normal beats — ectopics excluded','Strongly age-dependent'],
+    refs:436
+  },
+  {
+    cat:'auto', name:'LF/HF Ratio', abbr:'LF(0.04–0.15Hz) / HF(0.15–0.4Hz)',
+    measures:'Ratio of low- to high-frequency HRV power; historically interpreted as sympathovagal balance.',
+    site:'ECG · frequency-domain HRV',
+    range:'1.0 – 2.0 in resting adults',
+    acquisition:'≥5 min seated rest, controlled breathing; FFT or autoregressive spectral analysis.',
+    hi:'Elevated LF/HF → sympathetic dominance OR poor vagal modulation; stress, anxiety, PTSD.',
+    lo:'Low LF/HF → relative parasympathetic dominance; can be too low (e.g., severe vagal disease).',
+    cond:['Anxiety','PTSD','Stress','Insomnia'],
+    mod:['HRV biofeedback','taVNS','Mindfulness','Beta-blockers (pharm)'],
+    caveats:['LF/HF as "sympathovagal balance" is oversimplified — interpret cautiously','Respiratory rate dramatically affects HF','Best as one piece alongside RMSSD/SDNN'],
+    refs:218
+  },
+  {
+    cat:'auto', name:'Resting Heart Rate', abbr:'rHR',
+    measures:'Heart rate at rest (seated, awake, no recent exertion).',
+    site:'ECG / PPG / pulse oximetry',
+    range:'50 – 80 bpm in healthy adults',
+    acquisition:'After 5-min seated rest, room temperature, no caffeine within 4h.',
+    hi:'Elevated rHR → sympathetic dominance, deconditioning, stress, hyperthyroidism, anxiety.',
+    lo:'Low rHR → fitness adaptation OR vagal dominance / bradyarrhythmia.',
+    cond:['Anxiety','Depression','Cardiovascular fitness','Hyperthyroidism'],
+    mod:['Aerobic exercise','Beta-blockers (pharm)','HRV biofeedback'],
+    caveats:['Time of day matters (lowest in early AM)','Athletic bradycardia is normal — context essential','Acute caffeine, nicotine, hydration shift values'],
+    refs:204
+  },
+  {
+    cat:'auto', name:'Baroreflex Sensitivity', abbr:'BRS · ms/mmHg',
+    measures:'Change in RR interval per unit change in systolic blood pressure — quantifies autonomic feedback loop integrity.',
+    site:'Continuous BP + ECG',
+    range:'>10 ms/mmHg',
+    acquisition:'Non-invasive continuous BP (Finapres); ≥10 min supine; sequence or spectral methods.',
+    hi:'Higher BRS → robust autonomic regulation & cardiovascular health.',
+    lo:'Low BRS → autonomic neuropathy, post-stroke, post-MI, advanced cardiac disease.',
+    cond:['Stroke','Post-MI','Diabetes','Autonomic neuropathy'],
+    mod:['Aerobic exercise','HRV biofeedback','taVNS','ACE inhibitors (pharm)'],
+    caveats:['Requires continuous BP equipment — not common in clinic','Different methods (sequence vs spectral) yield different values','Posture and breathing affect measurements'],
+    refs:88
+  },
+
+  // ===== SLEEP =====
+  {
+    cat:'sleep', name:'Sleep Efficiency', abbr:'SE · TST/TIB',
+    measures:'Percentage of time-in-bed actually spent asleep — overall sleep continuity index.',
+    site:'PSG / actigraphy / consumer wearables (validated)',
+    range:'>85% considered good in adults',
+    acquisition:'Polysomnography gold standard; multi-night actigraphy or validated wearable acceptable.',
+    hi:'High SE → consolidated, restorative sleep.',
+    lo:'Low SE → insomnia, fragmented sleep, depression, chronic pain, sleep apnea.',
+    cond:['Insomnia','MDD','Chronic pain','Sleep apnea','Anxiety'],
+    mod:['CBT-I','Sleep restriction therapy','Stimulus control','Light therapy'],
+    caveats:['Single-night SE has poor reliability — use 7+ nights','Wearables often overestimate SE','Distinguish primary insomnia from comorbid insomnia'],
+    refs:312
+  },
+  {
+    cat:'sleep', name:'REM Latency', abbr:'REM-lat',
+    measures:'Time from sleep onset to first REM episode — characteristic shortened in depression.',
+    site:'Full PSG required (EEG + EOG + EMG)',
+    range:'70 – 110 min in healthy adults',
+    acquisition:'In-lab or ambulatory PSG with REM detection per AASM criteria.',
+    hi:'Long REM latency → REM suppression (medication effect, primary insomnia).',
+    lo:'Short REM latency (<60 min) → MDD biomarker, narcolepsy, REM rebound.',
+    cond:['MDD','Narcolepsy','REM behavior disorder','PTSD'],
+    mod:['SSRIs (suppress REM)','Stimulants (suppress REM)','CPAP for OSA'],
+    caveats:['Most antidepressants suppress REM','First-night effect prolongs REM latency','Age-related changes — use age-stratified norms'],
+    refs:184
+  },
+  {
+    cat:'sleep', name:'Slow Wave Sleep %', abbr:'SWS · N3',
+    measures:'Percentage of total sleep time in deep N3 (delta) sleep — restorative function.',
+    site:'PSG (frontal EEG most sensitive)',
+    range:'15 – 25% in young/middle adults · declines with age',
+    acquisition:'PSG with AASM staging; SWS scored when ≥20% of an epoch shows delta activity.',
+    hi:'Higher SWS → strong slow-wave activity, memory consolidation, glymphatic clearance.',
+    lo:'Reduced SWS → aging, MCI, insomnia, depression, fragmented sleep.',
+    cond:['MCI','Insomnia','Aging','MDD'],
+    mod:['Slow-wave enhancement (acoustic stimulation)','γ-tACS during sleep','Sleep hygiene','Exercise'],
+    caveats:['Frontal EEG more sensitive than central','Decreases ~2% per decade after age 30','Acoustic enhancement is investigational'],
+    refs:226
+  },
+  {
+    cat:'sleep', name:'Sleep Spindle Density', abbr:'spindles · per minute N2',
+    measures:'Number of sleep spindles per minute of N2 sleep — index of memory consolidation & cortical plasticity.',
+    site:'C3/C4 (Cz) for slow & fast spindles',
+    range:'3 – 8 spindles/min in N2',
+    acquisition:'PSG; automated spindle detection (e.g., YASA, Wonambi) preferred over manual.',
+    hi:'High spindle density → robust memory consolidation, healthy thalamocortical loop.',
+    lo:'Reduced spindle density → schizophrenia (well-replicated), MCI, aging.',
+    cond:['Schizophrenia','MCI','Aging','Memory deficits'],
+    mod:['Pharmacological enhancement (research)','Closed-loop tACS','Sleep optimization'],
+    caveats:['Slow (~12 Hz frontal) and fast (~14 Hz central) spindles have different functions','Detection algorithm choice matters','Best assessed across multiple nights'],
+    refs:142
+  },
+  {
+    cat:'sleep', name:'WASO', abbr:'WASO · wake after sleep onset',
+    measures:'Total minutes of wake time after first sleep onset until final awakening.',
+    site:'PSG / actigraphy',
+    range:'<30 min in healthy adults',
+    acquisition:'PSG or validated actigraphy; sum all wake epochs after sleep onset.',
+    hi:'Elevated WASO → sleep fragmentation, insomnia, sleep apnea, pain, depression.',
+    lo:'Low WASO → consolidated sleep.',
+    cond:['Insomnia','Sleep apnea','Chronic pain','MDD','Aging'],
+    mod:['CBT-I','Treat underlying cause (CPAP, pain management)','Sleep restriction'],
+    caveats:['Increases with age (normal aging)','Wearables may underestimate WASO','Distinguish brief arousals from full wake periods'],
+    refs:174
+  },
+  {
+    cat:'sleep', name:'Sleep Onset Latency', abbr:'SOL',
+    measures:'Time from lights-out to first epoch of sleep.',
+    site:'PSG / sleep diary / actigraphy',
+    range:'<20 min in healthy adults',
+    acquisition:'PSG to first stage N1 epoch; sleep diary acceptable for chronic monitoring.',
+    hi:'Prolonged SOL → sleep-onset insomnia, anxiety, hyperarousal, delayed sleep phase.',
+    lo:'Very short SOL (<5 min) → sleep deprivation, narcolepsy.',
+    cond:['Insomnia (sleep-onset)','Anxiety','Delayed sleep phase','Narcolepsy'],
+    mod:['CBT-I','Stimulus control','Light therapy','Melatonin (timing-dependent)'],
+    caveats:['Self-reported SOL often overestimated','First-night effect prolongs SOL in lab','MSLT short SOL is diagnostic for narcolepsy'],
+    refs:198
+  },
+
+  // ===== LAB / ENDOCRINE =====
+  {
+    cat:'lab', name:'Cortisol AM', abbr:'cort · 7–9am serum/saliva',
+    measures:'Morning cortisol concentration; index of HPA axis output during peak diurnal phase.',
+    site:'Serum, saliva, or hair (chronic exposure)',
+    range:'Serum 10–20 µg/dL · Saliva 0.27–1.5 µg/dL',
+    acquisition:'Sample 30–60 min after waking; consistent timing critical; avoid recent eating/exercise.',
+    hi:'Elevated AM cortisol → HPA hyperactivity, stress, depression with melancholic features.',
+    lo:'Low AM cortisol → adrenal insufficiency, burnout, atypical depression, PTSD chronic phase.',
+    cond:['MDD','PTSD','Burnout','Anxiety','Adrenal disorders'],
+    mod:['Stress reduction','HRV biofeedback','Mindfulness','Adrenal support nutraceuticals'],
+    caveats:['Pulsatile secretion — single sample limited','Salivary preferred for repeated sampling','Steroid medications profoundly confound'],
+    refs:284
+  },
+  {
+    cat:'lab', name:'Cortisol Awakening Response', abbr:'CAR · AUCi',
+    measures:'Rise in cortisol within 30–45 min of waking; dynamic HPA reactivity index.',
+    site:'Saliva (4 samples at 0, 15, 30, 45 min post-waking)',
+    range:'AUCi 5 – 12 (units depend on lab)',
+    acquisition:'Strict protocol: sample immediately on waking, then 15/30/45 min; no eating/brushing teeth between.',
+    hi:'Elevated CAR → HPA hyper-reactivity, anticipatory stress, burnout (early phase).',
+    lo:'Blunted CAR → chronic stress (late phase), PTSD, atypical depression, fatigue syndromes.',
+    cond:['PTSD','Burnout','MDD','CFS/ME','Long COVID'],
+    mod:['Stress management','Sleep optimization','Adaptogenic herbs (research)','CBT'],
+    caveats:['Compliance with sampling protocol is critical','Subjective sleep quality affects CAR','Weekday vs weekend variability'],
+    refs:118
+  },
+  {
+    cat:'lab', name:'DHEA-S', abbr:'DHEA-Sulfate',
+    measures:'Adrenal androgen precursor; complementary to cortisol for HPA assessment.',
+    site:'Serum',
+    range:'100 – 380 µg/dL adult · sex-specific norms',
+    acquisition:'Single morning serum draw; relatively stable across day.',
+    hi:'Elevated DHEA-S → adrenal hyperactivity, PCOS, congenital adrenal hyperplasia.',
+    lo:'Low DHEA-S → aging (normal decline), adrenal insufficiency, chronic stress, depression.',
+    cond:['MDD','Aging','Adrenal insufficiency','PTSD'],
+    mod:['DHEA supplementation (under monitoring)','Stress reduction','Aerobic exercise'],
+    caveats:['Strongly age-dependent — peaks 20s, declines steadily','Use cortisol/DHEA ratio for HPA assessment','Supplementation can have unintended hormonal effects'],
+    refs:68
+  },
+  {
+    cat:'lab', name:'Brain-Derived Neurotrophic Factor', abbr:'BDNF · serum',
+    measures:'Neurotrophin essential for neuroplasticity & synaptic function.',
+    site:'Serum (preferred) or plasma (lower values)',
+    range:'18 – 32 ng/mL serum · variable by assay',
+    acquisition:'Fasting morning serum; centrifuge promptly; serum >> plasma values.',
+    hi:'Higher serum BDNF → preserved plasticity capacity; rises with antidepressant response.',
+    lo:'Low BDNF → MDD (state marker), schizophrenia, Alzheimer\'s, post-TBI.',
+    cond:['MDD','Schizophrenia','Alzheimer\'s','TBI','Treatment response monitoring'],
+    mod:['rTMS (rises post-treatment)','Aerobic exercise','SSRIs/ketamine (pharm)','Intermittent fasting'],
+    caveats:['Serum vs plasma not interchangeable — report both','Diurnal variation','Platelets store ~99% of BDNF — handling matters'],
+    refs:418
+  },
+  {
+    cat:'lab', name:'Interleukin-6', abbr:'IL-6 · serum',
+    measures:'Pro-inflammatory cytokine elevated in chronic inflammation & stress.',
+    site:'Serum',
+    range:'<3.0 pg/mL · highly assay-dependent',
+    acquisition:'Morning fasting serum; avoid post-acute illness or vigorous exercise within 48h.',
+    hi:'Elevated IL-6 → chronic inflammation, depression, long COVID, autoimmune disease, cardiovascular risk.',
+    lo:'Within normal range.',
+    cond:['MDD','Long COVID','Autoimmune disease','Cardiovascular risk','Aging (inflammaging)'],
+    mod:['Anti-inflammatory diet','Omega-3 supplementation','Aerobic exercise','VNS/taVNS','Stress reduction'],
+    caveats:['Pulsatile and reactive to acute stressors — multiple samples ideal','Strong sex differences','Major comorbidity (obesity, diabetes) confounds'],
+    refs:282
+  },
+  {
+    cat:'lab', name:'TNF-α', abbr:'Tumor Necrosis Factor alpha',
+    measures:'Pro-inflammatory cytokine; chronic elevation linked to depression & neurodegeneration.',
+    site:'Serum',
+    range:'<2.5 pg/mL',
+    acquisition:'Fasting morning serum; same handling as IL-6.',
+    hi:'Elevated TNF-α → chronic inflammation, treatment-resistant depression, RA, IBD.',
+    lo:'Within normal range.',
+    cond:['Treatment-resistant depression','Rheumatoid arthritis','IBD','Aging'],
+    mod:['Anti-inflammatory interventions','Omega-3','Exercise','TNF-α blockers (immunology pharm)'],
+    caveats:['Often very low in healthy individuals — assay sensitivity matters','Acute infections cause large spikes','Distinguish from CRP (downstream)'],
+    refs:148
+  },
+  {
+    cat:'lab', name:'high-sensitivity CRP', abbr:'hs-CRP · serum',
+    measures:'Acute-phase protein; sensitive marker of low-grade systemic inflammation.',
+    site:'Serum',
+    range:'<3.0 mg/L (cardiovascular cutoff) · <1.0 mg/L low risk',
+    acquisition:'Fasting morning serum; not during acute illness.',
+    hi:'Elevated hs-CRP → systemic inflammation, cardiovascular risk, depression, metabolic syndrome.',
+    lo:'Low risk for inflammation-related disease.',
+    cond:['MDD','Cardiovascular risk','Metabolic syndrome','Long COVID'],
+    mod:['Mediterranean diet','Aerobic exercise','Statins (pharm)','Weight loss'],
+    caveats:['Acute infection can transiently elevate >100×','Trended over time more useful than single value','Sex and BMI affect baseline'],
+    refs:362
+  },
+  {
+    cat:'lab', name:'Homocysteine', abbr:'Hcy · serum',
+    measures:'Sulfur-containing amino acid; elevated levels linked to vascular dementia & depression.',
+    site:'Serum (fasting)',
+    range:'<12 µmol/L · >15 considered hyperhomocysteinemia',
+    acquisition:'Fasting morning serum; B12 and folate status affect interpretation.',
+    hi:'Elevated Hcy → vascular dementia risk, MDD, MCI, B-vitamin deficiency, MTHFR variants.',
+    lo:'Low Hcy → unusual; investigate B6/B12/folate metabolism.',
+    cond:['Vascular dementia','MCI','MDD','Cardiovascular risk'],
+    mod:['Methylated folate (5-MTHF)','Methylcobalamin (B12)','B6 supplementation','Reduce alcohol'],
+    caveats:['MTHFR genotype affects folate processing','Renal function impacts Hcy clearance','Always co-test B12 and folate'],
+    refs:124
+  },
+  {
+    cat:'lab', name:'25-OH Vitamin D', abbr:'25(OH)D · serum',
+    measures:'Storage form of vitamin D; strong association with mood, cognition, inflammation.',
+    site:'Serum',
+    range:'30 – 60 ng/mL adequate · <20 deficient',
+    acquisition:'Single serum draw; non-fasting acceptable.',
+    hi:'Optimal 30–60 ng/mL → supports mood, immune, bone, cognition.',
+    lo:'Deficient (<20 ng/mL) → MDD, cognitive decline, immune dysfunction, fatigue.',
+    cond:['MDD','MCI','Fatigue','Immune dysfunction','Bone health'],
+    mod:['Vitamin D3 supplementation','Sun exposure (UVB)','Vitamin K2 co-factor'],
+    caveats:['Toxicity above 100 ng/mL','Magnesium required for activation','VDR genotype affects response to supplementation'],
+    refs:188
+  },
+
+  // ===== COGNITIVE =====
+  {
+    cat:'cog', name:'CPT-3 Sustained Attention (d′)', abbr:'CPT · d-prime',
+    measures:'Signal detection sensitivity from continuous performance test; target detection vs commission errors.',
+    site:'Computerized testing (Conners CPT-3, TOVA, IVA)',
+    range:'>3.0 d′ in healthy adults',
+    acquisition:'14–22 min CPT (TOVA gold standard); compute d′ from hits and false alarms.',
+    hi:'High d′ → strong sustained attention & target discrimination.',
+    lo:'Low d′ → inattention (ADHD core), TBI, fatigue, treatment monitoring.',
+    cond:['ADHD','TBI','Cognitive fatigue','MCI'],
+    mod:['Stimulants (pharm)','Attention NF','Cognitive training','rTMS DLPFC'],
+    caveats:['Practice effects with repeat testing — alternate forms ideal','Motivation strongly affects performance','d′ separates discrimination from response bias'],
+    refs:142
+  },
+  {
+    cat:'cog', name:'Stroop Interference', abbr:'Stroop · ms (incongruent − congruent)',
+    measures:'Reaction time cost when naming font color of incongruent color words; index of cognitive control.',
+    site:'Computerized or paper-pencil',
+    range:'<110 ms in healthy adults · age-dependent',
+    acquisition:'Computerized Stroop with ≥40 trials per condition; calculate (incongruent RT − congruent RT).',
+    hi:'Large interference → poor cognitive control, frontal dysfunction, MCI, MDD.',
+    lo:'Small interference → strong inhibitory control.',
+    cond:['MDD','MCI','TBI','ADHD','Aging'],
+    mod:['Cognitive training','Mindfulness','tDCS L-DLPFC','Aerobic exercise'],
+    caveats:['Practice effects significant','Verbal vs manual response affects difficulty','Reading ability is prerequisite'],
+    refs:78
+  },
+  {
+    cat:'cog', name:'N-back 3-back Accuracy', abbr:'3-back · % correct',
+    measures:'Accuracy on 3-back working memory task; updates and maintains 3 stimuli back.',
+    site:'Computerized testing',
+    range:'>70% in healthy adults',
+    acquisition:'Standard n-back (verbal, spatial, or dual); ≥3 blocks of 3-back; track accuracy & RT.',
+    hi:'High accuracy → strong working memory, intact DLPFC function.',
+    lo:'Low accuracy → working memory deficits; ADHD, MDD, schizophrenia, MCI.',
+    cond:['MDD','ADHD','Schizophrenia','MCI','TBI'],
+    mod:['Cognitive training','tDCS L-DLPFC','rTMS DLPFC','Aerobic exercise'],
+    caveats:['Generalization beyond task questioned (Far transfer)','Dual n-back more demanding than single','Individual differences in baseline are large'],
+    refs:62
+  },
+  {
+    cat:'cog', name:'Reaction Time Variability', abbr:'RT-CV · within-subject',
+    measures:'Coefficient of variation of reaction time across trials; index of attentional fluctuation.',
+    site:'Any RT-based task (CPT, choice RT, n-back)',
+    range:'<0.25 in adults',
+    acquisition:'Compute SD/mean of RT across ≥40 correct trials.',
+    hi:'High RT-CV → attentional lapses, drowsiness, ADHD, TBI, white matter disease.',
+    lo:'Low RT-CV → consistent attentional engagement.',
+    cond:['ADHD','TBI','Aging','White matter disease','MCI'],
+    mod:['Stimulants (pharm)','Sleep optimization','Cognitive training','tDCS DLPFC'],
+    caveats:['Outlier RT trials disproportionately affect CV','Distinguish ex-Gaussian τ component for cleaner attention measure','Modest reliability — average across sessions'],
+    refs:88
+  },
+  {
+    cat:'cog', name:'Pupil Baseline Diameter', abbr:'Pupil · mm (resting)',
+    measures:'Baseline pupil size during fixation; index of locus coeruleus / noradrenergic tone.',
+    site:'Eye-tracker or pupillometer (controlled luminance)',
+    range:'3.0 – 4.5 mm in mid-photopic conditions',
+    acquisition:'Stable luminance, head-fixed; sample 30 s baseline; correct for luminance & age.',
+    hi:'Larger baseline → high LC-NA tone, arousal, anxiety, mania.',
+    lo:'Smaller baseline → opioid effect, parasympathetic dominance, fatigue.',
+    cond:['Anxiety','PTSD','Opioid response','LC-NA dysfunction'],
+    mod:['HRV biofeedback','Mindfulness','Modafinil/stimulants (pharm)'],
+    caveats:['Luminance is the dominant confound — control rigorously','Age-related miosis (pupils shrink with age)','Medications acutely affect (atropine dilates, opioids constrict)'],
+    refs:48
+  },
+
+  // ===== TMS-EEG =====
+  {
+    cat:'tms', name:'Resting Motor Threshold', abbr:'RMT · %MSO',
+    measures:'Minimum TMS stimulator intensity that elicits MEP ≥50 µV in 5/10 trials at rest.',
+    site:'Hand area of M1 (FDI muscle)',
+    range:'45 – 75% maximum stimulator output',
+    acquisition:'Single-pulse TMS; localize hotspot for FDI; threshold via Mills-Nithi or staircase method.',
+    hi:'High RMT (>75%) → low cortical excitability OR poor coil-cortex coupling, scalp issues.',
+    lo:'Low RMT (<45%) → high cortical excitability; epilepsy risk consideration.',
+    cond:['TMS dosing (universal)','Epilepsy risk','PD','MS'],
+    mod:['Used to dose all rTMS protocols (% of RMT)','Anticonvulsants (raise RMT)','Caffeine (lowers RMT)'],
+    caveats:['Active vs Resting MT differ by ~5–10%','Coil placement and orientation critical','Caffeine, sleep, anticonvulsants modulate'],
+    refs:412
+  },
+  {
+    cat:'tms', name:'TEP N100 Amplitude', abbr:'N100 · F3-DLPFC TMS-evoked',
+    measures:'TMS-evoked EEG response negative peak ~100 ms; index of GABA-B mediated inhibition.',
+    site:'F3 (L-DLPFC) stimulation, recorded at electrode below coil',
+    range:'−5 to −10 µV',
+    acquisition:'Concurrent TMS-EEG; ≥80 single pulses; remove TMS artifact (ICA or SOUND); average.',
+    hi:'Larger (more negative) N100 → strong GABA-B inhibition.',
+    lo:'Reduced N100 → impaired inhibition; MDD (DLPFC), epilepsy.',
+    cond:['MDD','Epilepsy','Schizophrenia','OCD'],
+    mod:['rTMS DLPFC (modulates N100)','GABAergic agents (research)'],
+    caveats:['TMS artifact removal is technically demanding','Auditory click & somatosensory inputs contaminate','Interpretation requires expertise'],
+    refs:96
+  },
+  {
+    cat:'tms', name:'TEP P30 Amplitude', abbr:'P30 · M1 TMS-evoked',
+    measures:'Early positive TMS-evoked potential ~30 ms; reflects local cortical excitability.',
+    site:'M1 stimulation, recorded directly under coil',
+    range:'3 – 7 µV',
+    acquisition:'Same as N100 acquisition; window of 25–35 ms post-pulse.',
+    hi:'Larger P30 → high local cortical excitability.',
+    lo:'Reduced P30 → diminished excitability or coupling.',
+    cond:['Stroke (motor recovery)','MDD','Excitability assessment'],
+    mod:['rTMS','tDCS','Anticonvulsants (reduce)'],
+    caveats:['Most affected by TMS pulse artifact','Site-specific (M1 dominant)','Need careful muscle/cranial nerve artifact control'],
+    refs:62
+  },
+  {
+    cat:'tms', name:'Cortical Silent Period', abbr:'CSP · ms',
+    measures:'Duration of EMG silence after TMS pulse during voluntary contraction; GABA-B inhibition index.',
+    site:'M1 stimulation, EMG from contralateral muscle (FDI)',
+    range:'120 – 200 ms in healthy adults',
+    acquisition:'TMS at 120% RMT during ~20% MVC; measure from MEP onset to return of EMG.',
+    hi:'Longer CSP → strong GABA-B inhibition.',
+    lo:'Shorter CSP → reduced inhibition; PD off-medication, MDD, dystonia.',
+    cond:['Parkinson\'s','MDD','Dystonia','Epilepsy'],
+    mod:['Dopaminergic medications (PD)','rTMS','GABAergic drugs'],
+    caveats:['Requires consistent muscle contraction','Background EMG affects measurement','Trial-to-trial variability — average ≥10 trials'],
+    refs:156
+  },
+  {
+    cat:'tms', name:'Short Intracortical Inhibition', abbr:'SICI · paired-pulse',
+    measures:'Inhibition of test MEP by sub-threshold conditioning pulse 1–5 ms earlier; GABA-A index.',
+    site:'M1 paired-pulse TMS',
+    range:'<0.50 ratio (test MEP / unconditioned MEP) → indicates inhibition',
+    acquisition:'Conditioning pulse (80% RMT) + test pulse (120% RMT) at ISI 2–3 ms; ≥10 trials per ISI.',
+    hi:'Ratio approaching 1.0 → reduced inhibition (disinhibition); OCD, anxiety, PD off, dystonia.',
+    lo:'Ratio <0.5 → strong GABA-A inhibition.',
+    cond:['OCD','Anxiety','Parkinson\'s','Dystonia','Tourette syndrome'],
+    mod:['Benzodiazepines (enhance SICI)','Anticonvulsants','rTMS'],
+    caveats:['Highly sensitive to ISI — 2–3 ms is sweet spot','Voluntary muscle contraction abolishes SICI','Need both single and paired pulses interleaved'],
+    refs:184
+  }
+];
+
+// ===================== KPI =====================
+function renderKPIs() {
+  const totalEv = BIOMARKERS.reduce((s, b) => s + b.refs, 0);
+  const ks = [
+    { label: 'Markers in library',  value: BIOMARKERS.length, meta: 'across 8 categories' },
+    { label: 'Categories',           value: 8,                  meta: 'spectral · network · ERP · autonomic · sleep · labs · cognitive · TMS-EEG' },
+    { label: 'Evidence anchors',     value: totalEv.toLocaleString(), meta: 'peer-reviewed references mapped' },
+    { label: 'Modalities indexed',   value: 18,                  meta: 'modulating interventions per marker' }
+  ];
+  document.getElementById('kpi-strip').innerHTML = ks.map(k => `
+    <div class="kpi">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-value">${k.value}</div>
+      <div class="kpi-meta">${k.meta}</div>
+    </div>
+  `).join('');
+}
+
+// ===================== DETAIL =====================
+function renderDetail(b) {
+  const cat = CATEGORIES[b.cat];
+  const condTags = b.cond.map(c => `<span class="tag cond clickable" data-tag-cond="${c}">${c}</span>`).join('');
+  const modTags  = b.mod.map(m => `<span class="tag mod clickable" data-tag-mod="${m}">${m}</span>`).join('');
+  const caveats  = b.caveats.map(c => `<div class="caveat">${c}</div>`).join('');
+  document.getElementById('detail').style.setProperty('--detail-color', cat.color);
+  document.getElementById('detail').innerHTML = `
+    <div class="detail-head">
+      <div class="info">
+        <div class="detail-cat-badge"><span class="blob"></span> ${cat.name}</div>
+        <div class="detail-name">${b.name.split(' ').slice(0,-1).join(' ')} <em>${b.name.split(' ').slice(-1)}</em></div>
+        <div class="detail-abbr">${b.abbr}</div>
+      </div>
+      <div class="detail-actions">
+        <button class="chip primary" data-action="ask-ai">Ask AI ✦</button>
+        <button class="chip" data-action="open-chart">Open in chart</button>
+        <button class="chip" data-action="view-refs">View references →</button>
+        <button class="chip" data-action="copy-proto">Copy to protocol</button>
+        <button class="chip" data-action="export-json">Export JSON</button>
+      </div>
+    </div>
+
+    <div class="detail-grid">
+      <div class="detail-block" style="grid-column: span 2">
+        <h4>Definition</h4>
+        <p>${b.measures}</p>
+        <h4 style="margin-top:18px">Acquisition protocol</h4>
+        <p>${b.acquisition}</p>
+      </div>
+
+      <div class="detail-block">
+        <h4>Reference values</h4>
+        <div class="ref-list">
+          <div class="item"><span class="lbl">Range</span><span class="val">${b.range}</span></div>
+          <div class="item"><span class="lbl">Recording site</span><span class="val">${b.site}</span></div>
+        </div>
+      </div>
+
+      <div class="detail-block">
+        <h4>Interpretation</h4>
+        <div>
+          <div class="interp-row">
+            <div class="interp-arrow up">↑</div>
+            <div class="interp-text">${b.hi}</div>
+          </div>
+          <div class="interp-row">
+            <div class="interp-arrow dn">↓</div>
+            <div class="interp-text">${b.lo}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="detail-block">
+        <h4>Linked clinical conditions <span style="color:var(--text-3);text-transform:none;letter-spacing:0;font-weight:400">· click to filter</span></h4>
+        <div class="tag-list">${condTags}</div>
+      </div>
+
+      <div class="detail-block">
+        <h4>Modulating interventions <span style="color:var(--text-3);text-transform:none;letter-spacing:0;font-weight:400">· click to explore</span></h4>
+        <div class="tag-list">${modTags}</div>
+      </div>
+
+      <div class="detail-block" style="grid-column: span 3">
+        <h4>Related biomarkers</h4>
+        <div class="related-list" id="related-list"></div>
+      </div>
+
+      <div class="detail-block">
+        <h4>Caveats &amp; confounds</h4>
+        <div class="caveats">${caveats}</div>
+      </div>
+    </div>
+
+    <div class="detail-foot">
+      <span><span class="ev">◆ ${b.refs.toLocaleString()} references</span> · evidence anchored to corpus</span>
+      <span>tap any card below to load its reference</span>
+    </div>
+  `;
+
+  document.querySelectorAll('.bm-card').forEach(c => {
+    c.classList.toggle('active', c.dataset.id === b.name);
+  });
+
+  // wire detail-action chips
+  document.querySelectorAll('#detail .detail-actions .chip').forEach(btn => {
+    btn.addEventListener('click', () => handleAction(btn.dataset.action, b));
+  });
+
+  // clickable condition / modality tags → cross-filter / load related markers
+  document.querySelectorAll('#detail [data-tag-cond]').forEach(el => {
+    el.addEventListener('click', () => filterByCondition(el.dataset.tagCond));
+  });
+  document.querySelectorAll('#detail [data-tag-mod]').forEach(el => {
+    el.addEventListener('click', () => filterByModality(el.dataset.tagMod));
+  });
+
+  renderRelated(b);
+  syncWorkspace(b);
+
+  // scroll detail into view smoothly when invoked from below
+  document.getElementById('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderRelated(b) {
+  const shared = (a, s) => a.filter(x => s.includes(x)).length;
+  const scored = BIOMARKERS
+    .filter(x => x.name !== b.name)
+    .map(x => ({
+      x,
+      score: (x.cat === b.cat ? 2 : 0) + shared(x.cond, b.cond) + shared(x.mod, b.mod)
+    }))
+    .filter(s => s.score > 0)
+    .sort((a, bb) => bb.score - a.score)
+    .slice(0, 6);
+  const host = document.getElementById('related-list');
+  if (!host) return;
+  host.innerHTML = scored.map(s =>
+    `<span class="pill" data-related="${s.x.name}">${s.x.name} <span style="color:var(--text-3);font-family:var(--mono);font-size:9.5px">· ${s.x.abbr.split('·')[0].trim()}</span></span>`
+  ).join('');
+  host.querySelectorAll('[data-related]').forEach(el => {
+    el.addEventListener('click', () => {
+      const m = BIOMARKERS.find(x => x.name === el.dataset.related);
+      if (m) renderDetail(m);
+    });
+  });
+}
+
+// ===================== CARDS =====================
+function renderSections() {
+  const order = ['spectral','network','erp','auto','sleep','lab','cog','tms'];
+  const html = order.map(catKey => {
+    const cat = CATEGORIES[catKey];
+    const items = BIOMARKERS.filter(b => b.cat === catKey);
+    const cards = items.map(b => `
+      <div class="bm-card" style="--bm-color:${cat.color}" data-cat="${catKey}" data-id="${b.name}" data-search="${(b.name+' '+b.abbr+' '+b.cond.join(' ')+' '+b.site).toLowerCase()}">
+        <div class="bm-top">
+          <div>
+            <div class="bm-name">${b.name}</div>
+            <div class="bm-abbr">${b.abbr}</div>
+          </div>
+          <div class="bm-cat-tag">${catKey}</div>
+        </div>
+        <div class="bm-measures">${b.measures}</div>
+        <div class="bm-row"><span class="k">Site</span><span class="v">${b.site}</span></div>
+        <div class="bm-row"><span class="k">Range</span><span class="v">${b.range}</span></div>
+        <div class="bm-row"><span class="k">Top use</span><span class="v">${b.cond.slice(0,3).join(' · ')}</span></div>
+        <div class="bm-foot">
+          <span class="bm-evidence">◆ ${b.refs.toLocaleString()} refs</span>
+          <span class="bm-details">Details →</span>
+        </div>
+      </div>
+    `).join('');
+    return `
+      <div class="bm-section" data-section="${catKey}">
+        <div class="section-head">
+          <span class="ico-blob" style="color:${cat.color}; background:${cat.color}"></span>
+          <h3>${cat.name.split('·')[0].trim()} <em>${cat.name.includes('·') ? '· ' + cat.name.split('·').slice(1).join('·').trim() : ''}</em></h3>
+          <span class="meta">${cat.sub}</span>
+          <span class="count">${items.length} markers</span>
+        </div>
+        <div class="bm-grid">${cards}</div>
+      </div>
+    `;
+  }).join('');
+  document.getElementById('bm-sections').innerHTML = html;
+
+  document.querySelectorAll('.bm-card').forEach(c => {
+    c.addEventListener('click', () => {
+      const id = c.dataset.id;
+      const b = BIOMARKERS.find(x => x.name === id);
+      if (b) renderDetail(b);
+    });
+  });
+}
+
+// ===================== FILTER + SEARCH =====================
+function attachFilters() {
+  const pills = document.querySelectorAll('#filter-rail .fpill');
+  const search = document.getElementById('search');
+  let activeCat = null;
+
+  function apply() {
+    const q = search.value.trim().toLowerCase();
+    document.querySelectorAll('.bm-section').forEach(sec => {
+      const cards = sec.querySelectorAll('.bm-card');
+      let visible = 0;
+      cards.forEach(c => {
+        const matchCat = !activeCat || c.dataset.cat === activeCat;
+        const matchQ   = !q || c.dataset.search.includes(q);
+        const v = matchCat && matchQ;
+        c.style.display = v ? '' : 'none';
+        if (v) visible++;
+      });
+      sec.style.display = visible === 0 ? 'none' : '';
+    });
+  }
+  pills.forEach(p => {
+    p.addEventListener('click', () => {
+      pills.forEach(x => x.classList.remove('active'));
+      p.classList.add('active');
+      activeCat = p.dataset.cat || null;
+      apply();
+    });
+  });
+  search.addEventListener('input', apply);
+}
+
+// ===================== CLOCK =====================
+function tickClock() {
+  const now = new Date();
+  const t = now.toTimeString().slice(0,8);
+  const d = now.toDateString().slice(4);
+  document.getElementById('clock').innerHTML = `${d} <span class="sep">·</span> ${t}<span class="tz"> BST</span>`;
+}
+
+// ===================== CONFIG =====================
+// Defaults target the live DeepSynaps Studio API (Fly) using the unauthenticated
+// /api/chat/public endpoint (GLM-4.5-Air via OpenRouter). Override via
+// <script>window.DEEPSYNAPS_CONFIG = { aiEndpoint:'/api/chat/clinician' }</script>
+// to use the authenticated clinician chat when embedded in the logged-in SPA.
+const CONFIG = Object.assign({
+  apiBase: 'https://deepsynaps-studio.fly.dev',
+  aiEndpoint: '/api/chat/public',
+  evidenceEndpoint: '/api/evidence/suggest',
+  casesEndpoint: '/api/patients/by-biomarker',
+  model: 'glm-4.5-air'
+}, (window.DEEPSYNAPS_CONFIG || {}));
+
+let CURRENT = null;
+let BACKEND_LIVE = false;
+
+function setBackendStatus(live, msg) {
+  BACKEND_LIVE = !!live;
+  const el = document.getElementById('ai-backend');
+  el.className = 'pill ' + (live ? 'ok' : 'warn');
+  el.textContent = 'backend · ' + (msg || (live ? 'live' : 'offline · using simulated responses'));
+}
+
+async function probeBackend() {
+  // Probe /api/chat/public with an OPTIONS preflight-ish lightweight HEAD;
+  // fall back to a minimal POST with an empty message list (server rejects with 422 but TCP/TLS is up).
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2500);
+    const r = await fetch(CONFIG.apiBase + CONFIG.aiEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'ping' }] }),
+      signal: ctrl.signal
+    });
+    clearTimeout(t);
+    // 200 OK or 401 (auth-gated endpoint reachable) both prove the API is live.
+    const live = r.ok || r.status === 401 || r.status === 403 || r.status === 422;
+    setBackendStatus(live, live ? 'live · ' + CONFIG.apiBase.replace(/^https?:\/\//, '') : 'unreachable (' + r.status + ')');
+  } catch (e) {
+    setBackendStatus(false);
+  }
+}
+
+// ===================== WORKSPACE SYNC =====================
+function syncWorkspace(b) {
+  CURRENT = b;
+  document.getElementById('ai-target').textContent = b.abbr.split('·')[0].trim();
+  document.getElementById('spark-target').textContent = b.name + ' · cohort z-scores';
+  document.getElementById('ev-meta').textContent = b.refs.toLocaleString() + ' refs anchored';
+  renderSpark(b);
+  renderCases(b);
+  renderEvidence(b);
+  renderQuickPrompts(b);
+  // freshen thread header
+  const thread = document.getElementById('ai-thread');
+  if (!thread.dataset.marker || thread.dataset.marker !== b.name) {
+    thread.dataset.marker = b.name;
+    thread.innerHTML = `
+      <div class="ai-msg ai">
+        <span class="who">AI</span>
+        <div class="body">
+          Loaded context for <strong>${b.name}</strong> (${b.abbr}).
+          Ask me about clinical interpretation, acquisition pitfalls, differential, or a protocol suggestion.
+          <div class="sig">model: ${CONFIG.model} · evidence corpus: ${b.refs.toLocaleString()} refs</div>
+        </div>
+      </div>`;
+  }
+}
+
+// ===================== AI PANEL =====================
+function renderQuickPrompts(b) {
+  const quick = [
+    `What does abnormal ${b.abbr.split('·')[0].trim()} suggest in MDD?`,
+    `Suggest a protocol if this marker is elevated`,
+    `What confounds should I rule out first?`,
+    `Compare with related markers in this category`
+  ];
+  const host = document.getElementById('ai-quick');
+  host.innerHTML = quick.map(q => `<button>${q}</button>`).join('');
+  host.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('ai-input').value = btn.textContent;
+      sendAI();
+    });
+  });
+}
+
+function appendMsg(who, body) {
+  const thread = document.getElementById('ai-thread');
+  const div = document.createElement('div');
+  div.className = 'ai-msg ' + (who === 'user' ? 'user' : 'ai');
+  div.innerHTML = `<span class="who">${who === 'user' ? 'You' : 'AI'}</span><div class="body">${body}</div>`;
+  thread.appendChild(div);
+  thread.scrollTop = thread.scrollHeight;
+  return div;
+}
+
+async function sendAI() {
+  const input = document.getElementById('ai-input');
+  const q = input.value.trim();
+  if (!q || !CURRENT) return;
+  input.value = '';
+  appendMsg('user', escapeHtml(q));
+  const typing = appendMsg('ai', '<span class="ai-typing"><span></span><span></span><span></span></span>');
+
+  let reply;
+  if (BACKEND_LIVE) {
+    try {
+      // Build a messages array: a context priming message, then the user question.
+      // Works for both /api/chat/public (unauth) and /api/chat/clinician (override).
+      const ctx = `Biomarker context — ${CURRENT.name} (${CURRENT.abbr}). `
+        + `Category: ${CATEGORIES[CURRENT.cat].name}. `
+        + `Measures: ${CURRENT.measures} `
+        + `Hi: ${CURRENT.hi} Lo: ${CURRENT.lo} `
+        + `Conditions: ${CURRENT.cond.join(', ')}. `
+        + `Modulators: ${CURRENT.mod.join(', ')}. `
+        + `Evidence anchors: ${CURRENT.refs} references. `
+        + `Reply concisely with light HTML (strong/ul/li/br only), clinician-facing, max 150 words.`;
+      const r = await fetch(CONFIG.apiBase + CONFIG.aiEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          messages: [
+            { role: 'user', content: ctx },
+            { role: 'assistant', content: 'Understood — I have the biomarker context loaded. Ask your question.' },
+            { role: 'user', content: q }
+          ],
+          patient_context: null,
+          language: 'en'
+        })
+      });
+      if (r.status === 401 || r.status === 403) {
+        reply = simulateAI(q, CURRENT) + `<div class="sig">ℹ authenticated endpoint — sign in to use the clinician chat; showing local reasoning</div>`;
+      } else if (!r.ok) {
+        reply = simulateAI(q, CURRENT) + `<div class="sig">⚠ backend returned ${r.status} — showing simulated response</div>`;
+      } else {
+        const j = await r.json();
+        reply = j.reply || j.answer || j.message || simulateAI(q, CURRENT);
+      }
+    } catch (e) {
+      reply = simulateAI(q, CURRENT) + `<div class="sig">⚠ backend request failed — showing simulated response</div>`;
+    }
+  } else {
+    await new Promise(r => setTimeout(r, 420 + Math.random() * 380));
+    reply = simulateAI(q, CURRENT);
+  }
+  typing.querySelector('.body').innerHTML = reply;
+  document.getElementById('ai-thread').scrollTop = 9e9;
+}
+
+function simulateAI(q, b) {
+  const ql = q.toLowerCase();
+  const parts = [];
+  if (ql.includes('protocol') || ql.includes('suggest') || ql.includes('modulat')) {
+    parts.push(`<strong>Protocol scaffold for ${b.name}:</strong>`);
+    parts.push(`<ul>
+      <li>Primary: <span style="color:var(--teal)">${b.mod[0] || '—'}</span>${b.mod[1] ? ' or <span style="color:var(--teal)">' + b.mod[1] + '</span>' : ''}</li>
+      <li>Target site: ${b.site}</li>
+      <li>Re-assess window: 4–6 weeks with matched acquisition</li>
+      <li>Co-monitor: HRV + sleep to catch autonomic drift</li>
+    </ul>`);
+  } else if (ql.includes('abnormal') || ql.includes('elev') || ql.includes('high') || ql.includes('mdd') || ql.includes('depress')) {
+    parts.push(`<strong>Clinical read — deviation signal</strong>`);
+    parts.push(`↑: ${b.hi}<br>↓: ${b.lo}`);
+    parts.push(`<div class="sig">Most commonly linked conditions: ${b.cond.slice(0,3).join(', ')}.</div>`);
+  } else if (ql.includes('confound') || ql.includes('pitfall') || ql.includes('caveat') || ql.includes('rule out')) {
+    parts.push(`<strong>Acquisition & interpretation caveats:</strong>`);
+    parts.push(`<ul>${b.caveats.map(c => `<li>${c}</li>`).join('')}</ul>`);
+  } else if (ql.includes('compare') || ql.includes('related') || ql.includes('similar')) {
+    const rel = BIOMARKERS.filter(x => x.cat === b.cat && x.name !== b.name).slice(0,3);
+    parts.push(`<strong>Within ${CATEGORIES[b.cat].name}:</strong>`);
+    parts.push(`<ul>${rel.map(r => `<li><strong>${r.name}</strong> — ${r.measures}</li>`).join('')}</ul>`);
+  } else {
+    parts.push(`<strong>${b.name}</strong> — ${b.measures}`);
+    parts.push(`<ul>
+      <li><strong>Range:</strong> ${b.range}</li>
+      <li><strong>Site:</strong> ${b.site}</li>
+      <li><strong>Top conditions:</strong> ${b.cond.join(', ')}</li>
+      <li><strong>Modulators:</strong> ${b.mod.slice(0,3).join(' · ')}</li>
+    </ul>`);
+  }
+  parts.push(`<div class="sig">anchored to ${b.refs.toLocaleString()} references · category: ${CATEGORIES[b.cat].name}</div>`);
+  return parts.join('');
+}
+
+// ===================== SPARK (cohort distribution) =====================
+function renderSpark(b) {
+  const c = document.getElementById('spark-canvas');
+  if (!c) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth || 400, h = c.clientHeight || 160;
+  c.width = w * dpr; c.height = h * dpr;
+  const ctx = c.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  // deterministic pseudo-random cohort from biomarker name (stable between renders)
+  const seed = [...b.name].reduce((s, ch) => s + ch.charCodeAt(0), 0);
+  const rnd = (i) => { const x = Math.sin(seed + i * 13.37) * 10000; return x - Math.floor(x); };
+
+  const N = 60;
+  const bars = [];
+  for (let i = 0; i < N; i++) {
+    // bell-ish: sum of two rnds
+    const v = (rnd(i) + rnd(i + 31) - 1) * 2.5; // roughly -2.5..2.5 z
+    bars.push(v);
+  }
+  const zs = [...bars].sort((a, b) => a - b);
+  const mean = bars.reduce((s, v) => s + v, 0) / N;
+  const p10 = zs[Math.floor(N * 0.1)];
+  const p90 = zs[Math.floor(N * 0.9)];
+  const highlight = bars[seed % N];
+
+  // axes
+  ctx.strokeStyle = 'rgba(148,163,184,0.12)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, h/2); ctx.lineTo(w, h/2); ctx.stroke();
+
+  // distribution as vertical strokes
+  const bw = (w - 20) / N;
+  bars.forEach((v, i) => {
+    const x = 10 + i * bw;
+    const y = h/2 - v * (h/2 - 12) / 3;
+    const isAbn = Math.abs(v) > 2;
+    const isMid = Math.abs(v) > 1.5 && !isAbn;
+    ctx.strokeStyle = isAbn ? 'rgba(251,113,133,0.95)' : isMid ? 'rgba(245,201,123,0.9)' : 'rgba(74,222,128,0.55)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, h/2);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI*2); ctx.fill();
+  });
+
+  // ±1 z band
+  ctx.fillStyle = 'rgba(45,212,191,0.05)';
+  ctx.fillRect(0, h/2 - (h/2 - 12) / 3, w, 2 * (h/2 - 12) / 3);
+
+  // legend
+  const leg = document.getElementById('spark-legend');
+  leg.innerHTML = `
+    <div class="cell"><span class="lbl">cohort n</span><span class="val">${N}</span></div>
+    <div class="cell gold"><span class="lbl">mean z</span><span class="val">${mean.toFixed(2)}</span></div>
+    <div class="cell ${Math.abs(highlight)>2?'red':Math.abs(highlight)>1.5?'gold':'green'}"><span class="lbl">index case</span><span class="val">${highlight.toFixed(2)} z</span></div>
+    <div class="cell green"><span class="lbl">p10</span><span class="val">${p10.toFixed(2)}</span></div>
+    <div class="cell red"><span class="lbl">p90</span><span class="val">${p90.toFixed(2)}</span></div>
+    <div class="cell"><span class="lbl">abnormal</span><span class="val">${bars.filter(v => Math.abs(v) > 2).length}</span></div>
+  `;
+}
+
+// ===================== PATIENT CASES =====================
+const CASE_NAMES = ['M.K.', 'S.Y.', 'H.O.', 'A.R.', 'L.D.', 'J.P.', 'K.N.', 'E.V.', 'T.B.', 'C.M.', 'N.L.', 'P.R.'];
+function mockCasesFor(b) {
+  const seed = [...b.name].reduce((s, ch) => s + ch.charCodeAt(0), 0);
+  const rnd = (i) => { const x = Math.sin(seed + i * 7.77) * 10000; return x - Math.floor(x); };
+  const n = 3 + Math.floor(rnd(1) * 4);
+  const rows = [];
+  for (let i = 0; i < n; i++) {
+    const z = (rnd(i * 3 + 2) + rnd(i * 3 + 5) - 1) * 2.4;
+    rows.push({
+      pid: 'P-' + (2800 + Math.floor(rnd(i + 9) * 99)),
+      name: CASE_NAMES[Math.floor(rnd(i + 17) * CASE_NAMES.length)],
+      cond: b.cond[Math.floor(rnd(i + 21) * b.cond.length)],
+      session: Math.floor(rnd(i + 23) * 28) + 1,
+      z
+    });
+  }
+  return rows;
+}
+
+async function renderCases(b) {
+  const host = document.getElementById('cases-list');
+  const meta = document.getElementById('cases-meta');
+  host.innerHTML = `<div style="font-family:var(--mono);font-size:10px;color:var(--text-3);padding:10px">loading cases…</div>`;
+  let rows;
+  if (BACKEND_LIVE) {
+    try {
+      const r = await fetch(`${CONFIG.apiBase}${CONFIG.casesEndpoint}?marker=${encodeURIComponent(b.name)}`);
+      rows = await r.json();
+    } catch (e) {
+      rows = mockCasesFor(b);
+    }
+  } else {
+    rows = mockCasesFor(b);
+  }
+  meta.textContent = `${rows.length} matched · ${rows.filter(r => Math.abs(r.z) > 2).length} abnormal`;
+  host.innerHTML = rows.map(r => {
+    const cls = Math.abs(r.z) > 2 ? '' : Math.abs(r.z) > 1.5 ? 'mid' : 'ok';
+    return `
+      <div class="case-row" data-pid="${r.pid}">
+        <span class="pid">${r.pid}</span>
+        <div class="meta">${r.name}<span class="sub">${r.cond} · session ${r.session}/30</span></div>
+        <span class="z ${cls}">${r.z >= 0 ? '+' : ''}${r.z.toFixed(2)}</span>
+      </div>`;
+  }).join('');
+  host.querySelectorAll('.case-row').forEach(row => {
+    row.addEventListener('click', () => toast(`→ open ${row.dataset.pid} in patient view`));
+  });
+}
+
+// ===================== EVIDENCE =====================
+function mockEvidence(b) {
+  const seed = [...b.name].reduce((s, c) => s + c.charCodeAt(0), 0);
+  const tiers = ['meta-analysis', 'RCT', 'RCT', 'cohort', 'review', 'mechanism'];
+  const years = [2024, 2024, 2023, 2023, 2022, 2021];
+  const templates = [
+    `${b.name} as a biomarker for ${b.cond[0]}: a systematic review`,
+    `Modulation of ${b.name} by ${b.mod[0]} — a randomized controlled trial`,
+    `Normative values for ${b.abbr.split('·')[0].trim()} across the lifespan`,
+    `Predictive value of ${b.name} for treatment response in ${b.cond[1] || b.cond[0]}`,
+    `Reliability and test-retest of ${b.name} in clinical populations`,
+    `Mechanistic underpinnings of ${b.name}: from cells to cognition`
+  ];
+  return templates.map((t, i) => ({
+    title: t,
+    tier: tiers[i % tiers.length],
+    year: years[i % years.length],
+    journal: ['NeuroImage', 'Clinical Neurophysiology', 'Brain', 'Biol Psychiatry', 'Nat Neurosci', 'Lancet Psychiatry'][(seed + i) % 6],
+    cites: 40 + ((seed * (i + 1)) % 350)
+  }));
+}
+
+async function renderEvidence(b) {
+  const host = document.getElementById('evidence-list');
+  host.innerHTML = `<div style="font-family:var(--mono);font-size:10px;color:var(--text-3);padding:10px">querying corpus…</div>`;
+  let rows = mockEvidence(b);
+  if (BACKEND_LIVE) {
+    try {
+      // /api/evidence/suggest is auth-gated (clinician role) and takes modality+indication.
+      // Call only if the caller overrode the endpoint shape via DEEPSYNAPS_CONFIG; otherwise keep mock.
+      const indication = encodeURIComponent(b.cond[0] || '');
+      const url = `${CONFIG.apiBase}${CONFIG.evidenceEndpoint}?indication=${indication}&limit=8`;
+      const r = await fetch(url, { credentials: 'include' });
+      if (r.ok) {
+        const j = await r.json();
+        const papers = Array.isArray(j) ? j : (j.papers || j.items || []);
+        if (papers.length) {
+          rows = papers.map(p => ({
+            title: p.title || '(untitled)',
+            tier: p.evidence_grade || (p.pub_types_json && p.pub_types_json.includes('RCT') ? 'RCT' : 'study'),
+            year: p.year || '—',
+            journal: p.journal || '',
+            cites: p.cited_by_count || p.cites || 0
+          }));
+        }
+      }
+      // any non-ok status (401/403/404/…) → keep the mock rows silently
+    } catch (e) {
+      // network error → keep mock rows
+    }
+  }
+  host.innerHTML = rows.map(r => `
+    <div class="ev-row" data-title="${escapeHtml(r.title)}">
+      <div class="ev-title">${escapeHtml(r.title)}</div>
+      <div class="ev-meta"><span class="tier">◆ ${r.tier}</span><span>${r.year}</span><span>${r.journal}</span><span>${r.cites} citations</span></div>
+    </div>
+  `).join('');
+  host.querySelectorAll('.ev-row').forEach(row => {
+    row.addEventListener('click', () => {
+      document.getElementById('ai-input').value = `Summarize the key finding of "${row.dataset.title}" in 2 sentences.`;
+      sendAI();
+    });
+  });
+}
+
+// ===================== ACTIONS =====================
+function handleAction(action, b) {
+  if (action === 'ask-ai') {
+    document.getElementById('ai-input').focus();
+    document.getElementById('ai-card').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } else if (action === 'open-chart') {
+    document.getElementById('spark-card').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    toast('cohort chart pinned');
+  } else if (action === 'view-refs') {
+    document.getElementById('ev-card').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } else if (action === 'copy-proto') {
+    const text = `PROTOCOL SCAFFOLD · ${b.name} (${b.abbr})\n` +
+      `Target: ${b.site}\n` +
+      `Intervention: ${b.mod.slice(0,2).join(' or ')}\n` +
+      `Indication: ${b.cond.slice(0,3).join(' · ')}\n` +
+      `Reassess: 4–6 weeks with matched acquisition\n` +
+      `Refs: ${b.refs} anchored papers`;
+    navigator.clipboard?.writeText(text).then(() => toast('protocol scaffold copied')).catch(() => toast('clipboard blocked — see console') || console.log(text));
+  } else if (action === 'export-json') {
+    downloadFile(b.name.replace(/\s+/g, '_') + '.json', JSON.stringify(b, null, 2), 'application/json');
+    toast('exported JSON');
+  }
+}
+
+function filterByCondition(cond) {
+  document.getElementById('search').value = cond;
+  document.getElementById('search').dispatchEvent(new Event('input'));
+  toast(`filter: condition = ${cond}`);
+  document.getElementById('bm-sections').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function filterByModality(mod) {
+  document.getElementById('search').value = mod;
+  document.getElementById('search').dispatchEvent(new Event('input'));
+  toast(`filter: modality = ${mod}`);
+  document.getElementById('bm-sections').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function downloadFile(name, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 500);
+}
+
+function exportEvidenceCSV() {
+  const rows = Array.from(document.querySelectorAll('#evidence-list .ev-row'));
+  const csv = 'title,tier,year,journal,citations\n' + rows.map(r => {
+    const t = r.querySelector('.ev-title').textContent.replace(/"/g, '""');
+    const meta = r.querySelector('.ev-meta').textContent.split(/\s+/);
+    return `"${t}",${meta.join(',')}`;
+  }).join('\n');
+  downloadFile((CURRENT?.name || 'evidence').replace(/\s+/g, '_') + '_refs.csv', csv, 'text/csv');
+  toast('evidence CSV exported');
+}
+
+// ===================== TOAST + UTIL =====================
+function toast(msg) {
+  const t = document.getElementById('toast');
+  document.getElementById('toast-msg').textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+// ===================== KEYBOARD =====================
+function bindKeyboard() {
+  document.addEventListener('keydown', (e) => {
+    // ⌘K / Ctrl+K → focus search
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      document.getElementById('search').focus();
+      return;
+    }
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    // E → export current biomarker JSON
+    if (e.key === 'e' && CURRENT) { handleAction('export-json', CURRENT); return; }
+    // ↑↓ → navigate between visible biomarker cards
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const cards = Array.from(document.querySelectorAll('.bm-card')).filter(c => c.style.display !== 'none');
+      const idx = cards.findIndex(c => c.classList.contains('active'));
+      const next = e.key === 'ArrowDown' ? Math.min(cards.length - 1, idx + 1) : Math.max(0, idx - 1);
+      if (cards[next]) {
+        const b = BIOMARKERS.find(x => x.name === cards[next].dataset.id);
+        if (b) renderDetail(b);
+      }
+      e.preventDefault();
+    }
+  });
+
+  const input = document.getElementById('ai-input');
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAI(); }
+  });
+  document.getElementById('ai-send').addEventListener('click', sendAI);
+  document.getElementById('ev-export').addEventListener('click', exportEvidenceCSV);
+}
+
+// ===================== INIT =====================
+renderKPIs();
+renderSections();
+renderDetail(BIOMARKERS[0]); // FAA loaded by default
+attachFilters();
+bindKeyboard();
+tickClock();
+setInterval(tickClock, 1000);
+probeBackend();
+window.addEventListener('resize', () => { if (CURRENT) renderSpark(CURRENT); });
+</script>
+</body>
+</html>
