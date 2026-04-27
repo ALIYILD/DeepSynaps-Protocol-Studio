@@ -8,6 +8,7 @@ import {
   evidenceGradeBadge, simulationOnlyBadge, notAPrescriptionStamp,
   modelEstimatedStamp, approvalRequiredBadge, correlationVsCausationNotice,
   dataCompletenessWarning, completenessGauge, riskChip, reviewStatusChip,
+  confidenceTierChip, topDriversList, evidenceStatusChip, decisionSupportBanner,
   escHtml, safetyFooter,
 } from './safety.js';
 import { sparklineSVG, buildTimeline, buildCorrelationHeatmap, buildPrediction, buildSimulationCurve } from './charts.js';
@@ -219,18 +220,29 @@ export function renderPrediction({ prediction }, hostId) {
     <button class="dt-tab ${h === horizon ? 'active' : ''}" data-horizon="${h}">${h}</button>
   `).join('');
   const assumptions = (prediction?.assumptions || []).map(a => `<li>${escHtml(a)}</li>`).join('');
+  const tierChip = prediction?.confidence_tier ? confidenceTierChip(prediction.confidence_tier) : '';
+  const evChip = evidenceStatusChip(prediction?.evidence_status || 'pending');
+  const drivers = topDriversList(prediction?.top_drivers);
+  const rationale = prediction?.rationale
+    ? `<div class="dt-pred-rationale" style="font-size:13px;margin:8px 0">${escHtml(prediction.rationale)}</div>`
+    : '';
+  const calibrationNote = prediction?.calibration?.note
+    ? `<div class="dt-muted" style="font-size:11px;margin-top:4px">Calibration: ${escHtml(prediction.calibration.status || 'uncalibrated')} — ${escHtml(prediction.calibration.note)}</div>`
+    : '';
   return `
     <section class="card dt-section">
       <header class="dt-section-h"><h3>Prediction engine</h3>
-        <span class="dt-section-sub">Trajectory with uncertainty bands. ${modelEstimatedStamp()} ${approvalRequiredBadge()}</span>
+        <span class="dt-section-sub">Trajectory with uncertainty bands. ${modelEstimatedStamp()} ${approvalRequiredBadge()} ${tierChip} ${evChip}</span>
       </header>
       <div class="dt-tabs">${buttons}</div>
       <div id="${hostId}" class="dt-chart-host"></div>
+      ${rationale}
       <div class="dt-pred-foot">
         <div><div class="dt-k">Assumptions</div><ul>${assumptions}</ul></div>
-        <div>${evidenceGradeBadge(prediction?.evidence_grade)}</div>
+        <div><div class="dt-k">Top drivers</div>${drivers}</div>
+        <div>${evidenceGradeBadge(prediction?.evidence_grade)}${calibrationNote}</div>
       </div>
-      <div class="dt-notice dt-notice-amber">${escHtml(prediction?.disclaimer || 'Predictions are model-estimated. Clinician must review.')}</div>
+      <div class="dt-notice dt-notice-amber">${escHtml(prediction?.disclaimer || 'Predictions are model-estimated and uncalibrated. Clinician must review.')}</div>
     </section>
   `;
 }
@@ -304,14 +316,33 @@ export function renderSimulationLab(_state, hostId) {
 
 export function renderSimulationDetail(sim) {
   if (!sim) return '<div class="dt-muted">Run a scenario to see predicted output.</div>';
-  const bullet = arr => (arr || []).map(s => `<li>${escHtml(s)}</li>`).join('');
+  const bullet = arr => (arr || []).map(s => `<li>${escHtml(typeof s === 'string' ? s : (s.claim || s.detail || JSON.stringify(s)))}</li>`).join('');
+  const tier = sim.confidence_tier ? confidenceTierChip(sim.confidence_tier) : '';
+  const ev = evidenceStatusChip(sim.evidence_status || 'pending');
+  const drivers = topDriversList(sim.top_drivers || sim.feature_attribution);
+  const rationale = sim.rationale
+    ? `<div class="dt-sim-rationale" style="font-size:13px;margin:6px 0">${escHtml(sim.rationale)}</div>`
+    : '';
+  const ci = Array.isArray(sim.responder_probability_ci95)
+    ? ` <span class="dt-muted" style="font-size:11px">95% CI ${Math.round(sim.responder_probability_ci95[0]*100)}–${Math.round(sim.responder_probability_ci95[1]*100)}%</span>`
+    : '';
+  const calNote = sim.calibration?.note
+    ? `<div class="dt-muted" style="font-size:11px;margin-top:4px">Calibration: ${escHtml(sim.calibration.status || 'uncalibrated')} — ${escHtml(sim.calibration.note)}</div>`
+    : '';
+  const provenance = sim.provenance
+    ? `<details class="dt-prov" style="margin-top:8px"><summary class="dt-muted" style="font-size:11px;cursor:pointer">Provenance · ${escHtml(sim.provenance.model_id || '')} · ${escHtml(sim.provenance.schema_version || '')}</summary><pre style="font-size:11px;white-space:pre-wrap;background:rgba(255,255,255,.04);padding:6px;border-radius:6px">${escHtml(JSON.stringify(sim.provenance, null, 2))}</pre></details>`
+    : '';
+  const psNotes = (sim.patient_specific_notes || []).map(n => `<li>${escHtml(n)}</li>`).join('');
   return `
     <div class="dt-sim-detail">
       <div class="dt-sim-detail-h">
         <strong>${escHtml(sim.scenario_id)}</strong>
         ${evidenceGradeBadge(sim.evidence_grade)}
+        ${tier}
+        ${ev}
         ${approvalRequiredBadge()}
       </div>
+      ${rationale}
       <div class="dt-sim-detail-grid">
         <div>
           <div class="dt-k">Expected domains</div>
@@ -319,7 +350,12 @@ export function renderSimulationDetail(sim) {
         </div>
         <div>
           <div class="dt-k">Responder probability</div>
-          <div>${escHtml(String(Math.round((sim.responder_probability || 0) * 100)))}% ${sim.non_responder_flag ? '<span class="dt-stamp dt-stamp-warn">non-responder flag</span>' : ''}</div>
+          <div>${escHtml(String(Math.round((sim.responder_probability || 0) * 100)))}%${ci} ${sim.non_responder_flag ? '<span class="dt-stamp dt-stamp-warn">non-responder flag</span>' : ''}</div>
+          ${calNote}
+        </div>
+        <div>
+          <div class="dt-k">Top drivers (patient-specific)</div>
+          ${drivers}
         </div>
         <div>
           <div class="dt-k">Safety concerns</div>
@@ -337,8 +373,10 @@ export function renderSimulationDetail(sim) {
           <div class="dt-k">Evidence support</div>
           <ul>${bullet(sim.evidence_support)}</ul>
         </div>
+        ${psNotes ? `<div><div class="dt-k">Patient-specific notes</div><ul>${psNotes}</ul></div>` : ''}
       </div>
-      <div class="dt-notice dt-notice-amber">${escHtml(sim.disclaimer || '')}</div>
+      ${provenance}
+      <div class="dt-notice dt-notice-amber">${escHtml(sim.disclaimer || 'Decision-support only. Clinician must review.')}</div>
     </div>
   `;
 }

@@ -83,6 +83,58 @@ export function riskChip(status) {
   return `<span class="dt-chip" style="background:${m.bg};color:${m.fg}">${escHtml(m.label)}</span>`;
 }
 
+// Confidence tier chip (high / medium / low). Stream 3 night-shift upgrade.
+const TIER_COLORS = {
+  high:   { bg: 'rgba(0,212,188,.12)',  border: 'rgba(0,212,188,.45)',  fg: 'var(--teal)' },
+  medium: { bg: 'rgba(74,158,255,.12)', border: 'rgba(74,158,255,.45)', fg: 'var(--blue)' },
+  low:    { bg: 'rgba(255,179,71,.12)', border: 'rgba(255,179,71,.45)', fg: 'var(--amber)' },
+};
+export function confidenceTierChip(tier) {
+  const t = (tier || 'low').toLowerCase();
+  const c = TIER_COLORS[t] || TIER_COLORS.low;
+  return `<span class="dt-tier dt-tier-${escHtml(t)}" title="DeepTwin confidence tier (high/medium/low) combines model confidence, input quality, and evidence strength." style="background:${c.bg};border:1px solid ${c.border};color:${c.fg};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">Confidence: ${escHtml(t)}</span>`;
+}
+
+// Top-drivers compact list. Each driver is {factor, magnitude (0..1), direction, detail}.
+export function topDriversList(drivers) {
+  if (!Array.isArray(drivers) || !drivers.length) {
+    return `<div class="dt-muted" style="font-size:12px">No driver information available.</div>`;
+  }
+  const items = drivers.slice(0, 5).map(d => {
+    const dir = (d.direction || 'neutral').toLowerCase();
+    const arrow = dir === 'positive' ? '+' : dir === 'negative' ? '−' : '·';
+    const mag = Math.round(100 * Math.max(0, Math.min(1, Number(d.magnitude) || 0)));
+    return `
+      <li style="margin:4px 0;font-size:12px">
+        <strong>${escHtml(d.factor || '')}</strong>
+        <span title="direction" style="margin:0 6px">${arrow}</span>
+        <span title="magnitude (0-100%)">${mag}%</span>
+        ${d.detail ? `<div class="dt-muted" style="font-size:11px;margin-top:2px">${escHtml(d.detail)}</div>` : ''}
+      </li>
+    `;
+  }).join('');
+  return `<ul class="dt-drivers" style="margin:6px 0;padding-left:16px">${items}</ul>`;
+}
+
+// Evidence-status pill (linked / pending / unavailable).
+export function evidenceStatusChip(status) {
+  const s = (status || 'unavailable').toLowerCase();
+  const map = {
+    linked:      { fg: 'var(--teal)',  bg: 'rgba(0,212,188,.10)',  label: 'Evidence linked' },
+    pending:     { fg: 'var(--blue)',  bg: 'rgba(74,158,255,.10)', label: 'Evidence pending' },
+    unavailable: { fg: 'var(--amber)', bg: 'rgba(255,179,71,.12)', label: 'Evidence unavailable' },
+  }[s] || { fg: 'var(--text-tertiary)', bg: 'rgba(255,255,255,.04)', label: s };
+  return `<span class="dt-chip" style="background:${map.bg};color:${map.fg}">${escHtml(map.label)}</span>`;
+}
+
+// Decision-support, not diagnosis banner. Always-on, top of every section.
+export function decisionSupportBanner() {
+  return `<div class="dt-notice dt-notice-amber" role="note" aria-label="Decision-support notice">
+    <strong>Decision-support, not diagnosis.</strong>
+    DeepTwin outputs are model-estimated and uncalibrated. Clinician review and approval are required before any treatment action.
+  </div>`;
+}
+
 export function reviewStatusChip(status) {
   const map = {
     awaiting_clinician_review: 'Awaiting clinician review',
