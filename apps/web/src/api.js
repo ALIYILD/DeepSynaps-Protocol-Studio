@@ -1640,7 +1640,10 @@ export const api = {
   // endpoint. This preserves history (DELETE is also available but destructive).
   cancelSession: (id, data = {}) => {
     const body = { status: 'cancelled' };
-    if (data && data.reason) body.session_notes = '[Cancelled] ' + String(data.reason);
+    if (data && data.reason) {
+      body.cancel_reason = String(data.reason);
+      body.session_notes = '[Cancelled] ' + String(data.reason);
+    }
     return apiFetch(`/api/v1/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
   },
   // Booking alias — backend uses POST /api/v1/sessions (createSession).
@@ -1650,9 +1653,12 @@ export const api = {
   // Endpoints not yet implemented in backend — these reject so callers can
   // try/catch and fall back to demo/seed data. When the real endpoint ships,
   // replace the stub with the real call.
-  listClinicians: () => Promise.reject(new Error('not_implemented')),
+  listClinicians: () =>
+    api.listTeam().then((res) => ({
+      items: (res?.items || []).filter((member) => ['admin', 'clinician', 'technician'].includes(String(member?.role || '').toLowerCase())),
+    })),
   listRooms: () => Promise.reject(new Error('not_implemented')),
-  listReferrals: () => Promise.reject(new Error('not_implemented')),
+  listReferrals: () => api.listLeads(),
   listStaffSchedule: (_params) => Promise.reject(new Error('not_implemented')),
   createStaffShift: (_data) => Promise.reject(new Error('not_implemented')),
   checkSlotConflicts: (_slot) => Promise.reject(new Error('not_implemented')),
