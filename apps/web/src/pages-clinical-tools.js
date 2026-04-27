@@ -9287,7 +9287,7 @@ export async function pgMedicalHistory(setTopbar) {
 export async function pgDocumentsHub(setTopbar) {
   setTopbar('Documents & Forms', `
     <button class="btn btn-primary btn-sm" onclick="window._dhShowAssignModal()">Assign Form</button>
-    <button class="btn btn-sm" onclick="window._dhShowCreateModal()">Create Document</button>
+    <button class="btn btn-sm" onclick="window._dhShowCreateModal()">Create Draft</button>
     <button class="btn btn-sm" onclick="window._dhShowUploadModal()">Upload</button>
     <button class="btn btn-sm" style="border-color:var(--accent-violet);color:var(--accent-violet)" onclick="window._nav('forms-builder')">Form Builder →</button>
   `);
@@ -9327,6 +9327,7 @@ export async function pgDocumentsHub(setTopbar) {
       updatedDate: r.updated_at ? r.updated_at.slice(0, 10) : null,
       expiryDate: m.expiry_date || null,
       archived: !!m.archived,
+      fileRef: r.file_ref || m.file_ref || null,
       _fromApi: true,
     };
   }
@@ -9501,7 +9502,9 @@ export async function pgDocumentsHub(setTopbar) {
       case 'needs-update':
         return `<button class="btn btn-primary btn-sm" style="border-color:#f97316;color:#f97316" onclick="window._dhFill('${id}')">Update</button>`;
       case 'generated':
-        return `<button class="btn btn-sm" onclick="window._dhOpen('${id}')">Open</button>`;
+        return d.fileRef || d.url
+          ? `<button class="btn btn-sm" onclick="window._dhOpen('${id}')">Open</button>`
+          : `<button class="btn btn-sm" disabled title="Draft only — no generated file available">Draft only</button>`;
       default:
         return `<button class="btn btn-sm" onclick="window._dhOpen('${id}')">Open</button>`;
     }
@@ -9511,14 +9514,12 @@ export async function pgDocumentsHub(setTopbar) {
   function secondaryActionsHTML(d) {
     const id = esc(d.id);
     const acts = [];
-    if (['completed','signed','generated','uploaded'].includes(d.status))
+    if ((d.fileRef || d.url) && ['completed','signed','generated','uploaded'].includes(d.status))
       acts.push(`<button class="btn btn-sm dh-act" onclick="window._dhDownload('${id}')">Download</button>`);
     if (['completed','signed','pending'].includes(d.status) && d.sigState !== 'signed')
       acts.push(`<button class="btn btn-sm dh-act" onclick="window._dhSendForSig('${id}')">Send for Sig</button>`);
     if (d.status === 'signed' || d.sigState === 'unsigned')
       acts.push(`<button class="btn btn-sm dh-act" onclick="window._dhMarkSigned('${id}')">Mark Signed</button>`);
-    if (d.status === 'generated')
-      acts.push(`<button class="btn btn-sm dh-act" onclick="window._dhRegenerate('${id}')">Regenerate</button>`);
     if (['completed','signed','uploaded','generated'].includes(d.status))
       acts.push(`<button class="btn btn-sm dh-act" onclick="window._dhReplace('${id}')">Replace</button>`);
     if (d.status !== 'required')
@@ -9777,9 +9778,39 @@ export async function pgDocumentsHub(setTopbar) {
   };
 
   window._dhFill       = function(id) { window._showNotifToast?.({ title:'Open Form', body:'In-platform form filling not yet wired — patients can complete this form via the patient portal.', severity:'info' }); };
-  window._dhOpen       = function(id) { const d=docs.find(x=>x.id===id); if(d?.url) window.open(d.url,'_blank'); else window._showNotifToast?.({ title:'No file attached', body:'No URL or file attached yet.', severity:'info' }); };
-  window._dhDownload   = function(id) { const d=docs.find(x=>x.id===id); if(d?.url) window.open(d.url,'_blank'); else window._showNotifToast?.({ title:'Download', body:'PDF generation coming soon.', severity:'info' }); };
-  window._dhRegenerate = function(id) { docs=loadDocs(); const d=docs.find(x=>x.id===id); if(!d) return; d.updatedDate=today(); saveDocs(docs); renderPage(); window._showNotifToast?.({ title:'Regenerated', body:`${d.name} regenerated.`, severity:'success' }); };
+  window._dhOpen       = async function(id) {
+    const d=docs.find(x=>x.id===id);
+    if(!d) return;
+    if (d._apiId && d.fileRef) {
+      try {
+        const file = await api.fetchDocumentDownload(d._apiId);
+        const url = URL.createObjectURL(file.blob);
+        window.open(url, '_blank');
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } catch (err) {
+        window._showNotifToast?.({ title:'Open failed', body: err?.message || 'Stored document could not be opened.', severity:'error' });
+      }
+      return;
+    }
+    if(d?.url) { window.open(d.url,'_blank'); return; }
+    window._showNotifToast?.({ title:'Draft only', body:'This entry does not have a generated or uploaded file yet.', severity:'info' });
+  };
+  window._dhDownload   = async function(id) {
+    const d=docs.find(x=>x.id===id);
+    if(!d) return;
+    if (d._apiId && d.fileRef) {
+      try {
+        const file = await api.fetchDocumentDownload(d._apiId);
+        downloadBlob(file.blob, file.filename || `${(d.name || 'document').replace(/\s+/g, '_')}`);
+        window._showNotifToast?.({ title:'Download ready', body:`${d.name} downloaded.`, severity:'success' });
+      } catch (err) {
+        window._showNotifToast?.({ title:'Download failed', body: err?.message || 'Stored document could not be downloaded.', severity:'error' });
+      }
+      return;
+    }
+    if(d?.url) { window.open(d.url,'_blank'); return; }
+    window._showNotifToast?.({ title:'Download unavailable', body:'Only uploaded documents with stored files can be downloaded right now.', severity:'warning' });
+  };
 
   function _dhPersistUpdate(d) {
     // Sync mutation to API (fire-and-forget)
@@ -9890,6 +9921,7 @@ export async function pgDocumentsHub(setTopbar) {
       <div class="dh-modal-hd">Upload Document</div>
       <div style="margin-bottom:12px"><label class="dh-modal-label">Patient</label><select id="dh-u-pid" class="form-control">${pOpts||'<option value="">— no patients —</option>'}</select></div>
       <div style="margin-bottom:12px"><label class="dh-modal-label">Document name</label><input id="dh-u-name" class="form-control" placeholder="e.g. Signed Consent Form" /></div>
+      <div style="margin-bottom:12px"><label class="dh-modal-label">File</label><input id="dh-u-file" class="form-control" type="file" accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.webp" /></div>
       <div style="margin-bottom:16px"><label class="dh-modal-label">Category</label>
         <select id="dh-u-cat" class="form-control"><option value="Intake">Intake</option><option value="Consent">Consent</option><option value="Clinical">Clinical</option><option value="Uploaded" selected>Uploaded</option></select></div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -9898,23 +9930,35 @@ export async function pgDocumentsHub(setTopbar) {
       </div>`;
     document.getElementById('dh-modal').style.display='flex';
   };
-  window._dhDoUpload = function() {
+  window._dhDoUpload = async function() {
     const pid=document.getElementById('dh-u-pid')?.value;
     const name=document.getElementById('dh-u-name')?.value?.trim();
     const cat=document.getElementById('dh-u-cat')?.value||'Uploaded';
-    if(!pid||!name){ window._showNotifToast?.({ title:'Required', body:'Patient and name required.', severity:'warning' }); return; }
-    docs=loadDocs();
-    const newDoc = { id:'doc_'+Date.now(), patientId:pid, templateId:null, name, category:cat, desc:'Manually uploaded.', status:'uploaded', sigState:'not-required', assignedBy:'Clinician', assignedDate:today(), completedDate:today(), updatedDate:today(), expiryDate:null };
-    docs.push(newDoc);
-    saveDocs(docs); activePid=pid; activeTab='uploaded'; window._dhCloseModal(); renderPage(); _dhPersistUpdate(newDoc);
-    window._showNotifToast?.({ title:'Uploaded', body:`${name} added.`, severity:'success' });
+    const file=document.getElementById('dh-u-file')?.files?.[0];
+    if(!pid||!name||!file){ window._showNotifToast?.({ title:'Required', body:'Patient, name, and file are required.', severity:'warning' }); return; }
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('title', name);
+    fd.append('doc_type', cat.toLowerCase());
+    fd.append('patient_id', pid);
+    fd.append('notes', 'Uploaded from documents hub.');
+    try {
+      const uploaded = await api.uploadDocument(fd);
+      const newDoc = _apiDocToLocal(uploaded);
+      docs=loadDocs().filter(x => String(x.id) !== String(newDoc.id));
+      docs.push(newDoc);
+      saveDocs(docs); activePid=pid; activeTab='uploaded'; window._dhCloseModal(); renderPage();
+      window._showNotifToast?.({ title:'Uploaded', body:`${name} uploaded and stored.`, severity:'success' });
+    } catch (err) {
+      window._showNotifToast?.({ title:'Upload failed', body: err?.message || 'Document upload failed.', severity:'error' });
+    }
   };
 
   window._dhShowCreateModal = function() {
     const pid=activePid;
     const pOpts=patients.map(p=>`<option value="${esc(p.id)}"${pid===String(p.id)?' selected':''}>${esc(p.full_name||p.name||'Patient '+p.id)}</option>`).join('');
     document.getElementById('dh-modal-box').innerHTML=`
-      <div class="dh-modal-hd">Create Document</div>
+      <div class="dh-modal-hd">Create Draft Document</div>
       <div style="margin-bottom:12px"><label class="dh-modal-label">Patient</label><select id="dh-c-pid" class="form-control">${pOpts||'<option value="">— no patients —</option>'}</select></div>
       <div style="margin-bottom:12px"><label class="dh-modal-label">Document type</label>
         <select id="dh-c-type" class="form-control">
@@ -9924,7 +9968,7 @@ export async function pgDocumentsHub(setTopbar) {
       <div style="margin-bottom:16px"><label class="dh-modal-label">Notes (optional)</label><textarea id="dh-c-notes" class="form-control" rows="2" placeholder="Any specific notes..."></textarea></div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button class="btn btn-sm" onclick="window._dhCloseModal()">Cancel</button>
-        <button class="btn btn-primary btn-sm" onclick="window._dhDoCreate()">Generate Document</button>
+        <button class="btn btn-primary btn-sm" onclick="window._dhDoCreate()">Save Draft</button>
       </div>`;
     document.getElementById('dh-modal').style.display='flex';
   };
@@ -9937,7 +9981,7 @@ export async function pgDocumentsHub(setTopbar) {
     const newDoc = { id:'doc_'+Date.now(), patientId:pid, templateId:null, name:type, category:'Generated', desc:notes||'Clinician-generated document.', status:'generated', sigState:'not-required', assignedBy:'Clinician', assignedDate:today(), completedDate:today(), updatedDate:today(), expiryDate:null };
     docs.push(newDoc);
     saveDocs(docs); activePid=pid; activeTab='generated'; window._dhCloseModal(); renderPage(); _dhPersistUpdate(newDoc);
-    window._showNotifToast?.({ title:'Document Created', body:`${type} generated.`, severity:'success' });
+    window._showNotifToast?.({ title:'Draft Created', body:`${type} saved as a local draft.`, severity:'success' });
   };
 
   window._dhCloseModal = function() {

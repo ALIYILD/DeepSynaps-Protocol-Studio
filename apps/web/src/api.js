@@ -475,9 +475,8 @@ export const api = {
     return fetch(`${API_BASE}/api/v1/documents/upload`, { method: 'POST', headers, body: formData })
       .then(r => { if (!r.ok) throw new Error(`API error ${r.status}`); return r.json(); });
   },
-
-  // Absolute URL for a document's stored file — used as <a href=> for downloads.
-  documentDownloadUrl: (id) => `${API_BASE}/api/v1/documents/${encodeURIComponent(id)}/download`,
+  fetchDocumentDownload: (id) =>
+    apiFetchBinary(`/api/v1/documents/${encodeURIComponent(id)}/download`),
 
   // ── Session Recordings (Virtual Care Recording Studio) ──────────────────
   // Backs the ▶ button in the Recording Studio. Bytes live on the local Fly
