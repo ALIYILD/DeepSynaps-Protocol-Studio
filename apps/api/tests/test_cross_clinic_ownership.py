@@ -727,3 +727,90 @@ def test_home_devices_ai_summary_other_clinic_blocked(
     )
     assert resp.status_code == 403, resp.text
     assert resp.json()["code"] == "cross_clinic_access_denied"
+
+
+# ── Notifications presence: guest probing ────────────────────────────────────
+# Pre-fix, GET/POST /api/v1/notifications/presence accepted any authenticated
+# actor, including guests. A guest token could enumerate clinic staff names
+# and roles by polling page_id=patient/<uuid> and watching the response.
+
+def test_notifications_presence_get_blocks_guest(client: TestClient) -> None:
+    resp = client.get(
+        "/api/v1/notifications/presence/patient_some-uuid",
+        headers={"Authorization": "Bearer guest-demo-token"},
+    )
+    assert resp.status_code in (401, 403), resp.text
+
+
+def test_notifications_presence_post_blocks_guest(client: TestClient) -> None:
+    resp = client.post(
+        "/api/v1/notifications/presence",
+        json={"page_id": "patient_some-uuid"},
+        headers={"Authorization": "Bearer guest-demo-token"},
+    )
+    assert resp.status_code in (401, 403), resp.text
+
+
+# ── Monitor fleet: cross-clinic device leak ──────────────────────────────────
+# Pre-fix, monitor_service.list_fleet queried DeviceConnection without any
+# clinic/clinician filter and surfaced every connected device across all
+# clinics to any clinician.
+
+def test_monitor_fleet_clinic_b_does_not_see_clinic_a_devices(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    from app.persistence.models import DeviceConnection
+
+    db: Session = SessionLocal()
+    try:
+        db.add(
+            DeviceConnection(
+                id=str(uuid.uuid4()),
+                patient_id=cross_clinic_setup["patient_id"],
+                source="oura",
+                source_type="wearable",
+                display_name="Oura Ring",
+                status="connected",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    resp = client.get(
+        "/api/v1/monitor/fleet",
+        headers=_auth(cross_clinic_setup["token_clin_b"]),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    sources = {d["device_key"] for d in body.get("devices", [])}
+    assert "oura" not in sources, (
+        "clinic B should not see clinic A's connected device — "
+        f"unexpected fleet leak: {body}"
+    )
+
+
+# ── Reports upload extension whitelist (defense-in-depth) ────────────────────
+
+def test_reports_upload_rejects_disallowed_extension(
+    client: TestClient, auth_headers: dict, cross_clinic_setup: dict[str, Any]
+) -> None:
+    """The /api/v1/reports/upload endpoint used to derive the on-disk
+    extension from a raw rsplit('.',1) on the supplied filename, which
+    allowed slashes and traversal markers in the ext string. We now
+    whitelist a fixed set of known report extensions."""
+    pid = cross_clinic_setup["patient_id"]
+    files = {"file": ("evil.exe", b"hello", "application/octet-stream")}
+    data = {
+        "patient_id": pid,
+        "type": "qeeg_summary",
+        "title": "Evil",
+    }
+    resp = client.post(
+        "/api/v1/reports/upload",
+        files=files,
+        data=data,
+        headers=_auth(cross_clinic_setup["token_clin_a"]),
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json().get("code") == "invalid_report_extension"
