@@ -34,13 +34,31 @@ if (typeof globalThis.document === 'undefined') {
     body: node('body'),
   };
 }
-if (typeof globalThis.localStorage === 'undefined') {
-  const store = {};
-  globalThis.localStorage = {
-    getItem: (k) => store[k] || null,
-    setItem: (k, v) => { store[k] = String(v); },
-    removeItem: (k) => { delete store[k]; },
-  };
+// Node 25+ exposes a built-in `localStorage` getter that throws SecurityError
+// unless --localstorage-file is set. Detect that and replace with an in-memory
+// stub. Defer the access check inside try/catch since the getter throws.
+{
+  let needsStub = true;
+  try {
+    // Touch the property; built-in throws DOMException, which means we still
+    // need to stub. If it returns a usable object (browser jsdom), keep it.
+    needsStub = !globalThis.localStorage;
+  } catch {
+    needsStub = true;
+  }
+  if (needsStub) {
+    const store = {};
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      writable: true,
+      value: {
+        getItem: (k) => (k in store ? store[k] : null),
+        setItem: (k, v) => { store[k] = String(v); },
+        removeItem: (k) => { delete store[k]; },
+        clear: () => { for (const k of Object.keys(store)) delete store[k]; },
+      },
+    });
+  }
 }
 
 const mod = await import('./evidence-intelligence.js');
