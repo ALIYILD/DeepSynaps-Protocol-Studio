@@ -108,6 +108,16 @@ export function _canRenderQEEGPrintableReport(report, analysis) {
   return !!(analysis && analysis.id && report && report.id);
 }
 
+export function _getQEEGReportPdfUrl(report, analysis) {
+  if (!report) return null;
+  if (report.report_pdf_url) return report.report_pdf_url;
+  if (report.pdf_url) return report.pdf_url;
+  if (report.id && analysis && analysis.id && api.getQEEGReportPDF) {
+    return api.getQEEGReportPDF(analysis.id, report.id);
+  }
+  return null;
+}
+
 async function _mountQEEGPrintableReportViewer(report, analysis) {
   var frame = document.getElementById('qeeg-printable-report-frame');
   if (!frame) return;
@@ -2082,7 +2092,7 @@ function _renderComprehensiveReport(report, analysis) {
   // ── Print / Download button bar ─────────────────────────────────────────
   html += '<div class="qeeg-export-bar" style="justify-content:flex-end;margin-bottom:8px">'
     + '<button class="btn btn-sm btn-outline" aria-label="Print AI report" onclick="window._qeegPrintReport()">Print Report</button>'
-    + '<button class="btn btn-sm btn-outline" aria-label="Download printable report" onclick="window._qeegDownloadPDF()">Download Printable Report</button></div>';
+    + '<button class="btn btn-sm btn-outline" aria-label="Download PDF" onclick="window._qeegDownloadPDF()">Download PDF</button></div>';
   if (hasPrintableReport || callouts.length) {
     html += '<div class="qeeg-report-layout">';
     if (hasPrintableReport) {

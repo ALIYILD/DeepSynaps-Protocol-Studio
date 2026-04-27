@@ -18,6 +18,14 @@ let _tasksApiWarned = false;
 let _tasksRefreshing = false;
 let _tasksLoaded = false;
 
+function _agentTelegramState() {
+  try {
+    return localStorage.getItem('ds_agent_tg_state') || 'idle';
+  } catch {
+    return 'idle';
+  }
+}
+
 // ── Data helpers ─────────────────────────────────────────────────────────────
 function _loadHistory(agent) {
   try { return JSON.parse(localStorage.getItem(`ds_agent_history_${agent}`) || '[]'); } catch { return []; }
@@ -388,7 +396,7 @@ function _renderHub(setTopbar) {
 
   const tasks = _loadTasks();
   const pendingTasks = tasks.filter(t => t.status === 'pending' || t.status === 'in_progress');
-  const tgConnected = localStorage.getItem('ds_agent_tg_connected') === '1';
+  const tgState = _agentTelegramState();
   const provLabel = (PROVIDERS.find(p => p.id === _agentProvider) || PROVIDERS[0]).label;
   const activity = _loadActivity().slice(0, 8);
   const userName = (() => { try { return JSON.parse(localStorage.getItem('ds_user') || '{}').display_name || JSON.parse(localStorage.getItem('ds_user') || '{}').name || 'Doctor'; } catch { return 'Doctor'; } })();
@@ -436,8 +444,8 @@ function _renderHub(setTopbar) {
         <div style="display:flex;gap:8px;align-items:center">
           <span style="font-size:10px;padding:3px 10px;border-radius:99px;background:rgba(74,222,128,0.12);color:var(--green,#22c55e);font-weight:600">${provLabel} active</span>
           <span class="agent-openclaw-badge">Powered by OpenClaw</span>
-          ${tgConnected
-            ? '<span style="font-size:10px;padding:3px 10px;border-radius:99px;background:rgba(74,222,128,0.12);color:var(--green,#22c55e);font-weight:600">✈ Telegram</span>'
+          ${tgState === 'pending'
+            ? '<span style="font-size:10px;padding:3px 10px;border-radius:99px;background:rgba(255,179,71,0.14);color:var(--amber,#f59e0b);font-weight:600">✈ Telegram link code issued</span>'
             : `<button class="btn btn-sm" style="font-size:10px;border-color:var(--blue);color:var(--blue)" onclick="window._agentOpenConfig()">Connect Telegram</button>`}
         </div>
       </div>
@@ -609,7 +617,7 @@ function _renderConfig(setTopbar) {
   setTopbar('Agent Settings', `<button class="btn btn-sm btn-ghost" onclick="window._agentBackToHub()" style="font-size:11.5px">&#8592; Back</button>`);
   const el = document.getElementById('content');
   if (!el) return;
-  const tgConnected = localStorage.getItem('ds_agent_tg_connected') === '1';
+  const tgState = _agentTelegramState();
   const tgNotifs = JSON.parse(localStorage.getItem('ds_agent_tg_notifs') || '{"sessions":true,"reviews":true,"ae":true,"digest":false}');
   const provLabel = (PROVIDERS.find(p => p.id === _agentProvider) || PROVIDERS[0]).label;
 
@@ -670,17 +678,18 @@ function _renderConfig(setTopbar) {
       <div class="card-header"><span style="font-weight:700;font-size:14px">Telegram Connection</span></div>
       <div class="card-body">
         <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">Connect Telegram to receive notifications and manage your clinic on the go.</div>
-        ${tgConnected ? `
+        ${tgState === 'pending' ? `
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-            <span style="font-size:11px;font-weight:600;padding:4px 12px;border-radius:99px;background:rgba(74,222,128,0.12);color:var(--green,#22c55e)">Connected</span>
-            <button class="btn btn-sm btn-ghost" style="font-size:10px;color:var(--red,#ef4444)" onclick="window._agentDisconnectTelegram()">Disconnect</button>
+            <span style="font-size:11px;font-weight:600;padding:4px 12px;border-radius:99px;background:rgba(255,179,71,0.14);color:var(--amber,#f59e0b)">Link code issued</span>
+            <button class="btn btn-sm btn-ghost" style="font-size:10px;color:var(--red,#ef4444)" onclick="window._agentDisconnectTelegram()">Clear</button>
           </div>
+          <div style="font-size:11px;color:var(--text-secondary);line-height:1.7;margin-bottom:14px">Telegram linking is not verified in-app yet. Complete the bot flow using your code, then use this badge only as a reminder that a code was issued on this device.</div>
         ` : `<div id="agent-tg-link-area" style="margin-bottom:14px">
           <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px"><strong>3 easy steps:</strong></div>
           <div style="font-size:12px;color:var(--text-secondary);line-height:1.8;margin-bottom:12px">
             1. Click the button below to get your link code<br>
-            2. Open Telegram and search for <strong>@DeepSynapsBot</strong><br>
-            3. Send the code to the bot — done!
+            2. Follow the bot handle and instructions shown with the code<br>
+            3. Send the code to the bot to complete linking outside this page
           </div>
           <button class="btn btn-primary btn-sm" onclick="window._agentConnectTelegram()">Get Link Code</button>
         </div>`}
@@ -903,15 +912,33 @@ window._agentClearHistory = function(agent) {
 window._agentAddTask = async function() {
   const title = document.getElementById('task-title')?.value.trim();
   if (!title) return;
+  let entry = null;
   try {
-    await _addTask({ title, patient: document.getElementById('task-patient')?.value.trim() || '', due: document.getElementById('task-due')?.value || '', priority: 'normal', agent: 'clinician', status: 'pending' });
+    entry = await _addTask({ title, patient: document.getElementById('task-patient')?.value.trim() || '', due: document.getElementById('task-due')?.value || '', priority: 'normal', agent: 'clinician', status: 'pending' });
   } catch {}
-  window._showNotifToast?.({ title: 'Task created', body: title, severity: 'success' });
+  if (!entry) {
+    window._showNotifToast?.({ title: 'Task not created', body: 'The task could not be saved.', severity: 'error' });
+    return;
+  }
+  window._showNotifToast?.({
+    title: entry._backend ? 'Task created' : 'Task saved locally',
+    body: entry._backend ? title : `${title} — backend sync unavailable`,
+    severity: entry._backend ? 'success' : 'warning'
+  });
   _agentView = 'config'; pgAgentChat(_lastSetTopbar);
 };
 window._agentCompleteTask = async function(id) {
-  try { await _updateTaskStatus(id, 'done'); } catch {}
-  window._showNotifToast?.({ title: 'Done', body: '', severity: 'success' });
+  let updated = null;
+  try { updated = await _updateTaskStatus(id, 'done'); } catch {}
+  if (!updated) {
+    window._showNotifToast?.({ title: 'Update failed', body: 'Task status could not be updated.', severity: 'error' });
+    return;
+  }
+  window._showNotifToast?.({
+    title: updated._backend ? 'Done' : 'Marked done locally',
+    body: updated._backend ? '' : 'Backend sync unavailable for this task.',
+    severity: updated._backend ? 'success' : 'warning'
+  });
   pgAgentChat(_lastSetTopbar);
 };
 window._agentDeleteTask = async function(id) {
@@ -941,21 +968,21 @@ window._agentConnectTelegram = async function() {
     area.innerHTML = `
       <div style="font-family:var(--font-mono);font-size:22px;font-weight:700;color:var(--teal);background:rgba(0,212,188,0.08);padding:14px;border-radius:8px;text-align:center;letter-spacing:4px;border:1px solid rgba(0,212,188,0.2);margin-bottom:10px">${_esc(code)}</div>
       <div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px">Open Telegram → <strong>@${_esc(handle)}</strong> → send <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:4px">LINK ${_esc(code)}</code></div>
-      <div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:10px">Linking completes automatically once the bot receives your code. Tap below to mark it done on this device.</div>
-      <button class="btn btn-primary btn-sm" onclick="window._agentConfirmTelegram()">Mark as linked ✓</button>`;
+      <div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:10px">This page cannot verify Telegram linkage yet. After you send the code to the bot, keep this reminder state on the device or clear it manually.</div>
+      <button class="btn btn-primary btn-sm" onclick="window._agentConfirmTelegram()">Keep reminder on this device</button>`;
   } catch (err) {
     area.innerHTML = `<div style="font-size:12px;color:var(--red,#ef4444)">Failed: ${_esc(err.message)}</div>
       <button class="btn btn-sm btn-ghost" style="margin-top:6px" onclick="window._agentConnectTelegram()">Retry</button>`;
   }
 };
 window._agentConfirmTelegram = function() {
-  localStorage.setItem('ds_agent_tg_connected', '1');
-  _logActivity('telegram', 'clinician', 'Telegram connected');
-  window._showNotifToast?.({ title: 'Telegram connected', body: 'You will receive notifications via Telegram.', severity: 'success' });
+  localStorage.setItem('ds_agent_tg_state', 'pending');
+  _logActivity('telegram', 'clinician', 'Telegram link code issued');
+  window._showNotifToast?.({ title: 'Reminder saved', body: 'This device will remember that a Telegram link code was issued, but linkage is not verified in-app yet.', severity: 'info' });
   _agentView = 'config'; pgAgentChat(_lastSetTopbar);
 };
 window._agentDisconnectTelegram = function() {
-  localStorage.removeItem('ds_agent_tg_connected');
+  localStorage.removeItem('ds_agent_tg_state');
   _agentView = 'config'; pgAgentChat(_lastSetTopbar);
 };
 window._agentCopyOpenClawCmd = function() {

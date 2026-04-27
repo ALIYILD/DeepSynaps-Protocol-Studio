@@ -447,6 +447,100 @@ def test_mri_report_other_clinic_blocked(
     assert resp.json()["code"] == "cross_clinic_access_denied"
 
 
+# ── MRI router: viewer / pdf / html / overlay / medrag / compare ─────────────
+# Regression for the 6 analysis-id-scoped routes that previously only
+# role-checked. Any clinician at a different clinic could pull the
+# patient's NiiVue payload, PDF/HTML report, nilearn overlay, MedRAG
+# literature, or compute a longitudinal compare with two stolen ids.
+
+
+def _seed_mri_analysis_for_setup(setup: dict[str, Any]) -> str:
+    """Insert one MriAnalysis row owned by the seed's clinic-A patient."""
+    db: Session = SessionLocal()
+    try:
+        analysis_id = str(uuid.uuid4())
+        db.add(
+            MriAnalysis(
+                analysis_id=analysis_id,
+                patient_id=setup["patient_id"],
+                state="SUCCESS",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+    return analysis_id
+
+
+def test_mri_viewer_other_clinic_blocked(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    aid = _seed_mri_analysis_for_setup(cross_clinic_setup)
+    resp = client.get(
+        f"/api/v1/mri/{aid}/viewer.json",
+        headers=_auth(cross_clinic_setup["token_clin_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["code"] == "cross_clinic_access_denied"
+
+
+def test_mri_report_pdf_other_clinic_blocked(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    aid = _seed_mri_analysis_for_setup(cross_clinic_setup)
+    resp = client.get(
+        f"/api/v1/mri/report/{aid}/pdf",
+        headers=_auth(cross_clinic_setup["token_clin_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_mri_report_html_other_clinic_blocked(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    aid = _seed_mri_analysis_for_setup(cross_clinic_setup)
+    resp = client.get(
+        f"/api/v1/mri/report/{aid}/html",
+        headers=_auth(cross_clinic_setup["token_clin_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_mri_overlay_other_clinic_blocked(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    aid = _seed_mri_analysis_for_setup(cross_clinic_setup)
+    resp = client.get(
+        f"/api/v1/mri/overlay/{aid}/target-1",
+        headers=_auth(cross_clinic_setup["token_clin_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_mri_medrag_other_clinic_blocked(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    aid = _seed_mri_analysis_for_setup(cross_clinic_setup)
+    resp = client.get(
+        f"/api/v1/mri/medrag/{aid}",
+        headers=_auth(cross_clinic_setup["token_clin_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_mri_compare_other_clinic_blocked(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    aid_base = _seed_mri_analysis_for_setup(cross_clinic_setup)
+    aid_fup = _seed_mri_analysis_for_setup(cross_clinic_setup)
+    resp = client.get(
+        f"/api/v1/mri/compare/{aid_base}/{aid_fup}",
+        headers=_auth(cross_clinic_setup["token_clin_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["code"] == "cross_clinic_access_denied"
+
+
 # ── Wearable router: clinic-cross blocked via _require_patient_access ────────
 
 
