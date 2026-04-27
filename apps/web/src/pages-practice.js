@@ -263,39 +263,546 @@ export function pgMsg(setTopbar) {
     </div>`;
 }
 
-// ── Programs ──────────────────────────────────────────────────────────────────
-export function pgPrograms(setTopbar) {
-  setTopbar('Patient Education Programs', '');
+// ── Patient Education Programs ────────────────────────────────────────────────
+// 3-tab page: Module Library / Assignments / Completion Tracking.
+// Backend support is not yet implemented — the page persists to localStorage
+// (`ds_education_programs_v1`) and renders a "DEMO DATA" banner so users know
+// they're in offline mode. When backend endpoints ship, replace the localStorage
+// reads/writes with calls to api.listEducationModules / assignModule /
+// markModuleComplete / listAssignments (currently stubbed in api.js as
+// not_implemented, mirroring the scheduling stubs at api.js:1623-1626).
+export async function pgPrograms(setTopbar) {
+  setTopbar('Patient Education Programs', `<button class="btn btn-primary btn-sm" id="ep-new-assign-btn">+ Assign module</button>`);
   const el = document.getElementById('content');
-  el.innerHTML = `
-    <div style="max-width:680px;margin:0 auto;padding:48px 24px;text-align:center">
-      <div style="width:72px;height:72px;border-radius:20px;background:linear-gradient(135deg,var(--navy-700),var(--navy-600));border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 24px">◧</div>
-      <div style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--text-primary);margin-bottom:10px">Patient Education Programs</div>
-      <div style="font-size:13.5px;color:var(--text-secondary);line-height:1.65;margin-bottom:32px;max-width:480px;margin-left:auto;margin-right:auto">
-        Structured patient-facing education modules, self-paced home courses, and caregiver onboarding programs are in active development.<br><br>
-        These will integrate directly with treatment courses — patients will receive relevant modules automatically based on their assigned protocol.
-      </div>
-      <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:40px">
-        <div class="card" style="text-align:left;padding:16px 20px;min-width:180px;flex:1;max-width:220px">
-          <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Planned</div>
-          <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Self-paced modules</div>
-          <div style="font-size:11.5px;color:var(--text-secondary)">Condition-specific patient education</div>
-        </div>
-        <div class="card" style="text-align:left;padding:16px 20px;min-width:180px;flex:1;max-width:220px">
-          <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Planned</div>
-          <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Auto-enrolment</div>
-          <div style="font-size:11.5px;color:var(--text-secondary)">Based on treatment course protocol</div>
-        </div>
-        <div class="card" style="text-align:left;padding:16px 20px;min-width:180px;flex:1;max-width:220px">
-          <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Planned</div>
-          <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Completion tracking</div>
-          <div style="font-size:11.5px;color:var(--text-secondary)">Recorded in patient profile</div>
-        </div>
-      </div>
-      <div style="display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:var(--radius-md);background:var(--teal-ghost);border:1px solid var(--border-teal);color:var(--teal);font-size:12px;font-weight:500">
-        <span>◈</span> Coming in a future release
-      </div>
+  if (!el) return;
+
+  // ── Helpers ─────────────────────────────────────────────────────────────
+  const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const STORE_KEY = 'ds_education_programs_v1';
+  const _ls   = () => { try { return JSON.parse(localStorage.getItem(STORE_KEY) || 'null') || { assignments: [] }; } catch { return { assignments: [] }; } };
+  const _lsSet = v => { try { localStorage.setItem(STORE_KEY, JSON.stringify(v)); } catch {} };
+  const toast = (title, body, severity='info') => {
+    if (typeof window._dsToast === 'function') window._dsToast({ title, body, severity });
+    else if (typeof window._showNotifToast === 'function') window._showNotifToast({ title, body, severity });
+  };
+
+  // ── Module library (seed catalogue) ──────────────────────────────────────
+  // Stable module_id values so backend wiring later can match by ID.
+  const MODULES = [
+    { id:'mod-dep-self-001',     title:'Depression Self-Management',   conditions:['Depression'],         type:'Self-paced', duration:'4 × 15 min', evidence:'A',  language:'EN',    summary:'PHQ-9-aligned skills: behavioral activation, cognitive reframing, sleep, activity scheduling.' },
+    { id:'mod-tms-expect-001',   title:'TMS — What to Expect',         conditions:['Depression','OCD'],   type:'Self-paced', duration:'2 × 10 min', evidence:'A',  language:'EN',    summary:'Procedure walk-through, sensations, side-effect FAQ, scheduling and adherence.' },
+    { id:'mod-tdcs-setup-001',   title:'tDCS Setup Coaching',          conditions:['Depression','Anxiety'], type:'Self-paced', duration:'3 × 12 min', evidence:'B', language:'EN',    summary:'Home tDCS electrode placement, montage, session log, troubleshooting common errors.' },
+    { id:'mod-care-onboard-001', title:'Caregiver Onboarding',         conditions:['Dementia','TBI'],     type:'Caregiver',  duration:'5 × 20 min', evidence:'B',  language:'EN',    summary:'Roles, communication strategies, safety planning, escalation pathways for caregivers.' },
+    { id:'mod-sleep-hyg-001',    title:'Sleep Hygiene Essentials',     conditions:['Insomnia','Depression'], type:'Self-paced', duration:'1 × 18 min', evidence:'A', language:'EN',    summary:'Sleep window, stimulus control, light hygiene, caffeine timing — core CBT-i scaffolding.' },
+    { id:'mod-cbti-lite-001',    title:'CBT-i Lite (Insomnia)',         conditions:['Insomnia'],           type:'Self-paced', duration:'6 × 20 min', evidence:'A',  language:'EN',    summary:'Six-session brief CBT for insomnia with sleep diary integration and adherence prompts.' },
+    { id:'mod-anx-skills-001',   title:'Anxiety Skills (GAD-aligned)',  conditions:['Anxiety','PTSD'],     type:'Self-paced', duration:'4 × 15 min', evidence:'A',  language:'EN',    summary:'GAD-7-aligned worry-time, breathing, exposure ladder, cognitive defusion practice.' },
+    { id:'mod-adherence-001',    title:'Adherence Coaching',           conditions:['Depression','Anxiety','OCD'], type:'Group', duration:'3 × 30 min', evidence:'B', language:'EN', summary:'Group format adherence: motivation, scheduling, missed-session recovery, peer support.' },
+  ];
+  const TOP_CONDITIONS = ['Depression','Anxiety','OCD','Insomnia','PTSD','Dementia'];
+  const MODULE_TYPES = ['Self-paced','Group','Caregiver'];
+  const LANGUAGES = ['EN'];
+
+  // ── State ───────────────────────────────────────────────────────────────
+  const state = {
+    tab: 'library',
+    filterCondition: '',
+    filterType: '',
+    filterLanguage: '',
+    selectedPatientId: null,
+    patients: [],
+    expandedRow: null,
+  };
+
+  // ── Patient list (best-effort; falls back to known seed pids) ───────────
+  const _seedPatients = [
+    { id:'pt-001', name:'Demo Patient 001' },
+    { id:'pt-002', name:'Demo Patient 002' },
+    { id:'pt-003', name:'Demo Patient 003' },
+  ];
+  async function _loadPatients() {
+    try {
+      const res = await api.listPatients();
+      const items = (res && (res.items || res)) || [];
+      if (Array.isArray(items) && items.length) {
+        state.patients = items.map(p => ({
+          id: p.id || p.patient_id || p.uuid,
+          name: p.name || p.full_name || (p.first_name ? `${p.first_name} ${p.last_name||''}`.trim() : null) || ('Patient ' + (p.id || '?')),
+        })).filter(p => p.id);
+        return;
+      }
+    } catch (_) { /* no backend — fall through */ }
+    state.patients = _seedPatients;
+  }
+
+  // ── Storage CRUD ────────────────────────────────────────────────────────
+  function loadAssignments() { return _ls().assignments || []; }
+  function saveAssignments(arr) { const cur = _ls(); cur.assignments = arr; _lsSet(cur); }
+  function assignModuleToPatient(patientId, moduleId) {
+    const arr = loadAssignments();
+    const exists = arr.find(a => a.patient_id === patientId && a.module_id === moduleId && a.status !== 'completed');
+    if (exists) return exists;
+    const a = {
+      id: 'asg-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+      patient_id: patientId,
+      module_id: moduleId,
+      status: 'not_started',
+      progress: 0,
+      assigned_at: new Date().toISOString(),
+      last_activity_at: null,
+      completed_at: null,
+    };
+    arr.push(a);
+    saveAssignments(arr);
+    return a;
+  }
+  function unassign(assignmentId) {
+    saveAssignments(loadAssignments().filter(a => a.id !== assignmentId));
+  }
+  function markComplete(assignmentId) {
+    const arr = loadAssignments();
+    const a = arr.find(x => x.id === assignmentId);
+    if (a) {
+      a.status = 'completed';
+      a.progress = 100;
+      a.completed_at = new Date().toISOString();
+      a.last_activity_at = a.completed_at;
+      saveAssignments(arr);
+    }
+  }
+  function setInProgress(assignmentId) {
+    const arr = loadAssignments();
+    const a = arr.find(x => x.id === assignmentId);
+    if (a) {
+      a.status = 'in_progress';
+      a.progress = Math.max(a.progress, 25);
+      a.last_activity_at = new Date().toISOString();
+      saveAssignments(arr);
+    }
+  }
+
+  // ── Filters ─────────────────────────────────────────────────────────────
+  function filteredModules() {
+    return MODULES.filter(m => {
+      if (state.filterCondition && !m.conditions.includes(state.filterCondition)) return false;
+      if (state.filterType && m.type !== state.filterType) return false;
+      if (state.filterLanguage && m.language !== state.filterLanguage) return false;
+      return true;
+    });
+  }
+
+  // ── Renderers ───────────────────────────────────────────────────────────
+  function renderTabs() {
+    const tabs = [
+      { id:'library',    label:'Module Library' },
+      { id:'assignments', label:'Assignments' },
+      { id:'tracking',   label:'Completion Tracking' },
+    ];
+    return `
+      <div class="pg-programs-tabs" role="tablist" aria-label="Patient Education Programs sections">
+        ${tabs.map((t, i) => `
+          <button role="tab" id="ep-tab-${t.id}" tabindex="${state.tab===t.id?'0':'-1'}"
+                  aria-selected="${state.tab===t.id}" aria-controls="ep-panel-${t.id}"
+                  data-tab="${t.id}" data-tab-idx="${i}"
+                  class="pg-programs-tab${state.tab===t.id?' is-active':''}">${esc(t.label)}</button>
+        `).join('')}
+      </div>`;
+  }
+
+  function renderDemoBanner() {
+    return `<div class="pg-programs-demo-banner" role="status">
+      <span class="pg-programs-demo-dot"></span>
+      <strong>DEMO DATA</strong>
+      <span style="color:var(--text-secondary)">— backend not yet wired. Module assignments persist locally in your browser. They will sync once the education-programs API ships.</span>
     </div>`;
+  }
+
+  function renderFilters() {
+    const chip = (label, val, sel) => `
+      <button class="pg-programs-chip${sel?' is-active':''}" data-filter="${val.kind}" data-value="${esc(val.v)}">${esc(label)}</button>`;
+    return `
+      <div class="pg-programs-filters">
+        <div class="pg-programs-filter-group">
+          <span class="pg-programs-filter-label">Condition</span>
+          ${chip('All', { kind:'condition', v:'' }, !state.filterCondition)}
+          ${TOP_CONDITIONS.map(c => chip(c, { kind:'condition', v:c }, state.filterCondition===c)).join('')}
+        </div>
+        <div class="pg-programs-filter-group">
+          <span class="pg-programs-filter-label">Type</span>
+          ${chip('All', { kind:'type', v:'' }, !state.filterType)}
+          ${MODULE_TYPES.map(c => chip(c, { kind:'type', v:c }, state.filterType===c)).join('')}
+        </div>
+        <div class="pg-programs-filter-group">
+          <span class="pg-programs-filter-label">Language</span>
+          ${chip('All', { kind:'language', v:'' }, !state.filterLanguage)}
+          ${LANGUAGES.map(c => chip(c, { kind:'language', v:c }, state.filterLanguage===c)).join('')}
+        </div>
+      </div>`;
+  }
+
+  function evidenceBadgeHTML(grade) {
+    const cls = grade === 'A' ? 'a' : grade === 'B' ? 'b' : 'c';
+    return `<span class="pg-programs-ev pg-programs-ev-${cls}" title="Evidence grade ${esc(grade)}">Evidence ${esc(grade)}</span>`;
+  }
+
+  function renderLibrary() {
+    const mods = filteredModules();
+    if (!mods.length) {
+      return `<div class="pg-programs-empty">
+        <div class="pg-programs-empty-ico">◧</div>
+        <div class="pg-programs-empty-title">No modules match your filters</div>
+        <div class="pg-programs-empty-sub">Try clearing a chip above to see more programs.</div>
+      </div>`;
+    }
+    return `
+      <div class="pg-programs-grid">
+        ${mods.map(m => `
+          <article class="card pg-programs-mod-card" tabindex="0" data-module-id="${esc(m.id)}">
+            <div class="pg-programs-mod-head">
+              <span class="pg-programs-mod-type pg-programs-mod-type-${m.type.toLowerCase().replace(/[^a-z]/g,'')}">${esc(m.type)}</span>
+              ${evidenceBadgeHTML(m.evidence)}
+            </div>
+            <div class="pg-programs-mod-title">${esc(m.title)}</div>
+            <div class="pg-programs-mod-meta">
+              ${m.conditions.map(c => `<span class="pg-programs-tag">${esc(c)}</span>`).join('')}
+              <span class="pg-programs-meta-dot">·</span>
+              <span class="pg-programs-mod-dur">${esc(m.duration)}</span>
+              <span class="pg-programs-meta-dot">·</span>
+              <span class="pg-programs-mod-lang">${esc(m.language)}</span>
+            </div>
+            <div class="pg-programs-mod-summary">${esc(m.summary)}</div>
+            <div class="pg-programs-mod-actions">
+              <button class="btn btn-sm btn-primary" data-assign-mod="${esc(m.id)}">Assign to patient</button>
+            </div>
+          </article>
+        `).join('')}
+      </div>`;
+  }
+
+  function statusPillHTML(status, progress) {
+    const map = { not_started:{ l:'Not Started', cls:'idle' }, in_progress:{ l:'In Progress', cls:'busy' }, completed:{ l:'Completed', cls:'done' } };
+    const m = map[status] || map.not_started;
+    return `<span class="pg-programs-status pg-programs-status-${m.cls}">${esc(m.l)}</span>
+            <span class="pg-programs-progress" aria-label="${progress}% complete"><span class="pg-programs-progress-bar" style="width:${Math.max(0,Math.min(100,progress|0))}%"></span></span>`;
+  }
+
+  function renderAssignments() {
+    const pats = state.patients.length ? state.patients : _seedPatients;
+    if (!state.selectedPatientId && pats[0]) state.selectedPatientId = pats[0].id;
+    const pid = state.selectedPatientId;
+    const all = loadAssignments().filter(a => a.patient_id === pid);
+    const modById = Object.fromEntries(MODULES.map(m => [m.id, m]));
+    const rows = all.map(a => {
+      const m = modById[a.module_id] || { title:'(unknown module)', type:'', duration:'' };
+      return `
+        <tr data-assignment-id="${esc(a.id)}">
+          <td>
+            <div class="pg-programs-row-title">${esc(m.title)}</div>
+            <div class="pg-programs-row-sub">${esc(m.type)} · ${esc(m.duration||'—')}</div>
+          </td>
+          <td>${statusPillHTML(a.status, a.progress)}</td>
+          <td class="pg-programs-row-meta">${a.last_activity_at ? esc(new Date(a.last_activity_at).toLocaleDateString()) : '—'}</td>
+          <td class="pg-programs-row-actions">
+            <button class="btn btn-xs" data-act="resend" data-asg="${esc(a.id)}" title="Re-send invite">Re-send invite</button>
+            <button class="btn btn-xs" data-act="complete" data-asg="${esc(a.id)}" ${a.status==='completed'?'disabled':''}>Mark complete</button>
+            <button class="btn btn-xs" data-act="unassign" data-asg="${esc(a.id)}">Unassign</button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    return `
+      <div class="pg-programs-asg-wrap">
+        <aside class="pg-programs-patpicker">
+          <div class="pg-programs-patpicker-label">Patient</div>
+          <select id="ep-patient-select" class="pg-programs-select" aria-label="Select patient">
+            ${pats.map(p => `<option value="${esc(p.id)}"${p.id===pid?' selected':''}>${esc(p.name)}</option>`).join('')}
+          </select>
+          <div class="pg-programs-patpicker-meta">${pats.length} patient${pats.length===1?'':'s'} loaded</div>
+          <button class="btn btn-sm btn-primary pg-programs-asg-cta" id="ep-asg-cta">+ Assign module</button>
+        </aside>
+        <section class="pg-programs-asg-list">
+          ${all.length ? `
+            <table class="pg-programs-table">
+              <thead><tr><th>Module</th><th>Status</th><th>Last activity</th><th>Actions</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>` : `
+            <div class="pg-programs-empty">
+              <div class="pg-programs-empty-ico">◐</div>
+              <div class="pg-programs-empty-title">No modules assigned yet</div>
+              <div class="pg-programs-empty-sub">Use <strong>+ Assign module</strong> to send a program from the library.</div>
+            </div>`}
+        </section>
+      </div>`;
+  }
+
+  function trackingRows() {
+    const all = loadAssignments();
+    const byMod = new Map();
+    MODULES.forEach(m => byMod.set(m.id, { module:m, assigned:0, completed:0, lastActivity:null, perPatient:[] }));
+    all.forEach(a => {
+      const r = byMod.get(a.module_id);
+      if (!r) return;
+      r.assigned++;
+      if (a.status === 'completed') r.completed++;
+      if (a.last_activity_at && (!r.lastActivity || a.last_activity_at > r.lastActivity)) r.lastActivity = a.last_activity_at;
+      r.perPatient.push(a);
+    });
+    let out = [...byMod.values()].map(r => ({
+      ...r,
+      pct: r.assigned ? Math.round((r.completed / r.assigned) * 100) : 0,
+    }));
+    if (state._sortKey) {
+      const dir = state._sortDir === 'asc' ? 1 : -1;
+      out = out.sort((a, b) => {
+        const ka = a[state._sortKey] || 0, kb = b[state._sortKey] || 0;
+        if (ka < kb) return -1 * dir;
+        if (ka > kb) return  1 * dir;
+        return 0;
+      });
+    }
+    return out;
+  }
+
+  function renderTracking() {
+    const rows = trackingRows();
+    return `
+      <div class="pg-programs-tracking-head">
+        <div class="pg-programs-tracking-title">Clinic-wide module completion</div>
+        <button class="btn btn-sm" id="ep-export-csv">Export CSV</button>
+      </div>
+      <table class="pg-programs-table pg-programs-tracking-table">
+        <thead>
+          <tr>
+            <th>Module</th>
+            <th data-sort="assigned"># Assigned</th>
+            <th data-sort="completed"># Completed</th>
+            <th data-sort="pct">Completion %</th>
+            <th data-sort="lastActivity">Last activity</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr class="pg-programs-track-row" data-mod-id="${esc(r.module.id)}">
+              <td><div class="pg-programs-row-title">${esc(r.module.title)}</div><div class="pg-programs-row-sub">${esc(r.module.type)} · ${esc(r.module.conditions.join(', '))}</div></td>
+              <td>${r.assigned}</td>
+              <td>${r.completed}</td>
+              <td>
+                <div class="pg-programs-track-pct">
+                  <span class="pg-programs-progress"><span class="pg-programs-progress-bar" style="width:${r.pct}%"></span></span>
+                  <span>${r.pct}%</span>
+                </div>
+              </td>
+              <td>${r.lastActivity ? esc(new Date(r.lastActivity).toLocaleDateString()) : '—'}</td>
+            </tr>
+            ${state.expandedRow === r.module.id ? `
+              <tr class="pg-programs-track-drill"><td colspan="5">
+                ${r.perPatient.length ? `
+                  <table class="pg-programs-table pg-programs-track-drill-table">
+                    <thead><tr><th>Patient</th><th>Status</th><th>Last activity</th></tr></thead>
+                    <tbody>
+                      ${r.perPatient.map(a => {
+                        const p = state.patients.find(x => x.id === a.patient_id) || { name:a.patient_id };
+                        return `<tr><td>${esc(p.name)}</td><td>${statusPillHTML(a.status, a.progress)}</td><td>${a.last_activity_at?esc(new Date(a.last_activity_at).toLocaleDateString()):'—'}</td></tr>`;
+                      }).join('')}
+                    </tbody>
+                  </table>` : '<div class="pg-programs-empty-sub" style="padding:12px">No patient assignments yet for this module.</div>'}
+              </td></tr>` : ''}
+          `).join('')}
+        </tbody>
+      </table>`;
+  }
+
+  // ── Flyout (Assign module modal) ───────────────────────────────────────
+  let flyoutOpen = false;
+  function openFlyout() {
+    if (flyoutOpen) return;
+    flyoutOpen = true;
+    const pats = state.patients.length ? state.patients : _seedPatients;
+    if (!state.selectedPatientId && pats[0]) state.selectedPatientId = pats[0].id;
+    const node = document.createElement('div');
+    node.className = 'pg-programs-flyout-overlay';
+    node.setAttribute('role', 'dialog');
+    node.setAttribute('aria-modal', 'true');
+    node.setAttribute('aria-label', 'Assign modules to patient');
+    node.innerHTML = `
+      <div class="pg-programs-flyout">
+        <div class="pg-programs-flyout-head">
+          <div class="pg-programs-flyout-title">Assign modules</div>
+          <button class="btn btn-xs" id="ep-flyout-close" aria-label="Close">Close</button>
+        </div>
+        <div class="pg-programs-flyout-body">
+          <label class="pg-programs-flyout-label">Patient</label>
+          <select id="ep-flyout-patient" class="pg-programs-select">
+            ${pats.map(p => `<option value="${esc(p.id)}"${p.id===state.selectedPatientId?' selected':''}>${esc(p.name)}</option>`).join('')}
+          </select>
+          <label class="pg-programs-flyout-label" style="margin-top:14px">Modules (multi-select)</label>
+          <div class="pg-programs-flyout-mods">
+            ${MODULES.map(m => `
+              <label class="pg-programs-flyout-mod">
+                <input type="checkbox" data-mod-id="${esc(m.id)}">
+                <div>
+                  <div class="pg-programs-row-title">${esc(m.title)}</div>
+                  <div class="pg-programs-row-sub">${esc(m.type)} · ${esc(m.conditions.join(', '))} · ${esc(m.duration)}</div>
+                </div>
+              </label>
+            `).join('')}
+          </div>
+        </div>
+        <div class="pg-programs-flyout-foot">
+          <button class="btn btn-sm" id="ep-flyout-cancel">Cancel</button>
+          <button class="btn btn-sm btn-primary" id="ep-flyout-confirm">Confirm</button>
+        </div>
+      </div>`;
+    document.body.appendChild(node);
+    const close = () => { flyoutOpen = false; node.remove(); };
+    node.addEventListener('click', e => { if (e.target === node) close(); });
+    node.querySelector('#ep-flyout-close').addEventListener('click', close);
+    node.querySelector('#ep-flyout-cancel').addEventListener('click', close);
+    node.querySelector('#ep-flyout-confirm').addEventListener('click', () => {
+      const pid = node.querySelector('#ep-flyout-patient').value;
+      const checked = [...node.querySelectorAll('input[type=checkbox]:checked')].map(i => i.dataset.modId);
+      if (!checked.length) { toast('No modules selected', 'Pick at least one module to assign.', 'warn'); return; }
+      checked.forEach(mid => assignModuleToPatient(pid, mid));
+      state.selectedPatientId = pid;
+      toast('Modules assigned', `${checked.length} module${checked.length===1?'':'s'} sent to patient.`, 'success');
+      close();
+      render();
+    });
+  }
+
+  // ── CSV export (in-browser blob) ───────────────────────────────────────
+  function exportTrackingCSV() {
+    const rows = trackingRows();
+    const header = ['module_id','module_title','module_type','assigned','completed','completion_pct','last_activity'];
+    const csv = [header.join(',')].concat(rows.map(r => [
+      r.module.id, JSON.stringify(r.module.title), r.module.type, r.assigned, r.completed, r.pct,
+      r.lastActivity || '',
+    ].join(','))).join('\n');
+    const blob = new Blob([csv], { type:'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'education-programs-completion.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    toast('Export ready', 'Completion CSV downloaded.', 'success');
+  }
+
+  // ── Page render ────────────────────────────────────────────────────────
+  function render() {
+    let body = '';
+    if (state.tab === 'library')         body = renderFilters() + renderLibrary();
+    else if (state.tab === 'assignments') body = renderAssignments();
+    else                                  body = renderTracking();
+    el.innerHTML = `
+      <div class="pg-programs-page">
+        ${renderDemoBanner()}
+        ${renderTabs()}
+        <div role="tabpanel" id="ep-panel-${state.tab}" aria-labelledby="ep-tab-${state.tab}" class="pg-programs-panel">
+          ${body}
+        </div>
+      </div>`;
+    bindEvents();
+  }
+
+  // ── Event wiring ───────────────────────────────────────────────────────
+  function bindEvents() {
+    // Tab switching + arrow keys (a11y)
+    const tabs = [...el.querySelectorAll('.pg-programs-tab')];
+    tabs.forEach((btn, i) => {
+      btn.addEventListener('click', () => { state.tab = btn.dataset.tab; render(); });
+      btn.addEventListener('keydown', (e) => {
+        let next = -1;
+        if (e.key === 'ArrowRight') next = (i + 1) % tabs.length;
+        else if (e.key === 'ArrowLeft') next = (i - 1 + tabs.length) % tabs.length;
+        else if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = tabs.length - 1;
+        if (next >= 0) {
+          e.preventDefault();
+          state.tab = tabs[next].dataset.tab;
+          render();
+          // Restore focus to the newly active tab
+          requestAnimationFrame(() => {
+            const t = el.querySelector(`#ep-tab-${state.tab}`);
+            if (t) t.focus();
+          });
+        }
+      });
+    });
+
+    // Filter chips
+    el.querySelectorAll('.pg-programs-chip').forEach(c => {
+      c.addEventListener('click', () => {
+        const k = c.dataset.filter;
+        const v = c.dataset.value || '';
+        if (k === 'condition') state.filterCondition = v;
+        else if (k === 'type') state.filterType = v;
+        else if (k === 'language') state.filterLanguage = v;
+        render();
+      });
+    });
+
+    // Library: assign-to-patient
+    el.querySelectorAll('[data-assign-mod]').forEach(b => {
+      b.addEventListener('click', () => {
+        const mid = b.dataset.assignMod;
+        const pats = state.patients.length ? state.patients : _seedPatients;
+        const pid = state.selectedPatientId || (pats[0] && pats[0].id);
+        if (!pid) { toast('No patient', 'Add a patient before assigning modules.', 'warn'); return; }
+        assignModuleToPatient(pid, mid);
+        const m = MODULES.find(x => x.id === mid);
+        toast('Module assigned', `${m ? m.title : 'Module'} → ${(pats.find(p=>p.id===pid)||{}).name||pid}`, 'success');
+      });
+    });
+
+    // Assignments tab: patient picker + actions
+    const sel = el.querySelector('#ep-patient-select');
+    if (sel) sel.addEventListener('change', () => { state.selectedPatientId = sel.value; render(); });
+    el.querySelectorAll('[data-act]').forEach(b => {
+      b.addEventListener('click', () => {
+        const act = b.dataset.act, asg = b.dataset.asg;
+        if (act === 'resend') { setInProgress(asg); toast('Invite re-sent', 'Patient was notified (simulated).', 'info'); render(); }
+        else if (act === 'complete') { markComplete(asg); toast('Marked complete', 'Module completion recorded.', 'success'); render(); }
+        else if (act === 'unassign') { unassign(asg); toast('Unassigned', 'Module removed from patient.', 'info'); render(); }
+      });
+    });
+    const cta = el.querySelector('#ep-asg-cta');
+    if (cta) cta.addEventListener('click', openFlyout);
+
+    // Tracking tab: drill-down + sort + CSV
+    el.querySelectorAll('.pg-programs-track-row').forEach(r => {
+      r.addEventListener('click', () => {
+        const mid = r.dataset.modId;
+        state.expandedRow = state.expandedRow === mid ? null : mid;
+        render();
+      });
+    });
+    const csv = el.querySelector('#ep-export-csv');
+    if (csv) csv.addEventListener('click', (e) => { e.stopPropagation(); exportTrackingCSV(); });
+
+    // Sort header (simple toggle by column)
+    el.querySelectorAll('[data-sort]').forEach(h => {
+      h.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // Tracking view computes rows fresh each render — sort by toggling state once.
+        // Implementation: re-sort the underlying data via a transient flag.
+        state._sortKey = h.dataset.sort;
+        state._sortDir = state._sortDir === 'desc' ? 'asc' : 'desc';
+        render();
+      });
+    });
+
+    // Topbar "+ Assign module" button (set by setTopbar). Topbar persists
+    // across re-renders, so guard against attaching the listener twice.
+    const topBtn = document.getElementById('ep-new-assign-btn');
+    if (topBtn && !topBtn._epBound) {
+      topBtn.addEventListener('click', openFlyout);
+      topBtn._epBound = true;
+    }
+  }
+
+  // ── Initial paint ──────────────────────────────────────────────────────
+  el.innerHTML = `<div class="pg-programs-loading">Loading programs…</div>`;
+  await _loadPatients();
+  render();
 }
 
 // ── Billing & Superbills ──────────────────────────────────────────────────────

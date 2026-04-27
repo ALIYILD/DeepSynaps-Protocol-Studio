@@ -1735,6 +1735,21 @@ export const api = {
   remindHomeProgramTask: (_taskId, _payload) => Promise.reject(new Error('not_implemented')),
   listHomeProgramTaskTemplates: () => Promise.reject(new Error('not_implemented')),
 
+  // ── Patient Education Programs (stubs — backend endpoints not yet shipped) ──
+  // Frontend (pgPrograms in pages-practice.js) currently persists to
+  // localStorage(`ds_education_programs_v1`) and renders a DEMO DATA banner.
+  // When `/api/v1/programs/...` ships, replace these rejects with apiFetch calls.
+  // TODO backend: GET /api/v1/programs/modules?condition=&type=&lang=
+  listEducationModules: (_params) => Promise.reject(new Error('not_implemented')),
+  // TODO backend: GET /api/v1/programs/assignments?patient_id=
+  listAssignments: (_params) => Promise.reject(new Error('not_implemented')),
+  // TODO backend: POST /api/v1/programs/assignments  body:{ patient_id, module_id }
+  assignModule: (_data) => Promise.reject(new Error('not_implemented')),
+  // TODO backend: PATCH /api/v1/programs/assignments/{id}  body:{ status:'completed' }
+  markModuleComplete: (_assignmentId) => Promise.reject(new Error('not_implemented')),
+  // TODO backend: DELETE /api/v1/programs/assignments/{id}
+  unassignModule: (_assignmentId) => Promise.reject(new Error('not_implemented')),
+
   // ── Risk Stratification (traffic lights) ──────────────────────────────────
   getPatientRiskProfile: (patientId) =>
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}`),
