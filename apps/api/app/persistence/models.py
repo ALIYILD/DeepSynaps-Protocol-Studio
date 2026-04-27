@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -130,6 +130,30 @@ class Subscription(Base):
     current_period_end: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class StripeWebhookLog(Base):
+    __tablename__ = "stripe_webhook_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    stripe_event_id: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    payload: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="pending",
+        index=True,
+    )  # pending, processing, succeeded, failed, dead
+    attempt_count: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
+    next_retry_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True, index=True)
+    last_error: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
 
 class TeamMember(Base):
@@ -1976,6 +2000,7 @@ class MriAnalysis(Base):
     condition: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     age: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     sex: Mapped[Optional[str]] = mapped_column(String(4), nullable=True)
+    failure_reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
 
 
 class MriUpload(Base):

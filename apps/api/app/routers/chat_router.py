@@ -8,7 +8,17 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_patient_owner
+from app.repositories.patients import resolve_patient_clinic_id
+
+
+def _gate_chat_patient(actor: AuthenticatedActor, patient_id: str | None, db: Session) -> None:
+    """Cross-clinic gate for chat endpoints that pull patient PHI into the LLM prompt."""
+    if not patient_id:
+        return
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.limiter import limiter
@@ -78,7 +88,8 @@ class SalesInquiryResponse(BaseModel):
 
 
 @router.post("/public", response_model=ChatResponse)
-def public_faq_chat(body: ChatRequest) -> ChatResponse:
+@limiter.limit("10/minute")
+def public_faq_chat(request: Request, body: ChatRequest) -> ChatResponse:
     """No auth required — public FAQ bot for the landing page."""
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
     reply = chat_public_faq(msgs)
@@ -131,7 +142,9 @@ def sales_inquiry(
 
 
 @router.post("/agent", response_model=ChatResponse)
+@limiter.limit("30/minute")
 def agent_chat(
+    request: Request,
     body: AgentChatRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> ChatResponse:
@@ -144,13 +157,16 @@ def agent_chat(
 
 
 @router.post("/clinician", response_model=ChatResponse)
+@limiter.limit("30/minute")
 def clinician_chat(
+    request: Request,
     body: ChatRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> ChatResponse:
     from app.auth import require_minimum_role
     require_minimum_role(actor, "clinician")
+    _gate_chat_patient(actor, body.patient_id, db)
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
     # Auto-inject clinician-authored assessment context so the LLM sees current
     # severity without the caller having to stringify it manually. If
@@ -219,7 +235,9 @@ def clinician_chat(
 
 
 @router.post("/patient", response_model=ChatResponse)
+@limiter.limit("30/minute")
 def patient_chat(
+    request: Request,
     body: ChatRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> ChatResponse:
@@ -386,7 +404,9 @@ def wearable_patient_chat(
 
 
 @router.post("/wearable-clinician", response_model=ChatResponse)
+@limiter.limit("20/minute")
 def wearable_clinician_chat(
+    request: Request,
     body: WearableClinicianChatRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
@@ -394,6 +414,7 @@ def wearable_clinician_chat(
     """Clinician requests AI summary of a patient's wearable + clinical data."""
     from app.auth import require_minimum_role
     require_minimum_role(actor, "clinician")
+    _gate_chat_patient(actor, body.patient_id, db)
 
     patient = db.query(Patient).filter_by(id=body.patient_id).first()
     if patient is None:

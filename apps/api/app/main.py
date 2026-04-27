@@ -112,7 +112,16 @@ from app.routers.feature_store_router import router as feature_store_router
 from app.routers.citation_validator_router import router as citation_validator_router
 from app.routers.command_center_router import router as command_center_router
 from app.routers.device_sync_router import router as device_sync_router
-from app.routers.qa_router import router as qa_router
+try:
+    from app.routers.qa_router import router as qa_router
+    _HAS_QA_ROUTER = True
+except ImportError as _qa_imp_err:
+    qa_router = None  # type: ignore[assignment]
+    _HAS_QA_ROUTER = False
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "QA router unavailable (deepsynaps_qa not installed): %s", _qa_imp_err
+    )
 from app.routers.qeeg_raw_router import router as qeeg_raw_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
@@ -229,7 +238,8 @@ app.include_router(feature_store_router)
 app.include_router(citation_validator_router)
 app.include_router(command_center_router)
 app.include_router(device_sync_router)
-app.include_router(qa_router)
+if _HAS_QA_ROUTER and qa_router is not None:
+    app.include_router(qa_router)
 app.include_router(qeeg_raw_router)
 
 app.state.limiter = limiter

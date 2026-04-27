@@ -490,7 +490,11 @@ export async function pgPatientDashboard(user) {
     dashboardRaw == null &&
     patientSummaryRaw == null;
 
-  if (_hmLoadFailed) {
+  // In demo mode, seed sample data instead of showing the error page.
+  const _demoEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1';
+  const _hmDemo = _hmLoadFailed && _demoEnabled && isDemoPatient(user, { getToken: api.getToken });
+
+  if (_hmLoadFailed && !_hmDemo) {
     el.innerHTML = `
       <div class="pt-portal-empty">
         <div class="pt-portal-empty-ico" aria-hidden="true">&#9888;</div>
@@ -516,7 +520,6 @@ export async function pgPatientDashboard(user) {
   // ── Demo seed — populates every array when the backend returned nothing so
   //    first-time preview users see a fully-rendered home dashboard. Gated
   //    on "everything empty" — any real patient data and we skip the seed.
-  const _hmDemo = false;
   if (_hmDemo) {
     coursesArr.push({
       id: 'demo-crs-001',
@@ -3895,7 +3898,9 @@ async function _pgPatientHomeworkImpl() {
     homeTasksPortalRaw === null &&
     coursesRaw === null &&
     sessionsRaw === null;
-  if (_homeworkLoadFailed) {
+  const _hwDemoEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1';
+  const _hwIsDemo = _homeworkLoadFailed && _hwDemoEnabled && isDemoPatient(user, { getToken: api.getToken });
+  if (_homeworkLoadFailed && !_hwIsDemo) {
     throw new Error('homework_data_unavailable');
   }
   let _portalTaskCompletions = new Map();
@@ -20227,6 +20232,21 @@ export async function pgPatientBilling() {
   if (!el) return;
   el.innerHTML = spinner();
 
+  const billingApiAvailable = typeof api.patientInvoices === 'function' || typeof api.patientPayments === 'function';
+  if (!billingApiAvailable) {
+    el.innerHTML = `
+      <div style="max-width:760px;margin:0 auto;padding:24px 16px">
+        <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 4px">Billing &amp; Payments</h2>
+        <p style="font-size:12.5px;color:var(--text-secondary);margin:0 0 20px;line-height:1.5">The patient billing portal is not enabled in this beta environment yet.</p>
+        <div style="background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.22);border-radius:12px;padding:18px 20px;color:var(--text-secondary);line-height:1.6">
+          <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Not available in beta</div>
+          <div style="font-size:12.5px;margin-bottom:12px">Invoices and payment history are hidden until the patient-facing billing API is wired to real records.</div>
+          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">Message your clinic</button>
+        </div>
+      </div>`;
+    return;
+  }
+
   let invoices = [], payments = [];
   try {
     const [inv, pay] = await Promise.all([
@@ -20236,21 +20256,6 @@ export async function pgPatientBilling() {
     if (Array.isArray(inv)) invoices = inv;
     if (Array.isArray(pay)) payments = pay;
   } catch (_e) {}
-
-  // Demo seed
-  if (!invoices.length) {
-    const now = new Date();
-    invoices = [
-      { id: 'INV-2401', date: new Date(now - 45 * 86400000).toISOString(), description: 'tDCS Session Block (Sessions 1-10)', amount: 1200, currency: 'GBP', vat: 0, status: 'paid', due: new Date(now - 15 * 86400000).toISOString() },
-      { id: 'INV-2402', date: new Date(now - 14 * 86400000).toISOString(), description: 'qEEG Assessment & Report', amount: 350, currency: 'GBP', vat: 70, status: 'paid', due: new Date(now - 0 * 86400000).toISOString() },
-      { id: 'INV-2403', date: new Date(now - 3 * 86400000).toISOString(), description: 'tDCS Session Block (Sessions 11-20)', amount: 1200, currency: 'GBP', vat: 0, status: 'sent', due: new Date(now + 27 * 86400000).toISOString() },
-      { id: 'INV-2404', date: new Date(now - 1 * 86400000).toISOString(), description: 'Home Device Rental - Synaps One (Monthly)', amount: 75, currency: 'GBP', vat: 15, status: 'sent', due: new Date(now + 29 * 86400000).toISOString() },
-    ];
-    payments = [
-      { id: 'PAY-501', date: new Date(now - 30 * 86400000).toISOString(), amount: 1200, method: 'Card', ref: 'ch_3Qa...xYz', invoice: 'INV-2401' },
-      { id: 'PAY-502', date: new Date(now - 5 * 86400000).toISOString(), amount: 420, method: 'BACS', ref: 'BACS-9812', invoice: 'INV-2402' },
-    ];
-  }
 
   const cur = { GBP: '\u00a3', USD: '$', EUR: '\u20ac' };
   const fmt = (a, c) => (cur[c] || '\u00a3') + Number(a || 0).toFixed(2);

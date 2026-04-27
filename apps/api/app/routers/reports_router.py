@@ -11,8 +11,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
+
+from app.limiter import limiter
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -378,8 +380,10 @@ def list_reports(
 
 
 @router.post("/{report_id}/ai-summary")
+@limiter.limit("20/minute")
 def ai_summarize_report(
     report_id: str,
+    request: Request,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> dict:

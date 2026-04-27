@@ -8,10 +8,24 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import AnalysisAnnotation
+from app.repositories.patients import resolve_patient_clinic_id
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str | None, db: Session) -> None:
+    if not patient_id:
+        return
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 
 
 router = APIRouter(prefix="/api/v1/annotations", tags=["annotations"])
@@ -79,6 +93,7 @@ def list_annotations(
     db: Session = Depends(get_db_session),
 ) -> list[AnnotationOut]:
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     q = db.query(AnalysisAnnotation).filter(AnalysisAnnotation.patient_id == patient_id)
     if target_type:
@@ -96,6 +111,7 @@ def create_annotation(
     db: Session = Depends(get_db_session),
 ) -> AnnotationOut:
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, body.patient_id, db)
 
     row = AnalysisAnnotation(
         patient_id=body.patient_id,

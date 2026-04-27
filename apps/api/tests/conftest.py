@@ -66,6 +66,43 @@ def _cleanup_test_db():
 @pytest.fixture(autouse=True)
 def isolated_database() -> None:
     reset_database()   # drop_all then create_all — always idempotent regardless of prior state
+    # Seed Clinic + User row keyed on the demo clinician's actor_id so the
+    # cross-clinic ownership gate (added in the audit) finds a real clinic_id
+    # when tests use the `clinician-demo-token`. Idempotent per-test thanks to
+    # reset_database() above.
+    from app.database import SessionLocal
+    from app.persistence.models import Clinic, User
+    _db = SessionLocal()
+    try:
+        _clinic_id = "clinic-demo-default"
+        if _db.query(Clinic).filter_by(id=_clinic_id).first() is None:
+            _db.add(Clinic(id=_clinic_id, name="Demo Clinic"))
+            _db.flush()
+        if _db.query(User).filter_by(id="actor-clinician-demo").first() is None:
+            _db.add(User(
+                id="actor-clinician-demo",
+                email="demo_clinician@example.com",
+                display_name="Verified Clinician Demo",
+                hashed_password="x",
+                role="clinician",
+                package_id="clinician_pro",
+                clinic_id=_clinic_id,
+            ))
+        if _db.query(User).filter_by(id="actor-admin-demo").first() is None:
+            _db.add(User(
+                id="actor-admin-demo",
+                email="demo_admin@example.com",
+                display_name="Admin Demo User",
+                hashed_password="x",
+                role="admin",
+                package_id="enterprise",
+                clinic_id=_clinic_id,
+            ))
+        _db.commit()
+    except Exception:
+        _db.rollback()
+    finally:
+        _db.close()
     yield
     reset_database()   # clean up after each test
 

@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -8,6 +9,24 @@ from deepsynaps_core_schema import UserRole
 from app.errors import ApiServiceError
 from app.registries.auth import ANONYMOUS_ACTOR, DEMO_ACTOR_TOKENS
 from app.settings import get_settings
+
+_security_logger = logging.getLogger("security.cross_clinic")
+
+
+def _log_denial(reason: str, *, actor: "AuthenticatedActor", patient_clinic_id: str | None) -> None:
+    """Structured log on every cross-clinic denial — feeds SOC/SIEM detection
+    rules (sustained spike for a given actor_id == probable attack)."""
+    _security_logger.warning(
+        "cross_clinic_access_denied",
+        extra={
+            "event": "cross_clinic_access_denied",
+            "reason": reason,
+            "actor_id": actor.actor_id,
+            "actor_role": actor.role,
+            "actor_clinic_id": actor.clinic_id,
+            "patient_clinic_id": patient_clinic_id,
+        },
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,13 +69,31 @@ def get_authenticated_actor(authorization: str | None = Header(default=None)) ->
     if _settings.app_env in ("development", "test"):
         demo_actor = DEMO_ACTOR_TOKENS.get(token)
         if demo_actor is not None:
+            # If a User row exists in the DB matching the demo actor_id, lift
+            # the live clinic_id off it. This lets test fixtures seed a real
+            # Clinic + User pair under a demo token id and exercise the
+            # cross-clinic ownership gate without minting JWTs.
+            demo_clinic_id = getattr(demo_actor, "clinic_id", None)
+            if demo_clinic_id is None:
+                try:
+                    from app.database import SessionLocal
+                    from app.repositories.users import get_user_by_id
+                    _db = SessionLocal()
+                    try:
+                        _u = get_user_by_id(_db, demo_actor.actor_id)
+                        if _u is not None and _u.clinic_id:
+                            demo_clinic_id = _u.clinic_id
+                    finally:
+                        _db.close()
+                except Exception:
+                    pass
             return AuthenticatedActor(
                 actor_id=demo_actor.actor_id,
                 display_name=demo_actor.display_name,
                 role=demo_actor.role,
                 package_id=demo_actor.package_id,
                 token_id=token,
-                clinic_id=getattr(demo_actor, "clinic_id", None),
+                clinic_id=demo_clinic_id,
             )
 
     # Try real JWT
@@ -139,6 +176,7 @@ def require_patient_owner(
     status_code=403)`` on mismatch.
     """
     if actor.role == "guest":
+        _log_denial("guest_actor", actor=actor, patient_clinic_id=patient_clinic_id)
         raise ApiServiceError(
             code="cross_clinic_access_denied",
             message="Guest actors cannot access patient-scoped data.",
@@ -151,6 +189,7 @@ def require_patient_owner(
     if patient_clinic_id is None:
         # Orphaned patient or system-owned record. No one but admin (handled
         # above) is permitted to look at it via this gate.
+        _log_denial("orphan_patient", actor=actor, patient_clinic_id=patient_clinic_id)
         raise ApiServiceError(
             code="cross_clinic_access_denied",
             message="This record is not scoped to a clinic and cannot be accessed.",
@@ -158,6 +197,7 @@ def require_patient_owner(
         )
 
     if actor.clinic_id is None or actor.clinic_id != patient_clinic_id:
+        _log_denial("cross_clinic_mismatch", actor=actor, patient_clinic_id=patient_clinic_id)
         raise ApiServiceError(
             code="cross_clinic_access_denied",
             message="This patient belongs to a different clinic.",

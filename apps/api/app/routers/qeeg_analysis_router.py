@@ -1344,6 +1344,11 @@ async def stream_analysis_events(
     """
     require_minimum_role(actor, "clinician")
 
+    # Cross-clinic ownership gate — analysis.patient_id must belong to actor's clinic.
+    _ownership_row = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if _ownership_row is not None:
+        _gate_patient_access(actor, _ownership_row.patient_id, db)
+
     # In test runs, keep the SSE endpoint deterministic and single-shot to
     # avoid TestClient streaming quirks and SQLite connection-scope surprises.
     try:

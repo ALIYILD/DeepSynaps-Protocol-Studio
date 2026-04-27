@@ -7,6 +7,13 @@ import { tag, spinner, emptyState } from './helpers.js';
 import { currentUser } from './auth.js';
 import { renderBrainMap10_20 } from './brain-map-svg.js';
 import {
+  buildReportFallbackContent,
+  buildSchedulingSessionPayload,
+  getScheduleTypeSubmission,
+  mergeSavedReports,
+  parsePatientNameForCreate,
+} from './beta-readiness-utils.js';
+import {
   SUPPORTED_FORMS as ASSESSMENT_SUPPORTED_FORMS,
   SCALE_TO_FORM_KEY,
   getAssessmentConfig,
@@ -3156,7 +3163,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgSchedulingHub(setTopbar, navigate) {
   // ── Design-v2 Schedule (screen 04): Appointments · Referrals · Staff ──────
-  const tab = ['appointments','referrals','staff'].includes(window._schedHubTab) ? window._schedHubTab : 'appointments';
+  let tab = 'appointments';
   window._schedHubTab = tab;
 
   const el = document.getElementById('content');
@@ -3402,18 +3409,14 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   const windowTo   = DAYS[6].iso;
 
   const DEFAULT_CLINICIANS = [
-    { id:'ak', name:'Kolmar', color:'var(--teal)'   },
-    { id:'rp', name:'Patel',  color:'var(--blue)'   },
-    { id:'mv', name:'Velez',  color:'var(--violet)' },
-    { id:'jn', name:'Njoku',  color:'var(--rose)'   },
+    {
+      id: String(currentUser?.id || currentUser?.email || 'current-clinician'),
+      name: String(currentUser?.display_name || currentUser?.email || 'Assigned clinician'),
+      color: 'var(--teal)',
+    },
   ];
   const DEFAULT_ROOMS = [
-    { id:'tms-suite',  name:'TMS Suite'   },
-    { id:'eeg-lab',    name:'EEG Lab'     },
-    { id:'rm-1',       name:'Room 1'      },
-    { id:'rm-2',       name:'Room 2'      },
-    { id:'consult',    name:'Consult Rm'  },
-    { id:'rm-4',       name:'Room 4'      },
+    { id:'unassigned', name:'Unassigned' },
   ];
 
   const TYPES = {
@@ -3456,7 +3459,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     if (!window._schedLoggedEndpoints) window._schedLoggedEndpoints = {};
     if (window._schedLoggedEndpoints[endpoint]) return;
     window._schedLoggedEndpoints[endpoint] = true;
-    console.info('[schedule]', endpoint, 'unavailable — using demo data');
+    console.info('[schedule]', endpoint, 'unavailable');
   }
 
   const callOrReject = (fn, ...args) => {
@@ -3473,8 +3476,6 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     callOrReject(api.listRooms),
     callOrReject(api.listSessions, { from: windowFrom, to: windowTo }),
     callOrReject(api.listCourses, {}),
-    (typeof api.listReferrals === 'function' ? callOrReject(api.listReferrals) : callOrReject(api.listLeads)),
-    callOrReject(api.listStaffSchedule, { from: windowFrom, to: windowTo }),
     callOrReject(api.listPatients),
   ]);
 
@@ -3490,7 +3491,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   } else { logUnavailable('listRooms'); }
   if (apiCalls[2].status === 'fulfilled') {
     sessions = apiCalls[2].value?.items || apiCalls[2].value || [];
-    backendStatus.sessions = Array.isArray(sessions) && sessions.length > 0;
+    backendStatus.sessions = true;
   } else {
     apiErrors.push('sessions');
     sessions = null;
@@ -3501,46 +3502,9 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     courses = apiCalls[3].value?.items || apiCalls[3].value || [];
   } else { logUnavailable('listCourses'); }
   if (apiCalls[4].status === 'fulfilled') {
-    const items = apiCalls[4].value?.items || apiCalls[4].value || [];
-    leads = items.map(l => ({
-      id: l.id, name: l.name || l.patient_name || 'Unknown',
-      source: l.source || l.origin || 'referral',
-      condition: l.condition || l.indication || '',
-      stage: l.stage || l.status || 'new',
-      urgency: l.urgency || l.triage || 'routine',
-      phone: l.phone || '', email: l.email || '',
-      created: (l.created_at || '').slice(0,10),
-      notes: l.notes || '', follow_up: l.follow_up || '',
-      demo: false,
-    }));
-    backendStatus.referrals = items.length > 0;
-  } else {
-    apiErrors.push('referrals');
-    backendStatus.referrals = false;
-    logUnavailable('listReferrals');
-  }
-  if (apiCalls[5].status === 'fulfilled') {
-    staffSchedule = apiCalls[5].value?.items || apiCalls[5].value || [];
-    backendStatus.staff = Array.isArray(staffSchedule) && staffSchedule.length > 0;
-  } else {
-    backendStatus.staff = false;
-    logUnavailable('listStaffSchedule');
-  }
-  if (apiCalls[6].status === 'fulfilled') {
-    patientsList = apiCalls[6].value?.items || apiCalls[6].value || [];
+    patientsList = apiCalls[4].value?.items || apiCalls[4].value || [];
     if (!Array.isArray(patientsList)) patientsList = [];
   } else { logUnavailable('listPatients'); }
-
-  if (!leads.length) {
-    referralsIsDemo = true;
-    leads = [
-      { id:'L-1', name:'Sarah Johnson',  source:'website',  condition:'Depression', stage:'new',       urgency:'urgent',  phone:'+44 7700 900123', created:'2026-04-14', notes:'TRD, 3 meds tried.', demo:true },
-      { id:'L-2', name:'Robert Kim',     source:'GP',       condition:'Anxiety',    stage:'contacted', urgency:'routine', phone:'+44 7700 900456', created:'2026-04-13', notes:'Referred by GP. GAD-7=15.', demo:true },
-      { id:'L-3', name:'Emma Clarke',    source:'self',     condition:'OCD',        stage:'qualified', urgency:'routine', phone:'+44 7700 900789', created:'2026-04-12', notes:'Deep TMS candidate.', demo:true },
-      { id:'L-4', name:'David Nguyen',   source:'GP',       condition:'PTSD',       stage:'booked',    urgency:'urgent',  phone:'+44 7700 900321', created:'2026-04-10', notes:'Intake booked.', demo:true },
-      { id:'L-5', name:'Lucy Fernandez', source:'insurer',  condition:'Depression', stage:'lost',      urgency:'routine', phone:'+44 7700 900654', created:'2026-04-08', notes:'Chose medication only.', demo:true },
-    ];
-  }
 
   function buildMockEvents() {
     const ev = [];
@@ -3585,7 +3549,15 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     const [h, m] = hhmm.split(':').map(Number);
     const start = h + (m||0)/60;
     const dur = (s.duration_minutes || s.duration || 60) / 60;
-    const type = (s.appointment_type || s.modality || s.type || 'session').toLowerCase();
+    const appointmentType = String(s.appointment_type || '').toLowerCase();
+    const modality = String(s.modality || '').toLowerCase();
+    const type = (
+      (appointmentType === 'session' && modality)
+      || ((appointmentType === 'consultation' || appointmentType === 'phone') && modality)
+      || appointmentType
+      || modality
+      || String(s.type || 'session').toLowerCase()
+    );
     const clinLookup = String(s.clinician_id || s.clinician || '').toLowerCase();
     const clin = clinicians.find(c => String(c.id||'').toLowerCase() === clinLookup || String(c.name||'').toLowerCase() === clinLookup) || clinicians[0];
     return {
@@ -3615,13 +3587,8 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   //   - sessions === []    → backend returned zero results for the week → this
   //                          is a real "no appointments scheduled" state and we
   //                          must NOT fabricate mock rows to fill the grid.
-  if (Array.isArray(sessions)) {
-    events = sessions.map(sessionToEvent).filter(Boolean);
-    eventsIsDemo = false;
-  } else {
-    events = buildMockEvents();
-    eventsIsDemo = true;
-  }
+  events = Array.isArray(sessions) ? sessions.map(sessionToEvent).filter(Boolean) : [];
+  eventsIsDemo = false;
 
   // ── Client-side conflict detector ─────────────────────────────────────
   // Runs deterministically on each render so warnings stay accurate even
@@ -3670,12 +3637,10 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   const prereqCount   = events.filter(e => e.warn === 'amb').length;
 
   // Demo banner visibility: show when sessions are seeded OR sessions endpoint failed.
-  const showDemoBanner = eventsIsDemo || backendStatus.sessions === false;
+  const showDemoBanner = false;
 
   const TAB_META = {
     appointments: { label:'Appointments', count: events.filter(eventPasses).length },
-    referrals:    { label:'Referrals',    count: leads.filter(l => l.stage !== 'dismissed' && l.stage !== 'lost').length },
-    staff:        { label:'Staff Schedule', count: clinicians.length },
   };
   function renderTabBar() {
     return '<div class="dv2s-tab-bar" role="tablist">' +
@@ -3686,12 +3651,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   }
 
   function renderDemoBanner() {
-    if (!showDemoBanner) return '';
-    return '<div class="dv2s-demo-banner">'
-      + '<span class="dv2s-demo-dot"></span>'
-      + '<strong>DEMO DATA</strong> &mdash; <span style="color:var(--text-secondary)">Showing seeded appointments so you can explore. Real appointments will appear here once your backend is connected.</span>'
-      + '<button class="dv2s-demo-btn" onclick="window._schedToggleRealMode?.()">Try real backend</button>'
-    + '</div>';
+    return '';
   }
 
   setTopbar('Schedule', '<button class="btn btn-primary btn-sm" onclick="window._schedNewBookingIntent()">+ New booking</button>');
@@ -4272,10 +4232,14 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       mode: 'reschedule',
       sessionId: id,
       patient: ev.patient,
+      patient_id: ev._raw?.patient_id || null,
       clin: ev.clin,
       day: day ? day.iso : window._schedAnchor,
       start: ev.start,
       type: ev.type,
+      duration: ev.duration,
+      notes: ev.notes || '',
+      course_id: ev._raw?.course_id || null,
     });
   };
   window._schedCancelEvent = async (id) => {
@@ -4284,9 +4248,9 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     try {
       await api.cancelSession?.(id, { reason });
       window._dsToast?.({ title:'Cancelled', body:'Appointment cancelled.', severity:'success' });
-    } catch (_err) {
-      logUnavailable('cancelSession');
-      window._dsToast?.({ title:'Cancelled (local)', body:'Saved locally — backend sync pending.', severity:'warn' });
+    } catch (err) {
+      window._dsToast?.({ title:'Cancel failed', body: err?.message || 'The appointment could not be cancelled.', severity:'warn' });
+      return;
     }
     window._schedSelectedId = null;
     window._nav('scheduling-hub');
@@ -4361,16 +4325,17 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       step: 1,
       patient: ctx?.patient || '',
       patient_id: ctx?.patient_id || null,
+      condition: ctx?.condition || '',
       day: ctx?.day || window._schedAnchor,
       clin: ctx?.clin || clinicians[0]?.id || '',
       start: ctx?.start != null ? ctx.start : 9,
       type: ctx?.type || 'session',
-      course_id: null,
+      course_id: ctx?.course_id || null,
       mode: ctx?.mode || 'new',
       sessionId: ctx?.sessionId || null,
       leadId: ctx?.leadId || null,
-      duration: 60,
-      notes: '',
+      duration: ctx?.duration || 60,
+      notes: ctx?.notes || '',
       conflictResult: null,
       patientQuery: '',
     };
@@ -4396,29 +4361,77 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     const startHr = Number(w.start) || 9;
     const dur = Number(w.duration) || 60;
     const startIso = w.day + 'T' + pad2(Math.floor(startHr)) + ':' + (startHr % 1 === 0 ? '00' : '30') + ':00';
-    const endHr = startHr + dur/60;
-    const endIso = w.day + 'T' + pad2(Math.floor(endHr)) + ':' + (endHr % 1 === 0 ? '00' : '30') + ':00';
-    const payload = {
-      patient_id: w.patient_id, patient_name: w.patient,
-      clinician_id: w.clin, appointment_type: w.type,
-      scheduled_at: startIso, duration_minutes: dur,
-      course_id: w.course_id || null, notes: w.notes || '',
-    };
-    let ok = false;
+    let patientId = w.patient_id;
+    if (!patientId) {
+      const parsedName = parsePatientNameForCreate(w.patient);
+      if (!parsedName) {
+        window._dsToast?.({
+          title:'Patient name incomplete',
+          body:'Enter both first and last name before creating a new patient from scheduling.',
+          severity:'warn',
+        });
+        return;
+      }
+      try {
+        const createdPatient = await api.createPatient({
+          ...parsedName,
+          primary_condition: w.condition || null,
+          primary_modality: getScheduleTypeSubmission(w.type).modality || null,
+          status: w.mode === 'intake' ? 'intake' : 'active',
+        });
+        patientId = createdPatient?.id || null;
+      } catch (err) {
+        window._dsToast?.({
+          title:'Patient creation failed',
+          body: err?.message || 'Could not create the patient record needed for this booking.',
+          severity:'warn',
+        });
+        return;
+      }
+      if (!patientId) {
+        window._dsToast?.({ title:'Patient creation failed', body:'The server did not return a patient id.', severity:'warn' });
+        return;
+      }
+    }
+    const payload = buildSchedulingSessionPayload({
+      patientId,
+      clinicianId: w.clin,
+      type: w.type,
+      scheduledAt: startIso,
+      durationMinutes: dur,
+      courseId: w.course_id || null,
+      notes: w.notes || '',
+    });
+    let savedSession = null;
     try {
       if (w.mode === 'reschedule' && w.sessionId) {
-        await api.updateSession?.(w.sessionId, payload); ok = true;
+        savedSession = await api.updateSession?.(w.sessionId, payload);
       } else if (typeof api.bookSession === 'function') {
-        try { await api.bookSession(payload); ok = true; } catch { /* fall through */ }
+        try { savedSession = await api.bookSession(payload); } catch { /* fall through */ }
       }
-      if (!ok && typeof api.createSession === 'function') {
-        await api.createSession(payload); ok = true;
+      if (!savedSession && typeof api.createSession === 'function') {
+        savedSession = await api.createSession(payload);
       }
-    } catch (_err) { logUnavailable(w.mode === 'reschedule' ? 'updateSession' : 'createSession'); }
+      if (!savedSession) throw new Error('The booking service did not return a session record.');
+      if (w.leadId && typeof api.updateLead === 'function' && savedSession.id) {
+        try {
+          await api.updateLead(w.leadId, { stage: 'booked', converted_appointment_id: savedSession.id });
+        } catch (err) {
+          console.warn('[schedule] lead conversion update failed:', err?.message || err);
+        }
+      }
+    } catch (err) {
+      window._dsToast?.({
+        title: w.mode === 'reschedule' ? 'Reschedule failed' : 'Booking failed',
+        body: err?.message || 'The server rejected this appointment.',
+        severity:'warn',
+      });
+      return;
+    }
     window._dsToast?.({
-      title: ok ? 'Booked' : 'Booked (local)',
-      body: ok ? (w.patient + ' · ' + w.day + ' ' + startIso.slice(11,16)) : 'Saved locally — backend sync pending.',
-      severity: ok ? 'success' : 'warn',
+      title: w.mode === 'reschedule' ? 'Rescheduled' : 'Booked',
+      body: w.patient + ' · ' + w.day + ' ' + startIso.slice(11,16),
+      severity:'success',
     });
     window._schedCloseWizard();
     window._nav('scheduling-hub');
@@ -4435,7 +4448,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       document.body.appendChild(bd);
     }
     const step = w.step;
-    const stepNames = ['Patient','Slot','Type','Course','Review'];
+    const stepNames = ['Patient','Slot','Type','Review'];
     const stepBar = '<div class="dv2s-stepper">' + stepNames.map((n,i) => {
       const k = i+1;
       const cls = k === step ? 'is-active' : k < step ? 'is-done' : '';
@@ -4449,15 +4462,13 @@ export async function pgSchedulingHub(setTopbar, navigate) {
         .map(p => ({ id: p.id, name: p.name || p.full_name || ('Patient ' + p.id) }))
         .filter(p => !q || p.name.toLowerCase().includes(q))
         .slice(0,20);
-      const seedHits = !patientsList.length ? (['Sarah Johnson','Robert Kim','Emma Clarke','David Nguyen','Lucy Fernandez'].filter(n => !q || n.toLowerCase().includes(q)).map(n => ({ id:'seed-'+n, name:n, demo:true }))) : [];
-      const list = matches.length ? matches : seedHits;
       body += '<div class="dv2s-field"><label>Search patient</label><input type="text" value="'+esc(w.patientQuery||'')+'" placeholder="Type name..." oninput="window._schedWizSearch(this.value)"></div>';
-      body += '<div class="dv2s-plist">' + (list.length ? list.map(p =>
+      body += '<div class="dv2s-plist">' + (matches.length ? matches.map(p =>
         '<div class="dv2s-pitem'+(w.patient_id===p.id?' is-active':'')+'" onclick="window._schedWizPickPatient(\''+esc(p.id)+'\',\''+esc(p.name)+'\')">'
-          + '<span>'+esc(p.name)+(p.demo ? ' <span style="font-size:10px;color:#ffd28a;font-weight:600">· demo patient</span>' : '')+'</span><span style="color:var(--text-tertiary);font-size:10px">'+esc(String(p.id).slice(0,8))+'</span>'
+          + '<span>'+esc(p.name)+'</span><span style="color:var(--text-tertiary);font-size:10px">'+esc(String(p.id).slice(0,8))+'</span>'
         + '</div>'
-      ).join('') : '<div style="padding:10px;color:var(--text-tertiary);font-size:11px">No matches.</div>') + '</div>';
-      body += '<div style="margin-top:10px;font-size:11px;color:var(--text-tertiary)">Or <a href="javascript:void(0)" onclick="window._schedWizSet(\'patient\',prompt(\'New patient name:\')||\'\')" style="color:var(--teal)">create new patient</a>'+(w.patient?' — selected: <strong style="color:var(--text-primary)">'+esc(w.patient)+'</strong>':'')+'</div>';
+      ).join('') : '<div style="padding:10px;color:var(--text-tertiary);font-size:11px">No patient records match. Enter a full name below to create the patient during booking.</div>') + '</div>';
+      body += '<div style="margin-top:10px;font-size:11px;color:var(--text-tertiary)">Or <a href="javascript:void(0)" onclick="window._schedWizSet(\'patient\',prompt(\'Enter first and last name:\')||\'\')" style="color:var(--teal)">create new patient</a>'+(w.patient?' — selected: <strong style="color:var(--text-primary)">'+esc(w.patient)+'</strong>':'')+'</div>';
     } else if (step === 2) {
       const clinOpts = clinicians.map(c => '<option value="'+esc(c.id)+'"'+(w.clin===c.id?' selected':'')+'>'+esc(c.name)+'</option>').join('');
       const dayOpts = DAYS.map(d => '<option value="'+d.iso+'"'+(w.day===d.iso?' selected':'')+'>'+d.dow+' '+d.num+' · '+d.label+'</option>').join('');
@@ -4481,13 +4492,6 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       + '</div></div>';
       body += '<div class="dv2s-field"><label>Notes</label><textarea rows="3" oninput="window._schedWizSet(\'notes\', this.value)" placeholder="Optional...">'+esc(w.notes||'')+'</textarea></div>';
     } else if (step === 4) {
-      const courseOpts = '<option value="">— No course —</option>' + (Array.isArray(courses) ? courses.slice(0,40).map(c => {
-        const id = c.id; const name = c.name || c.title || (c.modality ? c.modality + ' · ' + (c.condition||'course') : 'Course ' + id);
-        return '<option value="'+esc(id)+'"'+(String(w.course_id)===String(id)?' selected':'')+'>'+esc(name)+'</option>';
-      }).join('') : '');
-      body += '<div class="dv2s-field"><label>Treatment course (optional)</label><select onchange="window._schedWizSet(\'course_id\', this.value || null)">'+courseOpts+'</select></div>';
-      body += '<div style="font-size:11px;color:var(--text-tertiary)">Linking the session to an existing course keeps the remaining-sessions chain accurate.</div>';
-    } else if (step === 5) {
       const day = DAYS.find(d => d.iso === w.day) || DAYS[0];
       const clin = clinicians.find(c => c.id === w.clin);
       const startLabel = pad2(Math.floor(w.start))+':'+(w.start%1===0?'00':'30');
@@ -4496,7 +4500,6 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       body += '<div class="dv2s-side-row"><div class="lbl">When</div><div class="val">'+esc(day?.dow+' '+day?.num+' · '+startLabel)+'</div></div>';
       body += '<div class="dv2s-side-row"><div class="lbl">Clinician</div><div class="val">'+esc(clin?.name||'—')+'</div></div>';
       body += '<div class="dv2s-side-row"><div class="lbl">Type</div><div class="val">'+esc(typeMeta(w.type).label)+' · '+w.duration+' min</div></div>';
-      body += '<div class="dv2s-side-row"><div class="lbl">Course</div><div class="val">'+esc(w.course_id ? String(w.course_id) : '—')+'</div></div>';
       if (localConflicts.length) {
         body += '<div class="dv2s-warn err" style="margin-top:10px"><div class="dv2s-warn-ico">&#9888;</div><div><div class="dv2s-warn-title">'+localConflicts.length+' conflict(s) at this slot</div><div class="dv2s-warn-body">Overlap with: '+localConflicts.slice(0,3).map(c=>esc(c.patient)).join(', ')+'</div></div></div>';
       } else {
@@ -4508,7 +4511,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     }
 
     const prevBtn = step > 1 ? '<button class="btn btn-ghost btn-sm" onclick="window._schedWizSetStep('+(step-1)+')">&larr; Back</button>' : '<span></span>';
-    const nextBtn = step < 5
+    const nextBtn = step < 4
       ? '<button class="btn btn-primary btn-sm" onclick="window._schedWizSetStep('+(step+1)+')">Next &rarr;</button>'
       : '<button class="btn btn-primary btn-sm" onclick="window._schedWizConfirm()"'+(w.patient?'':' disabled')+'>' + (w.mode === 'reschedule' ? 'Save reschedule' : 'Book appointment') + '</button>';
 
@@ -4584,7 +4587,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 
   el.innerHTML = '<div class="dv2s-shell">'
     + renderDemoBanner()
-    + (apiErrors.length && !showDemoBanner ? '<div class="dv2s-error-banner">Live data unavailable ('+apiErrors.join(', ')+') — showing sample schedule.</div>' : '')
+    + (apiErrors.length && !showDemoBanner ? '<div class="dv2s-error-banner">Live schedule data unavailable ('+apiErrors.join(', ')+'). No sample appointments are shown in beta mode.</div>' : '')
     + renderTabBar()
     + body
   + '</div>';
@@ -6782,32 +6785,64 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     if (api.listMyReports) {
       try {
         const res = await api.listMyReports();
-        const items = res?.items || res || [];
-        backend = items.map(r => ({
-          id: r.id,
-          name: r.title || ((r.type || 'clinician') + ' report'),
-          patient: r.patient_id || 'All Patients',
-          type: r.type || 'clinician',
-          date: (r.date || r.created_at || '').slice(0, 10),
-          status: r.status || 'generated',
-          content: r.content || '',
-          _source: 'backend',
-        }));
+        backend = res?.items || res || [];
       } catch (err) {
         console.warn('[reports-hub] listMyReports failed; using local cache only:', err?.message || err);
       }
     }
-    const local = loadReports().map(r => ({ ...r, _source: r._source || 'local' }));
-    const byId = new Map();
-    backend.forEach(r => byId.set(r.id, r));
-    local.forEach(r => { if (!byId.has(r.id)) byId.set(r.id, r); });
-    const merged = Array.from(byId.values());
-    merged.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-    return merged;
+    return mergeSavedReports(backend, loadReports());
   }
 
   const savedReports = await fetchSavedReports();
-  const stC = { final:'var(--green)', draft:'var(--amber)', generated:'var(--teal)', error:'var(--red)' };
+  const stC = { final:'var(--green)', draft:'var(--amber)', generated:'var(--teal)', error:'var(--red)', 'local-only':'var(--amber)' };
+
+  function findSavedReportRecord(id) {
+    return savedReports.find((row) => String(row.id) === String(id))
+      || loadReports().find((row) => String(row.id) === String(id))
+      || null;
+  }
+
+  async function persistGeneratedReport({ report, patientId, fallbackSuccessBody }) {
+    const today = new Date().toISOString().slice(0,10);
+    const local = {
+      id: 'RPT-' + Date.now(),
+      name: report.type + ' — ' + report.patient,
+      patient: report.patient,
+      type: report.type,
+      date: today,
+      status: 'generated',
+      content: report.content,
+      _source: 'backend',
+    };
+    let persisted = false;
+    try {
+      const saved = api.createReport ? await api.createReport({
+        patient_id: patientId,
+        type: report.type,
+        title: local.name,
+        content: report.content,
+        report_date: today,
+        status: 'generated',
+      }) : null;
+      if (saved && saved.id) {
+        local.id = saved.id;
+        persisted = true;
+      }
+    } catch (err) {
+      console.warn('[reports-hub] createReport failed (local cache only):', err?.message || err);
+      local.status = 'local-only';
+      local._source = 'local';
+    }
+    const rpts = loadReports();
+    rpts.unshift(local);
+    saveReports(rpts);
+    window._dsToast?.({
+      title: persisted ? 'Saved' : 'Saved locally only',
+      body: persisted ? fallbackSuccessBody : 'The report is stored in this browser only because the server save failed.',
+      severity: persisted ? 'success' : 'warn',
+    });
+    window._reportsHubTab='recent'; window._nav('reports-hub');
+  }
 
   let main = '';
 
@@ -6820,7 +6855,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
       ]);
       patients=pR?.items||[]; courses=cR?.items||[];
     } catch {}
-    const patOpts = '<option value="all">All Patients (Clinic-wide)</option>' + (patients.map(p=>'<option value="'+p.id+'">'+ ((p.first_name||'')+' '+(p.last_name||'')).trim() +'</option>').join('') || '<option>Demo Patient A</option>');
+    const patOpts = '<option value="all">All Patients (Clinic-wide)</option>' + patients.map(p=>'<option value="'+p.id+'">'+ ((p.first_name||'')+' '+(p.last_name||'')).trim() +'</option>').join('');
     const cats = ['All',...new Set(REPORT_TYPES.map(r=>r.cat))];
     const filtCat = window._repGenCat||'All';
     const filtTypes = REPORT_TYPES.filter(r=>filtCat==='All'||r.cat===filtCat);
@@ -6933,45 +6968,24 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         if (content) content.textContent = res?.message||res?.content||'REPORT: '+typeName+'\nScope: '+scope+'\nDate: '+new Date().toLocaleDateString()+'\n\nReport generated successfully. Please review and amend as needed before finalising.';
         window._lastReport = { type:typeName, patient:patName, content:content?.textContent||'', sources: typeData.sources||[] };
       } catch {
-        if (content) content.textContent = typeName+'\nScope: '+scope+'\nDate: '+new Date().toLocaleDateString()+'\n\nReport for '+scope+'.\n\n[Report content — edit as required]';
+        if (content) content.textContent = buildReportFallbackContent({
+          reportType: typeName,
+          scope,
+          date: new Date().toLocaleDateString(),
+          dataSummary: dataContext,
+          clinicianContext: context,
+        });
         window._lastReport = { type:typeName, patient:patName, content:content?.textContent||'', sources: typeData.sources||[] };
       }
     };
     window._saveReport = async () => {
       if (!window._lastReport) return;
-      const lr = window._lastReport;
-      const today = new Date().toISOString().slice(0,10);
-      const local = {
-        id: 'RPT-' + Date.now(),
-        name: lr.type + ' — ' + lr.patient,
-        patient: lr.patient,
-        type: lr.type,
-        date: today,
-        status: 'generated',
-        content: lr.content,
-      };
-      // Persist to backend first so the row survives across devices. Fall
-      // back to localStorage-only if the endpoint is unreachable. Either way
-      // the user lands on Recent; the next hydrate reconciles.
-      try {
-        const patId = document.getElementById('rep-patient')?.value || null;
-        const saved = api.createReport ? await api.createReport({
-          patient_id: patId,
-          type: lr.type,
-          title: lr.type + ' — ' + lr.patient,
-          content: lr.content,
-          report_date: today,
-          status: 'generated',
-        }) : null;
-        if (saved && saved.id) local.id = saved.id;
-      } catch (err) {
-        console.warn('[reports-hub] createReport failed (localStorage-only):', err?.message || err);
-      }
-      const rpts = loadReports();
-      rpts.unshift(local);
-      saveReports(rpts);
-      window._dsToast?.({title:'Saved',body:'Report saved to records.',severity:'success'});
-      window._reportsHubTab='recent'; window._nav('reports-hub');
+      const patId = document.getElementById('rep-patient')?.value || null;
+      await persistGeneratedReport({
+        report: window._lastReport,
+        patientId: patId === 'all' ? null : patId,
+        fallbackSuccessBody: 'Report saved to records.',
+      });
     };
   }
   // ── Combined Report Tab ──────────────────────────────────────────────────
@@ -7098,24 +7112,24 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         if (content) content.textContent = res?.message||res?.content||'Combined Report generated. Review and amend as needed.';
         window._lastReport = { type:'Combined Report ('+focus+')', patient:patName, content:content?.textContent||'', sources };
       } catch {
-        if (content) content.textContent = 'COMBINED REPORT\nScope: '+patName+'\nFocus: '+focus+'\nDate: '+new Date().toLocaleDateString()+'\nSources: '+sources.join(', ')+'\n\nData collected from '+sources.length+' sources.\n\n[AI generation unavailable — raw data summary below]\n\n'+dataSummary;
+        if (content) content.textContent = buildReportFallbackContent({
+          reportType: 'Combined Report ('+focus+')',
+          scope: patName,
+          date: new Date().toLocaleDateString(),
+          dataSummary: 'Sources: ' + sources.join(', ') + '\n\n' + dataSummary,
+        });
         window._lastReport = { type:'Combined Report ('+focus+')', patient:patName, content:content?.textContent||'', sources };
       }
     };
 
     window._saveCombinedReport = async () => {
       if (!window._lastReport) return;
-      const lr = window._lastReport;
-      const today = new Date().toISOString().slice(0,10);
-      const local = { id:'RPT-'+Date.now(), name:lr.type+' \u2014 '+lr.patient, patient:lr.patient, type:lr.type, date:today, status:'generated', content:lr.content };
-      try {
-        const patId = document.getElementById('comb-patient')?.value||null;
-        const saved = api.createReport ? await api.createReport({ patient_id:patId==='all'?null:patId, type:lr.type, title:local.name, content:lr.content, report_date:today, status:'generated' }) : null;
-        if (saved && saved.id) local.id = saved.id;
-      } catch {}
-      const rpts = loadReports(); rpts.unshift(local); saveReports(rpts);
-      window._dsToast?.({title:'Saved',body:'Combined report saved.',severity:'success'});
-      window._reportsHubTab='recent'; window._nav('reports-hub');
+      const patId = document.getElementById('comb-patient')?.value||null;
+      await persistGeneratedReport({
+        report: window._lastReport,
+        patientId: patId === 'all' ? null : patId,
+        fallbackSuccessBody: 'Combined report saved.',
+      });
     };
   }
   // ── Health Insights Tab — Correlation & Prediction Analysis ──────────────
@@ -7330,24 +7344,24 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         if (content) content.textContent = res?.message||res?.content||'Health Insights Report generated.';
         window._lastReport = { type:'Health Insights Report', patient:patName, content:content?.textContent||'', sources:healthSources };
       } catch {
-        if (content) content.textContent = 'HEALTH INSIGHTS REPORT\nScope: '+patName+'\nDate: '+new Date().toLocaleDateString()+'\n\n--- CORRELATION ANALYSIS ---\n'+corrInfo+'\n\n--- DATA SUMMARY ---\n'+dataSummary+'\n\n[AI analysis unavailable — raw data provided above for manual review]';
+        if (content) content.textContent = buildReportFallbackContent({
+          reportType: 'Health Insights Report',
+          scope: patName,
+          date: new Date().toLocaleDateString(),
+          dataSummary: 'Correlation analysis:\n' + corrInfo + '\n\n' + dataSummary,
+        });
         window._lastReport = { type:'Health Insights Report', patient:patName, content:content?.textContent||'', sources:healthSources };
       }
     };
 
     window._saveInsightsReport = async () => {
       if (!window._lastReport) return;
-      const lr = window._lastReport;
-      const today = new Date().toISOString().slice(0,10);
-      const local = { id:'RPT-'+Date.now(), name:lr.type+' \u2014 '+lr.patient, patient:lr.patient, type:lr.type, date:today, status:'generated', content:lr.content };
-      try {
-        const patId = document.getElementById('ins-patient')?.value||null;
-        const saved = api.createReport ? await api.createReport({ patient_id:patId==='all'?null:patId, type:lr.type, title:local.name, content:lr.content, report_date:today, status:'generated' }) : null;
-        if (saved && saved.id) local.id = saved.id;
-      } catch {}
-      const rpts = loadReports(); rpts.unshift(local); saveReports(rpts);
-      window._dsToast?.({title:'Saved',body:'Health insights report saved.',severity:'success'});
-      window._reportsHubTab='recent'; window._nav('reports-hub');
+      const patId = document.getElementById('ins-patient')?.value||null;
+      await persistGeneratedReport({
+        report: window._lastReport,
+        patientId: patId === 'all' ? null : patId,
+        fallbackSuccessBody: 'Health insights report saved.',
+      });
     };
   }
   else if (tab === 'recent') {
@@ -7375,8 +7389,8 @@ export async function pgReportsHubNew(setTopbar, navigate) {
 
     // Open a saved report in a real modal with its stored content.
     window._repViewSaved = (id) => {
-      const r = loadReports().find(x => x.id === id);
-      if (!r) { window._dsToast?.({ title:'Not found', body:'Report not in local records.', severity:'warn' }); return; }
+      const r = findSavedReportRecord(id);
+      if (!r) { window._dsToast?.({ title:'Not found', body:'Report record is no longer available.', severity:'warn' }); return; }
       const ov = document.createElement('div');
       ov.className = 'rh-modal-overlay';
       ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:1000;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 16px';
@@ -7399,8 +7413,8 @@ export async function pgReportsHubNew(setTopbar, navigate) {
 
     // Print a saved report by rendering its content into a transient print window.
     window._repPrintSaved = (id) => {
-      const r = loadReports().find(x => x.id === id);
-      if (!r) { window._dsToast?.({ title:'Not found', body:'Report not in local records.', severity:'warn' }); return; }
+      const r = findSavedReportRecord(id);
+      if (!r) { window._dsToast?.({ title:'Not found', body:'Report record is no longer available.', severity:'warn' }); return; }
       const w = window.open('', '_blank', 'width=800,height=600');
       if (!w) { window.print(); return; }
       const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -7834,7 +7848,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
                 '<div class="book-status-col"><span class="book-status-badge" style="color:'+(invStC[inv.status]||'var(--text-tertiary)')+';background:'+(invStC[inv.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+(inv.status||'')+'</span></div>'+
                 '<div class="book-actions">'+
                   (inv.status!=='paid'?'<button class="ch-btn-sm ch-btn-teal" onclick="window._finMarkPaid(\''+safeId+'\')">Mark Paid</button>':'')+
-                  '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Send\',body:\''+safeNum+' sent to patient.\',severity:\'success\'})">Send</button>'+
+                  '<button class="ch-btn-sm" disabled title="Invoice delivery is not enabled in this beta build">Delivery unavailable</button>'+
                 '</div>'+
               '</div>';
             }).join('')}
@@ -7895,16 +7909,48 @@ export async function pgFinanceHub(setTopbar, navigate) {
         ${claims.length === 0
           ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No claims yet.</div>'
           : claims.map(ins => {
-              const safeDesc = String(ins.description||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+              const safeId = String(ins.id).replace(/'/g,"\\'");
               return '<div class="book-row">'+
                 '<div class="book-datetime"><div class="book-date">'+(ins.submitted_date||ins.created_at||'')+'</div></div>'+
                 '<div class="book-info"><div class="book-patient">'+(ins.patient_name||'—')+' — '+(ins.insurer||'—')+'</div><div class="book-clinician">'+(ins.description||'')+'</div></div>'+
                 '<div style="flex-shrink:0;min-width:80px;text-align:right"><div style="font-size:14px;font-weight:700;color:var(--text-primary)">'+fmt(ins.amount)+'</div></div>'+
                 '<div class="book-status-col"><span class="book-status-badge" style="color:'+(insStC[ins.status]||'var(--text-tertiary)')+';background:'+(insStC[ins.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+(ins.status||'')+'</span></div>'+
-                '<div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'View Claim\',body:\''+safeDesc+'\',severity:\'info\'})">View</button></div>'+
+                '<div class="book-actions"><button class="ch-btn-sm" onclick="window._finViewClaim(\''+safeId+'\')">View</button></div>'+
               '</div>';
             }).join('')}
       </div>`;
+
+    window._finViewClaim = (id) => {
+      const claim = claims.find((row) => String(row.id) === String(id));
+      if (!claim) {
+        window._dsToast?.({ title:'Claim not found', body:'This claim is no longer available.', severity:'warn' });
+        return;
+      }
+      const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const ov = document.createElement('div');
+      ov.className = 'rh-modal-overlay';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:1000;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 16px';
+      ov.innerHTML = '<div style="background:var(--bg-card,#0e1628);border:1px solid var(--border);border-radius:12px;width:100%;max-width:620px;padding:20px 24px;max-height:90vh;overflow-y:auto">'
+        + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">'
+          + '<div style="flex:1;min-width:0">'
+            + '<div style="font-size:14px;font-weight:700;color:var(--text-primary)">' + esc(claim.patient_name || 'Insurance claim') + '</div>'
+            + '<div style="font-size:11.5px;color:var(--text-tertiary);margin-top:2px">' + esc(claim.insurer || 'Unknown insurer') + ' · ' + esc(claim.claim_number || claim.id) + '</div>'
+          + '</div>'
+          + '<button class="ch-btn-sm" onclick="this.closest(\'.rh-modal-overlay\').remove()" style="padding:4px 10px">Close</button>'
+        + '</div>'
+        + '<div style="display:grid;grid-template-columns:140px 1fr;gap:10px;font-size:12px;line-height:1.6">'
+          + '<div style="color:var(--text-tertiary)">Status</div><div style="color:var(--text-primary)">' + esc(claim.status || '—') + '</div>'
+          + '<div style="color:var(--text-tertiary)">Amount</div><div style="color:var(--text-primary)">' + esc(fmt(claim.amount)) + '</div>'
+          + '<div style="color:var(--text-tertiary)">Policy number</div><div style="color:var(--text-primary)">' + esc(claim.policy_number || '—') + '</div>'
+          + '<div style="color:var(--text-tertiary)">Submitted</div><div style="color:var(--text-primary)">' + esc(claim.submitted_date || claim.created_at || '—') + '</div>'
+          + '<div style="color:var(--text-tertiary)">Decision date</div><div style="color:var(--text-primary)">' + esc(claim.decision_date || '—') + '</div>'
+          + '<div style="color:var(--text-tertiary)">Description</div><div style="color:var(--text-primary)">' + esc(claim.description || '—') + '</div>'
+          + '<div style="color:var(--text-tertiary)">Notes</div><div style="color:var(--text-primary);white-space:pre-wrap">' + esc(claim.notes || '—') + '</div>'
+        + '</div>'
+      + '</div>';
+      ov.addEventListener('click', (event) => { if (event.target === ov) ov.remove(); });
+      document.body.appendChild(ov);
+    };
   }
   else if (tab === 'analytics') {
     // Prefer server-supplied monthly series. Fall back to empty state.

@@ -29,11 +29,15 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
+from app.auth import AuthenticatedActor, require_patient_owner
 from app.database import get_db_session
 from app.persistence.models import QEEGAIReport, QEEGAnalysis
+from app.registries.auth import DEMO_ACTOR_TOKENS
+from app.repositories.patients import resolve_patient_clinic_id
+from app.settings import get_settings
 
 _log = logging.getLogger(__name__)
 
@@ -117,14 +121,94 @@ def _analysis_snapshot(analysis: QEEGAnalysis) -> dict:
     }
 
 
+def _resolve_ws_actor(token: str | None) -> AuthenticatedActor | None:
+    """Best-effort actor resolution from a token in the WS query string.
+
+    WebSockets cannot easily carry Authorization headers from browsers, so
+    the convention is `?token=<jwt>`. Mirrors the demo+JWT logic in
+    `app.auth.get_authenticated_actor` but returns None on any failure
+    instead of raising — the caller closes the socket with code 1008.
+    """
+    if not token:
+        return None
+    settings = get_settings()
+    if settings.app_env in ("development", "test"):
+        demo = DEMO_ACTOR_TOKENS.get(token)
+        if demo is not None:
+            # Lift clinic_id from DB if a matching User row exists (mirrors
+            # the additive change in get_authenticated_actor).
+            from app.database import SessionLocal
+            from app.repositories.users import get_user_by_id
+            clinic_id = None
+            try:
+                _db = SessionLocal()
+                try:
+                    _u = get_user_by_id(_db, demo.actor_id)
+                    if _u is not None and _u.clinic_id:
+                        clinic_id = _u.clinic_id
+                finally:
+                    _db.close()
+            except Exception:
+                pass
+            return AuthenticatedActor(
+                actor_id=demo.actor_id,
+                display_name=demo.display_name,
+                role=demo.role,
+                package_id=demo.package_id,
+                token_id=token,
+                clinic_id=clinic_id,
+            )
+    try:
+        from app.services.auth_service import decode_token
+        from app.database import SessionLocal
+        from app.repositories.users import get_user_by_id
+        payload = decode_token(token)
+        if not payload or payload.get("type") != "access":
+            return None
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+        _db = SessionLocal()
+        try:
+            user = get_user_by_id(_db, user_id)
+        finally:
+            _db.close()
+        if user is None:
+            return None
+        clinic_id = user.clinic_id or payload.get("clinic_id")
+        return AuthenticatedActor(
+            actor_id=user_id,
+            display_name=user.display_name,
+            role=payload.get("role", "guest"),
+            package_id=payload.get("package_id", "explorer"),
+            token_id=token,
+            clinic_id=clinic_id,
+        )
+    except Exception:
+        return None
+
+
 @router.websocket("/{analysis_id}")
 async def copilot_ws(
     websocket: WebSocket,
     analysis_id: str,
+    token: str | None = Query(default=None),
     db: Session = Depends(get_db_session),
 ) -> None:
-    """Copilot chat WebSocket. See module docstring for the message protocol."""
+    """Copilot chat WebSocket. See module docstring for the message protocol.
+
+    Requires an auth token via `?token=<access_jwt>` query string — the
+    only practical way to carry auth on a browser WebSocket. Without a
+    valid token (or with one that doesn't match the analysis's clinic)
+    the socket is rejected with code 1008.
+    """
     await websocket.accept()
+
+    actor = _resolve_ws_actor(token)
+    if actor is None or actor.role == "guest":
+        await websocket.send_json({"type": "error", "content": "Authentication required."})
+        await websocket.close(code=1008)
+        return
 
     copilot = _load_copilot()
 
@@ -137,6 +221,17 @@ async def copilot_ws(
                 "content": f"Analysis '{analysis_id}' not found.",
             }
         )
+        await websocket.close(code=1008)
+        return
+
+    # Cross-clinic ownership gate — the analysis must belong to a patient
+    # in the actor's clinic (or actor must be admin).
+    try:
+        exists, clinic_id = resolve_patient_clinic_id(db, analysis.patient_id)
+        if exists:
+            require_patient_owner(actor, clinic_id)
+    except Exception:
+        await websocket.send_json({"type": "error", "content": "Access denied for this analysis."})
         await websocket.close(code=1008)
         return
 

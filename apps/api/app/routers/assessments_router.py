@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.persistence.models import AssessmentRecord
 from app.repositories.assessments import (
     create_assessment,
@@ -1313,8 +1314,10 @@ def _prior_same_instrument_scores(
 
 
 @router.post("/{assessment_id}/ai-summary", response_model=AiSummaryResponse)
+@limiter.limit("20/minute")
 def ai_summary_assessment_endpoint(
     assessment_id: str,
+    request: Request,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> AiSummaryResponse:

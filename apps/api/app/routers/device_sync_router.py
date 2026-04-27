@@ -11,9 +11,11 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_patient_owner
+from app.crypto import encrypt_token
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.repositories.patients import resolve_patient_clinic_id
 from app.services.device_sync.adapter_registry import (
     get_adapter,
     is_demo_mode,
@@ -124,13 +126,22 @@ def oauth_callback(
     code: str = Query(default=""),
     state: str = Query(default=""),
     patient_id: str = Query(default=""),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> dict:
     """OAuth callback — exchanges code for tokens and stores connection."""
+    _require_clinician(actor)
+
     import uuid
     from datetime import datetime, timezone
 
     from app.persistence.models import DeviceConnection
+
+    # Cross-clinic ownership check before writing a device connection.
+    if patient_id:
+        _, clinic_id = resolve_patient_clinic_id(db, patient_id)
+        if clinic_id:
+            require_patient_owner(actor, clinic_id)
 
     try:
         tokens = exchange_code(provider, code=code, redirect_uri="")
@@ -160,15 +171,15 @@ def oauth_callback(
             consent_given=True,
             consent_given_at=now,
             connected_at=now,
-            access_token_enc=tokens.access_token,
-            refresh_token_enc=tokens.refresh_token or "",
+            access_token_enc=encrypt_token(tokens.access_token),
+            refresh_token_enc=encrypt_token(tokens.refresh_token or ""),
             scope=tokens.scope or "",
             created_at=now,
         )
         db.add(conn)
     else:
-        conn.access_token_enc = tokens.access_token
-        conn.refresh_token_enc = tokens.refresh_token or ""
+        conn.access_token_enc = encrypt_token(tokens.access_token)
+        conn.refresh_token_enc = encrypt_token(tokens.refresh_token or "")
         conn.scope = tokens.scope or ""
         conn.status = "connected"
         conn.updated_at = now
@@ -193,6 +204,14 @@ def device_dashboard(
 ) -> DashboardOut:
     """Per-device dashboard data: daily summaries, sync history, latest values."""
     _require_clinician(actor)
+
+    from app.persistence.models import DeviceConnection as _DC
+    _conn_check = db.query(_DC).filter_by(id=connection_id).first()
+    if _conn_check is not None:
+        _, _clinic_id = resolve_patient_clinic_id(db, _conn_check.patient_id)
+        if _clinic_id:
+            require_patient_owner(actor, _clinic_id)
+
     data = get_device_dashboard_data(connection_id, db, days=days)
     if "error" in data:
         raise ApiServiceError(
@@ -218,6 +237,9 @@ def device_sync_history(
     conn = db.query(DeviceConnection).filter_by(id=connection_id).first()
     if conn is None:
         raise ApiServiceError(code="not_found", message="Connection not found.", status_code=404)
+    _, _clinic_id = resolve_patient_clinic_id(db, conn.patient_id)
+    if _clinic_id:
+        require_patient_owner(actor, _clinic_id)
 
     events = (
         db.query(DeviceSyncEvent)
@@ -267,6 +289,9 @@ def device_timeseries(
     conn = db.query(DeviceConnection).filter_by(id=connection_id).first()
     if conn is None:
         raise ApiServiceError(code="not_found", message="Connection not found.", status_code=404)
+    _, _clinic_id = resolve_patient_clinic_id(db, conn.patient_id)
+    if _clinic_id:
+        require_patient_owner(actor, _clinic_id)
 
     now = datetime.now(timezone.utc)
     if not date_to:

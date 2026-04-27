@@ -6,10 +6,42 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import MriAnalysis, OutcomeSeries, Patient, QEEGAnalysis
+from app.persistence.models import Clinic, MriAnalysis, OutcomeSeries, Patient, QEEGAnalysis, User
+
+
+def _ensure_demo_clinician_in_clinic() -> None:
+    """Seed Clinic + User keyed on the demo clinician actor_id so the
+    cross-clinic ownership gate (added in the audit) finds a real clinic_id."""
+    db = SessionLocal()
+    try:
+        existing = db.query(User).filter_by(id="actor-clinician-demo").first()
+        if existing is not None and existing.clinic_id:
+            return
+        clinic_id = "clinic-annotations-demo"
+        if db.query(Clinic).filter_by(id=clinic_id).first() is None:
+            db.add(Clinic(id=clinic_id, name="Annotations Demo Clinic"))
+            db.flush()
+        if existing is None:
+            db.add(
+                User(
+                    id="actor-clinician-demo",
+                    email="demo_clin_annotations@example.com",
+                    display_name="Verified Clinician Demo",
+                    hashed_password="x",
+                    role="clinician",
+                    package_id="clinician_pro",
+                    clinic_id=clinic_id,
+                )
+            )
+        else:
+            existing.clinic_id = clinic_id
+        db.commit()
+    finally:
+        db.close()
 
 
 def _seed_patient(email: str = "patient@deepsynaps.com") -> str:
+    _ensure_demo_clinician_in_clinic()
     db = SessionLocal()
     try:
         patient = Patient(

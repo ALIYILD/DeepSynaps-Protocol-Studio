@@ -420,6 +420,12 @@ def course_outcome_summary(
     db: Session = Depends(get_db_session),
 ) -> CourseSummaryListResponse:
     require_minimum_role(actor, "clinician")
+    # Owner gate — only the course's owning clinician (or admin) can read its outcomes.
+    course = db.query(TreatmentCourse).filter_by(id=course_id).first()
+    if course is None:
+        raise ApiServiceError(code="not_found", message="Treatment course not found.", status_code=404)
+    if actor.role != "admin" and course.clinician_id != actor.actor_id:
+        raise ApiServiceError(code="not_found", message="Treatment course not found.", status_code=404)
     records = (
         db.query(OutcomeSeries)
         .filter(OutcomeSeries.course_id == course_id)

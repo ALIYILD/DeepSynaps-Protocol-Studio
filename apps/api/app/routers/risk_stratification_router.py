@@ -20,13 +20,20 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
+from app.errors import ApiServiceError
 from app.persistence.models import (
     Patient,
     RiskStratificationAudit,
     RiskStratificationResult,
 )
+from app.repositories.patients import resolve_patient_clinic_id
 from app.services.risk_clinical_scores import (
     SCORE_IDS,
     build_all_clinical_scores,
@@ -118,6 +125,13 @@ def _level_rank(level: str) -> int:
     return {"red": 3, "amber": 2, "green": 1}.get(level, 0)
 
 
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Cross-clinic ownership gate — safety-critical data must not leak across clinics."""
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @router.get("/patient/{patient_id}", response_model=PatientRiskProfile)
@@ -130,7 +144,8 @@ def get_patient_risk_profile(
 
     If no results exist or they are older than 24 hours, triggers a fresh compute.
     """
-    require_minimum_role(actor, "guest")
+    require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     rows = db.execute(
         select(RiskStratificationResult)
@@ -142,7 +157,9 @@ def get_patient_risk_profile(
     if not needs_compute and rows:
         latest = max((r.computed_at for r in rows if r.computed_at), default=None)
         if latest:
-            age_hours = (datetime.now(timezone.utc) - latest).total_seconds() / 3600
+            # SQLite strips tzinfo on roundtrip — coerce to UTC before comparison.
+            latest_utc = latest if latest.tzinfo is not None else latest.replace(tzinfo=timezone.utc)
+            age_hours = (datetime.now(timezone.utc) - latest_utc).total_seconds() / 3600
             if age_hours > 24:
                 needs_compute = True
 
@@ -169,7 +186,7 @@ def get_clinic_risk_summary(
     db: Session = Depends(get_db_session),
 ):
     """Return a per-patient risk summary for the clinic dashboard."""
-    require_minimum_role(actor, "guest")
+    require_minimum_role(actor, "clinician")
 
     # Fetch all active patients for this clinician
     patients = db.execute(
@@ -226,11 +243,20 @@ def override_risk_category(
 ):
     """Clinician manual override of a risk category traffic light."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     if category not in RISK_CATEGORIES:
-        return {"error": f"Invalid category: {category}. Must be one of {RISK_CATEGORIES}"}
+        raise ApiServiceError(
+            code="invalid_category",
+            message=f"Invalid category: {category}. Must be one of {RISK_CATEGORIES}",
+            status_code=422,
+        )
     if body.level not in ("green", "amber", "red"):
-        return {"error": "Level must be green, amber, or red"}
+        raise ApiServiceError(
+            code="invalid_level",
+            message="Level must be green, amber, or red",
+            status_code=422,
+        )
 
     row = db.execute(
         select(RiskStratificationResult).where(
@@ -250,7 +276,11 @@ def override_risk_category(
         ).scalar_one_or_none()
 
     if not row:
-        return {"error": "Patient or category not found"}
+        raise ApiServiceError(
+            code="not_found",
+            message="Patient or risk category not found",
+            status_code=404,
+        )
 
     previous_effective = row.override_level or row.level
 
@@ -283,7 +313,8 @@ def recompute_patient_risk(
     db: Session = Depends(get_db_session),
 ):
     """Force a full recompute of all 8 risk categories."""
-    require_minimum_role(actor, "guest")
+    require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     category_dicts = compute_risk_profile(patient_id, db, clinician_id=actor.actor_id)
     return PatientRiskProfile(
@@ -356,7 +387,8 @@ def get_risk_audit_trail(
     db: Session = Depends(get_db_session),
 ):
     """Return the audit trail of risk-level changes for a patient."""
-    require_minimum_role(actor, "guest")
+    require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     rows = db.execute(
         select(RiskStratificationAudit)

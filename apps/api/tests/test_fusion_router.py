@@ -1,15 +1,49 @@
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import MriAnalysis, QEEGAnalysis
+from app.persistence.models import Clinic, MriAnalysis, QEEGAnalysis, User
+
+
+def _ensure_demo_clinician_in_clinic() -> None:
+    """Create a Clinic + a User row keyed on the demo clinician's actor_id so
+    that the cross-clinic ownership gate (added in the audit) sees a real
+    clinic_id when the demo `clinician-demo-token` is used. Idempotent."""
+    db = SessionLocal()
+    try:
+        existing = db.query(User).filter_by(id="actor-clinician-demo").first()
+        if existing is not None and existing.clinic_id:
+            return
+        clinic_id = "clinic-fusion-demo"
+        if db.query(Clinic).filter_by(id=clinic_id).first() is None:
+            db.add(Clinic(id=clinic_id, name="Fusion Demo Clinic"))
+            db.flush()
+        if existing is None:
+            db.add(
+                User(
+                    id="actor-clinician-demo",
+                    email=f"demo_clin_{uuid.uuid4().hex[:6]}@example.com",
+                    display_name="Verified Clinician Demo",
+                    hashed_password="x",
+                    role="clinician",
+                    package_id="clinician_pro",
+                    clinic_id=clinic_id,
+                )
+            )
+        else:
+            existing.clinic_id = clinic_id
+        db.commit()
+    finally:
+        db.close()
 
 
 def _seed_patient(client: TestClient, auth_headers: dict[str, dict[str, str]]) -> str:
+    _ensure_demo_clinician_in_clinic()
     resp = client.post(
         "/api/v1/patients",
         json={"first_name": "Fusion", "last_name": "Test", "dob": "1988-08-08", "gender": "F"},
@@ -67,6 +101,9 @@ def test_fusion_recommendation_combines_latest_qeeg_and_mri(
     assert body["recommendations"]
     assert body["confidence"] >= 0.5
     assert "Dual-modality fusion available" in body["summary"]
+    assert body["confidence_disclaimer"]
+    assert "heuristic" in body["confidence_disclaimer"]
+    assert body["confidence_grade"] == "heuristic"
     assert body["modality_agreement"]["status"] == "multimodal_available"
     assert "limitations" in body and body["limitations"]
 
@@ -104,6 +141,8 @@ def test_fusion_recommendation_fails_soft_for_single_modality(
     assert body["partial"] is True
     assert "Partial fusion available" in body["summary"]
     assert any("Add MRI" in item or "missing" in item for item in body["recommendations"])
+    assert body["confidence_disclaimer"]
+    assert body["confidence_grade"] == "heuristic"
     assert "MRI" in body["missing_modalities"]
 
 
@@ -123,6 +162,8 @@ def test_fusion_recommendation_returns_empty_state_when_no_modalities_exist(
     assert body["mri_analysis_id"] is None
     assert body["partial"] is True
     assert "No completed qEEG or MRI analyses are available" in body["summary"]
+    assert body["confidence_disclaimer"]
+    assert body["confidence_grade"] == "heuristic"
 
 
 def test_qeeg_sse_stream_emits_progress_snapshot(

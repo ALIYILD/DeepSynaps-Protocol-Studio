@@ -33,9 +33,10 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.repositories.patients import resolve_patient_clinic_id
 from app.persistence.models import (
     AiSummaryAudit,
     DeviceSessionLog,
@@ -61,6 +62,15 @@ def _dt(v) -> Optional[str]:
 
 def _require_clinician(actor: AuthenticatedActor) -> None:
     require_minimum_role(actor, "clinician")
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str | None, db: Session) -> None:
+    """Cross-clinic ownership gate. No-op if patient_id is None / unknown."""
+    if not patient_id:
+        return
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 
 
 def _get_assignment_or_404(assignment_id: str, db: Session) -> HomeDeviceAssignment:
@@ -332,6 +342,7 @@ def list_assignments(
     db: Session = Depends(get_db_session),
 ) -> list[AssignmentOut]:
     _require_clinician(actor)
+    _gate_patient_access(actor, patient_id, db)
     q = db.query(HomeDeviceAssignment)
     if patient_id:
         q = q.filter(HomeDeviceAssignment.patient_id == patient_id)
@@ -349,6 +360,7 @@ def get_assignment(
 ) -> dict:
     _require_clinician(actor)
     assignment = _get_assignment_or_404(assignment_id, db)
+    _gate_patient_access(actor, assignment.patient_id, db)
     summary = compute_adherence_summary(assignment, db)
     return {
         "assignment": AssignmentOut.from_record(assignment).model_dump(),
@@ -402,6 +414,7 @@ def list_session_logs(
     db: Session = Depends(get_db_session),
 ) -> list[SessionLogOut]:
     _require_clinician(actor)
+    _gate_patient_access(actor, patient_id, db)
     q = db.query(DeviceSessionLog)
     if patient_id:
         q = q.filter(DeviceSessionLog.patient_id == patient_id)
@@ -424,6 +437,7 @@ def review_session_log(
     log = db.query(DeviceSessionLog).filter_by(id=log_id).first()
     if log is None:
         raise ApiServiceError(code="not_found", message="Session log not found.", status_code=404)
+    _gate_patient_access(actor, log.patient_id, db)
     if body.status not in ("reviewed", "flagged"):
         raise ApiServiceError(
             code="invalid_status",
@@ -453,6 +467,7 @@ def list_adherence_events(
     db: Session = Depends(get_db_session),
 ) -> list[AdherenceEventOut]:
     _require_clinician(actor)
+    _gate_patient_access(actor, patient_id, db)
     q = db.query(PatientAdherenceEvent)
     if patient_id:
         q = q.filter(PatientAdherenceEvent.patient_id == patient_id)
@@ -477,6 +492,7 @@ def acknowledge_adherence_event(
     ev = db.query(PatientAdherenceEvent).filter_by(id=event_id).first()
     if ev is None:
         raise ApiServiceError(code="not_found", message="Adherence event not found.", status_code=404)
+    _gate_patient_access(actor, ev.patient_id, db)
     if body.status not in ("acknowledged", "resolved", "escalated"):
         raise ApiServiceError(
             code="invalid_status",
@@ -501,6 +517,7 @@ def list_review_flags(
     db: Session = Depends(get_db_session),
 ) -> list[ReviewFlagOut]:
     _require_clinician(actor)
+    _gate_patient_access(actor, patient_id, db)
     q = db.query(HomeDeviceReviewFlag).filter(
         HomeDeviceReviewFlag.dismissed == dismissed
     )
