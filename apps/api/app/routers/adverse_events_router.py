@@ -15,7 +15,21 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
+from app.repositories.patients import resolve_patient_clinic_id
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str | None, db: Session) -> None:
+    if not patient_id:
+        return
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import AdverseEvent
@@ -108,6 +122,7 @@ def report_adverse_event(
     db: Session = Depends(get_db_session),
 ) -> AdverseEventOut:
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, body.patient_id, db)
 
     severity = body.severity  # already validated by Pydantic Literal
 
