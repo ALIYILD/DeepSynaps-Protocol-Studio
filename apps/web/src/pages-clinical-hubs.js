@@ -7797,7 +7797,9 @@ export async function pgFinanceHub(setTopbar, navigate) {
   const invFilt   = window._invFilt   || 'all';
   const invSearch = window._invSearch || '';
 
-  const [summary, invoicesResp, paymentsResp, claimsResp, monthlyResp] = await Promise.all([
+  // Declared as `let` so the demo-mode fallback below can reassign with seeded
+  // empty payloads when backend rejects demo tokens.
+  let [summary, invoicesResp, paymentsResp, claimsResp, monthlyResp] = await Promise.all([
     api.finance.summary(),
     api.finance.listInvoices({ status: invFilt === 'all' ? null : invFilt, search: invSearch }),
     api.finance.listPayments(),
