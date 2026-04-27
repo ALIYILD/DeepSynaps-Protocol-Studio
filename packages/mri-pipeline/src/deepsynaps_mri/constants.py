@@ -8,7 +8,7 @@ References are DOIs or PubMed IDs from the 87k-paper DeepSynaps DB.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)

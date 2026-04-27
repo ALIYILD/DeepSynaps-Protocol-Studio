@@ -27,7 +27,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from .schemas import NormedValue, SegmentationEngine, StructuralMetrics
+from .schemas import SegmentationEngine, StructuralMetrics
 
 log = logging.getLogger(__name__)
 

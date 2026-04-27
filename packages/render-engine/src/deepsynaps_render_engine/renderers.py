@@ -300,8 +300,8 @@ def _render_citations(citations: list[CitationRef]) -> str:
         )
         status_pill = (
             '<span class="ds-cite-status" '
-            f'style="font-size:10px;font-weight:700;text-transform:uppercase;'
-            f'padding:1px 6px;border-radius:8px;'
+            'style="font-size:10px;font-weight:700;text-transform:uppercase;'
+            'padding:1px 6px;border-radius:8px;'
             + (
                 'color:#0a5d2c;background:#d1f7df;'
                 if c.status == "verified" else

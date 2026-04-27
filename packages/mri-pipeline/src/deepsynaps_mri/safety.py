@@ -37,7 +37,6 @@ from .schemas import (
     BrainAgePrediction,
     MRIReport,
     NormedValue,
-    StimTarget,
 )
 
 log = logging.getLogger(__name__)
