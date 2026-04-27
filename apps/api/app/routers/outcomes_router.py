@@ -16,10 +16,16 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import OutcomeEvent, OutcomeSeries, TreatmentCourse
+from app.repositories.patients import resolve_patient_clinic_id
 
 router = APIRouter(prefix="/api/v1/outcomes", tags=["Outcomes"])
 
@@ -347,6 +353,16 @@ def record_outcome_event(
     db: Session = Depends(get_db_session),
 ) -> OutcomeEventOut:
     require_minimum_role(actor, "clinician")
+
+    # Cross-clinic data-poisoning guard: a clinician at clinic B used to be
+    # able to write an OutcomeEvent (severity="critical", title=…) against a
+    # clinic A patient_id. monitor_service surfaces those events to clinic A
+    # via a patient_id-scoped (not clinician-scoped) query, so the row would
+    # show up as a "critical" alert next to the wrong clinic's patient.
+    if body.patient_id:
+        exists, patient_clinic_id = resolve_patient_clinic_id(db, body.patient_id)
+        if exists:
+            require_patient_owner(actor, patient_clinic_id)
 
     recorded_at = datetime.now(timezone.utc)
     if body.recorded_at:
