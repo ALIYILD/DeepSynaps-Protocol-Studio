@@ -23,24 +23,41 @@ primary_region = "lhr"
   # The evidence_router returns 503 with a clear message until populated.
   EVIDENCE_DB_PATH = "/data/evidence.db"
 
-[http_service]
+# Process groups:
+#   app          — FastAPI HTTP server (public-facing)
+#   stripe_worker — Polls StripeWebhookLog outbox every 5 min for retries
+[processes]
+  app = "uvicorn app.main:app --host 0.0.0.0 --port 8080 --app-dir apps/api"
+  stripe_worker = "sh -c 'while true; do python scripts/retry_stripe_webhooks.py; sleep 300; done'"
+
+[[services]]
+  processes = ["app"]
   internal_port = 8080
-  force_https = true
+  protocol = "tcp"
   auto_stop_machines = true
   auto_start_machines = true
   min_machines_running = 1
 
-  [http_service.concurrency]
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+    force_https = true
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+  [services.concurrency]
     type = "connections"
     hard_limit = 25
     soft_limit = 20
 
-[[http_service.checks]]
-  grace_period = "45s"
-  interval = "10s"
-  method = "GET"
-  timeout = "5s"
-  path = "/health"
+  [[services.tcp_checks]]
+    grace_period = "45s"
+    interval = "10s"
+    timeout = "5s"
+    method = "GET"
+    path = "/health"
 
 # Persistent volume backing /data (evidence DB, media uploads, sqlite fallback).
 # Prerequisite: create the volume once per region before the first deploy:

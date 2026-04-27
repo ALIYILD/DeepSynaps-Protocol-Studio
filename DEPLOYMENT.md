@@ -136,6 +136,24 @@ fly logs
 
 Non-secret environment variables (`DEEPSYNAPS_APP_ENV`, `DEEPSYNAPS_LOG_LEVEL`, `DEEPSYNAPS_CORS_ORIGINS`) are already set in `fly.toml` and do not need to be added as secrets.
 
+### Stripe webhook retry worker
+
+`fly.toml` defines a second process group (`stripe_worker`) that polls the `StripeWebhookLog` outbox every 5 minutes and retries failed events with exponential backoff. After deploy, verify the worker machine is running:
+
+```bash
+fly status
+# You should see two machines: one for `app` and one for `stripe_worker`
+
+# View worker logs
+fly logs --process-group stripe_worker
+```
+
+If you prefer an external cron (e.g., GitHub Actions, systemd timer, or AWS EventBridge), you can run the same script directly:
+
+```bash
+python scripts/retry_stripe_webhooks.py
+```
+
 ---
 
 ## 5. Database Initialization
