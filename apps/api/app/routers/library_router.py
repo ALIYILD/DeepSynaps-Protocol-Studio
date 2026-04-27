@@ -29,12 +29,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
+from app.limiter import limiter
 from app.logging_setup import get_logger
 from app.persistence.models import LiteraturePaper
 from app.services.chat_service import chat_clinician
@@ -518,7 +519,9 @@ def external_search(
 
 
 @router.post("/ai/summarize-evidence", response_model=AiSummarizeDraft)
+@limiter.limit("20/minute")
 def ai_summarize_evidence(
+    request: Request,
     body: AiSummarizeRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> AiSummarizeDraft:
