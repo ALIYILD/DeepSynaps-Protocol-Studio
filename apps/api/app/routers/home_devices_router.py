@@ -29,13 +29,14 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.repositories.patients import resolve_patient_clinic_id
 from app.persistence.models import (
     AiSummaryAudit,
@@ -553,7 +554,9 @@ def dismiss_review_flag(
 
 
 @router.post("/ai-summary/{assignment_id}")
+@limiter.limit("20/minute")
 def generate_home_therapy_summary(
+    request: Request,
     assignment_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
