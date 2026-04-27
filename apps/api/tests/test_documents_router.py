@@ -229,3 +229,31 @@ class TestDocumentUploadDownload:
         doc = _create(client, auth_headers, title="Metadata Only")
         resp = client.get(f"/api/v1/documents/{doc['id']}/download", headers=auth_headers["clinician"])
         assert resp.status_code == 404
+
+    def test_upload_preserves_file_ref_and_mime_for_download(
+        self, client: TestClient, auth_headers: dict, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Contract test: uploaded file must round-trip with its declared MIME
+        on download — this is what the structured-report renderer relies on
+        when it embeds attached PDFs."""
+        from app.settings import get_settings
+        settings = get_settings()
+        monkeypatch.setattr(settings, "media_storage_root", str(tmp_path))
+
+        payload = b"%PDF-1.4 round-trip mime test"
+        files = {"file": ("scan.pdf", io.BytesIO(payload), "application/pdf")}
+        up = client.post(
+            "/api/v1/documents/upload",
+            files=files,
+            data={"title": "Scan attachment"},
+            headers=auth_headers["clinician"],
+        )
+        assert up.status_code == 201, up.text
+        doc_id = up.json()["id"]
+        assert up.json()["file_ref"].startswith("documents/")
+
+        dl = client.get(f"/api/v1/documents/{doc_id}/download", headers=auth_headers["clinician"])
+        assert dl.status_code == 200
+        # MIME must round-trip — never default to octet-stream when known.
+        assert dl.headers["content-type"].startswith("application/pdf")
+        assert dl.content == payload

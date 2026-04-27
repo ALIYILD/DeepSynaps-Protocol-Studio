@@ -11,7 +11,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Form, UploadFile
+from fastapi import APIRouter, Depends, Form, Query, UploadFile
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -20,6 +21,22 @@ from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import Patient, PatientMediaUpload
 from app.settings import get_settings
+
+# ── Structured report payload (versioned schema) ──────────────────────────────
+# These imports use the render-engine package; PDF rendering may raise
+# PdfRendererUnavailable when weasyprint is absent — we map it to HTTP 503.
+from deepsynaps_render_engine import (  # noqa: E402
+    PdfRendererUnavailable,
+    ReportPayload,
+    render_report_html,
+    render_report_pdf,
+)
+from app.services.report_citations import enrich_citations  # noqa: E402
+from app.services.report_payload import (  # noqa: E402
+    build_report_payload,
+    make_section,
+    sample_payload_for_preview,
+)
 
 router = APIRouter(tags=["reports"])
 
@@ -416,3 +433,221 @@ def ai_summarize_report(
         "protocol_hint": result["protocol_hint"],
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+# ── Structured report payload + render endpoints ──────────────────────────────
+# These endpoints expose the new versioned ReportPayload schema and its HTML/PDF
+# renderers. They are deliberately kept separate from the legacy upload/list
+# endpoints above so existing clients are not affected.
+
+
+class _PreviewSectionIn(BaseModel):
+    """Minimal section payload accepted by the preview endpoint."""
+    section_id: str
+    title: str
+    observed: list[str] = Field(default_factory=list)
+    interpretations: list[dict] = Field(default_factory=list)
+    suggested_actions: list[dict] = Field(default_factory=list)
+    confidence: Optional[str] = None
+    cautions: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    evidence_refs: list[str] = Field(default_factory=list)
+    counter_evidence_refs: list[str] = Field(default_factory=list)
+
+
+class _PreviewPayloadRequest(BaseModel):
+    """Inbound shape for the /preview-payload endpoint.
+
+    Everything is optional so the caller can request a minimal payload
+    (for surface tests or new-feature probing) without supplying every
+    field. When no sections are supplied we return a sample payload so
+    the UI can render the new layout in onboarding/demo.
+    """
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    audience: str = "both"  # clinician|patient|both
+    patient_id: Optional[str] = None
+    sections: list[_PreviewSectionIn] = Field(default_factory=list)
+    references: list[str] = Field(default_factory=list)
+
+
+@router.post("/preview-payload", response_model=ReportPayload)
+def preview_report_payload(
+    body: _PreviewPayloadRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ReportPayload:
+    """Build a structured ``ReportPayload`` from minimal inputs (no DB write).
+
+    If no sections are supplied, a sample payload is returned so the
+    in-app viewer can render the new layout end-to-end. This is the
+    primary integration point for the qEEG, MRI, and Scoring streams
+    once their pipelines are publishing structured findings.
+    """
+    require_minimum_role(actor, "clinician")
+    _assert_report_patient_access(db, actor, body.patient_id)
+
+    if not body.sections and not body.references and not body.title:
+        return sample_payload_for_preview()
+
+    citations = enrich_citations(body.references, db=db)
+    sections = [
+        make_section(
+            section_id=s.section_id,
+            title=s.title,
+            observed=s.observed,
+            interpretations=s.interpretations,
+            suggested_actions=s.suggested_actions,
+            confidence=s.confidence,
+            cautions=s.cautions,
+            limitations=s.limitations,
+            evidence_refs=s.evidence_refs,
+            counter_evidence_refs=s.counter_evidence_refs,
+        )
+        for s in body.sections
+    ]
+    return build_report_payload(
+        title=body.title or "Treatment plan preview",
+        summary=body.summary or "",
+        patient_id=body.patient_id,
+        audience=body.audience,
+        sections=sections,
+        citations=citations,
+    )
+
+
+def _payload_for_record(
+    record: PatientMediaUpload,
+    db: Session,
+) -> ReportPayload:
+    """Build a payload from a stored report record.
+
+    Today the legacy reports schema only stores a single ``text_content``
+    blob plus metadata in ``patient_note``. We render that as a single
+    "Clinical narrative" section. As soon as upstream callers start
+    persisting structured payloads (planned: a dedicated table), this
+    helper will read the structured row directly.
+    """
+    import json as _json
+
+    title = record.id
+    if record.patient_note:
+        try:
+            meta = _json.loads(record.patient_note)
+            title = meta.get("title", title) or title
+        except (ValueError, KeyError):
+            pass
+
+    body_text = (record.text_content or "").strip()
+    observed: list[str] = []
+    if body_text:
+        observed = [body_text]
+
+    sections = [
+        make_section(
+            section_id="narrative",
+            title="Clinical narrative",
+            observed=observed,
+            cautions=["Auto-imported from legacy report — review before use."],
+            limitations=[
+                "Structured findings not yet available for this report; only the "
+                "free-text narrative is rendered.",
+            ],
+        ),
+    ]
+
+    return build_report_payload(
+        title=title,
+        summary="Rendered from a stored clinical report.",
+        patient_id=record.patient_id,
+        report_id=record.id,
+        audience="both",
+        sections=sections,
+        citations=[],  # legacy rows don't carry structured citations
+    )
+
+
+@router.get("/{report_id}/payload", response_model=ReportPayload)
+def get_report_payload(
+    report_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ReportPayload:
+    """Return the structured ``ReportPayload`` for a stored report."""
+    require_minimum_role(actor, "clinician")
+    record: Optional[PatientMediaUpload] = (
+        db.query(PatientMediaUpload).filter_by(id=report_id).first()
+    )
+    if record is None:
+        raise ApiServiceError(code="not_found", message="Report not found.", status_code=404)
+    if actor.role != "admin" and record.uploaded_by != actor.actor_id:
+        raise ApiServiceError(code="not_found", message="Report not found.", status_code=404)
+    _assert_report_patient_access(db, actor, record.patient_id)
+    return _payload_for_record(record, db)
+
+
+@router.get("/{report_id}/render")
+def render_report(
+    report_id: str,
+    format: str = Query("html", pattern="^(html|pdf)$"),
+    audience: Optional[str] = Query(None, pattern="^(clinician|patient|both)$"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Render a stored report as HTML or PDF.
+
+    ``format=html`` always returns ``text/html``. ``format=pdf`` returns
+    ``application/pdf`` when ``weasyprint`` is installed; if not, we
+    return HTTP 503 with a clear blocker message so callers never see
+    a blank PDF.
+    """
+    require_minimum_role(actor, "clinician")
+    record: Optional[PatientMediaUpload] = (
+        db.query(PatientMediaUpload).filter_by(id=report_id).first()
+    )
+    if record is None:
+        raise ApiServiceError(code="not_found", message="Report not found.", status_code=404)
+    if actor.role != "admin" and record.uploaded_by != actor.actor_id:
+        raise ApiServiceError(code="not_found", message="Report not found.", status_code=404)
+    _assert_report_patient_access(db, actor, record.patient_id)
+
+    payload = _payload_for_record(record, db)
+    if audience:
+        # Pydantic guard: only accept the constrained literal values.
+        payload = payload.model_copy(update={"audience": audience})
+
+    if format == "html":
+        html_doc = render_report_html(payload, audience=payload.audience)
+        if not html_doc:
+            raise ApiServiceError(
+                code="render_failed",
+                message="HTML render produced an empty document.",
+                status_code=500,
+            )
+        return HTMLResponse(content=html_doc, status_code=200)
+
+    # format == "pdf"
+    try:
+        pdf_bytes = render_report_pdf(payload)
+    except PdfRendererUnavailable as exc:
+        # 503: the dependency is missing on the host. This is a DevOps
+        # blocker, not a user error — return a clear, actionable message.
+        raise ApiServiceError(
+            code="pdf_renderer_unavailable",
+            message=str(exc),
+            status_code=503,
+        ) from exc
+    if not pdf_bytes:
+        # Defence-in-depth: never serve an empty PDF.
+        raise ApiServiceError(
+            code="pdf_render_empty",
+            message="PDF renderer returned empty bytes — refusing to serve a blank PDF.",
+            status_code=500,
+        )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="report-{report_id}.pdf"'
+        },
+    )
