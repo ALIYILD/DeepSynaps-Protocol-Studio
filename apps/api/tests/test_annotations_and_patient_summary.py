@@ -62,26 +62,43 @@ def _seed_patient(email: str = "patient@deepsynaps.com") -> str:
 def test_annotations_round_trip_for_clinician(client: TestClient, auth_headers: dict) -> None:
     patient_id = _seed_patient("annotations@example.com")
 
+    # Seed a real qEEG analysis row owned by this patient — the annotations
+    # router now FK-validates target_id against an actual QEEGAnalysis /
+    # MriAnalysis row whose patient_id matches the body's patient_id.
+    qeeg_id = "qeeg-analysis-1"
+    db = SessionLocal()
+    try:
+        if db.query(QEEGAnalysis).filter_by(id=qeeg_id).first() is None:
+            db.add(QEEGAnalysis(
+                id=qeeg_id,
+                patient_id=patient_id,
+                clinician_id="actor-clinician-demo",
+                analysis_status="completed",
+            ))
+            db.commit()
+    finally:
+        db.close()
+
     create_resp = client.post(
         "/api/v1/annotations",
         headers=auth_headers["clinician"],
         json={
             "patient_id": patient_id,
             "target_type": "qeeg",
-            "target_id": "qeeg-analysis-1",
+            "target_id": qeeg_id,
             "title": "Frontal review",
             "body": "Check frontal theta shift against symptoms.",
             "anchor_label": "Compare tab",
-            "anchor_data": {"analysis_id": "qeeg-analysis-1"},
+            "anchor_data": {"analysis_id": qeeg_id},
         },
     )
     assert create_resp.status_code == 201, create_resp.text
     created = create_resp.json()
     assert created["target_type"] == "qeeg"
-    assert created["anchor_data"]["analysis_id"] == "qeeg-analysis-1"
+    assert created["anchor_data"]["analysis_id"] == qeeg_id
 
     list_resp = client.get(
-        f"/api/v1/annotations?patient_id={patient_id}&target_type=qeeg&target_id=qeeg-analysis-1",
+        f"/api/v1/annotations?patient_id={patient_id}&target_type=qeeg&target_id={qeeg_id}",
         headers=auth_headers["clinician"],
     )
     assert list_resp.status_code == 200, list_resp.text
