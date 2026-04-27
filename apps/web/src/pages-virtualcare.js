@@ -1820,13 +1820,10 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
           </div>` : ''}
 
           <div class="vc-call-controls">
-            <button class="vc-ctrl-btn vc-ctrl-mute" onclick="window._vcCallCtrl('mute')" title="Mute">
-              \uD83C\uDF99
-            </button>
-            ${isVideo ? `<button class="vc-ctrl-btn vc-ctrl-video" onclick="window._vcCallCtrl('video')" title="Toggle camera">\uD83D\uDCF9</button>` : ''}
-            <button class="vc-ctrl-btn vc-ctrl-record" onclick="window._vcCallCtrl('record')" title="Record">
-              \u23FA Rec
-            </button>
+            <!-- Mute / camera / record controls live inside the Jitsi iframe.
+                 We do not surface duplicates here because the outer buttons
+                 cannot reach the iframe's media tracks (cross-origin), which
+                 made them pretend toggles in earlier builds. -->
             <button class="vc-ctrl-btn" onclick="window._vcToggleAnalysis()" title="Toggle analysis panel">
               \uD83D\uDCCA Analysis
             </button>
@@ -2607,8 +2604,8 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
     if (ctrl === 'note' && _vc.activeCall) {
       const item = _vc.activeCall.item;
       _vc.recording = { type:'voice', phase:'idle', patientId:item.patientId, patientName:item.patientName, initials:item.initials||'?', transcription:'', aiSummary:'' };
+      renderPage();
     }
-    window._showNotifToast?.({ title:ctrl, body:`${ctrl} toggled.`, severity:'info' });
   };
 
   const _vcSimulateTranscript = () => {
