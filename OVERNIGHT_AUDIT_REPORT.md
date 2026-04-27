@@ -143,6 +143,11 @@ For general-availability, four medium-severity items remain (§6) and need closi
 | 31 | `tests/test_qeeg_copilot_router.py` | New file: 4 WS auth gate regression tests | coverage | ✅ |
 | 32 | `qeeg_analysis_router.py` | Cross-clinic gate on qEEG SSE event stream | P2 | ✅ |
 | 33 | `main.py` | Make qa_router conditional so app boots without `deepsynaps_qa` | robustness | ✅ |
+| 34 | `outcomes_router.py` | Owner gate on `/outcomes/summary/{course_id}` (was role-only) | P2 | ✅ |
+| 35 | `home_devices_router.py` | Cross-clinic gate on 7 endpoints (assignments, session-logs, adherence-events, review-flags) | P1 | ✅ |
+| 36 | `annotations_router.py` + test fixture | Cross-clinic gate on annotations list/create | P2 | ✅ |
+| 37 | `chat_router.py` | Cross-clinic gate on `/chat/clinician` + `/chat/wearable-clinician` (PHI in LLM prompt) | P1 | ✅ |
+| 38 | `adverse_events_router.py` + test fixture | Cross-clinic gate on POST /adverse-events (could fabricate safety signals on other clinic's patients) | P1 | ✅ |
 
 ---
 
