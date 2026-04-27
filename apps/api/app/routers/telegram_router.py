@@ -253,8 +253,28 @@ async def telegram_webhook_legacy(
     x_telegram_bot_api_secret_token: str | None = Header(default=None),
     db: Session = Depends(get_db_session),
 ) -> dict:
-    """Legacy single-webhook URL — treated as patient bot (or whichever token TELEGRAM_BOT_TOKEN maps to)."""
-    return await _handle_telegram_update(request, x_telegram_bot_api_secret_token, "patient", db)
+    """Deprecated single-webhook URL.
+
+    Pre-fix this collapsed both bots' updates to ``bot_kind="patient"``
+    using the shared secret. With per-bot secrets, that cross-wires
+    roles: a clinician update authenticated by the clinician secret
+    would still be processed as a patient turn.
+
+    The route now returns 410 Gone so any deploy still pointing here
+    fails loudly. Migrate Telegram setWebhook URLs to
+    ``/api/v1/telegram/webhook/patient`` or
+    ``/api/v1/telegram/webhook/clinician`` and configure
+    ``TELEGRAM_PATIENT_WEBHOOK_SECRET`` / ``TELEGRAM_CLINICIAN_WEBHOOK_SECRET``.
+    """
+    raise ApiServiceError(
+        code="telegram_webhook_deprecated",
+        message=(
+            "Use /api/v1/telegram/webhook/patient or "
+            "/api/v1/telegram/webhook/clinician with the matching "
+            "per-bot secret."
+        ),
+        status_code=410,
+    )
 
 
 @router.post("/webhook/patient")
@@ -307,13 +327,18 @@ def send_test_message(
     require_minimum_role(actor, "admin")
     bot_kind: tg.BotKind = body.bot_kind  # type: ignore[assignment]
 
-    # Allowlist: only chat_ids previously bound by /link-code can receive
-    # test messages. tg.list_user_chats returns every binding for this
-    # bot_kind across users; we only need membership here.
-    allowed_chat_ids = {
-        row.chat_id for row in tg.list_user_chats(db, bot_kind)
-    }
-    if str(body.chat_id) not in allowed_chat_ids:
+    # Allowlist: only chat_ids previously bound through /link-code can
+    # receive test messages. This prevents a stolen admin token from
+    # being used as a generic Telegram-spam relay against arbitrary
+    # chats discovered by guessing or scraping.
+    from app.persistence.models import TelegramUserChat
+
+    bound = (
+        db.query(TelegramUserChat)
+        .filter_by(chat_id=str(body.chat_id), bot_kind=bot_kind)
+        .first()
+    )
+    if bound is None:
         raise ApiServiceError(
             code="chat_not_linked",
             message="That chat_id is not linked to any DeepSynaps user.",
