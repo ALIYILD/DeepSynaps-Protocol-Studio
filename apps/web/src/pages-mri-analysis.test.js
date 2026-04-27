@@ -247,6 +247,28 @@ test('rendered HTML contains no banned clinical-claim words', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
+// Beta-readiness: pretend buttons must not be rendered
+// (regression for cursor/beta-readiness-functional-completion-9a99)
+// ═════════════════════════════════════════════════════════════════════════════
+test('MRI bottom strip no longer renders pretend Share / Neuronav buttons', () => {
+  const view = renderFullView({ report: DEMO_MRI_REPORT });
+  assert.ok(!/Share with referring provider/.test(view),
+    'Share with referring provider button must be hidden in beta');
+  assert.ok(!/Open in Neuronav/.test(view),
+    'Open in Neuronav button must be hidden in beta');
+  // Real download / annotation actions must still be present.
+  assert.match(view, /ds-mri-dl-pdf/);
+  assert.match(view, /ds-mri-dl-fhir/);
+  assert.match(view, /ds-mri-dl-bids/);
+});
+
+test('MRI per-target Send to Neuronav button still renders (now exports JSON)', () => {
+  const html = renderTargetCard(mkTarget(), 'aid-x');
+  assert.match(html, /ds-mri-send-nav/);
+  assert.match(html, /ds-mri-download-target/);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
 // Demo report shape (sanity)
 // ═════════════════════════════════════════════════════════════════════════════
 test('DEMO_MRI_REPORT matches the authoritative sample shape', () => {
