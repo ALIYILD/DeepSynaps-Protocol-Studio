@@ -3,7 +3,28 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mergeSavedReports } from './beta-readiness-utils.js';
+
+// Mirrors fetchSavedReports() in pgReportsHubNew — merges backend rows with
+// the local cache, dedupes by id, sorts newest-first.
+function mergeSavedReports(backendItems, localItems) {
+  const backend = (backendItems || []).map(r => ({
+    id: r.id,
+    name: r.title || ((r.type || 'clinician') + ' report'),
+    patient: r.patient_id || 'All Patients',
+    type: r.type || 'clinician',
+    date: (r.date || r.created_at || '').slice(0, 10),
+    status: r.status || 'generated',
+    content: r.content || '',
+    _source: 'backend',
+  }));
+  const local = (localItems || []).map(r => ({ ...r, _source: r._source || 'local' }));
+  const byId = new Map();
+  backend.forEach(r => byId.set(r.id, r));
+  local.forEach(r => { if (!byId.has(r.id)) byId.set(r.id, r); });
+  const merged = Array.from(byId.values());
+  merged.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  return merged;
+}
 
 test('backend rows win over local rows with the same id', () => {
   const backend = [{ id: 'r1', title: 'Server title', type: 'clinician', created_at: '2026-04-10T10:00:00Z' }];
@@ -40,8 +61,9 @@ test('empty backend + empty local returns []', () => {
 });
 
 function buildCreateReportPayload(lastReport, patientId, today) {
+  const normalizedPatientId = patientId && patientId !== 'all' ? patientId : null;
   return {
-    patient_id: patientId || null,
+    patient_id: normalizedPatientId,
     type: lastReport.type,
     title: lastReport.type + ' — ' + lastReport.patient,
     content: lastReport.content,
@@ -71,4 +93,28 @@ test('Save flow sends null patient_id when unselected', () => {
     '2026-04-10',
   );
   assert.equal(p.patient_id, null);
+});
+
+test('Save flow treats clinic-wide all-patient scope as local-only', () => {
+  const p = buildCreateReportPayload(
+    { type: 'Business Performance Report', patient: 'All Patients', content: 'Clinic-wide body' },
+    'all',
+    '2026-04-10',
+  );
+  assert.equal(p.patient_id, null);
+});
+
+function makeSafeFilename(s) {
+  return String(s || 'report')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'report';
+}
+
+test('download filenames are sanitized for generated reports', () => {
+  assert.equal(
+    makeSafeFilename('Initial Assessment Report — Jane Doe / MRN #42'),
+    'initial-assessment-report-jane-doe-mrn-42',
+  );
 });
