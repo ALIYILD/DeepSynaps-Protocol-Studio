@@ -40,6 +40,16 @@ dependencies = [
     "numpy>=1.26.0,<3.0.0",
     # qEEG advanced analyses — aperiodic/periodic spectral decomposition
     "specparam>=2.0.0rc0,<3.0.0",
+    # Reports stream HTML→PDF render path (PR #144 night shift). Imported in
+    # packages/render-engine/src/deepsynaps_render_engine/renderers.py via
+    # try/except → raises PdfRendererUnavailable when missing, so the
+    # /api/v1/reports/{id}/render?format=pdf endpoint returns HTTP 503 with
+    # code "pdf_renderer_unavailable" instead of producing a blank PDF.
+    # NOTE: WeasyPrint requires Pango + Cairo system libs in the runtime
+    # image (libpango-1.0-0, libpangoft2-1.0-0, libcairo2, libharfbuzz0b,
+    # libgdk-pixbuf2.0-0). These are NOT in the current slim Docker base —
+    # see DEPLOYMENT.md before relying on PDF output.
+    "weasyprint>=60.0,<70.0",
     # qEEG MNE-Python pipeline (preprocess, ICA, SpecParam, connectivity,
     # eLORETA, normative z-scores, RAG) is installed as a SIBLING editable
     # package by the Dockerfile + developer setup, NOT declared here. Pip's

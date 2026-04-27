@@ -185,7 +185,6 @@ def _fallback_average_ref(raw: "mne.io.BaseRaw") -> tuple[list[str], bool]:
     Failures degrade gracefully — the average reference is always applied even
     if the detector raises.
     """
-    import mne
 
     bads_detected: list[str] = []
     try:

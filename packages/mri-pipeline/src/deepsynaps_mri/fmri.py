@@ -243,7 +243,6 @@ def seed_based_fc(
     where voxel value = Fisher-z Pearson correlation between each voxel
     and the seed-sphere average timeseries.
     """
-    from nilearn.image import new_img_like
     from nilearn.maskers import NiftiMasker, NiftiSpheresMasker
 
     seed_masker = NiftiSpheresMasker(

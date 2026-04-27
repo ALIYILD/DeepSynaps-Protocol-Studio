@@ -25,13 +25,8 @@ from typing import Iterable
 
 from .constants import (
     ALL_TARGETS,
-    DLPFC_L_SEARCH_ROI_MNI_BBOX,
-    RTMS_MDD_TARGETS,
-    SGACC_SEED_MNI,
     TargetAtlasEntry,
     TFUS_FDA_LIMITS,
-    TPS_AD_TARGETS,
-    TPS_NEUROLITH_DEFAULT,
 )
 from .schemas import StimParameters, StimTarget
 
