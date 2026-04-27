@@ -2032,9 +2032,6 @@ function renderBottomStrip(report) {
   var aid = report && report.analysis_id ? report.analysis_id : _mriAnalysisId;
   var disabled = aid ? '' : ' disabled';
   var patientId = report && report.patient && report.patient.patient_id ? report.patient.patient_id : '';
-  // Beta gating: "Share with referring provider" and "Open in Neuronav" are
-  // not yet wired to a real backend action. Per beta-readiness rules, we hide
-  // them rather than display fake buttons that show a "coming soon" toast.
   return '<div class="ds-mri-bottom-strip">'
     + '<div class="ds-mri-bottom-strip__group">'
     + '<span class="ds-mri-bottom-strip__label">Download report</span>'
@@ -2843,7 +2840,6 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
     ];
   }
   _patientAnalysesCache = { patientId: pid || null, rows: patientAnalyses };
-  _fusionSummary = await _fetchFusionSummary(pid || (_report && _report.patient && _report.patient.patient_id));
 
   if (el) {
     el.innerHTML = renderFullView({

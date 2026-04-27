@@ -8431,7 +8431,6 @@ export async function pgBrainData(setTopbar) {
     <select id="qeeg-pat-filter" class="form-control" style="margin-left:8px;width:170px;display:inline-block" onchange="window._filterQEEGRecords(this.value)">
       <option value="">All Patients</option>
     </select>
-    <button id="qeeg-compare-btn" class="btn btn-sm" style="margin-left:6px;display:none" onclick="window._openQEEGCompare()">Compare ←→</button>
   `);
   const el = document.getElementById('content');
   el.innerHTML = spinner();
@@ -8520,10 +8519,10 @@ export async function pgBrainData(setTopbar) {
           <div id="qr-upload-tab" style="display:none;margin-bottom:10px">
             <div id="qr-drop-zone" style="border:2px dashed var(--border);border-radius:8px;padding:32px;text-align:center;cursor:pointer;transition:border-color 0.2s;color:var(--text-tertiary);font-size:13px" onclick="document.getElementById('qr-file-input').click()">
               <div style="font-size:22px;margin-bottom:8px;opacity:.5">◈</div>
-              Drag &amp; drop CSV / TXT / EDF / BDF / BrainVision / EEGLAB / FIF here or <strong style="color:var(--teal)">click to browse</strong>
-              <div style="font-size:11px;margin-top:6px;color:var(--text-tertiary)">Supported: .csv, .txt (band values) · .edf, .edf+, .bdf, .vhdr, .set, .fif (full server pipeline)</div>
+              Drag &amp; drop CSV / TXT / EDF file here or <strong style="color:var(--teal)">click to browse</strong>
+              <div style="font-size:11px;margin-top:6px;color:var(--text-tertiary)">Supported: .csv, .txt (band values), .edf (server-parsed)</div>
             </div>
-            <input type="file" id="qr-file-input" accept=".csv,.txt,.edf,.bdf,.vhdr,.set,.fif" style="display:none">
+            <input type="file" id="qr-file-input" accept=".csv,.txt,.edf" style="display:none">
             ${!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
               ? `<button class="btn-secondary" onclick="window._startQEEGCamera()" style="margin-top:8px;width:100%">
                   📷 Capture from Camera
@@ -8759,7 +8758,6 @@ export async function pgBrainData(setTopbar) {
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
     <div class="ds-card">
       <h4 style="margin-bottom:14px">Topographic Map</h4>
-      <div id="topo-map-ribbon"></div>
       <div id="topo-map-container">${eegTopoMap({}, 'alpha')}</div>
     </div>
     ${renderBiofeedbackPanel()}
@@ -8772,42 +8770,24 @@ export async function pgBrainData(setTopbar) {
     const container = document.getElementById('topo-map-container');
     if (container) container.innerHTML = eegTopoMap(window._topoData || {}, band);
   };
-  window._updateTopoFromRecord = function(rec, analysis = null) {
-    // Prefer the pipeline-shape band_powers.bands.<band>.channels.<ch>.absolute_uv2
-    // from the qEEG analysis payload if it's present. Otherwise show the legacy
-    // ribbon so we're honest about the source being a per-record scalar, not a
-    // per-channel measurement.
+  window._updateTopoFromRecord = function(rec) {
+    // Distribute single-channel band values across all electrodes with small noise for visual demo
     const bandKeys = ['delta', 'theta', 'alpha', 'beta', 'gamma'];
-    const chData = analysis ? perChannelBandPowers(analysis, ELECTRODE_POSITIONS.map(e => e.id)) : {};
-    const container = document.getElementById('topo-map-container');
-    const ribbonHost = document.getElementById('topo-map-ribbon');
-    const hasRealPerChannel = Object.values(chData).some(v => v && Object.keys(v).length);
-    if (hasRealPerChannel) {
-      window._topoData = chData;
-      if (ribbonHost) ribbonHost.innerHTML = '';
-    } else {
-      // Legacy — only a single scalar per band. Distribute for the visual, but
-      // mark it as demo so the clinician isn't misled.
-      const base = {
-        delta: parseFloat(rec?.delta_power) || 0,
-        theta: parseFloat(rec?.theta_power) || 0,
-        alpha: parseFloat(rec?.alpha_power) || 0,
-        beta:  parseFloat(rec?.beta_power)  || 0,
-        gamma: parseFloat(rec?.gamma_power) || 0,
-      };
-      window._topoData = {};
-      ELECTRODE_POSITIONS.forEach(e => {
-        window._topoData[e.id] = {};
-        bandKeys.forEach(b => {
-          // Seeded pseudo-variation so the demo doesn't flicker on re-render.
-          const seed = (e.id.charCodeAt(0) * 13 + e.id.charCodeAt(1 % e.id.length) * 7) % 100;
-          window._topoData[e.id][b] = Math.max(0, base[b] * (0.7 + (seed / 100) * 0.6));
-        });
+    const base = {
+      delta: parseFloat(rec.delta_power) || 0,
+      theta: parseFloat(rec.theta_power) || 0,
+      alpha: parseFloat(rec.alpha_power) || 0,
+      beta:  parseFloat(rec.beta_power)  || 0,
+      gamma: parseFloat(rec.gamma_power) || 0,
+    };
+    window._topoData = {};
+    ELECTRODE_POSITIONS.forEach(e => {
+      window._topoData[e.id] = {};
+      bandKeys.forEach(b => {
+        window._topoData[e.id][b] = Math.max(0, base[b] * (0.7 + Math.random() * 0.6));
       });
-      if (ribbonHost) {
-        ribbonHost.innerHTML = `<div class="qeeg-topo-ribbon">legacy record — demo distribution only, not a real per-channel measurement</div>`;
-      }
-    }
+    });
+    const container = document.getElementById('topo-map-container');
     if (container) container.innerHTML = eegTopoMap(window._topoData, window._topoSelectedBand || 'alpha');
   };
 
@@ -8864,25 +8844,21 @@ async function handleQEEGFile(file) {
   const table = document.getElementById('qr-preview-table');
   if (!notice || !preview || !table) return;
 
-  const name = file.name || '';
-  const ext = name.split('.').pop().toLowerCase();
-  // Raw EEG binary formats are handed to the backend pipeline, not parsed locally.
-  if (['edf', 'edf+', 'bdf', 'vhdr', 'set', 'fif'].includes(ext) || isEdfLikeFile(name)) {
-    window._qeegSelectedFile = file;
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (ext === 'edf') {
     notice.style.display = '';
-    notice.innerHTML = `<div class="notice" style="background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.25);border-radius:6px;padding:10px 12px;font-size:12px;color:var(--text-primary)">
-      <strong>Binary EEG file selected:</strong> ${name}<br>
-      <span style="color:var(--text-secondary)">Will be analyzed server-side (preprocess → ICA → SpecParam → eLORETA → z-scores). Click "Save Record" to start.</span>
+    notice.innerHTML = `<div class="notice" style="background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.25);border-radius:6px;padding:10px 12px;font-size:12px;color:var(--blue)">
+      <strong>EDF binary file detected:</strong> ${file.name}<br>
+      EDF binary parsing requires server processing. Pre-filling band values with 0 — please complete manually after saving.
     </div>`;
     preview.style.display = 'none';
-    // Blank out the manual fields so we don't accidentally mix file-derived and hand-entered values.
+    // Pre-fill zeros
     ['delta','theta','alpha','beta','gamma'].forEach(b => {
       const el = document.getElementById(`qr-${b}`);
-      if (el) el.value = '';
+      if (el) el.value = '0';
     });
     return;
   }
-  window._qeegSelectedFile = null;
 
   notice.style.display = '';
   notice.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary)">Parsing ${file.name}…</div>`;
@@ -8981,94 +8957,14 @@ export function bindBrainData(records, patMap, patients, setTopbar) {
     const container = document.getElementById('qeeg-list-container');
     if (!container) return;
     container.innerHTML = spinner();
-    window._qeegActivePatientId = patientId || null;
     try {
       const params = patientId ? { patient_id: patientId } : {};
       const res = await api.listQEEGRecords(params);
       allRecords = res?.items || [];
       container.innerHTML = _renderRecordRows(allRecords, patMap || {});
-      // If a patient is selected, also check how many completed analyses they have
-      // and reveal the Compare button when ≥ 2 exist.
-      if (patientId) {
-        try {
-          const analyses = await api.listPatientQEEGAnalyses(patientId);
-          const list = Array.isArray(analyses) ? analyses : (analyses?.items || []);
-          const completed = list.filter((a) => (a.analysis_status || a.status) === 'completed');
-          window._qeegPatientAnalyses = completed;
-          const cmpBtn = document.getElementById('qeeg-compare-btn');
-          if (cmpBtn) cmpBtn.style.display = completed.length >= 2 ? '' : 'none';
-        } catch {
-          window._qeegPatientAnalyses = [];
-          const cmpBtn = document.getElementById('qeeg-compare-btn');
-          if (cmpBtn) cmpBtn.style.display = 'none';
-        }
-      } else {
-        window._qeegPatientAnalyses = [];
-        const cmpBtn = document.getElementById('qeeg-compare-btn');
-        if (cmpBtn) cmpBtn.style.display = 'none';
-      }
     } catch (e) {
       container.innerHTML = `<div style="color:var(--red);font-size:12px">Load failed: ${e.message}</div>`;
     }
-  };
-
-  // Compare dialog for a patient with ≥ 2 completed analyses.
-  window._openQEEGCompare = function() {
-    const analyses = window._qeegPatientAnalyses || [];
-    if (analyses.length < 2) return;
-    const existing = document.getElementById('qeeg-compare-modal');
-    if (existing) existing.remove();
-    const opts = analyses.map((a) => {
-      const dt = (a.recording_date || a.created_at || '').slice(0, 10);
-      const label = `${a.id?.slice(0, 8)}… · ${dt}`;
-      return `<option value="${a.id}">${label}</option>`;
-    }).join('');
-    const overlay = document.createElement('div');
-    overlay.id = 'qeeg-compare-modal';
-    overlay.className = 'qeeg-compare-modal';
-    overlay.innerHTML = `
-      <div class="qeeg-compare-modal__sheet" role="dialog" aria-modal="true" aria-labelledby="qeeg-compare-title">
-        <h4 id="qeeg-compare-title">Compare analyses</h4>
-        <div class="form-group">
-          <label class="form-label">Baseline</label>
-          <select id="qeeg-cmp-baseline" class="form-control">${opts}</select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Follow-up</label>
-          <select id="qeeg-cmp-followup" class="form-control">${opts}</select>
-        </div>
-        <div id="qeeg-cmp-err" style="display:none;color:var(--red);font-size:12px"></div>
-        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
-          <button class="btn btn-sm" id="qeeg-cmp-cancel">Cancel</button>
-          <button class="btn btn-primary btn-sm" id="qeeg-cmp-run">Compare</button>
-        </div>
-        <div id="qeeg-cmp-result"></div>
-      </div>`;
-    document.body.appendChild(overlay);
-    document.getElementById('qeeg-cmp-cancel')?.addEventListener('click', () => overlay.remove());
-    document.getElementById('qeeg-cmp-run')?.addEventListener('click', async () => {
-      const baseline = document.getElementById('qeeg-cmp-baseline')?.value;
-      const follow = document.getElementById('qeeg-cmp-followup')?.value;
-      const err = document.getElementById('qeeg-cmp-err');
-      if (err) err.style.display = 'none';
-      if (!baseline || !follow || baseline === follow) {
-        if (err) { err.textContent = 'Pick two distinct analyses.'; err.style.display = ''; }
-        return;
-      }
-      const patId = window._qeegActivePatientId;
-      try {
-        const cmp = await api.createQEEGComparison({
-          patient_id: patId,
-          baseline_analysis_id: baseline,
-          followup_analysis_id: follow,
-          comparison_type: 'pre_post',
-        });
-        const out = document.getElementById('qeeg-cmp-result');
-        if (out) out.innerHTML = renderComparison(cmp);
-      } catch (e) {
-        if (err) { err.textContent = e?.message || 'Compare failed.'; err.style.display = ''; }
-      }
-    });
   };
 
   function _renderRecordRows(recs, pm) {
@@ -9093,7 +8989,7 @@ export function bindBrainData(records, patMap, patients, setTopbar) {
     </div>`;
   }
 
-  window._selectQEEGRecord = async function(id) {
+  window._selectQEEGRecord = function(id) {
     document.querySelectorAll('.qeeg-row').forEach(row => {
       row.style.borderColor = 'var(--border)';
       row.style.background = '';
@@ -9104,29 +9000,8 @@ export function bindBrainData(records, patMap, patients, setTopbar) {
     const rec = allRecords.find(r => r.id === id);
     if (!rec) return;
 
-    // If the qEEG record is linked to a completed analysis (analysis_id / analysis FK),
-    // load the Analyzer detail instead of the legacy band-power card.
-    const linkedAnalysisId = rec.analysis_id || rec.qeeg_analysis_id || null;
-    if (linkedAnalysisId) {
-      const detail = document.getElementById('qeeg-detail-panel');
-      if (detail) detail.innerHTML = spinner();
-      try {
-        const analysis = await api.getQEEGAnalysis(linkedAnalysisId);
-        window._qeegCurrentAnalysis = analysis;
-        if (detail) detail.innerHTML = renderAnalyzerDetail(analysis, null);
-        if (typeof window._bindAnalyzerActions === 'function') {
-          window._bindAnalyzerActions(analysis, setTopbar);
-        }
-        if (window._updateTopoFromRecord) window._updateTopoFromRecord(rec, analysis);
-        return;
-      } catch (e) {
-        // Fall through to legacy rendering if the fetch failed.
-        if (detail) detail.innerHTML = `<div class="qeeg-muted">Analyzer detail unavailable (${e?.message || 'error'}) — falling back to legacy view.</div>`;
-      }
-    }
-
-    // Update topographic map with record band data (legacy — single scalar per band)
-    if (window._updateTopoFromRecord) window._updateTopoFromRecord(rec, null);
+    // Update topographic map with record band data
+    if (window._updateTopoFromRecord) window._updateTopoFromRecord(rec);
 
     const flags = qeegFlags(rec);
     const pm2 = patMap || {};
@@ -9337,73 +9212,6 @@ export function bindBrainData(records, patMap, patients, setTopbar) {
       if (errEl) { errEl.textContent = e.message || 'Save failed.'; errEl.style.display = 'block'; }
     }
   };
-
-  // Internal helper to bind action buttons rendered inside the analyzer detail.
-  function _bindAnalyzerActions(analysis, setTopbarFn) {
-    const root = document.getElementById('qeeg-detail-panel');
-    if (!root) return;
-    const aiBtn = root.querySelector('[data-action="generate-ai"]');
-    if (aiBtn && !aiBtn.disabled) {
-      aiBtn.addEventListener('click', async () => {
-        aiBtn.disabled = true;
-        const orig = aiBtn.textContent;
-        aiBtn.textContent = 'Generating…';
-        try {
-          const report = await api.generateQEEGAIReport(analysis.id, { report_type: 'standard' });
-          root.innerHTML = renderAnalyzerDetail(analysis, report);
-          _bindAnalyzerActions(analysis, setTopbarFn);
-        } catch (e) {
-          aiBtn.textContent = orig;
-          aiBtn.disabled = false;
-          const msg = document.createElement('div');
-          msg.className = 'qeeg-muted';
-          msg.textContent = `AI report failed: ${e?.message || 'unknown error'}`;
-          aiBtn.parentNode?.appendChild(msg);
-        }
-      });
-    }
-    const rerunBtn = root.querySelector('[data-action="rerun-advanced"]');
-    if (rerunBtn) {
-      rerunBtn.addEventListener('click', async () => {
-        rerunBtn.disabled = true;
-        const orig = rerunBtn.textContent;
-        rerunBtn.textContent = 'Running…';
-        try {
-          await api.runAdvancedQEEGAnalyses(analysis.id);
-          const refreshed = await api.getQEEGAnalysis(analysis.id);
-          root.innerHTML = renderAnalyzerDetail(refreshed, null);
-          _bindAnalyzerActions(refreshed, setTopbarFn);
-          if (window._updateTopoFromRecord) window._updateTopoFromRecord(refreshed, refreshed);
-        } catch (e) {
-          rerunBtn.textContent = orig;
-          rerunBtn.disabled = false;
-          const msg = document.createElement('div');
-          msg.className = 'qeeg-muted';
-          if (e?.status === 404 || /not found/i.test(e?.message || '')) {
-            msg.textContent = 'The advanced pipeline is not enabled on this environment.';
-          } else {
-            msg.textContent = `Re-run failed: ${e?.message || 'unknown error'}`;
-          }
-          rerunBtn.parentNode?.appendChild(msg);
-        }
-      });
-    }
-    // ROI tab switcher.
-    root.querySelectorAll('.qeeg-roi-tab').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const band = btn.getAttribute('data-band');
-        root.querySelectorAll('.qeeg-roi-tab').forEach((b) => b.setAttribute('aria-pressed', b === btn ? 'true' : 'false'));
-        root.querySelectorAll('.qeeg-roi-body').forEach((body) => {
-          body.hidden = body.getAttribute('data-roi-band') !== band;
-        });
-      });
-    });
-    // Default-select the first available ROI tab so aria-pressed reflects reality.
-    const firstTab = root.querySelector('.qeeg-roi-tab');
-    if (firstTab) firstTab.setAttribute('aria-pressed', 'true');
-  }
-  // Expose so integration tests / manual callers can reach it.
-  window._bindAnalyzerActions = _bindAnalyzerActions;
 
   // ── Camera capture for qEEG upload ────────────────────────────────────────
   window._startQEEGCamera = async function() {
@@ -11112,7 +10920,7 @@ export async function pgDecisionSupport(setTopbar) {
     const info = MODALITY_INDICATIONS[modality];
     const icon = DS_MODALITY_ICONS[modality] || '&#9670;';
     const name = modality.charAt(0).toUpperCase() + modality.slice(1);
-    window._showNotifToast?.({ title: `${icon} ${name} selected`, body: `Indicated for: ${info.conditions.slice(0,3).join(', ')}${info.conditions.length > 3 ? ' +more' : ''}. Opening protocol wizard…`, severity: 'info' });
+    window._showNotifToast?.({ title: `${icon} ${name} selected`, body: `Indicated for: ${info.conditions.slice(0,3).join(', ')}${info.conditions.length > 3 ? ' +more' : ''}. Opening Protocol Builder…`, severity: 'info' });
     window._nav?.('protocol-wizard');
   };
 
