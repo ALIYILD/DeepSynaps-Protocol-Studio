@@ -221,6 +221,34 @@ async function apiFetchBlob(path, data) {
   return res.blob();
 }
 
+async function apiFetchBinary(path, opts = {}) {
+  const token = getToken();
+  const headers = { ...(opts.headers || {}) };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await globalThis.fetch(`${API_BASE}${path}`, {
+    method: opts.method || 'GET',
+    ...opts,
+    headers,
+  });
+  if (!res.ok) {
+    let detail = `API error ${res.status}`;
+    try {
+      const body = await res.json();
+      detail = body?.message || body?.detail || detail;
+    } catch {}
+    const err = new Error(detail);
+    err.status = res.status;
+    throw err;
+  }
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename="([^"]+)"/i);
+  return {
+    blob: await res.blob(),
+    contentType: res.headers.get('Content-Type') || '',
+    filename: match?.[1] || null,
+  };
+}
+
 /**
  * Strip client-only fields; map `lastSyncedServerRevision` → `lastKnownServerRevision` for PUT.
  * POST create omits revision hints.
@@ -1523,6 +1551,15 @@ export const api = {
       Object.entries(params).filter(([, v]) => v != null && v !== '')
     ).toString();
     return apiFetchWithRetry('/api/v1/reports' + (q ? '?' + q : ''));
+  },
+  renderStoredReport: (reportId, params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries({
+        format: params.format || 'html',
+        audience: params.audience || 'both',
+      }).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetchBinary(`/api/v1/reports/${encodeURIComponent(reportId)}/render${q ? '?' + q : ''}`);
   },
 
   // ── Patient outcomes (portal alias) ─────────────────────────────────────
