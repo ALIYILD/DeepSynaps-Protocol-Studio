@@ -297,6 +297,8 @@ function _demoFusionSummary(patientId) {
     recommendations: ['MRI targeting is available. Add qEEG biomarkers to create a higher-confidence dual-modality plan.'],
     summary: 'Partial fusion available from one modality only. Add qEEG data to strengthen target confidence.',
     confidence: 0.4,
+    confidence_disclaimer: 'Confidence score is algorithmic heuristic and not evidence-graded clinical validation. Always review recommendations against patient-specific context.',
+    confidence_grade: 'heuristic',
     generated_at: new Date().toISOString(),
   };
 }
@@ -325,6 +327,11 @@ export function renderFusionSummaryCard(fusion, patientId) {
   if (fusion.qeeg_analysis_id) tags.push('qEEG ready');
   if (fusion.mri_analysis_id) tags.push('MRI ready');
   if (fusion.confidence != null) tags.push('confidence ' + Math.round(Number(fusion.confidence || 0) * 100) + '%');
+  if (fusion.confidence_grade) tags.push('grade: ' + esc(fusion.confidence_grade));
+  var disclaimerHtml = fusion.confidence_disclaimer
+    ? '<div style="margin-top:10px;font-size:11px;color:var(--text-tertiary);line-height:1.5;border-left:2px solid var(--amber);padding-left:8px">'
+        + esc(fusion.confidence_disclaimer) + '</div>'
+    : '';
   return card('Fusion summary',
     '<div style="font-size:13px;color:var(--text-primary);line-height:1.55">' + esc(fusion.summary || '') + '</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">' + tags.map(function (item) {
@@ -335,6 +342,7 @@ export function renderFusionSummaryCard(fusion, patientId) {
         + recs.map(function (item) { return '<li>' + esc(item) + '</li>'; }).join('')
         + '</ul>'
       : '')
+    + disclaimerHtml
   );
 }
 
@@ -1292,17 +1300,20 @@ function renderAnalysisStateCard(state) {
   var uploadReady = !!_uploadId;
 
   if (statusState === 'FAILURE') {
-    var failureBits = [];
-    failureBits.push('<div style="font-size:13px;color:var(--text-primary);line-height:1.55">The pipeline stopped before a report was generated. Review the staged upload and run the analysis again.</div>');
-    if (_jobError) {
-      failureBits.push('<div style="margin-top:10px;padding:10px 12px;border-radius:10px;background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.24);font-size:12px;color:var(--text-secondary)"><strong style="color:#fca5a5">Last error</strong><div style="margin-top:4px">' + esc(_jobError) + '</div></div>');
-    }
-    failureBits.push('<div style="margin-top:10px;font-size:11.5px;color:var(--text-tertiary)">'
+    var failureReason = _jobError || '';
+    var failureCard = '<div role="alert" aria-live="polite" style="padding:14px 16px;border-radius:12px;background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.24);margin-bottom:12px">'
+      + '<div style="font-size:14px;font-weight:700;color:#fca5a5;margin-bottom:6px">Analysis failed</div>'
+      + '<div style="font-size:12.5px;color:var(--text-secondary);line-height:1.55">' + (failureReason ? esc(failureReason) : 'The pipeline stopped before a report was generated.') + '</div>'
+      + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">'
+      + '<button class="btn btn-primary btn-sm" id="ds-mri-reupload-btn">Re-upload</button>'
+      + '<button class="btn btn-outline btn-sm" id="ds-mri-support-btn">Contact support</button>'
+      + '</div></div>';
+    var retryNote = '<div style="margin-top:10px;font-size:11.5px;color:var(--text-tertiary)">'
       + (uploadReady
         ? 'The current upload is still staged, so you can adjust the condition or patient details and retry without re-uploading.'
         : 'Upload a session again to retry the analysis.')
-      + '</div>');
-    return card('Analysis needs attention', failureBits.join(''));
+      + '</div>';
+    return card('Analysis needs attention', failureCard + retryNote);
   }
 
   if (statusState === 'STARTED' || statusState === 'PROGRESS') {
@@ -2494,6 +2505,21 @@ function _registerPageCleanup() {
 function _wireRightColumn(navigate) {
   _bindMRIAnnotationButtons();
   _wireMRIFocusViewer();
+
+  // ── Failure card CTAs ───────────────────────────────────────────────────
+  var reuploadBtn = document.getElementById('ds-mri-reupload-btn');
+  if (reuploadBtn) {
+    reuploadBtn.addEventListener('click', function () {
+      _resetMRIState();
+      navigate('mri-analysis');
+    });
+  }
+  var supportBtn = document.getElementById('ds-mri-support-btn');
+  if (supportBtn) {
+    supportBtn.addEventListener('click', function () {
+      console.log('Support contact initiated for MRI analysis failure');
+    });
+  }
 
   // ── Brain Atlas Viewer toolbar buttons ──────────────────────────────────
   var clearBtn = document.getElementById('ds-atlas-clear-custom');

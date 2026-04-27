@@ -4045,16 +4045,31 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
 
       // If failed
       if (data.analysis_status === 'failed') {
+        var failureReason = data.analysis_error || data.failure_reason || 'Unknown error';
         tabEl.innerHTML = card('Analysis Failed',
           renderLaunchNotice('Analysis needs review', 'Do not rely on downstream reports until this session is re-run or the upload issue is understood.', 'error')
-          + '<div style="color:var(--red);padding:12px" aria-live="assertive" role="alert">'
-          + '<div style="margin-bottom:8px">' + badge('failed', 'var(--red)') + '</div>'
-          + '<div style="font-size:13px">' + esc(data.analysis_error || 'Unknown error') + '</div>'
-          + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'
-          + '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'patient\';window._nav(\'qeeg-analysis\')">Review upload</button>'
-          + '<button class="btn btn-primary btn-sm" onclick="window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\')">Retry view</button>'
+          + '<div role="alert" aria-live="polite" style="padding:14px 16px;border-radius:12px;background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.24);margin-top:12px">'
+          + '<div style="font-size:14px;font-weight:700;color:#fca5a5;margin-bottom:6px">Analysis failed</div>'
+          + '<div style="font-size:12.5px;color:var(--text-secondary);line-height:1.55">' + esc(failureReason) + '</div>'
+          + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">'
+          + '<button class="btn btn-primary btn-sm" id="qeeg-reupload-btn">Re-upload</button>'
+          + '<button class="btn btn-outline btn-sm" id="qeeg-support-btn">Contact support</button>'
           + '</div></div>'
         );
+        var qeegReuploadBtn = document.getElementById('qeeg-reupload-btn');
+        if (qeegReuploadBtn) {
+          qeegReuploadBtn.addEventListener('click', function () {
+            window._qeegSelectedId = null;
+            window._qeegTab = 'patient';
+            window._nav('qeeg-analysis');
+          });
+        }
+        var qeegSupportBtn = document.getElementById('qeeg-support-btn');
+        if (qeegSupportBtn) {
+          qeegSupportBtn.addEventListener('click', function () {
+            console.log('Support contact initiated for qEEG analysis failure');
+          });
+        }
         return;
       }
 
