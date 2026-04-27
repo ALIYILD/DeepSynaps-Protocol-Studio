@@ -32,9 +32,6 @@ async function _loadCornerstoneMPR() {
 const FUSION_API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const FUSION_TOKEN_KEY = 'ds_access_token';
 
-const FUSION_API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
-const FUSION_TOKEN_KEY = 'ds_access_token';
-
 // ── Module state ────────────────────────────────────────────────────────────
 var _mriAnalysisId = null;
 var _uploadId      = null;
@@ -2035,9 +2032,6 @@ function renderBottomStrip(report) {
   var aid = report && report.analysis_id ? report.analysis_id : _mriAnalysisId;
   var disabled = aid ? '' : ' disabled';
   var patientId = report && report.patient && report.patient.patient_id ? report.patient.patient_id : '';
-  // Beta gating: "Share with referring provider" and "Open in Neuronav" are
-  // not yet wired to a real backend action. Per beta-readiness rules, we hide
-  // them rather than display fake buttons that show a "coming soon" toast.
   return '<div class="ds-mri-bottom-strip">'
     + '<div class="ds-mri-bottom-strip__group">'
     + '<span class="ds-mri-bottom-strip__label">Download report</span>'
@@ -2778,28 +2772,6 @@ function _openViewerPayloadModal(aid, payload) {
   modal.addEventListener('click', function (e) { if (e.target === modal) modal.remove(); });
 }
 
-function _openViewerPayloadModal(aid, payload) {
-  var existing = document.getElementById('ds-mri-viewer-modal');
-  if (existing) existing.remove();
-  var modal = document.createElement('div');
-  modal.id = 'ds-mri-viewer-modal';
-  modal.className = 'ds-mri-overlay-modal';
-  modal.innerHTML =
-    '<div class="ds-mri-overlay-modal__panel">'
-    + '<div class="ds-mri-overlay-modal__head">'
-    + '<strong>NiiVue payload · ' + esc(aid) + '</strong>'
-    + '<button class="btn btn-sm" id="ds-mri-viewer-close">Close</button>'
-    + '</div>'
-    + '<pre style="margin:0;padding:16px;max-height:70vh;overflow:auto;background:#0f1115;color:#d6deeb;font-size:12px;line-height:1.55">'
-    + esc(JSON.stringify(payload, null, 2))
-    + '</pre>'
-    + '</div>';
-  document.body.appendChild(modal);
-  var closeBtn = document.getElementById('ds-mri-viewer-close');
-  if (closeBtn) closeBtn.addEventListener('click', function () { modal.remove(); });
-  modal.addEventListener('click', function (e) { if (e.target === modal) modal.remove(); });
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Main page entrypoint
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2868,7 +2840,6 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
     ];
   }
   _patientAnalysesCache = { patientId: pid || null, rows: patientAnalyses };
-  _fusionSummary = await _fetchFusionSummary(pid || (_report && _report.patient && _report.patient.patient_id));
 
   if (el) {
     el.innerHTML = renderFullView({

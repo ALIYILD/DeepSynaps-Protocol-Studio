@@ -475,9 +475,6 @@ const NAV = [
   { id: 'brainmap-v2',        label: 'Brain Map Planner', icon: '🧠' },
   { id: 'qeeg-analysis',      label: 'qEEG Analyzer',     icon: '📊', ai: true },
   { id: 'biomarkers',          label: 'Biomarkers',         icon: '🧬' },
-=======
-  { id: 'biomarkers-ref',     label: 'Biomarkers',        icon: '🧬', ai: true },
->>>>>>> origin/feat/qeeg-analyzer-mne-parity
   { id: 'handbooks-v2',       label: 'Handbooks',         icon: '📚' },
   { id: 'research-evidence',  label: 'Research Evidence', icon: '🔬', ai: true },
 

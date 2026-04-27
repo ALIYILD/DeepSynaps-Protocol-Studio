@@ -641,43 +641,15 @@ export const api = {
   // Hits services/evidence-pipeline via the api's evidence_router.
   // Router returns 503 with a clear message until the evidence DB is built.
   evidenceIndications: () => apiFetch('/api/v1/evidence/indications'),
-  searchEvidencePapers: ({
-    q = '',
-    indication = '',
-    grade = '',
-    oa_only = false,
-    // NEW filters (87k-paper CSV ingest):
-    modality = '',
-    condition = '',
-    study_design = '',
-    effect_direction = '',
-    year_min = null,
-    year_max = null,
-    source = '',
-    has_abstract = false,
-    limit = 20,
-  } = {}) => {
+  searchEvidencePapers: ({ q = '', indication = '', grade = '', oa_only = false, limit = 20 } = {}) => {
     const params = new URLSearchParams();
-    if (q)                 params.set('q', q);
-    if (indication)        params.set('indication', indication);
-    if (grade)             params.set('grade', grade);
-    if (oa_only)           params.set('oa_only', 'true');
-    if (modality)          params.set('modality', modality);
-    if (condition)         params.set('condition', condition);
-    if (study_design)      params.set('study_design', study_design);
-    if (effect_direction)  params.set('effect_direction', effect_direction);
-    if (year_min != null && year_min !== '') params.set('year_min', String(year_min));
-    if (year_max != null && year_max !== '') params.set('year_max', String(year_max));
-    if (source)            params.set('source', source);
-    if (has_abstract)      params.set('has_abstract', 'true');
-    if (limit)             params.set('limit', String(limit));
+    if (q)          params.set('q', q);
+    if (indication) params.set('indication', indication);
+    if (grade)      params.set('grade', grade);
+    if (oa_only)    params.set('oa_only', 'true');
+    if (limit)      params.set('limit', String(limit));
     return apiFetch(`/api/v1/evidence/papers?${params.toString()}`);
   },
-  // Corpus-level statistics for the 87k-paper evidence DB.
-  evidenceStats: () => apiFetch('/api/v1/evidence/papers/stats'),
-  // Similar-paper lookup (vector / heuristic neighbour) for a given paper id.
-  evidenceSimilarPapers: (paperId, limit = 10) =>
-    apiFetch(`/api/v1/evidence/papers/similar/${encodeURIComponent(paperId)}?limit=${encodeURIComponent(limit)}`),
   evidencePaperDetail: (id) => apiFetch(`/api/v1/evidence/papers/${encodeURIComponent(id)}`),
   searchEvidenceTrials: ({ indication = '', q = '', status = '', limit = 20 } = {}) => {
     const params = new URLSearchParams();
@@ -1181,18 +1153,6 @@ export const api = {
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/recommend-protocol`, { method: 'POST' }),
   fetchQEEGPatientTrajectory: (patientId) =>
     apiFetch(`/api/v1/qeeg-analysis/patients/${patientId}/trajectory`),
-
-  // ── Multi-modal fusion (CONTRACT_V3 §1) ──────────────────────────────────
-  // Loads the most-recent qEEG + MRI analyses for `patientId`, fuses them on
-  // the server, and returns a FusionRecommendation envelope. `llmNarrative`
-  // controls whether the server rewrites the summary via LLM.
-  async fusionRecommend(patientId, { llmNarrative = true } = {}) {
-    const q = llmNarrative === false ? '?llm_narrative=false' : '?llm_narrative=true';
-    return apiFetch(
-      `/api/v1/fusion/recommend/${encodeURIComponent(patientId)}${q}`,
-      { method: 'POST' },
-    );
-  },
 
   // ── MRI Analyzer (packages/mri-pipeline; see portal_integration/api_contract.md)
   // Multipart upload (.zip DICOM or .nii.gz NIfTI). FormData must include
