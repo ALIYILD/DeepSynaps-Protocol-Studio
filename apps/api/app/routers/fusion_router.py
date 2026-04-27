@@ -11,13 +11,14 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.repositories.patients import resolve_patient_clinic_id
 from app.services.fusion_service import build_fusion_recommendation
 
@@ -45,7 +46,9 @@ class FusionRecommendationResponse(BaseModel):
 
 
 @router.post("/recommend/{patient_id}", response_model=FusionRecommendationResponse)
+@limiter.limit("20/minute")
 async def recommend_fusion(
+    request: Request,
     patient_id: str,
     llm_narrative: bool = Query(default=True, description="Rewrite summary via LLM when available."),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

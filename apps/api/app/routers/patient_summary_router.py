@@ -25,7 +25,9 @@ import logging
 import re
 from typing import Any, Iterable, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+
+from app.limiter import limiter
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -391,7 +393,9 @@ _DEFAULT_NEXT_STEPS = [
 
 
 @router.get("/qeeg-summary/{analysis_id}", response_model=PatientSummaryOut)
+@limiter.limit("20/minute")
 def get_patient_qeeg_summary(
+    request: Request,
     analysis_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
@@ -434,7 +438,9 @@ def get_patient_qeeg_summary(
 
 
 @router.get("/mri-summary/{analysis_id}", response_model=PatientSummaryOut)
+@limiter.limit("20/minute")
 def get_patient_mri_summary(
+    request: Request,
     analysis_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
