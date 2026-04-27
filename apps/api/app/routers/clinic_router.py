@@ -215,6 +215,21 @@ def get_clinic(
     return _to_response(clinic)
 
 
+# Roles that may self-create a clinic and become its admin. Pre-fix
+# this was open to ANY authenticated user — a patient or guest token
+# could call POST /clinic, get rebound as `role="admin"`, and gain
+# admin-tier access elsewhere via `require_minimum_role`. That's a
+# straight authentication-bypass-class privilege escalation.
+#
+# Onboarding still works because the signup flow already issues a
+# `clinician` role to clinic-owner accounts before they create the
+# clinic. Existing admins / superadmins are also allowed (e.g. moving
+# between clinics after offboarding the previous one).
+_CLINIC_CREATOR_ALLOWED_ROLES = frozenset({
+    "clinician", "admin", "supervisor",
+})
+
+
 @router.post("", response_model=ClinicResponse, status_code=201)
 @router.post("/", response_model=ClinicResponse, status_code=201, include_in_schema=False)
 def create_clinic(
@@ -224,9 +239,24 @@ def create_clinic(
 ) -> ClinicResponse:
     """Create a clinic and associate the caller with it as `admin`.
 
+    Allowed only for roles in ``_CLINIC_CREATOR_ALLOWED_ROLES``. Pre-
+    fix any authenticated user (including patients and guests) could
+    self-promote to ``role="admin"`` by calling this endpoint with a
+    fresh clinic name — gaining admin access to every admin-gated
+    surface in the API. The role gate below is the load-bearing fix.
+
     Fails if the user already has a clinic_id — use PATCH to edit, or
     have the admin remove the user from their current clinic first.
     """
+    if (user.role or "") not in _CLINIC_CREATOR_ALLOWED_ROLES:
+        raise ApiServiceError(
+            code="forbidden",
+            message=(
+                "Clinic creation requires a clinician account. Patients "
+                "and guests cannot self-create clinics."
+            ),
+            status_code=403,
+        )
     if user.clinic_id:
         raise ApiServiceError(
             code="already_in_clinic",
