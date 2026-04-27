@@ -10254,8 +10254,11 @@ function _wireSettingsPage() {
     b.addEventListener('click', () => {
       const a = b.dataset.stAction;
       if (a === 'edit-profile') { window._navPatient && window._navPatient('patient-profile'); return; }
-      if (a === 'change-password') { window._ptChangePassword && window._ptChangePassword(); return; }
-      const msgs = { 'manage-2fa': '2FA managed via your clinic portal', 'backup-codes': 'Backup codes available from your clinic' };
+      if (a === 'change-password') { stToast('Password changes are unavailable from this beta portal.'); return; }
+      const msgs = {
+        'manage-2fa': 'Two-factor authentication is managed outside this beta portal.',
+        'backup-codes': 'Backup codes are unavailable from this beta portal.'
+      };
       stToast(msgs[a] || 'Action: ' + a);
     });
   });
@@ -10263,13 +10266,13 @@ function _wireSettingsPage() {
   st.querySelectorAll('[data-st-unlink]').forEach(b => {
     b.addEventListener('click', () => {
       const svc = b.dataset.stUnlink;
-      stToast(svc.charAt(0).toUpperCase() + svc.slice(1) + ' unlinked');
+      stToast((svc.charAt(0).toUpperCase() + svc.slice(1)) + ' management is unavailable from this beta portal.');
     });
   });
   st.querySelectorAll('[data-st-link]').forEach(b => {
     b.addEventListener('click', () => {
       const svc = b.dataset.stLink;
-      stToast('Linking ' + svc + '…');
+      stToast('Linking ' + svc + ' is unavailable from this beta portal.');
     });
   });
 
@@ -10285,7 +10288,7 @@ function _wireSettingsPage() {
     b.addEventListener('click', () => {
       const type = b.dataset.stExport;
       const labels = { summary:'Session summary', qeeg:'qEEG export', messages:'Message history', fhir:'FHIR bundle' };
-      stToast((labels[type] || 'Export') + ' requested · your care team will email you a secure link');
+      stToast((labels[type] || 'Export') + ' is unavailable from this beta portal.');
     });
   });
 
