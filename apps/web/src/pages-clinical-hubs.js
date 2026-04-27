@@ -4315,15 +4315,39 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   };
   window._schedAssignLead = (id) => {
     const lead = leads.find(l => String(l.id) === String(id)); if (!lead) return;
-    const options = clinicians.map((c,i)=>(i+1)+'. '+c.name).join('\n');
-    const pick = (typeof prompt === 'function') ? prompt('Assign clinician:\n' + options + '\n\nEnter number:','1') : null;
-    if (!pick) return;
-    const idx = parseInt(pick,10) - 1;
-    const c = clinicians[idx];
-    if (!c) return;
-    lead.assigned_to = c.id;
-    window._dsToast?.({ title:'Assigned', body: lead.name + ' → ' + c.name, severity:'info' });
-    window._nav('scheduling-hub');
+    const overlay = document.createElement('div');
+    overlay.className = 'ds-assign-modal-overlay';
+    const safeName = String(lead.name || 'lead').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+    const opts = clinicians.map(c => `<option value="${String(c.id).replace(/"/g,'&quot;')}">${String(c.name).replace(/[<>&]/g, x => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[x]))}</option>`).join('');
+    overlay.innerHTML = `
+      <div class="ds-assign-modal" role="dialog" aria-modal="true" aria-label="Assign clinician">
+        <div class="ds-assign-modal-header">
+          <span class="ds-assign-modal-title">Assign clinician to ${safeName}</span>
+          <button class="ds-assign-modal-close" aria-label="Close">&times;</button>
+        </div>
+        <div style="padding:14px 18px">
+          <label style="display:block;font-size:12px;color:#94a3b8;margin-bottom:6px">Clinician</label>
+          <select class="ds-assign-select" style="width:100%;padding:8px 10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px">${opts}</select>
+        </div>
+        <div class="ds-assign-footer">
+          <button class="ds-assign-btn-cancel">Cancel</button>
+          <button class="ds-assign-btn-primary">Assign &rarr;</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    overlay.querySelector('.ds-assign-modal-close').addEventListener('click', close);
+    overlay.querySelector('.ds-assign-btn-cancel').addEventListener('click', close);
+    overlay.querySelector('.ds-assign-btn-primary').addEventListener('click', () => {
+      const sel = overlay.querySelector('.ds-assign-select');
+      const c = clinicians.find(x => String(x.id) === String(sel.value));
+      close();
+      if (!c) return;
+      lead.assigned_to = c.id;
+      window._dsToast?.({ title:'Assigned', body: lead.name + ' → ' + c.name, severity:'info' });
+      window._nav('scheduling-hub');
+    });
   };
   window._schedBookLead = (id) => {
     const lead = leads.find(l => String(l.id) === String(id));
