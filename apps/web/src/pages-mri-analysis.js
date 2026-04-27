@@ -293,10 +293,6 @@ function _getFusionToken() {
     return null;
   }
 }
-<<<<<<< HEAD
-=======
-
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 function _demoFusionSummary(patientId) {
   return {
     patient_id: patientId || 'demo-patient',
@@ -305,11 +301,8 @@ function _demoFusionSummary(patientId) {
     recommendations: ['MRI targeting is available. Add qEEG biomarkers to create a higher-confidence dual-modality plan.'],
     summary: 'Partial fusion available from one modality only. Add qEEG data to strengthen target confidence.',
     confidence: 0.4,
-<<<<<<< HEAD
     confidence_disclaimer: 'Confidence score is algorithmic heuristic and not evidence-graded clinical validation. Always review recommendations against patient-specific context.',
     confidence_grade: 'heuristic',
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     generated_at: new Date().toISOString(),
   };
 }
@@ -318,19 +311,7 @@ async function _fetchFusionSummary(patientId) {
   if (!patientId) return null;
   if (_isDemoMode()) return _demoFusionSummary(patientId);
   try {
-<<<<<<< HEAD
     return await api.getFusionRecommendation(patientId);
-=======
-    var headers = { 'Content-Type': 'application/json' };
-    var token = _getFusionToken();
-    if (token) headers.Authorization = 'Bearer ' + token;
-    var res = await fetch(
-      FUSION_API_BASE + '/api/v1/fusion/recommend/' + encodeURIComponent(patientId),
-      { method: 'POST', headers: headers }
-    );
-    if (!res.ok) throw new Error('Fusion request failed (' + res.status + ')');
-    return await res.json();
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
   } catch (_) {
     return null;
   }
@@ -350,14 +331,11 @@ export function renderFusionSummaryCard(fusion, patientId) {
   if (fusion.qeeg_analysis_id) tags.push('qEEG ready');
   if (fusion.mri_analysis_id) tags.push('MRI ready');
   if (fusion.confidence != null) tags.push('confidence ' + Math.round(Number(fusion.confidence || 0) * 100) + '%');
-<<<<<<< HEAD
   if (fusion.confidence_grade) tags.push('grade: ' + esc(fusion.confidence_grade));
   var disclaimerHtml = fusion.confidence_disclaimer
     ? '<div style="margin-top:10px;font-size:11px;color:var(--text-tertiary);line-height:1.5;border-left:2px solid var(--amber);padding-left:8px">'
         + esc(fusion.confidence_disclaimer) + '</div>'
     : '';
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
   return card('Fusion summary',
     '<div style="font-size:13px;color:var(--text-primary);line-height:1.55">' + esc(fusion.summary || '') + '</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">' + tags.map(function (item) {
@@ -368,10 +346,7 @@ export function renderFusionSummaryCard(fusion, patientId) {
         + recs.map(function (item) { return '<li>' + esc(item) + '</li>'; }).join('')
         + '</ul>'
       : '')
-<<<<<<< HEAD
     + disclaimerHtml
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
   );
 }
 
@@ -518,7 +493,6 @@ export async function mountNiiVue(el, opts) {
   }
 }
 
-<<<<<<< HEAD
 async function mountBestMRIViewer(host, opts) {
   // Prefer Cornerstone3D MPR (tools + clinical-grade interaction),
   // fall back to NiiVue, then iframe overlay.
@@ -959,24 +933,6 @@ function _getAtlasImages() {
 function _mountInlineMRIViewer(report) {
   _mountBrainAtlasViewer(report);
 }
-=======
-function _mountInlineMRIViewer(report) {
-  var host = document.getElementById('ds-mri-progressive-viewer');
-  if (!host) return;
-  host.innerHTML = '<div class="ds-mri-progressive-viewer__loading"><span class="spinner"></span>Preparing viewer…</div>';
-  var target0 = report && Array.isArray(report.stim_targets) && report.stim_targets[0]
-    ? report.stim_targets[0]
-    : null;
-  mountNiiVue(host, {
-    analysisId: report && report.analysis_id,
-    patientId: report && report.patient && report.patient.patient_id,
-    targetId: target0 && target0.target_id,
-    targets: report && report.stim_targets,
-    report: report,
-  });
-}
-
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 // ─────────────────────────────────────────────────────────────────────────────
 // DEMO_MRI_REPORT — verbatim copy of demo/sample_mri_report.json.  Demo mode
 // feeds this directly to the renderers; no API call is required.
@@ -1495,7 +1451,6 @@ export function renderTargetsPanel(report) {
     '<div class="ds-mri-targets-list">' + cards + '</div>');
 }
 
-<<<<<<< HEAD
 // ── Right column: Brain Atlas Viewer with TPS target overlay ───────────────
 export function renderBrainAtlasViewer(report) {
   var targets = (report && Array.isArray(report.stim_targets)) ? report.stim_targets : [];
@@ -1583,41 +1538,6 @@ export function renderBrainAtlasViewer(report) {
 
   var body = '<div class="ds-atlas-viewer">'
     + header + grid + efieldLegendHtml + actions + customListHtml + disclaimer
-=======
-// ── Right column: 3-plane slice viewer placeholder ─────────────────────────
-export function renderSliceViewer(report) {
-  var aid = report && report.analysis_id ? report.analysis_id : null;
-  var target0 = report && Array.isArray(report.stim_targets) && report.stim_targets[0]
-    ? report.stim_targets[0].target_id : null;
-  var patientId = report && report.patient && report.patient.patient_id ? report.patient.patient_id : '';
-  var targetCount = report && Array.isArray(report.stim_targets) ? report.stim_targets.length : 0;
-  var openable = aid && target0;
-  var viewerState = _viewerVolumeCandidates(report).length
-    ? 'NiiVue volume mount ready'
-    : (openable ? 'Overlay endpoint fallback ready' : 'Waiting for analysis assets');
-  var body = '<div class="ds-mri-slice-viewer ds-mri-progressive-viewer-card">'
-    + '<div class="ds-mri-progressive-viewer__head">'
-    + '<div><div class="ds-mri-progressive-viewer__eyebrow">Progressive MRI Viewer</div>'
-    + '<div class="ds-mri-progressive-viewer__msg">' + esc(viewerState) + '</div></div>'
-    + '<div class="ds-mri-progressive-viewer__count">' + esc(String(targetCount || 0)) + ' target(s)</div>'
-    + '</div>'
-    + '<div id="ds-mri-progressive-viewer" class="ds-mri-progressive-viewer"></div>'
-    + '<div class="ds-mri-progressive-viewer__actions">'
-    + (aid
-      ? '<button class="btn btn-sm ds-mri-open-viewer-json" data-aid="' + esc(aid) + '">Inspect viewer payload</button>'
-      : '')
-    + (openable
-      ? '<button class="btn btn-sm ds-mri-open-overlay" data-aid="' + esc(aid) + '" data-target="' + esc(target0) + '">'
-        + 'Open first-target overlay</button>'
-      : '<button class="btn btn-sm" disabled>Overlay unavailable</button>')
-    + (aid
-      ? '<button class="btn btn-sm ds-mri-copy-viewer-url" data-aid="' + esc(aid) + '">Copy viewer endpoint</button>'
-      : '')
-    + (patientId
-      ? '<button class="btn btn-sm ds-mri-open-timeline" data-patient="' + esc(patientId) + '">Open patient timeline</button>'
-      : '')
-    + '</div>'
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     + '</div>';
 
   return card('Brain Atlas Viewer', body);
@@ -2115,12 +2035,9 @@ function renderBottomStrip(report) {
   var aid = report && report.analysis_id ? report.analysis_id : _mriAnalysisId;
   var disabled = aid ? '' : ' disabled';
   var patientId = report && report.patient && report.patient.patient_id ? report.patient.patient_id : '';
-<<<<<<< HEAD
   // Beta gating: "Share with referring provider" and "Open in Neuronav" are
   // not yet wired to a real backend action. Per beta-readiness rules, we hide
   // them rather than display fake buttons that show a "coming soon" toast.
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
   return '<div class="ds-mri-bottom-strip">'
     + '<div class="ds-mri-bottom-strip__group">'
     + '<span class="ds-mri-bottom-strip__label">Download report</span>'
@@ -2132,13 +2049,8 @@ function renderBottomStrip(report) {
     + '</div>'
     + '<div class="ds-mri-bottom-strip__group">'
     + _mriAnnotationButton({ patient_id: patientId, target_id: aid, anchor_label: 'MRI analysis' })
-<<<<<<< HEAD
     + '<button class="btn btn-sm" disabled title="Provider-sharing workflow is not enabled in this beta build">Sharing unavailable</button>'
     + '<button class="btn btn-sm" disabled title="Neuronav integration is not enabled in this beta build">Neuronav unavailable</button>'
-=======
-    + '<button class="btn btn-sm ds-mri-share"' + disabled + '>Share with referring provider</button>'
-    + '<button class="btn btn-sm ds-mri-open-neuronav"' + disabled + '>Open in Neuronav</button>'
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     + '</div>'
     + '</div>'
     + '<div id="mri-annotation-drawer-host" class="analysis-anno-host"></div>';
@@ -2158,20 +2070,10 @@ export function renderFullView(state) {
     + renderPipelineProgress(status);
 
   var right;
-<<<<<<< HEAD
   if (!report) {
     right = renderAnalysisStateCard(state)
       + renderFusionSummaryCard(state.fusion || null, state.patientId || null);
   } else {
-=======
-    if (!report) {
-      right = card('Results',
-        emptyState('&#x1F9E0;',
-          'No analysis loaded',
-          'Upload a session and click Run analysis to compute MNI stim targets.'))
-        + renderFusionSummaryCard(state.fusion || null, state.patientId || null);
-    } else {
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     // Amber "radiology review advised" banner sits above everything else
     // in the right column — safety-first surfacing per AI_UPGRADES §P0 #5.
     right = renderQCWarningsBanner(report)
@@ -2626,7 +2528,6 @@ function _registerPageCleanup() {
 
 function _wireRightColumn(navigate) {
   _bindMRIAnnotationButtons();
-<<<<<<< HEAD
   _wireMRIFocusViewer();
 
   // ── Failure card CTAs ───────────────────────────────────────────────────
@@ -2677,8 +2578,6 @@ function _wireRightColumn(navigate) {
     _drawAtlasTargets(_report, _getAtlasCanvases(), _getAtlasImages());
   });
 
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
   document.querySelectorAll('.ds-mri-open-viewer-json').forEach(function (btn) {
     btn.addEventListener('click', async function () {
       var aid = btn.getAttribute('data-aid');
@@ -2699,28 +2598,13 @@ function _wireRightColumn(navigate) {
       var text = _apiBase + '/api/v1/mri/' + encodeURIComponent(aid) + '/viewer.json';
       try {
         await navigator.clipboard.writeText(text);
-<<<<<<< HEAD
         showToast('Authenticated viewer API path copied', 'success');
-=======
-        showToast('Viewer endpoint copied', 'success');
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
       } catch (_err) {
         showToast(text, 'info');
       }
     });
   });
   document.querySelectorAll('.ds-mri-open-timeline').forEach(function (btn) {
-<<<<<<< HEAD
-=======
-    btn.addEventListener('click', function () {
-      var patientId = btn.getAttribute('data-patient');
-      if (!patientId) return;
-      window._patientTimelinePatientId = patientId;
-      navigate('patient-timeline');
-    });
-  });
-  document.querySelectorAll('.ds-mri-view-overlay, .ds-mri-open-overlay').forEach(function (btn) {
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     btn.addEventListener('click', function () {
       var patientId = btn.getAttribute('data-patient');
       if (!patientId) return;
@@ -2797,17 +2681,6 @@ function _wireRightColumn(navigate) {
   var fhirBtn = document.querySelector('.ds-mri-dl-fhir');
   if (fhirBtn) fhirBtn.addEventListener('click', function () {
     window._mriExportFHIRBundle();
-<<<<<<< HEAD
-=======
-  });
-  var bidsBtn = document.querySelector('.ds-mri-dl-bids');
-  if (bidsBtn) bidsBtn.addEventListener('click', function () {
-    window._mriExportBIDSPackage();
-  });
-  var shareBtn = document.querySelector('.ds-mri-share');
-  if (shareBtn) shareBtn.addEventListener('click', function () {
-    showToast('Sharing coming soon', 'info');
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
   });
   var bidsBtn = document.querySelector('.ds-mri-dl-bids');
   if (bidsBtn) bidsBtn.addEventListener('click', function () {
@@ -2854,13 +2727,7 @@ async function _exportMRIArtifact(kind) {
 window._mriExportFHIRBundle = function () { return _exportMRIArtifact('fhir'); };
 window._mriExportBIDSPackage = function () { return _exportMRIArtifact('bids'); };
 
-<<<<<<< HEAD
 function _openOverlayModal(aid, tid, overlayFile) {
-=======
-function _openOverlayModal(aid, tid) {
-  var _apiBase = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
-  var url = _apiBase + '/api/v1/mri/overlay/' + encodeURIComponent(aid) + '/' + encodeURIComponent(tid);
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
   var existing = document.getElementById('ds-mri-overlay-modal');
   if (existing) existing.remove();
   var modal = document.createElement('div');
@@ -3009,11 +2876,7 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
       status: _jobStatus,
       medrag: medrag,
       fusion: _fusionSummary,
-<<<<<<< HEAD
       patientId: pid || (_report && _report.patient && _report.patient.patient_id) || null,
-=======
-      patientId: pid || null,
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
       patientAnalyses: patientAnalyses,
     });
     _mountInlineMRIViewer(_report);

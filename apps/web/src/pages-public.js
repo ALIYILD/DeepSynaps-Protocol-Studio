@@ -346,14 +346,8 @@ export function pgHome() {
       <div id="ev-view-cards" class="pub-ev3-view active">${cardsView}</div>
       <div id="ev-view-treemap" class="pub-ev3-view">${treemapView}</div>
       <div id="ev-view-radial" class="pub-ev3-view">${radialView}</div>
-<<<<<<< HEAD
-<<<<<<< HEAD
       <div style="font-size:11px;color:var(--text-tertiary);margin-top:12px;text-align:right">
         DeepSynaps Evidence Pipeline — ${EVIDENCE_TOTAL_PAPERS.toLocaleString('en-US')} papers · ${EVIDENCE_TOTAL_TRIALS.toLocaleString('en-US')} trials · ${EVIDENCE_TOTAL_META.toLocaleString('en-US')} meta-analyses &amp; reviews
-=======
-      <div data-ev-pipeline-footer style="font-size:11px;color:var(--text-tertiary);margin-top:12px;text-align:right">
-        DeepSynaps Evidence Pipeline — 87,654 papers · 1,922 trials · 1,324 FDA device records
->>>>>>> origin/feat/biomarkers-reference-page
 =======
       <div data-ev-pipeline-footer style="font-size:11px;color:var(--text-tertiary);margin-top:12px;text-align:right">
         DeepSynaps Evidence Pipeline — 87,654 papers · 1,922 trials · 1,324 FDA device records
@@ -564,7 +558,6 @@ export function pgHome() {
       </div>
       <div class="dv2-cond-tabs" role="tablist">
         <button class="dv2-cond-tab active" data-cond="ALL" onclick="window._dv2CondFilter('ALL', this)">All</button>
-<<<<<<< HEAD
         <button class="dv2-cond-tab" data-cond="Depressive Disorders" onclick="window._dv2CondFilter('Depressive Disorders', this)">Depression</button>
         <button class="dv2-cond-tab" data-cond="Anxiety &amp; OCD" onclick="window._dv2CondFilter('Anxiety &amp; OCD', this)">Anxiety &amp; OCD</button>
         <button class="dv2-cond-tab" data-cond="Neurodevelopmental" onclick="window._dv2CondFilter('Neurodevelopmental', this)">Neurodev</button>
@@ -575,14 +568,6 @@ export function pgHome() {
         <button class="dv2-cond-tab" data-cond="Neurological &amp; Rehab" onclick="window._dv2CondFilter('Neurological &amp; Rehab', this)">Neuro &amp; Rehab</button>
         <button class="dv2-cond-tab" data-cond="Post-COVID &amp; Functional" onclick="window._dv2CondFilter('Post-COVID &amp; Functional', this)">Post-COVID</button>
         <button class="dv2-cond-tab" data-cond="Comorbid &amp; Special" onclick="window._dv2CondFilter('Comorbid &amp; Special', this)">Comorbid</button>
-=======
-        <button class="dv2-cond-tab" data-cond="Psychiatric" onclick="window._dv2CondFilter('Psychiatric', this)">Psychiatric</button>
-        <button class="dv2-cond-tab" data-cond="OCD &amp; Compulsive" onclick="window._dv2CondFilter('OCD &amp; Compulsive', this)">OCD</button>
-        <button class="dv2-cond-tab" data-cond="Neurological" onclick="window._dv2CondFilter('Neurological', this)">Neurological</button>
-        <button class="dv2-cond-tab" data-cond="Pain" onclick="window._dv2CondFilter('Pain', this)">Pain</button>
-        <button class="dv2-cond-tab" data-cond="Cognitive" onclick="window._dv2CondFilter('Cognitive', this)">Cognitive</button>
-        <button class="dv2-cond-tab" data-cond="Sleep &amp; Autonomic" onclick="window._dv2CondFilter('Sleep &amp; Autonomic', this)">Sleep</button>
->>>>>>> origin/feat/qeeg-analyzer-mne-parity
       </div>
 
       <!-- Live counts from /api/v1/evidence/stats (public endpoint).
@@ -590,8 +575,6 @@ export function pgHome() {
            and FDA device records; real values are swapped in on page load. -->
       <div id="phome-ev-live-stats" class="dv2-ev-mini-stats">
         <div class="dv2-ev-mini">
-<<<<<<< HEAD
-<<<<<<< HEAD
           <div class="dv2-ev-mini-n" id="phome-ev-stat-papers">${EVIDENCE_TOTAL_PAPERS.toLocaleString('en-US')}</div>
           <div class="dv2-ev-mini-l">peer-reviewed papers</div>
         </div>
@@ -605,17 +588,6 @@ export function pgHome() {
         </div>
       </div>
       <div id="phome-ev-stat-note" style="text-align:center;font-size:10.5px;color:var(--text-tertiary);margin-bottom:18px">${EVIDENCE_SOURCES.join(' · ')}</div>
-=======
-          <div class="dv2-ev-mini-n" id="phome-ev-stat-papers">87,654</div>
-          <div class="dv2-ev-mini-l">peer-reviewed papers</div>
-        </div>
-        <div class="dv2-ev-mini">
-=======
-          <div class="dv2-ev-mini-n" id="phome-ev-stat-papers">87,654</div>
-          <div class="dv2-ev-mini-l">peer-reviewed papers</div>
-        </div>
-        <div class="dv2-ev-mini">
->>>>>>> origin/feat/qeeg-analyzer-mne-parity
           <div class="dv2-ev-mini-n" id="phome-ev-stat-abstracts">82,245</div>
           <div class="dv2-ev-mini-l">with full abstract</div>
         </div>
@@ -662,8 +634,6 @@ export function pgHome() {
         Europe PMC &middot; PubMed &middot; OpenAlex &middot; ClinicalTrials.gov &middot; FDA &middot; Unpaywall
         &nbsp;&middot;&nbsp; <span id="phome-ev-updated-note">refreshed daily</span>
       </div>
-<<<<<<< HEAD
->>>>>>> origin/feat/biomarkers-reference-page
 =======
 >>>>>>> origin/feat/qeeg-analyzer-mne-parity
 
@@ -991,15 +961,10 @@ export function pgHome() {
         const el = document.getElementById(id);
         if (el && Number.isFinite(v)) el.textContent = fmt(v);
       };
-<<<<<<< HEAD
-<<<<<<< HEAD
       setN('phome-ev-stat-papers', papers);
       setN('phome-ev-stat-trials', trials);
       setN('phome-ev-stat-indications', indications);
       // Also update the stats strip
-=======
-=======
->>>>>>> origin/feat/qeeg-analyzer-mne-parity
       // ── Main 4-tile counts (papers / with-abstract / trials / FDA) ─────
       setN('phome-ev-stat-papers',    c.papers);
       setN('phome-ev-stat-abstracts', c.papers_with_abstract);
@@ -1007,84 +972,12 @@ export function pgHome() {
       setN('phome-ev-stat-devices',   c.devices);
 
       // ── Hero strip (used in the design-v2 hero) ────────────────────────
-<<<<<<< HEAD
->>>>>>> origin/feat/biomarkers-reference-page
 =======
 >>>>>>> origin/feat/qeeg-analyzer-mne-parity
       const setStrip = (id, v, suffix) => {
         const el = document.getElementById(id);
         if (el && Number.isFinite(v)) el.textContent = fmt(v) + (suffix || '');
       };
-<<<<<<< HEAD
-      setStrip('strip-stat-papers', papers, '+');
-      setStrip('strip-stat-trials', trials, '');
-=======
-      setStrip('strip-stat-papers', c.papers, '+');
-      setStrip('strip-stat-trials', c.trials, '');
-
-      // ── Corpus-composition strip (study designs + effect direction) ────
-      const designs = body.by_study_design || {};
-      const rctLike = (designs.rct || 0) + (designs.review || 0);
-      const setChip = (id, text) => {
-        const el = document.getElementById(id);
-        if (el && text) el.textContent = text;
-      };
-      if (rctLike) setChip('phome-ev-mix-rct', `${fmt(rctLike)} RCTs & reviews`);
-      if (designs.meta_analysis) setChip('phome-ev-mix-meta', `${fmt(designs.meta_analysis)} meta-analyses`);
-      if (designs.systematic_review) setChip('phome-ev-mix-sr', `${fmt(designs.systematic_review)} systematic reviews`);
-
-      const eff = body.by_effect_direction || {};
-      if (eff.positive) setChip('phome-ev-mix-positive', `${fmt(eff.positive)} positive-effect studies`);
-
-      const yr = body.year_coverage || {};
-      if (yr.min && yr.max) setChip('phome-ev-mix-years', `${yr.min}–${yr.max}`);
-
-      // ── Top modality / top condition chips ─────────────────────────────
-      const MOD_LABELS = {
-        tms: 'TMS', dbs: 'DBS', tdcs: 'tDCS', scs: 'SCS', vns: 'VNS',
-        pns: 'PNS', tacs: 'tACS', snm: 'SNM', rns: 'RNS', tvns: 'tVNS',
-        tfus: 'tFUS', gen: 'General', mcs: 'MCS', ons: 'ONS', trns: 'tRNS', trigns: 'TriNS',
-      };
-      const COND_LABELS = {
-        parkinsons: "Parkinson's", chronic_pain: 'Chronic pain', stroke: 'Stroke',
-        mdd: 'MDD', depression: 'Depression', alzheimers: "Alzheimer's",
-        ocd: 'OCD', ms: 'MS', asd: 'ASD', tbi: 'TBI', ptsd: 'PTSD',
-        insomnia: 'Insomnia', anxiety: 'Anxiety', adhd: 'ADHD',
-        tinnitus: 'Tinnitus', long_covid: 'Long COVID', epilepsy: 'Epilepsy',
-      };
-      const renderChipRow = (containerId, items, labelMap, leadLabel) => {
-        if (!Array.isArray(items) || items.length === 0) return;
-        const wrap = document.getElementById(containerId);
-        if (!wrap) return;
-        const head = `<span class="dv2-ev-corpus-mod-label">${leadLabel}</span>`;
-        const body = items.slice(0, 6).map(it => {
-          const label = labelMap[it.key] || it.key;
-          return `<span class="dv2-ev-corpus-mod-chip" data-mod="${it.key}">${label} &bull; ${fmt(it.count)}</span>`;
-        }).join('');
-        wrap.innerHTML = head + body;
-      };
-      renderChipRow('phome-ev-corpus-mods',  body.top_modalities,  MOD_LABELS,  'Top modalities:');
-      renderChipRow('phome-ev-corpus-conds', body.top_conditions, COND_LABELS, 'Top conditions:');
-
-      // ── "refreshed Xh ago" freshness badge ─────────────────────────────
-      if (body.last_updated) {
-        try {
-          const t = new Date(body.last_updated);
-          const ageH = Math.max(0, Math.round((Date.now() - t.getTime()) / 3600000));
-          const note = ageH < 1 ? 'refreshed just now'
-                    : ageH < 48 ? `refreshed ${ageH}h ago`
-                    : `refreshed ${Math.round(ageH / 24)}d ago`;
-          setChip('phome-ev-updated-note', note);
-        } catch (_) {}
-      }
-
-      // ── Update the Evidence-Pipeline footer text inside _buildEvMatrix() ─
-      const footer = document.querySelector('.pub-ev-section [data-ev-pipeline-footer]');
-      if (footer && Number.isFinite(c.papers) && Number.isFinite(c.trials)) {
-        footer.textContent = `DeepSynaps Evidence Pipeline — ${fmt(c.papers)} papers · ${fmt(c.trials)} trials · ${fmt(c.devices || 0)} FDA device records`;
-      }
-<<<<<<< HEAD
->>>>>>> origin/feat/biomarkers-reference-page
 =======
 >>>>>>> origin/feat/qeeg-analyzer-mne-parity
     } catch (_) {

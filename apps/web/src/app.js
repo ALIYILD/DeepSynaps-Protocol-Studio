@@ -174,13 +174,10 @@ let _modQEEGAnalysis = null;
 async function loadQEEGAnalysis() { return (_modQEEGAnalysis ??= await import('./pages-qeeg-analysis.js')); }
 let _modMRIAnalysis = null;
 async function loadMRIAnalysis() { return (_modMRIAnalysis ??= await import('./pages-mri-analysis.js')); }
-<<<<<<< HEAD
 let _modMonitor = null;
 async function loadMonitor() { return (_modMonitor ??= await import('./pages-monitor.js')); }
 let _modDeviceDashboard = null;
 async function loadDeviceDashboard() { return (_modDeviceDashboard ??= await import('./pages-device-dashboard.js')); }
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 let _modPatientTimeline = null;
 async function loadPatientTimeline() { return (_modPatientTimeline ??= await import('./pages-patient-timeline.js')); }
 let _modMonitoring = null;
@@ -476,13 +473,8 @@ const NAV = [
   { section: 'Protocol', sectionId: 'protocol', collapsed: false },
   { id: 'protocol-studio',    label: 'Protocol Studio',   icon: '🧪', ai: true },
   { id: 'brainmap-v2',        label: 'Brain Map Planner', icon: '🧠' },
-<<<<<<< HEAD
-<<<<<<< HEAD
   { id: 'qeeg-analysis',      label: 'qEEG Analyzer',     icon: '📊', ai: true },
   { id: 'biomarkers',          label: 'Biomarkers',         icon: '🧬' },
-=======
-  { id: 'biomarkers-ref',     label: 'Biomarkers',        icon: '🧬', ai: true },
->>>>>>> origin/feat/biomarkers-reference-page
 =======
   { id: 'biomarkers-ref',     label: 'Biomarkers',        icon: '🧬', ai: true },
 >>>>>>> origin/feat/qeeg-analyzer-mne-parity
@@ -914,10 +906,7 @@ const PAGE_TITLES = {
   'patient-queue': 'Today\'s Queue',
   'course-completion-report': 'Course Completion Report',
   'longitudinal-report': 'Longitudinal Outcomes Report',
-<<<<<<< HEAD
   monitor: 'Monitor',
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
   'patient-timeline': 'Patient Timeline',
   'scoring-calc': 'Clinical Scoring Calculator',
   'clinic-analytics': 'Clinic Analytics',

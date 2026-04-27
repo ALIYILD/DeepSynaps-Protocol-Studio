@@ -3,13 +3,7 @@
 Handles EDF file upload, spectral analysis, AI interpretation,
 pre/post comparison, prediction, and correlation.
 """
-<<<<<<< HEAD
 import hashlib
-=======
-from __future__ import annotations
-
-import asyncio
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 import html as html_mod
 import json
 import logging
@@ -19,11 +13,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-<<<<<<< HEAD
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, Query, Request, UploadFile
-=======
-from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -373,7 +363,6 @@ def _extract_ratio_changes(
     return ratios
 
 
-<<<<<<< HEAD
 def _band_powers_relative_map(band_powers: Optional[dict]) -> dict[str, dict[str, float]]:
     """Best-effort conversion of legacy band_powers_json into per-channel relative maps.
 
@@ -411,8 +400,6 @@ def _band_powers_relative_map(band_powers: Optional[dict]) -> dict[str, dict[str
     return out
 
 
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 def _build_rci_summary(improvement_summary: Optional[dict]) -> Optional[dict]:
     if not isinstance(improvement_summary, dict):
         return None
@@ -421,7 +408,6 @@ def _build_rci_summary(improvement_summary: Optional[dict]) -> Optional[dict]:
     unchanged = int(improvement_summary.get("unchanged") or 0)
     total = improved + worsened + unchanged
     if total <= 0:
-<<<<<<< HEAD
         # Legacy comparisons can omit RCI tallies. Return a well-shaped
         # "stable" envelope so clients don't have to null-check.
         return {
@@ -430,9 +416,6 @@ def _build_rci_summary(improvement_summary: Optional[dict]) -> Optional[dict]:
             "improved_share": 0.0,
             "worsened_share": 0.0,
         }
-=======
-        return None
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     net = (improved - worsened) / total
     if net >= 0.2:
         label = "meaningful improvement"
@@ -1453,12 +1436,9 @@ def _analysis_status_payload(analysis: QEEGAnalysis) -> StatusResponse:
                 pass
     elif raw_status == "failed":
         progress_pct = 0
-<<<<<<< HEAD
 
     params = _maybe_json_loads(getattr(analysis, "analysis_params_json", None))
     queue_meta = params if isinstance(params, dict) else {}
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 
     return StatusResponse(
         status=raw_status.split(":")[0],
@@ -1508,7 +1488,6 @@ async def stream_analysis_events(
     """
     require_minimum_role(actor, "clinician")
 
-<<<<<<< HEAD
     # Cross-clinic ownership gate — analysis.patient_id must belong to actor's clinic.
     _ownership_row = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
     if _ownership_row is not None:
@@ -1523,23 +1502,10 @@ async def stream_analysis_events(
             analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
             if not analysis:
                 raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
-=======
-    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
-    if not analysis:
-        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
-
-    async def event_generator():
-        last_payload: str | None = None
-        while True:
-            if await request.is_disconnected():
-                break
-            db.refresh(analysis)
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
             payload = _analysis_status_payload(analysis).model_dump()
             payload["analysis_id"] = analysis.id
             payload["raw_status"] = analysis.analysis_status
             encoded = json.dumps(payload)
-<<<<<<< HEAD
             event_name = "complete" if payload["status"] in {"completed", "failed"} else "progress"
             first = f"event: {event_name}\ndata: {encoded}\n\n".encode("utf-8")
             return StreamingResponse(
@@ -1607,18 +1573,6 @@ async def stream_analysis_events(
                 yield f"event: heartbeat\ndata: {heartbeat}\n\n".encode("utf-8")
 
             time.sleep(2.0)
-=======
-            if encoded != last_payload:
-                event_name = "complete" if payload["status"] in {"completed", "failed"} else "progress"
-                yield f"event: {event_name}\ndata: {encoded}\n\n"
-                last_payload = encoded
-                if payload["status"] in {"completed", "failed"}:
-                    break
-            else:
-                heartbeat = json.dumps({"analysis_id": analysis.id, "type": "heartbeat"})
-                yield f"event: heartbeat\ndata: {heartbeat}\n\n"
-            await asyncio.sleep(2.0)
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 
     return StreamingResponse(
         event_generator(),

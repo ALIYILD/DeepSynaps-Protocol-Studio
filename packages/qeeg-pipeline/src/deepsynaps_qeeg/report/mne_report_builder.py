@@ -75,11 +75,7 @@ def _topomap_figure(
             x=xs,
             y=ys,
             z=zz,
-<<<<<<< HEAD
             colorscale="RdBu_r" if symmetric else "viridis",
-=======
-            colorscale="RdBu" if symmetric else "Viridis",
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
             zmin=zmin,
             zmax=zmax,
             reversescale=symmetric,
@@ -254,11 +250,7 @@ def build_report(
                     z=fc_matrix,
                     x=roi_labels,
                     y=roi_labels,
-<<<<<<< HEAD
                     colorscale="RdBu_r",
-=======
-                    colorscale="RdBu",
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
                     zmin=-1,
                     zmax=1,
                     reversescale=True,

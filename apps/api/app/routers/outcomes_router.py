@@ -25,10 +25,7 @@ from app.auth import (
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import OutcomeEvent, OutcomeSeries, TreatmentCourse
-<<<<<<< HEAD
 from app.repositories.patients import resolve_patient_clinic_id
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 
 router = APIRouter(prefix="/api/v1/outcomes", tags=["Outcomes"])
 
@@ -357,7 +354,6 @@ def record_outcome_event(
 ) -> OutcomeEventOut:
     require_minimum_role(actor, "clinician")
 
-<<<<<<< HEAD
     # Cross-clinic data-poisoning guard: a clinician at clinic B used to be
     # able to write an OutcomeEvent (severity="critical", title=…) against a
     # clinic A patient_id. monitor_service surfaces those events to clinic A
@@ -368,8 +364,6 @@ def record_outcome_event(
         if exists:
             require_patient_owner(actor, patient_clinic_id)
 
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     recorded_at = datetime.now(timezone.utc)
     if body.recorded_at:
         try:

@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-<<<<<<< HEAD
 from app.persistence.models import Clinic, MriAnalysis, OutcomeSeries, Patient, QEEGAnalysis, User
 
 
@@ -43,12 +42,6 @@ def _ensure_demo_clinician_in_clinic() -> None:
 
 def _seed_patient(email: str = "patient@deepsynaps.com") -> str:
     _ensure_demo_clinician_in_clinic()
-=======
-from app.persistence.models import MriAnalysis, OutcomeSeries, Patient, QEEGAnalysis
-
-
-def _seed_patient(email: str = "patient@deepsynaps.com") -> str:
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     db = SessionLocal()
     try:
         patient = Patient(
@@ -69,7 +62,6 @@ def _seed_patient(email: str = "patient@deepsynaps.com") -> str:
 def test_annotations_round_trip_for_clinician(client: TestClient, auth_headers: dict) -> None:
     patient_id = _seed_patient("annotations@example.com")
 
-<<<<<<< HEAD
     # Seed a real qEEG analysis row owned by this patient — the annotations
     # router now FK-validates target_id against an actual QEEGAnalysis /
     # MriAnalysis row whose patient_id matches the body's patient_id.
@@ -87,43 +79,26 @@ def test_annotations_round_trip_for_clinician(client: TestClient, auth_headers: 
     finally:
         db.close()
 
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     create_resp = client.post(
         "/api/v1/annotations",
         headers=auth_headers["clinician"],
         json={
             "patient_id": patient_id,
             "target_type": "qeeg",
-<<<<<<< HEAD
             "target_id": qeeg_id,
             "title": "Frontal review",
             "body": "Check frontal theta shift against symptoms.",
             "anchor_label": "Compare tab",
             "anchor_data": {"analysis_id": qeeg_id},
-=======
-            "target_id": "qeeg-analysis-1",
-            "title": "Frontal review",
-            "body": "Check frontal theta shift against symptoms.",
-            "anchor_label": "Compare tab",
-            "anchor_data": {"analysis_id": "qeeg-analysis-1"},
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
         },
     )
     assert create_resp.status_code == 201, create_resp.text
     created = create_resp.json()
     assert created["target_type"] == "qeeg"
-<<<<<<< HEAD
     assert created["anchor_data"]["analysis_id"] == qeeg_id
 
     list_resp = client.get(
         f"/api/v1/annotations?patient_id={patient_id}&target_type=qeeg&target_id={qeeg_id}",
-=======
-    assert created["anchor_data"]["analysis_id"] == "qeeg-analysis-1"
-
-    list_resp = client.get(
-        f"/api/v1/annotations?patient_id={patient_id}&target_type=qeeg&target_id=qeeg-analysis-1",
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
         headers=auth_headers["clinician"],
     )
     assert list_resp.status_code == 200, list_resp.text

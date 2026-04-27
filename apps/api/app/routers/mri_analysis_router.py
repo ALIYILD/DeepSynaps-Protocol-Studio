@@ -50,10 +50,7 @@ from app.persistence.models import (
     OutcomeSeries,
     QEEGRecord,
 )
-<<<<<<< HEAD
 from app.repositories.patients import resolve_patient_clinic_id
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 from app.services import mri_pipeline as mri_pipeline_facade
 from app.settings import get_settings
 
@@ -605,7 +602,6 @@ def _status_payload_from_row(row: MriAnalysis, job_id: str) -> dict[str, Any]:
         "SUCCESS": "done",
         "FAILURE": "failed",
     }
-<<<<<<< HEAD
     info: dict[str, Any] = {"stage": stage_map.get(row.state, row.state)}
     failure = getattr(row, "failure_reason", None)
     if failure:
@@ -618,13 +614,6 @@ def _status_payload_from_row(row: MriAnalysis, job_id: str) -> dict[str, Any]:
     if failure:
         payload["error"] = failure
     return payload
-=======
-    return {
-        "job_id": job_id,
-        "state": row.state,
-        "info": {"stage": stage_map.get(row.state, row.state)},
-    }
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 
 
 def _populate_row_from_report(row: MriAnalysis, report: dict[str, Any]) -> None:
@@ -998,10 +987,7 @@ def get_status(
             status_code=404,
         )
 
-<<<<<<< HEAD
     _gate_patient_access(actor, row.patient_id, db)
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     return _status_payload_from_row(row, job_id)
 
 
@@ -1025,11 +1011,8 @@ async def stream_status_events(
             status_code=404,
         )
 
-<<<<<<< HEAD
     _gate_patient_access(actor, row.patient_id, db)
 
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     async def event_generator():
         last_payload: str | None = None
         while True:
@@ -1084,7 +1067,6 @@ def get_report(
     return JSONResponse(_report_from_row(row))
 
 
-<<<<<<< HEAD
 @router.get("/report/{analysis_id}/fusion_payload")
 def get_fusion_payload(
     analysis_id: str,
@@ -1132,8 +1114,6 @@ def get_fusion_payload(
     return JSONResponse(payload)
 
 
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 @router.get("/{analysis_id}/viewer.json")
 def get_viewer_payload(
     analysis_id: str,
@@ -1150,10 +1130,7 @@ def get_viewer_payload(
             message=f"analysis_id {analysis_id!r} not found",
             status_code=404,
         )
-<<<<<<< HEAD
     _gate_patient_access(actor, row.patient_id, db)
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     return JSONResponse(_viewer_payload_from_report(analysis_id, _report_from_row(row)))
 
 
@@ -1261,10 +1238,7 @@ def get_patient_timeline(
 ) -> dict[str, Any]:
     """Aggregate sessions, qEEG, MRI, and outcomes into a 4-lane timeline."""
     require_minimum_role(actor, "clinician")
-<<<<<<< HEAD
     _gate_patient_access(actor, patient_id, db)
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     return _build_patient_timeline_payload(patient_id, actor, db)
 
 
