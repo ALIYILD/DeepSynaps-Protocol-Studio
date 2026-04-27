@@ -101,6 +101,9 @@ def test_fusion_recommendation_combines_latest_qeeg_and_mri(
     assert body["recommendations"]
     assert body["confidence"] >= 0.5
     assert "Dual-modality fusion available" in body["summary"]
+    assert body["confidence_disclaimer"]
+    assert "heuristic" in body["confidence_disclaimer"]
+    assert body["confidence_grade"] == "heuristic"
 
 
 def test_fusion_recommendation_fails_soft_for_single_modality(
@@ -136,6 +139,8 @@ def test_fusion_recommendation_fails_soft_for_single_modality(
     assert body["partial"] is True
     assert "Partial fusion available" in body["summary"]
     assert any("Add MRI" in item or "missing" in item for item in body["recommendations"])
+    assert body["confidence_disclaimer"]
+    assert body["confidence_grade"] == "heuristic"
 
 
 def test_fusion_recommendation_returns_empty_state_when_no_modalities_exist(
@@ -154,6 +159,8 @@ def test_fusion_recommendation_returns_empty_state_when_no_modalities_exist(
     assert body["mri_analysis_id"] is None
     assert body["partial"] is True
     assert "No completed qEEG or MRI analyses are available" in body["summary"]
+    assert body["confidence_disclaimer"]
+    assert body["confidence_grade"] == "heuristic"
 
 
 def test_qeeg_sse_stream_emits_progress_snapshot(

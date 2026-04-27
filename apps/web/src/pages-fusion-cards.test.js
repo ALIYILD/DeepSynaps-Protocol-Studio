@@ -25,11 +25,14 @@ test('qEEG fusion card renders partial-state guidance when MRI is missing', () =
     recommendations: ['Add MRI targeting to upgrade this into a dual-modality recommendation.'],
     summary: 'Partial fusion available from one modality only. Add MRI data to strengthen target confidence.',
     confidence: 0.4,
+    confidence_disclaimer: 'Confidence score is algorithmic heuristic and not evidence-graded clinical validation. Always review recommendations against patient-specific context.',
+    confidence_grade: 'heuristic',
   }, 'pat-1');
 
   assert.match(html, /Fusion summary/);
   assert.match(html, /Partial fusion available/);
   assert.match(html, /Add MRI targeting/);
+  assert.match(html, /heuristic/);
 });
 
 test('MRI fusion card renders dual-modality summary and confidence badge', () => {
@@ -40,10 +43,13 @@ test('MRI fusion card renders dual-modality summary and confidence badge', () =>
     recommendations: ['Combine the qEEG-informed protocol with MRI-guided targeting at Left DLPFC.'],
     summary: 'Dual-modality fusion available. qEEG and MRI signals were combined into a single planning summary.',
     confidence: 0.72,
+    confidence_disclaimer: 'Confidence score is algorithmic heuristic and not evidence-graded clinical validation. Always review recommendations against patient-specific context.',
+    confidence_grade: 'heuristic',
   }, 'pat-2');
 
   assert.match(html, /Dual-modality fusion available/);
   assert.match(html, /qEEG ready/);
   assert.match(html, /MRI ready/);
   assert.match(html, /confidence 72%/);
+  assert.match(html, /heuristic/);
 });
