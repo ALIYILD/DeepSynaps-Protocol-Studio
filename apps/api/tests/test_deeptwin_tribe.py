@@ -290,3 +290,103 @@ def test_end_to_end_scenario(client: TestClient, auth_headers: dict[str, dict[st
     )
     assert rep_r.status_code == 200
     assert rep_r.json()["audit_ref"].startswith("twin_tribe_report:")
+
+
+# ---------------------------------------------------------------------------
+# Cross-clinic IDOR regression — every tribe endpoint must reject a clinician
+# from a different clinic when the patient_id resolves to a real DB row.
+# ---------------------------------------------------------------------------
+
+def _seed_cross_clinic_patient() -> dict[str, str]:
+    """Seed two clinics, two clinicians, one patient owned by clinic A.
+    Returns ids + a JWT for clinic B's clinician."""
+    import uuid
+    from app.database import SessionLocal
+    from app.persistence.models import Clinic, Patient, User
+    from app.services.auth_service import create_access_token
+
+    db = SessionLocal()
+    try:
+        clinic_a = Clinic(id=str(uuid.uuid4()), name="Tribe Clinic A")
+        clinic_b = Clinic(id=str(uuid.uuid4()), name="Tribe Clinic B")
+        db.add_all([clinic_a, clinic_b])
+        db.flush()
+        clin_a = User(
+            id=str(uuid.uuid4()),
+            email=f"tribe_a_{uuid.uuid4().hex[:6]}@example.com",
+            display_name="Tribe A", hashed_password="x",
+            role="clinician", package_id="explorer", clinic_id=clinic_a.id,
+        )
+        clin_b = User(
+            id=str(uuid.uuid4()),
+            email=f"tribe_b_{uuid.uuid4().hex[:6]}@example.com",
+            display_name="Tribe B", hashed_password="x",
+            role="clinician", package_id="explorer", clinic_id=clinic_b.id,
+        )
+        db.add_all([clin_a, clin_b])
+        db.flush()
+        patient = Patient(
+            id=str(uuid.uuid4()), clinician_id=clin_a.id,
+            first_name="Tribe", last_name="Patient",
+        )
+        db.add(patient)
+        db.commit()
+        token_b = create_access_token(
+            user_id=clin_b.id, email="tribe_b@example.com",
+            role="clinician", package_id="explorer", clinic_id=clinic_b.id,
+        )
+        return {"patient_id": patient.id, "token_b": token_b}
+    finally:
+        db.close()
+
+
+def test_tribe_endpoints_block_cross_clinic_idor(client: TestClient) -> None:
+    """Every /deeptwin/*-tribe endpoint must 403 when the actor is in a
+    different clinic than the patient. Regression for the audit gap where
+    these 5 endpoints accepted any patient_id without an ownership check."""
+    seed = _seed_cross_clinic_patient()
+    headers = {"Authorization": f"Bearer {seed['token_b']}"}
+    pid = seed["patient_id"]
+
+    # simulate-tribe
+    r = client.post(
+        "/api/v1/deeptwin/simulate-tribe",
+        headers=headers,
+        json={"patient_id": pid, "protocol": PROTO_A, "horizon_weeks": 6},
+    )
+    assert r.status_code == 403, r.text
+
+    # compare-protocols
+    r = client.post(
+        "/api/v1/deeptwin/compare-protocols",
+        headers=headers,
+        json={"patient_id": pid, "protocols": [PROTO_A, PROTO_B], "horizon_weeks": 6},
+    )
+    assert r.status_code == 403, r.text
+
+    # patient-latent
+    r = client.post(
+        "/api/v1/deeptwin/patient-latent",
+        headers=headers,
+        json={"patient_id": pid},
+    )
+    assert r.status_code == 403, r.text
+
+    # explain
+    r = client.post(
+        "/api/v1/deeptwin/explain",
+        headers=headers,
+        json={"patient_id": pid, "protocol": PROTO_A, "horizon_weeks": 6},
+    )
+    assert r.status_code == 403, r.text
+
+    # report-payload
+    r = client.post(
+        "/api/v1/deeptwin/report-payload",
+        headers=headers,
+        json={
+            "patient_id": pid, "protocol": PROTO_A,
+            "horizon_weeks": 6, "kind": "clinician_intelligence",
+        },
+    )
+    assert r.status_code == 403, r.text

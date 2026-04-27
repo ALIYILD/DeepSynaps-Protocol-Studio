@@ -144,6 +144,52 @@ logger = get_logger(__name__)
 init_sentry(settings.sentry_dsn, settings.app_env)
 
 
+def _seed_demo_users_for_dev(db: Session) -> None:
+    """Idempotently seed demo Clinic + Users so demo tokens lift a real clinic_id.
+
+    This makes the cross-clinic ownership gate work out-of-the-box in
+    development, test, and smoke-test environments without requiring
+    manual fixture setup.
+    """
+    if settings.app_env not in ("development", "test"):
+        return
+    from app.persistence.models import Clinic, User
+    clinic_id = "clinic-demo-default"
+    if db.query(Clinic).filter_by(id=clinic_id).first() is None:
+        db.add(Clinic(id=clinic_id, name="Demo Clinic"))
+        db.flush()
+    demo_users = [
+        {
+            "id": "actor-clinician-demo",
+            "email": "demo_clinician@example.com",
+            "display_name": "Verified Clinician Demo",
+            "role": "clinician",
+            "package_id": "clinician_pro",
+        },
+        {
+            "id": "actor-admin-demo",
+            "email": "demo_admin@example.com",
+            "display_name": "Admin Demo User",
+            "role": "admin",
+            "package_id": "enterprise",
+        },
+    ]
+    for spec in demo_users:
+        existing = db.query(User).filter_by(id=spec["id"]).first()
+        if existing is None:
+            db.add(User(
+                id=spec["id"],
+                email=spec["email"],
+                display_name=spec["display_name"],
+                hashed_password="x",
+                role=spec["role"],
+                package_id=spec["package_id"],
+                clinic_id=clinic_id,
+            ))
+        elif existing.clinic_id is None:
+            existing.clinic_id = clinic_id
+    db.commit()
+
 
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
@@ -158,6 +204,9 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         # Idempotent — covers schemas bootstrapped via Base.metadata.create_all
         # (e.g. tests) where alembic seed didn't run.
         seed_default_agent_skills(session)
+        # Seed demo Clinic + User rows so demo tokens resolve with a real
+        # clinic_id and cross-clinic gates work in dev/test/smoke runs.
+        _seed_demo_users_for_dev(session)
         app_instance.state.clinical_snapshot_id = snapshot.snapshot_id
         logger.info(
             "application startup complete",

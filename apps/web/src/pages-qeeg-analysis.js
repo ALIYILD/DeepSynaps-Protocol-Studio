@@ -95,14 +95,38 @@ function _getContextPatientIdForQEEG() {
   }
 }
 
-export function _getQEEGReportPdfUrl(report, analysis) {
-  if (report && (report.report_pdf_url || report.pdf_url)) {
-    return report.report_pdf_url || report.pdf_url;
+let _qeegPrintableReportViewerUrl = null;
+
+function _revokeQEEGPrintableReportViewerUrl() {
+  if (_qeegPrintableReportViewerUrl) {
+    try { URL.revokeObjectURL(_qeegPrintableReportViewerUrl); } catch (_) {}
+    _qeegPrintableReportViewerUrl = null;
   }
-  if (analysis && analysis.id && report && report.id) {
-    try { return api.getQEEGReportPDF(analysis.id, report.id); } catch (_) { return null; }
+}
+
+export function _canRenderQEEGPrintableReport(report, analysis) {
+  return !!(analysis && analysis.id && report && report.id);
+}
+
+async function _mountQEEGPrintableReportViewer(report, analysis) {
+  var frame = document.getElementById('qeeg-printable-report-frame');
+  if (!frame) return;
+  if (!_canRenderQEEGPrintableReport(report, analysis)) {
+    frame.remove();
+    return;
   }
-  return null;
+  frame.setAttribute('srcdoc', '<p style="font-family:Arial,sans-serif;padding:16px;color:#5b677a">Loading printable report…</p>');
+  try {
+    var file = await api.getQEEGPrintableReport(analysis.id, report.id);
+    _revokeQEEGPrintableReportViewerUrl();
+    _qeegPrintableReportViewerUrl = URL.createObjectURL(file.blob);
+    frame.removeAttribute('srcdoc');
+    frame.src = _qeegPrintableReportViewerUrl;
+  } catch (err) {
+    frame.outerHTML = '<div class="qeeg-report-callout"><div class="qeeg-report-callout__label">Printable report unavailable</div><div class="qeeg-report-callout__value">'
+      + esc(err && err.message ? err.message : err)
+      + '</div></div>';
+  }
 }
 
 function _getAnalysisSortTimestamp(analysis) {
@@ -2041,7 +2065,7 @@ function _renderComprehensiveReport(report, analysis) {
   var normDev = analysis ? (analysis.normative_deviations_json || analysis.normative_deviations || null) : null;
   var html = '';
 
-  var pdfViewerUrl = _getQEEGReportPdfUrl(report, analysis);
+  var hasPrintableReport = _canRenderQEEGPrintableReport(report, analysis);
   var callouts = [];
   if (analysis) {
     var flagged = Array.isArray(analysis.flagged_conditions) ? analysis.flagged_conditions : [];
@@ -2058,25 +2082,25 @@ function _renderComprehensiveReport(report, analysis) {
   // ── Print / Download button bar ─────────────────────────────────────────
   html += '<div class="qeeg-export-bar" style="justify-content:flex-end;margin-bottom:8px">'
     + '<button class="btn btn-sm btn-outline" aria-label="Print AI report" onclick="window._qeegPrintReport()">Print Report</button>'
-    + '<button class="btn btn-sm btn-outline" aria-label="Download report as PDF" onclick="window._qeegDownloadPDF()">Download PDF</button></div>';
-  if (pdfViewerUrl || callouts.length) {
+    + '<button class="btn btn-sm btn-outline" aria-label="Download printable report" onclick="window._qeegDownloadPDF()">Download Printable Report</button></div>';
+  if (hasPrintableReport || callouts.length) {
     html += '<div class="qeeg-report-layout">';
-    if (pdfViewerUrl) {
-      html += card('PDF Viewer',
+    if (hasPrintableReport) {
+      html += card('Printable Report Viewer',
         '<div class="qeeg-report-viewer">'
-          + '<iframe class="qeeg-report-viewer__frame" src="' + esc(pdfViewerUrl) + '#toolbar=0" title="qEEG PDF report viewer" loading="lazy"></iframe>'
+          + '<iframe class="qeeg-report-viewer__frame" id="qeeg-printable-report-frame" title="qEEG printable report viewer" loading="lazy"></iframe>'
         + '</div>'
       );
     }
     html += card('Report Side Panel',
       '<div class="qeeg-report-callouts">'
-        + '<div class="qeeg-report-callouts__intro">Interactive HTML stays below. This mirrors the standalone analyzer integration pattern with a live PDF view plus key pipeline callouts.</div>'
+        + '<div class="qeeg-report-callouts__intro">Interactive HTML stays below. The viewer loads the authenticated printable report when the backend render is available, alongside key pipeline callouts.</div>'
         + (callouts.length
           ? callouts.map(function (item) {
             return '<div class="qeeg-report-callout"><div class="qeeg-report-callout__label">' + esc(item.label)
               + '</div><div class="qeeg-report-callout__value">' + esc(item.value) + '</div></div>';
           }).join('')
-          : '<div class="qeeg-report-callout"><div class="qeeg-report-callout__value">PDF rendering becomes available when the backend report endpoint returns a file.</div></div>')
+          : '<div class="qeeg-report-callout"><div class="qeeg-report-callout__value">Printable report rendering becomes available when the backend report endpoint returns a downloadable artifact.</div></div>')
       + '</div>'
     );
     html += '</div>';
@@ -4744,6 +4768,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         html = _demoBanner() + html;
       }
       tabEl.innerHTML = html;
+      _revokeQEEGPrintableReportViewerUrl();
 
       var reportVersionSel = document.getElementById('qeeg-report-version');
       if (reportVersionSel) {
@@ -4751,6 +4776,12 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           window._qeegSelectedReportId = reportVersionSel.value || null;
           window._qeegTab = 'report';
           window._nav('qeeg-analysis');
+        });
+      }
+
+      if (_canRenderQEEGPrintableReport(report, analysisData)) {
+        _mountQEEGPrintableReportViewer(report, analysisData).catch(function (err) {
+          showToast('Printable report preview failed: ' + (err && err.message ? err.message : err), 'error');
         });
       }
 
@@ -5482,10 +5513,19 @@ window._qeegPrintReport = function () {
 // ── PDF download via backend endpoint ────────────────────────────────────────
 window._qeegDownloadPDF = function () {
   if (!_currentReport) return showToast('No report data loaded', 'warning');
-  var pdfUrl = _getQEEGReportPdfUrl(_currentReport, _currentAnalysis);
-  if (!pdfUrl) return showToast('PDF report is not available for this analysis yet', 'warning');
-  window.open(pdfUrl, '_blank');
-  showToast('Downloading PDF report...', 'success');
+  if (!_canRenderQEEGPrintableReport(_currentReport, _currentAnalysis)) {
+    return showToast('Printable report is not available for this analysis yet', 'warning');
+  }
+  api.getQEEGPrintableReport(_currentAnalysis.id, _currentReport.id)
+    .then(function (file) {
+      var filename = file.filename || ('qeeg_report_' + _currentReport.id + '.html');
+      downloadBlob(file.blob, filename);
+      var contentType = (file.contentType || '').toLowerCase();
+      showToast(contentType.indexOf('pdf') >= 0 ? 'PDF report downloaded' : 'Printable report downloaded', 'success');
+    })
+    .catch(function (err) {
+      showToast('Printable report download failed: ' + (err && err.message ? err.message : err), 'error');
+    });
 };
 
 // ── Coherence band switcher ──────────────────────────────────────────────────

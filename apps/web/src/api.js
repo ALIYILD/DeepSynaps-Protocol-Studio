@@ -475,9 +475,8 @@ export const api = {
     return fetch(`${API_BASE}/api/v1/documents/upload`, { method: 'POST', headers, body: formData })
       .then(r => { if (!r.ok) throw new Error(`API error ${r.status}`); return r.json(); });
   },
-
-  // Absolute URL for a document's stored file — used as <a href=> for downloads.
-  documentDownloadUrl: (id) => `${API_BASE}/api/v1/documents/${encodeURIComponent(id)}/download`,
+  fetchDocumentDownload: (id) =>
+    apiFetchBinary(`/api/v1/documents/${encodeURIComponent(id)}/download`),
 
   // ── Session Recordings (Virtual Care Recording Studio) ──────────────────
   // Backs the ▶ button in the Recording Studio. Bytes live on the local Fly
@@ -1123,8 +1122,8 @@ export const api = {
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/run-advanced`, { method: 'POST' }),
   runQEEGQualityCheck: (analysisId) =>
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/quality-check`, { method: 'POST' }),
-  getQEEGReportPDF: (analysisId, reportId) =>
-    `/api/v1/qeeg-analysis/${analysisId}/reports/${reportId}/pdf`,
+  getQEEGPrintableReport: (analysisId, reportId) =>
+    apiFetchBinary(`/api/v1/qeeg-analysis/${encodeURIComponent(analysisId)}/reports/${encodeURIComponent(reportId)}/pdf`),
   getQEEGLongitudinalTrend: (patientId, metric) =>
     apiFetch('/api/v1/qeeg-analysis/longitudinal', { method: 'POST', body: JSON.stringify({ patient_id: patientId, metric }) }),
   getQEEGAssessmentCorrelation: (analysisId, assessments) =>
@@ -1174,8 +1173,14 @@ export const api = {
     apiFetch(`/api/v1/mri/status/${encodeURIComponent(jobId)}`),
   getMRIReport: (analysisId) =>
     apiFetch(`/api/v1/mri/report/${encodeURIComponent(analysisId)}`),
+  getMRIReportPdf: (analysisId) =>
+    apiFetchBinary(`/api/v1/mri/report/${encodeURIComponent(analysisId)}/pdf`),
+  getMRIReportHtml: (analysisId) =>
+    apiFetchBinary(`/api/v1/mri/report/${encodeURIComponent(analysisId)}/html`),
   getMRIViewerPayload: (analysisId) =>
     apiFetch(`/api/v1/mri/${encodeURIComponent(analysisId)}/viewer.json`),
+  getMRIOverlayHtml: (analysisId, targetId) =>
+    apiFetchBinary(`/api/v1/mri/overlay/${encodeURIComponent(analysisId)}/${encodeURIComponent(targetId)}`),
   getMRIMedRAG: (analysisId, topK = 20) =>
     apiFetch(`/api/v1/mri/medrag/${encodeURIComponent(analysisId)}?top_k=${encodeURIComponent(topK)}`),
   // Longitudinal compare — AI_UPGRADES P0 #4. Returns a LongitudinalReport:
