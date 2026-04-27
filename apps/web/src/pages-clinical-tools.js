@@ -2,7 +2,7 @@
 // pages-clinical-tools.js — Secondary clinical tool pages (code-split)
 // Advanced Search · Benchmarks · Consent · Media · Dictation · Forms · etc.
 // ─────────────────────────────────────────────────────────────────────────────
-import { api } from './api.js';
+import { api, downloadBlob } from './api.js';
 import { tag, spinner, emptyState, spark } from './helpers.js';
 import { FALLBACK_CONDITIONS } from './constants.js';
 import {
@@ -9507,11 +9507,11 @@ export async function pgDocumentsHub(setTopbar) {
       case 'pending':
         return d.sigState === 'pending-sig'
           ? `<button class="btn btn-primary btn-sm" onclick="window._dhSendForSig('${id}')">Send for Sig</button>`
-          : `<button class="btn btn-primary btn-sm" onclick="window._dhFill('${id}')">Fill</button>`;
+          : `<button class="btn btn-primary btn-sm" disabled title="Patients complete this form in the portal">Portal only</button>`;
       case 'expired':
         return `<button class="btn btn-primary btn-sm" style="border-color:#ef4444;color:#ef4444" onclick="window._dhReplace('${id}')">Replace</button>`;
       case 'needs-update':
-        return `<button class="btn btn-primary btn-sm" style="border-color:#f97316;color:#f97316" onclick="window._dhFill('${id}')">Update</button>`;
+        return `<button class="btn btn-primary btn-sm" style="border-color:#f97316;color:#f97316" disabled title="Patients complete updates in the portal">Portal only</button>`;
       case 'generated':
         return d.fileRef || d.url
           ? `<button class="btn btn-sm" onclick="window._dhOpen('${id}')">Open</button>`
@@ -9670,7 +9670,7 @@ export async function pgDocumentsHub(setTopbar) {
         <div class="tlib-card-actions">
           <button class="tlib-btn-assign" onclick="window._dhTlibAssign('${esc(item.id)}','${esc(item.name).replace(/'/g,'\\\'').replace(/"/g,'&quot;')}')">Assign</button>
           <button class="tlib-btn-preview" onclick="window._dhTlibPreview('${esc(item.id)}')">Preview</button>
-          ${item.id==='dh-custom'?`<button class="tlib-btn-secondary" onclick="window._nav('forms-builder')">Build Custom</button>`:`<button class="tlib-btn-secondary" onclick="window._dhTlibFill('${esc(item.id)}')">Fill</button>`}
+          ${item.id==='dh-custom'?`<button class="tlib-btn-secondary" onclick="window._nav('forms-builder')">Build Custom</button>`:`<button class="tlib-btn-secondary" disabled title="Use Assign for patient-portal completion">Portal Only</button>`}
         </div>
       </div>`;
     }).join('') : `<div class="tlib-empty"><div class="tlib-empty-icon">&#128269;</div><div class="tlib-empty-msg">No document templates match your search</div></div>`;
@@ -9787,25 +9787,62 @@ export async function pgDocumentsHub(setTopbar) {
     if (item) window._showNotifToast?.({ title: item.name, body: (item.type || '') + (item.target ? ' · ' + item.target : '') + (item.desc ? ' — ' + item.desc.slice(0, 80) : ''), severity: 'info' });
   };
   window._dhTlibFill = function(id) {
-    window._showNotifToast?.({ title:'Fill Form', body:'In-platform form filling — select a patient first.', severity:'info' });
+    const item = DH_TLIB_ITEMS.find(x => x.id === id);
+    window._showNotifToast?.({
+      title: item?.name || 'Template fill unavailable',
+      body:'In-platform form filling is not available from this beta view. Assign the form for patient-portal completion instead.',
+      severity:'info'
+    });
   };
 
-  window._dhFill       = function(id) { window._showNotifToast?.({ title:'Open Form', body:'In-platform form filling not yet wired — patients can complete this form via the patient portal.', severity:'info' }); };
+  async function _dhFetchProtectedUrl(url) {
+    const token = globalThis.localStorage?.getItem?.('ds_access_token');
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const res = await fetch(url, { headers });
+    if (!res.ok) throw new Error(`Download failed (${res.status})`);
+    const blob = await res.blob();
+    const contentType = res.headers.get('content-type') || blob.type || 'application/octet-stream';
+    const contentDisposition = res.headers.get('content-disposition') || '';
+    const filenameMatch = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(contentDisposition);
+    const filename = filenameMatch ? decodeURIComponent(filenameMatch[1].replace(/"/g, '').trim()) : null;
+    return { blob, contentType, filename };
+  }
+
+  function _dhOpenBlob(blob) {
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
+  window._dhFill       = function(id) {
+    const d = docs.find(x => x.id === id);
+    window._showNotifToast?.({
+      title: d?.name || 'Form unavailable',
+      body:'In-platform form filling is not available from this beta view. Patients must complete this document through the patient portal.',
+      severity:'info'
+    });
+  };
   window._dhOpen       = async function(id) {
     const d=docs.find(x=>x.id===id);
     if(!d) return;
     if (d._apiId && d.fileRef) {
       try {
         const file = await api.fetchDocumentDownload(d._apiId);
-        const url = URL.createObjectURL(file.blob);
-        window.open(url, '_blank');
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        _dhOpenBlob(file.blob);
       } catch (err) {
         window._showNotifToast?.({ title:'Open failed', body: err?.message || 'Stored document could not be opened.', severity:'error' });
       }
       return;
     }
-    if(d?.url) { window.open(d.url,'_blank'); return; }
+    if (d?.url) {
+      try {
+        const file = await _dhFetchProtectedUrl(d.url);
+        _dhOpenBlob(file.blob);
+      } catch (err) {
+        window._showNotifToast?.({ title:'Open failed', body: err?.message || 'Stored document could not be opened.', severity:'error' });
+      }
+      return;
+    }
     window._showNotifToast?.({ title:'Draft only', body:'This entry does not have a generated or uploaded file yet.', severity:'info' });
   };
   window._dhDownload   = async function(id) {
@@ -9821,7 +9858,16 @@ export async function pgDocumentsHub(setTopbar) {
       }
       return;
     }
-    if(d?.url) { window.open(d.url,'_blank'); return; }
+    if (d?.url) {
+      try {
+        const file = await _dhFetchProtectedUrl(d.url);
+        downloadBlob(file.blob, file.filename || `${(d.name || 'document').replace(/\s+/g, '_')}`);
+        window._showNotifToast?.({ title:'Download ready', body:`${d.name} downloaded.`, severity:'success' });
+      } catch (err) {
+        window._showNotifToast?.({ title:'Download failed', body: err?.message || 'Stored document could not be downloaded.', severity:'error' });
+      }
+      return;
+    }
     window._showNotifToast?.({ title:'Download unavailable', body:'Only uploaded documents with stored files can be downloaded right now.', severity:'warning' });
   };
 
@@ -10314,7 +10360,7 @@ export async function pgReportsHub(setTopbar) {
               ${ai ? (isAIOpen ? 'Hide AI Summary' : 'AI Summary ✓') : '🤖 AI Summary'}
             </button>
             <button class="btn btn-sm" style="font-size:11px;border-color:var(--teal,#00d4bc);color:var(--teal,#00d4bc)" onclick="window._rhLinkModal('${esc(r.id)}')">Link to Course/Protocol</button>
-            ${r.file_url ? `<button class="btn btn-sm" style="font-size:11px" onclick="window.open('${r.file_url}','_blank')">Download</button>` : ''}
+            ${r.file_url ? `<button class="btn btn-sm" style="font-size:11px" onclick="window._rhDownload('${esc(r.id)}')">Download</button>` : ''}
             <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--text-tertiary)" onclick="window._rhDelete('${esc(r.id)}')">Delete</button>
           </div>
         </div>
@@ -10718,6 +10764,20 @@ export async function pgReportsHub(setTopbar) {
     const el2 = document.getElementById('rh-card-' + id);
     if (el2) el2.remove();
     renderPage();
+  };
+  window._rhDownload = async function(id) {
+    const r = reports.find(x => x.id === id);
+    if (!r?.file_url) {
+      window._showNotifToast?.({ title:'Download unavailable', body:'This report does not have an attached file yet.', severity:'warning' });
+      return;
+    }
+    try {
+      const file = await _dhFetchProtectedUrl(r.file_url);
+      downloadBlob(file.blob, file.filename || `${(r.title || 'report').replace(/\s+/g, '_')}`);
+      window._showNotifToast?.({ title:'Download ready', body:`${r.title || 'Report'} downloaded.`, severity:'success' });
+    } catch (err) {
+      window._showNotifToast?.({ title:'Download failed', body: err?.message || 'Attached report file could not be downloaded.', severity:'error' });
+    }
   };
 
   renderPage();

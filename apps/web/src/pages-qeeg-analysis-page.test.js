@@ -50,6 +50,7 @@ function createFakeElement(id, registry) {
     value: '',
     files: [],
     style: {},
+    dataset: {},
     classList: { add() {}, remove() {} },
     addEventListener() {},
     removeEventListener() {},

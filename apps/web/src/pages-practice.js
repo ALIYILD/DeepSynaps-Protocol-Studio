@@ -10635,6 +10635,9 @@ export async function pgClinicianAccount(setTopbar, currentUser) {
       </aside>
 
       <div class="st-main">
+        <div style="margin-bottom:16px;padding:12px 14px;border:1px solid rgba(255,181,71,0.24);border-radius:12px;background:rgba(255,181,71,0.08);font-size:12.5px;line-height:1.55;color:var(--text-secondary)">
+          This beta account page is a local preferences preview. Changes made here are stored only in this browser and do not update your clinic-managed identity, security settings, or legal records.
+        </div>
         <section class="st-section" id="st-account">
           <div class="st-section-head">
             <div class="st-section-ico"><svg width="18" height="18"><use href="#cs-i-user"/></svg></div>
@@ -10651,7 +10654,7 @@ export async function pgClinicianAccount(setTopbar, currentUser) {
                 <div class="email">${email}</div>
                 <div class="meta">${role} · identity managed by clinic admin</div>
               </div>
-              <button class="btn btn-ghost btn-sm" data-st-action="edit-profile"><svg width="13" height="13"><use href="#cs-i-edit"/></svg>Edit</button>
+              <button class="btn btn-ghost btn-sm" disabled style="opacity:0.55;"><svg width="13" height="13"><use href="#cs-i-edit"/></svg>Admin managed</button>
             </div>
 
             <div class="st-row">
@@ -10806,13 +10809,13 @@ export async function pgClinicianAccount(setTopbar, currentUser) {
               <div class="st-data-grid">
                 <div class="st-data-card">
                   <div class="t"><svg><use href="#cs-i-pulse"/></svg>My activity log</div>
-                  <div class="s">CSV · logins, views, actions for the last 90 days.</div>
-                  <button class="btn btn-ghost btn-sm" data-st-export="activity" style="align-self:flex-start;"><svg width="13" height="13"><use href="#cs-i-download"/></svg>Request</button>
+                  <div class="s">CSV export is not enabled from this beta account view.</div>
+                  <button class="btn btn-ghost btn-sm" disabled style="align-self:flex-start;opacity:0.55;"><svg width="13" height="13"><use href="#cs-i-download"/></svg>Unavailable</button>
                 </div>
                 <div class="st-data-card">
                   <div class="t"><svg><use href="#cs-i-edit"/></svg>Signed documents</div>
-                  <div class="s">PDF bundle · notes, reports, referrals I have authored.</div>
-                  <button class="btn btn-ghost btn-sm" data-st-export="signed" style="align-self:flex-start;"><svg width="13" height="13"><use href="#cs-i-download"/></svg>Request</button>
+                  <div class="s">PDF bundle export is not enabled from this beta account view.</div>
+                  <button class="btn btn-ghost btn-sm" disabled style="align-self:flex-start;opacity:0.55;"><svg width="13" height="13"><use href="#cs-i-download"/></svg>Unavailable</button>
                 </div>
               </div>
             </div>
@@ -10829,31 +10832,31 @@ export async function pgClinicianAccount(setTopbar, currentUser) {
               <div class="st-link-logo google">G</div>
               <div class="st-link-body">
                 <div class="n">Google account</div>
-                <div class="s">${email || 'Not linked'} · sign-in + calendar sync</div>
+                <div class="s">${email || 'Session identity only'} · calendar sync is not enabled in this beta view</div>
               </div>
               <div style="display:flex;gap:8px;align-items:center;">
-                <span class="st-link-state ${email ? 'on' : 'off'}">${email ? 'Linked' : 'Not linked'}</span>
-                <button class="st-sess-btn ghost" data-st-unlink="google">${email ? 'Unlink' : 'Link'}</button>
+                <span class="st-link-state off">${email ? 'Identity only' : 'Unavailable'}</span>
+                <button class="st-sess-btn ghost" disabled style="opacity:0.55;">Unavailable</button>
               </div>
             </div>
             <div class="st-link-row">
               <div class="st-link-logo ms">M</div>
-              <div class="st-link-body"><div class="n">Microsoft 365</div><div class="s">Outlook calendar + Teams video</div></div>
-              <div style="display:flex;gap:8px;align-items:center;"><span class="st-link-state off">Not linked</span><button class="btn btn-ghost btn-sm" data-st-link="ms">Link</button></div>
+              <div class="st-link-body"><div class="n">Microsoft 365</div><div class="s">Outlook calendar + Teams video are not enabled in this beta view.</div></div>
+              <div style="display:flex;gap:8px;align-items:center;"><span class="st-link-state off">Unavailable</span><button class="btn btn-ghost btn-sm" disabled style="opacity:0.55;">Unavailable</button></div>
             </div>
             <div class="st-link-row">
               <div class="st-link-logo" style="background:#229ed9;color:#fff">T</div>
-              <div class="st-link-body"><div class="n">Telegram</div><div class="s">Push clinical alerts to your chat.</div></div>
-              <div style="display:flex;gap:8px;align-items:center;"><span class="st-link-state off">Not linked</span><button class="btn btn-ghost btn-sm" data-st-link="telegram">Link</button></div>
+              <div class="st-link-body"><div class="n">Telegram</div><div class="s">Chat-link management is handled outside this account page.</div></div>
+              <div style="display:flex;gap:8px;align-items:center;"><span class="st-link-state off">External flow</span><button class="btn btn-ghost btn-sm" disabled style="opacity:0.55;">Unavailable</button></div>
             </div>
             <div class="st-link-row">
               <div class="st-link-logo" style="background:#4a154b;color:#fff">S</div>
-              <div class="st-link-body"><div class="n">Slack</div><div class="s">Clinic channel notifications.</div></div>
-              <div style="display:flex;gap:8px;align-items:center;"><span class="st-link-state off">Not linked</span><button class="btn btn-ghost btn-sm" data-st-link="slack">Link</button></div>
+              <div class="st-link-body"><div class="n">Slack</div><div class="s">Clinic channel notifications are not enabled in this beta view.</div></div>
+              <div style="display:flex;gap:8px;align-items:center;"><span class="st-link-state off">Unavailable</span><button class="btn btn-ghost btn-sm" disabled style="opacity:0.55;">Unavailable</button></div>
             </div>
             <div class="st-row">
-              <div><div class="st-row-label">Push my schedule to Google Calendar</div><div class="st-row-sub">Two-way sync. Clinic-wide sync is managed by admin.</div></div>
-              <div class="st-toggle on" data-st-toggle></div>
+              <div><div class="st-row-label">Push my schedule to Google Calendar</div><div class="st-row-sub">Calendar sync is not enabled in this beta account view.</div></div>
+              <div class="st-toggle" style="opacity:0.55;pointer-events:none;"></div>
             </div>
           </div>
         </section>
@@ -10895,13 +10898,13 @@ export async function pgClinicianAccount(setTopbar, currentUser) {
           <div class="st-body">
             <div class="st-row">
               <div><div class="st-row-label">Password</div><div class="st-row-sub">Rotate every 90 days per clinic policy.</div></div>
-              <button class="btn btn-ghost btn-sm" data-st-action="change-password"><svg width="13" height="13"><use href="#cs-i-lock"/></svg>Change</button>
+              <button class="btn btn-ghost btn-sm" disabled style="opacity:0.55;"><svg width="13" height="13"><use href="#cs-i-lock"/></svg>Unavailable</button>
             </div>
             <div class="st-row">
               <div><div class="st-row-label">Two-factor authentication</div><div class="st-row-sub">Required for clinical data access.</div></div>
               <div style="display:flex;gap:8px;align-items:center;">
-                <span class="st-link-state off">Disabled</span>
-                <button class="btn btn-ghost btn-sm" data-st-action="manage-2fa">Enable</button>
+                <span class="st-link-state off">Managed elsewhere</span>
+                <button class="btn btn-ghost btn-sm" disabled style="opacity:0.55;">Unavailable</button>
               </div>
             </div>
             <div class="st-row">
@@ -10959,13 +10962,16 @@ export async function pgClinicianAccount(setTopbar, currentUser) {
               <div class="st-about-item"><div class="l">Encryption</div><div class="v mono">AES-256 at rest · TLS 1.3 in transit</div></div>
               <div class="st-about-item"><div class="l">Clinical license</div><div class="v">CE Mark · FDA De Novo pending</div></div>
             </div>
+            <div style="margin:14px 0 10px;padding:10px 12px;border:1px solid rgba(255,181,71,0.24);border-radius:10px;background:rgba(255,181,71,0.08);font-size:12px;line-height:1.5;color:var(--text-secondary)">
+              Legal documents and signed agreements are not opened from this beta account page. Use your clinic administrator or support channel for authoritative copies.
+            </div>
             <div class="st-legal-links">
-              <a data-st-legal="privacy">Privacy policy</a>
-              <a data-st-legal="tos">Terms of service</a>
-              <a data-st-legal="hipaa">HIPAA BAA</a>
-              <a data-st-legal="dpa">Data processing agreement</a>
-              <a data-st-legal="licenses">Open-source licenses</a>
-              <a data-st-legal="contact">Contact support</a>
+              <span style="opacity:0.65;cursor:not-allowed">Privacy policy</span>
+              <span style="opacity:0.65;cursor:not-allowed">Terms of service</span>
+              <span style="opacity:0.65;cursor:not-allowed">HIPAA BAA</span>
+              <span style="opacity:0.65;cursor:not-allowed">Data processing agreement</span>
+              <span style="opacity:0.65;cursor:not-allowed">Open-source licenses</span>
+              <span style="opacity:0.65;cursor:not-allowed">Contact support</span>
             </div>
           </div>
         </section>
@@ -10978,28 +10984,28 @@ export async function pgClinicianAccount(setTopbar, currentUser) {
           <div class="st-body">
             <div class="st-danger-row">
               <div><div class="t">Go off-duty</div><div class="s">Redirect new assignments to coverage until you come back online.</div></div>
-              <button class="st-danger-btn" data-st-danger="pause">Go off-duty</button>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Admin only</button>
             </div>
             <div class="st-danger-row">
               <div><div class="t">Revoke all API keys</div><div class="s">Immediately invalidates every personal access token you've issued.</div></div>
-              <button class="st-danger-btn" data-st-danger="revoke">Revoke all</button>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Admin only</button>
             </div>
             <div class="st-danger-row">
               <div><div class="t">Transfer my patient panel</div><div class="s">Admin will assign your active cases to another clinician and notify each patient.</div></div>
-              <button class="st-danger-btn" data-st-danger="transfer">Start transfer</button>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Admin only</button>
             </div>
             <div class="st-danger-row">
               <div><div class="t">Deactivate account</div><div class="s">Revokes access. Audit records are retained per HIPAA. Cannot be self-reversed.</div></div>
-              <button class="st-danger-btn" data-st-danger="delete">Deactivate</button>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Admin only</button>
             </div>
           </div>
         </section>
 
         <div class="st-savebar" id="st-savebar">
-          <div class="st-savebar-msg">You have unsaved changes</div>
+          <div class="st-savebar-msg">You have unsaved local preview changes</div>
           <div class="st-savebar-actions">
-            <button class="btn btn-ghost btn-sm" id="st-discard">Discard</button>
-            <button class="btn btn-primary btn-sm" id="st-save"><svg width="13" height="13"><use href="#cs-i-check"/></svg>Save changes</button>
+            <button class="btn btn-ghost btn-sm" id="st-discard">Discard preview</button>
+            <button class="btn btn-primary btn-sm" id="st-save"><svg width="13" height="13"><use href="#cs-i-check"/></svg>Save local preview</button>
           </div>
         </div>
       </div>
@@ -11072,8 +11078,8 @@ function _wireClinicianAccount() {
 
   const saveBtn = document.getElementById('st-save');
   const discardBtn = document.getElementById('st-discard');
-  if (saveBtn) saveBtn.addEventListener('click', () => { clearDirty(); stToast('Settings saved'); });
-  if (discardBtn) discardBtn.addEventListener('click', () => { clearDirty(); stToast('Changes discarded'); });
+  if (saveBtn) saveBtn.addEventListener('click', () => { clearDirty(); stToast('Saved in this browser only'); });
+  if (discardBtn) discardBtn.addEventListener('click', () => { clearDirty(); stToast('Local preview discarded'); });
 
   const nav = document.getElementById('st-nav');
   if (nav) {
@@ -11102,9 +11108,9 @@ function _wireClinicianAccount() {
     b.addEventListener('click', () => {
       const a = b.dataset.stAction;
       const msgs = {
-        'edit-profile': 'Opening profile editor…',
-        'change-password': 'Opening password change flow…',
-        'manage-2fa': 'Opening 2FA management…'
+        'edit-profile': 'Profile changes are managed outside this beta page.',
+        'change-password': 'Password changes are not available from this beta page.',
+        'manage-2fa': '2FA is managed outside this beta page.'
       };
       stToast(msgs[a] || 'Action: ' + a);
     });
@@ -11128,54 +11134,8 @@ function _wireClinicianAccount() {
       stToast((labels[type] || 'Export') + ' queued · ready in ~1 hour');
     });
   });
-  st.querySelectorAll('[data-st-legal]').forEach(a => {
-    a.addEventListener('click', () => { stToast('Opening: ' + a.textContent); });
-  });
-
   const bd = document.getElementById('st-confirm-bd');
-  const mTitle = document.getElementById('st-confirm-title');
-  const mBody = document.getElementById('st-confirm-body');
-  const mInput = document.getElementById('st-confirm-input');
-  const mCancel = document.getElementById('st-confirm-cancel');
-  const mOk = document.getElementById('st-confirm-ok');
-  let pendingAction = null;
-
-  const DANGER_COPY = {
-    pause:   { title: 'Go off-duty?',   body: 'New assignments will route to coverage until you come back online.', ok: 'Go off-duty',    needInput: false, success: 'Off-duty · coverage notified' },
-    revoke:  { title: 'Revoke all API keys?', body: 'Any script, research tool, or integration using a personal API key will stop working immediately.', ok: 'Revoke all', needInput: true,  success: 'All API keys revoked' },
-    transfer:{ title: 'Transfer my panel?', body: 'Admin will assign your active cases to another clinician and notify each patient.', ok: 'Request transfer', needInput: false, success: 'Transfer requested · admin will coordinate' },
-    delete:  { title: 'Deactivate account?', body: 'This revokes your access. Audit records are retained per HIPAA. Cannot be reversed.', ok: 'Deactivate', needInput: true, success: 'Deactivation requested · admin will confirm' }
-  };
-
-  st.querySelectorAll('[data-st-danger]').forEach(b => {
-    b.addEventListener('click', () => {
-      pendingAction = b.dataset.stDanger;
-      const c = DANGER_COPY[pendingAction];
-      if (!c || !bd) return;
-      if (mTitle) mTitle.textContent = c.title;
-      if (mBody) mBody.textContent = c.body;
-      if (mOk) mOk.textContent = c.ok;
-      if (mInput) { mInput.value = ''; mInput.style.display = c.needInput ? '' : 'none'; }
-      bd.classList.add('open');
-    });
-  });
-
-  const closeConfirm = () => { if (bd) bd.classList.remove('open'); pendingAction = null; };
-  if (mCancel) mCancel.addEventListener('click', closeConfirm);
-  if (bd) bd.addEventListener('click', (e) => { if (e.target === bd) closeConfirm(); });
-  if (mOk) {
-    mOk.addEventListener('click', () => {
-      if (!pendingAction) return;
-      const c = DANGER_COPY[pendingAction];
-      if (c.needInput && mInput && mInput.value.trim().toUpperCase() !== 'CONFIRM') {
-        stToast('Type CONFIRM to continue'); return;
-      }
-      stToast(c.success); closeConfirm();
-    });
-  }
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && bd && bd.classList.contains('open')) closeConfirm();
-  });
+  if (bd) bd.remove();
 }
 
 // ── Academy (clinic portal) ──────────────────────────────────────────────────
