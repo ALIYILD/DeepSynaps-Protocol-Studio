@@ -130,7 +130,17 @@ async def post_presence(
     body: PresenceUpdate,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ):
-    """Client pings this endpoint when navigating to a page."""
+    """Client pings this endpoint when navigating to a page.
+
+    Requires clinician role: presence carries display_name + role of every
+    actor on the page, so a guest token must not be able to register
+    presence (broadcasting their identity to clinicians) or read the list
+    (probing patient/course UUIDs for other clinics' staff). Cross-clinic
+    presence between clinicians is intentionally still permitted — same
+    as before — pending a follow-up that parses page_id and clinic-scopes
+    it.
+    """
+    require_minimum_role(actor, "clinician")
     await update_presence(
         actor.actor_id,
         actor.display_name,
@@ -145,6 +155,14 @@ async def get_page_presence(
     page_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ):
+    """Read who else is on a given page.
+
+    Clinician-gated to block guest probing of patient/course UUIDs and
+    enumeration of staff identities across clinics. Cross-clinic
+    clinician reads still permitted (existing collab semantics) —
+    follow-up needed to clinic-scope by parsed page_id.
+    """
+    require_minimum_role(actor, "clinician")
     return {"users": get_presence(page_id)}
 
 

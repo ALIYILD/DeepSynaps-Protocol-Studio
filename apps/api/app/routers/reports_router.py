@@ -118,6 +118,11 @@ def _fallback_summary(title: str, report_type: str) -> dict:
     }
 
 
+_ALLOWED_REPORT_EXTENSIONS = frozenset(
+    {"pdf", "docx", "doc", "txt", "rtf", "md", "jpg", "jpeg", "png"}
+)
+
+
 def _save_report_file(
     patient_id: str,
     upload_id: str,
@@ -125,16 +130,44 @@ def _save_report_file(
     filename: str,
     settings,
 ) -> str:
-    """Persist the file to media_uploads/ and return a relative file_ref path."""
+    """Persist the file to media_uploads/ and return a relative file_ref path.
+
+    Hardening (defense-in-depth): the raw extension is taken from the user-
+    supplied filename via rsplit('.',1) — historically that allowed slashes
+    and ``..`` in the resulting ext string (e.g. ``a.b/../../evil`` →
+    ext=``b/../../evil``). The OS path resolver normally short-circuits on
+    the non-existent ``<uuid>.b`` intermediate dir, but we still belt-and-
+    suspenders by (a) whitelisting extensions and (b) refusing any final
+    path that escapes the patient subdirectory.
+    """
     media_root = getattr(settings, "media_storage_root", "media_uploads")
     dest_dir = os.path.join(media_root, "reports", patient_id)
     os.makedirs(dest_dir, exist_ok=True)
-    ext = (filename or "report.pdf").rsplit(".", 1)[-1].lower()
-    dest_path = os.path.join(dest_dir, f"{upload_id}.{ext}")
-    with open(dest_path, "wb") as fh:
+    raw_ext = (filename or "report.pdf").rsplit(".", 1)[-1].lower()
+    if raw_ext not in _ALLOWED_REPORT_EXTENSIONS:
+        raise ApiServiceError(
+            code="invalid_report_extension",
+            message=(
+                "Report file extension must be one of: "
+                + ", ".join(sorted(_ALLOWED_REPORT_EXTENSIONS))
+            ),
+            status_code=422,
+        )
+    dest_path = os.path.join(dest_dir, f"{upload_id}.{raw_ext}")
+    # Resolve and assert containment — guards against any future call site
+    # that smuggles slashes through patient_id or upload_id.
+    abs_dest = os.path.realpath(dest_path)
+    abs_root = os.path.realpath(dest_dir)
+    if not (abs_dest == abs_root or abs_dest.startswith(abs_root + os.sep)):
+        raise ApiServiceError(
+            code="invalid_report_destination",
+            message="Resolved report path escapes the patient directory.",
+            status_code=422,
+        )
+    with open(abs_dest, "wb") as fh:
         fh.write(file_bytes)
     # Return a URL-like ref; real serving depends on StaticFiles mount
-    return f"/media/reports/{patient_id}/{upload_id}.{ext}"
+    return f"/media/reports/{patient_id}/{upload_id}.{raw_ext}"
 
 
 def _assert_report_patient_access(db: Session, actor: AuthenticatedActor, patient_id: str | None) -> None:
