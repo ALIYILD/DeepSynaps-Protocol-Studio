@@ -814,3 +814,144 @@ def test_reports_upload_rejects_disallowed_extension(
     )
     assert resp.status_code == 422, resp.text
     assert resp.json().get("code") == "invalid_report_extension"
+
+
+# ── FK-stuffing: adverse_events course_id / session_id ──────────────────────
+# Pre-fix, POST /api/v1/adverse-events gated body.patient_id but stored
+# course_id and session_id verbatim — a clinician with their own patient could
+# attach an AE to another clinic's course, contaminating their safety queries.
+
+def test_adverse_events_rejects_foreign_course_id(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    """Clinician A submits an AE on their own (newly-created) patient but
+    points course_id at a TreatmentCourse owned by clinic B's patient."""
+    from app.persistence.models import Patient, TreatmentCourse
+
+    # Seed clinic-A's own patient + a foreign course owned by clinic-B's
+    # patient. Use clinic_setup's pre-seeded patient (owned by clinic A) as
+    # the AE target so the patient gate passes; the course belongs to a new
+    # clinic-B patient.
+    db: Session = SessionLocal()
+    try:
+        clin_b_patient = Patient(
+            id=str(uuid.uuid4()),
+            clinician_id=cross_clinic_setup["clin_b_id"],
+            first_name="B", last_name="Patient",
+        )
+        db.add(clin_b_patient)
+        db.flush()
+        foreign_course = TreatmentCourse(
+            id=str(uuid.uuid4()),
+            patient_id=clin_b_patient.id,
+            clinician_id=cross_clinic_setup["clin_b_id"],
+            protocol_id="TMS-DLPFC",
+            condition_slug="depression",
+            modality_slug="rtms",
+            status="active",
+        )
+        db.add(foreign_course)
+        db.commit()
+        foreign_course_id = foreign_course.id
+    finally:
+        db.close()
+
+    resp = client.post(
+        "/api/v1/adverse-events",
+        json={
+            "patient_id": cross_clinic_setup["patient_id"],  # clinic A patient
+            "course_id": foreign_course_id,                  # clinic B course
+            "event_type": "headache",
+            "severity": "mild",
+            "description": "fk-stuffing attempt",
+        },
+        headers=_auth(cross_clinic_setup["token_clin_a"]),
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json().get("code") == "invalid_course"
+
+
+def test_adverse_events_rejects_foreign_session_id(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    from app.persistence.models import ClinicalSession, Patient
+
+    db: Session = SessionLocal()
+    try:
+        clin_b_patient = Patient(
+            id=str(uuid.uuid4()),
+            clinician_id=cross_clinic_setup["clin_b_id"],
+            first_name="B2", last_name="Patient",
+        )
+        db.add(clin_b_patient)
+        db.flush()
+        foreign_session = ClinicalSession(
+            id=str(uuid.uuid4()),
+            patient_id=clin_b_patient.id,
+            clinician_id=cross_clinic_setup["clin_b_id"],
+            scheduled_at="2026-04-27T10:00:00Z",
+        )
+        db.add(foreign_session)
+        db.commit()
+        foreign_session_id = foreign_session.id
+    finally:
+        db.close()
+
+    resp = client.post(
+        "/api/v1/adverse-events",
+        json={
+            "patient_id": cross_clinic_setup["patient_id"],
+            "session_id": foreign_session_id,
+            "event_type": "headache",
+            "severity": "mild",
+            "description": "fk-stuffing attempt",
+        },
+        headers=_auth(cross_clinic_setup["token_clin_a"]),
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json().get("code") == "invalid_session"
+
+
+# ── FK-stuffing: annotations target_id ──────────────────────────────────────
+# Pre-fix, POST /api/v1/annotations gated body.patient_id but stored target_id
+# verbatim — a clinician could attach an annotation against another clinic's
+# qEEG/MRI analysis under one of their own patients.
+
+def test_annotations_rejects_foreign_target_id(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    from app.persistence.models import Patient, QEEGAnalysis
+
+    db: Session = SessionLocal()
+    try:
+        clin_b_patient = Patient(
+            id=str(uuid.uuid4()),
+            clinician_id=cross_clinic_setup["clin_b_id"],
+            first_name="B3", last_name="Patient",
+        )
+        db.add(clin_b_patient)
+        db.flush()
+        foreign_qeeg = QEEGAnalysis(
+            id=str(uuid.uuid4()),
+            patient_id=clin_b_patient.id,
+            clinician_id=cross_clinic_setup["clin_b_id"],
+            analysis_status="completed",
+        )
+        db.add(foreign_qeeg)
+        db.commit()
+        foreign_target_id = foreign_qeeg.id
+    finally:
+        db.close()
+
+    resp = client.post(
+        "/api/v1/annotations",
+        json={
+            "patient_id": cross_clinic_setup["patient_id"],  # clinic A patient
+            "target_type": "qeeg",
+            "target_id": foreign_target_id,                  # clinic B qEEG
+            "body": "stuffed annotation",
+        },
+        headers=_auth(cross_clinic_setup["token_clin_a"]),
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json().get("code") == "invalid_annotation_target"

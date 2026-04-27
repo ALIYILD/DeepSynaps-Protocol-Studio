@@ -16,7 +16,7 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import AnalysisAnnotation
+from app.persistence.models import AnalysisAnnotation, MriAnalysis, QEEGAnalysis
 from app.repositories.patients import resolve_patient_clinic_id
 
 
@@ -112,6 +112,28 @@ def create_annotation(
 ) -> AnnotationOut:
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, body.patient_id, db)
+
+    # FK-stuffing guard: target_id is stored verbatim and surfaces via the
+    # list endpoint's target_id query filter. Without this check a clinician
+    # could attach an annotation against another clinic's qEEG/MRI analysis
+    # under one of their own patients (cross-clinic poisoning of analysis
+    # views in same-clinic workflows that filter by target_id).
+    if body.target_type == "qeeg":
+        target = (
+            db.query(QEEGAnalysis).filter(QEEGAnalysis.id == body.target_id).first()
+        )
+    else:
+        target = (
+            db.query(MriAnalysis)
+            .filter(MriAnalysis.analysis_id == body.target_id)
+            .first()
+        )
+    if target is None or target.patient_id != body.patient_id:
+        raise ApiServiceError(
+            code="invalid_annotation_target",
+            message="target_id does not match the supplied patient_id.",
+            status_code=422,
+        )
 
     row = AnalysisAnnotation(
         patient_id=body.patient_id,

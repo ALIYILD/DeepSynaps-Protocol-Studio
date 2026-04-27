@@ -32,7 +32,7 @@ def _gate_patient_access(actor: AuthenticatedActor, patient_id: str | None, db: 
         require_patient_owner(actor, clinic_id)
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import AdverseEvent
+from app.persistence.models import AdverseEvent, ClinicalSession, TreatmentCourse
 
 import logging as _logging
 _ae_log = _logging.getLogger(__name__)
@@ -123,6 +123,28 @@ def report_adverse_event(
 ) -> AdverseEventOut:
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, body.patient_id, db)
+
+    # FK-stuffing guard: course_id and session_id are written verbatim onto
+    # the AdverseEvent row, and downstream analytics aggregate by course_id /
+    # session_id. Without this verification a clinician at clinic A with one
+    # of their own patients could attach a fabricated AE to clinic B's
+    # course_id or session_id, contaminating clinic B's safety queries.
+    if body.course_id:
+        course = db.query(TreatmentCourse).filter_by(id=body.course_id).first()
+        if course is None or course.patient_id != body.patient_id:
+            raise ApiServiceError(
+                code="invalid_course",
+                message="course_id does not match the supplied patient_id.",
+                status_code=422,
+            )
+    if body.session_id:
+        sess = db.query(ClinicalSession).filter_by(id=body.session_id).first()
+        if sess is None or sess.patient_id != body.patient_id:
+            raise ApiServiceError(
+                code="invalid_session",
+                message="session_id does not match the supplied patient_id.",
+                status_code=422,
+            )
 
     severity = body.severity  # already validated by Pydantic Literal
 
