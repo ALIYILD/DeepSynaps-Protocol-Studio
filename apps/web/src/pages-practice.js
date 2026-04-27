@@ -10352,6 +10352,9 @@ export async function pgTickets(setTopbar, navigate) {
     <div style="display:flex;height:calc(100vh - 120px);overflow:hidden">
       <!-- Left: Ticket List -->
       <div style="width:420px;min-width:320px;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden">
+        <div style="margin:12px 16px 0;padding:10px 12px;border:1px solid rgba(255,181,71,0.24);border-radius:10px;background:rgba(255,181,71,0.08);font-size:12px;line-height:1.45;color:var(--text-secondary)">
+          Ticket routing is not connected to a backend service in this beta build. Changes on this page are stored only in this browser for local tracking.
+        </div>
         <!-- Filter bar -->
         <div style="display:flex;gap:6px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap">
           ${['all','open','in-progress','resolved'].map(s => `<button class="btn btn-sm ${filterStatus === s ? 'btn-primary' : 'btn-ghost'}" onclick="window._tkFilter('${s}')" style="font-size:11px;text-transform:capitalize">${s === 'all' ? 'All' : s} (${counts[s] || 0})</button>`).join('')}
@@ -10445,7 +10448,7 @@ export async function pgTickets(setTopbar, navigate) {
     t.messages.push({ from: user, text, ts: new Date().toISOString() });
     _saveTickets(tickets);
     _render();
-    window._dsToast?.({ title: 'Reply sent', body: `Response added to ${id}`, severity: 'ok' });
+    window._dsToast?.({ title: 'Reply saved locally', body: `Response for ${id} is stored in this browser only.`, severity: 'warn' });
   };
 
   window._tkAgentReport = (id) => {
@@ -10459,7 +10462,7 @@ export async function pgTickets(setTopbar, navigate) {
     });
     _saveTickets(tickets);
     _render();
-    window._dsToast?.({ title: 'Agent note added', body: 'OpenClaw diagnostic attached.', severity: 'ok' });
+    window._dsToast?.({ title: 'Agent note saved locally', body: 'Diagnostic note is stored in this browser only.', severity: 'warn' });
   };
 
   window._tkChangeStatus = () => {
@@ -10473,7 +10476,7 @@ export async function pgTickets(setTopbar, navigate) {
       t.messages.push({ from: 'System', text: `Status changed to "${newStatus}".`, ts: new Date().toISOString() });
       _saveTickets(tickets);
       _render();
-      window._dsToast?.({ title: 'Status updated', body: `${t.id} is now ${newStatus}`, severity: 'ok' });
+      window._dsToast?.({ title: 'Status saved locally', body: `${t.id} is now ${newStatus} in this browser only.`, severity: 'warn' });
     }
   };
 
@@ -10484,7 +10487,10 @@ export async function pgTickets(setTopbar, navigate) {
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9000;display:flex;align-items:center;justify-content:center';
     overlay.innerHTML = `
       <div style="background:var(--bg-panel, #0a1d29);border:1px solid var(--border);border-radius:12px;padding:24px;width:480px;max-width:90vw;max-height:85vh;overflow-y:auto">
-        <h3 style="font-size:16px;font-weight:600;color:var(--text-primary);margin:0 0 16px">Create New Ticket</h3>
+        <h3 style="font-size:16px;font-weight:600;color:var(--text-primary);margin:0 0 16px">Create Local Ticket</h3>
+        <div style="margin-bottom:16px;padding:10px 12px;border:1px solid rgba(255,181,71,0.24);border-radius:10px;background:rgba(255,181,71,0.08);font-size:12px;line-height:1.45;color:var(--text-secondary)">
+          This queue is local-only in the current beta build. New tickets created here are saved in this browser and are not synced to a support backend.
+        </div>
         <div style="display:flex;flex-direction:column;gap:14px">
           <div class="form-group">
             <label class="form-label">Title</label>
@@ -10525,7 +10531,7 @@ export async function pgTickets(setTopbar, navigate) {
         </div>
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
           <button class="btn btn-ghost" onclick="document.getElementById('tk-modal-overlay')?.remove()">Cancel</button>
-          <button class="btn btn-primary" onclick="window._tkCreate()">Create Ticket</button>
+          <button class="btn btn-primary" onclick="window._tkCreate()">Save Local Ticket</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
@@ -10559,7 +10565,7 @@ export async function pgTickets(setTopbar, navigate) {
     document.getElementById('tk-modal-overlay')?.remove();
     selectedTicketId = nextId;
     _render();
-    window._dsToast?.({ title: 'Ticket created', body: `${nextId}: ${title}`, severity: 'ok' });
+    window._dsToast?.({ title: 'Ticket saved locally', body: `${nextId} is stored in this browser only.`, severity: 'warn' });
   };
 
   // Initial render
@@ -11580,4 +11586,3 @@ window._acEduMyCourses = async () => {
     if (contentEl) contentEl.innerHTML = '<div style="padding:40px;text-align:center;color:#fb7185">Failed to load courses. Please make sure you are logged in.</div>';
   }
 };
-
