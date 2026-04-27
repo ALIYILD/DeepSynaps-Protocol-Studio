@@ -264,7 +264,10 @@ def _touch_user_session(
     request: Request | None,
 ) -> None:
     """Rotate the `refresh_token_hash` on /auth/refresh so the session row
-    continues to track the most recent refresh token. Best-effort."""
+    continues to track the most recent refresh token. The caller must have
+    already verified the row exists and is not revoked — this function no
+    longer silently creates a new session row when no match is found,
+    because that fallback was a token-replay revival vector."""
     try:
         old_hash = auth_service.hash_refresh_token(old_refresh_token)
         row = db.scalar(select(UserSession).where(UserSession.refresh_token_hash == old_hash))
@@ -273,13 +276,11 @@ def _touch_user_session(
             row.refresh_token_hash = auth_service.hash_refresh_token(new_refresh_token)
             row.last_seen_at = now
             db.commit()
-        else:
-            # Row didn't exist (old refresh was issued before session tracking
-            # went live, or an aborted rotation). Create one so future refreshes
-            # are trackable.
-            _record_user_session(
-                db, user_id=user_id, refresh_token=new_refresh_token, request=request
-            )
+        # If the row vanished between the route's gate check and this
+        # rotation (e.g. concurrent logout in another tab), do nothing —
+        # the new refresh token still works because the route returned it,
+        # but the session is no longer tracked. Acceptable for this race;
+        # the next refresh will 401 because the new hash isn't persisted.
     except Exception:  # pragma: no cover
         logger.warning("Failed to touch UserSession for user %s", user_id, exc_info=True)
         try:
@@ -515,6 +516,28 @@ def refresh_token(
             code="account_inactive",
             message="This account has been deactivated.",
             warnings=["Contact support if you believe this is an error."],
+            status_code=401,
+        )
+
+    # Server-side rotation gate: the presented refresh token must match a
+    # live UserSession row that has not been revoked. Without this check,
+    # a stolen refresh JWT remained valid for its full TTL (30 days) even
+    # after logout / password reset / device sign-out, and `_touch_user_session`
+    # would silently create a fresh session row when no match was found —
+    # effectively reviving any harvested token. Now: hash mismatch or
+    # revoked row both 401.
+    presented_hash = auth_service.hash_refresh_token(body.refresh_token)
+    session_row = db.scalar(
+        select(UserSession).where(
+            UserSession.refresh_token_hash == presented_hash,
+            UserSession.user_id == user.id,
+        )
+    )
+    if session_row is None or session_row.revoked_at is not None:
+        raise ApiServiceError(
+            code="invalid_refresh_token",
+            message="The refresh token has been revoked or is no longer valid.",
+            warnings=["Log in again to obtain a new token pair."],
             status_code=401,
         )
 
@@ -789,6 +812,21 @@ def reset_password(
 
     user.hashed_password = auth_service.hash_password(body.new_password)
     reset_record.used_at = datetime.now(timezone.utc)
+
+    # Revoke every active UserSession for this user — a password reset
+    # implies the prior credential was compromised, so all outstanding
+    # refresh tokens must be invalidated. Without this step, a stolen
+    # refresh JWT issued before the reset remained valid for its full
+    # 30-day TTL even after the password was changed.
+    now = datetime.now(timezone.utc)
+    for session_row in db.scalars(
+        select(UserSession).where(
+            UserSession.user_id == user.id,
+            UserSession.revoked_at.is_(None),
+        )
+    ).all():
+        session_row.revoked_at = now
+
     db.commit()
 
     return MessageResponse(message="Password has been reset successfully.")
