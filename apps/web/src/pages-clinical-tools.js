@@ -10361,7 +10361,7 @@ export async function pgReportsHub(setTopbar) {
             </button>
             <button class="btn btn-sm" style="font-size:11px;border-color:var(--teal,#00d4bc);color:var(--teal,#00d4bc)" onclick="window._rhLinkModal('${esc(r.id)}')">Link to Course/Protocol</button>
             ${r.file_url ? `<button class="btn btn-sm" style="font-size:11px" onclick="window._rhDownload('${esc(r.id)}')">Download</button>` : ''}
-            <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--text-tertiary)" onclick="window._rhDelete('${esc(r.id)}')">Delete</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--text-tertiary)" onclick="window._rhDelete('${esc(r.id)}')">${r._source === 'backend' ? 'Remove local card' : 'Delete'}</button>
           </div>
         </div>
         ${isAIOpen && ai ? `
@@ -10725,7 +10725,10 @@ export async function pgReportsHub(setTopbar) {
         }
         if (res?.file_url) newReport.file_url = res.file_url;
       }
-    } catch (_) {}
+    } catch (_err) {}
+
+    newReport._source = persisted ? 'backend' : 'local';
+    if (!persisted) newReport.status = 'local-only';
 
     if (!persisted) newReport.status = 'local-only';
     reports.push(newReport);
