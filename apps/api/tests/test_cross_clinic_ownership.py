@@ -382,6 +382,51 @@ def test_qeeg_list_patient_analyses_other_clinic_blocked(
     assert resp.json()["code"] == "cross_clinic_access_denied"
 
 
+def test_qeeg_brain_payload_other_clinic_blocked(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    """``GET /qeeg-analysis/{id}/brain.json`` returns source-localised
+    per-ROI band power + within-subject z-scores — patient PHI. Must be
+    cross-clinic gated."""
+    db: Session = SessionLocal()
+    try:
+        analysis_id = _seed_qeeg_analysis(
+            db, cross_clinic_setup["patient_id"], cross_clinic_setup["clin_a_id"]
+        )
+    finally:
+        db.close()
+
+    resp = client.get(
+        f"/api/v1/qeeg-analysis/{analysis_id}/brain.json",
+        headers=_auth(cross_clinic_setup["token_clin_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["code"] == "cross_clinic_access_denied"
+
+
+def test_qeeg_ai_report_other_clinic_blocked(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    """``POST /qeeg-analysis/{id}/ai-report`` inlines the linked
+    QEEGRecord's clinical-context survey + full feature set into an LLM
+    prompt. Must be cross-clinic gated before the LLM call."""
+    db: Session = SessionLocal()
+    try:
+        analysis_id = _seed_qeeg_analysis(
+            db, cross_clinic_setup["patient_id"], cross_clinic_setup["clin_a_id"]
+        )
+    finally:
+        db.close()
+
+    resp = client.post(
+        f"/api/v1/qeeg-analysis/{analysis_id}/ai-report",
+        json={"patient_context": "test"},
+        headers=_auth(cross_clinic_setup["token_clin_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["code"] == "cross_clinic_access_denied"
+
+
 def test_qeeg_list_patient_analyses_guest_blocked(
     client: TestClient, cross_clinic_setup: dict[str, Any]
 ) -> None:
