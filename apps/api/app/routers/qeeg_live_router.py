@@ -13,9 +13,69 @@ from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimu
 from app.entitlements import require_feature
 from app.errors import ApiServiceError
 from app.packages import Feature
+from app.settings import get_settings
 
 
 router = APIRouter(prefix="/api/v1/qeeg/live", tags=["qeeg-live"])
+
+
+def _validate_mock_source(edf_path: str | None) -> None:
+    """Enforce path-traversal + environment guards on the mock EDF source.
+
+    The mock source path used to flow straight into ``mne.io.read_raw_edf``
+    with zero validation — any authenticated clinician could request
+    ``?source=mock&edf_path=/etc/passwd`` (server filesystem probe) or
+    point at another clinic's raw EEG storage location and stream it back.
+
+    Rules:
+      * In ``production``/``staging``, the mock source is refused entirely.
+      * In ``development``/``test``, ``edf_path`` (when provided) must
+        resolve under one of the allowlisted fixture roots: the ``DEEPSYNAPS_QEEG_FIXTURES_DIR``
+        env var if set, otherwise ``apps/api/tests/fixtures/eeg`` and
+        ``packages/qeeg-pipeline/tests/fixtures``.
+    """
+    app_env = get_settings().app_env
+    if app_env in ("production", "staging"):
+        raise ApiServiceError(
+            code="mock_source_disabled",
+            message="Mock source is not available in this environment.",
+            status_code=403,
+        )
+    if not edf_path:
+        return
+    from pathlib import Path
+
+    candidate = Path(edf_path).expanduser()
+    try:
+        resolved = candidate.resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        raise ApiServiceError(
+            code="invalid_edf_path",
+            message="edf_path could not be resolved.",
+            warnings=[str(exc)],
+            status_code=400,
+        ) from exc
+
+    allowed_roots: list[Path] = []
+    env_root = os.getenv("DEEPSYNAPS_QEEG_FIXTURES_DIR")
+    if env_root:
+        allowed_roots.append(Path(env_root).expanduser().resolve(strict=False))
+    repo_root = Path(__file__).resolve().parents[3]
+    allowed_roots.append((repo_root / "apps" / "api" / "tests" / "fixtures" / "eeg").resolve(strict=False))
+    allowed_roots.append((repo_root / "packages" / "qeeg-pipeline" / "tests" / "fixtures").resolve(strict=False))
+
+    for root in allowed_roots:
+        try:
+            resolved.relative_to(root)
+            return
+        except ValueError:
+            continue
+
+    raise ApiServiceError(
+        code="edf_path_outside_allowlist",
+        message="edf_path must point inside an allowlisted fixtures directory.",
+        status_code=400,
+    )
 
 
 def _feature_flag_enabled() -> bool:
