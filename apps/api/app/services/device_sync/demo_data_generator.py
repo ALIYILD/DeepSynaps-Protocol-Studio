@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import math
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from .base_adapter import DailySummaryPayload, ObservationPayload
 
@@ -205,7 +205,7 @@ def generate_sync_events(
 ) -> list[dict]:
     """Generate mock sync history events."""
     events = []
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     rng = _seed(patient_id, provider_id, "sync_events")
     for i in range(count):
         ts = now - timedelta(hours=i * 8 + rng.randint(0, 3))

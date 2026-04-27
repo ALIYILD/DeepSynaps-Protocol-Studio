@@ -262,9 +262,9 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db_session)
                 price_map_rev = {k: v for k, v in price_map_rev.items() if k}
                 package_id = price_map_rev.get(price_id, "explorer")
                 current_period_end_ts = stripe_sub.get("current_period_end")
-                from datetime import datetime
+                from datetime import datetime, timezone
                 current_period_end = (
-                    datetime.utcfromtimestamp(current_period_end_ts)
+                    datetime.fromtimestamp(current_period_end_ts, tz=timezone.utc)
                     if current_period_end_ts
                     else None
                 )
@@ -318,9 +318,11 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db_session)
         package_id = price_map_rev.get(price_id, "explorer") if price_id else "explorer"
 
         current_period_end_ts = data_obj.get("current_period_end")
-        from datetime import datetime
+        from datetime import datetime, timezone
         current_period_end = (
-            datetime.utcfromtimestamp(current_period_end_ts) if current_period_end_ts else None
+            datetime.fromtimestamp(current_period_end_ts, tz=timezone.utc)
+            if current_period_end_ts
+            else None
         )
 
         if stripe_customer_id:
