@@ -231,7 +231,7 @@ export async function openEvidenceDrawer({ patientId, target, featureSummary = [
 
 export function initEvidenceDrawer({ patientId = '', onOpenFullTab = null } = {}) {
   const host = ensureEvidenceHost();
-  host.dataset = host.dataset || {};
+  // dataset is a read-only DOMStringMap on real elements; never reassign.
   host.dataset.patientId = patientId;
   if (onOpenFullTab) {
     window.__dsEvidenceOpenFullTab = onOpenFullTab;
