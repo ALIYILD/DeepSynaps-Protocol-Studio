@@ -864,6 +864,19 @@ export function mountCopilotWidget(containerId, analysisId) {
       ? window.DEEPSYNAPS_COPILOT_WS_BASE
       : proto + host + '/api/v1/qeeg-copilot';
     var url = base.replace(/\/$/, '') + '/' + encodeURIComponent(analysisId || 'demo');
+    // WebSockets can't carry Authorization headers from the browser; pass the
+    // access token via query string. Backend enforces the same RBAC + clinic
+    // gate as the REST routes (qeeg_copilot_router._resolve_ws_actor).
+    try {
+      var _tok = null;
+      try {
+        // localStorage is the same source api.js reads from.
+        if (typeof window !== 'undefined' && window.localStorage) {
+          _tok = window.localStorage.getItem('ds_access_token');
+        }
+      } catch (_) {}
+      if (_tok) url += (url.indexOf('?') === -1 ? '?' : '&') + 'token=' + encodeURIComponent(_tok);
+    } catch (_) { /* fall through; backend will close 1008 */ }
     if (typeof WebSocket !== 'undefined') {
       state.ws = new WebSocket(url);
       setStatus('connecting…', 'ok');
