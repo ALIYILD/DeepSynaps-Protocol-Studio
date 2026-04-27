@@ -611,3 +611,119 @@ def test_outcomes_events_owning_clinician_succeeds(
     )
     assert resp.status_code == 201, resp.text
     assert resp.json()["patient_id"] == pid
+
+
+# ── Home devices router: cross-clinic IDOR + LLM PHI exfil ───────────────────
+# Pre-fix: 4 endpoints in home_devices_router only had a clinician role check
+# but no _gate_patient_access — clinic B could:
+#   POST /home-devices/assign      → write a device assignment on a clinic A
+#                                    patient
+#   PATCH /home-devices/assignments/{id}     → mutate clinic A's assignment
+#   PATCH /home-devices/review-flags/{id}/dismiss → silence clinic A's flags
+#   POST /home-devices/ai-summary/{id}        → P0: aggregate clinic A's
+#                                    session logs / side effects / adherence
+#                                    and ship them to the LLM API + write a
+#                                    poisoned AiSummaryAudit row keyed to
+#                                    clinic A's patient_id.
+
+def _seed_home_device_assignment_for_setup(setup: dict[str, Any]) -> str:
+    """Insert one HomeDeviceAssignment row owned by the seed's clinic-A patient."""
+    from app.persistence.models import HomeDeviceAssignment
+
+    db: Session = SessionLocal()
+    try:
+        aid = str(uuid.uuid4())
+        db.add(
+            HomeDeviceAssignment(
+                id=aid,
+                patient_id=setup["patient_id"],
+                course_id=None,
+                assigned_by=setup["clin_a_id"],
+                device_name="tDCS-X",
+                device_category="tdcs",
+                parameters_json="{}",
+                status="active",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+    return aid
+
+
+def test_home_devices_assign_other_clinic_blocked(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    pid = cross_clinic_setup["patient_id"]
+    resp = client.post(
+        "/api/v1/home-devices/assign",
+        json={
+            "patient_id": pid,
+            "device_name": "tDCS-X",
+            "device_category": "tdcs",
+            "parameters": {},
+        },
+        headers=_auth(cross_clinic_setup["token_clin_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["code"] == "cross_clinic_access_denied"
+
+
+def test_home_devices_update_assignment_other_clinic_blocked(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    aid = _seed_home_device_assignment_for_setup(cross_clinic_setup)
+    resp = client.patch(
+        f"/api/v1/home-devices/assignments/{aid}",
+        json={"status": "revoked", "revoke_reason": "hostile attempt"},
+        headers=_auth(cross_clinic_setup["token_clin_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["code"] == "cross_clinic_access_denied"
+
+
+def test_home_devices_dismiss_review_flag_other_clinic_blocked(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    from app.persistence.models import HomeDeviceReviewFlag
+
+    aid = _seed_home_device_assignment_for_setup(cross_clinic_setup)
+    db: Session = SessionLocal()
+    try:
+        flag_id = str(uuid.uuid4())
+        db.add(
+            HomeDeviceReviewFlag(
+                id=flag_id,
+                patient_id=cross_clinic_setup["patient_id"],
+                assignment_id=aid,
+                flag_type="missed_sessions",
+                severity="warning",
+                detail="Missed sessions",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    resp = client.patch(
+        f"/api/v1/home-devices/review-flags/{flag_id}/dismiss",
+        json={"resolution": "ok"},
+        headers=_auth(cross_clinic_setup["token_clin_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["code"] == "cross_clinic_access_denied"
+
+
+def test_home_devices_ai_summary_other_clinic_blocked(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    """P0 regression: cross-clinic clinician must NOT trigger the LLM AI
+    summary endpoint (which aggregates PHI from session logs + adherence)
+    against another clinic's assignment_id."""
+    aid = _seed_home_device_assignment_for_setup(cross_clinic_setup)
+    resp = client.post(
+        f"/api/v1/home-devices/ai-summary/{aid}",
+        headers=_auth(cross_clinic_setup["token_clin_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["code"] == "cross_clinic_access_denied"

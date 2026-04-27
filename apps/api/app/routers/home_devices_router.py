@@ -304,6 +304,7 @@ def assign_device(
     patient = db.query(Patient).filter_by(id=body.patient_id).first()
     if patient is None:
         raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+    _gate_patient_access(actor, body.patient_id, db)
 
     now = datetime.now(timezone.utc)
     assignment = HomeDeviceAssignment(
@@ -377,6 +378,7 @@ def update_assignment(
 ) -> AssignmentOut:
     _require_clinician(actor)
     assignment = _get_assignment_or_404(assignment_id, db)
+    _gate_patient_access(actor, assignment.patient_id, db)
 
     if body.status is not None:
         if body.status not in ("active", "paused", "completed", "revoked"):
@@ -540,6 +542,7 @@ def dismiss_review_flag(
     flag = db.query(HomeDeviceReviewFlag).filter_by(id=flag_id).first()
     if flag is None:
         raise ApiServiceError(code="not_found", message="Flag not found.", status_code=404)
+    _gate_patient_access(actor, flag.patient_id, db)
     flag.dismissed = True
     flag.reviewed_by = actor.actor_id
     flag.reviewed_at = datetime.now(timezone.utc)
@@ -562,6 +565,11 @@ def generate_home_therapy_summary(
     """
     _require_clinician(actor)
     assignment = _get_assignment_or_404(assignment_id, db)
+    # P0 cross-clinic guard: PHI (session logs, side effects, adherence) is
+    # aggregated and shipped to the LLM API; without this gate any clinician
+    # who knew an assignment_id could exfiltrate another clinic's home-therapy
+    # data and poison AiSummaryAudit with a row keyed to a foreign patient_id.
+    _gate_patient_access(actor, assignment.patient_id, db)
 
     reviewed_count = (
         db.query(DeviceSessionLog)
