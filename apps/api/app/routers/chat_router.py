@@ -62,6 +62,21 @@ class ChatRequest(BaseModel):
     language: str = "en"               # BCP-47 locale code for patient responses
 
 
+class PublicChatRequest(BaseModel):
+    """Strictly-narrow request model for the unauthenticated /public route.
+
+    Pre-fix the public route accepted the full ChatRequest, including
+    `patient_id`, `patient_context`, and `dashboard_context`. The handler
+    ignored those fields, but the next refactor that wires them through
+    would silently turn /public into a PHI sink that any internet caller
+    could query. Define an explicit narrow shape here so the type system
+    refuses to leak that on a future edit.
+    """
+    model_config = {"extra": "forbid"}
+
+    messages: list[ChatMessage]
+
+
 class AgentChatRequest(BaseModel):
     messages: list[ChatMessage]
     provider: str = "glm-free"            # "glm-free" | "anthropic" | "openai"
@@ -89,8 +104,14 @@ class SalesInquiryResponse(BaseModel):
 
 @router.post("/public", response_model=ChatResponse)
 @limiter.limit("10/minute")
-def public_faq_chat(request: Request, body: ChatRequest) -> ChatResponse:
-    """No auth required — public FAQ bot for the landing page."""
+def public_faq_chat(request: Request, body: PublicChatRequest) -> ChatResponse:
+    """No auth required — public FAQ bot for the landing page.
+
+    Body shape is the narrow ``PublicChatRequest``: ``messages`` only, no
+    ``patient_id``/``patient_context``/``dashboard_context``. Extra fields
+    are rejected (``extra="forbid"``) so an unauthenticated caller cannot
+    smuggle PHI selectors through the public surface.
+    """
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
     reply = chat_public_faq(msgs)
     return ChatResponse(reply=reply)
