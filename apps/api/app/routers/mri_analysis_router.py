@@ -347,11 +347,18 @@ def _status_payload_from_row(row: MriAnalysis, job_id: str) -> dict[str, Any]:
         "SUCCESS": "done",
         "FAILURE": "failed",
     }
-    return {
+    info: dict[str, Any] = {"stage": stage_map.get(row.state, row.state)}
+    failure = getattr(row, "failure_reason", None)
+    if failure:
+        info["error"] = failure
+    payload: dict[str, Any] = {
         "job_id": job_id,
         "state": row.state,
-        "info": {"stage": stage_map.get(row.state, row.state)},
+        "info": info,
     }
+    if failure:
+        payload["error"] = failure
+    return payload
 
 
 def _populate_row_from_report(row: MriAnalysis, report: dict[str, Any]) -> None:
@@ -669,9 +676,11 @@ async def analyze_mri(
             row.state = "SUCCESS"
         else:
             row.state = "FAILURE"
+            _err_msg = result.get("error") or "pipeline failed"
             row.qc_json = _dump(
-                {"passed": False, "notes": [result.get("error") or "pipeline failed"]}
+                {"passed": False, "notes": [_err_msg]}
             )
+            row.failure_reason = str(_err_msg)[:1000]
         db.commit()
         return {"job_id": analysis_id, "state": "queued"}
 

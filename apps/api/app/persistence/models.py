@@ -1955,6 +1955,7 @@ class MriAnalysis(Base):
     condition: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     age: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     sex: Mapped[Optional[str]] = mapped_column(String(4), nullable=True)
+    failure_reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
 
 
 class MriUpload(Base):
