@@ -4915,7 +4915,7 @@ function renderLikertForm(containerId, patientId, config) {
       // which applies to any measure).
       const bodyText = (formKey === 'phq9')
         ? t('patient.assess.result.body')
-        : 'Your score has been recorded. Your care team will review these results before your next session. If you are experiencing thoughts of self-harm, please contact your clinician immediately or call a crisis line.';
+        : 'Your score has been recorded. Clinic review depends on portal workflow before your next session. If you are experiencing thoughts of self-harm, please contact your clinician immediately or call a crisis line.';
       const titleText = (formKey === 'phq9')
         ? t('patient.assess.result.title')
         : 'Assessment Result';
@@ -13102,7 +13102,7 @@ export async function pgPatientMediaUpload() {
   el.innerHTML = `
     <div style="margin-bottom:20px">
       <div style="font-size:17px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Send an Update to Your Care Team</div>
-      <div style="font-size:12.5px;color:var(--text-secondary)">Your care team will review your update before it is used in your clinical record.</div>
+      <div style="font-size:12.5px;color:var(--text-secondary)">Clinical review timing depends on portal workflow before your update is used in your record.</div>
     </div>
 
     <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:10px 14px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px">
@@ -13209,7 +13209,7 @@ export async function pgPatientMediaUpload() {
 
     <!-- Consent reminder -->
     <div class="notice notice-info" style="margin-bottom:16px;font-size:12px">
-      By uploading, you confirm you have given consent for this upload type. Your care team will review your update before it is used in your clinical record.
+      By uploading, you confirm you have given consent for this upload type. Clinical review timing depends on portal workflow before your update is used in your record.
     </div>
 
     <!-- Consent warning (shown when submitting without consent) -->

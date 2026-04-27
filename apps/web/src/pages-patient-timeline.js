@@ -204,63 +204,6 @@ export function renderTimeline(events, patientId) {
     + '</div>';
 }
 
-// ── Page entrypoint ────────────────────────────────────────────────────────
-
-export async function pgPatientTimeline(setTopbar, navigate) {
-  if (typeof setTopbar === 'function') setTopbar('Patient Timeline', '');
-  var el = (typeof document !== 'undefined') ? document.getElementById('content') : null;
-
-  var patientId = _resolvePatientId();
-
-  // Loading shim — keeps layout stable while we fetch.
-  if (el) {
-    el.innerHTML = '<div class="ds-timeline-shell ds-timeline-shell--loading">'
-      + '<header class="ds-timeline-head">'
-      + '<h1 class="ds-timeline-head__title">Patient Timeline</h1>'
-      + '<div class="ds-timeline-head__sub">Loading events for ' + esc(patientId) + '…</div>'
-      + '</header></div>';
-  }
-
-  var events = [];
-  try {
-    payload = await api.getMRIPatientTimeline(patientId);
-  } catch (_err) {
-    el.innerHTML = emptyState('&#x1F4C5;', 'Patient timeline unavailable', 'We could not load the patient timeline right now. Please try again shortly.');
-    return;
-  }
-  if (!payload || typeof payload !== 'object') {
-    el.innerHTML = emptyState('&#x1F4C5;', 'Patient timeline unavailable', 'Timeline data is not available for this patient yet.');
-    return;
-  }
-
-  if (!el) return;
-  el.innerHTML = renderTimeline(events, patientId);
-
-  // Click → open the underlying analysis page.
-  document.querySelectorAll('.ds-timeline-dot').forEach(function (dot) {
-    dot.addEventListener('click', function () {
-      var type = dot.getAttribute('data-type');
-      var ref = dot.getAttribute('data-ref-id');
-      if (!ref) return;
-      if (typeof navigate !== 'function') return;
-      if (type === 'qeeg_analysis') {
-        try { window._qeegAnalysisId = ref; } catch (_e) {}
-        navigate('qeeg-analysis');
-      } else if (type === 'mri_analysis') {
-        try { window._mriAnalysisId = ref; } catch (_e) {}
-        navigate('mri-analysis');
-      } else if (type === 'session') {
-        try { window._sessionId = ref; } catch (_e) {}
-        navigate('session-execution');
-      } else if (type === 'assessment') {
-        navigate('assessments-v2');
-      } else {
-        showToast('No detail view wired for ' + (type || 'event'), 'info');
-      }
-    });
-  });
-}
-
 // ── Test-only exports ──────────────────────────────────────────────────────
 export var _INTERNALS = {
   LANES: LANES,
@@ -268,9 +211,6 @@ export var _INTERNALS = {
   resolvePatientId: _resolvePatientId,
   REGULATORY_FOOTER: REGULATORY_FOOTER,
 };
-=======
-  }
-}
 
 function _laneRows(payload) {
   var lanes = payload && payload.lanes ? payload.lanes : {};
@@ -409,4 +349,3 @@ export async function pgPatientTimeline(setTopbar, navigate) {
   el.innerHTML = _renderTimeline(payload);
   _wireTimelineActions(navigate, payload);
 }
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508

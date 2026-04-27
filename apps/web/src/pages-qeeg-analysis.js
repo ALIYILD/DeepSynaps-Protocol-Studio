@@ -96,9 +96,6 @@ export var DEMO_FUSION_RESULT = {
   disclaimer: 'Decision-support tool. Not a medical device. Multi-modal convergent findings are research/wellness indicators only.',
 };
 
-const FUSION_API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
-const FUSION_TOKEN_KEY = 'ds_access_token';
-
 // Feature flag for the Contract V2 AI upgrade panels + buttons. Defaults to
 // on; ops can disable without a redeploy by setting
 // window.DEEPSYNAPS_ENABLE_AI_UPGRADES = false before the app boots.
@@ -1452,26 +1449,6 @@ export function renderNormativeZScoreHeatmap(analysis) {
   return card('Normative z-scores', heatmap + legend + findingsHtml);
 }
 
-export function renderNormativeTopomapGrid(analysis) {
-  if (!analysis || !analysis.normative_zscores) return '';
-  var spectral = analysis.normative_zscores.spectral && analysis.normative_zscores.spectral.bands
-    ? analysis.normative_zscores.spectral.bands
-    : null;
-  if (!spectral) return '';
-  var bands = Object.keys(spectral);
-  if (!bands.length) return '';
-  var html = '<div class="qeeg-band-grid">';
-  bands.forEach(function (band) {
-    var values = spectral[band] && spectral[band].absolute_uv2 ? spectral[band].absolute_uv2 : {};
-    if (!Object.keys(values).length) return;
-    html += '<div style="text-align:center">'
-      + renderTopoHeatmap(values, { band: band + ' z-score', unit: 'z', size: 220, colorScale: 'diverging' })
-      + '</div>';
-  });
-  html += '</div>';
-  return html.indexOf('ds-topo-heatmap') !== -1 ? card('Normative Topomaps', html) : '';
-}
-
 function _buildBrainRingPayload(analysis) {
   if (!analysis) return null;
   var coh = analysis.advanced_analyses && analysis.advanced_analyses.results
@@ -1691,124 +1668,6 @@ export function renderNormativeTopomapGrid(analysis) {
   });
   html += '</div>';
   return html.indexOf('ds-topo-heatmap') !== -1 ? card('Normative Topomaps', html) : '';
-}
-
-function _buildBrainRingPayload(analysis) {
-  if (!analysis) return null;
-  var coh = analysis.advanced_analyses && analysis.advanced_analyses.results
-    ? analysis.advanced_analyses.results.coherence_matrix
-    : null;
-  if (!coh || coh.status !== 'ok' || !coh.data || !coh.data.channels || !coh.data.bands) return null;
-  var band = coh.data.bands.alpha ? 'alpha' : Object.keys(coh.data.bands)[0];
-  if (!band) return null;
-  var channels = coh.data.channels || [];
-  var matrix = coh.data.bands[band];
-  if (!channels.length || !matrix) return null;
-
-  var connections = [];
-  for (var row = 0; row < matrix.length; row++) {
-    for (var col = row + 1; col < matrix[row].length; col++) {
-      connections.push({ ch1: channels[row], ch2: channels[col], value: Number(matrix[row][col] || 0) });
-    }
-  }
-  connections.sort(function (a, b) { return b.value - a.value; });
-  var topConnections = connections.slice(0, 18);
-  var nodes = channels.map(function (label, index) {
-    return { id: index, label: label, color: BAND_COLORS[band] || '#56b870' };
-  });
-  var edges = [];
-  topConnections.forEach(function (conn) {
-    var source = channels.indexOf(conn.ch1);
-    var target = channels.indexOf(conn.ch2);
-    if (source === -1 || target === -1) return;
-    edges.push({ source: source, target: target, weight: conn.value, sign: 1 });
-  });
-
-  return {
-    band: band,
-    nodes: nodes,
-    edges: edges,
-    threshold: 0.45,
-    topConnections: topConnections
-  };
-}
-
-function _brainRingFrameMarkup(payload) {
-  if (!payload || !payload.nodes || !payload.nodes.length || !payload.edges || !payload.edges.length) return '';
-  var encoded = encodeURIComponent(JSON.stringify({
-    type: 'brainring/load',
-    atlas: '10-20',
-    band: payload.band,
-    threshold: payload.threshold,
-    nodes: payload.nodes,
-    edges: payload.edges
-  }));
-  return '<div class="qeeg-brainring-frame-wrap" style="display:grid;gap:8px">'
-    + '<iframe'
-    + ' title="BrainRing connectivity viewer"'
-    + ' data-brainring-frame="1"'
-    + ' data-brainring-payload="' + esc(encoded) + '"'
-    + ' src="/vendor/brainring/brainring.html"'
-    + ' loading="lazy"'
-    + ' style="width:100%;min-height:360px;border:1px solid rgba(148,163,184,.28);border-radius:16px;background:#07111f"'
-    + '></iframe>'
-    + '<div data-brainring-fallback="1">'
-    + renderConnectivityChordLite(payload.nodes, payload.edges, { title: payload.band + ' connectivity chord', size: 320, threshold: payload.threshold })
-    + '</div>'
-    + '</div>';
-}
-
-function _bindBrainRingFrames() {
-  if (typeof window === 'undefined' || typeof document === 'undefined') return;
-  if (!window.__dsBrainRingMessageBound) {
-    window.addEventListener('message', function (event) {
-      var data = event && event.data ? event.data : null;
-      if (!data || (data.type !== 'brainring/ready' && data.type !== 'brainring/rendered')) return;
-      var frames = document.querySelectorAll('iframe[data-brainring-frame="1"]');
-      frames.forEach(function (frame) {
-        if (frame.contentWindow !== event.source) return;
-        var fallback = frame.parentElement ? frame.parentElement.querySelector('[data-brainring-fallback="1"]') : null;
-        if (fallback) fallback.style.display = 'none';
-      });
-    });
-    window.__dsBrainRingMessageBound = true;
-  }
-
-  document.querySelectorAll('iframe[data-brainring-frame="1"]').forEach(function (frame) {
-    if (frame.dataset.brainringBound === '1') return;
-    frame.dataset.brainringBound = '1';
-    var payloadRaw = frame.getAttribute('data-brainring-payload') || '';
-    var payload = null;
-    try {
-      payload = JSON.parse(decodeURIComponent(payloadRaw));
-    } catch (_) {
-      payload = null;
-    }
-    if (!payload) return;
-    var send = function () {
-      try {
-        if (frame.contentWindow) frame.contentWindow.postMessage(payload, '*');
-      } catch (_) {}
-    };
-    frame.addEventListener('load', send);
-    send();
-    setTimeout(send, 250);
-    setTimeout(send, 1000);
-  });
-}
-
-export function renderConnectivityClinicViz(analysis) {
-  var payload = _buildBrainRingPayload(analysis);
-  if (!payload) return '';
-  var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">'
-    + '<div style="overflow:auto">'
-    + renderConnectivityBrainMap(payload.topConnections, { band: payload.band + ' coherence', size: 320, threshold: payload.threshold })
-    + '</div>'
-    + '<div style="overflow:auto">'
-    + _brainRingFrameMarkup(payload)
-    + '</div>'
-    + '</div>';
-  return card('Connectivity Visualizations', html);
 }
 
 // ── §4.5 Asymmetry + graph strip ────────────────────────────────────────────
@@ -6151,6 +6010,4 @@ function _renderAsymmetryTable(pairs) {
     html += '</tr>';
   });
   return html + '</tbody></table></div>';
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 }
