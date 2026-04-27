@@ -1046,6 +1046,8 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
     scanGuidedNotes: prefill?.scanGuidedNotes ? JSON.stringify(prefill.scanGuidedNotes, null, 2) : '',
     saved: false,
     submitted: false,
+    saveSyncState: null,
+    submitSyncState: null,
   };
 
   const _govToggle = g => {
@@ -1263,8 +1265,8 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
               <button class="prot-b-submit-btn" onclick="window._protBSubmit()">Submit for Review</button>
             </div>
 
-            ${_b.saved ? '<div class="prot-b-success">\u2713 Saved to local library</div>' : ''}
-            ${_b.submitted ? '<div class="prot-b-success">\u2713 Submitted for clinical review</div>' : ''}
+            ${_b.saved ? `<div class="prot-b-success">\u2713 ${_b.saveSyncState === 'backend' ? 'Draft saved and synced to backend' : 'Draft saved in this browser only'}</div>` : ''}
+            ${_b.submitted ? `<div class="prot-b-success">\u2713 ${_b.submitSyncState === 'backend' ? 'Submitted to backend review queue' : 'Saved locally — backend review was not started'}</div>` : ''}
           </div>
         </div>
       </div>`;
@@ -1418,6 +1420,9 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
     localStorage.setItem('ds_custom_protocols', JSON.stringify(saved));
     const backend = await _pushCustomToBackend(custom, 'draft');
     _b.saved = true;
+    _b.submitted = false;
+    _b.saveSyncState = backend.pushed ? 'backend' : 'local';
+    _b.submitSyncState = null;
     renderBuilder();
     const suffix = backend.pushed ? ' (synced to backend)' : ' (local-only — attach a patient to sync)';
     window._showNotifToast?.({ title:'Saved', body:`"${_b.name}" saved to protocol library${suffix}.`, severity:'success' });
@@ -1434,6 +1439,8 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
     const backend = await _pushCustomToBackend(custom, 'submitted');
     _b.submitted = true;
     _b.saved = false;
+    _b.submitSyncState = backend.pushed ? 'backend' : 'local';
+    _b.saveSyncState = null;
     renderBuilder();
     const body = backend.pushed
       ? `"${_b.name}" submitted to backend review queue. Review status remains unchanged until a clinician records it.`
