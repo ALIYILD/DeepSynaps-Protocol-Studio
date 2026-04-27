@@ -1588,16 +1588,45 @@ function tickClock() {
 
 // ===================== CONFIG =====================
 // Defaults target the live DeepSynaps Studio API (Fly) using the unauthenticated
-// /api/chat/public endpoint (GLM-4.5-Air via OpenRouter). Override via
-// <script>window.DEEPSYNAPS_CONFIG = { aiEndpoint:'/api/chat/clinician' }</script>
+// /api/v1/chat/public endpoint (GLM-4.5-Air via OpenRouter). Override via
+// <script>window.DEEPSYNAPS_CONFIG = { aiEndpoint:'/api/v1/chat/clinician' }</script>
 // to use the authenticated clinician chat when embedded in the logged-in SPA.
+//
+// SECURITY: `apiBase` is later concatenated into `fetch(... , { credentials })`
+// calls. We MUST validate it against a fixed allowlist before using it,
+// otherwise a parent SPA (or DOM-clobbering vector) that swaps in
+// `apiBase: "https://attacker.tld"` and adds an authenticated endpoint
+// override could exfiltrate the deepsynaps session cookie. The clinician
+// chat endpoint is the only one we ever attach `credentials: 'include'`
+// to; the public endpoints use `credentials: 'omit'`.
+const _ALLOWED_API_BASES = new Set([
+  'https://deepsynaps-studio.fly.dev',
+  'https://deepsynaps-studio-staging.fly.dev',
+  // Same-origin fallback when the page is embedded in the SPA build.
+  window.location.origin,
+]);
+function _safeApiBase(candidate) {
+  const fallback = 'https://deepsynaps-studio.fly.dev';
+  if (typeof candidate !== 'string' || !candidate) return fallback;
+  // Strip any trailing slash to match the Set entries deterministically.
+  const normalised = candidate.replace(/\/+$/, '');
+  return _ALLOWED_API_BASES.has(normalised) ? normalised : fallback;
+}
+const _userConfig = (window.DEEPSYNAPS_CONFIG || {});
 const CONFIG = Object.assign({
   apiBase: 'https://deepsynaps-studio.fly.dev',
-  aiEndpoint: '/api/chat/public',
-  evidenceEndpoint: '/api/evidence/suggest',
-  casesEndpoint: '/api/patients/by-biomarker',
+  aiEndpoint: '/api/v1/chat/public',
+  evidenceEndpoint: '/api/v1/evidence/suggest',
+  casesEndpoint: '/api/v1/patients/by-biomarker',
   model: 'glm-4.5-air'
-}, (window.DEEPSYNAPS_CONFIG || {}));
+}, _userConfig);
+CONFIG.apiBase = _safeApiBase(CONFIG.apiBase);
+// Clinician chat endpoint requires the session cookie; everything else is
+// fetched without credentials. `_isClinicianChat` lets us choose per-fetch.
+function _isClinicianChat() {
+  return typeof CONFIG.aiEndpoint === 'string'
+    && CONFIG.aiEndpoint.indexOf('/clinician') !== -1;
+}
 
 let CURRENT = null;
 let BACKEND_LIVE = false;
@@ -1618,6 +1647,8 @@ async function probeBackend() {
     const r = await fetch(CONFIG.apiBase + CONFIG.aiEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      // Public probe — never attach the session cookie.
+      credentials: _isClinicianChat() ? 'include' : 'omit',
       body: JSON.stringify({ messages: [{ role: 'user', content: 'ping' }] }),
       signal: ctrl.signal
     });
@@ -1693,6 +1724,11 @@ async function sendAI() {
   const typing = appendMsg('ai', '<span class="ai-typing"><span></span><span></span><span></span></span>');
 
   let reply;
+  // `replyIsTrusted` distinguishes locally-built HTML (safe to render via
+  // innerHTML) from LLM-supplied strings (must be rendered via
+  // textContent to avoid XSS — the LLM is attacker-influenced through
+  // prompt injection in the user's own message).
+  let replyIsTrusted = false;
   if (BACKEND_LIVE) {
     try {
       // Build a messages array: a context priming message, then the user question.
@@ -1708,7 +1744,11 @@ async function sendAI() {
       const r = await fetch(CONFIG.apiBase + CONFIG.aiEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+        // Only attach the session cookie when the override has explicitly
+        // pointed us at the clinician chat endpoint. The public endpoint
+        // is unauthenticated and cookies must not be sent to it (and
+        // certainly not to a redirected/replaced apiBase).
+        credentials: _isClinicianChat() ? 'include' : 'omit',
         body: JSON.stringify({
           messages: [
             { role: 'user', content: ctx },
@@ -1721,20 +1761,40 @@ async function sendAI() {
       });
       if (r.status === 401 || r.status === 403) {
         reply = simulateAI(q, CURRENT) + `<div class="sig">ℹ authenticated endpoint — sign in to use the clinician chat; showing local reasoning</div>`;
+        replyIsTrusted = true;
       } else if (!r.ok) {
-        reply = simulateAI(q, CURRENT) + `<div class="sig">⚠ backend returned ${r.status} — showing simulated response</div>`;
+        reply = simulateAI(q, CURRENT) + `<div class="sig">⚠ backend returned ${escapeHtml(String(r.status))} — showing simulated response</div>`;
+        replyIsTrusted = true;
       } else {
         const j = await r.json();
         reply = j.reply || j.answer || j.message || simulateAI(q, CURRENT);
+        // If we fell through to simulateAI (because the response was
+        // empty), the result is locally-built HTML and trusted; otherwise
+        // it came from the LLM and must be rendered as text.
+        replyIsTrusted = !(j && (j.reply || j.answer || j.message));
       }
     } catch (e) {
       reply = simulateAI(q, CURRENT) + `<div class="sig">⚠ backend request failed — showing simulated response</div>`;
+      replyIsTrusted = true;
     }
   } else {
     await new Promise(r => setTimeout(r, 420 + Math.random() * 380));
     reply = simulateAI(q, CURRENT);
+    replyIsTrusted = true;
   }
-  typing.querySelector('.body').innerHTML = reply;
+  const bodyEl = typing.querySelector('.body');
+  if (replyIsTrusted) {
+    // Locally-assembled HTML — the only `<` characters here come from
+    // hand-written tags in simulateAI/error banners, never from user
+    // input. Safe to render with innerHTML.
+    bodyEl.innerHTML = reply;
+  } else {
+    // LLM-supplied content — render as text so prompt-injection cannot
+    // smuggle <script>/<img onerror=…>/<iframe srcdoc=…> into the page.
+    // The backend `_sanitize_llm_output` is defence-in-depth; this is
+    // the load-bearing guard.
+    bodyEl.textContent = String(reply);
+  }
   document.getElementById('ai-thread').scrollTop = 9e9;
 }
 
@@ -1874,13 +1934,21 @@ async function renderCases(b) {
     rows = mockCasesFor(b);
   }
   meta.textContent = `${rows.length} matched · ${rows.filter(r => Math.abs(r.z) > 2).length} abnormal`;
+  // Each row may come from `casesEndpoint` (server-supplied JSON) so every
+  // textual field gets escapeHtml — `r.pid`, `r.name`, `r.cond`, `r.session`
+  // are otherwise concatenated raw into innerHTML.
   host.innerHTML = rows.map(r => {
-    const cls = Math.abs(r.z) > 2 ? '' : Math.abs(r.z) > 1.5 ? 'mid' : 'ok';
+    const z = Number(r.z) || 0;
+    const cls = Math.abs(z) > 2 ? '' : Math.abs(z) > 1.5 ? 'mid' : 'ok';
+    const pid = escapeHtml(r.pid);
+    const name = escapeHtml(r.name);
+    const cond = escapeHtml(r.cond);
+    const session = escapeHtml(r.session);
     return `
-      <div class="case-row" data-pid="${r.pid}">
-        <span class="pid">${r.pid}</span>
-        <div class="meta">${r.name}<span class="sub">${r.cond} · session ${r.session}/30</span></div>
-        <span class="z ${cls}">${r.z >= 0 ? '+' : ''}${r.z.toFixed(2)}</span>
+      <div class="case-row" data-pid="${pid}">
+        <span class="pid">${pid}</span>
+        <div class="meta">${name}<span class="sub">${cond} · session ${session}/30</span></div>
+        <span class="z ${cls}">${z >= 0 ? '+' : ''}${z.toFixed(2)}</span>
       </div>`;
   }).join('');
   host.querySelectorAll('.case-row').forEach(row => {
@@ -1920,7 +1988,12 @@ async function renderEvidence(b) {
       // Call only if the caller overrode the endpoint shape via DEEPSYNAPS_CONFIG; otherwise keep mock.
       const indication = encodeURIComponent(b.cond[0] || '');
       const url = `${CONFIG.apiBase}${CONFIG.evidenceEndpoint}?indication=${indication}&limit=8`;
-      const r = await fetch(url, { credentials: 'include' });
+      // Same cookie-exfil rationale as in sendAI(): only attach the
+      // session cookie when the override has explicitly pointed us at a
+      // clinician endpoint.
+      const r = await fetch(url, {
+        credentials: _isClinicianChat() ? 'include' : 'omit'
+      });
       if (r.ok) {
         const j = await r.json();
         const papers = Array.isArray(j) ? j : (j.papers || j.items || []);
@@ -1998,13 +2071,26 @@ function downloadFile(name, content, mime) {
   setTimeout(() => URL.revokeObjectURL(url), 500);
 }
 
+// Defence against CSV-injection: any cell starting with =, +, -, or @ is
+// interpreted by Excel/Numbers as a formula. Prefix with a single quote
+// so the spreadsheet renders the cell as text. The evidence titles are
+// influenced by the live evidence corpus once `evidenceEndpoint` is
+// overridden — without this, an attacker-controlled paper title can run
+// =HYPERLINK("…") on the clinician's machine when they open the export.
+function _csvSafeCell(value) {
+  const s = String(value == null ? '' : value);
+  return /^[=+\-@]/.test(s) ? "'" + s : s;
+}
 function exportEvidenceCSV() {
   const rows = Array.from(document.querySelectorAll('#evidence-list .ev-row'));
   const csv = 'title,tier,year,journal,citations\n' + rows.map(r => {
-    const t = r.querySelector('.ev-title').textContent.replace(/"/g, '""');
-    const meta = r.querySelector('.ev-meta').textContent.split(/\s+/);
+    const titleRaw = _csvSafeCell(r.querySelector('.ev-title').textContent);
+    const t = titleRaw.replace(/"/g, '""');
+    const meta = r.querySelector('.ev-meta').textContent
+      .split(/\s+/)
+      .map(_csvSafeCell);
     return `"${t}",${meta.join(',')}`;
-  }).join('\n');
+  }).join('\r\n');
   downloadFile((CURRENT?.name || 'evidence').replace(/\s+/g, '_') + '_refs.csv', csv, 'text/csv');
   toast('evidence CSV exported');
 }
