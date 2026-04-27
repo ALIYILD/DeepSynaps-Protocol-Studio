@@ -73,11 +73,7 @@ def test_export_fhir_bundle_returns_patient_summary(client: TestClient, auth_hea
 
     course = client.post(
         "/api/v1/treatment-courses",
-<<<<<<< HEAD
         json={"patient_id": patient_id, "protocol_id": "PRO-001"},
-=======
-        json={"patient_id": patient_id, "protocol_id": "PRO-FHIR"},
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
         headers=auth_headers["clinician"],
     )
     assert course.status_code == 201, course.text
@@ -186,7 +182,6 @@ def test_export_bids_derivatives_returns_zip(client: TestClient, auth_headers: d
     assert resp.status_code == 200, resp.text
     assert resp.headers["content-type"].startswith("application/zip")
     assert resp.content[:2] == b"PK"
-<<<<<<< HEAD
 
 
 def test_export_endpoints_hide_other_clinicians_patients(client: TestClient, auth_headers: dict) -> None:
@@ -214,5 +209,3 @@ def test_export_endpoints_hide_other_clinicians_patients(client: TestClient, aut
         headers=other_headers,
     )
     assert bids.status_code == 404, bids.text
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508

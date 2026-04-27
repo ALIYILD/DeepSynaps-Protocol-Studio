@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 // ─────────────────────────────────────────────────────────────────────────────
 // pages-patient-timeline.js — per-patient timeline aggregator (CONTRACT_V3 §6)
 //
@@ -19,67 +18,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { api } from './api.js';
 import { showToast } from './helpers.js';
-=======
-import { api } from './api.js';
-import { emptyState, showToast } from './helpers.js';
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 
 function esc(v) {
   if (v == null) return '';
   return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-<<<<<<< HEAD
-// 4 canonical swim-lanes. The backend may emit 5 ("outcome"); we render
-// outcome events inside the "session" lane as a secondary dot kind.
-var LANES = [
-  { id: 'qeeg',       label: 'qEEG',        color: '#60a5fa' },
-  { id: 'mri',        label: 'MRI',         color: '#c026d3' },
-  { id: 'assessment', label: 'Assessments', color: '#22c55e' },
-  { id: 'session',    label: 'Sessions',    color: '#f59e0b' },
-];
-
-<<<<<<< HEAD
-=======
-function _timelinePatientId() {
-  try {
-    return window._patientTimelinePatientId
-      || window._profilePatientId
-      || sessionStorage.getItem('ds_pat_selected_id')
-      || '';
-  } catch (_) {
-    return window._patientTimelinePatientId || window._profilePatientId || '';
-  }
-}
-
-function _demoTimeline(patientId) {
-  return {
-    patient_id: patientId || 'DS-2026-000123',
-    generated_at: new Date().toISOString(),
-    lanes: {
-      sessions: [
-        { id: 'sess-1', at: '2026-01-10T10:00:00Z', title: 'Session 1', status: 'completed', meta: { modality: 'rtms' } },
-        { id: 'sess-12', at: '2026-03-28T10:00:00Z', title: 'Session 12', status: 'completed', meta: { modality: 'rtms' } },
-      ],
-      qeeg: [
-        { id: 'qeeg-1', at: '2026-01-08', title: 'resting qEEG', status: 'recorded', meta: { equipment: 'NeuroGuide 19ch' } },
-      ],
-      mri: [
-        { id: 'mri-1', at: '2026-01-06T12:00:00Z', title: 'MRI MDD', status: 'SUCCESS', meta: { condition: 'mdd' } },
-      ],
-      outcomes: [
-        { id: 'out-1', at: '2026-03-30T09:00:00Z', title: 'PHQ-9', status: 'post', meta: { score_numeric: 8 } },
-      ],
-    },
-    links: [
-      { from_lane: 'sessions', from_id: 'sess-1', to_lane: 'qeeg', to_id: 'qeeg-1', kind: 'temporal' },
-      { from_lane: 'sessions', from_id: 'sess-1', to_lane: 'mri', to_id: 'mri-1', kind: 'temporal' },
-      { from_lane: 'qeeg', from_id: 'qeeg-1', to_lane: 'outcomes', to_id: 'out-1', kind: 'course' },
-    ],
-  };
-}
-
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 function _toDate(raw) {
   if (!raw) return null;
   try {
@@ -87,39 +31,6 @@ function _toDate(raw) {
     return isNaN(d.getTime()) ? null : d;
   } catch (_) {
     return null;
-<<<<<<< HEAD
-=======
-var REGULATORY_FOOTER =
-  'Decision-support tool. Not a medical device. Multi-modal convergent '
-  + 'findings are research/wellness indicators only.';
-
-// Demo synthetic events — mirror the backend's _synth_demo_events shape.
-// Used only as a fallback when the API is unreachable.
-function _demoEvents(patientId) {
-  var now = Date.now();
-  function iso(daysAgo) {
-    return new Date(now - daysAgo * 24 * 3600 * 1000).toISOString();
-  }
-  return [
-    { type: 'qeeg_analysis', at: iso(85), summary: 'Baseline qEEG: elevated frontal theta; low alpha PAF',
-      ref_id: 'demo-qeeg-1-' + patientId, lane: 'qeeg', connects_to: [] },
-    { type: 'assessment',    at: iso(80), summary: 'PHQ-9 baseline: score 18 (moderately severe)',
-      ref_id: 'demo-phq9-1-' + patientId, lane: 'assessment', connects_to: [] },
-    { type: 'mri_analysis',  at: iso(70), summary: 'MRI structural + rs-fMRI: sgACC–DLPFC anticorrelation z=-2.6',
-      ref_id: 'demo-mri-1-' + patientId, lane: 'mri', connects_to: [] },
-    { type: 'session',       at: iso(60), summary: 'rTMS session #1 (left DLPFC, 10 Hz) — well tolerated',
-      ref_id: 'demo-sess-1-' + patientId, lane: 'session', connects_to: ['demo-mri-1-' + patientId] },
-    { type: 'session',       at: iso(30), summary: 'rTMS session #20 (mid-course) — protocol adherence 95%',
-      ref_id: 'demo-sess-20-' + patientId, lane: 'session', connects_to: ['demo-mri-1-' + patientId] },
-    { type: 'qeeg_analysis', at: iso(10), summary: 'Follow-up qEEG: frontal theta normalising; PAF +0.8 Hz',
-      ref_id: 'demo-qeeg-2-' + patientId, lane: 'qeeg', connects_to: [] },
-  ];
-}
-
-function _resolvePatientId() {
-  if (typeof window !== 'undefined' && window._timelinePatientId) {
-    return String(window._timelinePatientId);
->>>>>>> origin/integrate/mri-qeeg-fusion-timeline
   }
   try {
     var p = new URLSearchParams(window.location.search);
@@ -312,7 +223,6 @@ export async function pgPatientTimeline(setTopbar, navigate) {
 
   var events = [];
   try {
-<<<<<<< HEAD
     payload = await api.getMRIPatientTimeline(patientId);
   } catch (_err) {
     el.innerHTML = emptyState('&#x1F4C5;', 'Patient timeline unavailable', 'We could not load the patient timeline right now. Please try again shortly.');
@@ -321,13 +231,6 @@ export async function pgPatientTimeline(setTopbar, navigate) {
   if (!payload || typeof payload !== 'object') {
     el.innerHTML = emptyState('&#x1F4C5;', 'Patient timeline unavailable', 'Timeline data is not available for this patient yet.');
     return;
-=======
-    var res = await api.fetchPatientTimeline(patientId);
-    events = (res && Array.isArray(res.events)) ? res.events : [];
-  } catch (err) {
-    try { if (typeof console !== 'undefined') console.warn('[timeline] fetch failed, using demo', err); } catch (_e) {}
-    events = _demoEvents(patientId);
->>>>>>> origin/integrate/mri-qeeg-fusion-timeline
   }
 
   if (!el) return;

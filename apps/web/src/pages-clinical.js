@@ -40,7 +40,6 @@ import {
   computeWizardDraftFingerprint,
   shouldAttachPersonalizationExplainability,
 } from './personalization-explainability.js';
-<<<<<<< HEAD
 import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getTopConditionsByPaperCount } from './evidence-dataset.js';
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES } from './protocols-data.js';
 import {
@@ -65,16 +64,6 @@ import {
   hBarChartHTML,
   severityBandSVG,
 } from './patient-dashboard-helpers.js';
-=======
-import {
-  renderAnalyzerDetail,
-  renderComparison,
-  perChannelBandPowers,
-  pollAnalysisUntilDone,
-  buildSurveyFromForm,
-  isEdfLikeFile,
-} from './pages-qeeg-analysis.js';
->>>>>>> origin/feat/qeeg-analyzer-mne-parity
 
 if (import.meta.env?.DEV) {
   const { errors } = validateScaleRegistryAgainstAssess(ASSESS_REGISTRY);
@@ -9310,96 +9299,6 @@ export function bindBrainData(records, patMap, patients, setTopbar) {
     const patientId = document.getElementById('qr-patient')?.value;
     if (!patientId) { if (errEl) { errEl.textContent = 'Select a patient.'; errEl.style.display = 'block'; } return; }
 
-<<<<<<< HEAD
-=======
-    // If a binary EEG file is staged, run it through the analysis pipeline.
-    const stagedFile = window._qeegSelectedFile;
-    if (stagedFile && isEdfLikeFile(stagedFile.name)) {
-      const detail = document.getElementById('qeeg-detail-panel');
-      const formPanel = document.getElementById('qeeg-form-panel');
-      const recordingDate = document.getElementById('qr-date')?.value || '';
-      const eyes = document.getElementById('qr-eyes')?.value || 'eyes_closed';
-      const device = document.getElementById('qr-device')?.value || '';
-      const surveyPayload = (typeof buildSurveyFromForm === 'function')
-        ? buildSurveyFromForm(document)
-        : (window._qeegSurveyBuild?.() || {});
-
-      const fd = new FormData();
-      fd.append('file', stagedFile, stagedFile.name);
-      fd.append('patient_id', patientId);
-      if (recordingDate) fd.append('recording_date', recordingDate);
-      fd.append('eyes_condition', eyes);
-      if (device) fd.append('equipment', device);
-      const courseId = document.getElementById('qr-course')?.value || window._qeegCourseId || null;
-      if (courseId) fd.append('course_id', courseId);
-      try {
-        fd.append('survey_json', JSON.stringify(surveyPayload || {}));
-      } catch { /* ignore */ }
-
-      if (formPanel) formPanel.style.display = 'none';
-      const progressStart = Date.now();
-      if (detail) {
-        detail.innerHTML = `<div class="qeeg-panel qeeg-panel--progress" data-testid="qeeg-progress">
-          <h4>Uploading &amp; analyzing…</h4>
-          <div class="qeeg-progress__bar"><div id="qeeg-progress-fill"></div></div>
-          <div id="qeeg-progress-status" class="qeeg-muted">Uploading file…</div>
-        </div>`;
-      }
-      const setStatus = (msg) => {
-        const s = document.getElementById('qeeg-progress-status');
-        const fill = document.getElementById('qeeg-progress-fill');
-        const elapsed = ((Date.now() - progressStart) / 1000).toFixed(1);
-        if (s) s.textContent = `${msg} · ${elapsed}s elapsed`;
-        if (fill) {
-          const pct = Math.min(95, (Date.now() - progressStart) / 600);
-          fill.style.width = pct + '%';
-        }
-      };
-      try {
-        setStatus('Uploading file');
-        const upload = await api.uploadQEEGAnalysis(fd);
-        const analysisId = upload?.id;
-        if (!analysisId) throw new Error('Upload did not return analysis id.');
-        setStatus('Running pipeline');
-        let current = await api.analyzeQEEG(analysisId);
-        const endStatus = current?.analysis_status || current?.status;
-        if (endStatus !== 'completed' && endStatus !== 'failed') {
-          current = await pollAnalysisUntilDone(analysisId, api, {
-            intervalMs: 2000,
-            timeoutMs: 60000,
-            onTick: ({ elapsedMs }) => {
-              setStatus(`Analyzing (${Math.round(elapsedMs / 1000)}s)`);
-            },
-          });
-        }
-        const fill = document.getElementById('qeeg-progress-fill');
-        if (fill) fill.style.width = '100%';
-        if (current?.analysis_status === 'failed') {
-          if (detail) detail.innerHTML = `<div class="qeeg-panel qeeg-panel--error">
-            <h4>Analysis failed</h4>
-            <div>${(current.analysis_error || 'Unknown error — please try again.')}</div>
-          </div>`;
-        } else {
-          window._qeegCurrentAnalysis = current;
-          if (detail) detail.innerHTML = renderAnalyzerDetail(current, null);
-          _bindAnalyzerActions(current, setTopbar);
-          if (window._updateTopoFromRecord) window._updateTopoFromRecord(current, current);
-        }
-        // Refresh the records list in the background so new metadata appears.
-        try { await pgBrainData(setTopbar); } catch {}
-      } catch (e) {
-        if (detail) detail.innerHTML = `<div class="qeeg-panel qeeg-panel--error">
-          <h4>Upload / analysis failed</h4>
-          <div>${e?.message || 'unknown error'}</div>
-        </div>`;
-      } finally {
-        window._qeegSelectedFile = null;
-      }
-      return;
-    }
-
-    // Fallback: legacy manual / CSV / TXT path.
->>>>>>> origin/feat/qeeg-analyzer-mne-parity
     // Embed survey JSON in notes inside stable delimiters so it can be
     // recovered verbatim by downstream LLM interpretation without a schema migration.
     const humanNotes = (document.getElementById('qr-notes')?.value || '').trim();
@@ -9416,10 +9315,6 @@ export function bindBrainData(records, patMap, patients, setTopbar) {
       notesOut = humanNotes || null;
     }
 
-<<<<<<< HEAD
-=======
-
->>>>>>> origin/feat/qeeg-analyzer-mne-parity
     const payload = {
       patient_id:             patientId,
       recorded_at:            document.getElementById('qr-date')?.value || null,

@@ -70,23 +70,16 @@ VALID_NIFTI_GZ: bytes = _make_valid_nifti_gz()
 from app.database import SessionLocal
 from app.persistence.models import (
     AiSummaryAudit,
-<<<<<<< HEAD
     Clinic,
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     ClinicalSession,
     MriAnalysis,
     MriUpload,
     OutcomeSeries,
     Patient,
     QEEGRecord,
-<<<<<<< HEAD
     User,
 )
 from app.services.auth_service import create_access_token
-=======
-)
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 from app.settings import get_settings
 
 
@@ -549,7 +542,6 @@ def test_overlay_returns_html_response(
 
 def test_patient_timeline_returns_four_lanes(
     client: TestClient,
-<<<<<<< HEAD
 ) -> None:
     # Seed Clinic + clinician User first so resolve_patient_clinic_id can
     # resolve patients.clinician_id -> users.clinic_id. The demo-token actor
@@ -577,21 +569,10 @@ def test_patient_timeline_returns_four_lanes(
             Patient(
                 id="pat-timeline-1",
                 clinician_id=clinician_user_id,
-=======
-    auth_headers: dict,
-) -> None:
-    db = SessionLocal()
-    try:
-        db.add(
-            Patient(
-                id="pat-timeline-1",
-                clinician_id="actor-clinician-demo",
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
                 first_name="Timeline",
                 last_name="Patient",
             )
         )
-<<<<<<< HEAD
         # Flush so the patients.id row exists before the FK-bearing children
         # (clinical_sessions.patient_id, qeeg_records.patient_id, etc.) are
         # inserted in the same transaction. Without this flush the SQLite
@@ -600,17 +581,11 @@ def test_patient_timeline_returns_four_lanes(
         # links between these tables, can pick a flush order in which the
         # children precede the parent.
         db.flush()
-=======
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
         db.add(
             ClinicalSession(
                 id="sess-timeline-1",
                 patient_id="pat-timeline-1",
-<<<<<<< HEAD
                 clinician_id=clinician_user_id,
-=======
-                clinician_id="actor-clinician-demo",
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
                 scheduled_at="2026-01-12T09:00:00Z",
                 modality="rtms",
                 appointment_type="session",
@@ -622,11 +597,7 @@ def test_patient_timeline_returns_four_lanes(
             QEEGRecord(
                 id="qeeg-timeline-1",
                 patient_id="pat-timeline-1",
-<<<<<<< HEAD
                 clinician_id=clinician_user_id,
-=======
-                clinician_id="actor-clinician-demo",
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
                 course_id="course-1",
                 recording_type="resting",
                 recording_date="2026-01-10",
@@ -644,11 +615,7 @@ def test_patient_timeline_returns_four_lanes(
                 score_numeric=8.0,
                 measurement_point="post",
                 administered_at=datetime(2026, 1, 20, tzinfo=timezone.utc),
-<<<<<<< HEAD
                 clinician_id=clinician_user_id,
-=======
-                clinician_id="actor-clinician-demo",
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
             )
         )
         db.add(
@@ -669,7 +636,6 @@ def test_patient_timeline_returns_four_lanes(
     finally:
         db.close()
 
-<<<<<<< HEAD
     token = create_access_token(
         user_id=clinician_user_id,
         email="clinician-test@example.com",
@@ -680,11 +646,6 @@ def test_patient_timeline_returns_four_lanes(
     resp = client.get(
         "/api/v1/mri/patients/pat-timeline-1/timeline",
         headers={"Authorization": f"Bearer {token}"},
-=======
-    resp = client.get(
-        "/api/v1/mri/patients/pat-timeline-1/timeline",
-        headers=auth_headers["clinician"],
->>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
