@@ -9,7 +9,7 @@ if (typeof globalThis.document === 'undefined') {
     getElementById: () => null,
     querySelector: () => null,
     querySelectorAll: () => [],
-    createElement: () => ({ style: {}, addEventListener() {}, appendChild() {} }),
+    createElement: () => ({ style: {}, addEventListener() {}, appendChild() {}, remove() {} }),
     addEventListener() {},
     body: { appendChild() {} },
   };
@@ -54,6 +54,7 @@ function createFakeElement(id, registry) {
     addEventListener() {},
     removeEventListener() {},
     appendChild() {},
+    remove() {},
     click() {},
     focus() {},
     closest() { return null; },

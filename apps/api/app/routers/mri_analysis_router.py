@@ -937,6 +937,7 @@ def get_viewer_payload(
             message=f"analysis_id {analysis_id!r} not found",
             status_code=404,
         )
+    _gate_patient_access(actor, row.patient_id, db)
     return JSONResponse(_viewer_payload_from_report(analysis_id, _report_from_row(row)))
 
 
@@ -959,6 +960,7 @@ def get_report_pdf(
             message=f"analysis_id {analysis_id!r} not found",
             status_code=404,
         )
+    _gate_patient_access(actor, row.patient_id, db)
 
     report = _report_from_row(row)
     pdf_bytes = mri_pipeline_facade.generate_report_pdf_safe(analysis_id, report)
@@ -1001,6 +1003,7 @@ def get_report_html(
             message=f"analysis_id {analysis_id!r} not found",
             status_code=404,
         )
+    _gate_patient_access(actor, row.patient_id, db)
     report = _report_from_row(row)
     html = mri_pipeline_facade.generate_report_html_safe(analysis_id, report)
     return HTMLResponse(html)
@@ -1026,6 +1029,7 @@ def get_overlay(
             message=f"analysis_id {analysis_id!r} not found",
             status_code=404,
         )
+    _gate_patient_access(actor, row.patient_id, db)
     report = _report_from_row(row)
     html = mri_pipeline_facade.generate_overlay_html_safe(
         analysis_id, target_id, report
@@ -1069,6 +1073,7 @@ async def get_medrag(
             message=f"analysis_id {analysis_id!r} not found",
             status_code=404,
         )
+    _gate_patient_access(actor, row.patient_id, db)
     report = _report_from_row(row)
     return await mri_pipeline_facade.run_medrag_for_analysis_safe(
         report, top_k=top_k
@@ -1155,6 +1160,7 @@ def compare_mri(
             message="baseline and followup analyses belong to different patients",
             status_code=422,
         )
+    _gate_patient_access(actor, base_row.patient_id, db)
 
     baseline_report = _report_from_row(base_row)
     followup_report = _report_from_row(fup_row)
