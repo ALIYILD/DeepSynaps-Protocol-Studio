@@ -10712,22 +10712,33 @@ export async function pgReportsHub(setTopbar) {
 
     const newReport = { id: 'r' + Date.now(), patientId, type, date: date || new Date().toISOString().slice(0,10), title, source, summary, status, file_url: '' };
 
+    let persisted = false;
     try {
       if (api.uploadReport) {
         const fd = new FormData();
         Object.entries({ patient_id:patientId, type, report_date:newReport.date, title, source:source||'', summary:summary||'', status }).forEach(([k,v]) => fd.append(k,v));
         if (fileInput?.files?.[0]) fd.append('file', fileInput.files[0]);
         const res = await api.uploadReport(fd);
-        if (res?.id) newReport.id = res.id;
+        if (res?.id) {
+          newReport.id = res.id;
+          persisted = true;
+        }
         if (res?.file_url) newReport.file_url = res.file_url;
       }
     } catch (_) {}
 
+    if (!persisted) newReport.status = 'local-only';
     reports.push(newReport);
     saveReports(reports);
     window._rhCloseModal('rh-upload-modal');
     renderPage();
-    window._showNotifToast?.({ title:'Report Uploaded', body:`"${title}" added to ${TYPE_BY_ID[type]?.label || type} category.`, severity:'success' });
+    window._showNotifToast?.({
+      title: persisted ? 'Report uploaded' : 'Report saved locally',
+      body: persisted
+        ? `"${title}" was stored on the backend.`
+        : `"${title}" is stored in this browser only until report upload persistence is available.`,
+      severity: persisted ? 'success' : 'warning'
+    });
   };
 
   window._rhLinkModal = function(id) {
@@ -10758,12 +10769,19 @@ export async function pgReportsHub(setTopbar) {
   };
 
   window._rhDelete = function(id) {
-    if (!confirm('Delete this report? This cannot be undone.')) return;
+    const r = reports.find(x => x.id === id);
+    const backendBacked = !!(r && !String(r.id).startsWith('r') && r.status !== 'local-only');
+    if (!confirm(backendBacked ? 'Remove this local report card? This does not confirm server deletion.' : 'Delete this local report? This cannot be undone.')) return;
     reports = reports.filter(r => r.id !== id);
     saveReports(reports);
     const el2 = document.getElementById('rh-card-' + id);
     if (el2) el2.remove();
     renderPage();
+    window._showNotifToast?.({
+      title: backendBacked ? 'Local card removed' : 'Local report deleted',
+      body: backendBacked ? 'The backend-backed report may still exist on the server.' : 'This browser-only report was removed.',
+      severity: 'info'
+    });
   };
   window._rhDownload = async function(id) {
     const r = reports.find(x => x.id === id);

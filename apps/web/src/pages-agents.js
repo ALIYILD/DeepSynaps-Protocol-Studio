@@ -694,6 +694,7 @@ function _renderConfig(setTopbar) {
           <button class="btn btn-primary btn-sm" onclick="window._agentConnectTelegram()">Get Link Code</button>
         </div>`}
         <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Notifications</div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:8px">These checkbox preferences are remembered on this device only. Telegram delivery settings are not verified from this page.</div>
         ${[
           { key: 'sessions', label: 'Session reminders' },
           { key: 'reviews', label: 'Review alerts' },
@@ -983,11 +984,14 @@ window._agentConfirmTelegram = function() {
 };
 window._agentDisconnectTelegram = function() {
   localStorage.removeItem('ds_agent_tg_state');
+  window._showNotifToast?.({ title: 'Reminder cleared', body: 'This device no longer stores a Telegram link-code reminder.', severity: 'info' });
   _agentView = 'config'; pgAgentChat(_lastSetTopbar);
 };
 window._agentCopyOpenClawCmd = function() {
   navigator.clipboard.writeText('npm i -g openclaw && openclaw onboard').then(() => {
-    if (typeof window._showNotifToast === 'function') window._showNotifToast('Copied to clipboard', 'ok');
+    if (typeof window._showNotifToast === 'function') {
+      window._showNotifToast({ title: 'Command copied', body: 'OpenClaw onboarding runs outside DeepSynaps.', severity: 'info' });
+    }
   }).catch(() => {});
 };
 window._agentToggleTgNotif = function(key, val) {

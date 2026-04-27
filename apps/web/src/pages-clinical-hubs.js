@@ -3454,6 +3454,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   let courses = [];
   let referralsIsDemo = false;
   let staffIsDemo = false;
+  let roomDataLimited = true;
 
   function logUnavailable(endpoint) {
     if (!window._schedLoggedEndpoints) window._schedLoggedEndpoints = {};
@@ -3487,7 +3488,10 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   } else { logUnavailable('listClinicians'); }
   if (apiCalls[1].status === 'fulfilled') {
     const items = apiCalls[1].value?.items || apiCalls[1].value || [];
-    if (Array.isArray(items) && items.length) rooms = items.map(r=>({ id:r.id, name:r.name||r.label||r.id }));
+    if (Array.isArray(items) && items.length) {
+      rooms = items.map(r=>({ id:r.id, name:r.name||r.label||r.id }));
+      roomDataLimited = false;
+    }
   } else { logUnavailable('listRooms'); }
   if (apiCalls[2].status === 'fulfilled') {
     sessions = apiCalls[2].value?.items || apiCalls[2].value || [];

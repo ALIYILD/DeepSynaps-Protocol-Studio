@@ -9995,7 +9995,7 @@ export async function pgPatientSettings(user) {
                 <div class="st-row-label">Password</div>
                 <div class="st-row-sub">Managed by your care coordinator.</div>
               </div>
-              <button class="btn btn-ghost btn-sm" data-st-action="change-password"><svg width="13" height="13"><use href="#st-i-lock"/></svg>Change</button>
+              <button class="btn btn-ghost btn-sm" disabled style="opacity:0.55;"><svg width="13" height="13"><use href="#st-i-lock"/></svg>Unavailable</button>
             </div>
 
             <div class="st-row">
@@ -10004,8 +10004,8 @@ export async function pgPatientSettings(user) {
                 <div class="st-row-sub">Authenticator app · required for clinical data access.</div>
               </div>
               <div style="display:flex;gap:8px;align-items:center;">
-                <span class="st-link-state off">Disabled</span>
-                <button class="btn btn-ghost btn-sm" data-st-action="manage-2fa">Enable</button>
+                <span class="st-link-state off">Managed elsewhere</span>
+                <button class="btn btn-ghost btn-sm" disabled style="opacity:0.55;">Unavailable</button>
               </div>
             </div>
 
@@ -10022,7 +10022,7 @@ export async function pgPatientSettings(user) {
                 <div class="st-row-label">Backup codes</div>
                 <div class="st-row-sub">Generate one-time codes for emergency sign-in.</div>
               </div>
-              <button class="btn btn-ghost btn-sm" data-st-action="backup-codes"><svg width="13" height="13"><use href="#st-i-download"/></svg>View codes</button>
+              <button class="btn btn-ghost btn-sm" disabled style="opacity:0.55;"><svg width="13" height="13"><use href="#st-i-download"/></svg>Unavailable</button>
             </div>
 
             <div class="st-row stack">
@@ -10064,30 +10064,30 @@ export async function pgPatientSettings(user) {
             <div class="st-danger-row">
               <div>
                 <div class="t">Pause treatment plan</div>
-                <div class="s">Temporarily stop sessions, reminders, and homework. Your care team will be notified. Resume anytime.</div>
+                <div class="s">This request is managed by your clinic and cannot be started from this beta settings page.</div>
               </div>
-              <button class="st-danger-btn" data-st-danger="pause">Pause</button>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Clinic only</button>
             </div>
             <div class="st-danger-row">
               <div>
                 <div class="t">Revoke all data sharing</div>
-                <div class="s">Immediately stop sharing with PCP, insurance (where legally possible), and research programs. Cannot be bulk-undone.</div>
+                <div class="s">This request is managed by your clinic and cannot be started from this beta settings page.</div>
               </div>
-              <button class="st-danger-btn" data-st-danger="revoke">Revoke all</button>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Clinic only</button>
             </div>
             <div class="st-danger-row">
               <div>
                 <div class="t">Transfer records to another provider</div>
-                <div class="s">Your coordinator will prepare a full FHIR export and coordinate with your new clinic. Your DeepSynaps account remains open until you close it.</div>
+                <div class="s">Your coordinator must initiate this transfer outside the beta portal.</div>
               </div>
-              <button class="st-danger-btn" data-st-danger="transfer">Start transfer</button>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Clinic only</button>
             </div>
             <div class="st-danger-row">
               <div>
                 <div class="t">Delete account</div>
-                <div class="s">Permanently removes all personal identifiers after the clinical retention period (7 years per HIPAA). De-identified research contributions are retained. Cannot be reversed.</div>
+                <div class="s">Account deletion is not initiated from this beta portal. Contact your clinic for the formal process.</div>
               </div>
-              <button class="st-danger-btn" data-st-danger="delete">Delete account</button>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Clinic only</button>
             </div>
           </div>
         </section>

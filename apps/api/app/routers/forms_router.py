@@ -20,10 +20,28 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import FormDefinition, FormSubmission
+from app.repositories.patients import resolve_patient_clinic_id
+
+
+def _gate_patient_access(
+    actor: AuthenticatedActor, patient_id: str | None, db: Session
+) -> None:
+    """Cross-clinic ownership gate. Same shape as the rest of the codebase."""
+    if not patient_id:
+        return
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
+
 
 router = APIRouter(prefix="/api/v1/forms", tags=["Forms & Assessments"])
 
@@ -292,6 +310,11 @@ def deploy_form(
     """Mark the form as active and associate it with target patients (business logic placeholder)."""
     require_minimum_role(actor, "clinician")
     form = _get_form_or_404(db, form_id, actor)
+    # FK-stuffing guard: deploying to a list of patient_ids must verify each
+    # belongs to the actor's clinic — otherwise a clinician could broadcast
+    # a form across clinic boundaries.
+    for pid in (body.patient_ids or []):
+        _gate_patient_access(actor, pid, db)
     if form.status == "draft":
         form.status = "active"
         db.commit()
@@ -311,6 +334,7 @@ def submit_form(
 ) -> FormSubmissionOut:
     require_minimum_role(actor, "clinician")
     form = _get_form_or_404(db, form_id, actor)
+    _gate_patient_access(actor, body.patient_id, db)
     score_label, score_numeric, scoring_details = _apply_scoring(form, body.responses)
     sub = FormSubmission(
         form_id=form_id,

@@ -9,7 +9,7 @@ import { LOCALES, setLocale, getLocale } from './i18n.js';
 // hub (via window._nav('scheduling-hub')). Empty states are honest: if no
 // sessions are returned, the UI says so rather than showing seed rows.
 export function pgSchedule(setTopbar) {
-  setTopbar('Scheduling', `<button class="btn btn-ghost btn-sm" onclick="window._toggleCalSync()">Sync Calendar</button><button class="btn btn-primary btn-sm" onclick="window._nav('scheduling-hub')">+ Appointment</button>`);
+  setTopbar('Scheduling', `<button class="btn btn-ghost btn-sm" onclick="window._toggleCalSync()">Calendar Options</button><button class="btn btn-primary btn-sm" onclick="window._nav('scheduling-hub')">+ Appointment</button>`);
 
   if (window._calOffset == null) window._calOffset = 0;
   if (!window._schedFullState) window._schedFullState = { sessions: null, error: null, loading: true };
@@ -94,23 +94,23 @@ export function pgSchedule(setTopbar) {
           <div style="width:36px;height:36px;border-radius:8px;background:rgba(234,67,53,0.1);display:flex;align-items:center;justify-content:center;font-size:18px">📅</div>
           <div><div style="font-size:13px;font-weight:500">Google Calendar</div><div style="font-size:11.5px;color:var(--text-secondary)">Sync appointments and session reminders</div></div>
         </div>
-        <button class="btn btn-sm" id="cal-btn-google" onclick="window._calSync('google')">Connect →</button>
+        <button class="btn btn-sm" id="cal-btn-google" disabled style="opacity:.55;cursor:not-allowed">Unavailable</button>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)">
         <div style="display:flex;align-items:center;gap:12px">
           <div style="width:36px;height:36px;border-radius:8px;background:rgba(0,120,212,0.1);display:flex;align-items:center;justify-content:center;font-size:18px">📆</div>
           <div><div style="font-size:13px;font-weight:500">Microsoft Outlook</div><div style="font-size:11.5px;color:var(--text-secondary)">Office 365 calendar integration</div></div>
         </div>
-        <button class="btn btn-sm" id="cal-btn-outlook" onclick="window._calSync('outlook')">Connect →</button>
+        <button class="btn btn-sm" id="cal-btn-outlook" disabled style="opacity:.55;cursor:not-allowed">Unavailable</button>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0">
         <div style="display:flex;align-items:center;gap:12px">
           <div style="width:36px;height:36px;border-radius:8px;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;font-size:18px">🗓</div>
           <div><div style="font-size:13px;font-weight:500">Apple Calendar</div><div style="font-size:11.5px;color:var(--text-secondary)">iCloud CalDAV sync</div></div>
         </div>
-        <button class="btn btn-sm" id="cal-btn-apple" onclick="window._calSync('apple')">Connect →</button>
+        <button class="btn btn-sm" id="cal-btn-apple" disabled style="opacity:.55;cursor:not-allowed">Unavailable</button>
       </div>
-      <div class="notice notice-info" style="margin-top:12px;font-size:11.5px">Calendar OAuth integration requires backend configuration. Connect your clinic's OAuth credentials in Settings → Integrations.</div>
+      <div class="notice notice-info" style="margin-top:12px;font-size:11.5px">Calendar sync setup is not enabled in this beta environment. Use the scheduling hub for bookings; external calendar delivery is unavailable here.</div>
     </div>
   </div>
 </div>
@@ -165,12 +165,12 @@ export function pgSchedule(setTopbar) {
   };
 
   window._calSync = function(provider) {
-    const btn = document.getElementById('cal-btn-' + provider);
-    if (btn) { btn.textContent = 'Connecting…'; btn.disabled = true; }
-    setTimeout(() => {
-      if (btn) { btn.textContent = 'Connect →'; btn.disabled = false; }
-      const t = document.createElement('div'); t.className = 'notice notice-info'; t.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:420px;padding:14px 18px'; t.textContent = 'Calendar sync with ' + provider + ' requires OAuth setup — add GOOGLE_CLIENT_ID / MICROSOFT_CLIENT_ID to your environment config.'; document.body.appendChild(t); setTimeout(() => t.remove(), 6000);
-    }, 1500);
+    const t = document.createElement('div');
+    t.className = 'notice notice-info';
+    t.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:420px;padding:14px 18px';
+    t.textContent = 'Calendar sync for ' + provider + ' is unavailable in this beta environment.';
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 5000);
   };
 
   // Kick off the real fetch after the shell renders.
@@ -1742,10 +1742,10 @@ export async function pgSettings(setTopbar, currentUser) {
             { name: 'DOCX Export',        desc: 'Generate clinical protocol documents',        active: true,  action: 'Configure →',  onClick: "window._nav('reports')" },
             { name: 'Stripe',             desc: 'Payment processing and billing portal',        active: true,  action: 'Manage →',     onClick: "window._nav('billing')" },
             { name: 'Telegram',           desc: 'Real-time clinical alerts and notifications',  active: !!telegramCode, action: 'Configure →', onClick: "window._nav('settings')" },
-            { name: 'Google Calendar',    desc: 'Sync appointments and session reminders',      active: false, action: 'Connect →',    onClick: "window._toggleCalSync&&window._nav('scheduling')" },
-            { name: 'Microsoft Outlook',  desc: 'Office 365 calendar integration',             active: false, action: 'Connect →',    onClick: "window._toggleCalSync&&window._nav('scheduling')" },
-            { name: 'EHR / EMR (HL7 FHIR)', desc: 'Import patients from FHIR-compliant EHR',  active: false, action: 'Import →',     onClick: "window._nav('patients')" },
-            { name: 'Twilio Video',       desc: 'HIPAA-compliant video consultations',         active: false, action: 'Connect →',    onClick: "window._nav('telehealth')" },
+            { name: 'Google Calendar',    desc: 'Sync appointments and session reminders · not enabled in this beta environment', active: false, action: 'Unavailable', onClick: '' },
+            { name: 'Microsoft Outlook',  desc: 'Office 365 calendar integration · not enabled in this beta environment', active: false, action: 'Unavailable', onClick: '' },
+            { name: 'EHR / EMR (HL7 FHIR)', desc: 'Import patients from FHIR-compliant EHR · not enabled in this beta environment', active: false, action: 'Unavailable', onClick: '' },
+            { name: 'Twilio Video',       desc: 'HIPAA-compliant video consultations · not enabled in this beta environment', active: false, action: 'Unavailable', onClick: '' },
           ].map((int, idx, arr) => `
             <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;${idx < arr.length - 1 ? 'border-bottom:1px solid var(--border);' : ''}">
               <div style="display:flex;align-items:center;gap:12px">
@@ -1755,7 +1755,7 @@ export async function pgSettings(setTopbar, currentUser) {
                   <div style="font-size:11.5px;color:var(--text-secondary)">${int.desc}</div>
                 </div>
               </div>
-              <button class="btn btn-sm" onclick="${int.onClick}" ${int.action === 'Coming Soon' ? 'disabled style="opacity:.5"' : ''}>${int.action}</button>
+              <button class="btn btn-sm" onclick="${int.onClick}" ${int.action === 'Coming Soon' || int.action === 'Unavailable' ? 'disabled style="opacity:.5;cursor:not-allowed"' : ''}>${int.action}</button>
             </div>`).join('')}
         `)}
       </div>

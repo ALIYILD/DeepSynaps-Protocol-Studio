@@ -172,7 +172,7 @@ export function mountAppAgentWidget(kind) {
         </div>
         <div data-atabpanel="settings" style="display:none;padding:10px 14px;font-size:12px">
           <div style="font-weight:700;font-size:13px;margin-bottom:10px">\u2708 Connect Telegram</div>
-          <div style="color:var(--text-secondary);margin-bottom:10px">Get your AI agent on Telegram in 2 steps:</div>
+          <div style="color:var(--text-secondary);margin-bottom:10px">Get your AI agent on Telegram in 3 steps:</div>
           <div id="ds-agent-tg-area">${_tgState === 'pending'
             ? '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="font-size:11px;font-weight:600;padding:4px 12px;border-radius:99px;background:rgba(255,179,71,0.14);color:var(--amber,#f59e0b)">Link code issued</span><button class="btn btn-sm btn-ghost" style="font-size:10px;color:var(--red,#ef4444)" onclick="window._patientDisconnectTg()">Clear</button></div><div style="font-size:11px;color:var(--text-secondary);line-height:1.7;margin-bottom:10px">This widget cannot verify Telegram linking yet. It only remembers that a link code was issued on this device.</div>'
             : '<div style="font-size:12px;color:var(--text-secondary);line-height:1.8;margin-bottom:10px">1. Click below to get your link code<br>2. Follow the bot handle shown with the code<br>3. Send the code to the bot to complete linking outside this widget</div><button class="btn btn-primary btn-sm" onclick="window._patientGetTgCode()">Get Link Code</button>'
@@ -232,13 +232,18 @@ export function mountAppAgentWidget(kind) {
 
   window._patientConfirmTg = function() {
     localStorage.setItem('ds_patient_tg_state', 'pending');
-    if (typeof window._showNotifToast === 'function') window._showNotifToast('Telegram link reminder saved', 'ok');
+    if (typeof window._showNotifToast === 'function') {
+      window._showNotifToast({ title: 'Reminder saved', body: 'This device will remember that a Telegram link code was issued, but linkage is not verified in-app yet.', severity: 'info' });
+    }
     const area = document.getElementById('ds-agent-tg-area');
     if (area) area.innerHTML = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="font-size:11px;font-weight:600;padding:4px 12px;border-radius:99px;background:rgba(255,179,71,0.14);color:var(--amber,#f59e0b)">Link code issued</span><button class="btn btn-sm btn-ghost" style="font-size:10px;color:var(--red,#ef4444)" onclick="window._patientDisconnectTg()">Clear</button></div><div style="font-size:11px;color:var(--text-secondary);line-height:1.7">This widget cannot verify Telegram linking yet. It only remembers that a link code was issued on this device.</div>';
   };
 
   window._patientDisconnectTg = function() {
     localStorage.removeItem('ds_patient_tg_state');
+    if (typeof window._showNotifToast === 'function') {
+      window._showNotifToast({ title: 'Reminder cleared', body: 'This widget no longer stores a Telegram link-code reminder.', severity: 'info' });
+    }
     const area = document.getElementById('ds-agent-tg-area');
     if (area) area.innerHTML = '<div style="font-size:12px;color:var(--text-secondary);line-height:1.8;margin-bottom:10px">1. Click below to get your link code<br>2. Follow the bot handle shown with the code<br>3. Send the code to the bot to complete linking outside this widget</div><button class="btn btn-primary btn-sm" onclick="window._patientGetTgCode()">Get Link Code</button>';
   };
