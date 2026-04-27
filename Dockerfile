@@ -40,6 +40,7 @@ RUN pip install --no-cache-dir \
     -e ./packages/safety-engine \
     -e ./packages/generation-engine \
     -e ./packages/render-engine \
+    -e ./packages/evidence \
     -e ./packages/qa \
     -e ./packages/qeeg-pipeline \
     -e ./packages/mri-pipeline \
