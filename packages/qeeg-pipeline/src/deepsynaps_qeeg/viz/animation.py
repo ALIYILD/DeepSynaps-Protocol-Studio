@@ -23,10 +23,10 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .. import FREQ_BANDS
-from .topomap import render_topomap, _ensure_mne_info, _CMAP_POWER, _CMAP_ZSCORE
+from .topomap import render_topomap
 
 if TYPE_CHECKING:
-    import mne
+    pass
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +69,6 @@ def render_animated_frames(
         Each dict: ``{"index": int, "label": str, "image_b64": str,
         "values": list[float]}``
     """
-    import mne as mne_mod
 
     ch_names = list(epochs.ch_names)
     lo, hi = bands.get(band, (8, 13))
