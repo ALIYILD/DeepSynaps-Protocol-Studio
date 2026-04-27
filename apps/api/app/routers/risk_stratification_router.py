@@ -337,7 +337,8 @@ def get_patient_clinical_scores(
     the ``ScoreResponse`` schema. PROM assessments are PRIMARY anchors;
     biomarkers are supporting only. NEVER a diagnosis.
     """
-    require_minimum_role(actor, "guest")
+    require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     ctx = assemble_patient_context(patient_id, db)
     if not ctx.patient:
