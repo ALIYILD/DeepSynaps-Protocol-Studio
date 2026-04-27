@@ -490,7 +490,11 @@ export async function pgPatientDashboard(user) {
     dashboardRaw == null &&
     patientSummaryRaw == null;
 
-  if (_hmLoadFailed) {
+  // In demo mode, seed sample data instead of showing the error page.
+  const _demoEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1';
+  const _hmDemo = _hmLoadFailed && _demoEnabled && isDemoPatient(user, { getToken: api.getToken });
+
+  if (_hmLoadFailed && !_hmDemo) {
     el.innerHTML = `
       <div class="pt-portal-empty">
         <div class="pt-portal-empty-ico" aria-hidden="true">&#9888;</div>
@@ -516,7 +520,6 @@ export async function pgPatientDashboard(user) {
   // ── Demo seed — populates every array when the backend returned nothing so
   //    first-time preview users see a fully-rendered home dashboard. Gated
   //    on "everything empty" — any real patient data and we skip the seed.
-  const _hmDemo = false;
   if (_hmDemo) {
     coursesArr.push({
       id: 'demo-crs-001',
@@ -3895,7 +3898,9 @@ async function _pgPatientHomeworkImpl() {
     homeTasksPortalRaw === null &&
     coursesRaw === null &&
     sessionsRaw === null;
-  if (_homeworkLoadFailed) {
+  const _hwDemoEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1';
+  const _hwIsDemo = _homeworkLoadFailed && _hwDemoEnabled && isDemoPatient(user, { getToken: api.getToken });
+  if (_homeworkLoadFailed && !_hwIsDemo) {
     throw new Error('homework_data_unavailable');
   }
   let _portalTaskCompletions = new Map();
