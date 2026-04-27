@@ -78,7 +78,8 @@ class SalesInquiryResponse(BaseModel):
 
 
 @router.post("/public", response_model=ChatResponse)
-def public_faq_chat(body: ChatRequest) -> ChatResponse:
+@limiter.limit("10/minute")
+def public_faq_chat(request: Request, body: ChatRequest) -> ChatResponse:
     """No auth required — public FAQ bot for the landing page."""
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
     reply = chat_public_faq(msgs)
@@ -131,7 +132,9 @@ def sales_inquiry(
 
 
 @router.post("/agent", response_model=ChatResponse)
+@limiter.limit("30/minute")
 def agent_chat(
+    request: Request,
     body: AgentChatRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> ChatResponse:
@@ -144,7 +147,9 @@ def agent_chat(
 
 
 @router.post("/clinician", response_model=ChatResponse)
+@limiter.limit("30/minute")
 def clinician_chat(
+    request: Request,
     body: ChatRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
@@ -219,7 +224,9 @@ def clinician_chat(
 
 
 @router.post("/patient", response_model=ChatResponse)
+@limiter.limit("30/minute")
 def patient_chat(
+    request: Request,
     body: ChatRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> ChatResponse:
@@ -386,7 +393,9 @@ def wearable_patient_chat(
 
 
 @router.post("/wearable-clinician", response_model=ChatResponse)
+@limiter.limit("20/minute")
 def wearable_clinician_chat(
+    request: Request,
     body: WearableClinicianChatRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
