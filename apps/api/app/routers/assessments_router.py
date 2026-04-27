@@ -10,11 +10,28 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.limiter import limiter
 from app.persistence.models import AssessmentRecord
+from app.repositories.patients import resolve_patient_clinic_id
+
+
+def _gate_patient_access(
+    actor: AuthenticatedActor, patient_id: str | None, db: Session
+) -> None:
+    """Cross-clinic ownership gate. Same shape as the rest of the codebase."""
+    if not patient_id:
+        return
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 from app.repositories.assessments import (
     create_assessment,
     delete_assessment,
@@ -744,6 +761,7 @@ def assign_assessment_endpoint(
 ) -> AssessmentOut:
     """Assign an assessment to a patient with status=pending."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, body.patient_id, session)
     notes = body.clinician_notes or ""
     template_title = body.template_id
     respondent_type = body.respondent_type
@@ -877,6 +895,7 @@ def bulk_assign_assessments(
                 failed.append({"template_id": None, "reason": "scale_id/template_id missing"})
                 continue
             try:
+                _gate_patient_access(actor, item.patient_id, session)
                 record = _create_one_assignment(
                     session,
                     actor.actor_id,
@@ -900,6 +919,7 @@ def bulk_assign_assessments(
             message="Provide either `assignments` or both `patient_id` and `template_ids`.",
             status_code=400,
         )
+    _gate_patient_access(actor, body.patient_id, session)
     for tpl_id in body.template_ids:
         try:
             record = _create_one_assignment(
@@ -926,6 +946,7 @@ def patient_assessment_summary(
 ) -> dict:
     """Normalized read for AI agents, reports, and protocol personalization."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, session)
     snapshot = get_patient_assessment_summary(session, patient_id, clinician_id=actor.actor_id)
     return snapshot.to_dict()
 
@@ -938,6 +959,7 @@ def patient_assessment_ai_context(
 ) -> dict:
     """Plain-text snapshot for LLM prompt context. Clinician-authored only."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, session)
     text = extract_ai_assessment_context(session, patient_id, clinician_id=actor.actor_id)
     return {"patient_id": patient_id, "context": text}
 
@@ -950,6 +972,7 @@ def create_assessment_endpoint(
 ) -> AssessmentOut:
     """Create a single assessment — supports both legacy `template_id` and new `scale_id` fields."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, body.patient_id, session)
     payload = body.model_dump(exclude_none=True)
     # Resolve scale_id → template_id.
     if "scale_id" in payload and "template_id" not in payload:
