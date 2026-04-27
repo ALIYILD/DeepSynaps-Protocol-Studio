@@ -262,7 +262,13 @@ export const api = {
     if (result && result.refresh_token) setRefreshToken(result.refresh_token);
     return result;
   },
-  logout: () => apiFetch('/api/v1/auth/logout', { method: 'POST' }),
+  logout: () => {
+    const rt = getRefreshToken();
+    return apiFetch('/api/v1/auth/logout', {
+      method: 'POST',
+      body: JSON.stringify({ refresh_token: rt || null }),
+    });
+  },
   register: (email, display_name, password, role = 'clinician') =>
     apiFetch('/api/v1/auth/register', { method: 'POST', body: JSON.stringify({ email, display_name, password, role }) }),
   activatePatient: (invite_code, email, display_name, password) =>
