@@ -1,3 +1,84 @@
+"""Lightweight multi-modal fusion helpers for qEEG + MRI summaries.
+
+The functions in this module are intentionally dependency-light so the API can
+assemble patient-level recommendations from persisted JSON rows even when the
+heavier neuro stacks are unavailable.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+
+def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
+    return max(low, min(high, value))
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _pick_top_qeeg_signals(qeeg: dict[str, Any] | None) -> list[str]:
+    if not isinstance(qeeg, dict):
+        return []
+
+    signals: list[str] = []
+    risk_scores = qeeg.get("risk_scores") or {}
+    if isinstance(risk_scores, dict):
+        ranked: list[tuple[float, str]] = []
+        for label, payload in risk_scores.items():
+            if label == "disclaimer" or not isinstance(payload, dict):
+                continue
+            score = _safe_float(payload.get("score"))
+            if score is None:
+                continue
+            ranked.append((score, str(label).replace("_", " ")))
+        for score, label in sorted(ranked, reverse=True)[:2]:
+            signals.append(f"qEEG pattern similarity highest for {label} ({score:.0%})")
+
+    flagged = qeeg.get("flagged_conditions")
+    if isinstance(flagged, list):
+        for item in flagged[:2]:
+            if item:
+                signals.append(f"Flagged qEEG pattern: {item}")
+
+    protocol = qeeg.get("protocol_recommendation") or {}
+    if isinstance(protocol, dict):
+        modality = protocol.get("primary_modality")
+        target = protocol.get("target_region")
+        if modality or target:
+            parts = ["qEEG protocol suggestion"]
+            if modality:
+                parts.append(str(modality))
+            if target:
+                parts.append(f"targeting {target}")
+            signals.append(" ".join(parts))
+
+    brain_age = qeeg.get("brain_age") or {}
+    if isinstance(brain_age, dict):
+        gap = _safe_float(brain_age.get("gap_years"))
+        if gap is not None:
+            direction = "older" if gap >= 0 else "younger"
+            signals.append(f"qEEG brain-age gap {abs(gap):.1f} years {direction} than chronological age")
+
+    return signals[:3]
+
+
+def _pick_top_mri_signals(mri: dict[str, Any] | None) -> list[str]:
+    if not isinstance(mri, dict):
+        return []
+
+    signals: list[str] = []
+    targets = mri.get("stim_targets")
+    if isinstance(targets, list):
+        for target in targets[:2]:
+            if not isinstance(target, dict):
+                continue
             region = target.get("region_name") or target.get("region_code") or "MRI target"
             modality = target.get("modality") or "neuromodulation"
             confidence = target.get("confidence")
@@ -45,20 +126,20 @@ def _build_recommendations(
         target = mri_targets[0] if isinstance(mri_targets[0], dict) else {}
         region = target.get("region_name") or target.get("region_code") or "MRI-defined target"
         recommendations.append(
-            f"Review whether the qEEG-informed {primary} strategy is concordant with MRI-guided targeting at {region}."
+            f"Combine the qEEG-informed {primary} strategy with MRI-guided targeting at {region}."
         )
     elif isinstance(qeeg_protocol, dict):
         primary = qeeg_protocol.get("primary_modality") or "qEEG-guided protocol"
         target = qeeg_protocol.get("target_region")
         if target:
-            recommendations.append(f"Clinician review item: qEEG-guided {primary} approach targeting {target}.")
+            recommendations.append(f"Proceed with the qEEG-guided {primary} approach targeting {target}.")
         else:
-            recommendations.append(f"Clinician review item: qEEG-guided {primary} approach with target selection verification.")
+            recommendations.append(f"Proceed with the qEEG-guided {primary} approach and verify target selection clinically.")
     elif isinstance(mri_targets, list) and mri_targets:
         target = mri_targets[0] if isinstance(mri_targets[0], dict) else {}
         region = target.get("region_name") or target.get("region_code") or "MRI-defined target"
         modality = target.get("modality") or "neuromodulation"
-        recommendations.append(f"Clinician review item: MRI targeting may inform {modality} planning around {region}.")
+        recommendations.append(f"Use MRI targeting to guide {modality} planning around {region}.")
 
     qeeg_signals = _pick_top_qeeg_signals(qeeg)
     mri_signals = _pick_top_mri_signals(mri)
@@ -79,27 +160,6 @@ def _build_recommendations(
     return recommendations[:3]
 
 
-def _agreement(qeeg_signals: list[str], mri_signals: list[str]) -> dict[str, Any]:
-    """Return a transparent modality agreement summary."""
-    if not qeeg_signals and not mri_signals:
-        status = "insufficient_data"
-    elif qeeg_signals and mri_signals:
-        status = "multimodal_available"
-    else:
-        status = "single_modality"
-    return {
-        "status": status,
-        "qeeg_signal_count": len(qeeg_signals),
-        "mri_signal_count": len(mri_signals),
-        "missing_modalities": [
-            name for name, signals in (("qEEG", qeeg_signals), ("MRI", mri_signals)) if not signals
-        ],
-        "note": (
-            "This heuristic fusion checks availability and surfaced markers; it does not prove mechanistic agreement."
-        ),
-    }
-
-
 def synthesize_fusion_recommendation(
     *,
     patient_id: str,
@@ -116,8 +176,6 @@ def synthesize_fusion_recommendation(
     modality_count = int(qeeg_analysis_id is not None) + int(mri_analysis_id is not None)
     evidence_points = len(qeeg_signals) + len(mri_signals)
     confidence = _clamp(0.15 + (0.25 * modality_count) + (0.08 * min(evidence_points, 4)))
-    if modality_count < 2:
-        confidence = min(confidence, 0.55)
 
     if modality_count == 0:
         summary = "No completed qEEG or MRI analyses are available for fusion yet."
@@ -131,6 +189,28 @@ def synthesize_fusion_recommendation(
     if bullets:
         summary += " Key findings: " + "; ".join(bullets) + "."
 
+    missing_modalities: list[str] = []
+    if modality_count == 0:
+        missing_modalities = ["qEEG", "MRI"]
+    elif qeeg_analysis_id is None:
+        missing_modalities = ["qEEG"]
+    elif mri_analysis_id is None:
+        missing_modalities = ["MRI"]
+
+    modality_agreement: dict[str, Any] = {"status": "single_modality"}
+    if modality_count == 2:
+        modality_agreement = {"status": "multimodal_available", "score": round(confidence, 2)}
+    elif modality_count == 0:
+        modality_agreement = {"status": "none_available"}
+
+    limitations: list[str] = []
+    if modality_count < 2:
+        limitations.append("Fusion is based on a single modality; add the missing modality for stronger targeting confidence.")
+    else:
+        limitations.append("Multi-modal fusion is research-support only; clinician judgement remains essential.")
+    if confidence < 0.5:
+        limitations.append("Confidence is below the preferred threshold; consider additional clinical assessment.")
+
     return {
         "patient_id": patient_id,
         "qeeg_analysis_id": qeeg_analysis_id,
@@ -138,40 +218,13 @@ def synthesize_fusion_recommendation(
         "recommendations": recommendations,
         "summary": summary,
         "confidence": round(confidence, 2),
-        "confidence_detail": {
-            "basis": "modality availability plus count of surfaced qEEG/MRI signals",
-            "modality_count": modality_count,
-            "evidence_points": evidence_points,
-            "calibrated": False,
-            "limitations": [
-                "Heuristic fusion is not a validated predictive model.",
-                "Missing or low-quality modalities lower confidence.",
-            ],
-        },
-        "modality_agreement": _agreement(qeeg_signals, mri_signals),
-        "missing_modalities": [
-            name for name, signals in (("qEEG", qeeg_signals), ("MRI", mri_signals)) if not signals
-        ],
-        "limitations": [
-            "Fusion is based on persisted summary fields rather than a validated multimodal model.",
-            "Low-quality, stale, or missing modalities reduce interpretability and confidence.",
-        ],
-        "provenance": {
-            "method": "transparent heuristic late fusion",
-            "inputs": {
-                "qeeg_analysis_id": qeeg_analysis_id,
-                "mri_analysis_id": mri_analysis_id,
-            },
-        },
-        "explainability": {
-            "qeeg_signals": qeeg_signals,
-            "mri_signals": mri_signals,
-            "method": "transparent heuristic late fusion",
-        },
-        "safety_statement": (
-            "Decision support only. Fusion output is a clinician review aid, not an autonomous care decision."
+        "confidence_disclaimer": (
+            "Confidence score is algorithmic heuristic and not evidence-graded clinical validation. "
+            "Always review recommendations against patient-specific context."
         ),
+        "confidence_grade": "heuristic",
         "generated_at": datetime.now(timezone.utc).isoformat(),
-    }
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "modality_agreement": modality_agreement,
+        "limitations": limitations,
+        "missing_modalities": missing_modalities,
     }

@@ -7497,7 +7497,7 @@ async function _pgPatientVirtualCareImpl() {
     if (m.kind === 'analysis') {
       const a = m.analysis || {};
       const sentiment = a.sentiment || a.mood || 'Pending';
-      const summary = a.summary || a.clinical_summary || 'Analysis in progress. Your clinician will review shortly.';
+      const summary = a.summary || a.clinical_summary || 'Analysis in progress. Review timing depends on portal workflow.';
       const uploadType = m.uploadType === 'voice' ? 'Voice analysis' : m.uploadType === 'video' ? 'Video analysis' : 'AI analysis';
       return `
         <div class="vc-msg">
@@ -7509,7 +7509,7 @@ async function _pgPatientVirtualCareImpl() {
                 <div class="vc-card-ico" style="background:rgba(167,139,250,.15);color:#a78bfa"><svg width="16" height="16"><use href="#i-sparkle"/></svg></div>
                 <div style="flex:1;min-width:0">
                   <div class="vc-card-hd-title">${esc(uploadType)}</div>
-                  <div class="vc-card-hd-sub">Sentiment: ${esc(sentiment)} · Clinician will review</div>
+                  <div class="vc-card-hd-sub">Sentiment: ${esc(sentiment)} · Review pending</div>
                 </div>
               </div>
               <div class="vc-card-body">${esc(summary)}</div>

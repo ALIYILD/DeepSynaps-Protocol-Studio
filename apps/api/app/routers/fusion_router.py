@@ -44,13 +44,13 @@ class FusionRecommendationResponse(BaseModel):
     provenance: dict = Field(default_factory=dict)
 
 
-@router.post("/recommend/{patient_id}")
+@router.post("/recommend/{patient_id}", response_model=FusionRecommendationResponse)
 async def recommend_fusion(
     patient_id: str,
     llm_narrative: bool = Query(default=True, description="Rewrite summary via LLM when available."),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
-) -> dict[str, Any]:
+):
     """Return a ``FusionRecommendation`` for ``patient_id``.
 
     Requires ``clinician`` role. Writes an ``AiSummaryAudit`` row with
