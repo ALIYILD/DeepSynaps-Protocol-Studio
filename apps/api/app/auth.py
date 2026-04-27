@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -8,6 +9,24 @@ from deepsynaps_core_schema import UserRole
 from app.errors import ApiServiceError
 from app.registries.auth import ANONYMOUS_ACTOR, DEMO_ACTOR_TOKENS
 from app.settings import get_settings
+
+_security_logger = logging.getLogger("security.cross_clinic")
+
+
+def _log_denial(reason: str, *, actor: "AuthenticatedActor", patient_clinic_id: str | None) -> None:
+    """Structured log on every cross-clinic denial — feeds SOC/SIEM detection
+    rules (sustained spike for a given actor_id == probable attack)."""
+    _security_logger.warning(
+        "cross_clinic_access_denied",
+        extra={
+            "event": "cross_clinic_access_denied",
+            "reason": reason,
+            "actor_id": actor.actor_id,
+            "actor_role": actor.role,
+            "actor_clinic_id": actor.clinic_id,
+            "patient_clinic_id": patient_clinic_id,
+        },
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +176,7 @@ def require_patient_owner(
     status_code=403)`` on mismatch.
     """
     if actor.role == "guest":
+        _log_denial("guest_actor", actor=actor, patient_clinic_id=patient_clinic_id)
         raise ApiServiceError(
             code="cross_clinic_access_denied",
             message="Guest actors cannot access patient-scoped data.",
@@ -169,6 +189,7 @@ def require_patient_owner(
     if patient_clinic_id is None:
         # Orphaned patient or system-owned record. No one but admin (handled
         # above) is permitted to look at it via this gate.
+        _log_denial("orphan_patient", actor=actor, patient_clinic_id=patient_clinic_id)
         raise ApiServiceError(
             code="cross_clinic_access_denied",
             message="This record is not scoped to a clinic and cannot be accessed.",
@@ -176,6 +197,7 @@ def require_patient_owner(
         )
 
     if actor.clinic_id is None or actor.clinic_id != patient_clinic_id:
+        _log_denial("cross_clinic_mismatch", actor=actor, patient_clinic_id=patient_clinic_id)
         raise ApiServiceError(
             code="cross_clinic_access_denied",
             message="This patient belongs to a different clinic.",
