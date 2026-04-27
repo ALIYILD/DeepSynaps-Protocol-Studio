@@ -2112,6 +2112,7 @@ export function renderBrodmannTable(areas, options) {
   parts.push('</svg>');
   return parts.join('');
 }
+<<<<<<< HEAD
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2277,3 +2278,5 @@ export function render3DBrainMapMini(activeBand) {
   svg += '</svg>';
   return svg;
 }
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508

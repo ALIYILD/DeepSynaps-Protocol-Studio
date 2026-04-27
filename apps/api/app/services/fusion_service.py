@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 """Fusion service — load the latest qEEG + MRI analyses and combine them.
 
@@ -20,14 +21,19 @@ Pure orchestration — no DB writes apart from reads. Audit-row writes
 live in the router layer.
 """
 >>>>>>> origin/integrate/mri-qeeg-fusion-timeline
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 from __future__ import annotations
 
 import json
 import logging
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 import re
 >>>>>>> origin/integrate/mri-qeeg-fusion-timeline
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -35,6 +41,9 @@ from sqlalchemy.orm import Session
 from app.persistence.models import MriAnalysis, QEEGAnalysis
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 logger = logging.getLogger(__name__)
 
 
@@ -112,15 +121,20 @@ def _latest_mri_analysis(db: Session, patient_id: str) -> MriAnalysis | None:
 
 
 def build_fusion_recommendation(db: Session, patient_id: str) -> dict[str, Any]:
+<<<<<<< HEAD
     try:
         from deepsynaps_qeeg.ai.fusion import synthesize_fusion_recommendation
         _has_fusion = True
     except ImportError:
         _has_fusion = False
+=======
+    from deepsynaps_qeeg.ai.fusion import synthesize_fusion_recommendation
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 
     qeeg_row = _latest_qeeg_analysis(db, patient_id)
     mri_row = _latest_mri_analysis(db, patient_id)
 
+<<<<<<< HEAD
     _disclaimer = (
         "Confidence score is algorithmic heuristic and not evidence-graded clinical validation. "
         "Always review recommendations against patient-specific context."
@@ -139,12 +153,16 @@ def build_fusion_recommendation(db: Session, patient_id: str) -> dict[str, Any]:
         }
 
     result = synthesize_fusion_recommendation(
+=======
+    return synthesize_fusion_recommendation(
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
         patient_id=patient_id,
         qeeg_analysis_id=qeeg_row.id if qeeg_row else None,
         qeeg=_qeeg_payload(qeeg_row),
         mri_analysis_id=mri_row.analysis_id if mri_row else None,
         mri=_mri_payload(mri_row),
     )
+<<<<<<< HEAD
     result.setdefault("confidence_disclaimer", _disclaimer)
     result.setdefault("confidence_grade", "heuristic")
     return result
@@ -529,3 +547,5 @@ def _sanitise_envelope(env: dict) -> dict:
 
 __all__ = ["HAS_FUSION", "recommend_fusion_for_patient"]
 >>>>>>> origin/integrate/mri-qeeg-fusion-timeline
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508

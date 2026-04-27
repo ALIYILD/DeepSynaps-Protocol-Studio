@@ -50,11 +50,21 @@ from app.persistence.models import (
     OutcomeSeries,
     QEEGRecord,
 )
+<<<<<<< HEAD
 from app.repositories.patients import resolve_patient_clinic_id
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 from app.services import mri_pipeline as mri_pipeline_facade
 from app.settings import get_settings
 
 _log = logging.getLogger(__name__)
+
+try:
+    from deepsynaps_mri.niivue_payload import StimTarget as ViewerStimTarget
+    from deepsynaps_mri.niivue_payload import build_payload as build_viewer_payload
+except ImportError:  # pragma: no cover - optional package path during thin installs
+    ViewerStimTarget = None  # type: ignore[assignment]
+    build_viewer_payload = None  # type: ignore[assignment]
 
 
 def _gate_patient_access(
@@ -144,6 +154,192 @@ def _load(raw: Optional[str]) -> Any:
     """Deserialise a JSON string previously produced by :func:`_dump`."""
     if not raw:
         return None
+
+
+def _iso(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat()
+    return str(value)
+
+
+def _timeline_sort_key(item: dict[str, Any]) -> str:
+    return str(item.get("at") or "")
+
+
+def _timeline_dt(raw: Any) -> Optional[datetime]:
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        return raw if raw.tzinfo is not None else raw.replace(tzinfo=timezone.utc)
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
+def _build_patient_timeline_payload(
+    patient_id: str,
+    actor: AuthenticatedActor,
+    db: Session,
+) -> dict[str, Any]:
+    session_q = db.query(ClinicalSession).filter_by(patient_id=patient_id)
+    qeeg_q = db.query(QEEGRecord).filter_by(patient_id=patient_id)
+    outcome_q = db.query(OutcomeSeries).filter_by(patient_id=patient_id)
+    if actor.role != "admin":
+        session_q = session_q.filter(ClinicalSession.clinician_id == actor.actor_id)
+        qeeg_q = qeeg_q.filter(QEEGRecord.clinician_id == actor.actor_id)
+        outcome_q = outcome_q.filter(OutcomeSeries.clinician_id == actor.actor_id)
+
+    mri_rows = (
+        db.query(MriAnalysis)
+        .filter_by(patient_id=patient_id)
+        .order_by(MriAnalysis.created_at.asc())
+        .all()
+    )
+    session_rows = session_q.order_by(ClinicalSession.scheduled_at.asc()).all()
+    qeeg_rows = qeeg_q.order_by(QEEGRecord.created_at.asc()).all()
+    outcome_rows = outcome_q.order_by(OutcomeSeries.administered_at.asc()).all()
+
+    sessions = [
+        {
+            "id": row.id,
+            "lane": "sessions",
+            "at": row.completed_at or row.scheduled_at,
+            "title": f"Session {row.session_number}" if row.session_number else (row.appointment_type or "Session"),
+            "status": row.status,
+            "meta": {
+                "modality": row.modality,
+                "appointment_type": row.appointment_type,
+                "protocol_ref": row.protocol_ref,
+                "outcome": row.outcome,
+            },
+        }
+        for row in session_rows
+    ]
+    qeeg = [
+        {
+            "id": row.id,
+            "lane": "qeeg",
+            "at": row.recording_date or _iso(row.created_at),
+            "title": f"{(row.recording_type or 'qEEG').replace('_', ' ')} qEEG",
+            "status": "recorded",
+            "meta": {
+                "equipment": row.equipment,
+                "eyes_condition": row.eyes_condition,
+                "course_id": row.course_id,
+            },
+        }
+        for row in qeeg_rows
+    ]
+    mri = [
+        {
+            "id": row.analysis_id,
+            "lane": "mri",
+            "at": _iso(row.created_at),
+            "title": f"MRI {str(row.condition or 'analysis').upper()}",
+            "status": row.state,
+            "meta": {
+                "condition": row.condition,
+                "upload_ref": row.upload_ref,
+            },
+        }
+        for row in mri_rows
+    ]
+    outcomes = [
+        {
+            "id": row.id,
+            "lane": "outcomes",
+            "at": _iso(row.administered_at),
+            "title": row.template_title or row.template_id,
+            "status": row.measurement_point,
+            "meta": {
+                "template_id": row.template_id,
+                "score": row.score,
+                "score_numeric": row.score_numeric,
+                "course_id": row.course_id,
+            },
+        }
+        for row in outcome_rows
+    ]
+
+    links: list[dict[str, Any]] = []
+    outcomes_by_course: dict[str, list[dict[str, Any]]] = {}
+    for item in outcomes:
+        course_id = item["meta"].get("course_id")
+        if course_id:
+            outcomes_by_course.setdefault(course_id, []).append(item)
+    for qeeg_item in qeeg:
+        course_id = qeeg_item["meta"].get("course_id")
+        if not course_id:
+            continue
+        for outcome_item in outcomes_by_course.get(course_id, []):
+            links.append(
+                {
+                    "from_lane": "qeeg",
+                    "from_id": qeeg_item["id"],
+                    "to_lane": "outcomes",
+                    "to_id": outcome_item["id"],
+                    "kind": "course",
+                }
+            )
+
+    if sessions and qeeg:
+        for qeeg_item in qeeg:
+            qeeg_dt = _timeline_dt(qeeg_item.get("at"))
+            closest = min(
+                sessions,
+                key=lambda sess: abs(
+                    (_timeline_dt(sess.get("at")) - qeeg_dt).total_seconds()
+                ) if _timeline_dt(sess.get("at")) and qeeg_dt else 10**12,
+            )
+            links.append(
+                {
+                    "from_lane": "sessions",
+                    "from_id": closest["id"],
+                    "to_lane": "qeeg",
+                    "to_id": qeeg_item["id"],
+                    "kind": "temporal",
+                }
+            )
+
+    if sessions and mri:
+        for mri_item in mri:
+            mri_dt = _timeline_dt(mri_item.get("at"))
+            closest = min(
+                sessions,
+                key=lambda sess: abs(
+                    (_timeline_dt(sess.get("at")) - mri_dt).total_seconds()
+                ) if _timeline_dt(sess.get("at")) and mri_dt else 10**12,
+            )
+            links.append(
+                {
+                    "from_lane": "sessions",
+                    "from_id": closest["id"],
+                    "to_lane": "mri",
+                    "to_id": mri_item["id"],
+                    "kind": "temporal",
+                }
+            )
+
+    return {
+        "patient_id": patient_id,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "lanes": {
+            "sessions": sorted(sessions, key=_timeline_sort_key),
+            "qeeg": sorted(qeeg, key=_timeline_sort_key),
+            "mri": sorted(mri, key=_timeline_sort_key),
+            "outcomes": sorted(outcomes, key=_timeline_sort_key),
+        },
+        "links": links,
+    }
     try:
         return json.loads(raw)
     except (TypeError, ValueError) as exc:
@@ -409,6 +605,7 @@ def _status_payload_from_row(row: MriAnalysis, job_id: str) -> dict[str, Any]:
         "SUCCESS": "done",
         "FAILURE": "failed",
     }
+<<<<<<< HEAD
     info: dict[str, Any] = {"stage": stage_map.get(row.state, row.state)}
     failure = getattr(row, "failure_reason", None)
     if failure:
@@ -421,6 +618,13 @@ def _status_payload_from_row(row: MriAnalysis, job_id: str) -> dict[str, Any]:
     if failure:
         payload["error"] = failure
     return payload
+=======
+    return {
+        "job_id": job_id,
+        "state": row.state,
+        "info": {"stage": stage_map.get(row.state, row.state)},
+    }
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 
 
 def _populate_row_from_report(row: MriAnalysis, report: dict[str, Any]) -> None:
@@ -794,7 +998,10 @@ def get_status(
             status_code=404,
         )
 
+<<<<<<< HEAD
     _gate_patient_access(actor, row.patient_id, db)
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     return _status_payload_from_row(row, job_id)
 
 
@@ -818,8 +1025,11 @@ async def stream_status_events(
             status_code=404,
         )
 
+<<<<<<< HEAD
     _gate_patient_access(actor, row.patient_id, db)
 
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     async def event_generator():
         last_payload: str | None = None
         while True:
@@ -874,6 +1084,7 @@ def get_report(
     return JSONResponse(_report_from_row(row))
 
 
+<<<<<<< HEAD
 @router.get("/report/{analysis_id}/fusion_payload")
 def get_fusion_payload(
     analysis_id: str,
@@ -921,6 +1132,8 @@ def get_fusion_payload(
     return JSONResponse(payload)
 
 
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 @router.get("/{analysis_id}/viewer.json")
 def get_viewer_payload(
     analysis_id: str,
@@ -937,7 +1150,10 @@ def get_viewer_payload(
             message=f"analysis_id {analysis_id!r} not found",
             status_code=404,
         )
+<<<<<<< HEAD
     _gate_patient_access(actor, row.patient_id, db)
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     return JSONResponse(_viewer_payload_from_report(analysis_id, _report_from_row(row)))
 
 
@@ -1045,7 +1261,10 @@ def get_patient_timeline(
 ) -> dict[str, Any]:
     """Aggregate sessions, qEEG, MRI, and outcomes into a 4-lane timeline."""
     require_minimum_role(actor, "clinician")
+<<<<<<< HEAD
     _gate_patient_access(actor, patient_id, db)
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     return _build_patient_timeline_payload(patient_id, actor, db)
 
 

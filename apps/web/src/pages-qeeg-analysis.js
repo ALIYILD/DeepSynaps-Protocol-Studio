@@ -9,7 +9,11 @@
 //   4. Compare          — pre/post comparison
 // ─────────────────────────────────────────────────────────────────────────────
 import { api, downloadBlob } from './api.js';
+<<<<<<< HEAD
 import { renderBrainMap10_20, renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap, renderConnectivityChordLite, renderICAComponents, renderWaveletHeatmap, renderChannelQualityMap, renderAsymmetryMap, renderPowerBarChart, renderTBRBarChart, renderSignalDeviationChart, renderBiomarkerGauges, renderBrodmannTable, render3DBrainMap, render3DBrainMapMini } from './brain-map-svg.js';
+=======
+import { renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap, renderConnectivityChordLite, renderICAComponents, renderWaveletHeatmap, renderChannelQualityMap, renderAsymmetryMap, renderPowerBarChart, renderTBRBarChart, renderSignalDeviationChart, renderBiomarkerGauges, renderBrodmannTable } from './brain-map-svg.js';
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 import { emptyState, showToast, spark } from './helpers.js';
 import { DK_LOBES, groupROIsByLobe, formatDKLabel } from './qeeg-dk-atlas.js';
 import {
@@ -106,6 +110,9 @@ export var DEMO_FUSION_RESULT = {
   summary: 'Fusion across qeeg + mri: top protocol consideration is rtms_10hz → L_DLPFC (×1.40). Alternatives: tps → bilateral_hippocampus (×1.25). Convergent biomarker support across modalities is research/wellness evidence only; clinician judgement required.',
   disclaimer: 'Decision-support tool. Not a medical device. Multi-modal convergent findings are research/wellness indicators only.',
 };
+
+const FUSION_API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
+const FUSION_TOKEN_KEY = 'ds_access_token';
 
 // Feature flag for the Contract V2 AI upgrade panels + buttons. Defaults to
 // on; ops can disable without a redeploy by setting
@@ -358,6 +365,7 @@ function badge(text, color) {
     + (color || 'var(--blue)') + '20;color:' + (color || 'var(--blue)') + '">' + esc(text) + '</span>';
 }
 
+<<<<<<< HEAD
 const QEEG_WORKSPACE_LENS_META = {
   spectral: { label: 'Spectral', color: 'var(--teal)' },
   connectivity: { label: 'Connectivity', color: 'var(--blue)' },
@@ -783,6 +791,14 @@ function renderQEEGStackCard() {
       + '<span>' + badge('BIDS export', 'var(--red)') + '</span>'
       + '</div>'
     + '</div>');
+=======
+function _getFusionToken() {
+  try {
+    return globalThis.localStorage?.getItem?.(FUSION_TOKEN_KEY) || null;
+  } catch (_) {
+    return null;
+  }
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 }
 
 function _demoFusionSummary(patientId) {
@@ -793,8 +809,11 @@ function _demoFusionSummary(patientId) {
     recommendations: ['qEEG data is available. Add MRI targeting to upgrade this into a dual-modality recommendation.'],
     summary: 'Partial fusion available from one modality only. Add MRI data to strengthen target confidence.',
     confidence: 0.4,
+<<<<<<< HEAD
     confidence_disclaimer: 'Confidence score is algorithmic heuristic and not evidence-graded clinical validation. Always review recommendations against patient-specific context.',
     confidence_grade: 'heuristic',
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     generated_at: new Date().toISOString(),
   };
 }
@@ -803,7 +822,20 @@ async function _fetchFusionSummary(patientId) {
   if (!patientId) return null;
   if (_isDemoMode()) return _demoFusionSummary(patientId);
   try {
+<<<<<<< HEAD
     return await api.getFusionRecommendation(patientId);
+=======
+    var headers = {};
+    var token = _getFusionToken();
+    if (token) headers.Authorization = 'Bearer ' + token;
+    headers['Content-Type'] = 'application/json';
+    var res = await fetch(
+      FUSION_API_BASE + '/api/v1/fusion/recommend/' + encodeURIComponent(patientId),
+      { method: 'POST', headers: headers }
+    );
+    if (!res.ok) throw new Error('Fusion request failed (' + res.status + ')');
+    return await res.json();
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
   } catch (_) {
     return null;
   }
@@ -823,23 +855,32 @@ export function renderFusionSummaryCard(fusion, patientId) {
   if (fusion.qeeg_analysis_id) meta.push('qEEG ready');
   if (fusion.mri_analysis_id) meta.push('MRI ready');
   if (fusion.confidence != null) meta.push('confidence ' + Math.round(Number(fusion.confidence || 0) * 100) + '%');
+<<<<<<< HEAD
   if (fusion.confidence_grade) meta.push('grade: ' + esc(fusion.confidence_grade));
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
   var recHtml = recs.length
     ? '<ul style="margin:10px 0 0 18px;padding:0;color:var(--text-secondary);font-size:12.5px;line-height:1.5">'
         + recs.map(function (item) { return '<li>' + esc(item) + '</li>'; }).join('')
       + '</ul>'
     : '<div style="margin-top:10px;color:var(--text-tertiary);font-size:12px">No recommendations yet.</div>';
+<<<<<<< HEAD
   var disclaimerHtml = fusion.confidence_disclaimer
     ? '<div style="margin-top:10px;font-size:11px;color:var(--text-tertiary);line-height:1.5;border-left:2px solid var(--amber);padding-left:8px">'
         + esc(fusion.confidence_disclaimer) + '</div>'
     : '';
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
   return card('Fusion summary',
     '<div style="font-size:13px;color:var(--text-primary);line-height:1.55">' + esc(fusion.summary || '') + '</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">' + meta.map(function (item) {
       return badge(item, 'var(--teal)');
     }).join('') + '</div>'
     + recHtml
+<<<<<<< HEAD
     + disclaimerHtml
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
   );
 }
 
@@ -849,12 +890,15 @@ const BAND_COLORS = {
   beta: '#ffa726', high_beta: '#ef5350', gamma: '#ec407a',
 };
 
+<<<<<<< HEAD
 var SUB_BAND_RANGES = {
   delta: '1-4 Hz', theta: '4-8 Hz', alpha: '8-12 Hz',
   smr: '12-15 Hz', low_beta: '13-20 Hz',
   beta: '13-30 Hz', high_beta: '20-30 Hz', gamma: '30-50 Hz',
 };
 
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 var _qeegAnnotationDrawerLoadedFor = null;
 
 function _renderAnnotationList(items) {
@@ -1681,6 +1725,144 @@ export function renderConnectivityClinicViz(analysis) {
   return card('Connectivity Visualizations', html);
 }
 
+export function renderNormativeTopomapGrid(analysis) {
+  if (!analysis || !analysis.normative_zscores) return '';
+  var spectral = analysis.normative_zscores.spectral && analysis.normative_zscores.spectral.bands
+    ? analysis.normative_zscores.spectral.bands
+    : null;
+  if (!spectral) return '';
+  var bands = Object.keys(spectral);
+  if (!bands.length) return '';
+  var html = '<div class="qeeg-band-grid">';
+  bands.forEach(function (band) {
+    var values = spectral[band] && spectral[band].absolute_uv2 ? spectral[band].absolute_uv2 : {};
+    if (!Object.keys(values).length) return;
+    html += '<div style="text-align:center">'
+      + renderTopoHeatmap(values, { band: band + ' z-score', unit: 'z', size: 220, colorScale: 'diverging' })
+      + '</div>';
+  });
+  html += '</div>';
+  return html.indexOf('ds-topo-heatmap') !== -1 ? card('Normative Topomaps', html) : '';
+}
+
+function _buildBrainRingPayload(analysis) {
+  if (!analysis) return null;
+  var coh = analysis.advanced_analyses && analysis.advanced_analyses.results
+    ? analysis.advanced_analyses.results.coherence_matrix
+    : null;
+  if (!coh || coh.status !== 'ok' || !coh.data || !coh.data.channels || !coh.data.bands) return null;
+  var band = coh.data.bands.alpha ? 'alpha' : Object.keys(coh.data.bands)[0];
+  if (!band) return null;
+  var channels = coh.data.channels || [];
+  var matrix = coh.data.bands[band];
+  if (!channels.length || !matrix) return null;
+
+  var connections = [];
+  for (var row = 0; row < matrix.length; row++) {
+    for (var col = row + 1; col < matrix[row].length; col++) {
+      connections.push({ ch1: channels[row], ch2: channels[col], value: Number(matrix[row][col] || 0) });
+    }
+  }
+  connections.sort(function (a, b) { return b.value - a.value; });
+  var topConnections = connections.slice(0, 18);
+  var nodes = channels.map(function (label, index) {
+    return { id: index, label: label, color: BAND_COLORS[band] || '#56b870' };
+  });
+  var edges = [];
+  topConnections.forEach(function (conn) {
+    var source = channels.indexOf(conn.ch1);
+    var target = channels.indexOf(conn.ch2);
+    if (source === -1 || target === -1) return;
+    edges.push({ source: source, target: target, weight: conn.value, sign: 1 });
+  });
+
+  return {
+    band: band,
+    nodes: nodes,
+    edges: edges,
+    threshold: 0.45,
+    topConnections: topConnections
+  };
+}
+
+function _brainRingFrameMarkup(payload) {
+  if (!payload || !payload.nodes || !payload.nodes.length || !payload.edges || !payload.edges.length) return '';
+  var encoded = encodeURIComponent(JSON.stringify({
+    type: 'brainring/load',
+    atlas: '10-20',
+    band: payload.band,
+    threshold: payload.threshold,
+    nodes: payload.nodes,
+    edges: payload.edges
+  }));
+  return '<div class="qeeg-brainring-frame-wrap" style="display:grid;gap:8px">'
+    + '<iframe'
+    + ' title="BrainRing connectivity viewer"'
+    + ' data-brainring-frame="1"'
+    + ' data-brainring-payload="' + esc(encoded) + '"'
+    + ' src="/vendor/brainring/brainring.html"'
+    + ' loading="lazy"'
+    + ' style="width:100%;min-height:360px;border:1px solid rgba(148,163,184,.28);border-radius:16px;background:#07111f"'
+    + '></iframe>'
+    + '<div data-brainring-fallback="1">'
+    + renderConnectivityChordLite(payload.nodes, payload.edges, { title: payload.band + ' connectivity chord', size: 320, threshold: payload.threshold })
+    + '</div>'
+    + '</div>';
+}
+
+function _bindBrainRingFrames() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  if (!window.__dsBrainRingMessageBound) {
+    window.addEventListener('message', function (event) {
+      var data = event && event.data ? event.data : null;
+      if (!data || (data.type !== 'brainring/ready' && data.type !== 'brainring/rendered')) return;
+      var frames = document.querySelectorAll('iframe[data-brainring-frame="1"]');
+      frames.forEach(function (frame) {
+        if (frame.contentWindow !== event.source) return;
+        var fallback = frame.parentElement ? frame.parentElement.querySelector('[data-brainring-fallback="1"]') : null;
+        if (fallback) fallback.style.display = 'none';
+      });
+    });
+    window.__dsBrainRingMessageBound = true;
+  }
+
+  document.querySelectorAll('iframe[data-brainring-frame="1"]').forEach(function (frame) {
+    if (frame.dataset.brainringBound === '1') return;
+    frame.dataset.brainringBound = '1';
+    var payloadRaw = frame.getAttribute('data-brainring-payload') || '';
+    var payload = null;
+    try {
+      payload = JSON.parse(decodeURIComponent(payloadRaw));
+    } catch (_) {
+      payload = null;
+    }
+    if (!payload) return;
+    var send = function () {
+      try {
+        if (frame.contentWindow) frame.contentWindow.postMessage(payload, '*');
+      } catch (_) {}
+    };
+    frame.addEventListener('load', send);
+    send();
+    setTimeout(send, 250);
+    setTimeout(send, 1000);
+  });
+}
+
+export function renderConnectivityClinicViz(analysis) {
+  var payload = _buildBrainRingPayload(analysis);
+  if (!payload) return '';
+  var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">'
+    + '<div style="overflow:auto">'
+    + renderConnectivityBrainMap(payload.topConnections, { band: payload.band + ' coherence', size: 320, threshold: payload.threshold })
+    + '</div>'
+    + '<div style="overflow:auto">'
+    + _brainRingFrameMarkup(payload)
+    + '</div>'
+    + '</div>';
+  return card('Connectivity Visualizations', html);
+}
+
 // ── §4.5 Asymmetry + graph strip ────────────────────────────────────────────
 export function renderAsymmetryGraphStrip(analysis) {
   if (!analysis) return '';
@@ -2029,7 +2211,10 @@ export function renderMNEPipelineSections(analysis) {
     renderPipelineQualityStrip(analysis),
     renderSpecParamPanel(analysis),
     renderELoretaROIPanel(analysis),
+<<<<<<< HEAD
     renderQEEGSource3DBrain(analysis),
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     renderNormativeTopomapGrid(analysis),
     renderNormativeZScoreHeatmap(analysis),
     renderConnectivityClinicViz(analysis),
@@ -4183,8 +4368,12 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   pageHtml += '<div class="qeeg-hero">'
     + '<div class="qeeg-hero__icon qeeg-hero__icon--3d">' + render3DBrainMapMini('alpha') + '</div>'
     + '<div><div class="qeeg-hero__title">qEEG Analyzer</div>'
+<<<<<<< HEAD
     + '<div class="qeeg-hero__sub">Spectral analysis &middot; AI interpretation &middot; Pre/post comparison</div>'
     + '<div style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Decision-support only. Review acquisition quality and clinician context before acting on AI summaries.</div></div>'
+=======
+    + '<div class="qeeg-hero__sub">Spectral analysis &middot; AI interpretation &middot; Pre/post comparison</div></div>'
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     + '<div class="qeeg-export-bar" style="margin-left:auto">'
     + '<button class="btn btn-sm btn-outline" aria-label="Export patient FHIR bundle" onclick="window._qeegExportFHIRBundle()">FHIR</button>'
     + '<button class="btn btn-sm btn-outline" aria-label="Export patient BIDS derivatives package" onclick="window._qeegExportBIDSPackage()">BIDS</button>'
@@ -4266,6 +4455,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
 
     try {
       var data;
+<<<<<<< HEAD
       if (analysisId === 'demo' && _isDemoMode()) {
         data = DEMO_QEEG_ANALYSIS;
       } else {
@@ -4273,6 +4463,15 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       }
       _currentAnalysis = data;
       _fusionSummary = await _fetchFusionSummary(data && data.patient_id);
+=======
+        if (analysisId === 'demo' && _isDemoMode()) {
+          data = DEMO_QEEG_ANALYSIS;
+        } else {
+          data = await api.getQEEGAnalysis(analysisId);
+        }
+        _currentAnalysis = data;
+        _fusionSummary = await _fetchFusionSummary(data && data.patient_id);
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 
       // If pending — show manual trigger
       if (data.analysis_status === 'pending') {
@@ -4570,6 +4769,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           + '<button class="btn btn-outline btn-sm" data-qeeg-ai-action="similar" aria-label="Find similar cases">Find similar cases</button>'
           + '<button class="btn btn-outline btn-sm" data-qeeg-ai-action="protocol" aria-label="Recommend protocol">Recommend protocol</button>';
       }
+<<<<<<< HEAD
       html += renderAnalysisWorkflowCard(
         mneButtonHtml,
         aiButtonsHtml,
@@ -4580,6 +4780,19 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           anchor_label: (data && data.original_filename) || 'qEEG analysis',
         })
       )
+=======
+      html += '<div style="display:flex;gap:12px;justify-content:center;margin-top:16px;flex-wrap:wrap">'
+        + '<button class="btn btn-primary" onclick="window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Generate AI Report</button>'
+        + mneButtonHtml
+        + aiButtonsHtml
+        + _qeegAnnotationButton({
+            patient_id: data && data.patient_id,
+            target_id: data && data.id,
+            anchor_label: (data && data.original_filename) || 'qEEG analysis',
+          })
+        + '<button class="btn btn-outline" onclick="' + compareAction + '">Compare with Another</button>'
+        + '</div>'
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
         + '<div id="qeeg-mne-run-status" aria-live="polite" style="text-align:center;margin-top:8px"></div>'
         + '<div id="qeeg-ai-run-status" aria-live="polite" style="text-align:center;margin-top:4px"></div>'
         + '<div id="qeeg-annotation-drawer-host" class="analysis-anno-host"></div>';
@@ -4596,6 +4809,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
 
       // Bind advanced analyses button
       setTimeout(function () {
+<<<<<<< HEAD
         // 3D Brain Map band selector
         var bandTabs3d = document.getElementById('qeeg-3d-band-tabs');
         var brainCont3d = document.getElementById('qeeg-3d-brain-container');
@@ -4624,6 +4838,9 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             vizMount.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:8px;">Viz v2 not available: ' + esc(String(err.message || err)) + '</p>';
           });
         }
+=======
+        _bindBrainRingFrames();
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
         var runBtn = document.getElementById('qeeg-run-advanced-btn');
         if (runBtn) {
           runBtn.addEventListener('click', async function () {
@@ -6021,6 +6238,7 @@ function _renderAsymmetryTable(pairs) {
     html += '</tr>';
   });
   return html + '</tbody></table></div>';
+<<<<<<< HEAD
 =======
 /**
  * qEEG Analyzer — detail-panel renderer + upload/analyze flow
@@ -6762,4 +6980,6 @@ export function isEdfLikeFile(filename) {
   const lower = filename.toLowerCase();
   return ['.edf', '.edf+', '.bdf', '.vhdr', '.set', '.fif'].some((ext) => lower.endsWith(ext));
 >>>>>>> origin/feat/qeeg-analyzer-mne-parity
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 }

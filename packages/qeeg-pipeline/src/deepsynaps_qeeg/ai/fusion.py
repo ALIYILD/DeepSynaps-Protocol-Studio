@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 """Multi-modal fusion — combine qEEG + MRI protocol recommendations.
 
 Implements CONTRACT_V3.md §1 ``FusionRecommendation`` shape. Pure Python;
@@ -293,6 +294,89 @@ def _extract_mri_biomarkers(mri_row: dict) -> list[dict]:
             except (TypeError, ValueError):
                 continue
 <<<<<<< HEAD
+=======
+"""Lightweight multi-modal fusion helpers for qEEG + MRI summaries.
+
+The functions in this module are intentionally dependency-light so the API can
+assemble patient-level recommendations from persisted JSON rows even when the
+heavier neuro stacks are unavailable.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+
+def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
+    return max(low, min(high, value))
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _pick_top_qeeg_signals(qeeg: dict[str, Any] | None) -> list[str]:
+    if not isinstance(qeeg, dict):
+        return []
+
+    signals: list[str] = []
+    risk_scores = qeeg.get("risk_scores") or {}
+    if isinstance(risk_scores, dict):
+        ranked: list[tuple[float, str]] = []
+        for label, payload in risk_scores.items():
+            if label == "disclaimer" or not isinstance(payload, dict):
+                continue
+            score = _safe_float(payload.get("score"))
+            if score is None:
+                continue
+            ranked.append((score, str(label).replace("_", " ")))
+        for score, label in sorted(ranked, reverse=True)[:2]:
+            signals.append(f"qEEG pattern similarity highest for {label} ({score:.0%})")
+
+    flagged = qeeg.get("flagged_conditions")
+    if isinstance(flagged, list):
+        for item in flagged[:2]:
+            if item:
+                signals.append(f"Flagged qEEG pattern: {item}")
+
+    protocol = qeeg.get("protocol_recommendation") or {}
+    if isinstance(protocol, dict):
+        modality = protocol.get("primary_modality")
+        target = protocol.get("target_region")
+        if modality or target:
+            parts = ["qEEG protocol suggestion"]
+            if modality:
+                parts.append(str(modality))
+            if target:
+                parts.append(f"targeting {target}")
+            signals.append(" ".join(parts))
+
+    brain_age = qeeg.get("brain_age") or {}
+    if isinstance(brain_age, dict):
+        gap = _safe_float(brain_age.get("gap_years"))
+        if gap is not None:
+            direction = "older" if gap >= 0 else "younger"
+            signals.append(f"qEEG brain-age gap {abs(gap):.1f} years {direction} than chronological age")
+
+    return signals[:3]
+
+
+def _pick_top_mri_signals(mri: dict[str, Any] | None) -> list[str]:
+    if not isinstance(mri, dict):
+        return []
+
+    signals: list[str] = []
+    targets = mri.get("stim_targets")
+    if isinstance(targets, list):
+        for target in targets[:2]:
+            if not isinstance(target, dict):
+                continue
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
             region = target.get("region_name") or target.get("region_code") or "MRI target"
             modality = target.get("modality") or "neuromodulation"
             confidence = target.get("confidence")
@@ -340,20 +424,34 @@ def _build_recommendations(
         target = mri_targets[0] if isinstance(mri_targets[0], dict) else {}
         region = target.get("region_name") or target.get("region_code") or "MRI-defined target"
         recommendations.append(
+<<<<<<< HEAD
             f"Review whether the qEEG-informed {primary} strategy is concordant with MRI-guided targeting at {region}."
+=======
+            f"Combine the qEEG-informed {primary} strategy with MRI-guided targeting at {region}."
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
         )
     elif isinstance(qeeg_protocol, dict):
         primary = qeeg_protocol.get("primary_modality") or "qEEG-guided protocol"
         target = qeeg_protocol.get("target_region")
         if target:
+<<<<<<< HEAD
             recommendations.append(f"Clinician review item: qEEG-guided {primary} approach targeting {target}.")
         else:
             recommendations.append(f"Clinician review item: qEEG-guided {primary} approach with target selection verification.")
+=======
+            recommendations.append(f"Proceed with the qEEG-guided {primary} approach targeting {target}.")
+        else:
+            recommendations.append(f"Proceed with the qEEG-guided {primary} approach and verify target selection clinically.")
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     elif isinstance(mri_targets, list) and mri_targets:
         target = mri_targets[0] if isinstance(mri_targets[0], dict) else {}
         region = target.get("region_name") or target.get("region_code") or "MRI-defined target"
         modality = target.get("modality") or "neuromodulation"
+<<<<<<< HEAD
         recommendations.append(f"Clinician review item: MRI targeting may inform {modality} planning around {region}.")
+=======
+        recommendations.append(f"Use MRI targeting to guide {modality} planning around {region}.")
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 
     qeeg_signals = _pick_top_qeeg_signals(qeeg)
     mri_signals = _pick_top_mri_signals(mri)
@@ -374,6 +472,7 @@ def _build_recommendations(
     return recommendations[:3]
 
 
+<<<<<<< HEAD
 def _agreement(qeeg_signals: list[str], mri_signals: list[str]) -> dict[str, Any]:
     """Return a transparent modality agreement summary."""
     if not qeeg_signals and not mri_signals:
@@ -395,6 +494,8 @@ def _agreement(qeeg_signals: list[str], mri_signals: list[str]) -> dict[str, Any
     }
 
 
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 def synthesize_fusion_recommendation(
     *,
     patient_id: str,
@@ -411,8 +512,11 @@ def synthesize_fusion_recommendation(
     modality_count = int(qeeg_analysis_id is not None) + int(mri_analysis_id is not None)
     evidence_points = len(qeeg_signals) + len(mri_signals)
     confidence = _clamp(0.15 + (0.25 * modality_count) + (0.08 * min(evidence_points, 4)))
+<<<<<<< HEAD
     if modality_count < 2:
         confidence = min(confidence, 0.55)
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 
     if modality_count == 0:
         summary = "No completed qEEG or MRI analyses are available for fusion yet."
@@ -433,6 +537,7 @@ def synthesize_fusion_recommendation(
         "recommendations": recommendations,
         "summary": summary,
         "confidence": round(confidence, 2),
+<<<<<<< HEAD
         "confidence_detail": {
             "basis": "modality availability plus count of surfaced qEEG/MRI signals",
             "modality_count": modality_count,
@@ -738,3 +843,7 @@ __all__ = [
     "_extract_mri_biomarkers",
 ]
 >>>>>>> origin/integrate/mri-qeeg-fusion-timeline
+=======
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508

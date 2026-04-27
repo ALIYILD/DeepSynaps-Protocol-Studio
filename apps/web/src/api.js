@@ -1213,6 +1213,7 @@ export const api = {
     apiFetch(`/api/v1/mri/status/${encodeURIComponent(jobId)}`),
   getMRIReport: (analysisId) =>
     apiFetch(`/api/v1/mri/report/${encodeURIComponent(analysisId)}`),
+<<<<<<< HEAD
   getMRIReportPdf: (analysisId) =>
     apiFetchBinary(`/api/v1/mri/report/${encodeURIComponent(analysisId)}/pdf`),
   getMRIReportHtml: (analysisId) =>
@@ -1221,6 +1222,10 @@ export const api = {
     apiFetch(`/api/v1/mri/${encodeURIComponent(analysisId)}/viewer.json`),
   getMRIOverlayHtml: (analysisId, targetId) =>
     apiFetchBinary(`/api/v1/mri/overlay/${encodeURIComponent(analysisId)}/${encodeURIComponent(targetId)}`),
+=======
+  getMRIViewerPayload: (analysisId) =>
+    apiFetch(`/api/v1/mri/${encodeURIComponent(analysisId)}/viewer.json`),
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
   getMRIMedRAG: (analysisId, topK = 20) =>
     apiFetch(`/api/v1/mri/medrag/${encodeURIComponent(analysisId)}?top_k=${encodeURIComponent(topK)}`),
   // Longitudinal compare — AI_UPGRADES P0 #4. Returns a LongitudinalReport:
