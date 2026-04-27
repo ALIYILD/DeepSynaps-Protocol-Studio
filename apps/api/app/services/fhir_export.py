@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 """FHIR R4 DiagnosticReport bundle export for qEEG + MRI analyses.
 
 Implements CONTRACT_V3 §5.1 by serialising a qEEG or MRI analysis row
@@ -31,12 +32,20 @@ import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+=======
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+from typing import Any, Optional
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 
 from sqlalchemy.orm import Session
 
 from app.errors import ApiServiceError
 from app.persistence.models import MriAnalysis, OutcomeEvent, OutcomeSeries, Patient, QEEGAnalysis, TreatmentCourse
 
+<<<<<<< HEAD
 _log = logging.getLogger(__name__)
 
 
@@ -501,14 +510,68 @@ def mri_to_fhir_bundle(analysis: Any) -> dict[str, Any]:
     return _wrap_bundle(entries)
 
 
+=======
+
+def _iso(dt: Optional[datetime]) -> Optional[str]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat()
+
+
+def _safe_json(raw: Optional[str]) -> Any:
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except Exception:
+        return None
+
+
+def _pick_qeeg_summary(row: QEEGAnalysis) -> dict[str, Any]:
+    band_powers = _safe_json(row.band_powers_json) or {}
+    flagged_conditions = _safe_json(row.flagged_conditions) or []
+    return {
+        "status": row.analysis_status,
+        "recording_date": row.recording_date,
+        "eyes_condition": row.eyes_condition,
+        "channels": row.channel_count,
+        "sample_rate_hz": row.sample_rate_hz,
+        "flagged_conditions": flagged_conditions,
+        "bands_present": sorted(list(band_powers.keys()))[:10] if isinstance(band_powers, dict) else [],
+    }
+
+
+def _pick_mri_summary(row: MriAnalysis) -> dict[str, Any]:
+    stim_targets = _safe_json(row.stim_targets_json) or []
+    qc = _safe_json(row.qc_json) or {}
+    return {
+        "state": row.state,
+        "condition": row.condition,
+        "pipeline_version": row.pipeline_version,
+        "norm_db_version": row.norm_db_version,
+        "modalities_present": _safe_json(row.modalities_present_json) or [],
+        "stim_target_count": len(stim_targets) if isinstance(stim_targets, list) else 0,
+        "qc_passed": qc.get("passed") if isinstance(qc, dict) else None,
+    }
+
+
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 def build_neuromodulation_fhir_bundle(
     db: Session,
     patient_id: str,
     *,
+<<<<<<< HEAD
     qeeg_analysis_id: str | None = None,
     mri_analysis_id: str | None = None,
 ) -> dict[str, Any]:
     """Build the legacy patient-level FHIR bundle expected by export_router."""
+=======
+    qeeg_analysis_id: Optional[str] = None,
+    mri_analysis_id: Optional[str] = None,
+) -> dict[str, Any]:
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     qeeg_query = db.query(QEEGAnalysis).filter(QEEGAnalysis.patient_id == patient_id)
     if qeeg_analysis_id:
         qeeg_query = qeeg_query.filter(QEEGAnalysis.id == qeeg_analysis_id)
@@ -536,11 +599,21 @@ def build_neuromodulation_fhir_bundle(
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if patient is None and qeeg_row is None and mri_row is None and not outcome_rows:
         raise ApiServiceError(code="patient_not_found", message="Patient not found", status_code=404)
+<<<<<<< HEAD
     if patient is None:
         patient = Patient(
             id=patient_id,
             clinician_id="unknown",
             first_name=f"Patient {patient_id}",
+=======
+
+    if patient is None:
+        synthetic_name = f"Patient {patient_id}"
+        patient = Patient(
+            id=patient_id,
+            clinician_id="unknown",
+            first_name=synthetic_name,
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
             last_name="",
             status="active",
         )
@@ -553,6 +626,10 @@ def build_neuromodulation_fhir_bundle(
     )
 
     entries: list[dict[str, Any]] = []
+<<<<<<< HEAD
+=======
+
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     patient_ref = f"Patient/{patient.id}"
     entries.append(
         {
@@ -610,6 +687,7 @@ def build_neuromodulation_fhir_bundle(
                     "code": {"text": "qEEG analysis"},
                     "subject": {"reference": patient_ref},
                     "effectiveDateTime": _iso(qeeg_row.analyzed_at or qeeg_row.created_at),
+<<<<<<< HEAD
                     "presentedForm": [
                         {
                             "contentType": "application/json",
@@ -631,6 +709,13 @@ def build_neuromodulation_fhir_bundle(
                             ),
                         }
                     ],
+=======
+                    "presentedForm": [{
+                        "contentType": "application/json",
+                        "title": "qEEG summary",
+                        "data": json.dumps(_pick_qeeg_summary(qeeg_row)),
+                    }],
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
                 },
             }
         )
@@ -646,6 +731,7 @@ def build_neuromodulation_fhir_bundle(
                     "code": {"text": "MRI analysis"},
                     "subject": {"reference": patient_ref},
                     "effectiveDateTime": _iso(mri_row.created_at),
+<<<<<<< HEAD
                     "presentedForm": [
                         {
                             "contentType": "application/json",
@@ -665,6 +751,13 @@ def build_neuromodulation_fhir_bundle(
                             ),
                         }
                     ],
+=======
+                    "presentedForm": [{
+                        "contentType": "application/json",
+                        "title": "MRI summary",
+                        "data": json.dumps(_pick_mri_summary(mri_row)),
+                    }],
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
                 },
             }
         )
@@ -701,6 +794,7 @@ def build_neuromodulation_fhir_bundle(
                     "date": _iso(row.recorded_at),
                     "summary": row.title,
                     "description": row.summary,
+<<<<<<< HEAD
                     "note": [
                         {
                             "text": json.dumps(
@@ -713,6 +807,18 @@ def build_neuromodulation_fhir_bundle(
                             )
                         }
                     ],
+=======
+                    "note": [{
+                        "text": json.dumps(
+                            {
+                                "event_type": row.event_type,
+                                "severity": row.severity,
+                                "source_type": row.source_type,
+                                "source_id": row.source_id,
+                            }
+                        )
+                    }],
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
                 },
             }
         )

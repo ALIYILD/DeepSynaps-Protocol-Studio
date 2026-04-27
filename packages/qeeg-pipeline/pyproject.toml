@@ -40,7 +40,10 @@ reporting = [
     "kaleido>=0.2.1",
     "holoviews>=1.19",
     "bokeh>=3.4",
+<<<<<<< HEAD
     "Pillow>=10.0",
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 ]
 # `pip install -e '.[rag]'` to enable Postgres-backed literature RAG via psycopg.
 # Studio's API image already carries psycopg2-binary so this extra is rarely

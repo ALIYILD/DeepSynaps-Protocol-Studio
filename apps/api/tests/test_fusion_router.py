@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+<<<<<<< HEAD
 import uuid
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
+<<<<<<< HEAD
 from app.persistence.models import Clinic, MriAnalysis, QEEGAnalysis, User
 
 
@@ -44,6 +48,12 @@ def _ensure_demo_clinician_in_clinic() -> None:
 
 def _seed_patient(client: TestClient, auth_headers: dict[str, dict[str, str]]) -> str:
     _ensure_demo_clinician_in_clinic()
+=======
+from app.persistence.models import MriAnalysis, QEEGAnalysis
+
+
+def _seed_patient(client: TestClient, auth_headers: dict[str, dict[str, str]]) -> str:
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     resp = client.post(
         "/api/v1/patients",
         json={"first_name": "Fusion", "last_name": "Test", "dob": "1988-08-08", "gender": "F"},
@@ -101,11 +111,14 @@ def test_fusion_recommendation_combines_latest_qeeg_and_mri(
     assert body["recommendations"]
     assert body["confidence"] >= 0.5
     assert "Dual-modality fusion available" in body["summary"]
+<<<<<<< HEAD
     assert body["confidence_disclaimer"]
     assert "heuristic" in body["confidence_disclaimer"]
     assert body["confidence_grade"] == "heuristic"
     assert body["modality_agreement"]["status"] == "multimodal_available"
     assert "limitations" in body and body["limitations"]
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 
 
 def test_fusion_recommendation_fails_soft_for_single_modality(
@@ -138,6 +151,7 @@ def test_fusion_recommendation_fails_soft_for_single_modality(
     body = resp.json()
     assert body["qeeg_analysis_id"] == "qeeg-only-1"
     assert body["mri_analysis_id"] is None
+<<<<<<< HEAD
     assert body["partial"] is True
     assert "Partial fusion available" in body["summary"]
     assert any("Add MRI" in item or "missing" in item for item in body["recommendations"])
@@ -164,6 +178,10 @@ def test_fusion_recommendation_returns_empty_state_when_no_modalities_exist(
     assert "No completed qEEG or MRI analyses are available" in body["summary"]
     assert body["confidence_disclaimer"]
     assert body["confidence_grade"] == "heuristic"
+=======
+    assert "Partial fusion available" in body["summary"]
+    assert any("Add MRI" in item or "missing" in item for item in body["recommendations"])
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 
 
 def test_qeeg_sse_stream_emits_progress_snapshot(
@@ -198,6 +216,7 @@ def test_qeeg_sse_stream_emits_progress_snapshot(
     assert '"step": "parsing"' in first_chunk
 
 
+<<<<<<< HEAD
 def test_fusion_recommendation_forbids_guest_role(
     client: TestClient,
     auth_headers: dict[str, dict[str, str]],
@@ -211,6 +230,8 @@ def test_fusion_recommendation_forbids_guest_role(
     assert resp.status_code == 403, resp.text
 
 
+=======
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 def test_mri_sse_stream_emits_terminal_snapshot(
     client: TestClient,
     auth_headers: dict[str, dict[str, str]],

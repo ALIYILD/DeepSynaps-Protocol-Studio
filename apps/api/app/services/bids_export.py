@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 """BIDS derivatives export for qEEG + MRI analyses.
 
 Implements CONTRACT_V3 §5.2 by streaming an in-memory zip archive
@@ -21,12 +22,23 @@ import logging
 import struct
 import zipfile
 from typing import Any
+=======
+from __future__ import annotations
+
+import csv
+import io
+import json
+from datetime import datetime, timezone
+from typing import Any, Optional
+from zipfile import ZIP_DEFLATED, ZipFile
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 
 from sqlalchemy.orm import Session
 
 from app.errors import ApiServiceError
 from app.persistence.models import MriAnalysis, OutcomeSeries, Patient, QEEGAnalysis
 
+<<<<<<< HEAD
 _log = logging.getLogger(__name__)
 
 
@@ -298,10 +310,27 @@ def build_mri_bids_derivatives(
     return buf
 
 
+=======
+
+def _safe_json(raw: Optional[str]) -> Any:
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except Exception:
+        return None
+
+
+def _slug(value: str) -> str:
+    return "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-") or "unknown"
+
+
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
 def build_bids_derivatives_zip(
     db: Session,
     patient_id: str,
     *,
+<<<<<<< HEAD
     qeeg_analysis_id: str | None = None,
     mri_analysis_id: str | None = None,
 ) -> tuple[bytes, str]:
@@ -311,6 +340,11 @@ def build_bids_derivatives_zip(
     older `/api/v1/export/bids-derivatives` route still expects a combined
     patient-level zip. Keep this adapter so both surfaces remain valid.
     """
+=======
+    qeeg_analysis_id: Optional[str] = None,
+    mri_analysis_id: Optional[str] = None,
+) -> tuple[bytes, str]:
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
     qeeg_query = db.query(QEEGAnalysis).filter(QEEGAnalysis.patient_id == patient_id)
     if qeeg_analysis_id:
         qeeg_query = qeeg_query.filter(QEEGAnalysis.id == qeeg_analysis_id)
@@ -342,9 +376,14 @@ def build_bids_derivatives_zip(
 
     participant_label = f"sub-{_slug(patient.id)}"
     buffer = io.BytesIO()
+<<<<<<< HEAD
     with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         _write(
             zf,
+=======
+    with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as zf:
+        zf.writestr(
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
             "dataset_description.json",
             json.dumps(
                 {
@@ -357,12 +396,17 @@ def build_bids_derivatives_zip(
                             "Version": "contract-v3-minimal",
                         }
                     ],
+<<<<<<< HEAD
+=======
+                    "GeneratedAt": datetime.now(timezone.utc).isoformat(),
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
                 },
                 indent=2,
             ),
         )
 
         participants = io.StringIO()
+<<<<<<< HEAD
         participants.write("participant_id\tsex\tage\tprimary_condition\n")
         participants.write(
             f"{participant_label}\t{getattr(patient, 'gender', None) or 'n/a'}\t"
@@ -373,6 +417,15 @@ def build_bids_derivatives_zip(
         derivatives_root = f"derivatives/deepsynaps/{participant_label}"
         _write(
             zf,
+=======
+        writer = csv.writer(participants, delimiter="\t", lineterminator="\n")
+        writer.writerow(["participant_id", "sex", "age", "primary_condition"])
+        writer.writerow([participant_label, patient.gender or "n/a", "n/a", patient.primary_condition or ""])
+        zf.writestr("participants.tsv", participants.getvalue())
+
+        derivatives_root = f"derivatives/deepsynaps/{participant_label}"
+        zf.writestr(
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
             f"{derivatives_root}/README",
             "Synthetic derivative export. References original qEEG/MRI artifacts and includes derived JSON summaries.",
         )
@@ -386,12 +439,20 @@ def build_bids_derivatives_zip(
                 "original_filename": row.original_filename,
                 "recording_date": row.recording_date,
                 "eyes_condition": row.eyes_condition,
+<<<<<<< HEAD
                 "band_powers": _maybe_json(row.band_powers_json),
                 "normative_deviations": _maybe_json(row.normative_deviations_json),
                 "advanced_analyses": _maybe_json(row.advanced_analyses_json),
             }
             _write(
                 zf,
+=======
+                "band_powers": _safe_json(row.band_powers_json),
+                "normative_deviations": _safe_json(row.normative_deviations_json),
+                "advanced_analyses": _safe_json(row.advanced_analyses_json),
+            }
+            zf.writestr(
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
                 f"{derivatives_root}/qeeg/{participant_label}_desc-{_slug(row.id)}_qeeg.json",
                 json.dumps(payload, indent=2),
             )
@@ -402,6 +463,7 @@ def build_bids_derivatives_zip(
                 "created_at": row.created_at.isoformat() if row.created_at else None,
                 "state": row.state,
                 "source_ref": row.upload_ref,
+<<<<<<< HEAD
                 "modalities_present": _maybe_json(row.modalities_present_json),
                 "structural": _maybe_json(row.structural_json),
                 "functional": _maybe_json(row.functional_json),
@@ -412,10 +474,22 @@ def build_bids_derivatives_zip(
             }
             _write(
                 zf,
+=======
+                "modalities_present": _safe_json(row.modalities_present_json),
+                "structural": _safe_json(row.structural_json),
+                "functional": _safe_json(row.functional_json),
+                "diffusion": _safe_json(row.diffusion_json),
+                "stim_targets": _safe_json(row.stim_targets_json),
+                "overlays": _safe_json(row.overlays_json),
+                "qc": _safe_json(row.qc_json),
+            }
+            zf.writestr(
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
                 f"{derivatives_root}/mri/{participant_label}_desc-{_slug(row.analysis_id)}_mri.json",
                 json.dumps(payload, indent=2),
             )
 
+<<<<<<< HEAD
         outcome_lines = ["patient_id\tcourse_id\ttemplate_id\tmeasurement_point\tscore_numeric\tadministered_at"]
         for row in outcome_rows:
             outcome_lines.append(
@@ -443,3 +517,23 @@ __all__ = [
 
 # Keep unused stdlib imports referenced for lint-clean builds.
 _ = struct
+=======
+        outcomes = io.StringIO()
+        writer = csv.writer(outcomes, delimiter="\t", lineterminator="\n")
+        writer.writerow(["patient_id", "course_id", "template_id", "measurement_point", "score_numeric", "administered_at"])
+        for row in outcome_rows:
+            writer.writerow(
+                [
+                    patient.id,
+                    row.course_id,
+                    row.template_id,
+                    row.measurement_point,
+                    "" if row.score_numeric is None else row.score_numeric,
+                    row.administered_at.isoformat() if row.administered_at else "",
+                ]
+            )
+        zf.writestr(f"{derivatives_root}/phenotype/{participant_label}_outcomes.tsv", outcomes.getvalue())
+
+    filename = f"bids_derivatives_{_slug(patient.last_name or patient.id)}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.zip"
+    return buffer.getvalue(), filename
+>>>>>>> origin/backup-feat-mri-ai-upgrades-aa28508
