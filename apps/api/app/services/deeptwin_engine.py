@@ -16,22 +16,18 @@ response so the UI can render the safety stamps without re-deriving them.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable, Literal
+from typing import Any, Literal
 
 import numpy as np
 
 from app.services.deeptwin_decision_support import (
-    ANALYZE_SCHEMA_VERSION,
     SCHEMA_VERSION,
     build_calibration_status,
     build_provenance,
-    build_scenario_comparison,
     build_uncertainty_block,
     confidence_tier,
     derive_top_drivers,
-    evidence_status_for,
     soften_language,
-    soften_recommendation_block,
 )
 
 EvidenceGrade = Literal["low", "moderate", "high"]
