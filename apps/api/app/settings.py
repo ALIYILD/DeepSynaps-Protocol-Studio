@@ -169,6 +169,21 @@ class AppSettings(BaseModel):
         ),
     )
 
+    # SlowAPI rate-limiter storage backend. Empty (default) uses in-memory
+    # storage — fine for dev/test and single-process deploys, but on a
+    # horizontally-scaled Fly app each machine keeps its own counters and
+    # the effective per-IP limit becomes (configured limit × machine count).
+    # Point this at a shared Redis instance in production/staging to enforce
+    # global limits. Examples:
+    #   redis://default:<password>@<host>:<port>/0
+    #   redis://<host>:6379
+    # Provision via `fly redis create` or any external Redis; SlowAPI uses
+    # the URI directly. When empty, a startup warning is emitted in
+    # production/staging — non-fatal so existing deploys keep working, but
+    # ops should set DEEPSYNAPS_LIMITER_REDIS_URI before relying on the
+    # auth/login + LLM-cost rate limits to actually hold under load.
+    limiter_redis_uri: str = Field(default="")
+
     @field_validator("database_url")
     @classmethod
     def validate_database_url(cls, value: str) -> str:
