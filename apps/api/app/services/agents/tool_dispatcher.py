@@ -410,6 +410,120 @@ def _h_notes_approve_draft(
 
 
 # ---------------------------------------------------------------------------
+# tasks.create
+# ---------------------------------------------------------------------------
+
+
+class TasksCreateArgs(BaseModel):
+    """Args schema for the ``tasks.create`` write tool.
+
+    The Reception Agent uses this to enqueue follow-ups in the clinic
+    queue ("remind clinician to call patient at 3pm"). Patient binding
+    is optional — agents may want to create generic admin reminders
+    that aren't tied to a specific patient row.
+    """
+
+    title: str = Field(..., min_length=1, max_length=200)
+    patient_id: str | None = Field(
+        default=None,
+        description="Optional. Bind task to a specific patient.",
+    )
+    due_at: datetime | None = Field(
+        default=None,
+        description="Optional ISO-8601 UTC.",
+    )
+    notes: str = Field(default="", max_length=1000)
+    category: Literal["follow_up", "outreach", "admin", "review"] = "admin"
+
+    @field_validator("due_at")
+    @classmethod
+    def _ensure_utc(cls, v: datetime | None) -> datetime | None:
+        """Force UTC. Naive datetimes are assumed UTC (LLM ISO often omits TZ)."""
+        if v is None:
+            return v
+        if v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v.astimezone(timezone.utc)
+
+
+def _h_tasks_create(
+    actor: "AuthenticatedActor", db: "Session", args: BaseModel
+) -> dict:
+    """Insert a new ``ReceptionTask`` row after clinician confirmation.
+
+    Constraints:
+    * If ``patient_id`` is set, the patient must be in the actor's
+      clinic — same per-clinician scoping the rest of the dispatcher
+      enforces.
+    * If ``due_at`` is set, it must be in the future.
+
+    The persisted ``ReceptionTask`` row is intentionally simple (the
+    model only carries ``text`` / ``due`` / ``done`` / ``priority`` —
+    no native ``patient_id`` / ``category`` / ``notes`` columns); the
+    agent's richer args are folded into the ``text`` body so the same
+    row can be surfaced through ``tasks.list`` and the existing
+    ``GET /api/v1/reception/tasks`` REST endpoint.
+    """
+    assert isinstance(args, TasksCreateArgs)
+    from app.persistence.models import Patient, ReceptionTask
+
+    # ---- Optional patient binding -------------------------------------
+    if args.patient_id is not None:
+        patient = (
+            db.query(Patient)
+            .filter(Patient.id == args.patient_id)
+            .filter(Patient.clinician_id == actor.actor_id)
+            .first()
+        )
+        if patient is None:
+            return {
+                "ok": False,
+                "result": "Patient not found or not in your clinic.",
+            }
+
+    # ---- Optional due_at must be in the future ------------------------
+    if args.due_at is not None:
+        if args.due_at < datetime.now(timezone.utc):
+            return {
+                "ok": False,
+                "result": "due_at must be in the future.",
+            }
+
+    # ---- Compose the text body ----------------------------------------
+    # ReceptionTask only carries `text` / `due` / `priority` — encode the
+    # richer agent args into the text so they don't disappear on read.
+    parts = [f"[{args.category}]", args.title.strip()]
+    if args.patient_id:
+        parts.append(f"(patient: {args.patient_id})")
+    text_body = " ".join(parts)
+    if args.notes:
+        text_body = f"{text_body}\n\n{args.notes}"
+    text_body = text_body[:500]  # ReceptionTask.text is String(500)
+
+    due_iso = args.due_at.isoformat() if args.due_at is not None else None
+
+    record = ReceptionTask(
+        clinician_id=actor.actor_id,
+        text=text_body,
+        due=due_iso,
+        done=False,
+        priority="medium",
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
+    return {
+        "ok": True,
+        "result": f"Task '{args.title[:60]}' created.",
+        "audit_extra": {
+            "task_id": record.id,
+            "patient_id": args.patient_id,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
@@ -418,6 +532,7 @@ WRITE_HANDLERS: dict[str, tuple[type[BaseModel], ToolWriteHandler]] = {
     "sessions.create": (SessionsCreateArgs, _h_sessions_create),
     "sessions.cancel": (SessionsCancelArgs, _h_sessions_cancel),
     "notes.approve_draft": (NotesApproveDraftArgs, _h_notes_approve_draft),
+    "tasks.create": (TasksCreateArgs, _h_tasks_create),
 }
 
 
@@ -514,6 +629,7 @@ __all__ = [
     "NotesApproveDraftArgs",
     "SessionsCancelArgs",
     "SessionsCreateArgs",
+    "TasksCreateArgs",
     "ToolWriteHandler",
     "UnknownTool",
     "WRITE_HANDLERS",

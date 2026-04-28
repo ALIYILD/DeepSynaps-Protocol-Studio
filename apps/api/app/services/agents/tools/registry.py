@@ -568,6 +568,17 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
         handler=_h_tasks_list,
         requires_role="clinician",
     ),
+    "tasks.create": ToolDefinition(
+        id="tasks.create",
+        name="Create task",
+        description=(
+            "Create a follow-up task in the clinic queue. Patient "
+            "binding is optional."
+        ),
+        handler=None,
+        requires_role="clinician",
+        write_only=True,
+    ),
     # ── Patient-side tools (gated; pending clinical signoff) ──────────
     # All seven of these back the patient-side agents in the marketplace.
     # The handler always returns ``{"unavailable": True, ...}`` — that
