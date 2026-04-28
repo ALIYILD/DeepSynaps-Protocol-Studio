@@ -447,6 +447,7 @@ def course_outcome_summary(
         db.query(OutcomeSeries)
         .filter(OutcomeSeries.course_id == course_id)
         .order_by(OutcomeSeries.administered_at)
+        .limit(200)
         .all()
     )
     return _compute_summary(course_id, records)
@@ -463,7 +464,7 @@ def aggregate_outcomes(
     q = db.query(OutcomeSeries)
     if actor.role != "admin":
         q = q.filter(OutcomeSeries.clinician_id == actor.actor_id)
-    records = q.all()
+    records = q.limit(500).all()
 
     by_course: dict[str, list[OutcomeSeries]] = {}
     for r in records:
@@ -544,7 +545,7 @@ def longitudinal_outcomes(
     course_q = db.query(TreatmentCourse)
     if actor.role != "admin":
         course_q = course_q.filter(TreatmentCourse.clinician_id == actor.actor_id)
-    courses = [course for course in course_q.all() if _course_matches_cohort(course, cohort)]
+    courses = [course for course in course_q.limit(200).all() if _course_matches_cohort(course, cohort)]
     course_map = {course.id: course for course in courses}
     if not course_map:
         return {
@@ -571,7 +572,7 @@ def longitudinal_outcomes(
     if actor.role != "admin":
         outcomes_q = outcomes_q.filter(OutcomeSeries.clinician_id == actor.actor_id)
     outcomes_q = outcomes_q.filter(OutcomeSeries.administered_at >= start, OutcomeSeries.administered_at <= end)
-    outcome_rows = outcomes_q.order_by(OutcomeSeries.administered_at).all()
+    outcome_rows = outcomes_q.order_by(OutcomeSeries.administered_at).limit(500).all()
 
     series: dict[str, list[float]] = {}
     for template_id in _LONGITUDINAL_TEMPLATES:

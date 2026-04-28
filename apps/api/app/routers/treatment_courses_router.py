@@ -474,7 +474,7 @@ def list_courses(
     if status:
         q = q.filter(TreatmentCourse.status == status)
 
-    records = q.order_by(TreatmentCourse.created_at.desc()).all()
+    records = q.order_by(TreatmentCourse.created_at.desc()).limit(200).all()
     items = [CourseOut.from_record(r) for r in records]
     return CourseListResponse(items=items, total=len(items))
 
@@ -788,6 +788,7 @@ def list_sessions(
         db.query(DeliveredSessionParameters)
         .filter_by(course_id=course_id)
         .order_by(DeliveredSessionParameters.created_at)
+        .limit(200)
         .all()
     )
     items = [SessionLogOut.from_record(r) for r in records]
@@ -818,7 +819,7 @@ def list_review_queue(
     if reviewer_id:
         q = q.filter(ReviewQueueItem.assigned_to == reviewer_id)
 
-    records = q.order_by(ReviewQueueItem.created_at.desc()).all()
+    records = q.order_by(ReviewQueueItem.created_at.desc()).limit(200).all()
 
     # Enrich with patient name + course details via lookup
     from app.persistence.models import Patient as _Patient
@@ -1032,6 +1033,7 @@ def course_audit_trail(
         db.query(AuditEventRecord)
         .filter(AuditEventRecord.target_id == course_id, AuditEventRecord.target_type == "treatment_course")
         .order_by(AuditEventRecord.created_at.desc())
+        .limit(200)
         .all()
     )
     return {
@@ -1065,7 +1067,7 @@ def course_adverse_events_summary(
     require_minimum_role(actor, "clinician")
     _get_course_or_404(db, course_id, actor)
     from app.persistence.models import AdverseEvent  # noqa: PLC0415 — lazy import
-    rows = db.query(AdverseEvent).filter_by(course_id=course_id).all()
+    rows = db.query(AdverseEvent).filter_by(course_id=course_id).limit(200).all()
     by_severity: dict[str, int] = {}
     unresolved = 0
     for r in rows:

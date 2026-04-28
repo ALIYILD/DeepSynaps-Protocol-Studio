@@ -231,7 +231,7 @@ def list_submissions(
         q = q.filter(FormSubmission.form_id == form_id)
     if patient_id:
         q = q.filter(FormSubmission.patient_id == patient_id)
-    records = q.order_by(FormSubmission.submitted_at.desc()).all()
+    records = q.order_by(FormSubmission.submitted_at.desc()).limit(200).all()
     items = [FormSubmissionOut.from_record(r) for r in records]
     return FormSubmissionListResponse(items=items, total=len(items))
 
@@ -266,7 +266,7 @@ def list_forms(
         q = q.filter(FormDefinition.form_type == form_type)
     if status:
         q = q.filter(FormDefinition.status == status)
-    records = q.order_by(FormDefinition.created_at.desc()).all()
+    records = q.order_by(FormDefinition.created_at.desc()).limit(200).all()
     items = [FormOut.from_record(r) for r in records]
     return FormListResponse(items=items, total=len(items))
 

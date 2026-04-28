@@ -2178,6 +2178,76 @@ export function renderMRIPatientReport(report) {
     + '</div>';
 }
 
+export function renderMRIRegistrationQA(qa) {
+  qa = qa || {};
+  var statusColor = qa.target_finalisation_allowed ? '#22c55e' : '#ef4444';
+  var statusText = qa.target_finalisation_allowed ? 'Target finalisation allowed' : 'Target finalisation blocked';
+  var blockReasons = Array.isArray(qa.target_finalisation_blocked_reasons) && qa.target_finalisation_blocked_reasons.length
+    ? '<ul style="margin:6px 0 0 16px;padding:0;font-size:12px;color:#ef4444">'
+      + qa.target_finalisation_blocked_reasons.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('')
+      + '</ul>'
+    : '';
+  var drift = Array.isArray(qa.target_drift_warnings) && qa.target_drift_warnings.length
+    ? '<div style="margin-top:8px;font-size:12px;color:#f59e0b">⚠ Target drift: '
+      + qa.target_drift_warnings.map(function (d) { return esc(d.target_id) + ' (' + d.drift_mm + ' mm)'; }).join(', ')
+      + '</div>'
+    : '';
+  var rows = [
+    { label: 'Registration status', value: qa.registration_status || 'unknown' },
+    { label: 'Template space', value: qa.template_space || 'MNI152' },
+    { label: 'Registration confidence', value: qa.registration_confidence || 'unknown' },
+    { label: 'Coordinate uncertainty', value: qa.coordinate_uncertainty_mm != null ? qa.coordinate_uncertainty_mm + ' mm' : 'unknown' },
+    { label: 'Segmentation quality', value: qa.segmentation_quality || 'unknown' },
+    { label: 'Atlas overlap confidence', value: qa.atlas_overlap_confidence || 'unknown' },
+  ];
+  var body = rows.map(function (r) {
+    return '<tr><td style="padding:3px 8px;color:var(--text-tertiary);font-size:12px">' + esc(r.label) + '</td>'
+      + '<td style="padding:3px 8px;font-size:12px;text-align:right">' + esc(r.value) + '</td></tr>';
+  }).join('');
+  return '<div class="ds-mri-panel ds-mri-panel--regqa" style="margin-bottom:12px">'
+    + '<div style="font-weight:700;margin-bottom:6px">Registration QA</div>'
+    + '<div style="display:inline-block;padding:4px 10px;border-radius:12px;background:' + statusColor + '20;color:' + statusColor + ';font-size:12px;font-weight:600;margin-bottom:8px">'
+    + esc(statusText) + '</div>'
+    + blockReasons
+    + '<table style="width:100%;border-collapse:collapse;margin-top:8px">' + body + '</table>'
+    + drift
+    + '</div>';
+}
+
+export function renderMRIPhiAudit(audit) {
+  audit = audit || {};
+  var riskColor = audit.risk_level === 'high' ? '#ef4444' : audit.risk_level === 'unknown' ? '#f59e0b' : '#22c55e';
+  var dicom = audit.dicom_tag_scan || {};
+  var removed = Array.isArray(dicom.removed_categories) ? dicom.removed_categories : [];
+  var retained = Array.isArray(dicom.retained_categories) ? dicom.retained_categories : [];
+  var removedHtml = removed.length
+    ? '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Removed: ' + removed.slice(0, 6).join(', ') + (removed.length > 6 ? '…' : '') + '</div>'
+    : '';
+  var retainedHtml = retained.length
+    ? '<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Retained: ' + retained.slice(0, 6).join(', ') + (retained.length > 6 ? '…' : '') + '</div>'
+    : '';
+  var burnedIn = audit.burned_in_annotation_warning || {};
+  var burnedHtml = '<div style="margin-top:8px;padding:8px;border-radius:6px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);color:#f59e0b;font-size:12px">'
+    + '⚠ ' + esc(burnedIn.message || 'Burned-in annotations not automatically detected. Manual visual inspection is required.') + '</div>';
+  var filename = audit.filename_heuristic || {};
+  var filenameHtml = filename.potential_phi_in_filename
+    ? '<div style="margin-top:6px;font-size:12px;color:#ef4444">⚠ Potential PHI detected in original filename.</div>'
+    : '<div style="margin-top:6px;font-size:12px;color:#22c55e">✓ No obvious PHI in filename.</div>';
+  var exportName = audit.export_filename || {};
+  var exportHtml = '<div style="margin-top:6px;font-size:12px;color:var(--text-tertiary)">Export pseudo-id: <code>' + esc(exportName.pseudo_id || 'unknown') + '</code></div>';
+  return '<div class="ds-mri-panel ds-mri-panel--phiaudit" style="margin-bottom:12px">'
+    + '<div style="font-weight:700;margin-bottom:6px">PHI / De-identification Audit</div>'
+    + '<div style="display:inline-block;padding:4px 10px;border-radius:12px;background:' + riskColor + '20;color:' + riskColor + ';font-size:12px;font-weight:600;margin-bottom:8px">'
+    + 'Risk: ' + esc(audit.risk_level || 'unknown') + '</div>'
+    + filenameHtml
+    + exportHtml
+    + removedHtml
+    + retainedHtml
+    + burnedHtml
+    + '<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">' + esc(audit.disclaimer || '') + '</div>'
+    + '</div>';
+}
+
 // ── Bottom strip: actions ──────────────────────────────────────────────────
 function _canExport(report) {
   if (!report) return false;
@@ -2247,6 +2317,8 @@ export function renderFullView(state) {
       + renderBrainAtlasViewer(report)
       + renderGlassBrain(report)
       + renderMedRAGPanel(state.medrag || _synthesiseMedRAGFromReport(report))
+      + renderMRIRegistrationQA(state.registrationQA || null)
+      + renderMRIPhiAudit(state.phiAudit || null)
       + renderMRIClinicianReview(report)
       + renderMRIPatientReport(report);
   }

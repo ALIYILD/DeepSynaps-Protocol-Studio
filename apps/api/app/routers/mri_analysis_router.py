@@ -32,7 +32,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field, Field
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -640,7 +640,16 @@ async def upload_mri(
             settings=settings,
         )
     except Exception as exc:
-        _log.exception("Failed to save MRI upload")
+        _log.error(
+            "mri_upload_failed",
+            extra={
+                "event": "mri_upload_failed",
+                "patient_id": patient_id,
+                "actor_id": actor.actor_id,
+                "upload_filename": filename,
+                "error": str(exc),
+            },
+        )
         raise ApiServiceError(
             code="upload_failed",
             message=f"Failed to save upload: {exc}",
@@ -660,8 +669,16 @@ async def upload_mri(
     db.commit()
 
     _log.info(
-        "MRI upload saved: upload_id=%s patient=%s size=%d",
-        upload_id, patient_id, len(file_bytes),
+        "mri_upload_success",
+        extra={
+            "event": "mri_upload_success",
+            "upload_id": upload_id,
+            "patient_id": patient_id,
+            "actor_id": actor.actor_id,
+            "upload_filename": filename,
+            "file_size_bytes": len(file_bytes),
+            "mimetype": file.content_type,
+        },
     )
     return {
         "upload_id": upload_id,
@@ -1324,6 +1341,20 @@ def get_mri_safety_cockpit(
         cockpit = compute_mri_safety_cockpit(analysis)
         analysis.safety_cockpit_json = json.dumps(cockpit)
         db.commit()
+
+    _log.info(
+        "mri_safety_cockpit_served",
+        extra={
+            "event": "mri_safety_cockpit_served",
+            "analysis_id": analysis_id,
+            "overall_status": cockpit.get("overall_status"),
+            "red_flag_count": len(cockpit.get("red_flags", [])),
+            "radiology_review_required": any(
+                f.get("code") == "RADIOLOGY_REVIEW_REQUIRED" for f in cockpit.get("red_flags", [])
+            ),
+            "actor_id": actor.actor_id,
+        },
+    )
     return _SafetyCockpitOut(**cockpit)
 
 
@@ -1420,6 +1451,18 @@ def compute_mri_target_plan_governance(
 
     plans = compute_target_plan_governance(analysis, patient, db)
     db.commit()
+
+    _log.info(
+        "mri_target_plan_generated",
+        extra={
+            "event": "mri_target_plan_generated",
+            "analysis_id": analysis_id,
+            "target_count": len(plans),
+            "off_label_count": sum(1 for p in plans if p.off_label_flag),
+            "actor_id": actor.actor_id,
+        },
+    )
+
     out: list[_TargetPlanOut] = []
     for p in plans:
         db.refresh(p)
@@ -1545,6 +1588,15 @@ def get_mri_patient_facing_report(
     _gate_patient_access(actor, analysis.patient_id, db)
 
     if analysis.report_state not in ("MRI_APPROVED", "MRI_REVIEWED_WITH_AMENDMENTS"):
+        _log.warning(
+            "mri_patient_report_blocked",
+            extra={
+                "event": "mri_patient_report_blocked",
+                "analysis_id": analysis_id,
+                "report_state": analysis.report_state,
+                "actor_id": actor.actor_id,
+            },
+        )
         raise ApiServiceError(
             code="report_not_approved",
             message="Patient-facing report is only available after clinician approval.",
@@ -1591,6 +1643,15 @@ def export_mri_bids_package(
     from app.services.mri_bids_export import build_bids_package
 
     buf = build_bids_package(analysis_id, actor, db)
+    _log.info(
+        "mri_bids_export_served",
+        extra={
+            "event": "mri_bids_export_served",
+            "analysis_id": analysis_id,
+            "actor_id": actor.actor_id,
+            "actor_role": actor.role,
+        },
+    )
     return StreamingResponse(
         buf,
         media_type="application/zip",
@@ -1627,6 +1688,18 @@ def generate_mri_claim_governance(
     report = _report_from_row(analysis)
     findings = classify_mri_claims(report)
     analysis.claim_governance_json = json.dumps(findings)
+
+    blocked_count = sum(1 for f in findings if f.get("claim_type") == "BLOCKED")
+    _log.info(
+        "mri_claim_governance_generated",
+        extra={
+            "event": "mri_claim_governance_generated",
+            "analysis_id": analysis_id,
+            "finding_count": len(findings),
+            "blocked_count": blocked_count,
+            "actor_id": actor.actor_id,
+        },
+    )
 
     existing = {f.target_id: f for f in db.query(MriReportFinding).filter_by(analysis_id=analysis_id).all()}
     for idx, item in enumerate(findings):
@@ -1738,9 +1811,9 @@ def export_mri_package(
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
     _gate_patient_access(actor, analysis.patient_id, db)
 
-    from app.services.mri_export_governance import build_export_package
+    from app.services.mri_bids_export import build_bids_package
 
-    buf = build_export_package(analysis_id, actor, db)
+    buf = build_bids_package(analysis_id, actor, db)
     return StreamingResponse(
         buf,
         media_type="application/zip",
@@ -1748,3 +1821,39 @@ def export_mri_package(
             "Content-Disposition": f'attachment; filename="mri_export_{analysis_id}.zip"',
         },
     )
+
+
+@router.get("/{analysis_id}/registration-qa")
+def get_mri_registration_qa(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Return registration QA metrics for an MRI analysis."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.mri_registration_qa import compute_registration_qa
+
+    return compute_registration_qa(analysis)
+
+
+@router.get("/{analysis_id}/phi-audit")
+def get_mri_phi_audit(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Return PHI / de-identification audit for an MRI analysis."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.mri_phi_audit import compute_phi_audit
+
+    return compute_phi_audit(analysis)

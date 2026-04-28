@@ -344,7 +344,7 @@ def _build_command_center(patient_id: str, db: Session) -> dict:
     # Sessions
     sessions = db.query(M["ClinicalSession"]).filter(
         M["ClinicalSession"].patient_id == patient_id
-    ).order_by(M["ClinicalSession"].scheduled_date.desc()).all()
+    ).order_by(M["ClinicalSession"].scheduled_date.desc()).limit(100).all()
 
     completed = [s for s in sessions if s.status == "completed"]
     scheduled = [s for s in sessions if s.status in ("scheduled", "confirmed")]
@@ -353,7 +353,7 @@ def _build_command_center(patient_id: str, db: Session) -> dict:
     # Course
     courses = db.query(M["TreatmentCourse"]).filter(
         M["TreatmentCourse"].patient_id == patient_id
-    ).order_by(M["TreatmentCourse"].created_at.desc()).all()
+    ).order_by(M["TreatmentCourse"].created_at.desc()).limit(50).all()
     active_course = next((c for c in courses if c.status in ("active", "in_progress")), courses[0] if courses else None)
 
     total_planned = getattr(active_course, "planned_sessions_total", None) or getattr(active_course, "total_sessions", 0) or 20
@@ -362,7 +362,7 @@ def _build_command_center(patient_id: str, db: Session) -> dict:
     # Assessments
     assessments_raw = db.query(M["AssessmentRecord"]).filter(
         M["AssessmentRecord"].patient_id == patient_id
-    ).order_by(M["AssessmentRecord"].administered_at.desc()).all()
+    ).order_by(M["AssessmentRecord"].administered_at.desc()).limit(200).all()
 
     assessment_groups: Dict[str, list] = {}
     for a in assessments_raw:
@@ -387,7 +387,7 @@ def _build_command_center(patient_id: str, db: Session) -> dict:
     # Wearable connections + daily summaries
     connections = db.query(M["DeviceConnection"]).filter(
         M["DeviceConnection"].patient_id == patient_id
-    ).all()
+    ).limit(20).all()
 
     wearable_summaries = []
     for conn in connections:
@@ -413,7 +413,7 @@ def _build_command_center(patient_id: str, db: Session) -> dict:
     daily_summaries = db.query(M["WearableDailySummary"]).filter(
         M["WearableDailySummary"].patient_id == patient_id,
         M["WearableDailySummary"].date >= thirty_days_ago.isoformat(),
-    ).order_by(M["WearableDailySummary"].date.asc()).all()
+    ).order_by(M["WearableDailySummary"].date.asc()).limit(31).all()
 
     rhr_series = [{"date": s.date, "value": s.rhr_bpm} for s in daily_summaries if s.rhr_bpm is not None]
     hrv_series = [{"date": s.date, "value": s.hrv_ms} for s in daily_summaries if s.hrv_ms is not None]
@@ -462,7 +462,7 @@ def _build_command_center(patient_id: str, db: Session) -> dict:
     # EEG / neuroimaging
     eeg_records = db.query(M["QEEGRecord"]).filter(
         M["QEEGRecord"].patient_id == patient_id
-    ).order_by(M["QEEGRecord"].recorded_at.desc()).all()
+    ).order_by(M["QEEGRecord"].recorded_at.desc()).limit(50).all()
 
     neuro = NeuroimagingSummaryOut(
         eeg_count=len(eeg_records),

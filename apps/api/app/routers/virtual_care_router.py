@@ -338,8 +338,8 @@ def end_session(
         session.duration_seconds = int((now - session.started_at).total_seconds())
 
     # Generate simple AI summary from available analysis
-    voice_rows = db.query(VoiceAnalysis).filter(VoiceAnalysis.session_id == session_id).order_by(VoiceAnalysis.segment_start_sec).all()
-    video_rows = db.query(VideoAnalysis).filter(VideoAnalysis.session_id == session_id).order_by(VideoAnalysis.segment_start_sec).all()
+    voice_rows = db.query(VoiceAnalysis).filter(VoiceAnalysis.session_id == session_id).order_by(VoiceAnalysis.segment_start_sec).limit(200).all()
+    video_rows = db.query(VideoAnalysis).filter(VideoAnalysis.session_id == session_id).order_by(VideoAnalysis.segment_start_sec).limit(200).all()
 
     summaries = []
     if voice_rows:
@@ -408,6 +408,7 @@ def list_biometrics(
         db.query(BiometricsSnapshot)
         .filter(BiometricsSnapshot.session_id == session_id, BiometricsSnapshot.patient_id == patient.id)
         .order_by(BiometricsSnapshot.recorded_at.desc())
+        .limit(200)
         .all()
     )
     return {"biometrics": [_bio_to_dict(r) for r in rows]}
@@ -467,6 +468,7 @@ def list_voice_analysis(
         db.query(VoiceAnalysis)
         .filter(VoiceAnalysis.session_id == session_id, VoiceAnalysis.patient_id == patient.id)
         .order_by(VoiceAnalysis.segment_start_sec.asc())
+        .limit(200)
         .all()
     )
     return {"voice_analysis": [_voice_to_dict(r) for r in rows]}
@@ -526,6 +528,7 @@ def list_video_analysis(
         db.query(VideoAnalysis)
         .filter(VideoAnalysis.session_id == session_id, VideoAnalysis.patient_id == patient.id)
         .order_by(VideoAnalysis.segment_start_sec.asc())
+        .limit(200)
         .all()
     )
     return {"video_analysis": [_video_to_dict(r) for r in rows]}
@@ -557,12 +560,14 @@ def get_unified_analysis(
         db.query(VoiceAnalysis)
         .filter(VoiceAnalysis.session_id == session_id)
         .order_by(VoiceAnalysis.segment_start_sec.asc())
+        .limit(200)
         .all()
     )
     video_rows = (
         db.query(VideoAnalysis)
         .filter(VideoAnalysis.session_id == session_id)
         .order_by(VideoAnalysis.segment_start_sec.asc())
+        .limit(200)
         .all()
     )
 

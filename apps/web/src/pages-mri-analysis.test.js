@@ -52,6 +52,8 @@ const {
   renderMRIProtocolGovernance,
   renderMRIClinicianReview,
   renderMRIPatientReport,
+  renderMRIRegistrationQA,
+  renderMRIPhiAudit,
 } = mod;
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
@@ -448,4 +450,96 @@ test('BIDS export button is disabled when radiology review is unresolved', () =>
   const bidsBtn = view.match(/ds-mri-dl-bids[^>]*>/);
   assert.ok(bidsBtn, 'BIDS button should exist');
   assert.ok(/disabled/.test(bidsBtn[0]), 'BIDS button should be disabled when radiology review unresolved');
+});
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Registration QA panel
+// ═════════════════════════════════════════════════════════════════════════════
+test('renderMRIRegistrationQA shows allowed status when confidence is high', () => {
+  const qa = {
+    registration_status: 'ok',
+    registration_confidence: 'high',
+    atlas_overlap_confidence: 'high',
+    target_finalisation_allowed: true,
+    target_finalisation_blocked_reasons: [],
+    target_drift_warnings: [],
+    segmentation_quality: 'good',
+  };
+  const html = renderMRIRegistrationQA(qa);
+  assert.match(html, /Target finalisation allowed/);
+  assert.match(html, /high/);
+});
+
+test('renderMRIRegistrationQA shows blocked status with reasons when confidence is low', () => {
+  const qa = {
+    registration_status: 'ok',
+    registration_confidence: 'low',
+    atlas_overlap_confidence: 'low',
+    target_finalisation_allowed: false,
+    target_finalisation_blocked_reasons: ['Registration confidence is low', 'Atlas overlap confidence is low'],
+    target_drift_warnings: [],
+    segmentation_quality: 'good',
+  };
+  const html = renderMRIRegistrationQA(qa);
+  assert.match(html, /Target finalisation blocked/);
+  assert.match(html, /Registration confidence is low/);
+});
+
+test('renderMRIRegistrationQA warns about target drift', () => {
+  const qa = {
+    target_drift_warnings: [{ target_id: 'T1', drift_mm: 12.5, severity: 'high' }],
+    target_finalisation_allowed: false,
+    target_finalisation_blocked_reasons: ['Target drift detected'],
+  };
+  const html = renderMRIRegistrationQA(qa);
+  assert.match(html, /Target drift/);
+  assert.match(html, /T1.*12\.5 mm/);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PHI / De-identification Audit panel
+// ═════════════════════════════════════════════════════════════════════════════
+test('renderMRIPhiAudit shows low risk when no PHI detected', () => {
+  const audit = {
+    risk_level: 'low',
+    filename_heuristic: { potential_phi_in_filename: false },
+    export_filename: { pseudo_id: 'sub-a1b2c3d4' },
+    dicom_tag_scan: { removed_categories: ['PatientName', 'PatientID'], retained_categories: ['Modality'] },
+    burned_in_annotation_warning: { detected: false, message: 'Burned-in annotations not automatically detected.' },
+    disclaimer: 'Best-effort audit.',
+  };
+  const html = renderMRIPhiAudit(audit);
+  assert.match(html, /Risk: low/);
+  assert.match(html, /sub-a1b2c3d4/);
+  assert.match(html, /PatientName/);
+  assert.match(html, /Burned-in annotations/);
+});
+
+test('renderMRIPhiAudit shows high risk when PHI in filename', () => {
+  const audit = {
+    risk_level: 'high',
+    filename_heuristic: { potential_phi_in_filename: true },
+    export_filename: { pseudo_id: 'sub-a1b2c3d4' },
+    dicom_tag_scan: { removed_categories: [], retained_categories: [] },
+    burned_in_annotation_warning: { detected: false, message: 'Check manually.' },
+    disclaimer: 'Best-effort audit.',
+  };
+  const html = renderMRIPhiAudit(audit);
+  assert.match(html, /Risk: high/);
+  assert.match(html, /Potential PHI detected in original filename/);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// renderFullView includes new clinical workbench panels
+// ═════════════════════════════════════════════════════════════════════════════
+test('renderFullView includes safety cockpit, red flags, atlas card, registration QA, PHI audit, clinician review, and patient report panels', () => {
+  const view = renderFullView({ report: DEMO_MRI_REPORT });
+  assert.match(view, /Safety Cockpit/);
+  assert.match(view, /Red Flags/);
+  assert.match(view, /Atlas &amp; Model Card/);
+  assert.match(view, /Registration QA/);
+  assert.match(view, /PHI \/ De-identification Audit/);
+  assert.match(view, /Clinician Review/);
+  assert.match(view, /Patient Report/);
 });

@@ -150,7 +150,7 @@ def get_patient_wearable_summary(
 
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
 
-    connections = db.query(DeviceConnection).filter_by(patient_id=patient_id).all()
+    connections = db.query(DeviceConnection).filter_by(patient_id=patient_id).limit(20).all()
     summaries = (
         db.query(WearableDailySummary)
         .filter(
@@ -527,7 +527,7 @@ def get_clinic_alert_summary(
                 .join(User, User.id == Patient.clinician_id)
                 .filter(User.clinic_id == actor.clinic_id)
             )
-    flags = q.all()
+    flags = q.limit(200).all()
     urgent  = sum(1 for f in flags if f.severity == 'urgent')
     warning = sum(1 for f in flags if f.severity == 'warning')
     info    = sum(1 for f in flags if f.severity == 'info')
