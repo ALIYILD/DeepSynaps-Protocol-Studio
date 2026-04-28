@@ -71,7 +71,7 @@ def isolated_database() -> None:
     # when tests use the `clinician-demo-token`. Idempotent per-test thanks to
     # reset_database() above.
     from app.database import SessionLocal
-    from app.persistence.models import Clinic, User
+    from app.persistence.models import Clinic, PackageTokenBudget, User
     _db = SessionLocal()
     try:
         _clinic_id = "clinic-demo-default"
@@ -98,6 +98,21 @@ def isolated_database() -> None:
                 package_id="enterprise",
                 clinic_id=_clinic_id,
             ))
+        # Re-seed default package budgets after fast truncate deletes them.
+        _seeded = {r.package_id for r in _db.query(PackageTokenBudget).all()}
+        for pkg_id, ti, to, cp in (
+            ("free", 50_000, 10_000, 500),
+            ("clinician_pro", 1_000_000, 200_000, 5_000),
+            ("enterprise", 5_000_000, 1_000_000, 20_000),
+        ):
+            if pkg_id not in _seeded:
+                _db.add(PackageTokenBudget(
+                    id=f"pkg_budget_{pkg_id}",
+                    package_id=pkg_id,
+                    monthly_tokens_in_cap=ti,
+                    monthly_tokens_out_cap=to,
+                    monthly_cost_pence_cap=cp,
+                ))
         _db.commit()
     except Exception:
         _db.rollback()
