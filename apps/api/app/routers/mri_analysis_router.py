@@ -151,6 +151,11 @@ def _load(raw: Optional[str]) -> Any:
     """Deserialise a JSON string previously produced by :func:`_dump`."""
     if not raw:
         return None
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError) as exc:
+        _log.warning("JSON load failed (%s): %s", type(exc).__name__, exc)
+        return None
 
 
 def _iso(value: Any) -> Optional[str]:
