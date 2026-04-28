@@ -14839,9 +14839,7 @@ export async function pgIntake(setTopbarFn) {
     const forms = allForms();
     const form = forms.find(function(f) { return f.id === id; });
     const name = form ? form.name : 'this form';
-    const mockLink = 'https://intake.deepsynaps.com/f/' + (id || 'preview');
-    try { navigator.clipboard.writeText(mockLink).catch(function() {}); } catch (_e) {}
-    showToast('Link copied! Patient can complete "' + name + '" at: ' + mockLink);
+    showToast('Intake link sharing is not yet available \u2014 "' + name + '" saved locally only.', '#6b7280');
   };
 
   window._deleteIntakeForm = function(id) {
@@ -16430,13 +16428,13 @@ function _renderPatientStep2(state) {
     const reqStar = isReq ? '<span class="mapping-required">*</span> ' : '';
     const labelStyle = unmapped ? 'color:#ef4444;font-weight:700' : '';
     const borderColor = unmapped ? '#ef4444' : 'var(--border)';
-    const opts = csvData.headers.map(h => '<option value="' + h + '"' + (cur === h ? ' selected' : '') + '>' + h + '</option>').join('');
+    const opts = csvData.headers.map(h => '<option value="' + _hdEsc(h) + '"' + (cur === h ? ' selected' : '') + '>' + _hdEsc(h) + '</option>').join('');
     return '<tr>' +
       '<td><span style="' + labelStyle + '">' + reqStar + field + '</span></td>' +
       '<td><select style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid ' + borderColor + ';background:var(--input-bg);color:var(--text)" onchange="window._importSetMapping(\'patients\',\'' + field + '\',this.value)">' +
         '<option value="">— not mapped —</option>' + opts +
       '</select></td>' +
-      '<td style="color:var(--text-muted);font-size:.8rem">' + sampleVals + '</td>' +
+      '<td style="color:var(--text-muted);font-size:.8rem">' + _hdEsc(sampleVals) + '</td>' +
     '</tr>';
   }).join('');
   return `
@@ -16467,9 +16465,9 @@ function _renderPatientStep3(state) {
   const ths = allFields.map(f => '<th>' + f + '</th>').join('');
   const trs = previewRows.map(r => {
     const hasErr = r._errors && r._errors.length > 0;
-    const tds = allFields.map(f => '<td>' + (r[f] ?? '') + '</td>').join('');
+    const tds = allFields.map(f => '<td>' + _hdEsc(r[f] ?? '') + '</td>').join('');
     const status = hasErr
-      ? '<span style="color:#ef4444;font-size:.75rem">' + r._errors.map(e => e.message).join('; ') + '</span>'
+      ? '<span style="color:#ef4444;font-size:.75rem">' + r._errors.map(e => _hdEsc(e.message)).join('; ') + '</span>'
       : '<span style="color:#10b981">&#10003;</span>';
     return '<tr class="' + (hasErr ? 'import-row-error' : '') + '"><td>' + (r._rowIndex + 1) + '</td>' + tds + '<td>' + status + '</td></tr>';
   }).join('');
@@ -16512,7 +16510,7 @@ function _renderPatientStep4(result) {
   const errTable = result.errors && result.errors.length > 0 ? `
     <div style="overflow-x:auto;margin-top:12px"><table class="import-preview-table">
       <thead><tr><th>Row</th><th>Field</th><th>Value</th><th>Error</th></tr></thead>
-      <tbody>${result.errors.map(e => '<tr class="import-row-error"><td>' + e.row + '</td><td>' + e.field + '</td><td>' + e.value + '</td><td>' + e.message + '</td></tr>').join('')}</tbody>
+      <tbody>${result.errors.map(e => '<tr class="import-row-error"><td>' + e.row + '</td><td>' + _hdEsc(e.field) + '</td><td>' + _hdEsc(e.value) + '</td><td>' + _hdEsc(e.message) + '</td></tr>').join('')}</tbody>
     </table></div>
     <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="window._importDownloadErrors('${result.importId}')">&#8595; Download Error Report</button>` : '';
   const icon = result.errors && result.errors.length === 0 ? '✅' : '⚠️';
@@ -16574,13 +16572,13 @@ function _renderSessionStep2(state) {
     const reqStar = isReq ? '<span class="mapping-required">*</span> ' : '';
     const labelStyle = unmapped ? 'color:#ef4444;font-weight:700' : '';
     const borderColor = unmapped ? '#ef4444' : 'var(--border)';
-    const opts = csvData.headers.map(h => '<option value="' + h + '"' + (cur === h ? ' selected' : '') + '>' + h + '</option>').join('');
+    const opts = csvData.headers.map(h => '<option value="' + _hdEsc(h) + '"' + (cur === h ? ' selected' : '') + '>' + _hdEsc(h) + '</option>').join('');
     return '<tr>' +
       '<td><span style="' + labelStyle + '">' + reqStar + field + '</span></td>' +
       '<td><select style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid ' + borderColor + ';background:var(--input-bg);color:var(--text)" onchange="window._importSetMapping(\'sessions\',\'' + field + '\',this.value)">' +
         '<option value="">— not mapped —</option>' + opts +
       '</select></td>' +
-      '<td style="color:var(--text-muted);font-size:.8rem">' + sampleVals + '</td>' +
+      '<td style="color:var(--text-muted);font-size:.8rem">' + _hdEsc(sampleVals) + '</td>' +
     '</tr>';
   }).join('');
   return `
@@ -16611,9 +16609,9 @@ function _renderSessionStep3(state) {
   const ths = allFields.map(f => '<th>' + f + '</th>').join('');
   const trs = previewRows.map(r => {
     const hasErr = r._errors && r._errors.length > 0;
-    const tds = allFields.map(f => '<td>' + (r[f] ?? '') + '</td>').join('');
+    const tds = allFields.map(f => '<td>' + _hdEsc(r[f] ?? '') + '</td>').join('');
     const status = hasErr
-      ? '<span style="color:#ef4444;font-size:.75rem">' + r._errors.map(e => e.message).join('; ') + '</span>'
+      ? '<span style="color:#ef4444;font-size:.75rem">' + r._errors.map(e => _hdEsc(e.message)).join('; ') + '</span>'
       : '<span style="color:#10b981">&#10003;</span>';
     return '<tr class="' + (hasErr ? 'import-row-error' : '') + '"><td>' + (r._rowIndex + 1) + '</td>' + tds + '<td>' + status + '</td></tr>';
   }).join('');
@@ -16696,7 +16694,7 @@ function _renderProtocolStep1() {
 function _renderProtocolStep2(state) {
   const p = state.jsonData;
   const stepsHtml = Array.isArray(p.steps) ? p.steps.map((s, i) =>
-    '<div style="padding:8px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:.85rem"><strong>Step ' + (i + 1) + ':</strong> ' + (s.label || s.name || JSON.stringify(s)) + '</div>'
+    '<div style="padding:8px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:.85rem"><strong>Step ' + (i + 1) + ':</strong> ' + _hdEsc(s.label || s.name || JSON.stringify(s)) + '</div>'
   ).join('') : '<p style="color:#ef4444">No steps array found.</p>';
   return `
     <div class="card" style="max-width:700px;margin:0 auto">
@@ -16710,11 +16708,11 @@ function _renderProtocolStep2(state) {
       </div>
       <div style="background:var(--surface);border-radius:8px;padding:16px;margin-bottom:12px">
         <div style="font-size:.78rem;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px">Protocol Name</div>
-        <div style="font-weight:700;font-size:1.1rem">${p.name || '—'}</div>
+        <div style="font-weight:700;font-size:1.1rem">${_hdEsc(p.name || '—')}</div>
         <div style="display:flex;gap:20px;margin-top:10px;font-size:.85rem">
-          <div><span style="color:var(--text-muted)">Modality: </span><strong>${p.modality || '—'}</strong></div>
+          <div><span style="color:var(--text-muted)">Modality: </span><strong>${_hdEsc(p.modality || '—')}</strong></div>
           <div><span style="color:var(--text-muted)">Steps: </span><strong>${Array.isArray(p.steps) ? p.steps.length : 0}</strong></div>
-          ${p.description ? '<div><span style="color:var(--text-muted)">Description: </span>' + p.description + '</div>' : ''}
+          ${p.description ? '<div><span style="color:var(--text-muted)">Description: </span>' + _hdEsc(p.description) + '</div>' : ''}
         </div>
       </div>
       <div style="font-size:.82rem;font-weight:600;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase">Steps</div>
@@ -16729,7 +16727,7 @@ function _renderProtocolStep3(result) {
       <div style="text-align:center;padding:20px 0">
         <div style="font-size:3rem;margin-bottom:8px">${result.ok ? '✅' : '❌'}</div>
         <h3>${result.ok ? 'Protocol Imported' : 'Import Failed'}</h3>
-        <p style="font-size:.95rem;margin-top:4px;color:${result.ok ? '#10b981' : '#ef4444'}">${result.message}</p>
+        <p style="font-size:.95rem;margin-top:4px;color:${result.ok ? '#10b981' : '#ef4444'}">${_hdEsc(result.message)}</p>
       </div>
       <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
         <button class="btn btn-secondary" onclick="window._importReset('protocol')">Import Another</button>
@@ -18870,14 +18868,14 @@ function _renderOutcomePortal_LEGACY() {
     const sn = notes[g.id] || '';
     return '<div class="iii-goal-card" id="goal-card-' + g.id + '">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">' +
-      '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:1rem;color:var(--text,#f1f5f9);margin-bottom:3px">' + g.name + '</div>' +
+      '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:1rem;color:var(--text,#f1f5f9);margin-bottom:3px">' + _hdEsc(g.name) + '</div>' +
       '<div style="font-size:0.78rem;color:var(--text-muted,#94a3b8)">Target: ' + g.target + ' &nbsp;&bull;&nbsp; Current: ' + g.current + '</div></div>' +
       '<div style="display:flex;align-items:center;gap:10px;flex-shrink:0">' + _goalSparkline(g.id) +
       '<span style="font-size:0.75rem;font-weight:700;padding:3px 10px;border-radius:12px;background:' + st.color + '22;color:' + st.color + ';border:1px solid ' + st.color + '44">' + st.label + '</span></div></div>' +
       '<div style="margin:12px 0 6px"><div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text-muted,#94a3b8);margin-bottom:5px"><span>Progress</span><span>' + pct + '%</span></div>' +
       '<div style="height:8px;background:rgba(255,255,255,0.07);border-radius:6px;overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + st.color + ';border-radius:6px;transition:width 1s ease"></div></div></div>' +
       '<div class="iii-goal-note-area" id="note-area-' + g.id + '" style="' + (sn ? '' : 'display:none') + '">' +
-      '<textarea id="note-ta-' + g.id + '" rows="3" placeholder="Write a personal note about this goal..." style="width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:8px;padding:10px;font-size:0.82rem;color:var(--text,#f1f5f9);resize:vertical;margin-top:8px;font-family:inherit" onchange="window._outcomeSaveNote(\'' + g.id + '\',this.value)">' + sn + '</textarea></div>' +
+      '<textarea id="note-ta-' + g.id + '" rows="3" placeholder="Write a personal note about this goal..." style="width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:8px;padding:10px;font-size:0.82rem;color:var(--text,#f1f5f9);resize:vertical;margin-top:8px;font-family:inherit" onchange="window._outcomeSaveNote(\'' + g.id + '\',this.value)">' + _hdEsc(sn) + '</textarea></div>' +
       '<button style="font-size:0.78rem;margin-top:8px;padding:4px 10px;border-radius:8px;cursor:pointer;background:none;border:1px solid rgba(255,255,255,0.1);color:var(--text-muted,#94a3b8)" onclick="window._outcomeToggleNote(\'' + g.id + '\')">' + (sn ? 'Edit Note' : '+ Add Personal Note') + '</button></div>';
   }).join('');
 
@@ -18892,9 +18890,9 @@ function _renderOutcomePortal_LEGACY() {
     const dl = new Date(s.date).toLocaleDateString(_rptLoc, { month: 'short', day: 'numeric', year: 'numeric' });
     return '<div style="display:flex;flex-direction:column;gap:8px;padding:14px 16px;background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.07));border-radius:12px">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
-      '<div><div style="font-weight:600;font-size:0.9rem;color:var(--text,#f1f5f9)">' + s.type + '</div><div style="font-size:0.75rem;color:var(--text-muted,#94a3b8);margin-top:2px">' + dl + ' &nbsp;&bull;&nbsp; ' + s.clinician + '</div></div>' +
+      '<div><div style="font-weight:600;font-size:0.9rem;color:var(--text,#f1f5f9)">' + _hdEsc(s.type) + '</div><div style="font-size:0.75rem;color:var(--text-muted,#94a3b8);margin-top:2px">' + dl + ' &nbsp;&bull;&nbsp; ' + _hdEsc(s.clinician) + '</div></div>' +
       '<div style="display:flex;align-items:center;gap:10px">' + _starHTML(s.id, s.rating) + read + '</div></div>' +
-      (s.note ? '<div style="font-size:0.8rem;color:var(--text-muted,#94a3b8);font-style:italic;padding-left:2px">&#8220;' + s.note + '&#8221;</div>' : '') +
+      (s.note ? '<div style="font-size:0.8rem;color:var(--text-muted,#94a3b8);font-style:italic;padding-left:2px">&#8220;' + _hdEsc(s.note) + '&#8221;</div>' : '') +
       '</div>';
   }).join('');
 

@@ -1981,7 +1981,7 @@ export async function pgSettings(setTopbar, currentUser) {
               </select>
             </div>
             <div>
-              <button class="btn btn-primary btn-sm" id="team-invite-btn">Send invite</button>
+              <button class="btn btn-primary btn-sm" id="team-invite-btn">Record invite</button>
             </div>
           </div>
           <div id="team-invite-msg" style="font-size:11.5px;color:var(--text-secondary);margin-top:8px;min-height:14px"></div>
@@ -2591,7 +2591,7 @@ export async function pgSettings(setTopbar, currentUser) {
       }
       avatarClear.disabled = true;
       avatarClear.style.opacity = '.5';
-      toast('Avatar removed.');
+      toast('Avatar removed from this browser view.');
     });
   }
 
@@ -2949,7 +2949,7 @@ export async function pgSettings(setTopbar, currentUser) {
       localStorage.removeItem('ds_clinic_logo');
       if (clinicLogoPreview) { clinicLogoPreview.style.background = 'var(--surface-elev-1)'; clinicLogoPreview.textContent = '🏥'; }
       clinicLogoClear.disabled = true; clinicLogoClear.style.opacity = '.5';
-      toast('Clinic logo removed.', 'info');
+      toast('Clinic logo removed from this browser view.', 'info');
     });
   }
 
@@ -3345,7 +3345,7 @@ export async function pgSettings(setTopbar, currentUser) {
   const prefMsg = document.getElementById('pref-save-msg');
   const flashPrefSaved = () => {
     if (!prefMsg) return;
-    prefMsg.textContent = 'Saved.';
+    prefMsg.textContent = 'Updated in this browser view.';
     prefMsg.style.color = 'var(--teal)';
     clearTimeout(flashPrefSaved._t);
     flashPrefSaved._t = setTimeout(() => { prefMsg.textContent = ''; prefMsg.style.color = 'var(--text-tertiary)'; }, 1400);
@@ -3408,7 +3408,7 @@ export async function pgSettings(setTopbar, currentUser) {
   const dpMsg = document.getElementById('dp-save-msg');
   const flashDpSaved = () => {
     if (!dpMsg) return;
-    dpMsg.textContent = 'Saved.';
+    dpMsg.textContent = 'Updated in this browser view.';
     dpMsg.style.color = 'var(--teal)';
     clearTimeout(flashDpSaved._t);
     flashDpSaved._t = setTimeout(() => { dpMsg.textContent = ''; dpMsg.style.color = 'var(--text-tertiary)'; }, 1400);
@@ -3430,7 +3430,7 @@ export async function pgSettings(setTopbar, currentUser) {
     try {
       await api.requestDataExport();
       if (exportMsg) {
-        exportMsg.textContent = 'Export requested — you will receive an email when ready.';
+        exportMsg.textContent = 'Export request submitted. Availability and delivery depend on the backend export workflow.';
         exportMsg.style.color = 'var(--text-tertiary)';
       }
       const ts = new Date().toISOString();
@@ -5132,7 +5132,9 @@ export async function pgClinicSettings(setTopbar) {
     cfg.licenseNumber = document.getElementById('cs-license')?.value       ?? cfg.licenseNumber;
     saveClinicConfig(cfg);
     const ok = await _csPersistCoreClinic();
-    const msg = ok ? 'Identity saved.' : 'Identity cached locally — server sync failed.';
+    const msg = ok
+      ? 'Core clinic identity synced. Additional branding fields on this page remain in this browser until dedicated backend support is added.'
+      : 'Identity cached locally — server sync failed.';
     window._showToast?.(msg, ok ? 'success' : 'warning');
   };
 
@@ -10735,7 +10737,7 @@ async function _renderSettingsGeneral(body, _esc, navigate) {
     try { await api.updatePreferences(vals); } catch {}
     try { await api.updateClinic({ name: cn, timezone: tz }); } catch {}
 
-    window._dsToast?.({ title: 'Settings saved', body: 'Your preferences have been updated.', severity: 'ok' });
+    window._dsToast?.({ title: 'Settings saved', body: 'Your preferences were updated in this browser view.', severity: 'ok' });
   });
 }
 

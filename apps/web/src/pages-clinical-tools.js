@@ -4011,7 +4011,7 @@ export async function pgFormsBuilder(setTopbar) {
   function _rebandHTML(form) { const el2 = document.getElementById('ppp-bands-list'); if (!el2) return; el2.innerHTML = (form.bands || []).map((b, i) => '<div class="ppp-severity-band"><input type="number" value="' + b.max + '" min="0" oninput="window._fbUpdateBand(' + i + ',\'max\',this.value)" placeholder="Max"><input type="text" value="' + _e(b.label) + '" oninput="window._fbUpdateBand(' + i + ',\'label\',this.value)" placeholder="Label"><button class="ppp-band-remove" onclick="window._fbRemoveBand(' + i + ')">&#x2715;</button></div>').join(''); }
   window._fbRemoveBand = idx => { const form = _fbGetForm(_fbActiveId); if (!form || form.locked) return; form.bands.splice(idx, 1); form.lastModified = new Date().toISOString(); _fbSaveForm(form); _rebandHTML(form); };
   window._fbAddBand = () => { const form = _fbGetForm(_fbActiveId); if (!form || form.locked) return; if (!form.bands) form.bands = []; form.bands.push({ max: form.maxScore || 10, label: 'New Band' }); form.lastModified = new Date().toISOString(); _fbSaveForm(form); _rebandHTML(form); };
-  window._fbSaveFormBtn = () => { const form = _fbGetForm(_fbActiveId); if (!form) return; form.lastModified = new Date().toISOString(); _fbSaveForm(form); window._announce?.('Form saved'); const btn = document.activeElement; if (btn && btn.tagName === 'BUTTON') { const orig = btn.textContent; btn.textContent = 'Saved \u2713'; setTimeout(() => { btn.textContent = orig; }, 1500); } };
+  window._fbSaveFormBtn = () => { const form = _fbGetForm(_fbActiveId); if (!form) return; form.lastModified = new Date().toISOString(); _fbSaveForm(form); window._announce?.('Form saved locally'); const btn = document.activeElement; if (btn && btn.tagName === 'BUTTON') { const orig = btn.textContent; btn.textContent = 'Saved locally \u2713'; setTimeout(() => { btn.textContent = orig; }, 1500); } };
   window._fbPublishForm = () => { const form = _fbGetForm(_fbActiveId); if (!form) return; form.published = true; form.publishedAt = new Date().toISOString(); form.lastModified = new Date().toISOString(); _fbSaveForm(form); _dsToast('Form "' + form.name + '" was marked published in this browser. Patient deployment still depends on the form workflow.', 'success'); };
   window._fbExportFormJSON = () => { const form = _fbGetForm(_fbActiveId); if (!form) return; const blob = new Blob([JSON.stringify(form, null, 2)], { type:'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = form.id + '_v' + (form.version || '1') + '.json'; a.click(); URL.revokeObjectURL(url); };
   window._fbShowTypePicker = () => { const ov = document.createElement('div'); ov.className = 'ppp-type-picker-overlay'; ov.innerHTML = '<div class="ppp-type-picker" onclick="event.stopPropagation()"><div class="ppp-type-picker-title">Choose Question Type</div><div class="ppp-type-grid">' + Q_TYPES.map(t => '<div class="ppp-type-option" onclick="window._fbAddQuestion(\'' + t.type + '\');document.querySelector(\'.ppp-type-picker-overlay\').remove()"><div class="ppp-type-option-label"><span class="ppp-type-badge ' + t.type + '">' + t.type + '</span> ' + t.label + '</div><div class="ppp-type-option-desc">' + t.desc + '</div></div>').join('') + '</div><div style="margin-top:14px;text-align:right"><button class="btn btn-sm" onclick="document.querySelector(\'.ppp-type-picker-overlay\').remove()">Cancel</button></div></div>'; ov.addEventListener('click', () => ov.remove()); document.body.appendChild(ov); };
@@ -9060,7 +9060,7 @@ export async function pgNotesDictation(setTopbar) {
     const ta = document.getElementById('nd-body');
     if (ta) ta.value = '';
     renderNotes(notes);
-    window._showNotifToast?.({ title:'Note Saved', body:'Clinical note recorded.', severity:'info' });
+    window._showNotifToast?.({ title:'Note Saved', body:'Clinical note saved in this browser view.', severity:'info' });
   };
 
   window._ndDelete = function(id) {
@@ -10223,7 +10223,7 @@ export async function pgDocumentsHub(setTopbar) {
     docs=loadDocs(); const d=docs.find(x=>x.id===id); if(!d) return;
     d.status='signed'; d.sigState='signed'; d.completedDate=today(); d.updatedDate=today();
     saveDocs(docs); renderPage(); _dhPersistUpdate(d);
-    window._showNotifToast?.({ title:'Marked Signed', body:`${d.name} marked as signed.`, severity:'success' });
+    window._showNotifToast?.({ title:'Marked Signed', body:`${d.name} was marked signed in this workflow view.`, severity:'success' });
   };
   window._dhReplace = function(id) {
     const name=prompt('Name of replacement document:'); if(!name) return;
@@ -10231,20 +10231,20 @@ export async function pgDocumentsHub(setTopbar) {
     d.name=name; d.status='pending'; d.sigState=d.category==='Consent'?'unsigned':'not-required';
     d.updatedDate=today(); d.completedDate=null;
     saveDocs(docs); renderPage();
-    window._showNotifToast?.({ title:'Replaced', body:`${name} created as replacement.`, severity:'success' });
+    window._showNotifToast?.({ title:'Replaced', body:`${name} was added as a replacement draft in this workflow view.`, severity:'success' });
   };
   window._dhArchive = function(id) {
     if(!confirm('Archive this document? It will be hidden but not deleted.')) return;
     docs=loadDocs(); const d=docs.find(x=>x.id===id); if(!d) return;
     d.archived=true; saveDocs(docs); renderPage(); _dhPersistUpdate(d);
-    window._showNotifToast?.({ title:'Archived', body:`${d.name} archived.`, severity:'success' });
+    window._showNotifToast?.({ title:'Archived', body:`${d.name} was archived in this workflow view.`, severity:'success' });
   };
   window._dhAssignDoc = function(id) {
     const pid=activePid||prompt('Enter patient ID:'); if(!pid) return;
     docs=loadDocs(); const d=docs.find(x=>x.id===id); if(!d) return;
     d.status='pending'; d.patientId=pid; d.assignedDate=today(); d.assignedBy='Clinician'; d.updatedDate=today();
     saveDocs(docs); renderPage();
-    window._showNotifToast?.({ title:'Assigned', body:`${d.name} assigned.`, severity:'success' });
+    window._showNotifToast?.({ title:'Assigned', body:`${d.name} was added to the document workflow in this browser view.`, severity:'success' });
   };
   window._dhAssignTemplate = function(templateId, name, cat, desc) {
     const pid=activePid;
@@ -10270,7 +10270,7 @@ export async function pgDocumentsHub(setTopbar) {
       added++;
     });
     saveDocs(docs); activeTab='required'; renderPage();
-    window._showNotifToast?.({ title:`${bundle.name} Assigned`, body:`${added} form${added!==1?'s':''} assigned.`, severity:'success' });
+    window._showNotifToast?.({ title:`${bundle.name} Added`, body:`${added} form${added!==1?'s':''} added to this patient's document workflow in this browser view.`, severity:'success' });
   };
 
   // ── Modals ────────────────────────────────────────────────────────────────
@@ -11098,7 +11098,7 @@ export async function pgReportsHub(setTopbar) {
     const r = reports.find(x => x.id === id);
     const el2 = document.getElementById('rh-card-' + id);
     if (el2 && r) el2.outerHTML = reportCardHTML(r);
-    window._showNotifToast?.({ title:'Links Saved', body:'Report associations updated.', severity:'success' });
+    window._showNotifToast?.({ title:'Links Saved', body:'Report associations updated in this browser view.', severity:'success' });
   };
 
   window._rhDelete = function(id) {

@@ -2789,7 +2789,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
     window._showNotifToast?.(
       savedLocallyOnly || !created
         ? { title: 'Saved locally', body: 'Note saved locally — sign-off workflow is unavailable until note sync succeeds.', severity: 'warning' }
-        : { title:'Note Saved', body:'Draft saved and ready for clinician review.', severity:'success' }
+        : { title:'Note Saved', body:'Draft saved to the clinician-note workflow.', severity:'success' }
     );
     _vc.recording = null;
     _vc.tab = 'ai-notes';
@@ -2799,6 +2799,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
   window._vcSignNote = async id => {
     const note = VC_DATA.clinicianNotes.find(n => n.id === id);
     if (!note) return;
+    const hasBackendDraft = !!note.draftId;
     if (note.draftId) {
       try {
         await api.approveClinicianDraft?.(note.draftId, {});
@@ -2810,7 +2811,11 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
     note.status = 'signed';
     note.actionsTaken = [...(note.actionsTaken||[]), 'signed'];
     renderPage();
-    window._showNotifToast?.({ title:'Note Signed', body:'Clinical note signed and finalised.', severity:'success' });
+    window._showNotifToast?.(
+      hasBackendDraft
+        ? { title:'Note Signed', body:'Clinical note approval was recorded in the note workflow.', severity:'success' }
+        : { title:'Signed locally', body:'Clinical note was marked signed in this browser only.', severity:'warning' }
+    );
   };
 
   window._vcEditNote = id => {

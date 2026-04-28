@@ -5752,7 +5752,7 @@ export async function pgClinicalTrials(setTopbar) {
         notes: notes,
       };
       saveTrialDataPoint(point);
-      if (msg) { msg.style.display = 'block'; msg.style.color = '#10b981'; msg.textContent = '\u2713 Data point saved.'; }
+      if (msg) { msg.style.display = 'block'; msg.style.color = '#10b981'; msg.textContent = '\u2713 Data point saved in this browser view.'; }
       setTimeout(function() { render(); }, 600);
     };
 

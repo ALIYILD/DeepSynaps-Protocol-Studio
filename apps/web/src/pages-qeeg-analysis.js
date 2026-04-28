@@ -4848,8 +4848,8 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           reviewBtn.disabled = true;
           try {
             await api.amendQEEGReport(report.id, { clinician_reviewed: true, clinician_amendments: amendments });
-            showToast('Review saved', 'success');
-            if (st) st.innerHTML = '<div style="color:var(--green);font-size:13px">Review saved successfully.</div>';
+            showToast('Review recorded', 'success');
+            if (st) st.innerHTML = '<div style="color:var(--green);font-size:13px">Clinician review recorded for this report.</div>';
           } catch (err) {
             showToast('Failed to save review: ' + (err.message || err), 'error');
             if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(err.message || err) + '</div>';
