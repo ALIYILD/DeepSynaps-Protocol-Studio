@@ -7,7 +7,7 @@ import string
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.persistence.models import (
     AdverseEvent,
     AssessmentRecord,
@@ -825,6 +826,7 @@ def cohort_summary_endpoint(
 @router.post("", response_model=PatientOut, status_code=201)
 @limiter.limit("30/minute")
 def create_patient_endpoint(
+    request: Request,
     body: PatientCreate,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
@@ -902,6 +904,7 @@ class InviteCreateResponse(BaseModel):
 @router.post("/invite", response_model=InviteCreateResponse, status_code=201)
 @limiter.limit("20/minute")
 def create_patient_invite(
+    request: Request,
     body: InviteCreateRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),

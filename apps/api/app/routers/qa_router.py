@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
@@ -72,6 +72,7 @@ class CheckListResponse(BaseModel):
 @router.post("/run", response_model=QARunResponse)
 @limiter.limit("30/minute")
 def qa_run(
+    request: Request,
     payload: QARunRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> QARunResponse:

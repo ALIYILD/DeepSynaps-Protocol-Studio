@@ -10029,7 +10029,7 @@ window._vcSaveRecordedNote = function() {
   const body = document.getElementById('vc-note-body')?.value?.trim();
   if (!body) { _dsToast('Please enter note content before saving.', 'warn'); return; }
   document.querySelector('.modal-overlay')?.remove();
-  _vcToast('Note Saved', `"${subj||'Note'}" saved as draft. AI summary will be generated shortly.`, 'success');
+  _vcToast('Note Saved', `"${subj||'Note'}" saved as draft. AI summary generation is not verified from this page.`, 'success');
 };
 window._vcStartCall = function(reqId, type) {
   _vcToast(`Start ${type==='video'?'Video Visit':'Voice Call'}`, 'Connect your video/telephony provider to launch calls from this page.', 'info');

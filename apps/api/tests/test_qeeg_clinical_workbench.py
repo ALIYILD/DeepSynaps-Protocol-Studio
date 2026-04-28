@@ -37,7 +37,7 @@ def test_compute_safety_cockpit_passes_basic_checks():
         channel_count=19,
         eyes_condition="closed",
         montage_type="10-20",
-        band_powers_json=json.dumps({"bands": {"alpha": {"channels": {"Cz": {}}}}})),
+        band_powers_json=json.dumps({"bands": {"alpha": {"channels": {"Cz": {}}}}}),
         rejected_epochs=2,
         total_epochs=100,
         artifact_summary_json=None,

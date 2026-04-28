@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Form, Response, UploadFile
+from fastapi import APIRouter, Depends, Form, Request, Response, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -22,6 +22,7 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.persistence.models import (
     AiSummaryAudit,
     AuditEventRecord,
@@ -448,6 +449,7 @@ def get_consents(
 @router.post("/patient/upload/text")
 @limiter.limit("30/minute")
 def patient_upload_text(
+    request: Request,
     body: TextUploadRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
@@ -506,6 +508,7 @@ def patient_upload_text(
 @router.post("/patient/upload/audio")
 @limiter.limit("10/minute")
 async def patient_upload_audio(
+    request: Request,
     file: UploadFile,
     course_id: Optional[str] = Form(default=None),
     session_id: Optional[str] = Form(default=None),
@@ -630,6 +633,7 @@ async def patient_upload_audio(
 @router.post("/patient/upload/video")
 @limiter.limit("10/minute")
 async def patient_upload_video(
+    request: Request,
     file: UploadFile,
     course_id: Optional[str] = Form(default=None),
     session_id: Optional[str] = Form(default=None),
@@ -1016,6 +1020,7 @@ def review_action(
 @router.post("/review/{upload_id}/analyze")
 @limiter.limit("10/minute")
 async def analyze_upload(
+    request: Request,
     upload_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
@@ -1222,6 +1227,7 @@ class ApproveAnalysisRequest(BaseModel):
 @router.post("/analysis/{upload_id}/approve")
 @limiter.limit("20/minute")
 def approve_analysis(
+    request: Request,
     upload_id: str,
     body: ApproveAnalysisRequest = None,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

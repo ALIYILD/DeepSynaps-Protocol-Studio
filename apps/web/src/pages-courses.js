@@ -885,7 +885,7 @@ export async function pgClinicalNotes(setTopbar) {
       flagged:     getSoapNote(courseId, sessionId)?.flagged || false,
     };
     saveSoapNote(courseId, sessionId, note);
-    window._showNotifToast?.({ title: 'Note Saved', body: 'SOAP note saved successfully', severity: 'success' });
+    window._showNotifToast?.({ title: 'Note Saved', body: 'SOAP note saved in the course workflow.', severity: 'success' });
   };
 
   window._flagNote = function(courseId, sessionId) {
@@ -10406,7 +10406,7 @@ export async function pgAINoteAssistant(setTopbar) {
       condition:   _aiCondition,
     };
     saveSoapNote(courseId, sessionId, note);
-    window._showNotifToast?.({ title: 'Note Saved', body: `SOAP note for ${patientName} saved.`, severity: 'success' });
+    window._showNotifToast?.({ title: 'Note Saved', body: `SOAP note for ${patientName} saved in the course workflow.`, severity: 'success' });
   };
 
   window._aiCopyAll = function() {

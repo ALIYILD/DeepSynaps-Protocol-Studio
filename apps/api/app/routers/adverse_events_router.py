@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
@@ -119,6 +119,7 @@ class AdverseEventListResponse(BaseModel):
 @router.post("", response_model=AdverseEventOut, status_code=201)
 @limiter.limit("30/minute")
 def report_adverse_event(
+    request: Request,
     body: AdverseEventCreate,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),

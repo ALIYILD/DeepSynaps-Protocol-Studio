@@ -9523,7 +9523,7 @@ export async function pgPatientProfile(user) {
       notice.className = 'notice notice-success';
       notice.style.display = '';
       notice.style.fontSize = '11.5px';
-      notice.textContent = 'Preferences updated.';
+      notice.textContent = 'Preferences updated in this portal view.';
       setTimeout(() => { if (notice) notice.style.display = 'none'; }, 2500);
     }
   };

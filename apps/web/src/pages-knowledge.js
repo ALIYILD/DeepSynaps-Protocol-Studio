@@ -4900,7 +4900,7 @@ export async function pgDeviceManagement(setTopbar) {
     if (msg) {
       msg.style.display = 'block';
       msg.style.color = '#10b981';
-      msg.textContent = '\u2713 ' + d.name + ' assigned to session ' + sessionId + ' \u2014 session count now ' + d.sessionCount + '.';
+      msg.textContent = '\u2713 ' + d.name + ' was linked to the local session log ' + sessionId + ' \u2014 session count now ' + d.sessionCount + '.';
     }
     var sessInput = document.getElementById('dm-assign-session');
     if (sessInput) sessInput.value = '';

@@ -25,7 +25,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -223,6 +223,7 @@ def _audit(db: Session, actor: AuthenticatedActor, action: str, ann: Annotation)
 @router.post("/", response_model=AnnotationOut, status_code=201)
 @limiter.limit("60/minute")
 def create_annotation(
+    request: Request,
     body: AnnotationIn,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
