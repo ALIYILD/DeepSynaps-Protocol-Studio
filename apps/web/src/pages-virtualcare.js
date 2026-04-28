@@ -144,8 +144,8 @@ function _vcAnalysisTick() {
   // Fire-and-forget persist to backend
   const sid = _vc.analysisSessionId;
   if (sid) {
-    api.virtualCareSubmitVoiceAnalysis?.(sid, seg.voice).catch(() => {});
-    api.virtualCareSubmitVideoAnalysis?.(sid, seg.video).catch(() => {});
+    api.virtualCareSubmitVoiceAnalysis?.(sid, { ...seg.voice, source: 'simulated' }).catch(() => {});
+    api.virtualCareSubmitVideoAnalysis?.(sid, { ...seg.video, source: 'simulated' }).catch(() => {});
   }
 }
 
@@ -1800,7 +1800,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
             </div>
             <div id="vc-analysis-panel" class="vc-analysis-panel" style="${_vc.analysisPanelVisible ? '' : 'display:none'}">
               <div class="vc-analysis-section">
-                <div class="vc-analysis-hdr"><span class="vc-pulse-dot"></span> Voice Analysis</div>
+                <div class="vc-analysis-hdr"><span class="vc-pulse-dot"></span> Voice Analysis <span style="font-size:9px;color:var(--text-tertiary);font-weight:400">(simulated)</span></div>
                 <div style="margin-bottom:6px"><span style="font-size:10px;color:var(--text-tertiary)">Sentiment</span> <span id="vc-va-sentiment" class="vc-pill vc-pill--neutral">--</span></div>
                 <div class="vc-gauge-row"><span class="vc-gauge-label">Stress</span><div class="vc-gauge-track"><div id="vc-va-stress-fill" class="vc-gauge-fill" style="width:0%;background:#4ade80"></div></div><span id="vc-va-stress-val" class="vc-gauge-val">--</span></div>
                 <div class="vc-gauge-row"><span class="vc-gauge-label">Energy</span><div class="vc-gauge-track"><div id="vc-va-energy-fill" class="vc-gauge-fill" style="width:0%;background:#00d4bc"></div></div><span id="vc-va-energy-val" class="vc-gauge-val">--</span></div>
@@ -1808,7 +1808,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
                 <div style="margin-top:4px" id="vc-va-tags"></div>
               </div>
               <div class="vc-analysis-section">
-                <div class="vc-analysis-hdr"><span class="vc-pulse-dot"></span> Video Analysis</div>
+                <div class="vc-analysis-hdr"><span class="vc-pulse-dot"></span> Video Analysis <span style="font-size:9px;color:var(--text-tertiary);font-weight:400">(simulated)</span></div>
                 <div class="vc-gauge-row"><span class="vc-gauge-label">Engagement</span><div class="vc-gauge-track"><div id="vc-va-engagement-fill" class="vc-gauge-fill" style="width:0%;background:#00d4bc"></div></div><span id="vc-va-engagement-val" class="vc-gauge-val">--</span></div>
                 <div class="vc-expression-row" id="vc-va-expression"><span class="emoji">\uD83D\uDE10</span> <span class="vc-pill vc-pill--neutral">--</span></div>
                 <div class="vc-gauge-row"><span class="vc-gauge-label">Eye contact</span><div class="vc-gauge-track"><div id="vc-va-eyecontact-fill" class="vc-gauge-fill" style="width:0%;background:#00d4bc"></div></div><span id="vc-va-eyecontact-val" class="vc-gauge-val">--</span></div>
@@ -3329,7 +3329,7 @@ function _lsRender() {
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
               <div>
                 <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:13px;font-weight:600">Patient biometrics</div>
-                <div style="font-size:11px;color:var(--text-tertiary)">Live wearable telemetry</div>
+                <div style="font-size:11px;color:var(--text-tertiary)">Simulated telemetry (demo)</div>
               </div>
               <span class="chip ${s.videoActive ? 'teal' : ''}" style="${s.videoActive ? '' : 'color:var(--text-tertiary)'}" id="ls-bio-status">${s.videoActive ? '● Preview Active' : 'Idle'}</span>
             </div>
@@ -3827,7 +3827,7 @@ function _lsStartBioPolling() {
     // Submit snapshot to backend if session exists.
     if (s.vcSessionId) {
       api.virtualCareSubmitBiometrics(s.vcSessionId, {
-        source: 'wearable', heart_rate_bpm: hr, hrv_ms: hrv, spo2_pct: spo2, stress_score: stress,
+        source: 'simulated', heart_rate_bpm: hr, hrv_ms: hrv, spo2_pct: spo2, stress_score: stress,
       }).catch(() => {});
     }
   }, 5000);
