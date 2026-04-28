@@ -1934,7 +1934,7 @@ class QEEGAIReport(Base):
     reviewer_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     model_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     prompt_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    report_version: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    report_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     claim_governance_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     patient_facing_report_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     signed_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)

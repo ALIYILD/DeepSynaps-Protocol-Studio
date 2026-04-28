@@ -118,6 +118,10 @@ def _analysis_snapshot(analysis: QEEGAnalysis) -> dict:
         "risk_scores": _maybe("risk_scores_json"),
         "brain_age": _maybe("brain_age_json"),
         "explainability": _maybe("explainability_json"),
+        "safety_cockpit": _maybe("safety_cockpit_json"),
+        "red_flags": _maybe("red_flags_json"),
+        "normative_metadata": _maybe("normative_metadata_json"),
+        "interpretability_status": getattr(analysis, "interpretability_status", None),
     }
 
 
@@ -317,6 +321,10 @@ async def copilot_ws(
         "features": snapshot["features"],
         "zscores": snapshot["zscores"],
         "risk_scores": snapshot["risk_scores"],
+        "safety_cockpit": snapshot.get("safety_cockpit"),
+        "red_flags": snapshot.get("red_flags"),
+        "normative_metadata": snapshot.get("normative_metadata"),
+        "interpretability_status": snapshot.get("interpretability_status"),
     }
 
     # Conversation history (used by :func:`real_llm_tool_dispatch`). Each

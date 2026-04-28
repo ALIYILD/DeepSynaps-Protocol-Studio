@@ -714,10 +714,35 @@ var _COPILOT_DEMO_REPLIES = [
       + 'for care decisions.',
   },
   {
+    match: /safety|cockpit|quality|interpretability/i,
+    reply: 'The safety cockpit shows this recording is VALID FOR REVIEW: duration 300 s, 19 channels, '
+      + '256 Hz, eyes closed, 10–20 montage, 2/100 epochs rejected. No red flags detected. '
+      + 'This is research/wellness info — please consult your clinician for care decisions.',
+  },
+  {
+    match: /red flag|redflag|flag|warning/i,
+    reply: 'No red flags are detected for this analysis. The signal quality, montage completeness, '
+      + 'and artifact burden all pass the clinical safety gate. This is research/wellness info — '
+      + 'please consult your clinician for care decisions.',
+  },
+  {
+    match: /normative|model card|database|gamlss/i,
+    reply: 'Normative data is DeepSynaps Normative (GAMLSS centiles, 95% CI, log-normal absolute power). '
+      + 'Age range 18–65 years. Z-scores are descriptive, not diagnostic. This is research/wellness info — '
+      + 'please consult your clinician for care decisions.',
+  },
+  {
+    match: /protocol fit|fit panel|contraindication|evidence grade/i,
+    reply: 'Protocol fit panel shows SMR uptraining as a candidate (evidence grade B). Required clinician '
+      + 'checks include verifying seizure history and implant status. This is research/wellness info — '
+      + 'please consult your clinician for care decisions.',
+  },
+  {
     match: /.*/,
     reply: 'I can discuss the brain-age gap, similarity indices, the protocol suggestion, '
-      + 'explainability, or similar-case neighbours shown on this page. This is research/wellness '
-      + 'info — please consult your clinician for care decisions.',
+      + 'safety cockpit, red flags, normative model card, protocol fit, explainability, or similar-case '
+      + 'neighbours shown on this page. This is research/wellness info — please consult your '
+      + 'clinician for care decisions.',
   },
 ];
 
@@ -763,6 +788,10 @@ export function mountCopilotWidget(containerId, analysisId) {
     + '<button class="qeeg-ai-copilot__chip" data-q="Why MDD-like?">why MDD-like?</button>'
     + '<button class="qeeg-ai-copilot__chip" data-q="What protocol do you suggest?">protocol?</button>'
     + '<button class="qeeg-ai-copilot__chip" data-q="Show similar cases">similar cases</button>'
+    + '<button class="qeeg-ai-copilot__chip" data-q="What does the safety cockpit say?">safety cockpit</button>'
+    + '<button class="qeeg-ai-copilot__chip" data-q="Any red flags?">red flags</button>'
+    + '<button class="qeeg-ai-copilot__chip" data-q="Explain the normative model card">normative card</button>'
+    + '<button class="qeeg-ai-copilot__chip" data-q="What is the protocol fit?">protocol fit</button>'
     + '</div>'
     + '<form class="qeeg-ai-copilot__form" data-role="form" autocomplete="off">'
     + '<input class="qeeg-ai-copilot__input" data-role="input" type="text" '
@@ -852,7 +881,8 @@ export function mountCopilotWidget(containerId, analysisId) {
   // Welcome bubble.
   appendBubble('copilot',
     'Hello! I can answer questions about the brain-age gap, similarity indices, the '
-    + 'protocol suggestion, and similar-case neighbours on this page. This is '
+    + 'protocol suggestion, similar-case neighbours, safety cockpit, red flags, '
+    + 'normative model card, and protocol fit on this page. This is '
     + 'research/wellness info — please consult your clinician for care decisions.');
 
   // Try to open a WebSocket. Fall back to offline mode silently on failure.

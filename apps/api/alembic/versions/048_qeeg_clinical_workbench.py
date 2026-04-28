@@ -30,7 +30,7 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column("reviewer_id", sa.String(64), nullable=True))
         batch_op.add_column(sa.Column("model_version", sa.String(64), nullable=True))
         batch_op.add_column(sa.Column("prompt_version", sa.String(64), nullable=True))
-        batch_op.add_column(sa.Column("report_version", sa.Integer(), nullable=True))
+        batch_op.add_column(sa.Column("report_version", sa.String(16), nullable=True))
         batch_op.add_column(sa.Column("claim_governance_json", sa.Text(), nullable=True))
         batch_op.add_column(sa.Column("patient_facing_report_json", sa.Text(), nullable=True))
         batch_op.add_column(sa.Column("signed_by", sa.String(64), nullable=True))
