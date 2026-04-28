@@ -1435,6 +1435,7 @@ async function renderPage() {
       await pgOnboardingWizard(setTopbar);
       break;
     }
+    case 'agent-onboarding': { const { pgAgentOnboarding } = await loadOnboarding(); await pgAgentOnboarding(setTopbar); break; }
     case 'adverse-events':     { window._monitorHubTab = 'adverse'; window._nav('monitor-hub'); break; }
     case 'adverse-events-full':{ const m = await loadCourses(); await m.pgAdverseEvents(setTopbar, navigate); break; }
     case 'audittrail': {
