@@ -13,5 +13,8 @@
     "lint:web": "npm run lint --workspace @deepsynaps/web",
     "test:web": "npm run test --workspace @deepsynaps/web",
     "overnight:summary": ".\\.venv\\Scripts\\python.exe scripts/generate_overnight_swarm_summary.py"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.119"
   }
 }
