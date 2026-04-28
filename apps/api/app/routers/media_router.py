@@ -1329,10 +1329,30 @@ async def clinician_note_text(
         note.id, body.patient_id, actor.actor_id,
     )
 
+    openmed_block: dict = {}
+    try:
+        from app.services.openmed import adapter as _openmed_adapter
+        from app.services.openmed.schemas import ClinicalTextInput as _OpenMedInput
+
+        _result = _openmed_adapter.analyze(
+            _OpenMedInput(text=body.text_content, source_type="clinician_note")
+        )
+        openmed_block = {
+            "backend": _result.backend,
+            "entity_count": len(_result.entities),
+            "pii_count": len(_result.pii),
+            "summary": _result.summary,
+            "entities": [e.model_dump() for e in _result.entities[:50]],
+            "safety_footer": _result.safety_footer,
+        }
+    except Exception as exc:
+        _logger.warning("openmed analyze on clinician note failed: %s", exc)
+
     return {
         "note_id": note.id,
         "draft_id": draft.id,
         "draft": _draft_to_dict(draft, patient_id=body.patient_id),
+        "openmed": openmed_block,
     }
 
 
