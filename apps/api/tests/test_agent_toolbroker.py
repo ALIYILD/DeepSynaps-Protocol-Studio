@@ -83,7 +83,12 @@ def test_every_agent_tool_id_is_registered() -> None:
 
 
 def test_known_write_tools_are_flagged() -> None:
-    for tool_id in ("sessions.create", "sessions.cancel", "notes.approve_draft"):
+    for tool_id in (
+        "sessions.create",
+        "sessions.cancel",
+        "notes.approve_draft",
+        "tasks.create",
+    ):
         assert tool_id in TOOL_REGISTRY, f"missing write tool {tool_id!r}"
         tool = TOOL_REGISTRY[tool_id]
         assert tool.write_only is True
@@ -91,7 +96,12 @@ def test_known_write_tools_are_flagged() -> None:
 
 
 def test_read_tools_have_handlers() -> None:
-    write_only = {"sessions.create", "sessions.cancel", "notes.approve_draft"}
+    write_only = {
+        "sessions.create",
+        "sessions.cancel",
+        "notes.approve_draft",
+        "tasks.create",
+    }
     for tool_id, tool in TOOL_REGISTRY.items():
         if tool_id in write_only:
             continue
@@ -117,7 +127,7 @@ def test_fetch_context_for_reception_agent_returns_only_read_tools(
     assert set(ctx.keys()) == expected_keys
 
     # Write tools must NOT appear.
-    for write_tool in ("sessions.create", "sessions.cancel"):
+    for write_tool in ("sessions.create", "sessions.cancel", "tasks.create"):
         assert write_tool not in ctx
 
 

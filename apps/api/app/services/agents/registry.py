@@ -301,6 +301,7 @@ AGENT_REGISTRY: dict[str, AgentDefinition] = {
             "patients.search",
             "forms.list",
             "consent.status",
+            "tasks.create",
         ],
         system_prompt=_RECEPTION_SYSTEM_PROMPT,
         monthly_price_gbp=99,

@@ -34,6 +34,7 @@ from app.persistence.models import (
     ClinicianMediaNote,
     ClinicianNoteDraft,
     Patient,
+    ReceptionTask,
 )
 from app.services.agents import pending_calls, runner as agent_runner
 from app.services.agents import tool_dispatcher
@@ -881,3 +882,178 @@ def test_notes_approve_draft_applies_edits(
     assert draft.session_note == new_body
     assert draft.status == "approved"
     assert draft.approved_by == clinician_actor.actor_id
+
+
+# ---------------------------------------------------------------------------
+# tasks.create — happy / patient binding / cross-clinic / past due / empty
+# title / full agent flow
+# ---------------------------------------------------------------------------
+
+
+def test_tasks_create_happy_path(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+) -> None:
+    out = tool_dispatcher.execute(
+        "tasks.create",
+        {"title": "Call Mr X back at 3pm"},
+        clinician_actor,
+        db_session,
+    )
+    assert out["ok"] is True, out
+    assert "Call Mr X back at 3pm" in out["result"]
+    assert "audit_extra" in out
+    assert "task_id" in out["audit_extra"]
+    assert out["audit_extra"]["patient_id"] is None
+
+    rows = (
+        db_session.query(ReceptionTask)
+        .filter(ReceptionTask.clinician_id == clinician_actor.actor_id)
+        .all()
+    )
+    assert len(rows) == 1
+    assert "Call Mr X back at 3pm" in rows[0].text
+    assert rows[0].done is False
+
+
+def test_tasks_create_with_patient_id_in_clinic_persists_binding(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+    seeded_patient: Patient,
+) -> None:
+    out = tool_dispatcher.execute(
+        "tasks.create",
+        {
+            "title": "Send intake follow-up",
+            "patient_id": seeded_patient.id,
+            "category": "follow_up",
+            "notes": "Patient asked about Friday slot.",
+        },
+        clinician_actor,
+        db_session,
+    )
+    assert out["ok"] is True, out
+    assert out["audit_extra"]["patient_id"] == seeded_patient.id
+    assert out["audit_extra"]["task_id"]
+
+    row = (
+        db_session.query(ReceptionTask)
+        .filter(ReceptionTask.id == out["audit_extra"]["task_id"])
+        .first()
+    )
+    assert row is not None
+    # patient_id is encoded into the text body since the model has no
+    # native column for it.
+    assert seeded_patient.id in row.text
+    assert "follow_up" in row.text
+    assert "Patient asked about Friday slot" in row.text
+
+
+def test_tasks_create_rejects_cross_clinic_patient(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+    seeded_other_clinic_patient: Patient,
+) -> None:
+    out = tool_dispatcher.execute(
+        "tasks.create",
+        {
+            "title": "Follow up with cross-clinic patient",
+            "patient_id": seeded_other_clinic_patient.id,
+        },
+        clinician_actor,
+        db_session,
+    )
+    assert out["ok"] is False
+    assert "not in your clinic" in out["result"].lower() or "not found" in out["result"].lower()
+
+    # No row must have been written.
+    rows = (
+        db_session.query(ReceptionTask)
+        .filter(ReceptionTask.clinician_id == clinician_actor.actor_id)
+        .all()
+    )
+    assert rows == []
+
+
+def test_tasks_create_rejects_past_due_at(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+) -> None:
+    past = (
+        datetime.now(timezone.utc) - timedelta(days=1)
+    ).isoformat()
+    out = tool_dispatcher.execute(
+        "tasks.create",
+        {"title": "Backdated task", "due_at": past},
+        clinician_actor,
+        db_session,
+    )
+    assert out["ok"] is False
+    assert "future" in out["result"].lower()
+
+    rows = db_session.query(ReceptionTask).filter(
+        ReceptionTask.clinician_id == clinician_actor.actor_id
+    ).all()
+    assert rows == []
+
+
+def test_tasks_create_rejects_empty_title(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+) -> None:
+    with pytest.raises(tool_dispatcher.InvalidArgs):
+        tool_dispatcher.execute(
+            "tasks.create",
+            {"title": ""},
+            clinician_actor,
+            db_session,
+        )
+
+
+def test_tasks_create_full_agent_flow(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # First call: LLM emits the tool_call envelope, runner returns
+    # pending_tool_call.
+    llm_reply = (
+        '{"tool_call": {"id": "tasks.create", "args": '
+        '{"title": "Call Mr X back at 3pm"}, '
+        '"summary": "Queue the 3pm callback."}}\n'
+        "Approve to queue?"
+    )
+    _stub_llm(monkeypatch, llm_reply)
+
+    first = agent_runner.run_agent(
+        AGENT_REGISTRY["clinic.reception"],
+        message="Remind me to call Mr X back at 3pm",
+        actor=clinician_actor,
+        db=db_session,
+    )
+    pending = first.get("pending_tool_call")
+    assert pending is not None, first
+    assert pending["tool_id"] == "tasks.create"
+    assert pending["args"]["title"] == "Call Mr X back at 3pm"
+
+    # Second call: clinician confirms, runner executes the dispatcher.
+    second = agent_runner.run_agent(
+        AGENT_REGISTRY["clinic.reception"],
+        message="approve",
+        actor=clinician_actor,
+        db=db_session,
+        confirmed_tool_call_id=pending["call_id"],
+    )
+    executed = second.get("tool_call_executed")
+    assert executed is not None, second
+    assert executed["tool_id"] == "tasks.create"
+    assert executed["ok"] is True
+
+    # Underlying row got created.
+    rows = (
+        db_session.query(ReceptionTask)
+        .filter(ReceptionTask.clinician_id == clinician_actor.actor_id)
+        .all()
+    )
+    assert len(rows) == 1
+    assert "Call Mr X back at 3pm" in rows[0].text

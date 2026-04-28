@@ -2308,3 +2308,46 @@ class QEEGTimelineEvent(Base):
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     confidence: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class AgentSubscription(Base):
+    """Per-clinic agent SKU subscription (Stripe-backed, TEST-MODE-ONLY in v1).
+
+    One row per (clinic_id, agent_id) pair. Created in ``test_pending`` state
+    when the clinic admin starts a Stripe Checkout flow; flipped to ``active``
+    by the ``checkout.session.completed`` webhook. Live billing is gated by
+    a separate operator action — see ``app.services.stripe_skus`` for the
+    sk_live_* refusal guardrail.
+    """
+
+    __tablename__ = "agent_subscriptions"
+    __table_args__ = (
+        UniqueConstraint("clinic_id", "agent_id", name="uq_agent_subscription_clinic_agent"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinic_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("clinics.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # Agent canonical id (e.g. "clinic.reception"). Not a FK — agents live in
+    # the in-process AGENT_REGISTRY, not the DB.
+    agent_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    stripe_subscription_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    stripe_price_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # test_pending → active → past_due / canceled
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="test_pending", index=True)
+    monthly_price_gbp: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    canceled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )

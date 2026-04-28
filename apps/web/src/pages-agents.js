@@ -398,6 +398,17 @@ let _activityAgentFilter = '';
 let _activityLoading = false;
 let _activityError = null;
 
+// ── Upgrade-CTA state ────────────────────────────────────────────────────────
+// Per-tile inline notice shown after the user clicks "Request upgrade →" on a
+// locked tile. Keyed by agent id so two locked tiles can each show their own
+// notice independently. Cleared when the user navigates away from the hub.
+//   { [agentId]: { kind: 'info' | 'error', text: string } }
+let _marketplaceUpgradeNotices = {};
+// Set of agent ids currently mid-flight on the upgrade POST. Used to disable
+// the button while the request is in flight so a rapid double-click doesn't
+// spawn two checkout sessions.
+let _marketplaceUpgradeInFlight = new Set();
+
 const ACTIVITY_DEMO_RUNS = [
   {
     id: 'demo-run-1',
@@ -708,15 +719,49 @@ function _renderMarketplaceSection() {
       ? '<span class="ds-pill" style="font-size:10px;padding:3px 9px;border-radius:99px;background:rgba(245,158,11,0.12);color:var(--amber,#f59e0b);font-weight:600;border:1px solid rgba(245,158,11,0.25)">Locked — upgrade required</span>'
       : `<span class="ds-pill" style="font-size:10px;padding:3px 9px;border-radius:99px;background:rgba(0,212,188,0.10);color:var(--teal);font-weight:600;border:1px solid rgba(0,212,188,0.25)">${_esc(required[0] || 'included')}</span>`;
     const audPill = `<span class="ds-pill" style="font-size:10px;padding:3px 9px;border-radius:99px;background:rgba(74,158,255,0.10);color:var(--blue);font-weight:600;border:1px solid rgba(74,158,255,0.25)">${audience}</span>`;
-    const lockedAttrs = locked ? 'disabled title="Upgrade required" style="opacity:0.55;cursor:not-allowed"' : '';
-    const tryBtn = locked
-      ? `<button class="btn btn-sm btn-primary" ${lockedAttrs}>Try in chat</button>`
-      : `<button class="btn btn-sm btn-primary" onclick="window._agentMarketplaceTry('${_esc(a.id)}')" style="font-size:11.5px">Try in chat</button>`;
-    const cfgBtn = locked
-      ? `<button class="btn btn-sm btn-ghost" ${lockedAttrs}>Configure</button>`
-      : `<button class="btn btn-sm btn-ghost" onclick="window._agentMarketplaceConfigure('${_esc(a.id)}')" style="font-size:11.5px;opacity:0.7" title="Configuration coming soon">Configure</button>`;
     const dimStyle = locked ? 'opacity:0.7;' : '';
     const price = Number.isFinite(a.monthly_price_gbp) ? a.monthly_price_gbp : (a.monthly_price_gbp || 0);
+
+    // Locked tiles get a single primary CTA — "Request upgrade →" — that
+    // either kicks off Stripe checkout (real auth) or shows a demo toast.
+    // Unlocked tiles keep the existing Try / Configure pair.
+    let actionRow;
+    if (locked) {
+      const inFlight = _marketplaceUpgradeInFlight.has(a.id);
+      const busyAttr = inFlight ? 'disabled' : '';
+      const label = inFlight ? 'Starting checkout…' : 'Request upgrade →';
+      actionRow = `
+        <button class="btn btn-sm btn-primary"
+                onclick="window._agentMarketplaceUpgrade('${_esc(a.id)}')"
+                style="font-size:11.5px;width:100%"
+                ${busyAttr}>${label}</button>
+      `;
+    } else {
+      const tryBtn = `<button class="btn btn-sm btn-primary" onclick="window._agentMarketplaceTry('${_esc(a.id)}')" style="font-size:11.5px">Try in chat</button>`;
+      const cfgBtn = `<button class="btn btn-sm btn-ghost" onclick="window._agentMarketplaceConfigure('${_esc(a.id)}')" style="font-size:11.5px;opacity:0.7" title="Configuration coming soon">Configure</button>`;
+      actionRow = `
+        <div style="display:flex;gap:6px">
+          ${tryBtn}
+          ${cfgBtn}
+        </div>
+      `;
+    }
+
+    // Inline upgrade-CTA notice (info/error). Mirrors the small grey/red
+    // hint blocks used by the marketplace modal — no new CSS, just inline
+    // colour overrides per severity.
+    const notice = _marketplaceUpgradeNotices[a.id];
+    let noticeBlock = '';
+    if (notice) {
+      const isErr = notice.kind === 'error';
+      const bg = isErr ? 'rgba(239,68,68,0.08)' : 'rgba(74,158,255,0.08)';
+      const border = isErr ? 'rgba(239,68,68,0.25)' : 'rgba(74,158,255,0.25)';
+      const colour = isErr ? 'var(--red,#ef4444)' : 'var(--text-secondary)';
+      noticeBlock = `
+        <div class="muted" style="font-size:11px;line-height:1.4;padding:8px 10px;border-radius:6px;background:${bg};border:1px solid ${border};color:${colour}">${_esc(notice.text)}</div>
+      `;
+    }
+
     return `
       <div class="card ds-card" style="${dimStyle}padding:14px 16px;display:flex;flex-direction:column;gap:8px;min-height:170px">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
@@ -726,9 +771,9 @@ function _renderMarketplaceSection() {
         <h3 style="font-size:14px;font-weight:700;color:var(--text-primary);margin:0">${_esc(a.name || a.id)}</h3>
         <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.4;flex:1">${_esc(a.tagline || '')}</div>
         <div style="font-size:12px;font-weight:700;color:var(--text-primary)">£${_esc(String(price))}/mo</div>
-        <div style="display:flex;gap:6px;margin-top:4px">
-          ${tryBtn}
-          ${cfgBtn}
+        ${noticeBlock}
+        <div style="margin-top:4px">
+          ${actionRow}
         </div>
       </div>
     `;
@@ -1748,6 +1793,113 @@ window._agentMarketplaceTry = function(agentId) {
 window._agentMarketplaceConfigure = function(/* agentId */) {
   // Placeholder per spec — full configuration UI lands in a follow-up PR.
   alert('Configuration coming soon');
+};
+
+// Locked-tile CTA — kicks off Stripe checkout via the agent-billing service
+// (built in parallel; returns `{ok, checkout_url, session_id}` or
+// `{ok: False, reason}`). Demo mode short-circuits with a toast so reviewers
+// can see the path without wiring Stripe.
+window._agentMarketplaceUpgrade = async function(agentId) {
+  if (!agentId) return;
+  if (_marketplaceUpgradeInFlight.has(agentId)) return;
+
+  const agent = (_marketplaceAgents && _marketplaceAgents.find(x => x.id === agentId))
+    || MARKETPLACE_DEMO_AGENTS.find(x => x.id === agentId);
+  if (!agent) return;
+
+  // Demo-mode short-circuit — no network, just a toast confirming what the
+  // production flow would do. Mirrors the `(demo)` callouts elsewhere.
+  if (_isMarketplaceDemoMode()) {
+    const price = Number.isFinite(agent.monthly_price_gbp) ? agent.monthly_price_gbp : (agent.monthly_price_gbp || 0);
+    window._showNotifToast?.({
+      title: 'Upgrade (demo)',
+      body: `(demo) In production this would launch Stripe checkout for £${price}/mo.`,
+      severity: 'info',
+    });
+    return;
+  }
+
+  // Pull clinic_id off the cached user (set at login). The backend uses this
+  // to attach the new subscription to the right tenant — without it, the
+  // checkout session would land orphaned.
+  let clinicId = null;
+  try {
+    const u = JSON.parse(localStorage.getItem('ds_user') || '{}');
+    clinicId = u.clinic_id || null;
+  } catch {}
+
+  // Mark in-flight so a second click can't fire while the network call is
+  // mid-air — re-render to show the disabled "Starting checkout…" label.
+  _marketplaceUpgradeInFlight.add(agentId);
+  delete _marketplaceUpgradeNotices[agentId];
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+
+  const headers = { 'Content-Type': 'application/json' };
+  try {
+    const t = api.getToken && api.getToken();
+    if (t) headers['Authorization'] = 'Bearer ' + t;
+  } catch {}
+
+  const successUrl = `${window.location.origin}${window.location.pathname}?upgrade=ok&agent=${encodeURIComponent(agentId)}`;
+  const cancelUrl = `${window.location.origin}${window.location.pathname}?upgrade=cancelled&agent=${encodeURIComponent(agentId)}`;
+
+  const body = {
+    agent_id: agentId,
+    agent_name: agent.name || agentId,
+    clinic_id: clinicId,
+    package_required: Array.isArray(agent.package_required) ? agent.package_required : [],
+    monthly_price_gbp: Number.isFinite(agent.monthly_price_gbp) ? agent.monthly_price_gbp : 0,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+  };
+
+  try {
+    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agent-billing/checkout/${encodeURIComponent(agentId)}`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify(body),
+    });
+    let data = null;
+    try { data = await res.json(); } catch {}
+
+    if (data && data.ok && data.checkout_url) {
+      // Stripe-hosted checkout — leave the SPA. The success/cancel URLs
+      // bring the user back to this page so the inline notice above shows
+      // up post-redirect.
+      window.location.assign(data.checkout_url);
+      return;
+    }
+
+    // Soft-failure path — the backend signals an actionable reason and we
+    // surface a tile-local notice instead of a global toast so the user
+    // knows which agent the message is about.
+    const reason = data && data.reason ? String(data.reason) : '';
+    if (reason === 'patient_agent_not_activated') {
+      _marketplaceUpgradeNotices[agentId] = {
+        kind: 'info',
+        text: 'Patient agents are pending clinical sign-off. Talk to your DeepSynaps representative.',
+      };
+    } else if (reason === 'already_subscribed') {
+      _marketplaceUpgradeNotices[agentId] = {
+        kind: 'info',
+        text: 'You already have this agent. Refresh the page.',
+      };
+    } else {
+      _marketplaceUpgradeNotices[agentId] = {
+        kind: 'error',
+        text: "Couldn't start checkout. Please try again or contact support.",
+      };
+    }
+  } catch {
+    _marketplaceUpgradeNotices[agentId] = {
+      kind: 'error',
+      text: "Couldn't start checkout. Please try again or contact support.",
+    };
+  } finally {
+    _marketplaceUpgradeInFlight.delete(agentId);
+    if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+  }
 };
 
 window._agentMarketplaceModalClose = function() {

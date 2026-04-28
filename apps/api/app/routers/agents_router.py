@@ -2,8 +2,11 @@
 
 Endpoints:
 
-* ``GET  /api/v1/agents``               — list agents visible to the actor.
-* ``POST /api/v1/agents/{agent_id}/run`` — run one turn against an agent.
+* ``GET  /api/v1/agents``                  — list agents visible to the actor.
+* ``POST /api/v1/agents/{agent_id}/run``    — run one turn against an agent.
+* ``GET  /api/v1/agents/runs``              — clinic-scoped run history.
+* ``GET  /api/v1/agents/ops/runs``          — cross-clinic run history (super-admin).
+* ``GET  /api/v1/agents/ops/abuse-signals`` — abuse-rate signals (super-admin).
 
 Decision-support framing only — every response carries the safety footer
 ``"decision-support, not autonomous diagnosis"`` and is meant for review by
@@ -19,14 +22,19 @@ Auth + entitlement gates
 * ``POST /{agent_id}/run`` enforces the agent's :attr:`role_required` and
   :attr:`package_required` strictly — 403 on mismatch — and 404 when the
   ``agent_id`` is unknown.
+* ``GET /ops/*`` requires admin role AND ``actor.clinic_id is None`` — only
+  cross-clinic super-admins see the global ops view.
 """
 from __future__ import annotations
 
 import json as _json
+import statistics
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -331,6 +339,225 @@ def list_agent_runs(
             )
         )
     return AgentRunListResponse(runs=runs)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/agents/ops/runs — cross-clinic super-admin audit history
+# ---------------------------------------------------------------------------
+
+
+class OpsRunOut(BaseModel):
+    """One row of the cross-clinic ops audit projection.
+
+    Mirrors :class:`AgentRunOut` but always carries ``clinic_id`` because
+    the whole point of the ops view is to spot cross-tenant patterns.
+    """
+
+    id: str
+    created_at: str  # ISO-8601 UTC
+    actor_id: str | None
+    clinic_id: str | None
+    agent_id: str
+    message_preview: str
+    reply_preview: str
+    context_used: list[str] = Field(default_factory=list)
+    latency_ms: int | None = None
+    ok: bool
+    error_code: str | None = None
+
+
+class OpsRunsResponse(BaseModel):
+    runs: list[OpsRunOut]
+
+
+def _require_super_admin(actor: AuthenticatedActor) -> None:
+    """Both ops endpoints share this gate: admin role + no clinic binding.
+
+    A clinic-scoped admin (``actor.clinic_id is not None``) gets 403 here
+    even though they pass the role check — they should be using the
+    tenant-scoped ``/runs`` endpoint instead.
+    """
+    require_minimum_role(actor, "admin")
+    if actor.clinic_id is not None:
+        raise ApiServiceError(
+            code="ops_admin_required",
+            message="Cross-clinic ops requires a super-admin actor.",
+            warnings=["This endpoint is reserved for platform operators."],
+            status_code=403,
+        )
+
+
+@router.get("/ops/runs", response_model=OpsRunsResponse)
+def ops_list_runs(
+    limit: int = Query(50, ge=1, le=500),
+    agent_id: str | None = Query(None),
+    clinic_id: str | None = Query(None),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> OpsRunsResponse:
+    """Return recent agent runs across all clinics (super-admin only).
+
+    Parameters
+    ----------
+    limit
+        Maximum rows to return. ``[1, 500]`` — clamped by FastAPI.
+    agent_id
+        Optional filter on ``AgentRunAudit.agent_id``.
+    clinic_id
+        Optional filter on ``AgentRunAudit.clinic_id``. Useful when ops
+        wants to drill into one tenant after spotting a hot pair on the
+        ``/ops/abuse-signals`` view.
+
+    Visibility
+    ----------
+    Caller must be ``role="admin"`` AND ``actor.clinic_id is None``. Any
+    clinic-bound admin gets ``403 ops_admin_required`` so the cross-tenant
+    surface stays opt-in.
+    """
+    _require_super_admin(actor)
+
+    q = db.query(AgentRunAudit)
+    if agent_id is not None:
+        q = q.filter(AgentRunAudit.agent_id == agent_id)
+    if clinic_id is not None:
+        q = q.filter(AgentRunAudit.clinic_id == clinic_id)
+
+    rows = q.order_by(AgentRunAudit.created_at.desc()).limit(limit).all()
+
+    runs: list[OpsRunOut] = []
+    for row in rows:
+        ts = row.created_at
+        if ts is not None and ts.tzinfo is None:
+            iso_ts = ts.isoformat() + "Z"
+        else:
+            iso_ts = ts.isoformat() if ts is not None else ""
+        runs.append(
+            OpsRunOut(
+                id=row.id,
+                created_at=iso_ts,
+                actor_id=row.actor_id,
+                clinic_id=row.clinic_id,
+                agent_id=row.agent_id,
+                message_preview=row.message_preview or "",
+                reply_preview=row.reply_preview or "",
+                context_used=_decode_context_used(row.context_used_json),
+                latency_ms=row.latency_ms,
+                ok=bool(row.ok),
+                error_code=row.error_code,
+            )
+        )
+    return OpsRunsResponse(runs=runs)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/agents/ops/abuse-signals — flag noisy clinic+agent pairs
+# ---------------------------------------------------------------------------
+
+
+class AbuseSignal(BaseModel):
+    """One (clinic_id, agent_id) pair whose run rate is well above the median.
+
+    ``severity`` is bucketed for fast UI rendering:
+
+    * ``"low"``  — > 5x the cross-pair median (the spec's flag threshold).
+    * ``"med"``  — > 7.5x the median.
+    * ``"high"`` — >= 10x the median.
+
+    ``p_above_median`` is the multiplicative factor (``runs_count / median``)
+    rounded to one decimal so the UI can show "12.0x median" without doing
+    its own math.
+    """
+
+    clinic_id: str | None
+    agent_id: str
+    runs_count: int
+    p_above_median: float
+    severity: str  # "low" | "med" | "high"
+
+
+class AbuseSignalsResponse(BaseModel):
+    window_minutes: int
+    median_runs_per_pair: float
+    signals: list[AbuseSignal]
+
+
+@router.get("/ops/abuse-signals", response_model=AbuseSignalsResponse)
+def ops_abuse_signals(
+    window_minutes: int = Query(60, ge=1, le=1440),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AbuseSignalsResponse:
+    """Flag (clinic, agent) pairs whose run rate is far above the cohort.
+
+    Algorithm
+    ---------
+    1. Bucket ``AgentRunAudit`` rows in the last ``window_minutes`` by
+       ``(clinic_id, agent_id)``.
+    2. Compute the median ``runs_count`` across all pairs.
+    3. Any pair with ``runs_count > 5 * median`` is flagged. Severity:
+
+       * ``>= 10x``  -> ``"high"``
+       * ``> 7.5x``  -> ``"med"``
+       * ``> 5x``    -> ``"low"``
+
+    Returns an empty ``signals`` list when the audit table is empty in the
+    window or all pairs are quiet (no row exceeds 5x the median). The
+    ``median_runs_per_pair`` is surfaced so the UI can show the baseline.
+    """
+    _require_super_admin(actor)
+
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+    # SQLite stores naive datetimes; strip tz for the comparison so the
+    # filter works regardless of backend.
+    cutoff_naive = cutoff.replace(tzinfo=None)
+
+    rows = (
+        db.query(
+            AgentRunAudit.clinic_id,
+            AgentRunAudit.agent_id,
+            func.count(AgentRunAudit.id).label("runs_count"),
+        )
+        .filter(AgentRunAudit.created_at >= cutoff_naive)
+        .group_by(AgentRunAudit.clinic_id, AgentRunAudit.agent_id)
+        .all()
+    )
+
+    if not rows:
+        return AbuseSignalsResponse(
+            window_minutes=window_minutes,
+            median_runs_per_pair=0.0,
+            signals=[],
+        )
+
+    counts = [int(r.runs_count) for r in rows]
+    median = float(statistics.median(counts))
+
+    signals: list[AbuseSignal] = []
+    if median > 0:
+        for r in rows:
+            n = int(r.runs_count)
+            ratio = n / median
+            if ratio <= 5.0:
+                continue
+            severity = "high" if ratio >= 10.0 else ("med" if ratio > 7.5 else "low")
+            signals.append(
+                AbuseSignal(
+                    clinic_id=r.clinic_id,
+                    agent_id=r.agent_id,
+                    runs_count=n,
+                    p_above_median=round(ratio, 1),
+                    severity=severity,
+                )
+            )
+
+    # Highest ratio first so the UI can show "worst first" without sorting.
+    signals.sort(key=lambda s: s.p_above_median, reverse=True)
+
+    return AbuseSignalsResponse(
+        window_minutes=window_minutes,
+        median_runs_per_pair=median,
+        signals=signals,
+    )
 
 
 __all__ = ["router"]
