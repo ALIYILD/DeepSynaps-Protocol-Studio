@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Modality(str, Enum):
@@ -352,10 +352,11 @@ class MRIReport(BaseModel):
     qc_warnings: list[str] = Field(default_factory=list)
     clinical_summary: dict = Field(default_factory=dict)
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example_see": "docs/MRI_ANALYZER.md §7"
         }
+    )
 
 
 # ---------------------------------------------------------------------------
