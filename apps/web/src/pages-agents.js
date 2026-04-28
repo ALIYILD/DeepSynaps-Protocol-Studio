@@ -378,6 +378,88 @@ let _marketplaceModalAgent = null;
 let _marketplaceModalReply = null;
 let _marketplaceModalError = null;
 let _marketplaceModalBusy = false;
+// Pending two-step tool-call awaiting clinician approval. Only one pending
+// call may exist at a time per modal — a newer pending_tool_call replaces an
+// older one (older one is silently discarded).
+let _marketplaceModalPendingCall = null;
+// Result of the most recent executed tool call, rendered as a green/red card
+// once confirmed_tool_call_id round-trips successfully (or simulated in demo).
+let _marketplaceModalExecuted = null;
+// "Cancelled." sentinel — set when the clinician rejects a pending call so we
+// can show a small grey acknowledgement in place of the confirmation card.
+let _marketplaceModalCancelled = false;
+
+// ── Marketplace tab state ────────────────────────────────────────────────────
+// Tracks which sub-view of the Marketplace section is active. Not persisted to
+// localStorage — fresh on each visit so the catalog is always the entry point.
+let _marketplaceTab = 'catalog'; // 'catalog' | 'activity'
+let _activityRuns = null;
+let _activityAgentFilter = '';
+let _activityLoading = false;
+let _activityError = null;
+
+const ACTIVITY_DEMO_RUNS = [
+  {
+    id: 'demo-run-1',
+    created_at: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
+    actor_id: 'actor-clinician-demo',
+    agent_id: 'clinic.reception',
+    message_preview: '(demo) Show me today’s bookings and any cancellations…',
+    reply_preview: '(demo) You have 3 sessions today: 09:00 J. Doe, 11:30 A. Singh (cancelled), 15:00 R. Patel.',
+    context_used: ['sessions.list', 'patients.search'],
+    latency_ms: 842,
+    ok: true,
+    error_code: null,
+  },
+  {
+    id: 'demo-run-2',
+    created_at: new Date(Date.now() - 47 * 60 * 1000).toISOString(),
+    actor_id: 'actor-clinician-demo',
+    agent_id: 'clinic.reporting',
+    message_preview: '(demo) Generate this week’s clinic digest with AE summary.',
+    reply_preview: '(demo) Weekly digest: 22 sessions completed, 1 mild AE (transient headache, resolved), avg PHQ-9 ↓1.2.',
+    context_used: ['sessions.list', 'assessments.list'],
+    latency_ms: 1320,
+    ok: true,
+    error_code: null,
+  },
+  {
+    id: 'demo-run-3',
+    created_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    actor_id: 'actor-clinician-demo',
+    agent_id: 'clinic.aliclaw_doctor_telegram',
+    message_preview: '(demo) /queue — what’s next?',
+    reply_preview: '(demo) Next: review J. Doe pre-session checklist, then approve A. Singh home-program update.',
+    context_used: ['tasks.list'],
+    latency_ms: 612,
+    ok: true,
+    error_code: null,
+  },
+  {
+    id: 'demo-run-4',
+    created_at: new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString(),
+    actor_id: 'actor-clinician-demo',
+    agent_id: 'clinic.reception',
+    message_preview: '(demo) Reschedule A. Singh from 11:30 to 16:00 tomorrow.',
+    reply_preview: '(demo) I can draft a reschedule request — clinician approval required before sending.',
+    context_used: ['sessions.list', 'patients.search'],
+    latency_ms: 980,
+    ok: true,
+    error_code: null,
+  },
+  {
+    id: 'demo-run-5',
+    created_at: new Date(Date.now() - 50 * 60 * 60 * 1000).toISOString(),
+    actor_id: 'actor-clinician-demo',
+    agent_id: 'clinic.reporting',
+    message_preview: '(demo) Email me the AE summary for last month.',
+    reply_preview: '',
+    context_used: [],
+    latency_ms: 1502,
+    ok: false,
+    error_code: 'tool_unavailable',
+  },
+];
 
 const MARKETPLACE_DEMO_AGENTS = [
   {
@@ -457,8 +539,45 @@ async function _fetchMarketplaceAgents() {
   }
 }
 
-async function _runMarketplaceAgent(agentId, message) {
+async function _runMarketplaceAgent(agentId, message, confirmedToolCallId = null) {
   if (_isMarketplaceDemoMode()) {
+    // Demo two-step simulation. Mirrors PR #185's `{items: []}` shim pattern:
+    // synthesise the protocol client-side so demo screenshots show the full
+    // confirmation flow without a backend round-trip.
+    const lower = String(message || '').toLowerCase();
+    if (confirmedToolCallId && String(confirmedToolCallId).startsWith('demo-')) {
+      return {
+        agent_id: agentId,
+        reply: '(demo) Tool executed.',
+        schema_id: 'demo.v1',
+        safety_footer: 'Decision-support only — not autonomous diagnosis.',
+        context_used: ['sessions.list', 'patients.search'],
+        pending_tool_call: null,
+        tool_call_executed: {
+          tool_id: 'sessions.create',
+          ok: true,
+          result: '(demo) Booked. (No real session created.)',
+          audit_id: 'demo',
+        },
+      };
+    }
+    if (lower.includes('book')) {
+      return {
+        agent_id: agentId,
+        reply: `Demo agent: I'd like to book that for you — please approve below.`,
+        schema_id: 'demo.v1',
+        safety_footer: 'Decision-support only — not autonomous diagnosis.',
+        context_used: ['sessions.list', 'patients.search'],
+        pending_tool_call: {
+          call_id: 'demo-' + Date.now(),
+          tool_id: 'sessions.create',
+          args: { patient_id: 'demo-p1', starts_at: '2026-05-15T14:00:00Z', duration_minutes: 60 },
+          summary: '(demo) Book demo patient p1 on May 15 14:00 for 60 min',
+          expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+        },
+        tool_call_executed: null,
+      };
+    }
     return {
       agent_id: agentId,
       reply: `Demo agent: I would normally [do X based on your message: "${message}"]. (Real responses require a clinician account.)`,
@@ -474,11 +593,12 @@ async function _runMarketplaceAgent(agentId, message) {
     const t = api.getToken && api.getToken();
     if (t) headers['Authorization'] = 'Bearer ' + t;
   } catch {}
+  const body = { message, confirmed_tool_call_id: confirmedToolCallId || null };
   const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/${encodeURIComponent(agentId)}/run`, {
     method: 'POST',
     headers,
     credentials: 'include',
-    body: JSON.stringify({ message, context: {} }),
+    body: JSON.stringify(body),
   });
   let data = null;
   try { data = await res.json(); } catch {}
@@ -534,6 +654,17 @@ export async function pgAgentChat(setTopbar) {
 }
 
 // ── Marketplace Section ──────────────────────────────────────────────────────
+function _renderMarketplaceTabStrip() {
+  const tab = (k, label) => {
+    const active = _marketplaceTab === k;
+    const style = active
+      ? 'font-size:11.5px;padding:4px 12px;border-radius:6px;background:var(--violet);color:#fff;border:1px solid var(--violet);font-weight:600;cursor:pointer'
+      : 'font-size:11.5px;padding:4px 12px;border-radius:6px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);font-weight:500;cursor:pointer';
+    return `<button type="button" style="${style}" onclick="window._agentMarketplaceSetTab('${k}')">${label}</button>`;
+  };
+  return `<div style="display:flex;gap:6px;margin-bottom:12px">${tab('catalog', 'Catalog')}${tab('activity', 'Activity')}</div>`;
+}
+
 function _renderMarketplaceSection() {
   // Use whatever's loaded; if nothing's loaded yet (very first paint) and we're
   // in demo mode, show the hardcoded list so reviewers see the marketplace.
@@ -541,13 +672,29 @@ function _renderMarketplaceSection() {
   if ((!agents || !agents.length) && _isMarketplaceDemoMode()) {
     agents = MARKETPLACE_DEMO_AGENTS;
   }
+
+  const header = `
+    <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 4px">Agent Marketplace</h2>
+    <p class="muted" style="font-size:12px;color:var(--text-secondary);margin:0 0 12px">Add specialised AI sub-agents to your clinic.</p>
+    ${_renderMarketplaceTabStrip()}
+  `;
+
+  if (_marketplaceTab === 'activity') {
+    return `
+      <div style="margin-bottom:20px">
+        ${header}
+        ${_renderActivitySection(agents)}
+      </div>
+      ${_renderMarketplaceModal()}
+    `;
+  }
+
   if (!agents || !agents.length) {
     // Pre-hydration placeholder — keeps the section visible so users know it's
     // loading and the page layout doesn't shift when the list arrives.
     return `
       <div style="margin-bottom:20px">
-        <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 4px">Agent Marketplace</h2>
-        <p class="muted" style="font-size:12px;color:var(--text-secondary);margin:0 0 12px">Add specialised AI sub-agents to your clinic.</p>
+        ${header}
         <div class="card" style="padding:14px 16px;font-size:11.5px;color:var(--text-tertiary)">Loading available agents…</div>
       </div>
     `;
@@ -589,8 +736,7 @@ function _renderMarketplaceSection() {
 
   return `
     <div style="margin-bottom:20px">
-      <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 4px">Agent Marketplace</h2>
-      <p class="muted" style="font-size:12px;color:var(--text-secondary);margin:0 0 12px">Add specialised AI sub-agents to your clinic.</p>
+      ${header}
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">
         ${tiles}
       </div>
@@ -627,6 +773,239 @@ function _formatGroundedTools(toolIds) {
   return out;
 }
 
+// Compact relative-time formatter used by the Activity table. Falls back to a
+// raw locale string for anything older than ~30 days so the audit timeline
+// still reads sensibly when scrolled back.
+function _relTime(iso) {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return '';
+  const diff = Date.now() - t;
+  if (diff < 0) return 'in the future';
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return 'just now';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return min + 'm ago';
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return hr + 'h ago';
+  const day = Math.floor(hr / 24);
+  if (day === 1) return 'yesterday';
+  if (day < 7) return day + 'd ago';
+  if (day < 30) return Math.floor(day / 7) + 'w ago';
+  try { return new Date(iso).toLocaleDateString(); } catch { return iso; }
+}
+
+// "Expires in 4m" / "expired" formatter for the tool-confirmation card.
+// Returns a short phrase suitable for the right-aligned hint, never throws.
+function _expiresIn(iso) {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return '';
+  const diff = t - Date.now();
+  if (diff <= 0) return 'expired';
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return `in ${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `in ${min}m`;
+  const hr = Math.floor(min / 60);
+  return `in ${hr}h`;
+}
+
+function _formatLatency(ms) {
+  if (!Number.isFinite(ms)) return '—';
+  if (ms < 1000) return ms + 'ms';
+  return (ms / 1000).toFixed(1) + 's';
+}
+
+function _truncate(str, n) {
+  const s = String(str ?? '');
+  if (s.length <= n) return s;
+  return s.slice(0, n - 1) + '…';
+}
+
+async function _loadActivityRuns(force = false) {
+  if (_activityLoading && !force) return _activityRuns;
+  _activityLoading = true;
+  _activityError = null;
+  try {
+    if (_isMarketplaceDemoMode()) {
+      // Mirror `_fetchMarketplaceAgents` demo fallback — the demo-mode shim in
+      // api.js returns `{items: []}` for any list endpoint, so we substitute
+      // synthetic runs covering the three clinic-side agents.
+      let runs = ACTIVITY_DEMO_RUNS.slice();
+      if (_activityAgentFilter) {
+        runs = runs.filter(r => r.agent_id === _activityAgentFilter);
+      }
+      _activityRuns = runs;
+      return _activityRuns;
+    }
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      const t = api.getToken && api.getToken();
+      if (t) headers['Authorization'] = 'Bearer ' + t;
+    } catch {}
+    const qs = '?limit=50' + (_activityAgentFilter ? '&agent_id=' + encodeURIComponent(_activityAgentFilter) : '');
+    let payload = null;
+    try {
+      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/runs${qs}`, {
+        method: 'GET', headers, credentials: 'include',
+      });
+      if (res.ok) payload = await res.json();
+      else _activityError = `Failed to load activity (${res.status})`;
+    } catch (err) {
+      _activityError = err?.message || 'Failed to load activity.';
+      payload = null;
+    }
+    let runs = [];
+    if (payload && Array.isArray(payload.runs)) runs = payload.runs;
+    else if (payload && Array.isArray(payload.items)) runs = payload.items;
+    _activityRuns = runs;
+    return _activityRuns;
+  } finally {
+    _activityLoading = false;
+  }
+}
+
+function _renderActivitySection(agents) {
+  // Filter dropdown options come from whatever marketplace catalog we've
+  // hydrated; fall back to whatever runs we already have so the dropdown is
+  // never empty in demo mode before the catalog finishes loading.
+  const agentOptions = Array.isArray(agents) && agents.length ? agents : MARKETPLACE_DEMO_AGENTS;
+  const optionsHtml = ['<option value="">All agents</option>']
+    .concat(agentOptions.map(a => {
+      const sel = _activityAgentFilter === a.id ? ' selected' : '';
+      return `<option value="${_esc(a.id)}"${sel}>${_esc(a.name || a.id)}</option>`;
+    }))
+    .join('');
+
+  const filterRow = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <label style="font-size:11px;color:var(--text-tertiary)">Filter:</label>
+      <select class="form-control" onchange="window._agentActivitySetFilter(this.value)" style="font-size:11.5px;padding:4px 8px;max-width:240px">
+        ${optionsHtml}
+      </select>
+      <button class="btn btn-sm btn-ghost" onclick="window._agentActivityRefresh()" style="font-size:11px" ${_activityLoading ? 'disabled' : ''}>${_activityLoading ? 'Refreshing…' : '↻ Refresh'}</button>
+      ${_activityError ? `<span style="font-size:11px;color:var(--red,#ef4444)">${_esc(_activityError)}</span>` : ''}
+    </div>
+  `;
+
+  // Loading placeholder for first paint before the lazy fetch resolves.
+  if (_activityRuns === null) {
+    return `
+      ${filterRow}
+      <div class="card" style="padding:14px 16px;font-size:11.5px;color:var(--text-tertiary)">Loading agent activity…</div>
+    `;
+  }
+
+  if (!_activityRuns.length) {
+    return `
+      ${filterRow}
+      <div class="card" style="padding:24px 16px;text-align:center">
+        <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">No agent runs yet.</div>
+        <div style="font-size:11.5px;color:var(--text-secondary)">Try a Marketplace agent to see activity here.</div>
+      </div>
+    `;
+  }
+
+  const agentNameById = new Map();
+  for (const a of agentOptions) agentNameById.set(a.id, a.name || a.id);
+
+  const rows = _activityRuns.map(r => {
+    const when = _esc(_relTime(r.created_at));
+    const agentName = _esc(agentNameById.get(r.agent_id) || r.agent_id || '');
+    const actorRaw = String(r.actor_id || '');
+    const actorShort = actorRaw.length > 8 ? actorRaw.slice(-8) : actorRaw;
+    const actor = `<span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px">${_esc(actorShort)}</span>`;
+    const message = _esc(_truncate(r.message_preview || '', 60));
+    const reply = _esc(_truncate(r.reply_preview || '', 80));
+    const grounded = _formatGroundedTools(r.context_used);
+    const groundedCell = grounded.length
+      ? `<span class="ds-pill" style="font-size:10px;padding:3px 9px;border-radius:99px;background:rgba(74,158,255,0.10);color:var(--blue);font-weight:600;border:1px solid rgba(74,158,255,0.25)">${_esc(grounded.join(', '))}</span>`
+      : '<span style="color:var(--text-tertiary)">—</span>';
+    const latency = _esc(_formatLatency(r.latency_ms));
+    const status = r.ok
+      ? '<span style="color:var(--green,#22c55e);font-weight:700">✓</span>'
+      : `<span style="color:var(--red,#ef4444);font-weight:700">✗ ${_esc(r.error_code || 'error')}</span>`;
+    return `<tr class="ds-tr">
+      <td style="white-space:nowrap">${when}</td>
+      <td>${agentName}</td>
+      <td>${actor}</td>
+      <td>${message}</td>
+      <td>${reply}</td>
+      <td>${groundedCell}</td>
+      <td style="white-space:nowrap">${latency}</td>
+      <td style="white-space:nowrap">${status}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    ${filterRow}
+    <div style="overflow-x:auto">
+      <table class="ds-table" style="width:100%;font-size:12px">
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Agent</th>
+            <th>Actor</th>
+            <th>Message</th>
+            <th>Reply</th>
+            <th>Grounded</th>
+            <th>Latency</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function _renderToolConfirmCard(pending, agentId) {
+  if (!pending) return '';
+  const callId = _esc(String(pending.call_id || ''));
+  const aid = _esc(String(agentId || ''));
+  const summary = _esc(String(pending.summary || ''));
+  const toolId = _esc(String(pending.tool_id || ''));
+  let argsJson = '';
+  try { argsJson = JSON.stringify(pending.args ?? {}, null, 2); } catch { argsJson = String(pending.args ?? ''); }
+  const argsEsc = _esc(argsJson);
+  const expires = _esc(_expiresIn(pending.expires_at));
+  return `
+    <div class="ds-tool-confirm-card" style="margin-top:10px;border:1px solid var(--amber, #f59e0b);background:rgba(245,158,11,0.08);padding:12px;border-radius:8px">
+      <div style="font-weight:700;color:var(--amber, #f59e0b);font-size:13px;margin-bottom:6px">⚠ Action requires your approval</div>
+      <div style="font-size:13px;margin-bottom:8px">${summary}</div>
+      <details style="margin-bottom:10px"><summary style="font-size:11px;cursor:pointer;color:var(--muted)">Show details</summary>
+        <pre style="font-size:11px;background:rgba(0,0,0,0.2);padding:8px;border-radius:4px;margin-top:6px;overflow:auto">${toolId}\n${argsEsc}</pre>
+      </details>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm btn-primary" onclick="window._agentApproveToolCall('${callId}', '${aid}')">Approve</button>
+        <button class="btn btn-sm btn-ghost" onclick="window._agentRejectToolCall('${callId}', '${aid}')">Reject</button>
+        <span style="margin-left:auto;font-size:10px;color:var(--muted)">Expires ${expires}</span>
+      </div>
+    </div>
+  `;
+}
+
+function _renderToolExecutedCard(executed) {
+  if (!executed) return '';
+  const ok = !!executed.ok;
+  const border = ok ? 'var(--green)' : 'var(--red)';
+  const bg = ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)';
+  const label = ok ? '✓ Done' : '✗ Failed';
+  const result = _esc(String(executed.result ?? ''));
+  return `
+    <div style="margin-top:10px;border:1px solid ${border};background:${bg};padding:10px;border-radius:8px;font-size:13px">
+      <span style="font-weight:700">${label}</span> — ${result}
+    </div>
+  `;
+}
+
+function _renderToolCancelledCard() {
+  return `
+    <div style="margin-top:10px;padding:8px 10px;border-radius:6px;background:rgba(255,255,255,0.03);border:1px solid var(--border);font-size:12px;color:var(--text-tertiary)">Cancelled.</div>
+  `;
+}
+
 function _renderMarketplaceModal() {
   if (!_marketplaceModalAgent) return '';
   const a = _marketplaceModalAgent;
@@ -637,9 +1016,20 @@ function _renderMarketplaceModal() {
          <span>${_isMarketplaceDemoMode() ? '(demo) ' : ''}${_esc(groundedTools.join(', '))}</span>
        </div>`
     : '';
+  // Tool-call slot ordering: confirmation card (if pending) → executed result
+  // (if a tool just ran) → cancelled sentinel (if user just rejected). Only
+  // one of these is meaningful at a time; we render whichever is set.
+  const toolBlock = _marketplaceModalPendingCall
+    ? _renderToolConfirmCard(_marketplaceModalPendingCall, a.id)
+    : _marketplaceModalExecuted
+      ? _renderToolExecutedCard(_marketplaceModalExecuted)
+      : _marketplaceModalCancelled
+        ? _renderToolCancelledCard()
+        : '';
   const replyBlock = _marketplaceModalReply
     ? `<div style="margin-top:12px;padding:12px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid var(--border);font-size:12px;color:var(--text-primary);line-height:1.55;white-space:pre-wrap">${_formatAgentText(_marketplaceModalReply.reply || '(empty reply)')}
         ${groundedBlock}
+        ${toolBlock}
         <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text-tertiary);font-style:italic">${_esc(_marketplaceModalReply.safety_footer || 'Decision-support, not autonomous diagnosis.')}</div>
       </div>`
     : '';
@@ -1348,6 +1738,9 @@ window._agentMarketplaceTry = function(agentId) {
   _marketplaceModalReply = null;
   _marketplaceModalError = null;
   _marketplaceModalBusy = false;
+  _marketplaceModalPendingCall = null;
+  _marketplaceModalExecuted = null;
+  _marketplaceModalCancelled = false;
   pgAgentChat(_lastSetTopbar);
   setTimeout(() => document.getElementById('agent-marketplace-input')?.focus(), 50);
 };
@@ -1362,6 +1755,9 @@ window._agentMarketplaceModalClose = function() {
   _marketplaceModalReply = null;
   _marketplaceModalError = null;
   _marketplaceModalBusy = false;
+  _marketplaceModalPendingCall = null;
+  _marketplaceModalExecuted = null;
+  _marketplaceModalCancelled = false;
   if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
 };
 
@@ -1372,6 +1768,11 @@ window._agentMarketplaceModalSend = async function() {
   if (!message) return;
   _marketplaceModalBusy = true;
   _marketplaceModalError = null;
+  // Fresh send always invalidates any prior pending/executed/cancelled tool
+  // state — the new turn is what matters; stale cards must not linger.
+  _marketplaceModalPendingCall = null;
+  _marketplaceModalExecuted = null;
+  _marketplaceModalCancelled = false;
   pgAgentChat(_lastSetTopbar);
   try {
     const result = await _runMarketplaceAgent(_marketplaceModalAgent.id, message);
@@ -1379,6 +1780,12 @@ window._agentMarketplaceModalSend = async function() {
       _marketplaceModalError = String(result.error);
     } else {
       _marketplaceModalReply = result || { reply: '' };
+      if (result && result.pending_tool_call) {
+        _marketplaceModalPendingCall = result.pending_tool_call;
+      }
+      if (result && result.tool_call_executed) {
+        _marketplaceModalExecuted = result.tool_call_executed;
+      }
     }
   } catch (err) {
     _marketplaceModalError = err?.message || 'Agent run failed.';
@@ -1386,4 +1793,103 @@ window._agentMarketplaceModalSend = async function() {
     _marketplaceModalBusy = false;
     pgAgentChat(_lastSetTopbar);
   }
+};
+
+// Two-step write protocol: clinician clicks Approve on the confirmation card.
+// We POST `confirmed_tool_call_id` so the broker actually executes the write.
+// Replaces the confirmation card with the executed-result card on response.
+window._agentApproveToolCall = async function(callId, agentId) {
+  if (!callId || !agentId) return;
+  if (_marketplaceModalBusy) return;
+  _marketplaceModalBusy = true;
+  _marketplaceModalError = null;
+  // Drop the pending card immediately so the user sees the busy state,
+  // not the still-actionable Approve button.
+  _marketplaceModalPendingCall = null;
+  _marketplaceModalCancelled = false;
+  pgAgentChat(_lastSetTopbar);
+  try {
+    const result = await _runMarketplaceAgent(agentId, 'approve', callId);
+    if (result && result.error && !result.reply && !result.tool_call_executed) {
+      _marketplaceModalError = String(result.error);
+    } else {
+      _marketplaceModalReply = result || _marketplaceModalReply;
+      if (result && result.tool_call_executed) {
+        _marketplaceModalExecuted = result.tool_call_executed;
+      }
+      // If the backend returned a fresh pending_tool_call (e.g. follow-up
+      // confirmation), prefer the newer one and discard the prior approval.
+      if (result && result.pending_tool_call) {
+        _marketplaceModalPendingCall = result.pending_tool_call;
+      }
+    }
+  } catch (err) {
+    _marketplaceModalError = err?.message || 'Approval failed.';
+  } finally {
+    _marketplaceModalBusy = false;
+    pgAgentChat(_lastSetTopbar);
+  }
+};
+
+// Reject path: backend treats `message: "reject"` (no confirmed_tool_call_id)
+// as a drop. We don't need the response payload — just acknowledge locally
+// with the small grey "Cancelled." line.
+window._agentRejectToolCall = async function(callId, agentId) {
+  if (!callId || !agentId) return;
+  if (_marketplaceModalBusy) return;
+  _marketplaceModalBusy = true;
+  _marketplaceModalError = null;
+  _marketplaceModalPendingCall = null;
+  _marketplaceModalExecuted = null;
+  _marketplaceModalCancelled = true;
+  pgAgentChat(_lastSetTopbar);
+  try {
+    await _runMarketplaceAgent(agentId, 'reject');
+  } catch (err) {
+    // Reject is best-effort from the user's POV — surface the error but keep
+    // the cancelled-card visible so the UI doesn't snap back to a pending card.
+    _marketplaceModalError = err?.message || 'Reject failed.';
+  } finally {
+    _marketplaceModalBusy = false;
+    pgAgentChat(_lastSetTopbar);
+  }
+};
+
+// ── Activity tab handlers ────────────────────────────────────────────────────
+window._agentMarketplaceSetTab = function(tab) {
+  if (tab !== 'catalog' && tab !== 'activity') return;
+  if (_marketplaceTab === tab) return;
+  _marketplaceTab = tab;
+  // Lazy-load: only fetch runs the first time the user opens Activity. Mirror
+  // the marketplace catalog hydration pattern — re-render once data lands.
+  if (tab === 'activity' && _activityRuns === null && !_activityLoading) {
+    _loadActivityRuns().then(() => {
+      if (_agentView === 'hub' && _marketplaceTab === 'activity') {
+        try { pgAgentChat(_lastSetTopbar); } catch {}
+      }
+    }).catch(() => {});
+  }
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+};
+
+window._agentActivityRefresh = function() {
+  if (_activityLoading) return;
+  _loadActivityRuns(true).then(() => {
+    if (_agentView === 'hub' && _marketplaceTab === 'activity') {
+      try { pgAgentChat(_lastSetTopbar); } catch {}
+    }
+  }).catch(() => {});
+  // Re-render immediately so the button shows its disabled/loading state.
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+};
+
+window._agentActivitySetFilter = function(agentId) {
+  _activityAgentFilter = agentId || '';
+  _activityRuns = null; // force loading state during refetch
+  _loadActivityRuns(true).then(() => {
+    if (_agentView === 'hub' && _marketplaceTab === 'activity') {
+      try { pgAgentChat(_lastSetTopbar); } catch {}
+    }
+  }).catch(() => {});
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
 };
