@@ -14,9 +14,16 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.repositories.patients import resolve_patient_clinic_id
+from app.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -113,8 +120,17 @@ class CommandCenterOut(BaseModel):
 # ── Auth helpers ─────────────────────────────────────────────────────────────
 
 def _require_clinician(actor: AuthenticatedActor) -> None:
-    if actor.role not in ("clinician", "admin", "superadmin", "owner"):
-        raise ApiServiceError("Clinician access required", status_code=403)
+    """Use the canonical role-order helper instead of an ad-hoc tuple.
+
+    Pre-fix the tuple included ``superadmin`` and ``owner`` which are
+    not in ``ROLE_ORDER``, so any code path that later looked them up
+    via ``require_minimum_role`` would KeyError. Worse, an attacker
+    could in principle present a token with a fabricated role string
+    matching one of the unknown values and pass this check while
+    failing every other gate inconsistently. The canonical helper
+    closes both issues.
+    """
+    require_minimum_role(actor, "clinician")
 
 
 # ── Lazy model imports ───────────────────────────────────────────────────────
@@ -532,12 +548,62 @@ async def get_command_center(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ):
-    """Return the full command-center cockpit data for a patient."""
+    """Return the full command-center cockpit data for a patient.
+
+    Pre-fix this endpoint:
+
+    * **Cross-clinic IDOR** — the role gate accepted any clinician+
+      role but never compared the patient's ``clinic_id`` to the
+      actor's. Clinician in clinic A could enumerate clinic B
+      patients (KPIs, alerts, EEG findings, wearables — full PHI
+      cockpit).
+    * **Demo-fallback PHI fabrication** — a bare ``except Exception``
+      fell back to ``_generate_demo_command_center(patient_id)`` for
+      any DB error or missing patient. The clinician saw fabricated
+      PHQ-9, risk-tier, and KPI values **as if real**, with the
+      missing-patient 404 path silently masked.
+
+    Post-fix: the cross-clinic gate runs before any data is
+    assembled, and the demo fallback is gated to development mode
+    only. Production / staging propagate the failure as a 500 so the
+    bug is visible instead of silently fabricating clinical data.
+    """
     _require_clinician(actor)
+
+    # Cross-clinic ownership gate. ``resolve_patient_clinic_id``
+    # returns ``(exists, clinic_id)``; a missing patient surfaces as
+    # 404 below, and a real patient is then permission-checked
+    # against the actor's clinic_id.
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if not exists:
+        raise ApiServiceError(
+            code="not_found",
+            message="Patient not found.",
+            status_code=404,
+        )
+    require_patient_owner(actor, clinic_id)
+
     try:
         return _build_command_center(patient_id, db)
     except ApiServiceError:
         raise
     except Exception:
-        logger.info("Falling back to demo command center for %s", patient_id)
+        # Don't echo raw patient_id (PHI). Log a short hash so ops can
+        # correlate without writing the identifier to disk.
+        pid_hash = hashlib.sha256(patient_id.encode("utf-8")).hexdigest()[:12]
+        app_env = (get_settings().app_env or "development").lower()
+        if app_env in {"production", "staging"}:
+            # Surface the real failure — fabricating PHQ-9 / risk
+            # tiers and pretending they're real patient data is a
+            # patient-safety bug, not a graceful fallback.
+            logger.exception(
+                "command_center build failed in app_env=%s patient=%s",
+                app_env, pid_hash,
+            )
+            raise
+        logger.info(
+            "command_center build failed in app_env=%s patient=%s — "
+            "returning demo payload (dev-only fallback)",
+            app_env, pid_hash,
+        )
         return _generate_demo_command_center(patient_id)
