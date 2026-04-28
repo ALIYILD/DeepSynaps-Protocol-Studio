@@ -464,6 +464,9 @@ async function _runMarketplaceAgent(agentId, message) {
       reply: `Demo agent: I would normally [do X based on your message: "${message}"]. (Real responses require a clinician account.)`,
       schema_id: 'demo.v1',
       safety_footer: 'Decision-support only — not autonomous diagnosis.',
+      // Synthetic grounding so the "Grounded in:" badge renders in demo mode
+      // for marketing screenshots — clearly tagged "(demo)" in the UI.
+      context_used: ['sessions.list', 'patients.search'],
     };
   }
   const headers = { 'Content-Type': 'application/json' };
@@ -596,11 +599,47 @@ function _renderMarketplaceSection() {
   `;
 }
 
+// Format `context_used` tool ids for the "Grounded in:" badge.
+// - Strip write-tool ids (broker skips them, so we can't claim them as grounding).
+// - Strip the dotted suffix: `"sessions.list"` -> `"sessions"`.
+// - Dedupe while preserving first-seen order.
+// Returns `[]` when the input is missing/empty/all-filtered.
+function _formatGroundedTools(toolIds) {
+  if (!Array.isArray(toolIds) || !toolIds.length) return [];
+  const writeSuffixes = ['create', 'update', 'delete', 'cancel', 'approve_draft', 'approve', 'send', 'schedule', 'reschedule', 'write', 'set'];
+  const isWrite = id => {
+    const dot = id.indexOf('.');
+    if (dot < 0) return false;
+    const action = id.slice(dot + 1).toLowerCase();
+    return writeSuffixes.some(s => action === s || action.startsWith(s + '_') || action.endsWith('_' + s));
+  };
+  const seen = new Set();
+  const out = [];
+  for (const raw of toolIds) {
+    if (typeof raw !== 'string' || !raw) continue;
+    if (isWrite(raw)) continue;
+    const dot = raw.indexOf('.');
+    const prefix = dot >= 0 ? raw.slice(0, dot) : raw;
+    if (!prefix || seen.has(prefix)) continue;
+    seen.add(prefix);
+    out.push(prefix);
+  }
+  return out;
+}
+
 function _renderMarketplaceModal() {
   if (!_marketplaceModalAgent) return '';
   const a = _marketplaceModalAgent;
+  const groundedTools = _marketplaceModalReply ? _formatGroundedTools(_marketplaceModalReply.context_used) : [];
+  const groundedBlock = groundedTools.length
+    ? `<div class="ds-agent-grounded muted" style="font-size:11px;margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+         <span class="ds-pill ds-pill-info" style="font-size:10px;padding:3px 9px;border-radius:99px;background:rgba(74,158,255,0.10);color:var(--blue);font-weight:600;border:1px solid rgba(74,158,255,0.25)">Grounded in:</span>
+         <span>${_isMarketplaceDemoMode() ? '(demo) ' : ''}${_esc(groundedTools.join(', '))}</span>
+       </div>`
+    : '';
   const replyBlock = _marketplaceModalReply
     ? `<div style="margin-top:12px;padding:12px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid var(--border);font-size:12px;color:var(--text-primary);line-height:1.55;white-space:pre-wrap">${_formatAgentText(_marketplaceModalReply.reply || '(empty reply)')}
+        ${groundedBlock}
         <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text-tertiary);font-style:italic">${_esc(_marketplaceModalReply.safety_footer || 'Decision-support, not autonomous diagnosis.')}</div>
       </div>`
     : '';
