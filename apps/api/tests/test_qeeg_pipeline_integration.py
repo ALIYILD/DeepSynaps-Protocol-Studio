@@ -197,9 +197,13 @@ def test_generate_ai_report_accepts_legacy_band_powers(
         "derived_ratios": {"theta_beta_ratio": {"channels": {"Cz": 2.1}}},
     }
 
-    result = asyncio.new_event_loop().run_until_complete(
-        generate_ai_report(band_powers=band_powers)
-    )
+    _loop = asyncio.new_event_loop()
+    try:
+        result = _loop.run_until_complete(
+            generate_ai_report(band_powers=band_powers)
+        )
+    finally:
+        _loop.close()
     assert "data" in result
     assert "prompt_hash" in result
     # RAG may return literature refs when condition patterns match; verify structure.
@@ -233,14 +237,18 @@ def test_generate_ai_report_accepts_features_and_zscores(
     }
     quality = {"n_epochs_retained": 40, "pipeline_version": "0.1.0"}
 
-    result = asyncio.new_event_loop().run_until_complete(
-        generate_ai_report(
-            features=features,
-            zscores=zscores,
-            flagged_conditions=["adhd"],
-            quality=quality,
+    _loop = asyncio.new_event_loop()
+    try:
+        result = _loop.run_until_complete(
+            generate_ai_report(
+                features=features,
+                zscores=zscores,
+                flagged_conditions=["adhd"],
+                quality=quality,
+            )
         )
-    )
+    finally:
+        _loop.close()
     assert "data" in result
     # literature_refs is always present (may be empty when RAG missing).
     assert "literature_refs" in result
