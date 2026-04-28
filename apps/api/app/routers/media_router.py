@@ -446,6 +446,7 @@ def get_consents(
 
 
 @router.post("/patient/upload/text")
+@limiter.limit("30/minute")
 def patient_upload_text(
     body: TextUploadRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -503,6 +504,7 @@ def patient_upload_text(
 
 
 @router.post("/patient/upload/audio")
+@limiter.limit("10/minute")
 async def patient_upload_audio(
     file: UploadFile,
     course_id: Optional[str] = Form(default=None),
@@ -626,6 +628,7 @@ async def patient_upload_audio(
 
 
 @router.post("/patient/upload/video")
+@limiter.limit("10/minute")
 async def patient_upload_video(
     file: UploadFile,
     course_id: Optional[str] = Form(default=None),
@@ -1011,6 +1014,7 @@ def review_action(
 
 
 @router.post("/review/{upload_id}/analyze")
+@limiter.limit("10/minute")
 async def analyze_upload(
     upload_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -1216,6 +1220,7 @@ class ApproveAnalysisRequest(BaseModel):
 
 
 @router.post("/analysis/{upload_id}/approve")
+@limiter.limit("20/minute")
 def approve_analysis(
     upload_id: str,
     body: ApproveAnalysisRequest = None,
