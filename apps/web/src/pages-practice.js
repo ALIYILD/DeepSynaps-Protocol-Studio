@@ -5141,7 +5141,7 @@ export async function pgClinicSettings(setTopbar) {
     cfg.appointmentReminderTemplate = document.getElementById('cs-appt-reminder')?.value   ?? cfg.appointmentReminderTemplate;
     cfg.sessionCompleteTemplate     = document.getElementById('cs-session-complete')?.value ?? cfg.sessionCompleteTemplate;
     saveClinicConfig(cfg);
-    window._showToast?.('Templates saved.', 'success');
+    window._showToast?.('Templates saved in this browser.', 'success');
   };
 
   window._csTestTemplate = function(key) {
@@ -5171,7 +5171,7 @@ export async function pgClinicSettings(setTopbar) {
     cfg.tosLastUpdated     = document.getElementById('cs-tos-date')?.value      ?? cfg.tosLastUpdated;
     cfg.privacyLastUpdated = document.getElementById('cs-privacy-date')?.value ?? cfg.privacyLastUpdated;
     saveClinicConfig(cfg);
-    window._showToast?.('Legal documents saved.', 'success');
+    window._showToast?.('Legal documents saved in this browser.', 'success');
   };
 
   function openTextModal(title, text) {

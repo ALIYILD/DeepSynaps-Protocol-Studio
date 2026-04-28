@@ -1907,7 +1907,7 @@ export function bindHandbooks() {
     try {
       const blob = await api.exportPatientGuideDocx({ condition, modality, reading_level, language });
       downloadBlob(blob, 'patient-guide.docx');
-      statusEl.textContent = 'Download ready \u2014 your patient guide has been saved.';
+      statusEl.textContent = 'Download started \u2014 your patient guide file is ready.';
       statusEl.style.display = '';
       setTimeout(function() { statusEl.style.display = 'none'; }, 5000);
     } catch (e) {

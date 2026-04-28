@@ -7595,7 +7595,7 @@ async function _pgPatientVirtualCareImpl() {
         <aside class="vc-threads">
           <div class="vc-threads-hd">
             <h2><svg width="18" height="18"><use href="#i-video"/></svg>Virtual care <span class="agent-openclaw-badge" style="font-size:9px;vertical-align:middle;margin-left:6px">Powered by OpenClaw</span></h2>
-            <p>Message, call or video with your care team \u2014 secure, end-to-end encrypted.</p>
+            <p>Message, call or video with your care team \u2014 secure, encrypted in transit.</p>
             <div class="vc-search">
               <svg width="14" height="14"><use href="#i-search"/></svg>
               <input type="text" id="vc-search-input" placeholder="Search messages, files, people\u2026" oninput="window._vcSearch && window._vcSearch(this.value)">
@@ -7728,7 +7728,7 @@ async function _pgPatientVirtualCareImpl() {
           <div class="vc-rail-section">
             <div class="vc-rail-lbl">Privacy</div>
             <div style="font-size:11.5px;color:var(--text-tertiary);line-height:1.55">
-              Messages are end-to-end encrypted and stored per HIPAA / GDPR. Only you and the care team you approve can see this thread.
+              Messages are encrypted in transit and stored per HIPAA / GDPR guidelines. Only you and the care team you approve can see this thread.
             </div>
           </div>
         </aside>
@@ -7740,7 +7740,7 @@ async function _pgPatientVirtualCareImpl() {
           <div class="vc-call-remote">
             <div class="vc-call-remote-av" id="vc-call-remote-av">${activeThread ? (activeThread.avatar || activeThread.name.slice(0,2).toUpperCase()) : 'JK'}</div>
             <div class="vc-call-remote-name" id="vc-call-remote-name">${esc(activeThread ? activeThread.name : '')}</div>
-            <div class="vc-call-status" id="vc-call-status">Calling\u2026 \u00b7 end-to-end encrypted</div>
+            <div class="vc-call-status" id="vc-call-status">Calling\u2026 \u00b7 encrypted</div>
             <div class="vc-call-timer" id="vc-call-timer">00:00</div>
             <div style="display:flex;gap:10px;margin-top:24px;justify-content:center">
               <button class="btn btn-ghost btn-sm" onclick="window._vcHangup && window._vcHangup()"><svg width="12" height="12"><use href="#i-pulse"/></svg>End call</button>
@@ -8150,11 +8150,11 @@ async function _pgPatientVirtualCareImpl() {
   };
 
   window._vcAcceptSchedule = function() {
-    _showToast('Schedule change request recorded');
+    _showToast('Noted \u2014 redirecting to sessions');
     setTimeout(() => window._navPatient && window._navPatient('patient-sessions'), 800);
   };
   window._vcRejectSchedule = function() {
-    _showToast('Keeping original time');
+    _showToast('Noted \u2014 redirecting to sessions');
     setTimeout(() => window._navPatient && window._navPatient('patient-sessions'), 800);
   };
   try { if (sessionStorage.getItem('ds_vc_crisis_dismiss')) { const c = document.getElementById('vc-crisis'); if (c) c.classList.add('hidden'); } } catch (_e) {}
@@ -13520,14 +13520,14 @@ export async function pgPatientMediaHistory() {
             <div style="flex:1;min-width:0">
               <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:5px">
                 <span style="font-size:12.5px;font-weight:600;color:var(--text-primary)">${dateStr}</span>
-                ${courseName ? `<span style="font-size:11px;color:var(--blue)">· ${courseName}</span>` : ''}
+                ${courseName ? `<span style="font-size:11px;color:var(--blue)">· ${_hdEsc(courseName)}</span>` : ''}
                 ${durationSec != null ? `<span style="font-size:11px;color:var(--text-tertiary)">${durationSec}s</span>` : ''}
                 ${statusChip(status)}
               </div>
-              ${notePrev ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;line-height:1.5">${notePrev}</div>` : ''}
+              ${notePrev ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;line-height:1.5">${_hdEsc(notePrev)}</div>` : ''}
               ${feedbackReason ? `
               <div style="font-size:12px;color:var(--teal);background:rgba(0,212,188,0.06);border-left:2px solid var(--teal);padding:8px 10px;border-radius:0 6px 6px 0;margin-bottom:8px;line-height:1.55">
-                <strong>Feedback from your care team:</strong> ${feedbackReason}
+                <strong>Feedback from your care team:</strong> ${_hdEsc(feedbackReason)}
               </div>` : ''}
               <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
                 ${canDelete ? `<button class="btn btn-ghost btn-sm" id="delete-btn-${idx}" style="color:var(--red,#ef4444);border-color:rgba(239,68,68,0.25);font-size:11px"
@@ -15805,7 +15805,7 @@ export async function pgSymptomJournal(setTopbarFn) {
 
   const historyHtml = entries.slice(0, 14).map(e => {
     const unsyncedBadge = !e.synced ? '<span class="pt-unsynced">UNSYNCED</span>' : '';
-    const notesSnippet = e.notes ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.notes}</div>` : '';
+    const notesSnippet = e.notes ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_hdEsc(e.notes)}</div>` : '';
     return `<div class="pt-journal-entry">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">${new Date(e.date + 'T12:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})}</span>
@@ -21019,7 +21019,7 @@ export async function pgPatientTickets() {
                 <div onclick="window._ptSelectTicket('${t.id}')" style="padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer;background:${t.id === selectedId ? 'rgba(45,212,191,0.06)' : 'transparent'};transition:background 0.15s">
                   <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
                     <span style="font-size:13px">${catIcon[t.category] || catIcon.other}</span>
-                    <span style="font-size:12.5px;font-weight:600;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.title}</span>
+                    <span style="font-size:12.5px;font-weight:600;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_hdEsc(t.title)}</span>
                   </div>
                   <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-tertiary)">
                     <span>${t.id}</span>
@@ -21047,8 +21047,8 @@ export async function pgPatientTickets() {
                 ${(sel.messages || []).map(m => `
                   <div style="display:flex;flex-direction:column;${m.from === 'You' ? 'align-items:flex-end' : 'align-items:flex-start'}">
                     <div style="max-width:80%;padding:10px 14px;border-radius:12px;background:${m.from === 'You' ? 'rgba(45,212,191,0.1)' : 'rgba(255,255,255,0.04)'};border:1px solid ${m.from === 'You' ? 'rgba(45,212,191,0.2)' : 'var(--border)'}">
-                      <div style="font-size:11px;font-weight:600;color:${m.from === 'You' ? '#2dd4bf' : 'var(--text-primary)'};margin-bottom:3px">${m.from}</div>
-                      <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.5">${m.text}</div>
+                      <div style="font-size:11px;font-weight:600;color:${m.from === 'You' ? '#2dd4bf' : 'var(--text-primary)'};margin-bottom:3px">${_hdEsc(m.from)}</div>
+                      <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.5">${_hdEsc(m.text)}</div>
                     </div>
                     <div style="font-size:10px;color:var(--text-tertiary);margin-top:3px;padding:0 4px">${new Date(m.ts).toLocaleString()}</div>
                   </div>`).join('')}
@@ -21234,7 +21234,7 @@ export async function pgPatientBilling() {
             return `
             <div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
               <div style="flex:1;min-width:180px">
-                <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:2px">${inv.description}</div>
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:2px">${_hdEsc(inv.description)}</div>
                 <div style="font-size:11px;color:var(--text-tertiary)">${inv.id} &middot; Issued ${new Date(inv.date).toLocaleDateString()} &middot; Due ${new Date(inv.due).toLocaleDateString()}</div>
               </div>
               <div style="text-align:right;min-width:100px">
@@ -21251,7 +21251,7 @@ export async function pgPatientBilling() {
               <div style="width:36px;height:36px;border-radius:8px;background:rgba(34,197,94,0.1);color:#22c55e;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">&#10003;</div>
               <div style="flex:1;min-width:160px">
                 <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${fmt(p.amount, 'GBP')}</div>
-                <div style="font-size:11px;color:var(--text-tertiary)">${p.method} &middot; ${p.ref || ''} &middot; ${p.invoice || ''}</div>
+                <div style="font-size:11px;color:var(--text-tertiary)">${_hdEsc(p.method)} &middot; ${_hdEsc(p.ref || '')} &middot; ${_hdEsc(p.invoice || '')}</div>
               </div>
               <div style="font-size:11.5px;color:var(--text-tertiary)">${new Date(p.date).toLocaleDateString()}</div>
             </div>`).join('') : '<div style="text-align:center;padding:32px;color:var(--text-tertiary);font-size:13px">No payments recorded yet.</div>'}
