@@ -3366,8 +3366,8 @@ function _lsRender() {
           <div class="dv2-card" style="padding:14px;margin-bottom:12px" id="ls-ai-panel">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
               <div>
-                <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:13px;font-weight:600">AI session analysis</div>
-                <div style="font-size:11px;color:var(--text-tertiary)">Voice sentiment & video engagement</div>
+                <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:13px;font-weight:600">AI session analysis <span style="font-size:9px;color:var(--text-tertiary);font-weight:400">(simulated)</span></div>
+                <div style="font-size:11px;color:var(--text-tertiary)">Simulated voice sentiment & video engagement</div>
               </div>
               <span class="chip" style="color:var(--text-tertiary)" id="ls-ai-status">Waiting</span>
             </div>
