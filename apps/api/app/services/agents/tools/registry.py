@@ -405,6 +405,38 @@ def _h_tasks_list(actor: "AuthenticatedActor", db: "Session") -> dict:
     return {"items": items, "count": len(items)}
 
 
+# ── Patient-side tools (gated; pending clinical signoff) ──────────────
+# These handlers back the four patient-side agents in the marketplace.
+# They are registered for visibility but every handler short-circuits to
+# ``{"unavailable": True, ...}`` so that *if* the package gate is ever
+# unlocked prematurely no fake data leaks into the LLM context. Replace
+# the bodies with real queries during the clinical-signoff diff — at
+# that point the patient agents go from "Upgrade required" tiles to
+# live, callable agents.
+
+_PATIENT_TOOL_UNAVAILABLE = {
+    "unavailable": True,
+    "reason": "patient-side tools require clinical-signoff before activation",
+}
+
+
+def _h_patient_unavailable(
+    actor: "AuthenticatedActor", db: "Session"
+) -> dict:
+    """Stub handler shared by every patient-side tool.
+
+    Returns the canonical "unavailable" envelope. Kept as a single
+    function so the placeholder behaviour is impossible to drift between
+    tools — when one is wired up for real, swap the registry entry's
+    ``handler`` to a real implementation rather than editing this
+    function.
+    """
+    # ``actor`` and ``db`` are accepted to match the broker contract but
+    # deliberately unused — there is nothing to fetch yet.
+    _ = actor, db
+    return dict(_PATIENT_TOOL_UNAVAILABLE)
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -534,6 +566,105 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
             "due_at, source."
         ),
         handler=_h_tasks_list,
+        requires_role="clinician",
+    ),
+    # ── Patient-side tools (gated; pending clinical signoff) ──────────
+    # All seven of these back the patient-side agents in the marketplace.
+    # The handler always returns ``{"unavailable": True, ...}`` — that
+    # is the entire point: if the package gate ever leaks, the LLM gets
+    # a clear "no data" envelope instead of plausible-looking fakes.
+    # ``requires_role="clinician"`` because the clinic operates these on
+    # the patient's behalf.
+    "assessments.recent_for_patient": ToolDefinition(
+        id="assessments.recent_for_patient",
+        name="Recent patient assessments (gated)",
+        description=(
+            "PATIENT-SIDE STUB — pending clinical signoff. Will return "
+            "the patient's recent self-report assessments (mood, PHQ-9, "
+            "GAD-7) once activated. Returns an unavailable envelope "
+            "today."
+        ),
+        handler=_h_patient_unavailable,
+        requires_role="clinician",
+    ),
+    "tasks.list_for_patient": ToolDefinition(
+        id="tasks.list_for_patient",
+        name="Patient task list (gated)",
+        description=(
+            "PATIENT-SIDE STUB — pending clinical signoff. Will return "
+            "the patient's outstanding home-program / reminder tasks "
+            "once activated. Returns an unavailable envelope today."
+        ),
+        handler=_h_patient_unavailable,
+        requires_role="clinician",
+    ),
+    "medications.active_for_patient": ToolDefinition(
+        id="medications.active_for_patient",
+        name="Active patient medications (gated)",
+        description=(
+            "PATIENT-SIDE STUB — pending clinical signoff. Will return "
+            "the patient's clinician-prescribed active medication list "
+            "once activated. Returns an unavailable envelope today."
+        ),
+        handler=_h_patient_unavailable,
+        requires_role="clinician",
+    ),
+    "treatment_courses.active_for_patient": ToolDefinition(
+        id="treatment_courses.active_for_patient",
+        name="Active patient treatment courses (gated)",
+        description=(
+            "PATIENT-SIDE STUB — pending clinical signoff. Will return "
+            "the patient's currently active treatment course summary "
+            "once activated. Returns an unavailable envelope today."
+        ),
+        handler=_h_patient_unavailable,
+        requires_role="clinician",
+    ),
+    "evidence.search": ToolDefinition(
+        id="evidence.search",
+        name="Clinic-approved evidence search (gated)",
+        description=(
+            "PATIENT-SIDE STUB — pending clinical signoff. Will search "
+            "the clinic's approved evidence corpus and return source-"
+            "cited extracts once activated. Returns an unavailable "
+            "envelope today."
+        ),
+        handler=_h_patient_unavailable,
+        requires_role="clinician",
+    ),
+    "patient.condition": ToolDefinition(
+        id="patient.condition",
+        name="Patient primary condition (gated)",
+        description=(
+            "PATIENT-SIDE STUB — pending clinical signoff. Will return "
+            "the patient's primary condition slug + clinician-authored "
+            "context once activated. Returns an unavailable envelope "
+            "today."
+        ),
+        handler=_h_patient_unavailable,
+        requires_role="clinician",
+    ),
+    "risk.escalation_path": ToolDefinition(
+        id="risk.escalation_path",
+        name="Risk escalation path (gated)",
+        description=(
+            "PATIENT-SIDE STUB — pending clinical signoff. Will return "
+            "the clinic's configured crisis-escalation contacts and "
+            "protocol once activated. Returns an unavailable envelope "
+            "today."
+        ),
+        handler=_h_patient_unavailable,
+        requires_role="clinician",
+    ),
+    "clinic.emergency_contact": ToolDefinition(
+        id="clinic.emergency_contact",
+        name="Clinic emergency contact (gated)",
+        description=(
+            "PATIENT-SIDE STUB — pending clinical signoff. Will return "
+            "the on-call clinician + emergency phone numbers once "
+            "activated. Returns an unavailable envelope today."
+        ),
+        handler=_h_patient_unavailable,
         requires_role="clinician",
     ),
 }
