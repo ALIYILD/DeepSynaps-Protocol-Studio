@@ -378,6 +378,16 @@ let _marketplaceModalAgent = null;
 let _marketplaceModalReply = null;
 let _marketplaceModalError = null;
 let _marketplaceModalBusy = false;
+// Pending two-step tool-call awaiting clinician approval. Only one pending
+// call may exist at a time per modal — a newer pending_tool_call replaces an
+// older one (older one is silently discarded).
+let _marketplaceModalPendingCall = null;
+// Result of the most recent executed tool call, rendered as a green/red card
+// once confirmed_tool_call_id round-trips successfully (or simulated in demo).
+let _marketplaceModalExecuted = null;
+// "Cancelled." sentinel — set when the clinician rejects a pending call so we
+// can show a small grey acknowledgement in place of the confirmation card.
+let _marketplaceModalCancelled = false;
 
 // ── Marketplace tab state ────────────────────────────────────────────────────
 // Tracks which sub-view of the Marketplace section is active. Not persisted to
@@ -529,8 +539,45 @@ async function _fetchMarketplaceAgents() {
   }
 }
 
-async function _runMarketplaceAgent(agentId, message) {
+async function _runMarketplaceAgent(agentId, message, confirmedToolCallId = null) {
   if (_isMarketplaceDemoMode()) {
+    // Demo two-step simulation. Mirrors PR #185's `{items: []}` shim pattern:
+    // synthesise the protocol client-side so demo screenshots show the full
+    // confirmation flow without a backend round-trip.
+    const lower = String(message || '').toLowerCase();
+    if (confirmedToolCallId && String(confirmedToolCallId).startsWith('demo-')) {
+      return {
+        agent_id: agentId,
+        reply: '(demo) Tool executed.',
+        schema_id: 'demo.v1',
+        safety_footer: 'Decision-support only — not autonomous diagnosis.',
+        context_used: ['sessions.list', 'patients.search'],
+        pending_tool_call: null,
+        tool_call_executed: {
+          tool_id: 'sessions.create',
+          ok: true,
+          result: '(demo) Booked. (No real session created.)',
+          audit_id: 'demo',
+        },
+      };
+    }
+    if (lower.includes('book')) {
+      return {
+        agent_id: agentId,
+        reply: `Demo agent: I'd like to book that for you — please approve below.`,
+        schema_id: 'demo.v1',
+        safety_footer: 'Decision-support only — not autonomous diagnosis.',
+        context_used: ['sessions.list', 'patients.search'],
+        pending_tool_call: {
+          call_id: 'demo-' + Date.now(),
+          tool_id: 'sessions.create',
+          args: { patient_id: 'demo-p1', starts_at: '2026-05-15T14:00:00Z', duration_minutes: 60 },
+          summary: '(demo) Book demo patient p1 on May 15 14:00 for 60 min',
+          expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+        },
+        tool_call_executed: null,
+      };
+    }
     return {
       agent_id: agentId,
       reply: `Demo agent: I would normally [do X based on your message: "${message}"]. (Real responses require a clinician account.)`,
@@ -546,11 +593,12 @@ async function _runMarketplaceAgent(agentId, message) {
     const t = api.getToken && api.getToken();
     if (t) headers['Authorization'] = 'Bearer ' + t;
   } catch {}
+  const body = { message, confirmed_tool_call_id: confirmedToolCallId || null };
   const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/${encodeURIComponent(agentId)}/run`, {
     method: 'POST',
     headers,
     credentials: 'include',
-    body: JSON.stringify({ message, context: {} }),
+    body: JSON.stringify(body),
   });
   let data = null;
   try { data = await res.json(); } catch {}
@@ -747,6 +795,22 @@ function _relTime(iso) {
   try { return new Date(iso).toLocaleDateString(); } catch { return iso; }
 }
 
+// "Expires in 4m" / "expired" formatter for the tool-confirmation card.
+// Returns a short phrase suitable for the right-aligned hint, never throws.
+function _expiresIn(iso) {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return '';
+  const diff = t - Date.now();
+  if (diff <= 0) return 'expired';
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return `in ${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `in ${min}m`;
+  const hr = Math.floor(min / 60);
+  return `in ${hr}h`;
+}
+
 function _formatLatency(ms) {
   if (!Number.isFinite(ms)) return '—';
   if (ms < 1000) return ms + 'ms';
@@ -896,6 +960,52 @@ function _renderActivitySection(agents) {
   `;
 }
 
+function _renderToolConfirmCard(pending, agentId) {
+  if (!pending) return '';
+  const callId = _esc(String(pending.call_id || ''));
+  const aid = _esc(String(agentId || ''));
+  const summary = _esc(String(pending.summary || ''));
+  const toolId = _esc(String(pending.tool_id || ''));
+  let argsJson = '';
+  try { argsJson = JSON.stringify(pending.args ?? {}, null, 2); } catch { argsJson = String(pending.args ?? ''); }
+  const argsEsc = _esc(argsJson);
+  const expires = _esc(_expiresIn(pending.expires_at));
+  return `
+    <div class="ds-tool-confirm-card" style="margin-top:10px;border:1px solid var(--amber, #f59e0b);background:rgba(245,158,11,0.08);padding:12px;border-radius:8px">
+      <div style="font-weight:700;color:var(--amber, #f59e0b);font-size:13px;margin-bottom:6px">⚠ Action requires your approval</div>
+      <div style="font-size:13px;margin-bottom:8px">${summary}</div>
+      <details style="margin-bottom:10px"><summary style="font-size:11px;cursor:pointer;color:var(--muted)">Show details</summary>
+        <pre style="font-size:11px;background:rgba(0,0,0,0.2);padding:8px;border-radius:4px;margin-top:6px;overflow:auto">${toolId}\n${argsEsc}</pre>
+      </details>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm btn-primary" onclick="window._agentApproveToolCall('${callId}', '${aid}')">Approve</button>
+        <button class="btn btn-sm btn-ghost" onclick="window._agentRejectToolCall('${callId}', '${aid}')">Reject</button>
+        <span style="margin-left:auto;font-size:10px;color:var(--muted)">Expires ${expires}</span>
+      </div>
+    </div>
+  `;
+}
+
+function _renderToolExecutedCard(executed) {
+  if (!executed) return '';
+  const ok = !!executed.ok;
+  const border = ok ? 'var(--green)' : 'var(--red)';
+  const bg = ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)';
+  const label = ok ? '✓ Done' : '✗ Failed';
+  const result = _esc(String(executed.result ?? ''));
+  return `
+    <div style="margin-top:10px;border:1px solid ${border};background:${bg};padding:10px;border-radius:8px;font-size:13px">
+      <span style="font-weight:700">${label}</span> — ${result}
+    </div>
+  `;
+}
+
+function _renderToolCancelledCard() {
+  return `
+    <div style="margin-top:10px;padding:8px 10px;border-radius:6px;background:rgba(255,255,255,0.03);border:1px solid var(--border);font-size:12px;color:var(--text-tertiary)">Cancelled.</div>
+  `;
+}
+
 function _renderMarketplaceModal() {
   if (!_marketplaceModalAgent) return '';
   const a = _marketplaceModalAgent;
@@ -906,9 +1016,20 @@ function _renderMarketplaceModal() {
          <span>${_isMarketplaceDemoMode() ? '(demo) ' : ''}${_esc(groundedTools.join(', '))}</span>
        </div>`
     : '';
+  // Tool-call slot ordering: confirmation card (if pending) → executed result
+  // (if a tool just ran) → cancelled sentinel (if user just rejected). Only
+  // one of these is meaningful at a time; we render whichever is set.
+  const toolBlock = _marketplaceModalPendingCall
+    ? _renderToolConfirmCard(_marketplaceModalPendingCall, a.id)
+    : _marketplaceModalExecuted
+      ? _renderToolExecutedCard(_marketplaceModalExecuted)
+      : _marketplaceModalCancelled
+        ? _renderToolCancelledCard()
+        : '';
   const replyBlock = _marketplaceModalReply
     ? `<div style="margin-top:12px;padding:12px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid var(--border);font-size:12px;color:var(--text-primary);line-height:1.55;white-space:pre-wrap">${_formatAgentText(_marketplaceModalReply.reply || '(empty reply)')}
         ${groundedBlock}
+        ${toolBlock}
         <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text-tertiary);font-style:italic">${_esc(_marketplaceModalReply.safety_footer || 'Decision-support, not autonomous diagnosis.')}</div>
       </div>`
     : '';
@@ -1617,6 +1738,9 @@ window._agentMarketplaceTry = function(agentId) {
   _marketplaceModalReply = null;
   _marketplaceModalError = null;
   _marketplaceModalBusy = false;
+  _marketplaceModalPendingCall = null;
+  _marketplaceModalExecuted = null;
+  _marketplaceModalCancelled = false;
   pgAgentChat(_lastSetTopbar);
   setTimeout(() => document.getElementById('agent-marketplace-input')?.focus(), 50);
 };
@@ -1631,6 +1755,9 @@ window._agentMarketplaceModalClose = function() {
   _marketplaceModalReply = null;
   _marketplaceModalError = null;
   _marketplaceModalBusy = false;
+  _marketplaceModalPendingCall = null;
+  _marketplaceModalExecuted = null;
+  _marketplaceModalCancelled = false;
   if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
 };
 
@@ -1641,6 +1768,11 @@ window._agentMarketplaceModalSend = async function() {
   if (!message) return;
   _marketplaceModalBusy = true;
   _marketplaceModalError = null;
+  // Fresh send always invalidates any prior pending/executed/cancelled tool
+  // state — the new turn is what matters; stale cards must not linger.
+  _marketplaceModalPendingCall = null;
+  _marketplaceModalExecuted = null;
+  _marketplaceModalCancelled = false;
   pgAgentChat(_lastSetTopbar);
   try {
     const result = await _runMarketplaceAgent(_marketplaceModalAgent.id, message);
@@ -1648,9 +1780,75 @@ window._agentMarketplaceModalSend = async function() {
       _marketplaceModalError = String(result.error);
     } else {
       _marketplaceModalReply = result || { reply: '' };
+      if (result && result.pending_tool_call) {
+        _marketplaceModalPendingCall = result.pending_tool_call;
+      }
+      if (result && result.tool_call_executed) {
+        _marketplaceModalExecuted = result.tool_call_executed;
+      }
     }
   } catch (err) {
     _marketplaceModalError = err?.message || 'Agent run failed.';
+  } finally {
+    _marketplaceModalBusy = false;
+    pgAgentChat(_lastSetTopbar);
+  }
+};
+
+// Two-step write protocol: clinician clicks Approve on the confirmation card.
+// We POST `confirmed_tool_call_id` so the broker actually executes the write.
+// Replaces the confirmation card with the executed-result card on response.
+window._agentApproveToolCall = async function(callId, agentId) {
+  if (!callId || !agentId) return;
+  if (_marketplaceModalBusy) return;
+  _marketplaceModalBusy = true;
+  _marketplaceModalError = null;
+  // Drop the pending card immediately so the user sees the busy state,
+  // not the still-actionable Approve button.
+  _marketplaceModalPendingCall = null;
+  _marketplaceModalCancelled = false;
+  pgAgentChat(_lastSetTopbar);
+  try {
+    const result = await _runMarketplaceAgent(agentId, 'approve', callId);
+    if (result && result.error && !result.reply && !result.tool_call_executed) {
+      _marketplaceModalError = String(result.error);
+    } else {
+      _marketplaceModalReply = result || _marketplaceModalReply;
+      if (result && result.tool_call_executed) {
+        _marketplaceModalExecuted = result.tool_call_executed;
+      }
+      // If the backend returned a fresh pending_tool_call (e.g. follow-up
+      // confirmation), prefer the newer one and discard the prior approval.
+      if (result && result.pending_tool_call) {
+        _marketplaceModalPendingCall = result.pending_tool_call;
+      }
+    }
+  } catch (err) {
+    _marketplaceModalError = err?.message || 'Approval failed.';
+  } finally {
+    _marketplaceModalBusy = false;
+    pgAgentChat(_lastSetTopbar);
+  }
+};
+
+// Reject path: backend treats `message: "reject"` (no confirmed_tool_call_id)
+// as a drop. We don't need the response payload — just acknowledge locally
+// with the small grey "Cancelled." line.
+window._agentRejectToolCall = async function(callId, agentId) {
+  if (!callId || !agentId) return;
+  if (_marketplaceModalBusy) return;
+  _marketplaceModalBusy = true;
+  _marketplaceModalError = null;
+  _marketplaceModalPendingCall = null;
+  _marketplaceModalExecuted = null;
+  _marketplaceModalCancelled = true;
+  pgAgentChat(_lastSetTopbar);
+  try {
+    await _runMarketplaceAgent(agentId, 'reject');
+  } catch (err) {
+    // Reject is best-effort from the user's POV — surface the error but keep
+    // the cancelled-card visible so the UI doesn't snap back to a pending card.
+    _marketplaceModalError = err?.message || 'Reject failed.';
   } finally {
     _marketplaceModalBusy = false;
     pgAgentChat(_lastSetTopbar);
