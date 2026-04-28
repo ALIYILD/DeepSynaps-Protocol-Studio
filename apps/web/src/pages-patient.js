@@ -13122,7 +13122,7 @@ export async function pgPatientMediaUpload() {
 
   const courseOptions = courses.length > 0
     ? `<option value="">— Not linked to a course —</option>` +
-      courses.map(c => `<option value="${c.id}">${c.condition_slug || 'Course'} (${c.status || 'active'})</option>`).join('')
+      courses.map(c => `<option value="${_hdEsc(c.id)}">${_hdEsc(c.condition_slug) || 'Course'} (${_hdEsc(c.status) || 'active'})</option>`).join('')
     : `<option value="">No courses found</option>`;
 
   // Media recorder state
@@ -14582,7 +14582,7 @@ export async function pgIntake(setTopbarFn) {
           const isTemplate = INTAKE_TEMPLATES.some(t => t.id === f.id) && !getIntakeForms().find(s => s.id === f.id);
           const active = f.id === activeFormId ? ' active' : '';
           return '<li class="intake-form-item' + active + '" onclick="window._loadIntakeTemplate(\'' + f.id + '\')">'
-            + '<span style="font-size:.88rem">' + f.name + '</span>'
+            + '<span style="font-size:.88rem">' + _hdEsc(f.name) + '</span>'
             + (isTemplate ? '<span style="font-size:.7rem;padding:1px 6px;border-radius:10px;background:rgba(0,188,188,.12);color:var(--teal)">template</span>' : '')
             + '</li>';
         }).join('')
@@ -14642,12 +14642,12 @@ export async function pgIntake(setTopbarFn) {
       const detailPairs = Object.entries(s.data || {}).map(([k, v]) => {
         const display = (v && typeof v === 'string' && v.startsWith('data:image'))
           ? '<img src="' + v + '" style="height:36px;border:1px solid #ddd;border-radius:3px;vertical-align:middle">'
-          : (v === true || v === 'true' ? '&#10003;' : (v || '&mdash;'));
-        return '<dt>' + k + ':</dt><dd>' + display + '</dd>';
+          : (v === true || v === 'true' ? '&#10003;' : (_hdEsc(v) || '&mdash;'));
+        return '<dt>' + _hdEsc(k) + ':</dt><dd>' + display + '</dd>';
       }).join('');
       return '<tr id="sub-row-' + s.id + '" style="border-bottom:1px solid var(--border)">'
-        + '<td style="padding:10px;font-size:.875rem">' + (s.patientName || '&mdash;') + '</td>'
-        + '<td style="padding:10px;font-size:.875rem">' + (s.formName || '&mdash;') + '</td>'
+        + '<td style="padding:10px;font-size:.875rem">' + (_hdEsc(s.patientName) || '&mdash;') + '</td>'
+        + '<td style="padding:10px;font-size:.875rem">' + (_hdEsc(s.formName) || '&mdash;') + '</td>'
         + '<td style="padding:10px;font-size:.8rem;color:var(--text-muted)">' + (s.submittedAt ? new Date(s.submittedAt).toLocaleDateString() : '&mdash;') + '</td>'
         + '<td style="padding:10px">' + statusBadge(s.signed) + '</td>'
         + '<td style="padding:10px;display:flex;gap:8px">'
@@ -14703,8 +14703,8 @@ export async function pgIntake(setTopbarFn) {
       const sigVal = s.data ? Object.values(s.data).find(v => typeof v === 'string' && v.startsWith('data:image')) : null;
       return '<div class="consent-card">'
         + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">'
-        + '<div><div style="font-weight:600;font-size:.9rem">' + (s.patientName || 'Unknown') + '</div>'
-        + '<div style="font-size:.78rem;color:var(--text-muted);margin-top:2px">' + (s.formName || '&mdash;') + '</div></div>'
+        + '<div><div style="font-weight:600;font-size:.9rem">' + (_hdEsc(s.patientName) || 'Unknown') + '</div>'
+        + '<div style="font-size:.78rem;color:var(--text-muted);margin-top:2px">' + (_hdEsc(s.formName) || '&mdash;') + '</div></div>'
         + statusBadge(s.signed) + '</div>'
         + '<div style="font-size:.78rem;color:var(--text-muted);margin-bottom:10px">'
         + (s.revoked ? '<span style="color:var(--red)">Revoked</span>' : (s.submittedAt ? new Date(s.submittedAt).toLocaleDateString() : 'Date unknown'))
@@ -21042,11 +21042,11 @@ export async function pgPatientTickets() {
           <div style="border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;overflow:hidden">
             ${sel ? `
               <div style="padding:14px 16px;border-bottom:1px solid var(--border)">
-                <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:4px">${sel.title}</div>
+                <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:4px">${_hdEsc(sel.title)}</div>
                 <div style="display:flex;gap:8px;font-size:11px;color:var(--text-tertiary);flex-wrap:wrap">
-                  <span>${sel.id}</span>
-                  <span style="display:inline-block;padding:2px 7px;border-radius:4px;background:${statusColor[sel.status] || '#64748b'}22;color:${statusColor[sel.status] || '#64748b'};font-weight:600">${statusLabel[sel.status] || sel.status}</span>
-                  <span>Priority: ${sel.priority}</span>
+                  <span>${_hdEsc(sel.id)}</span>
+                  <span style="display:inline-block;padding:2px 7px;border-radius:4px;background:${statusColor[sel.status] || '#64748b'}22;color:${statusColor[sel.status] || '#64748b'};font-weight:600">${statusLabel[sel.status] || _hdEsc(sel.status)}</span>
+                  <span>Priority: ${_hdEsc(sel.priority)}</span>
                   <span>Created: ${new Date(sel.created).toLocaleDateString()}</span>
                 </div>
               </div>
