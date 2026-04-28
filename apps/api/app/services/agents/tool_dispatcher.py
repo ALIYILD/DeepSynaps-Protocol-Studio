@@ -206,37 +206,206 @@ def _h_sessions_create(
 
 
 # ---------------------------------------------------------------------------
-# sessions.cancel + notes.approve_draft — registered stubs
+# sessions.cancel
 # ---------------------------------------------------------------------------
 
 
 class SessionsCancelArgs(BaseModel):
-    """Args schema for the ``sessions.cancel`` stub.
+    """Args schema for the ``sessions.cancel`` write tool.
 
-    Schema is permissive on purpose — the handler returns
-    ``not_yet_implemented`` regardless, but keeping a schema present
-    means the dispatcher's validation lane never short-circuits and
-    every tool follows the same shape.
+    Mirrors the cancel-status transition the existing sessions PATCH
+    endpoint allows. ``reason`` is optional free text persisted into
+    ``cancel_reason`` for the audit trail.
     """
 
     session_id: str = Field(..., min_length=1, max_length=64)
     reason: str = Field(default="", max_length=500)
 
 
-class NotesApproveDraftArgs(BaseModel):
-    """Args schema for the ``notes.approve_draft`` stub."""
+# Statuses from which we refuse to cancel (terminal / already gone).
+# Mirrors the absence of "cancelled"/"completed"/"no_show" on the LHS
+# of VALID_TRANSITIONS in sessions_router.py.
+_NON_CANCELLABLE_STATUSES = {"cancelled", "completed", "no_show"}
 
-    draft_id: str = Field(..., min_length=1, max_length=64)
 
-
-def _h_not_implemented(
+def _h_sessions_cancel(
     actor: "AuthenticatedActor", db: "Session", args: BaseModel
 ) -> dict:
-    """Stub used by registered-but-not-built write tools."""
-    _ = actor, db, args  # quiet linters — these stubs intentionally do nothing
+    """Cancel a ``ClinicalSession`` after clinician confirmation.
+
+    The session must belong to a patient owned by ``actor`` (per the
+    same per-clinician scoping the REST endpoints enforce). Already-
+    terminal sessions are refused with a clear message rather than
+    silently no-op'd.
+    """
+    assert isinstance(args, SessionsCancelArgs)
+    from app.persistence.models import ClinicalSession, Patient
+
+    record = (
+        db.query(ClinicalSession)
+        .filter(ClinicalSession.id == args.session_id)
+        .first()
+    )
+    if record is None:
+        return {
+            "ok": False,
+            "result": f"Session {args.session_id} not found.",
+        }
+
+    # Cross-clinic patient binding — the patient must be owned by this
+    # clinician. We refuse with the same shape as the create handler
+    # rather than leaking whether a row exists.
+    patient = (
+        db.query(Patient)
+        .filter(Patient.id == record.patient_id)
+        .filter(Patient.clinician_id == actor.actor_id)
+        .first()
+    )
+    if patient is None:
+        return {
+            "ok": False,
+            "result": (
+                "Session not found in this clinic — refusing to cancel "
+                "across clinics."
+            ),
+        }
+
+    if record.status in _NON_CANCELLABLE_STATUSES:
+        return {
+            "ok": False,
+            "result": (
+                f"Session is not active (status: {record.status})."
+            ),
+        }
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    record.status = "cancelled"
+    record.cancelled_at = now_iso
+    if args.reason:
+        record.cancel_reason = args.reason
+    db.commit()
+
     return {
-        "ok": False,
-        "result": "Tool not yet implemented in this build.",
+        "ok": True,
+        "result": f"Cancelled session {args.session_id}.",
+        "audit_extra": {
+            "session_id": args.session_id,
+            "reason": args.reason,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# notes.approve_draft
+# ---------------------------------------------------------------------------
+
+
+class NotesApproveDraftArgs(BaseModel):
+    """Args schema for the ``notes.approve_draft`` write tool.
+
+    ``edits`` is optional free text that, when provided, replaces the
+    draft's primary editable surface (``session_note``) before the
+    approval flips. Mirrors the ``soap_note`` field on the REST
+    endpoint's ``ApproveDraftRequest`` body — kept generic here so the
+    LLM doesn't need to learn the SOAP terminology.
+    """
+
+    draft_id: str = Field(..., min_length=1, max_length=64)
+    edits: str = Field(default="", max_length=10_000)
+
+
+def _h_notes_approve_draft(
+    actor: "AuthenticatedActor", db: "Session", args: BaseModel
+) -> dict:
+    """Approve a clinician note draft after clinician confirmation.
+
+    Constraints:
+    * Parent ``ClinicianMediaNote`` must exist.
+    * The note's patient must belong to the actor's clinic (via the
+      per-clinician ownership chain ``Patient.clinician_id``).
+    * Only the note's original clinician may approve through the
+      agent — even other clinicians at the same clinic must use the
+      regular review surface so we don't accidentally let the agent
+      become a backdoor authorisation for a colleague's draft.
+    * Already-approved drafts are refused (idempotency-explicit).
+    """
+    assert isinstance(args, NotesApproveDraftArgs)
+    from app.persistence.models import (
+        ClinicianMediaNote,
+        ClinicianNoteDraft,
+        Patient,
+    )
+
+    draft = (
+        db.query(ClinicianNoteDraft)
+        .filter(ClinicianNoteDraft.id == args.draft_id)
+        .first()
+    )
+    if draft is None:
+        return {
+            "ok": False,
+            "result": f"Draft {args.draft_id} not found.",
+        }
+
+    note = (
+        db.query(ClinicianMediaNote)
+        .filter(ClinicianMediaNote.id == draft.note_id)
+        .first()
+    )
+    if note is None:
+        return {
+            "ok": False,
+            "result": "Parent clinician note not found.",
+        }
+
+    # Cross-clinic patient binding.
+    patient = (
+        db.query(Patient)
+        .filter(Patient.id == note.patient_id)
+        .filter(Patient.clinician_id == actor.actor_id)
+        .first()
+    )
+    if patient is None:
+        return {
+            "ok": False,
+            "result": (
+                "Note not found in this clinic — refusing to approve "
+                "across clinics."
+            ),
+        }
+
+    # Only the note's original clinician may approve via the agent.
+    if note.clinician_id != actor.actor_id:
+        return {
+            "ok": False,
+            "result": (
+                "Only the original clinician on this note may approve "
+                "the draft via the agent."
+            ),
+        }
+
+    if draft.status == "approved":
+        return {
+            "ok": False,
+            "result": "Draft is already approved.",
+        }
+
+    if args.edits:
+        draft.session_note = args.edits
+    draft.status = "approved"
+    draft.approved_by = actor.actor_id
+    draft.approved_at = datetime.now(timezone.utc)
+    # Mirror the REST flow's terminal status flip on the parent note.
+    note.status = "finalized"
+    db.commit()
+
+    return {
+        "ok": True,
+        "result": f"Approved draft {args.draft_id}.",
+        "audit_extra": {
+            "draft_id": args.draft_id,
+            "note_id": draft.note_id,
+        },
     }
 
 
@@ -247,8 +416,8 @@ def _h_not_implemented(
 
 WRITE_HANDLERS: dict[str, tuple[type[BaseModel], ToolWriteHandler]] = {
     "sessions.create": (SessionsCreateArgs, _h_sessions_create),
-    "sessions.cancel": (SessionsCancelArgs, _h_not_implemented),
-    "notes.approve_draft": (NotesApproveDraftArgs, _h_not_implemented),
+    "sessions.cancel": (SessionsCancelArgs, _h_sessions_cancel),
+    "notes.approve_draft": (NotesApproveDraftArgs, _h_notes_approve_draft),
 }
 
 

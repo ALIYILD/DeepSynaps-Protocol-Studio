@@ -12,8 +12,10 @@ Covers:
 * Confirming twice → second time rejected (consume is one-shot).
 * Tool not in agent's allowlist → refusal reply, no pending entry.
 * ``sessions.create`` happy / cross-clinic / time-conflict paths.
-* ``sessions.cancel`` + ``notes.approve_draft`` stubs return
-  ``not_yet_implemented``.
+* ``sessions.cancel`` happy / already-cancelled / cross-clinic /
+  unknown-id paths.
+* ``notes.approve_draft`` happy / already-approved / cross-clinic /
+  wrong-clinician / edits-applied paths.
 * Unknown tool id at confirmation time surfaces as a clear error.
 """
 from __future__ import annotations
@@ -27,7 +29,12 @@ from fastapi.testclient import TestClient
 
 from app.auth import AuthenticatedActor
 from app.database import SessionLocal
-from app.persistence.models import ClinicalSession, Patient
+from app.persistence.models import (
+    ClinicalSession,
+    ClinicianMediaNote,
+    ClinicianNoteDraft,
+    Patient,
+)
 from app.services.agents import pending_calls, runner as agent_runner
 from app.services.agents import tool_dispatcher
 from app.services.agents.registry import AGENT_REGISTRY
@@ -436,29 +443,6 @@ def test_sessions_create_returns_conflict_when_overlap(
 
 
 # ---------------------------------------------------------------------------
-# Stub write tools — sessions.cancel + notes.approve_draft
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "tool_id, args",
-    [
-        ("sessions.cancel", {"session_id": "sess-1"}),
-        ("notes.approve_draft", {"draft_id": "draft-1"}),
-    ],
-)
-def test_unimplemented_write_tools_return_safe_refusal(
-    db_session,
-    clinician_actor: AuthenticatedActor,
-    tool_id: str,
-    args: dict,
-) -> None:
-    out = tool_dispatcher.execute(tool_id, args, clinician_actor, db_session)
-    assert out["ok"] is False
-    assert "not yet implemented" in out["result"].lower()
-
-
-# ---------------------------------------------------------------------------
 # Unknown tool / invalid args
 # ---------------------------------------------------------------------------
 
@@ -551,3 +535,349 @@ def test_app_main_imports_cleanly() -> None:
     # Sanity check from the spec's definition-of-done: the app must still
     # import after the wiring lands.
     from app.main import app  # noqa: F401
+
+
+# ---------------------------------------------------------------------------
+# sessions.cancel — happy / already-cancelled / cross-clinic / not-found
+# ---------------------------------------------------------------------------
+
+
+def _seed_session(
+    db,
+    *,
+    session_id: str,
+    patient_id: str,
+    clinician_id: str,
+    status: str = "scheduled",
+    starts_at: str = "2030-08-15T09:00:00+00:00",
+) -> ClinicalSession:
+    row = ClinicalSession(
+        id=session_id,
+        patient_id=patient_id,
+        clinician_id=clinician_id,
+        scheduled_at=starts_at,
+        duration_minutes=60,
+        appointment_type="session",
+        status=status,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def test_sessions_cancel_happy_path(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+    seeded_patient: Patient,
+) -> None:
+    sess = _seed_session(
+        db_session,
+        session_id="sess-cancel-happy",
+        patient_id=seeded_patient.id,
+        clinician_id=clinician_actor.actor_id,
+        status="scheduled",
+    )
+    out = tool_dispatcher.execute(
+        "sessions.cancel",
+        {"session_id": sess.id, "reason": "patient requested reschedule"},
+        clinician_actor,
+        db_session,
+    )
+    assert out["ok"] is True, out
+    assert sess.id in out["result"]
+    assert out["audit_extra"]["session_id"] == sess.id
+    assert out["audit_extra"]["reason"] == "patient requested reschedule"
+
+    db_session.refresh(sess)
+    assert sess.status == "cancelled"
+    assert sess.cancel_reason == "patient requested reschedule"
+    assert sess.cancelled_at is not None
+
+
+def test_sessions_cancel_refuses_already_cancelled(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+    seeded_patient: Patient,
+) -> None:
+    sess = _seed_session(
+        db_session,
+        session_id="sess-cancel-already",
+        patient_id=seeded_patient.id,
+        clinician_id=clinician_actor.actor_id,
+        status="cancelled",
+    )
+    out = tool_dispatcher.execute(
+        "sessions.cancel",
+        {"session_id": sess.id},
+        clinician_actor,
+        db_session,
+    )
+    assert out["ok"] is False
+    assert "not active" in out["result"].lower()
+    assert "cancelled" in out["result"].lower()
+
+
+def test_sessions_cancel_refuses_completed(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+    seeded_patient: Patient,
+) -> None:
+    sess = _seed_session(
+        db_session,
+        session_id="sess-cancel-completed",
+        patient_id=seeded_patient.id,
+        clinician_id=clinician_actor.actor_id,
+        status="completed",
+    )
+    out = tool_dispatcher.execute(
+        "sessions.cancel",
+        {"session_id": sess.id},
+        clinician_actor,
+        db_session,
+    )
+    assert out["ok"] is False
+    assert "not active" in out["result"].lower()
+
+
+def test_sessions_cancel_rejects_cross_clinic_patient(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+    seeded_other_clinic_patient: Patient,
+) -> None:
+    # Session owned by a different clinician, patient owned by a
+    # different clinician — the demo actor must not be able to cancel.
+    _seed_session(
+        db_session,
+        session_id="sess-cancel-cross-clinic",
+        patient_id=seeded_other_clinic_patient.id,
+        clinician_id="actor-other-clinician",
+        status="scheduled",
+    )
+    out = tool_dispatcher.execute(
+        "sessions.cancel",
+        {"session_id": "sess-cancel-cross-clinic"},
+        clinician_actor,
+        db_session,
+    )
+    assert out["ok"] is False
+    assert (
+        "across clinics" in out["result"].lower()
+        or "not found" in out["result"].lower()
+    )
+
+    # And the row must still be live (status unchanged) — defence in depth.
+    row = db_session.query(ClinicalSession).filter_by(
+        id="sess-cancel-cross-clinic"
+    ).first()
+    assert row is not None
+    assert row.status == "scheduled"
+
+
+def test_sessions_cancel_invalid_session_id(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+) -> None:
+    out = tool_dispatcher.execute(
+        "sessions.cancel",
+        {"session_id": "sess-does-not-exist"},
+        clinician_actor,
+        db_session,
+    )
+    assert out["ok"] is False
+    assert "not found" in out["result"].lower()
+
+
+# ---------------------------------------------------------------------------
+# notes.approve_draft — happy / already-approved / cross-clinic /
+# wrong-clinician / edits applied
+# ---------------------------------------------------------------------------
+
+
+def _seed_note_and_draft(
+    db,
+    *,
+    note_id: str,
+    draft_id: str,
+    patient_id: str,
+    clinician_id: str,
+    draft_status: str = "generated",
+    note_status: str = "draft_generated",
+    session_note: str | None = "Initial AI-generated note body.",
+) -> tuple[ClinicianMediaNote, ClinicianNoteDraft]:
+    note = ClinicianMediaNote(
+        id=note_id,
+        patient_id=patient_id,
+        clinician_id=clinician_id,
+        note_type="post_session",
+        media_type="text",
+        text_content="raw clinician text",
+        status=note_status,
+    )
+    draft = ClinicianNoteDraft(
+        id=draft_id,
+        note_id=note_id,
+        generated_by="agent-test",
+        prompt_hash="0" * 64,
+        session_note=session_note,
+        status=draft_status,
+    )
+    db.add(note)
+    db.add(draft)
+    db.commit()
+    db.refresh(note)
+    db.refresh(draft)
+    return note, draft
+
+
+def test_notes_approve_draft_happy_path(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+    seeded_patient: Patient,
+) -> None:
+    _, draft = _seed_note_and_draft(
+        db_session,
+        note_id="note-approve-happy",
+        draft_id="draft-approve-happy",
+        patient_id=seeded_patient.id,
+        clinician_id=clinician_actor.actor_id,
+    )
+    out = tool_dispatcher.execute(
+        "notes.approve_draft",
+        {"draft_id": draft.id},
+        clinician_actor,
+        db_session,
+    )
+    assert out["ok"] is True, out
+    assert draft.id in out["result"]
+    assert out["audit_extra"]["draft_id"] == draft.id
+    assert out["audit_extra"]["note_id"] == "note-approve-happy"
+
+    db_session.refresh(draft)
+    assert draft.status == "approved"
+    assert draft.approved_by == clinician_actor.actor_id
+    assert draft.approved_at is not None
+
+
+def test_notes_approve_draft_refuses_already_approved(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+    seeded_patient: Patient,
+) -> None:
+    _, draft = _seed_note_and_draft(
+        db_session,
+        note_id="note-approve-already",
+        draft_id="draft-approve-already",
+        patient_id=seeded_patient.id,
+        clinician_id=clinician_actor.actor_id,
+        draft_status="approved",
+    )
+    out = tool_dispatcher.execute(
+        "notes.approve_draft",
+        {"draft_id": draft.id},
+        clinician_actor,
+        db_session,
+    )
+    assert out["ok"] is False
+    assert "already approved" in out["result"].lower()
+
+
+def test_notes_approve_draft_rejects_cross_clinic_patient(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+    seeded_other_clinic_patient: Patient,
+) -> None:
+    # Note belongs to a patient in another clinic — refuse even though
+    # the draft id is otherwise valid.
+    _, draft = _seed_note_and_draft(
+        db_session,
+        note_id="note-approve-cross-clinic",
+        draft_id="draft-approve-cross-clinic",
+        patient_id=seeded_other_clinic_patient.id,
+        clinician_id="actor-other-clinician",
+    )
+    out = tool_dispatcher.execute(
+        "notes.approve_draft",
+        {"draft_id": draft.id},
+        clinician_actor,
+        db_session,
+    )
+    assert out["ok"] is False
+    assert (
+        "across clinics" in out["result"].lower()
+        or "not found" in out["result"].lower()
+    )
+
+    db_session.refresh(draft)
+    assert draft.status == "generated"
+    assert draft.approved_at is None
+
+
+def test_notes_approve_draft_rejects_wrong_clinician(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+    seeded_patient: Patient,
+) -> None:
+    # The patient belongs to ``clinician_actor``, but the note was
+    # written by a *different* clinician on the same roster. The agent
+    # must refuse — only the original clinician may approve via the bot.
+    _, draft = _seed_note_and_draft(
+        db_session,
+        note_id="note-approve-wrong-clin",
+        draft_id="draft-approve-wrong-clin",
+        patient_id=seeded_patient.id,
+        clinician_id="some-other-clinician-on-same-roster",
+    )
+    out = tool_dispatcher.execute(
+        "notes.approve_draft",
+        {"draft_id": draft.id},
+        clinician_actor,
+        db_session,
+    )
+    assert out["ok"] is False
+    assert "original clinician" in out["result"].lower()
+
+    db_session.refresh(draft)
+    assert draft.status == "generated"
+
+
+def test_notes_approve_draft_invalid_draft_id(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+) -> None:
+    out = tool_dispatcher.execute(
+        "notes.approve_draft",
+        {"draft_id": "draft-does-not-exist"},
+        clinician_actor,
+        db_session,
+    )
+    assert out["ok"] is False
+    assert "not found" in out["result"].lower()
+
+
+def test_notes_approve_draft_applies_edits(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+    seeded_patient: Patient,
+) -> None:
+    _, draft = _seed_note_and_draft(
+        db_session,
+        note_id="note-approve-edits",
+        draft_id="draft-approve-edits",
+        patient_id=seeded_patient.id,
+        clinician_id=clinician_actor.actor_id,
+        session_note="Original draft body — should be replaced.",
+    )
+    new_body = "Clinician-edited body via agent."
+    out = tool_dispatcher.execute(
+        "notes.approve_draft",
+        {"draft_id": draft.id, "edits": new_body},
+        clinician_actor,
+        db_session,
+    )
+    assert out["ok"] is True, out
+
+    db_session.refresh(draft)
+    assert draft.session_note == new_body
+    assert draft.status == "approved"
+    assert draft.approved_by == clinician_actor.actor_id
