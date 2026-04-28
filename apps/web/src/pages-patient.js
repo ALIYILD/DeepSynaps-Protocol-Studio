@@ -21065,7 +21065,7 @@ export async function pgPatientTickets() {
                 <input id="pt-tk-reply" type="text" placeholder="Add a message..." style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary,rgba(255,255,255,0.04));color:var(--text-primary);font-size:12.5px">
                 <button class="btn btn-primary btn-sm" onclick="window._ptReplyTicket()">${backendReady ? 'Reply' : 'Save local note'}</button>
               </div>` : `
-              <div style="padding:12px 16px;border-top:1px solid var(--border);text-align:center;font-size:12px;color:var(--text-tertiary)">This request has been resolved.</div>`}
+              <div style="padding:12px 16px;border-top:1px solid var(--border);text-align:center;font-size:12px;color:var(--text-tertiary)">This request is marked resolved in this portal view.</div>`}
             ` : `<div style="display:flex;align-items:center;justify-content:center;flex:1;color:var(--text-tertiary);font-size:13px">Select a request to view details</div>`}
           </div>
         </div>

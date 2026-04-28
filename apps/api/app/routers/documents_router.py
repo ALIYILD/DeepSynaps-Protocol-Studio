@@ -14,10 +14,16 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import DocumentTemplate, FormDefinition, Patient
+from app.persistence.models import DocumentTemplate, FormDefinition, Patient, User
+from app.repositories.patients import resolve_patient_clinic_id
 from app.settings import get_settings
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
@@ -159,16 +165,58 @@ def _assert_document_patient_access(
     actor: AuthenticatedActor,
     session: Session,
 ) -> None:
+    """Cross-clinic ownership gate for document-related routes.
+
+    Pre-fix this checked ``Patient.clinician_id == actor.actor_id``
+    (legacy owner-only). That refused legitimate same-clinic
+    colleagues, didn't consult ``User.clinic_id``, and admins of
+    one clinic could read documents owned by clinicians in another
+    (because admin had no separate branch — just owner-only).
+
+    Post-fix: routes through ``resolve_patient_clinic_id`` +
+    ``require_patient_owner`` (the canonical pair used in qeeg /
+    media / wearable / device-sync gates). Cross-clinic 403 is
+    converted to 404 so row existence isn't leaked. Orphan
+    patients (clinician with no clinic_id) refuse for non-admins.
+    """
     if patient_id is None:
         return
-    patient = session.scalar(
-        select(Patient).where(
-            Patient.id == patient_id,
-            Patient.clinician_id == actor.actor_id,
-        )
-    )
-    if patient is None:
+    exists, clinic_id = resolve_patient_clinic_id(session, patient_id)
+    if not exists:
         raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+    try:
+        require_patient_owner(actor, clinic_id)
+    except ApiServiceError as exc:
+        if exc.status_code == 403:
+            raise ApiServiceError(
+                code="not_found", message="Patient not found.", status_code=404,
+            ) from exc
+        raise
+
+
+def _scope_documents_query_to_clinic(q, actor: AuthenticatedActor):
+    """Restrict a ``FormDefinition`` query to the actor's clinic.
+
+    Pre-fix every ``FormDefinition.clinician_id == actor.actor_id``
+    filter scoped to the owning clinician only. Same-clinic
+    colleagues never saw each other's documents, and an admin of
+    clinic A still saw zero rows because the filter never ran the
+    admin-bypass branch (the filter was `... == actor.actor_id`,
+    full stop).
+
+    Post-fix the query joins ``FormDefinition -> User`` on
+    ``clinician_id`` and filters on ``actor.clinic_id`` for non-
+    admin/supervisor roles. Admin / supervisor are unscoped
+    (cross-clinic operators by design).
+    """
+    if actor.role in ("admin", "supervisor"):
+        return q
+    if not getattr(actor, "clinic_id", None):
+        return q.filter(FormDefinition.id.is_(None))
+    return (
+        q.join(User, User.id == FormDefinition.clinician_id)
+        .filter(User.clinic_id == actor.clinic_id)
+    )
 
 
 def _validate_document_file_ref(file_ref: Optional[str]) -> None:
@@ -231,14 +279,14 @@ def list_documents(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> DocumentListResponse:
-    """List documents for the authenticated clinician, optionally filtered by patient."""
+    """List documents for the authenticated clinician's clinic, optionally filtered by patient."""
     require_minimum_role(actor, "clinician")
     _assert_document_patient_access(patient_id, actor, session)
-    stmt = select(FormDefinition).where(
-        FormDefinition.clinician_id == actor.actor_id,
+    base_q = session.query(FormDefinition).filter(
         FormDefinition.form_type == _DOC_FORM_TYPE,
     )
-    rows = session.scalars(stmt).all()
+    base_q = _scope_documents_query_to_clinic(base_q, actor)
+    rows = base_q.all()
 
     items = [_record_to_out(r) for r in rows]
 
@@ -452,15 +500,13 @@ def get_document(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> DocumentOut:
-    """Retrieve a single document by ID."""
+    """Retrieve a single document by ID (clinic-scoped)."""
     require_minimum_role(actor, "clinician")
-    record = session.scalar(
-        select(FormDefinition).where(
-            FormDefinition.id == doc_id,
-            FormDefinition.clinician_id == actor.actor_id,
-            FormDefinition.form_type == _DOC_FORM_TYPE,
-        )
+    base_q = session.query(FormDefinition).filter(
+        FormDefinition.id == doc_id,
+        FormDefinition.form_type == _DOC_FORM_TYPE,
     )
+    record = _scope_documents_query_to_clinic(base_q, actor).first()
     if record is None:
         raise ApiServiceError(code="not_found", message="Document not found.", status_code=404)
     return _record_to_out(record)
@@ -473,15 +519,13 @@ def update_document(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> DocumentOut:
-    """Update a document's status and notes with controlled signing metadata."""
+    """Update a document's status and notes with controlled signing metadata. Clinic-scoped."""
     require_minimum_role(actor, "clinician")
-    record = session.scalar(
-        select(FormDefinition).where(
-            FormDefinition.id == doc_id,
-            FormDefinition.clinician_id == actor.actor_id,
-            FormDefinition.form_type == _DOC_FORM_TYPE,
-        )
+    base_q = session.query(FormDefinition).filter(
+        FormDefinition.id == doc_id,
+        FormDefinition.form_type == _DOC_FORM_TYPE,
     )
+    record = _scope_documents_query_to_clinic(base_q, actor).first()
     if record is None:
         raise ApiServiceError(code="not_found", message="Document not found.", status_code=404)
 
@@ -535,15 +579,13 @@ def delete_document(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> None:
-    """Delete a document record."""
+    """Delete a document record (clinic-scoped)."""
     require_minimum_role(actor, "clinician")
-    record = session.scalar(
-        select(FormDefinition).where(
-            FormDefinition.id == doc_id,
-            FormDefinition.clinician_id == actor.actor_id,
-            FormDefinition.form_type == _DOC_FORM_TYPE,
-        )
+    base_q = session.query(FormDefinition).filter(
+        FormDefinition.id == doc_id,
+        FormDefinition.form_type == _DOC_FORM_TYPE,
     )
+    record = _scope_documents_query_to_clinic(base_q, actor).first()
     if record is None:
         raise ApiServiceError(code="not_found", message="Document not found.", status_code=404)
     session.delete(record)
@@ -658,15 +700,13 @@ def download_document(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ):
-    """Stream a previously uploaded document file."""
+    """Stream a previously uploaded document file (clinic-scoped)."""
     require_minimum_role(actor, "clinician")
-    record = session.scalar(
-        select(FormDefinition).where(
-            FormDefinition.id == doc_id,
-            FormDefinition.clinician_id == actor.actor_id,
-            FormDefinition.form_type == _DOC_FORM_TYPE,
-        )
+    base_q = session.query(FormDefinition).filter(
+        FormDefinition.id == doc_id,
+        FormDefinition.form_type == _DOC_FORM_TYPE,
     )
+    record = _scope_documents_query_to_clinic(base_q, actor).first()
     if record is None:
         raise ApiServiceError(code="not_found", message="Document not found.", status_code=404)
     meta = _meta_from_record(record)
@@ -711,15 +751,13 @@ def list_patient_documents(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> DocumentListResponse:
-    """List documents for a specific patient (clinician access only)."""
+    """List documents for a specific patient (clinic-scoped)."""
     require_minimum_role(actor, "clinician")
     _assert_document_patient_access(patient_id, actor, session)
-    rows = session.scalars(
-        select(FormDefinition).where(
-            FormDefinition.clinician_id == actor.actor_id,
-            FormDefinition.form_type == _DOC_FORM_TYPE,
-        )
-    ).all()
+    base_q = session.query(FormDefinition).filter(
+        FormDefinition.form_type == _DOC_FORM_TYPE,
+    )
+    rows = _scope_documents_query_to_clinic(base_q, actor).all()
 
     items = [_record_to_out(r) for r in rows]
     items = [i for i in items if i.patient_id == patient_id]
