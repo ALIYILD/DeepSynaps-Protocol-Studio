@@ -4,6 +4,7 @@ Manages report state transitions, finding-level review, sign-off, and audit.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -12,6 +13,8 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor
 from app.errors import ApiServiceError
 from app.persistence.models import QEEGAIReport, QEEGReportAudit, QEEGReportFinding
+
+_log = logging.getLogger(__name__)
 
 
 # ── Valid state machine ──────────────────────────────────────────────────────
@@ -77,7 +80,11 @@ def transition_report_state(
             report.clinician_reviewed = True
 
     if action in _REPORT_VERSION_INCREMENT_ACTIONS:
-        report.report_version = (report.report_version or 1) + 1
+        try:
+            current_ver = int(report.report_version or 1)
+        except (TypeError, ValueError):
+            current_ver = 1
+        report.report_version = str(current_ver + 1)
 
     # Audit trail
     audit = QEEGReportAudit(
@@ -90,6 +97,18 @@ def transition_report_state(
         note=note,
     )
     db.add(audit)
+
+    _log.info(
+        "qeeg_report_state_transition",
+        extra={
+            "event": "qeeg_report_state_transition",
+            "report_id": report.id,
+            "actor_id": actor.actor_id,
+            "actor_role": actor.role,
+            "previous_state": previous,
+            "new_state": action,
+        },
+    )
     return report
 
 
@@ -166,6 +185,16 @@ def sign_report(
         note="Clinician digital sign-off",
     )
     db.add(audit)
+
+    _log.info(
+        "qeeg_report_signed",
+        extra={
+            "event": "qeeg_report_signed",
+            "report_id": report.id,
+            "actor_id": actor.actor_id,
+            "actor_role": actor.role,
+        },
+    )
     return report
 
 

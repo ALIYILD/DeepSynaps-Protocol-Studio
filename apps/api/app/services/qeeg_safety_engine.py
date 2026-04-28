@@ -292,6 +292,17 @@ def detect_red_flags(analysis: QEEGAnalysis, notes: Optional[str] = None) -> dic
                 })
                 break
 
+    if flags:
+        _log.warning(
+            "qeeg_red_flag_detected",
+            extra={
+                "event": "qeeg_red_flag_detected",
+                "flag_count": len(flags),
+                "high_severity_count": sum(1 for f in flags if f["severity"] == "high"),
+                "codes": [f["code"] for f in flags],
+            },
+        )
+
     return {
         "flags": flags,
         "flag_count": len(flags),

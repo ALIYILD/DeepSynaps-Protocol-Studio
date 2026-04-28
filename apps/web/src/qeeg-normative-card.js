@@ -50,6 +50,7 @@ function renderNormativeModelCard(card) {
     + oodBanner
     + '<table class="ds-table" style="width:100%;font-size:13px"><tbody>' + rows + '</tbody></table>'
     + (lims ? '<h4 style="margin:12px 0 4px;font-size:13px">Limitations</h4>' + lims : '')
+    + '<p style="margin-top:12px;font-size:11px;color:var(--text-secondary)">This is decision-support information. Please consult your clinician for care decisions.</p>'
     + '</div></div>';
 }
 

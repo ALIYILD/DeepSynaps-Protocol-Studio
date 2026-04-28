@@ -65,7 +65,7 @@ def _cleanup_test_db():
 
 @pytest.fixture(autouse=True)
 def isolated_database() -> None:
-    reset_database()   # drop_all then create_all — always idempotent regardless of prior state
+    reset_database(fast=True)   # fast truncate path (~20x) — falls back to DDL on first call
     # Seed Clinic + User row keyed on the demo clinician's actor_id so the
     # cross-clinic ownership gate (added in the audit) finds a real clinic_id
     # when tests use the `clinician-demo-token`. Idempotent per-test thanks to
@@ -104,7 +104,7 @@ def isolated_database() -> None:
     finally:
         _db.close()
     yield
-    reset_database()   # clean up after each test
+    reset_database(fast=True)   # clean up after each test
 
 
 @pytest.fixture

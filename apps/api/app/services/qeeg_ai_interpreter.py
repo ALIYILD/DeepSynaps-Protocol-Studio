@@ -680,18 +680,6 @@ async def generate_ai_report(
         )
     )
 
-    # RAG literature — only query when we have advanced context (features /
-    # zscores / flagged_conditions). The module-missing fallback returns
-    # (empty_list, False).
-    literature_hits: list[dict] = []
-    grounded = False
-    if features or zscores or flagged_conditions:
-        modalities = _modalities_for_conditions(flagged_conditions)
-        literature_hits, grounded = _query_rag_literature(flagged_conditions, modalities)
-        lit_block = _format_literature_for_prompt(literature_hits)
-        if lit_block:
-            user_parts.append("\n" + lit_block)
-
     user_prompt = "\n".join(user_parts)
 
     system_prompts = {
@@ -702,8 +690,6 @@ async def generate_ai_report(
     system = system_prompts.get(report_type, QEEG_ANALYSIS_SYSTEM)
 
     prompt_hash = hashlib.sha256((system + user_prompt).encode()).hexdigest()[:16]
-
-    literature_refs = _build_literature_refs(literature_hits)
 
     try:
         raw_response = await _llm_chat_async(
@@ -738,7 +724,7 @@ async def generate_ai_report(
             "data": parsed,
             "literature_refs": literature_refs,
             "prompt_hash": prompt_hash,
-            "model_used": model_used,
+            "model_used": None,
         }
 
     except Exception as exc:

@@ -112,6 +112,18 @@ def classify_claims(ai_narrative: dict) -> list[dict]:
             "evidence_grade": proto.get("evidence_level") or None,
         })
 
+    blocked = [f for f in findings if f["claim_type"] == "BLOCKED"]
+    if blocked:
+        _log.warning(
+            "qeeg_claim_blocked",
+            extra={
+                "event": "qeeg_claim_blocked",
+                "blocked_count": len(blocked),
+                "block_reasons": list({f["block_reason"] for f in blocked if f["block_reason"]}),
+                "sections": [f["section"] for f in blocked],
+            },
+        )
+
     # 5. Band analysis interpretations
     for band, payload in (ai_narrative.get("band_analysis") or {}).items():
         interp = payload.get("interpretation") or ""

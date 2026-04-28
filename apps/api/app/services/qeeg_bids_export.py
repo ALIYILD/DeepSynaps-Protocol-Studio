@@ -45,6 +45,18 @@ def build_bids_package(
         .first()
     )
     if report and not can_export(report):
+        _log.warning(
+            "qeeg_bids_export_denied",
+            extra={
+                "event": "qeeg_bids_export_denied",
+                "analysis_id": analysis_id,
+                "report_id": report.id,
+                "report_state": report.report_state,
+                "signed_by": report.signed_by is not None,
+                "actor_id": actor.actor_id,
+                "actor_role": actor.role,
+            },
+        )
         raise ApiServiceError(
             code="export_not_allowed",
             message="Report must be approved and signed off before export.",

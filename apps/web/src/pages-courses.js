@@ -8,6 +8,12 @@ import {
   EVIDENCE_SUMMARY,
 } from './evidence-dataset.js';
 
+// ── HTML escape — prevents XSS from API/localStorage dynamic content ─────────
+function _esc(v) {
+  if (v == null) return '';
+  return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+}
+
 // ── SOAP Notes — localStorage persistence ────────────────────────────────────
 const SOAP_NOTES_KEY = 'ds_soap_notes';
 
@@ -372,9 +378,9 @@ function _tcListRow(c, openAEs = []) {
     onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''">
     <div style="flex:1;min-width:0;overflow:hidden">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;flex-wrap:nowrap;overflow:hidden">
-        <span style="font-size:13px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px">${c._patientName || '—'}</span>
-        <span style="font-size:11.5px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(c.condition_slug || '—').replace(/-/g,' ')}</span>
-        <span style="font-size:11px;color:var(--teal);font-weight:600;flex-shrink:0">${c.modality_slug || '—'}</span>
+        <span style="font-size:13px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px">${_esc(c._patientName) || '—'}</span>
+        <span style="font-size:11.5px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc((c.condition_slug || '—').replace(/-/g,' '))}</span>
+        <span style="font-size:11px;color:var(--teal);font-weight:600;flex-shrink:0">${_esc(c.modality_slug) || '—'}</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px;background:${st.bg};color:${st.color};white-space:nowrap">${st.label}</span>
@@ -409,8 +415,8 @@ function _tcCard(c, openAEs = []) {
     onclick="window._openCourse('${c.id}')">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
       <div style="flex:1;min-width:0">
-        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c._patientName || '—'}</div>
-        <div style="font-size:11.5px;color:var(--text-secondary)">${(c.condition_slug || '—').replace(/-/g,' ')} · <span style="color:var(--teal)">${c.modality_slug || '—'}</span></div>
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(c._patientName) || '—'}</div>
+        <div style="font-size:11.5px;color:var(--text-secondary)">${_esc((c.condition_slug || '—').replace(/-/g,' '))} · <span style="color:var(--teal)">${_esc(c.modality_slug) || '—'}</span></div>
       </div>
       <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:${st.bg};color:${st.color};flex-shrink:0;white-space:nowrap">${st.label}</span>
     </div>
@@ -846,9 +852,9 @@ export async function pgClinicalNotes(setTopbar) {
             <div style="font-size:0.85rem;font-weight:600">Session ${entry.sessionId.slice(0, 6)}</div>
             ${entry.note.flagged ? '<span style="color:var(--amber-500);font-size:0.75rem">★ Flagged</span>' : ''}
           </div>
-          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px">${entry.course?.title || entry.course?.condition_slug || 'Course ' + String(entry.courseId).slice(0, 6)}</div>
+          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px">${_esc(entry.course?.title || entry.course?.condition_slug || 'Course ' + String(entry.courseId).slice(0, 6))}</div>
           <div style="font-size:0.72rem;color:var(--text-secondary);margin-top:1px">${new Date(entry.note.updated_at).toLocaleDateString()}</div>
-          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">${entry.note.subjective?.slice(0, 60) || 'Empty note'}...</div>
+          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">${_esc(entry.note.subjective?.slice(0, 60)) || 'Empty note'}...</div>
         </div>`;
       }).join('');
 
@@ -902,13 +908,13 @@ export async function pgClinicalNotes(setTopbar) {
     win.document.write(`<!DOCTYPE html><html><head><title>SOAP Note</title>
       <style>body{font-family:Arial,sans-serif;padding:40px;max-width:800px;margin:0 auto}h1{font-size:1.4rem}h3{color:#555;font-size:0.9rem;text-transform:uppercase;margin-top:24px}p{line-height:1.7;white-space:pre-wrap}.header{border-bottom:2px solid #00d4bc;padding-bottom:12px;margin-bottom:24px}.footer{margin-top:40px;border-top:1px solid #ccc;padding-top:12px;font-size:0.8rem;color:#888}</style>
       </head><body>
-      <div class="header"><h1>Clinical SOAP Note</h1><p style="color:#666;font-size:0.9rem">Generated: ${new Date().toLocaleString()} · ${note.clinician || 'Clinician'}</p></div>
-      <h3>Subjective</h3><p>${note.subjective || '—'}</p>
-      <h3>Objective</h3><p>${note.objective || '—'}</p>
-      <h3>Assessment</h3><p>${note.assessment || '—'}</p>
-      <h3>Plan</h3><p>${note.plan || '—'}</p>
-      <h3>Adverse Effects</h3><p>${note.adverse || 'None reported'}</p>
-      <div class="footer">Next session: ${note.next_date || 'Not scheduled'} · DeepSynaps Protocol Studio · CONFIDENTIAL</div>
+      <div class="header"><h1>Clinical SOAP Note</h1><p style="color:#666;font-size:0.9rem">Generated: ${new Date().toLocaleString()} · ${_esc(note.clinician) || 'Clinician'}</p></div>
+      <h3>Subjective</h3><p>${_esc(note.subjective) || '—'}</p>
+      <h3>Objective</h3><p>${_esc(note.objective) || '—'}</p>
+      <h3>Assessment</h3><p>${_esc(note.assessment) || '—'}</p>
+      <h3>Plan</h3><p>${_esc(note.plan) || '—'}</p>
+      <h3>Adverse Effects</h3><p>${_esc(note.adverse) || 'None reported'}</p>
+      <div class="footer">Next session: ${_esc(note.next_date) || 'Not scheduled'} · DeepSynaps Protocol Studio · CONFIDENTIAL</div>
       </body></html>`);
     win.document.close();
     win.print();
@@ -3439,7 +3445,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
       if (okEl) {
         okEl.innerHTML = session.offline
           ? '\u{1F4BE} Saved offline \u2014 will sync when connected.'
-          : `\u2713 Session ${(course.sessions_delivered || 0) + 1} logged for <strong>${course.condition_slug?.replace(/-/g, ' ') || 'course'}</strong>.`;
+          : `\u2713 Session ${(course.sessions_delivered || 0) + 1} logged for <strong>${_esc(course.condition_slug?.replace(/-/g, ' ')) || 'course'}</strong>.`;
         okEl.style.display = '';
       }
       if (submitBtn) { submitBtn.textContent = 'Saved \u2713'; submitBtn.style.opacity = '0.6'; }
@@ -3450,7 +3456,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
         const aePanel = document.getElementById('sex-ae-panel');
         if (aeWarn) {
           aeWarn.style.display = '';
-          aeWarn.innerHTML = `<strong>\u26A0 Attention required:</strong> Tolerance rated \u201C${toleranceVal || outcomeVal}\u201D. Consider filing an adverse event report.`;
+          aeWarn.innerHTML = `<strong>\u26A0 Attention required:</strong> Tolerance rated \u201C${_esc(toleranceVal || outcomeVal)}\u201D. Consider filing an adverse event report.`;
         }
         if (aePanel) {
           aePanel.style.display = '';
@@ -4784,7 +4790,7 @@ export async function pgOutcomes(setTopbar, navigate) {
       const sparkSVG = miniSparkline(avgScores, 'var(--teal)', 120, 32);
       const monthLabels = months.length ? `${months[0]} — ${months[months.length - 1]}` : '';
       return `<div class="card" style="padding:16px">
-        <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${tmpl}">${tmpl}</div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(tmpl)}">${_esc(tmpl)}</div>
         <div style="display:flex;align-items:flex-end;gap:12px;margin-bottom:8px">
           ${sparkSVG || `<span style="font-size:11px;color:var(--text-tertiary)">Not enough data</span>`}
           <div>
@@ -4819,7 +4825,7 @@ export async function pgOutcomes(setTopbar, navigate) {
       const respPct  = withData.length > 0 ? Math.round((data.responders / withData.length) * 100) : 0;
       const pctColor = respPct >= 60 ? 'var(--green)' : respPct >= 40 ? 'var(--amber)' : 'var(--red)';
       return `<tr>
-        <td style="font-weight:500">${mod.replace(/-/g, ' ')}</td>
+        <td style="font-weight:500">${_esc(mod.replace(/-/g, ' '))}</td>
         <td class="mono">${data.pts.size}</td>
         <td class="mono">${data.outcomes.length}</td>
         <td>
@@ -5601,14 +5607,14 @@ export async function pgAdverseEvents(setTopbar, navigate) {
               const sc = SEV_COLOR[sev] || 'var(--text-secondary)';
               const course = courseMap[ae.course_id] || {};
               const patName = patMap[ae.patient_id] || (course.patient_id ? patMap[course.patient_id] : '') || '—';
-              return `<tr data-sev="${sev}" data-text="${(ae.event_type||'') + ' ' + (ae.description||ae.notes||'')}">
+              return `<tr data-sev="${sev}" data-text="${_esc((ae.event_type||'') + ' ' + (ae.description||ae.notes||''))}">
                 <td style="font-size:11.5px;color:var(--text-secondary);white-space:nowrap">${ae.reported_at ? ae.reported_at.split('T')[0] : ae.occurred_at ? ae.occurred_at.split('T')[0] : ae.created_at?.split('T')[0] || '—'}</td>
-                <td style="font-size:12px">${patName}</td>
-                <td style="font-size:12px">${course.condition_slug ? course.condition_slug.replace(/-/g,' ') + ' · ' + (course.modality_slug||'') : '—'}</td>
-                <td style="font-size:12.5px;font-weight:500">${ae.event_type || '—'}</td>
-                <td><span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${sc}22;color:${sc};font-weight:600">${sev}</span></td>
-                <td style="font-size:11.5px">${ae.onset_timing || '—'}</td>
-                <td style="font-size:11.5px">${ae.action_taken || '—'}</td>
+                <td style="font-size:12px">${_esc(patName)}</td>
+                <td style="font-size:12px">${course.condition_slug ? _esc(course.condition_slug.replace(/-/g,' ')) + ' · ' + _esc(course.modality_slug||'') : '—'}</td>
+                <td style="font-size:12.5px;font-weight:500">${_esc(ae.event_type) || '—'}</td>
+                <td><span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${sc}22;color:${sc};font-weight:600">${_esc(sev)}</span></td>
+                <td style="font-size:11.5px">${_esc(ae.onset_timing) || '—'}</td>
+                <td style="font-size:11.5px">${_esc(ae.action_taken) || '—'}</td>
                 <td style="font-size:11.5px">${ae.resolved_at || ae.resolution === 'resolved' ? '<span style="color:var(--green)">Resolved</span>' : '<span style="color:var(--amber)">Ongoing</span>'}</td>
                 <td>${ae.course_id ? `<button class="btn btn-sm" onclick="window._openCourse('${ae.course_id}')">View →</button>` : ''}</td>
               </tr>`;
@@ -5788,15 +5794,15 @@ function _prLibCard(p, compareSet) {
   const inCompare   = compareSet && compareSet.has(pid);
 
   return `<div class="proto-card" id="plc-${pid}">
-    <div class="proto-card-name">${name}</div>
+    <div class="proto-card-name">${_esc(name)}</div>
     <div class="proto-card-badges">
-      <span class="proto-cond-badge ${condClass}">${cond}</span>
-      <span class="proto-mod-badge">${modality}</span>
+      <span class="proto-cond-badge ${condClass}">${_esc(cond)}</span>
+      <span class="proto-mod-badge">${_esc(modality)}</span>
       ${eGrade ? evidenceBadge(eGrade) : ''}
       ${approval ? approvalBadge(approval) : ''}
     </div>
     <div class="proto-card-chips">
-      ${targetSite ? `<span class="proto-chip site">&#9900; ${targetSite}</span>` : ''}
+      ${targetSite ? `<span class="proto-chip site">&#9900; ${_esc(targetSite)}</span>` : ''}
       ${sessionCount ? `<span class="proto-chip count">${sessionCount} sessions</span>` : ''}
       ${offLabel ? govFlag('Off-label use', 'warn') : ''}
     </div>
@@ -5848,12 +5854,12 @@ export async function pgProtocolRegistry(setTopbar) {
 
   // Build dropdown option lists
   const condOptions = conds.length
-    ? conds.map(c => `<option value="${c.id || c.Condition_ID}">${c.name || c.Condition_Name || c.id}</option>`).join('')
-    : [...new Set(SAMPLE_PROTOCOLS.map(p => p.condition))].map(c => `<option value="${c}">${c}</option>`).join('');
+    ? conds.map(c => `<option value="${_esc(c.id || c.Condition_ID)}">${_esc(c.name || c.Condition_Name || c.id)}</option>`).join('')
+    : [...new Set(SAMPLE_PROTOCOLS.map(p => p.condition))].map(c => `<option value="${_esc(c)}">${_esc(c)}</option>`).join('');
 
   const modOptions = mods.length
-    ? mods.map(m => `<option value="${m.id || m.name || m.Modality_Name}">${m.name || m.Modality_Name || m.id}</option>`).join('')
-    : [...new Set(SAMPLE_PROTOCOLS.map(p => p.modality))].map(m => `<option value="${m}">${m}</option>`).join('');
+    ? mods.map(m => `<option value="${_esc(m.id || m.name || m.Modality_Name)}">${_esc(m.name || m.Modality_Name || m.id)}</option>`).join('')
+    : [...new Set(SAMPLE_PROTOCOLS.map(p => p.modality))].map(m => `<option value="${_esc(m)}">${_esc(m)}</option>`).join('');
 
   // Compare state (up to 2)
   window._prLibCompareSet = window._prLibCompareSet || new Set();
@@ -6493,7 +6499,7 @@ export async function pgClinicalReports(setTopbar) {
   try { patients = await api.listPatients(); } catch (_) { patients = []; }
 
   const ptOpts = patients.map(p =>
-    `<option value="${p.id}">${p.name || p.full_name || `Patient #${p.id}`}</option>`
+    `<option value="${_esc(p.id)}">${_esc(p.name || p.full_name || `Patient #${p.id}`)}</option>`
   ).join('');
 
   setTopbar({
@@ -6568,14 +6574,14 @@ export async function pgClinicalReports(setTopbar) {
           <div style="font-size:24px;flex-shrink:0;line-height:1">${icon}</div>
           <div style="flex:1;min-width:0">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px">
-              <span style="font-size:14px;font-weight:700;color:var(--text-primary)">${r.title || 'Untitled Report'}</span>
+              <span style="font-size:14px;font-weight:700;color:var(--text-primary)">${_esc(r.title || 'Untitled Report')}</span>
               <span class="rh-report-type-badge" style="background:${col}22;color:${col}">${label}</span>
             </div>
             <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:2px">
-              <span>👤 ${ptN}</span>
+              <span>👤 ${_esc(ptN)}</span>
               <span style="margin:0 8px;color:var(--border)">|</span>
               <span>📅 ${dateDisp}</span>
-              ${r.source ? `<span style="margin:0 8px;color:var(--border)">|</span><span>✍ ${r.source}</span>` : ''}
+              ${r.source ? `<span style="margin:0 8px;color:var(--border)">|</span><span>✍ ${_esc(r.source)}</span>` : ''}
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
               <button class="btn btn-sm" onclick="window._rhView('${r.id}')">View</button>
@@ -6630,7 +6636,7 @@ export async function pgClinicalReports(setTopbar) {
 
   function uploadModal() {
     const ptOptsModal = (window._rhPatients || []).map(p =>
-      `<option value="${p.id}">${p.name || p.full_name || `Patient #${p.id}`}</option>`
+      `<option value="${_esc(p.id)}">${_esc(p.name || p.full_name || `Patient #${p.id}`)}</option>`
     ).join('');
     return `
       <div class="rh-modal-overlay" id="rh-upload-modal" style="display:none" onclick="if(event.target===this) window._rhCloseModal()">
@@ -7301,9 +7307,9 @@ function _calRenderWeek() {
       const op    = a.status === 'completed' ? '0.6' : '1';
       return `<div class="cal-appt" onclick="window._calSelectAppt('${a.id}')"
         style="top:${topPx}px;height:${hPx}px;background:${bg};opacity:${op}"
-        title="${a.patientName} \u2014 ${a.type} (${a.startHour}:00, ${a.duration}min)">
-        <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.patientName}</div>
-        <div style="opacity:.8;font-size:.65rem">${a.type}</div>
+        title="${_esc(a.patientName)} \u2014 ${_esc(a.type)} (${a.startHour}:00, ${a.duration}min)">
+        <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(a.patientName)}</div>
+        <div style="opacity:.8;font-size:.65rem">${_esc(a.type)}</div>
       </div>`;
     }).join('');
     return `<div style="height:${totalH}px;position:relative;border-left:1px solid var(--border)${isT ? ';background:color-mix(in srgb,var(--teal) 4%,transparent)' : ''}">${apptHtml}</div>`;
@@ -7339,9 +7345,9 @@ function _calRenderDay() {
     const bg    = CAL_TYPE_COLOR[a.type] || '#555';
     return `<div class="cal-appt" onclick="window._calSelectAppt('${a.id}')"
       style="top:${topPx}px;height:${hPx}px;background:${bg};left:4px;right:4px"
-      title="${a.patientName}">
-      <div style="font-weight:700">${a.patientName}</div>
-      <div style="opacity:.85;font-size:.68rem">${a.type} \u00b7 ${a.startHour}:00 \u00b7 ${a.duration}min \u00b7 ${a.room}</div>
+      title="${_esc(a.patientName)}">
+      <div style="font-weight:700">${_esc(a.patientName)}</div>
+      <div style="opacity:.85;font-size:.68rem">${_esc(a.type)} \u00b7 ${a.startHour}:00 \u00b7 ${a.duration}min \u00b7 ${_esc(a.room)}</div>
     </div>`;
   }).join('');
 
@@ -7380,7 +7386,7 @@ function _calRenderMonth() {
     const inMonth = d.getMonth() === month;
     const isT     = ds === today;
     const dayA    = byDay[ds] || [];
-    const dots    = dayA.slice(0, 5).map(a => `<span class="cal-dot" style="background:${CAL_TYPE_COLOR[a.type] || '#555'}" title="${a.patientName}"></span>`).join('');
+    const dots    = dayA.slice(0, 5).map(a => `<span class="cal-dot" style="background:${CAL_TYPE_COLOR[a.type] || '#555'}" title="${_esc(a.patientName)}"></span>`).join('');
     const more    = dayA.length > 5 ? `<span style="font-size:.62rem;color:var(--text-secondary)">+${dayA.length - 5}</span>` : '';
     cells += `<div class="cal-month-cell${!inMonth ? ' other-month' : ''}${isT ? ' today' : ''}" onclick="window._calDayClick('${ds}')">
       <div style="font-size:.78rem;font-weight:${isT ? '700' : '400'};color:${isT ? 'var(--teal)' : 'inherit'};margin-bottom:4px">${d.getDate()}</div>
@@ -7403,7 +7409,7 @@ function _calRenderDetailPanel() {
   return `<div class="cal-detail-panel open" id="cal-detail-panel">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
       <div style="width:8px;height:32px;border-radius:3px;background:${bg};flex-shrink:0"></div>
-      <div style="flex:1;font-weight:700;font-size:.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.patientName}</div>
+      <div style="flex:1;font-weight:700;font-size:.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(a.patientName)}</div>
       <button onclick="window._calClosePanel()" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:1.3rem;line-height:1;padding:0">\u00d7</button>
     </div>
     <div style="margin-bottom:12px;display:flex;gap:6px;flex-wrap:wrap">
@@ -7416,7 +7422,7 @@ function _calRenderDetailPanel() {
       <div>\uD83D\uDCCD ${a.room}</div>
       ${a.recurrence && a.recurrence !== 'none' ? `<div>\uD83D\uDD01 Recurring ${a.recurrence}</div>` : ''}
     </div>
-    ${a.notes ? `<div style="font-size:.82rem;background:rgba(255,255,255,.04);border-radius:6px;padding:10px;margin-bottom:14px;line-height:1.5">${a.notes}</div>` : ''}
+    ${a.notes ? `<div style="font-size:.82rem;background:rgba(255,255,255,.04);border-radius:6px;padding:10px;margin-bottom:14px;line-height:1.5">${_esc(a.notes)}</div>` : ''}
     <div style="display:flex;flex-direction:column;gap:8px">
       ${isActive ? `
         <button class="btn-primary" style="font-size:.8rem;padding:8px" onclick="window._calCompleteAppt('${a.id}')">Mark Complete</button>
@@ -8375,7 +8381,7 @@ export async function pgSessionMonitor(setTopbar) {
     const logEl = document.getElementById('monitor-log');
     if (logEl) {
       logEl.innerHTML = _monitorSession.cues.map(c =>
-        `<div class="monitor-log-entry">[${c.ts}] ${c.msg}</div>`
+        `<div class="monitor-log-entry">[${c.ts}] ${_esc(c.msg)}</div>`
       ).join('');
       logEl.scrollTop = logEl.scrollHeight;
     }
@@ -8747,13 +8753,13 @@ function _predHistoryTableHTML() {
            style="width:64px;padding:3px 6px;background:var(--input-bg,var(--surface-2,#1e293b));border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:.8rem"
            onchange="window._qqEnterActual('${p.id}', this.value)">`;
     return `<tr style="border-bottom:1px solid var(--border)">
-      <td style="padding:8px 10px">${p.patientName}</td>
+      <td style="padding:8px 10px">${_esc(p.patientName)}</td>
       <td style="padding:8px 10px;color:var(--text-muted)">${p.date}</td>
       <td style="padding:8px 10px;font-weight:700">${p.result.predictedScore}</td>
       <td style="padding:8px 10px"><span style="color:${riskColor};font-size:.78rem;font-weight:700">${riskLabel}</span></td>
       <td style="padding:8px 10px">${actualCell}</td>
       <td style="padding:8px 10px;color:var(--text-muted)">${accuracy}</td>
-      <td style="padding:8px 10px;color:var(--text-muted);font-size:.8rem;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(p.notes || '').replace(/"/g, '&quot;')}">${p.notes || '\u2014'}</td>
+      <td style="padding:8px 10px;color:var(--text-muted);font-size:.8rem;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(p.notes || '')}">${_esc(p.notes) || '\u2014'}</td>
       <td style="padding:8px 10px">
         <button onclick="window._qqDeletePrediction('${p.id}')"
           style="background:none;border:1px solid #ef444466;color:#ef4444;cursor:pointer;font-size:.78rem;padding:2px 8px;border-radius:4px"
@@ -9304,7 +9310,7 @@ function _reRuleCardHTML(rule) {
           <span class="toggle-slider"></span>
         </label>
         <div style="min-width:0">
-          <span style="font-weight:600;font-size:.92rem">${rule.name}</span>
+          <span style="font-weight:600;font-size:.92rem">${_esc(rule.name)}</span>
           <span class="rule-trigger-badge" style="margin-left:8px">${_reTriggerLabel(rule.trigger)}</span>
         </div>
       </div>
@@ -9424,10 +9430,10 @@ function _reLogTableHTML(filter) {
     const dismissBtn = e.dismissed ? '' : `<button class="btn-sm" onclick="window._rulesDismissAlert('${e.id}')">Dismiss</button>`;
     return `
     <tr class="${e.dismissed ? '' : 'alert-log-row-active'}">
-      <td style="padding:8px 10px;font-size:.85rem;font-weight:600">${e.ruleName}${demoBadge}</td>
-      <td style="padding:8px 10px;font-size:.85rem">${e.patientName}${e.demo ? ' <span style="font-size:.72rem;color:var(--amber);font-weight:700">· demo patient</span>' : ''}</td>
+      <td style="padding:8px 10px;font-size:.85rem;font-weight:600">${_esc(e.ruleName)}${demoBadge}</td>
+      <td style="padding:8px 10px;font-size:.85rem">${_esc(e.patientName)}${e.demo ? ' <span style="font-size:.72rem;color:var(--amber);font-weight:700">· demo patient</span>' : ''}</td>
       <td style="padding:8px 10px;font-size:.82rem;color:var(--text-muted)">${ts}</td>
-      <td style="padding:8px 10px;font-size:.78rem;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${e.details}">${e.details}</td>
+      <td style="padding:8px 10px;font-size:.78rem;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(e.details)}">${_esc(e.details)}</td>
       <td style="padding:8px 10px">${statusBadge}</td>
       <td style="padding:8px 10px">${dismissBtn}</td>
     </tr>`;
@@ -10209,11 +10215,11 @@ export async function pgAINoteAssistant(setTopbar) {
           onmouseover="this.style.background='var(--hover-bg,rgba(255,255,255,0.05))'"
           onmouseout="this.style.background=''"
           onclick="window._aiSelectSession(${i})">
-          <div style="font-weight:600;font-size:0.875rem">${s.patientName || 'Unknown Patient'}</div>
+          <div style="font-weight:600;font-size:0.875rem">${_esc(s.patientName || 'Unknown Patient')}</div>
           <div style="font-size:0.78rem;color:var(--text-secondary);margin-top:2px">
-            ${s.modality || 'Neurofeedback'} · ${s.duration || 30}min · ${s.condition || 'General'}
+            ${_esc(s.modality || 'Neurofeedback')} · ${s.duration || 30}min · ${_esc(s.condition || 'General')}
           </div>
-          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px;font-style:italic">${s.notes || 'No notes'}</div>
+          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px;font-style:italic">${_esc(s.notes || 'No notes')}</div>
         </div>`).join('');
     }
     document.getElementById('ai-session-modal').style.display = 'flex';
@@ -10668,17 +10674,17 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
       <!-- Header -->
       <div class="ccr-header">
         <div class="ccr-header-left">
-          <div class="ccr-clinic-name">${clinicName}</div>
+          <div class="ccr-clinic-name">${_esc(clinicName)}</div>
           <h1 class="ccr-title">Course Completion Report</h1>
-          <div class="ccr-subtitle">${_condLabel} &nbsp;·&nbsp; ${_modLabel}</div>
+          <div class="ccr-subtitle">${_esc(_condLabel)} &nbsp;·&nbsp; ${_esc(_modLabel)}</div>
         </div>
         <div class="ccr-header-right">
           <div class="ccr-patient-block">
             <div class="ccr-patient-label">Patient</div>
-            <div class="ccr-patient-name">${patientName}</div>
+            <div class="ccr-patient-name">${_esc(patientName)}</div>
           </div>
           <div class="ccr-meta-block">
-            <div><span class="ccr-meta-label">Protocol:</span> ${course.protocol_id || course.protocol_name || course.name || '—'}</div>
+            <div><span class="ccr-meta-label">Protocol:</span> ${_esc(course.protocol_id || course.protocol_name || course.name || '—')}</div>
             <div><span class="ccr-meta-label">Report Date:</span> ${reportDate}</div>
           </div>
         </div>
@@ -10717,7 +10723,7 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
         <div class="ccr-section-title">Responder Status</div>
         <div class="ccr-responder-row">
           ${responderBadge}
-          ${firstWithPct ? `<span class="ccr-responder-detail">Based on ${firstWithPct.template_title || firstWithPct.template_id || firstWithPct.template_name || 'outcome measure'}: ${firstWithPct.pct_change > 0 ? '+' : ''}${Math.round(firstWithPct.pct_change)}% change</span>` : '<span class="ccr-responder-detail">No outcome comparison data available</span>'}
+          ${firstWithPct ? `<span class="ccr-responder-detail">Based on ${_esc(firstWithPct.template_title || firstWithPct.template_id || firstWithPct.template_name || 'outcome measure')}: ${firstWithPct.pct_change > 0 ? '+' : ''}${Math.round(firstWithPct.pct_change)}% change</span>` : '<span class="ccr-responder-detail">No outcome comparison data available</span>'}
         </div>
       </div>
 
@@ -10753,9 +10759,9 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
                   return `<tr>
                   <td>${_ccrFmtDate(s.created_at || s.scheduled_at || s.date)}</td>
                   <td>${s.duration_minutes != null ? s.duration_minutes + ' min' : '—'}</td>
-                  <td>${s.tolerance_rating || '—'}</td>
+                  <td>${_esc(s.tolerance_rating) || '—'}</td>
                   <td>${s.interruptions ? '<span class="ccr-ae-yes">Yes</span>' : '<span class="ccr-ae-no">No</span>'}</td>
-                  <td>${s.interruption_reason || '—'}</td>
+                  <td>${_esc(s.interruption_reason) || '—'}</td>
                   <td>${checklist ? `${checklist.completed}/${checklist.total}` : '—'}</td>
                   <td>${s.protocol_deviation ? '<span class="ccr-ae-yes">Yes</span>' : '<span class="ccr-ae-no">No</span>'}</td>
                 </tr>`;
@@ -10774,7 +10780,7 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
           ${adverseEvents.map(ae => `
             <div class="ccr-adverse-item">
               <span class="ccr-adverse-date">${_ccrFmtDate(ae.reported_at || ae.created_at)}</span>
-              <span class="ccr-adverse-note">${(ae.event_type || 'Adverse event').replace(/_/g, ' ')} · <strong>${ae.severity || '—'}</strong>${ae.description ? ' — ' + ae.description : ''}</span>
+              <span class="ccr-adverse-note">${_esc((ae.event_type || 'Adverse event').replace(/_/g, ' '))} · <strong>${_esc(ae.severity || '—')}</strong>${ae.description ? ' — ' + _esc(ae.description) : ''}</span>
             </div>`).join('')}
         </div>
       </div>` : ''}
@@ -10795,7 +10801,7 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
           <div class="ccr-sig-label">Clinician Signature &amp; Date</div>
         </div>
         <div class="ccr-footer-right">
-          <div class="ccr-footer-clinic">${clinicName}</div>
+          <div class="ccr-footer-clinic">${_esc(clinicName)}</div>
           <div class="ccr-footer-date">Generated: ${reportDate}</div>
         </div>
       </div>
@@ -10863,7 +10869,7 @@ window._openQuickOutcomeCapture = function(courseId, sessionId, patientName) {
         <h2 class="qoc-title" id="qoc-title">Record Outcome</h2>
         <button class="qoc-close-btn" onclick="document.getElementById('qoc-overlay').remove()" aria-label="Close">&times;</button>
       </div>
-      ${patientName ? `<div class="qoc-patient-name">${patientName}</div>` : ''}
+      ${patientName ? `<div class="qoc-patient-name">${_esc(patientName)}</div>` : ''}
       <div class="qoc-body">
         <div class="qoc-field">
           <label class="qoc-label" for="qoc-measure">Outcome Measure</label>

@@ -58,7 +58,9 @@ function renderTimeline(events) {
 
   return '<div class="ds-card qeeg-ai-card">'
     + '<div class="ds-card__header"><h3>Timeline</h3></div>'
-    + '<div class="ds-card__body">' + rows + '</div></div>';
+    + '<div class="ds-card__body">' + rows
+    + '<p style="margin-top:12px;font-size:11px;color:var(--text-secondary)">This is decision-support information. Timeline interpretations require clinician review.</p>'
+    + '</div></div>';
 }
 
 async function mountTimeline(containerId, patientId, api) {

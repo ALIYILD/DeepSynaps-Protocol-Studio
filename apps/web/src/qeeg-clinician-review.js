@@ -3,7 +3,7 @@
 //
 // Exports:
 //   renderClinicianReview(report, findings)  → HTML string
-//   mountClinicianReview(containerId, reportId, api)
+//   mountClinicianReview(containerId, analysisId, reportId, api)
 // ─────────────────────────────────────────────────────────────────────────────
 
 function esc(v) {

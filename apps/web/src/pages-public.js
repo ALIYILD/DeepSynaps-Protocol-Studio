@@ -2996,7 +2996,7 @@ export async function pgPermissionsAdmin(setTopbar) {
       if (checked) { if (!_workPerms[role].includes(fid)) _workPerms[role].push(fid); }
       else _workPerms[role] = _workPerms[role].filter(id => id !== fid);
     };
-    window._permSave   = () => { savePermissions(_workPerms); _permToast('Permissions saved.'); };
+    window._permSave   = () => { savePermissions(_workPerms); _permToast('Permissions saved in this browser view.'); };
     window._permReset  = () => {
       if (!confirm('Reset all permissions to defaults? This cannot be undone.')) return;
       resetPermissions(); _workPerms = getPermissions(); render(); _permToast('Permissions reset to defaults.');
@@ -3043,7 +3043,7 @@ export async function pgPermissionsAdmin(setTopbar) {
       c.sessionRecordingRetentionDays = parseInt(document.getElementById('sec-ret-sessions')?.value || '180', 10);
       c.allowGuestAccess = !!document.getElementById('sec-guest')?.checked;
       c.ipWhitelist      = document.getElementById('sec-ip')?.value || '';
-      saveSecurityConfig(c); _permToast('Security config saved.');
+      saveSecurityConfig(c); _permToast('Security config saved in this browser view.');
     };
 
     window._2faSelectMethod = method => { _twoFaMethod = method; render(); };
@@ -3059,7 +3059,7 @@ export async function pgPermissionsAdmin(setTopbar) {
     };
     window._2faDisable = () => {
       if (!confirm('Disable two-factor authentication? Your account will be less secure.')) return;
-      save2FAState(null); _twoFaStep = 1; _twoFaMethod = 'totp'; render(); _permToast('2FA has been disabled.');
+      save2FAState(null); _twoFaStep = 1; _twoFaMethod = 'totp'; render(); _permToast('2FA was disabled in this browser view.');
     };
     window._2faDownloadCodes = () => {
       const state = get2FAState();

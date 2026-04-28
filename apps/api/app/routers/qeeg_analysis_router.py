@@ -210,7 +210,7 @@ class AnalysisOut(BaseModel):
             analysis_error=r.analysis_error,
             band_powers=_maybe_json_loads(r.band_powers_json),
             artifact_rejection=_maybe_json_loads(r.artifact_rejection_json),
-            advanced_analyses=_maybe_json_loads(r.advanced_analyses_json),
+            advanced_analyses=_maybe_json_loads(getattr(r, "advanced_analyses_json", None)),
             aperiodic=_maybe_json_loads(getattr(r, "aperiodic_json", None)),
             peak_alpha_freq=_maybe_json_loads(getattr(r, "peak_alpha_freq_json", None)),
             connectivity=_maybe_json_loads(getattr(r, "connectivity_json", None)),
@@ -266,7 +266,7 @@ class AIReportOut(BaseModel):
     model_version: Optional[str] = None
     prompt_version: Optional[str] = None
     report_version: Optional[str] = None
-    claim_governance: Optional[dict] = None
+    claim_governance: Optional[list] = None
     signed_by: Optional[str] = None
     signed_at: Optional[str] = None
     created_at: str
@@ -1252,10 +1252,8 @@ async def generate_ai_report_endpoint(
     # ── Claim Governance (CONTRACT §1.3) ─────────────────────────────────
     from app.services.qeeg_claim_governance import classify_claims, sanitize_for_patient
 
-    ai_narrative_text = report_data.get("executive_summary", "")
-    for finding in report_data.get("findings", []):
-        ai_narrative_text += "\n" + (finding.get("description") or "")
-    governance = classify_claims(ai_narrative_text)
+    # Pass the full report dict to classify_claims (it expects a dict, not a string)
+    governance = classify_claims(report_data)
 
     # ── Patient-facing report ──────────────────────────────────────────────
     patient_report = sanitize_for_patient(report_data)
@@ -1289,11 +1287,12 @@ async def generate_ai_report_endpoint(
     # ── Per-finding records (CONTRACT §1.4) ──────────────────────────────
     for idx, finding in enumerate(report_data.get("findings", [])):
         finding_text = finding.get("description", "")
-        finding_gov = classify_claims(finding_text)
-        # Use the first claim type or default to INFERRED
+        # Build a minimal report-shaped dict so classify_claims can process the finding
+        finding_gov = classify_claims({"findings": [{"observation": finding_text}]})
+        # classify_claims returns a list of classified findings
         claim_type = "INFERRED"
-        if finding_gov.get("claims"):
-            claim_type = finding_gov["claims"][0].get("type", "INFERRED")
+        if finding_gov and len(finding_gov) > 0:
+            claim_type = finding_gov[0].get("claim_type", "INFERRED")
 
         rf = QEEGReportFinding(
             report_id=report.id,
@@ -3401,7 +3400,12 @@ def get_red_flags(
         except (TypeError, ValueError):
             pass
     if flags is None:
-        flags = detect_red_flags(analysis, notes=analysis.qeeg_record.summary_notes if analysis.qeeg_record else None)
+        notes = None
+        if analysis.qeeg_record_id:
+            qeeg_record = db.query(QEEGRecord).filter_by(id=analysis.qeeg_record_id).first()
+            if qeeg_record:
+                notes = qeeg_record.summary_notes
+        flags = detect_red_flags(analysis, notes=notes)
         analysis.red_flags_json = json.dumps(flags)
         db.commit()
     return RedFlagsOut(**flags)
@@ -3587,12 +3591,23 @@ def get_patient_facing_report(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ):
-    """Return the sanitized patient-facing version of an AI report."""
+    """Return the sanitized patient-facing version of an AI report.
+
+    Gated: report must be approved (or reviewed with amendments) before
+    the patient-facing version is returned.
+    """
     require_minimum_role(actor, "clinician")
     report = db.query(QEEGAIReport).filter_by(id=report_id).first()
     if not report:
         raise ApiServiceError(code="not_found", message="Report not found", status_code=404)
     _gate_patient_access(actor, report.patient_id, db)
+
+    if report.report_state not in ("APPROVED", "REVIEWED_WITH_AMENDMENTS"):
+        raise ApiServiceError(
+            code="report_not_approved",
+            message="Patient-facing report is only available after clinician approval.",
+            status_code=403,
+        )
 
     if not report.patient_facing_report_json:
         return {"disclaimer": "Patient-facing report not yet generated.", "content": None}

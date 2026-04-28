@@ -54,7 +54,7 @@ def build_timeline(patient_id: str, db: Session) -> list[dict]:
         events.append({
             "date": date_str,
             "event_type": "qeeg_followup" if baseline_bp is not bp else "qeeg_baseline",
-            "title": f"qEEG — {analysis.original_filename or analysis.id[:8]}",
+            "title": f"qEEG — {analysis.id[:8]}",
             "summary": f"{analysis.channel_count or 0} ch, {analysis.sample_rate_hz or 0:.0f} Hz, {analysis.recording_duration_sec or 0:.0f}s",
             "status": status,
             "rci": rci,

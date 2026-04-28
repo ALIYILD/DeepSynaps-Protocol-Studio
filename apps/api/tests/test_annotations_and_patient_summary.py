@@ -83,28 +83,27 @@ def test_annotations_round_trip_for_clinician(client: TestClient, auth_headers: 
         "/api/v1/annotations",
         headers=auth_headers["clinician"],
         json={
-            "patient_id": patient_id,
-            "target_type": "qeeg",
-            "target_id": qeeg_id,
-            "title": "Frontal review",
-            "body": "Check frontal theta shift against symptoms.",
-            "anchor_label": "Compare tab",
-            "anchor_data": {"analysis_id": qeeg_id},
+            "analysis_id": qeeg_id,
+            "analysis_type": "qeeg",
+            "target_kind": "finding",
+            "text": "Check frontal theta shift against symptoms.",
+            "tags": ["review", "frontal"],
         },
     )
     assert create_resp.status_code == 201, create_resp.text
     created = create_resp.json()
-    assert created["target_type"] == "qeeg"
-    assert created["anchor_data"]["analysis_id"] == qeeg_id
+    assert created["analysis_type"] == "qeeg"
+    assert created["target_kind"] == "finding"
+    assert created["text"] == "Check frontal theta shift against symptoms."
 
     list_resp = client.get(
-        f"/api/v1/annotations?patient_id={patient_id}&target_type=qeeg&target_id={qeeg_id}",
+        f"/api/v1/annotations?analysis_id={qeeg_id}&analysis_type=qeeg",
         headers=auth_headers["clinician"],
     )
     assert list_resp.status_code == 200, list_resp.text
     rows = list_resp.json()
     assert len(rows) == 1
-    assert rows[0]["title"] == "Frontal review"
+    assert rows[0]["text"] == "Check frontal theta shift against symptoms."
 
     delete_resp = client.delete(
         f"/api/v1/annotations/{created['id']}",

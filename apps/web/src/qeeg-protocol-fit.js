@@ -65,6 +65,7 @@ function renderProtocolFit(fit) {
     + contras
     + rationale
     + checks
+    + '<p style="margin-top:12px;font-size:11px;color:var(--text-secondary)">This is decision-support information. Protocol recommendations require clinician review before use.</p>'
     + '</div></div>';
 }
 

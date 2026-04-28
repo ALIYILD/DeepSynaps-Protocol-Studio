@@ -38,7 +38,7 @@ from app.auth import (
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.limiter import limiter
-from app.persistence.models import MriAnalysis, QEEGAnalysis
+from app.persistence.models import AiSummaryAudit, Annotation, MriAnalysis, QEEGAnalysis
 from app.repositories.patients import resolve_patient_clinic_id
 
 
@@ -196,8 +196,13 @@ def _audit(db: Session, actor: AuthenticatedActor, action: str, ann: Annotation)
     """
     try:
         preview = f"{action}:{ann.analysis_type}:{ann.analysis_id}:{ann.target_kind}"
+        # Best-effort patient_id resolution from the underlying analysis.
+        patient_id = ann.analysis_id[:36]
+        analysis = _get_analysis(db, ann.analysis_id, ann.analysis_type)
+        if analysis is not None:
+            patient_id = analysis.patient_id or patient_id
         audit = AiSummaryAudit(
-            patient_id=ann.analysis_id[:36],
+            patient_id=patient_id,
             actor_id=actor.actor_id,
             actor_role=actor.role,
             summary_type=f"annotation_{action}",
@@ -314,7 +319,14 @@ def list_annotations(
     list of AnnotationOut
     """
     require_minimum_role(actor, "clinician")
-    _gate_patient_access(actor, patient_id, db)
+    analysis = _get_analysis(db, analysis_id, analysis_type)
+    if analysis is None:
+        raise ApiServiceError(
+            code="analysis_not_found",
+            message=f"{analysis_type} analysis {analysis_id!r} not found",
+            status_code=404,
+        )
+    _gate_patient_access(actor, analysis.patient_id, db)
 
     rows = (
         db.query(Annotation)
@@ -342,29 +354,6 @@ def patch_annotation(
     non-author clinicians receive a 403.
     """
     require_minimum_role(actor, "clinician")
-    _gate_patient_access(actor, body.patient_id, db)
-
-    # FK-stuffing guard: target_id is stored verbatim and surfaces via the
-    # list endpoint's target_id query filter. Without this check a clinician
-    # could attach an annotation against another clinic's qEEG/MRI analysis
-    # under one of their own patients (cross-clinic poisoning of analysis
-    # views in same-clinic workflows that filter by target_id).
-    if body.target_type == "qeeg":
-        target = (
-            db.query(QEEGAnalysis).filter(QEEGAnalysis.id == body.target_id).first()
-        )
-    else:
-        target = (
-            db.query(MriAnalysis)
-            .filter(MriAnalysis.analysis_id == body.target_id)
-            .first()
-        )
-    if target is None or target.patient_id != body.patient_id:
-        raise ApiServiceError(
-            code="invalid_annotation_target",
-            message="target_id does not match the supplied patient_id.",
-            status_code=422,
-        )
 
     row = db.query(Annotation).filter_by(id=annotation_id).first()
     if not row or row.deleted_at is not None:
@@ -373,6 +362,11 @@ def patch_annotation(
             message="Annotation not found or already deleted",
             status_code=404,
         )
+    # Cross-clinic gate: verify the underlying analysis belongs to this actor.
+    analysis = _get_analysis(db, row.analysis_id, row.analysis_type)
+    if analysis is not None:
+        _gate_patient_access(actor, analysis.patient_id, db)
+
     if row.author_id != actor.actor_id and actor.role != "admin":
         raise ApiServiceError(
             code="forbidden",
@@ -421,6 +415,11 @@ def delete_annotation(
             message="Only the author or an admin may delete this annotation.",
             status_code=403,
         )
+
+    # Cross-clinic gate: verify the underlying analysis belongs to this actor.
+    analysis = _get_analysis(db, row.analysis_id, row.analysis_type)
+    if analysis is not None:
+        _gate_patient_access(actor, analysis.patient_id, db)
 
     row.deleted_at = datetime.now(timezone.utc)
     db.commit()

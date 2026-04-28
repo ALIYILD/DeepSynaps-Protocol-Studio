@@ -186,3 +186,45 @@ test('renderTimeline renders events sorted', () => {
   assert.ok(html.includes('improved'));
   assert.ok(html.includes('RCI 1.23'));
 });
+
+// ── Disclaimer tests ─────────────────────────────────────────────────────────
+
+test('renderSafetyCockpit includes disclaimer when provided', () => {
+  const html = safety.renderSafetyCockpit({
+    checks: [],
+    red_flags: [],
+    overall_status: 'VALID_FOR_REVIEW',
+    disclaimer: 'Decision-support only.',
+  });
+  assert.ok(html.includes('Decision-support only.'));
+});
+
+test('renderNormativeModelCard includes decision-support disclaimer', () => {
+  const html = normative.renderNormativeModelCard({ normative_db_name: 'Test DB', complete: true, limitations: [] });
+  assert.ok(html.includes('decision-support information'));
+  assert.ok(html.includes('consult your clinician'));
+});
+
+test('renderProtocolFit includes decision-support disclaimer', () => {
+  const html = protocol.renderProtocolFit({ pattern_summary: 'Test fit', evidence_grade: 'B', off_label_flag: false, clinician_reviewed: false });
+  assert.ok(html.includes('decision-support information'));
+  assert.ok(html.includes('clinician review'));
+});
+
+test('renderTimeline includes decision-support disclaimer', () => {
+  const html = timeline.renderTimeline([{ date: '2024-01-15', event_type: 'qeeg', title: 'Baseline', summary: 'First.', status: 'unchanged', source: 'qeeg' }]);
+  assert.ok(html.includes('decision-support information'));
+});
+
+test('renderPatientReport includes disclaimer even when not in content', () => {
+  const html = patient.renderPatientReport({ content: { executive_summary: 'Summary.' } });
+  assert.ok(html.includes('informational purposes only'));
+});
+
+// ── Edge case: blocked claims in patient report ──────────────────────────────
+
+test('renderPatientReport escapes HTML in content', () => {
+  const html = patient.renderPatientReport({ content: { executive_summary: '<script>alert(1)</script>' } });
+  assert.ok(!html.includes('<script>'));
+  assert.ok(html.includes('&lt;script&gt;'));
+});

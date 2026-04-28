@@ -3829,13 +3829,22 @@ export async function pgPatientSessions() {
     });
   };
   window._psReportStop = async function() {
-    if (typeof window._showNotifToast === 'function') {
-      window._showNotifToast({ title: 'Session pause requested', body: 'Your technician has been alerted. Please sit tight.', severity: 'warning' });
-    }
     if (uid && api.sendPortalMessage) {
       try {
         await api.sendPortalMessage({ body: 'Patient pressed STOP during a live session — immediate attention requested.', category: 'safety_alert', priority: 'high' });
-      } catch (_e) { console.error('[session] stop alert failed:', _e); }
+        if (typeof window._showNotifToast === 'function') {
+          window._showNotifToast({ title: 'Session pause requested', body: 'Your technician has been alerted. Please sit tight.', severity: 'warning' });
+        }
+      } catch (_e) {
+        console.error('[session] stop alert failed:', _e);
+        if (typeof window._showNotifToast === 'function') {
+          window._showNotifToast({ title: 'Alert not sent', body: 'This portal could not confirm staff notification. Contact clinic staff immediately.', severity: 'critical' });
+        }
+      }
+      return;
+    }
+    if (typeof window._showNotifToast === 'function') {
+      window._showNotifToast({ title: 'Alert not sent', body: 'This portal could not confirm staff notification. Contact clinic staff immediately.', severity: 'critical' });
     }
   };
   window._psReportDiscomfort = async function() {
@@ -4922,7 +4931,7 @@ function renderLikertForm(containerId, patientId, config) {
       // which applies to any measure).
       const bodyText = (formKey === 'phq9')
         ? t('patient.assess.result.body')
-        : 'Your score has been recorded. Clinic review depends on portal workflow before your next session. If you are experiencing thoughts of self-harm, please contact your clinician immediately or call a crisis line.';
+        : 'Your score has been saved in this browser. Clinic review depends on portal workflow before your next session. If you are experiencing thoughts of self-harm, please contact your clinician immediately or call a crisis line.';
       const titleText = (formKey === 'phq9')
         ? t('patient.assess.result.title')
         : 'Assessment Result';

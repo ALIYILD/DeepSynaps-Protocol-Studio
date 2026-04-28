@@ -8085,7 +8085,7 @@ export async function pgWearableIntegration(setTopbar) {
           recoveryScore: Math.max(0, Math.min(100, Math.round(100 - _computeStressIndex(avgHR, avgHRV || 40) * 0.7))),
         };
         saveBiosensorSession(session);
-        if (statusEl) { statusEl.style.color='#10b981'; statusEl.textContent=`Imported ${hrData.length} data points. Session saved.`; }
+        if (statusEl) { statusEl.style.color='#10b981'; statusEl.textContent=`Imported ${hrData.length} data points. Session saved in this browser view.`; }
         // Reset file input
         input.value = '';
       } catch(err) {
