@@ -635,8 +635,159 @@ def list_clinic_subscriptions(*, db: "Session", clinic_id: str) -> list[dict]:
     ]
 
 
+# ---------------------------------------------------------------------------
+# Phase 10 — admin webhook replay
+# ---------------------------------------------------------------------------
+
+
+def replay_webhook_event(db: "Session", *, event_id: str) -> dict:
+    """Re-fetch ``event_id`` from Stripe and re-run the SKU webhook handler.
+
+    Phase 10 — operator-triggered replay. The Phase 7 dedupe table only
+    stores ``(id, event_type, received_at, processed)`` — the raw payload
+    is NOT persisted. So a "replay" cannot read a stored body; we must
+    re-fetch the canonical event from Stripe via
+    :func:`stripe.Event.retrieve` and run the same apply logic against it.
+
+    Behaviour
+    ---------
+    * Goes through :func:`_get_client` so the live-key guardrail still
+      applies — operators replaying against a live keyset must have set
+      ``STRIPE_LIVE_MODE_ACK=1``.
+    * Bypasses the dedupe gate: we explicitly want to re-process this
+      event, so we call :func:`_apply_webhook` directly with the freshly
+      fetched ``event.data.object``. The dedupe row is intentionally left
+      untouched so the audit trail of "we already saw this" survives.
+    * Never crashes the caller — every failure path returns a structured
+      envelope with ``ok=False`` and an ``error`` string.
+    * Always emits a single ``stripe_webhook_replay`` log line regardless
+      of outcome, so SRE can correlate replays with downstream effects.
+
+    Returns
+    -------
+    dict
+        On success::
+
+            {
+                "ok": True,
+                "event_id": "evt_...",
+                "event_type": "checkout.session.completed",
+                "replayed_at": "2026-04-28T10:11:12+00:00",
+                "result": {"applied": True},
+            }
+
+        On failure::
+
+            {
+                "ok": False,
+                "event_id": "evt_...",
+                "event_type": "<best-effort or empty>",
+                "replayed_at": "...",
+                "error": "<short reason>",
+            }
+
+        The ``error`` field's special value ``"not_found"`` indicates the
+        Stripe API responded with no such event — the router maps this to
+        a 404. All other errors stay 200 with ``ok=False``.
+    """
+    replayed_at = _now().isoformat()
+    sdk = _get_client()
+
+    # 1. Re-fetch from Stripe.
+    try:
+        event = sdk.Event.retrieve(event_id)
+    except stripe.error.InvalidRequestError as exc:
+        # Most common cause: the event id does not exist (or was purged
+        # past Stripe's 30-day retention). Surface as not_found so the
+        # router can return 404.
+        logger.info(
+            "stripe_webhook_replay event_id=%s type= ok=False reason=not_found err=%s",
+            event_id,
+            exc,
+        )
+        return {
+            "ok": False,
+            "event_id": event_id,
+            "event_type": "",
+            "replayed_at": replayed_at,
+            "error": "not_found",
+        }
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning(
+            "stripe_webhook_replay event_id=%s type= ok=False reason=fetch_error err=%s",
+            event_id,
+            exc,
+        )
+        return {
+            "ok": False,
+            "event_id": event_id,
+            "event_type": "",
+            "replayed_at": replayed_at,
+            "error": f"fetch_error: {exc}",
+        }
+
+    event_type = (
+        event.get("type", "") if isinstance(event, dict) else getattr(event, "type", "")
+    )
+    try:
+        data_obj = (
+            event["data"]["object"]
+            if isinstance(event, dict)
+            else event["data"]["object"]
+        )
+    except Exception as exc:
+        logger.warning(
+            "stripe_webhook_replay event_id=%s type=%s ok=False reason=malformed err=%s",
+            event_id,
+            event_type,
+            exc,
+        )
+        return {
+            "ok": False,
+            "event_id": event_id,
+            "event_type": event_type,
+            "replayed_at": replayed_at,
+            "error": f"malformed_event: {exc}",
+        }
+
+    # 2. Re-apply. Bypass the dedupe gate intentionally — the dedupe row
+    # (if any) stays in place; we are explicitly replaying.
+    try:
+        applied = _apply_webhook(db=db, event_type=event_type, data_obj=data_obj)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.exception(
+            "stripe_webhook_replay event_id=%s type=%s ok=False reason=apply_error",
+            event_id,
+            event_type,
+        )
+        return {
+            "ok": False,
+            "event_id": event_id,
+            "event_type": event_type,
+            "replayed_at": replayed_at,
+            "error": f"apply_error: {exc}",
+        }
+
+    logger.info(
+        "stripe_webhook_replay event_id=%s type=%s ok=True applied=%s",
+        event_id,
+        event_type,
+        applied,
+    )
+    return {
+        "ok": True,
+        "event_id": event_id,
+        "event_type": event_type,
+        "replayed_at": replayed_at,
+        "result": {"applied": applied},
+    }
+
+
 __all__ = [
     "create_checkout_session",
     "handle_subscription_webhook",
     "list_clinic_subscriptions",
+    "replay_webhook_event",
 ]

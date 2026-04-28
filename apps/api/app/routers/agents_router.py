@@ -52,6 +52,7 @@ from app.persistence.models import (
 )
 from app.services.agents import cost_cap as cost_cap_service
 from app.services.agents import runner
+from app.services.agents import sla as sla_service
 from app.services.agents.registry import (
     AGENT_REGISTRY,
     AgentAudience,
@@ -562,6 +563,61 @@ def ops_abuse_signals(
         window_minutes=window_minutes,
         median_runs_per_pair=median,
         signals=signals,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 10 — GET /api/v1/agents/ops/sla — per-agent SLA rollup
+# ---------------------------------------------------------------------------
+
+
+class AgentSlaRow(BaseModel):
+    """One per-agent rollup row over the requested SLA window."""
+
+    agent_id: str
+    runs: int
+    errors: int
+    error_rate: float  # 0..1
+    p50_ms: int | None
+    p95_ms: int | None
+    avg_cost_pence: float
+
+
+class AgentSlaResponse(BaseModel):
+    since_hours: int
+    rollup: list[AgentSlaRow]
+
+
+@router.get("/ops/sla", response_model=AgentSlaResponse)
+def ops_per_agent_sla(
+    since_hours: int = Query(24, ge=1, le=168),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AgentSlaResponse:
+    """Return a per-agent SLA rollup over the last ``since_hours`` hours.
+
+    Visibility
+    ----------
+    Super-admin only — same gate as ``/ops/runs`` and ``/ops/abuse-signals``.
+
+    Window
+    ------
+    ``since_hours`` is clamped to ``[1, 168]`` (one week max). FastAPI
+    returns a 422 for out-of-range values without hitting the helper.
+
+    Shape
+    -----
+    The response is sorted by ``runs`` descending so the busiest agents
+    sit at the top of the dashboard. Latency percentiles use the
+    nearest-rank method on the in-process latency list (cross-dialect —
+    no Postgres ``percentile_cont`` so the same path works on SQLite).
+    """
+    _require_super_admin(actor)
+
+    rollup = sla_service.per_agent_sla(db, since_hours=since_hours)
+    return AgentSlaResponse(
+        since_hours=int(since_hours),
+        rollup=[AgentSlaRow(**row) for row in rollup],
     )
 
 

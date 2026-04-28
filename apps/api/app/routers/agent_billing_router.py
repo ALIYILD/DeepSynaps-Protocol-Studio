@@ -124,3 +124,78 @@ async def stripe_webhook(
     """
     body = await request.body()
     return stripe_skus.handle_subscription_webhook(body, stripe_signature)
+
+
+# ---------------------------------------------------------------------------
+# Admin webhook replay (Phase 10)
+# ---------------------------------------------------------------------------
+
+
+class WebhookReplayRequest(BaseModel):
+    event_id: str = Field(
+        ...,
+        description="Stripe event id to re-fetch and replay (must start with 'evt_').",
+        min_length=5,
+        max_length=255,
+    )
+
+
+def _require_super_admin(actor: AuthenticatedActor) -> None:
+    """Mirror the gate from :mod:`app.routers.agent_admin_router` — admin
+    AND ``actor.clinic_id is None``. Clinic-bound admins are rejected so
+    cross-tenant ops surfaces stay opt-in.
+    """
+    require_minimum_role(actor, "admin")
+    if actor.clinic_id is not None:
+        raise ApiServiceError(
+            code="ops_admin_required",
+            message="Cross-clinic ops requires a super-admin actor.",
+            warnings=["This endpoint is reserved for platform operators."],
+            status_code=403,
+        )
+
+
+@router.post("/admin/webhook-replay")
+@limiter.limit("6/minute")
+def admin_webhook_replay(
+    request: Request,
+    payload: WebhookReplayRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Re-fetch and re-process a stored Stripe webhook event id.
+
+    Super-admin only. Phase 7 stores only the event id + type (not the
+    payload), so the service layer re-fetches the canonical event from
+    Stripe via :func:`stripe.Event.retrieve` and re-runs the apply step
+    against it. Useful when a handler bug left a customer stuck on
+    ``test_pending`` after their checkout actually completed.
+
+    Status mapping
+    --------------
+    * 400 — ``event_id`` does not start with ``evt_``.
+    * 403 — actor is not a super-admin.
+    * 404 — Stripe says no such event (e.g. typo or past 30-day retention).
+    * 200 — replay completed; envelope contains ``ok`` flag and either a
+      ``result`` dict or an ``error`` string.
+    """
+    _require_super_admin(actor)
+
+    if not payload.event_id.startswith("evt_"):
+        raise ApiServiceError(
+            code="invalid_event_id",
+            message="event_id must start with 'evt_'.",
+            status_code=400,
+        )
+
+    result = stripe_skus.replay_webhook_event(db=db, event_id=payload.event_id)
+
+    if not result.get("ok") and result.get("error") == "not_found":
+        raise ApiServiceError(
+            code="event_not_found",
+            message=f"Stripe has no event with id {payload.event_id}.",
+            status_code=404,
+            details={"event_id": payload.event_id},
+        )
+
+    return result

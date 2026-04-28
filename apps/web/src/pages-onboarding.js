@@ -1063,3 +1063,10 @@ window._startOnboarding = function() {
   } catch {}
   _buildWizOverlay();
 };
+
+// Phase 10 — agent-onboarding wizard. Lives in its own module so the unit-
+// test suite can load it under Node without dragging in the legacy
+// onboarding's transitive auth/friendly-forms imports. Re-exported here so
+// `loadOnboarding()` in app.js continues to be the single dynamic-import
+// entry point for every onboarding flow.
+export { pgAgentOnboarding, __agentOnboardingTestApi__ } from './agent-onboarding-wizard.js';
