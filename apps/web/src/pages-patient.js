@@ -5586,7 +5586,7 @@ async function _pgPatientAssessmentsImpl() {
     const qText = document.getElementById('as-daily-q-text');
     if (qText) qText.textContent = 'All done — great job!';
     const subText = document.getElementById('as-daily-sub-text');
-    if (subText) subText.textContent = 'Your update has been saved.';
+    if (subText) subText.textContent = 'Your update has been saved in this browser.';
 
     // Save to localStorage
     try {
@@ -19305,7 +19305,7 @@ window._ptoSubmitAssessment = function () {
   if (!isNaN(phq9v)) api.recordOutcome({ template_name: 'PHQ-9', score_numeric: phq9v, measurement_point: 'Self-report', administered_at: _apiNow }).catch(() => {});
   if (!isNaN(gad7v)) api.recordOutcome({ template_name: 'GAD-7', score_numeric: gad7v, measurement_point: 'Self-report', administered_at: _apiNow }).catch(() => {});
   if (!isNaN(pcl5v)) api.recordOutcome({ template_name: 'PCL-5', score_numeric: pcl5v, measurement_point: 'Self-report', administered_at: _apiNow }).catch(() => {});
-  window._showNotifToast && window._showNotifToast({ title: 'Saved', body: 'Assessment scores recorded.', severity: 'success' });
+  window._showNotifToast && window._showNotifToast({ title: 'Saved', body: 'Assessment scores saved in this browser. Clinic sync depends on portal workflow.', severity: 'success' });
   _renderProgressPage();
 };
 

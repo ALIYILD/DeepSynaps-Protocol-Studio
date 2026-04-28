@@ -36,34 +36,71 @@ _STREAM_ALLOWED_ROLES = frozenset({
 _queues: dict[str, asyncio.Queue] = {}
 
 # ── Presence store ────────────────────────────────────────────────────────────
-# { "page_id": { "user_id": { "name": str, "role": str, "last_seen": float } } }
+# { "<clinic_id>::<page_id>": { "user_id": { "name": str, "role": str, "last_seen": float } } }
+# Pre-fix this was keyed by `page_id` alone, leaking presence and
+# patient/course UUID confirmations across clinics. See `_scope_key`.
 _presence: dict[str, dict[str, dict]] = {}
 _PRESENCE_TTL = 30  # seconds
+_NO_CLINIC_BUCKET = "__no_clinic__"
 
 
-async def update_presence(user_id: str, user_name: str, user_role: str, page_id: str):
-    """Called when a user navigates to a page. Broadcasts presence update to all users on that page."""
+def _scope_key(clinic_id: str | None, page_id: str) -> str:
+    """Combine clinic_id + page_id into a single in-memory key.
+
+    Pre-fix the presence map was keyed by ``page_id`` alone — a
+    clinician at clinic A reading
+    ``GET /presence/<patient-uuid-at-clinic-B>`` saw clinic-B
+    clinicians' display_name + role + a confirmation that the
+    patient/course UUID is real. Cross-clinic presence leak +
+    UUID oracle (HIPAA-relevant reconnaissance).
+
+    Post-fix the key is ``"<clinic_id>::<page_id>"`` so different
+    clinics see different presence pools even when the underlying
+    page_id is identical. Actors with no ``clinic_id`` (e.g. a
+    misconfigured token) are bucketed under a sentinel so they
+    don't accidentally join any clinic's pool.
+    """
+    return f"{clinic_id or _NO_CLINIC_BUCKET}::{page_id}"
+
+
+async def update_presence(
+    user_id: str,
+    user_name: str,
+    user_role: str,
+    page_id: str,
+    *,
+    clinic_id: str | None = None,
+):
+    """Called when a user navigates to a page. Broadcasts presence
+    update to other users on that page within the same clinic."""
     now = time.time()
-    if page_id not in _presence:
-        _presence[page_id] = {}
-    _presence[page_id][user_id] = {"name": user_name, "role": user_role, "last_seen": now}
+    key = _scope_key(clinic_id, page_id)
+    if key not in _presence:
+        _presence[key] = {}
+    _presence[key][user_id] = {"name": user_name, "role": user_role, "last_seen": now}
     # Clean stale entries
-    _presence[page_id] = {
-        uid: info for uid, info in _presence[page_id].items()
+    _presence[key] = {
+        uid: info for uid, info in _presence[key].items()
         if now - info["last_seen"] < _PRESENCE_TTL
     }
-    # Broadcast to all OTHER users currently on this page
-    for uid in list(_presence.get(page_id, {}).keys()):
+    # Broadcast to all OTHER users currently on this page (same clinic only)
+    for uid in list(_presence.get(key, {}).keys()):
         if uid != user_id:
             await broadcast_to_user(uid, "presence_update", {
                 "page_id": page_id,
-                "users": [{"id": k, **v} for k, v in _presence[page_id].items()],
+                "users": [{"id": k, **v} for k, v in _presence[key].items()],
             })
 
 
-def get_presence(page_id: str) -> list:
+def get_presence(page_id: str, *, clinic_id: str | None = None) -> list:
+    """Return presence list for a page within a single clinic scope.
+
+    Same scoping as ``update_presence`` — cross-clinic reads are
+    isolated by ``clinic_id``.
+    """
     now = time.time()
-    page_presence = _presence.get(page_id, {})
+    key = _scope_key(clinic_id, page_id)
+    page_presence = _presence.get(key, {})
     return [
         {"id": k, **v}
         for k, v in page_presence.items()
@@ -210,8 +247,9 @@ async def post_presence(
         actor.display_name,
         actor.role,
         body.page_id,
+        clinic_id=actor.clinic_id,
     )
-    return {"users": get_presence(body.page_id)}
+    return {"users": get_presence(body.page_id, clinic_id=actor.clinic_id)}
 
 
 @router.get("/api/v1/notifications/presence/{page_id}")
@@ -221,13 +259,13 @@ async def get_page_presence(
 ):
     """Read who else is on a given page.
 
-    Clinician-gated to block guest probing of patient/course UUIDs and
-    enumeration of staff identities across clinics. Cross-clinic
-    clinician reads still permitted (existing collab semantics) —
-    follow-up needed to clinic-scope by parsed page_id.
+    Clinician-gated, and clinic-scoped by ``actor.clinic_id`` so a
+    clinician at clinic A cannot probe presence on clinic-B
+    patient / course UUIDs (which would leak both staff identities
+    and confirm the UUID exists at that clinic).
     """
     require_minimum_role(actor, "clinician")
-    return {"users": get_presence(page_id)}
+    return {"users": get_presence(page_id, clinic_id=actor.clinic_id)}
 
 
 @router.post("/api/v1/notifications/test")

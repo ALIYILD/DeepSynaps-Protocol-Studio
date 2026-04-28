@@ -4745,7 +4745,7 @@ export async function pgPatientQueue(setTopbar) {
     const q = _pqGetQueue(); const p = q.find(x => x.id === pqId); if (!p) return;
     p.notes = text.trim(); _pqSave('ds_today_queue', q);
     document.querySelector('.pq-modal-overlay')?.remove();
-    window._showNotifToast?.({ title:'Note Saved', body:'Quick note added for ' + p.patientName, severity:'info' });
+    window._showNotifToast?.({ title:'Note Saved', body:'Quick note saved in this browser view for ' + p.patientName, severity:'info' });
   };
 
   window._pqAddWalkin = function() {
@@ -5093,7 +5093,7 @@ export async function pgClinicDay(setTopbar) {
     const q = _load(QUEUE_KEY, []); const p = q.find(x => x.id === pqId); if (!p) return;
     p.notes = text.trim(); _save(QUEUE_KEY, q);
     document.querySelector('.cd-modal-overlay')?.remove();
-    window._showNotifToast?.({ title:'Note Saved', body:'Quick note saved for ' + p.patientName, severity:'info' });
+    window._showNotifToast?.({ title:'Note Saved', body:'Quick note saved in this browser view for ' + p.patientName, severity:'info' });
   };
 
   window._cdAddWalkin = function() {
