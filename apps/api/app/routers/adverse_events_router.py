@@ -183,6 +183,7 @@ def list_adverse_events(
     patient_id: Optional[str] = Query(default=None),
     course_id: Optional[str] = Query(default=None),
     severity: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> AdverseEventListResponse:
@@ -198,7 +199,7 @@ def list_adverse_events(
     if severity:
         q = q.filter(AdverseEvent.severity == severity.lower())
 
-    records = q.order_by(AdverseEvent.reported_at.desc()).all()
+    records = q.order_by(AdverseEvent.reported_at.desc()).limit(limit).all()
     items = [AdverseEventOut.from_record(r) for r in records]
     return AdverseEventListResponse(items=items, total=len(items))
 

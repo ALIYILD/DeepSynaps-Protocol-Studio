@@ -327,6 +327,7 @@ def list_outcomes(
     course_id: Optional[str] = Query(default=None),
     template_id: Optional[str] = Query(default=None),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db_session),
 ) -> OutcomeListResponse:
     require_minimum_role(actor, "clinician")
@@ -341,7 +342,7 @@ def list_outcomes(
     if template_id:
         q = q.filter(OutcomeSeries.template_id == template_id)
 
-    records = q.order_by(OutcomeSeries.administered_at).all()
+    records = q.order_by(OutcomeSeries.administered_at).limit(limit).all()
     items = [OutcomeOut.from_record(r) for r in records]
     return OutcomeListResponse(items=items, total=len(items))
 
