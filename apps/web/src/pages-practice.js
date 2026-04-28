@@ -8470,7 +8470,7 @@ export async function pgReminderAutomation(setTopbar) {
                   <td style="padding:8px 12px"><span style="font-size:11px;font-weight:600;color:${STATUS_COLORS[m.status] || 'var(--text-secondary)'}">${m.status}</span></td>
                   <td style="padding:8px 12px;color:var(--text-secondary);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${m.preview}">${m.preview}</td>
                   <td style="padding:8px 12px">
-                    ${m.status === 'Queued' ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 8px" onclick="window._remSendNow('${m.id}')">Send Now</button>` : ''}
+                    ${m.status === 'Queued' ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 8px" onclick="window._remSendNow('${m.id}')">Queue Again</button>` : ''}
                     ${m.status === 'Failed' ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 8px" onclick="window._remSendNow('${m.id}')">Retry</button>` : ''}
                   </td>
                 </tr>`
@@ -8555,7 +8555,7 @@ export async function pgReminderAutomation(setTopbar) {
       ${atRisk > 0 ? `<div style="display:flex;justify-content:flex-end;margin-bottom:12px">
         <button class="btn btn-sm" style="background:rgba(255,107,107,.12);color:var(--red);border:1px solid rgba(255,107,107,.3)"
                 onclick="window._remSendAdherenceBoost()">
-          &#128226; Send Adherence Boost to ${atRisk} At-Risk Patient${atRisk > 1 ? 's' : ''}
+          &#128226; Queue Adherence Boost for ${atRisk} At-Risk Patient${atRisk > 1 ? 's' : ''}
         </button>
       </div>` : ''}
 
@@ -8589,7 +8589,7 @@ export async function pgReminderAutomation(setTopbar) {
                 <td style="padding:9px 12px;font-size:18px;font-weight:700;color:${TREND_COLORS[s.trend]}">${TREND_ARROWS[s.trend]}</td>
                 <td style="padding:9px 12px">
                   <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 10px"
-                          onclick="window._remComposeFor('${s.patientId}','${s.patientName.replace(/'/g, "\\'")}')">Send</button>
+                          onclick="window._remComposeFor('${s.patientId}','${s.patientName.replace(/'/g, "\\'")}')">Queue</button>
                 </td>
               </tr>`;
             }).join('')}
@@ -8850,7 +8850,7 @@ export async function pgReminderAutomation(setTopbar) {
 
   window._remComposeFor = function(patientId, patientName) {
     showModal(`
-      <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:18px">Send Manual Reminder</div>
+      <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:18px">Queue Manual Reminder</div>
       <div style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">To: <strong style="color:var(--text-primary)">${patientName}</strong></div>
       <div style="display:grid;gap:12px">
         <div>
@@ -8865,7 +8865,7 @@ export async function pgReminderAutomation(setTopbar) {
         </div>
         <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
           <button class="btn btn-ghost btn-sm" onclick="window._remCloseModal()">Cancel</button>
-          <button class="btn btn-primary btn-sm" onclick="window._remSendManual('${patientId}','${patientName.replace(/'/g, "\\'")}')">Send</button>
+          <button class="btn btn-primary btn-sm" onclick="window._remSendManual('${patientId}','${patientName.replace(/'/g, "\\'")}')">Queue Reminder</button>
         </div>
       </div>
     `);

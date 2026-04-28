@@ -16,13 +16,51 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import ConsentRecord
+from app.persistence.models import ConsentRecord, Patient, User
+from app.repositories.patients import resolve_patient_clinic_id
+
+
+def _gate_patient_access(
+    actor: AuthenticatedActor, patient_id: str | None, db: Session
+) -> None:
+    """Cross-clinic ownership gate — same shape as assessments_router."""
+    if not patient_id:
+        return
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
+
+
+def _scope_consent_query_to_clinic(q, actor: AuthenticatedActor):
+    """Restrict a ConsentRecord query to records the actor is allowed to see.
+
+    Pre-fix this router used ``ConsentRecord.clinician_id == actor.actor_id``
+    which over-restricts colleagues in the same clinic AND under-restricts
+    admins (who skipped the filter and saw every clinic's consents). The
+    canonical fix is to scope by the patient's owning clinic via a join
+    on ``Patient`` -> ``User``. Admins are also scoped to their own
+    ``actor.clinic_id`` so a clinic-A admin cannot read clinic-B consents.
+    """
+    if not getattr(actor, "clinic_id", None):
+        # Actor without a clinic_id (e.g. solo demo) sees only their own
+        # records — closest backward-compatible behaviour.
+        return q.filter(ConsentRecord.clinician_id == actor.actor_id)
+    return (
+        q.join(Patient, Patient.id == ConsentRecord.patient_id)
+        .join(User, User.id == Patient.clinician_id)
+        .filter(User.clinic_id == actor.clinic_id)
+    )
 
 router = APIRouter(prefix="/api/v1/consent", tags=["Consent Management"])
 
@@ -30,24 +68,29 @@ router = APIRouter(prefix="/api/v1/consent", tags=["Consent Management"])
 # ── Schemas ────────────────────────────────────────────────────────────────────
 
 class ConsentCreate(BaseModel):
-    patient_id: str
-    consent_type: str               # general, off_label, research, data_sharing
-    modality_slug: Optional[str] = None
-    status: str = "active"          # active, withdrawn, expired
+    patient_id: str = Field(..., max_length=64)
+    # `consent_type` is matched against fixed strings on the clinician
+    # side (general / off_label / research / data_sharing). 80 chars is
+    # generous for any future variant.
+    consent_type: str = Field(..., max_length=80)
+    modality_slug: Optional[str] = Field(default=None, max_length=64)
+    status: str = Field(default="active", max_length=32)
     signed: bool = False
-    signed_at: Optional[str] = None
-    expires_at: Optional[str] = None
-    document_ref: Optional[str] = None
-    notes: Optional[str] = None
+    signed_at: Optional[str] = Field(default=None, max_length=64)
+    expires_at: Optional[str] = Field(default=None, max_length=64)
+    # `document_ref` may carry an S3 key or a URL; cap at 512 to match
+    # other ref-style fields elsewhere in the codebase.
+    document_ref: Optional[str] = Field(default=None, max_length=512)
+    notes: Optional[str] = Field(default=None, max_length=4_000)
 
 
 class ConsentUpdateRequest(BaseModel):
     signed: Optional[bool] = None
-    signed_at: Optional[str] = None
-    status: Optional[str] = None    # active, withdrawn, expired
-    expires_at: Optional[str] = None
-    document_ref: Optional[str] = None
-    notes: Optional[str] = None
+    signed_at: Optional[str] = Field(default=None, max_length=64)
+    status: Optional[str] = Field(default=None, max_length=32)
+    expires_at: Optional[str] = Field(default=None, max_length=64)
+    document_ref: Optional[str] = Field(default=None, max_length=512)
+    notes: Optional[str] = Field(default=None, max_length=4_000)
 
 
 class ConsentOut(BaseModel):
@@ -107,13 +150,16 @@ class ConsentAuditLogResponse(BaseModel):
 
 
 class AutomationRuleCreate(BaseModel):
-    name: str
-    trigger: str            # e.g. "off_label_treatment_start", "annual_renewal", "new_modality"
-    action: str             # e.g. "send_reminder", "auto_expire", "require_resign"
-    consent_types: list[str] = []
+    name: str = Field(..., max_length=200)
+    trigger: str = Field(..., max_length=80)
+    action: str = Field(..., max_length=80)
+    # Cap on the list and on each entry — uncapped would let an
+    # authenticated clinician push megabyte-scale free-text into the
+    # in-memory store via repeated calls.
+    consent_types: list[str] = Field(default_factory=list, max_length=20)
     conditions_json: Optional[dict] = None
     active: bool = True
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(default=None, max_length=2_000)
 
 
 class AutomationRuleOut(BaseModel):
@@ -159,11 +205,30 @@ def _parse_iso(value: str) -> Optional[datetime]:
 
 
 def _get_consent_or_404(db: Session, consent_id: str, actor: AuthenticatedActor) -> ConsentRecord:
+    """Load a consent record, gated by the canonical cross-clinic check.
+
+    Pre-fix this used ``record.clinician_id != actor.actor_id`` and
+    ``actor.role != "admin"`` as the only gate, which under-restricted
+    admins (clinic-A admin saw clinic-B records) and over-restricted
+    clinic colleagues. Post-fix the patient's owning clinic must
+    match the actor's via ``_gate_patient_access``.
+    """
     record = db.query(ConsentRecord).filter_by(id=consent_id).first()
     if record is None:
         raise ApiServiceError(code="not_found", message="Consent record not found.", status_code=404)
-    if actor.role != "admin" and record.clinician_id != actor.actor_id:
-        raise ApiServiceError(code="not_found", message="Consent record not found.", status_code=404)
+    # ``_gate_patient_access`` raises ``cross_clinic_access_denied``
+    # which would leak the existence of the row. Convert to the
+    # generic 404 to match the pre-fix UX.
+    try:
+        _gate_patient_access(actor, record.patient_id, db)
+    except ApiServiceError as exc:
+        if exc.code in {"cross_clinic_access_denied", "forbidden"}:
+            raise ApiServiceError(
+                code="not_found",
+                message="Consent record not found.",
+                status_code=404,
+            ) from exc
+        raise
     return record
 
 
@@ -178,10 +243,14 @@ def list_consent_records(
     db: Session = Depends(get_db_session),
 ) -> ConsentListResponse:
     require_minimum_role(actor, "clinician")
-    q = db.query(ConsentRecord)
-    if actor.role != "admin":
-        q = q.filter(ConsentRecord.clinician_id == actor.actor_id)
+    # Clinic-scoped tenant isolation. Pre-fix admins skipped the
+    # filter entirely and saw every clinic's consents.
+    q = _scope_consent_query_to_clinic(db.query(ConsentRecord), actor)
     if patient_id:
+        # When the caller asks for a specific patient, also enforce the
+        # cross-clinic gate explicitly so the response is empty rather
+        # than 403 — keeps UX consistent with other list endpoints.
+        _gate_patient_access(actor, patient_id, db)
         q = q.filter(ConsentRecord.patient_id == patient_id)
     if status:
         q = q.filter(ConsentRecord.status == status)
@@ -199,6 +268,15 @@ def create_consent_record(
     db: Session = Depends(get_db_session),
 ) -> ConsentOut:
     require_minimum_role(actor, "clinician")
+    # Cross-clinic gate — without this any clinician could create a
+    # consent record for any patient_id (including patients in other
+    # clinics), bypassing the consent's binding to the patient's
+    # owning clinician. The handler still records ``clinician_id =
+    # actor.actor_id`` so the consent is tied to the actor in audit
+    # trails, but only after the actor's clinic_id is verified to
+    # own the target patient.
+    _gate_patient_access(actor, body.patient_id, db)
+
     signed_at: Optional[datetime] = None
     if body.signed_at:
         signed_at = _parse_iso(body.signed_at)
@@ -262,10 +340,9 @@ def get_consent_audit_log(
 ) -> ConsentAuditLogResponse:
     """Returns a synthesized audit log from consent records (V1: derived from records)."""
     require_minimum_role(actor, "clinician")
-    q = db.query(ConsentRecord)
-    if actor.role != "admin":
-        q = q.filter(ConsentRecord.clinician_id == actor.actor_id)
+    q = _scope_consent_query_to_clinic(db.query(ConsentRecord), actor)
     if patient_id:
+        _gate_patient_access(actor, patient_id, db)
         q = q.filter(ConsentRecord.patient_id == patient_id)
     records = q.order_by(ConsentRecord.created_at.desc()).all()
 
@@ -371,9 +448,7 @@ def compute_compliance_score(
     db: Session = Depends(get_db_session),
 ) -> ComplianceScoreResponse:
     require_minimum_role(actor, "clinician")
-    q = db.query(ConsentRecord)
-    if actor.role != "admin":
-        q = q.filter(ConsentRecord.clinician_id == actor.actor_id)
+    q = _scope_consent_query_to_clinic(db.query(ConsentRecord), actor)
     if body.consent_types:
         q = q.filter(ConsentRecord.consent_type.in_(body.consent_types))
 
