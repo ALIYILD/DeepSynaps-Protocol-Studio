@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,7 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -36,6 +37,71 @@ _DOC_UPLOAD_ALLOWED = {
 }
 _DOC_ALLOWED_STATUSES = {"pending", "uploaded", "signed", "completed"}
 _DOC_SIGNABLE_STATUSES = {"signed", "completed"}
+
+# Pin every accepted MIME type to a known-safe extension. Pre-fix the
+# on-disk extension came from ``file.filename.rsplit(".", 1)[-1]`` with
+# only an "isalnum() and len <= 8" guard — ``audio.php`` would land as
+# ``…/audio.php`` because ``php`` is alphanumeric. Pinning the extension
+# to the validated MIME removes that footgun entirely.
+_DOC_MIME_TO_EXT: dict[str, str] = {
+    "application/pdf": "pdf",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "text/plain": "txt",
+}
+
+# Magic-byte signatures for the accepted document types. Pre-fix the
+# router trusted client-supplied ``Content-Type`` alone — an attacker
+# could ``POST`` arbitrary binary tagged ``application/pdf`` and the
+# router happily wrote it to disk. The first bytes are checked at the
+# upload boundary; mismatches raise 422 ``invalid_file_content``.
+_DOC_MAGIC_SIGNATURES: tuple[tuple[bytes, bytes | None], ...] = (
+    (b"%PDF-", None),                             # PDF
+    (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1", None),  # OLE compound (legacy .doc)
+    (b"PK\x03\x04", None),                        # ZIP container (.docx, also .xlsx etc.)
+    (b"\xff\xd8\xff", None),                      # JPEG
+    (b"\x89PNG\r\n\x1a\n", None),                 # PNG
+    (b"RIFF", b"WEBP"),                           # WebP
+)
+_PRINTABLE_ASCII = set(range(0x20, 0x7F)) | {0x09, 0x0A, 0x0D}
+
+
+def _looks_like_document(payload_head: bytes, mime: str | None) -> bool:
+    """Refuse arbitrary binary masquerading as a document."""
+    if not payload_head:
+        return False
+    head = payload_head[:32]
+    for prefix, contains in _DOC_MAGIC_SIGNATURES:
+        if head.startswith(prefix):
+            if contains is None or contains in head:
+                return True
+    # text/plain has no magic bytes; require the head to be mostly
+    # printable so a binary payload tagged ``text/plain`` is refused.
+    if mime == "text/plain":
+        head256 = payload_head[:256]
+        if not head256:
+            return False
+        printable = sum(1 for b in head256 if b in _PRINTABLE_ASCII)
+        return (printable / len(head256)) >= 0.85
+    return False
+
+
+def _safe_doc_ext(mime: str | None) -> str:
+    """Return the canonical disk extension for the validated MIME."""
+    return _DOC_MIME_TO_EXT.get((mime or "").lower(), "bin")
+
+
+# Stored ``file_ref`` strings must look like ``documents/<uuid>.<ext>``.
+# Pre-fix ``_validate_document_file_ref`` only checked
+# ``startswith("documents/")`` — ``documents/../../etc/passwd`` would
+# pass that prefix gate; the second-line ``target.resolve()`` + root
+# check on download was the only thing standing between us and arbitrary
+# file read. Tightening the regex here is defence-in-depth so a future
+# refactor that drops the resolve() check is not RCE-adjacent.
+_DOC_FILE_REF_RE = re.compile(r"^documents/[A-Za-z0-9-]{1,64}\.[A-Za-z0-9]{1,8}$")
 
 
 def _docs_storage_root() -> Path:
@@ -108,7 +174,10 @@ def _assert_document_patient_access(
 def _validate_document_file_ref(file_ref: Optional[str]) -> None:
     if file_ref is None:
         return
-    if not file_ref.startswith("documents/"):
+    # Strict regex — pre-fix this only checked startswith("documents/")
+    # so ``documents/../../etc/passwd`` would pass and only the
+    # ``target.resolve()`` + root-prefix check on download caught it.
+    if not _DOC_FILE_REF_RE.match(file_ref):
         raise ApiServiceError(
             code="invalid_file_ref",
             message="Document downloads are limited to stored documents/ paths.",
@@ -119,19 +188,19 @@ def _validate_document_file_ref(file_ref: Optional[str]) -> None:
 # ── Schemas ────────────────────────────────────────────────────────────────────
 
 class DocumentCreate(BaseModel):
-    title: str
-    doc_type: str = "clinical"          # intake|consent|clinical|uploaded|generated
-    patient_id: Optional[str] = None
-    template_id: Optional[str] = None
-    status: str = "pending"             # pending|signed|uploaded|completed
-    notes: Optional[str] = None
+    title: str = Field(..., max_length=255)
+    doc_type: str = Field(default="clinical", max_length=32)  # intake|consent|clinical|uploaded|generated
+    patient_id: Optional[str] = Field(default=None, max_length=64)
+    template_id: Optional[str] = Field(default=None, max_length=64)
+    status: str = Field(default="pending", max_length=32)     # pending|signed|uploaded|completed
+    notes: Optional[str] = Field(default=None, max_length=10_000)
 
 
 class DocumentUpdate(BaseModel):
-    title: Optional[str] = None
-    status: Optional[str] = None
-    notes: Optional[str] = None
-    signed_at: Optional[str] = None     # ISO datetime string
+    title: Optional[str] = Field(default=None, max_length=255)
+    status: Optional[str] = Field(default=None, max_length=32)
+    notes: Optional[str] = Field(default=None, max_length=10_000)
+    signed_at: Optional[str] = Field(default=None, max_length=64)  # ISO datetime string
 
 
 class DocumentOut(BaseModel):
@@ -523,12 +592,23 @@ async def upload_document(
             status_code=422,
         )
 
+    # Magic-byte sniff — refuses arbitrary binary tagged with an allowed
+    # MIME type. Pre-fix the only check was ``Content-Type`` which the
+    # client controls.
+    if not _looks_like_document(file_bytes, file.content_type):
+        raise ApiServiceError(
+            code="invalid_file_content",
+            message="Upload bytes do not match an accepted document format.",
+            status_code=422,
+        )
+
     doc_id = str(uuid.uuid4())
     original_name = file.filename or "document"
-    ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else "bin"
-    # Guard against path-traversal in the extension.
-    if not ext.isalnum() or len(ext) > 8:
-        ext = "bin"
+    # Pin the on-disk extension to the validated MIME type instead of
+    # taking it from the user-supplied filename. Pre-fix a filename of
+    # ``audio.php`` would persist as ``…/audio.php`` because ``php`` is
+    # alphanumeric and ≤8 chars.
+    ext = _safe_doc_ext(file.content_type)
 
     storage_path = _docs_storage_root() / f"{doc_id}.{ext}"
     try:
