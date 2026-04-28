@@ -51,6 +51,56 @@ def llm_calls(monkeypatch: pytest.MonkeyPatch):
     yield captured
 
 
+@pytest.fixture(autouse=True)
+def _seed_default_package_budgets():
+    """Re-seed the three default ``PackageTokenBudget`` rows.
+
+    The conftest's ``isolated_database`` fixture wipes every table via
+    :func:`reset_database(fast=True)` before each test. The model's
+    ``after_create`` event seeds these rows only on table creation,
+    which happens just once per pytest session — so without this
+    fixture every budget test except the first would run against an
+    empty ``package_token_budget`` table and the gate would silently
+    disable itself (the pre-check returns ``None`` when no budget is
+    configured).
+
+    Idempotent: existing rows are skipped so re-running on an already-
+    seeded session is a no-op. Tests that need to assert the empty-
+    budget branch (``test_no_budget_rows_means_no_gate``) explicitly
+    delete the rows back out after this fixture has run.
+    """
+    from datetime import datetime, timezone
+
+    s = SessionLocal()
+    try:
+        existing = {r.package_id for r in s.query(PackageTokenBudget).all()}
+        defaults = (
+            ("free", 50_000, 10_000, 500),
+            ("clinician_pro", 1_000_000, 200_000, 5_000),
+            ("enterprise", 5_000_000, 1_000_000, 20_000),
+        )
+        now = datetime.now(timezone.utc)
+        for pkg_id, ti, to, cp in defaults:
+            if pkg_id in existing:
+                continue
+            s.add(
+                PackageTokenBudget(
+                    id=f"pkg_budget_{pkg_id}",
+                    package_id=pkg_id,
+                    monthly_tokens_in_cap=ti,
+                    monthly_tokens_out_cap=to,
+                    monthly_cost_pence_cap=cp,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        s.commit()
+    except Exception:
+        s.rollback()
+    finally:
+        s.close()
+
+
 @pytest.fixture
 def db_session():
     s = SessionLocal()
@@ -432,3 +482,155 @@ def test_no_budget_rows_means_no_gate(
     )
     assert "error" not in result
     assert len(llm_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 — provider-vs-estimate metering source
+# ---------------------------------------------------------------------------
+
+
+def test_runner_uses_real_provider_usage_when_available(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When ``_llm_chat_with_usage`` reports real numbers the audit row
+    persists those numbers verbatim — no char/4 fudge."""
+
+    def _stub_with_usage(**kwargs):
+        return (
+            "real-provider reply",
+            {
+                "input_tokens": 123,
+                "output_tokens": 45,
+                "model": "z-ai/glm-4.5-air:free",
+                "provider": "openrouter",
+            },
+        )
+
+    monkeypatch.setattr(
+        "app.services.chat_service._llm_chat_with_usage", _stub_with_usage
+    )
+
+    result = agent_runner.run_agent(
+        AGENT_REGISTRY["clinic.reception"],
+        message="A long-ish message that would otherwise produce an estimate.",
+        actor=clinician_actor,
+        db=db_session,
+    )
+    assert result["reply"] == "real-provider reply"
+
+    row = (
+        db_session.query(AgentRunAudit)
+        .order_by(AgentRunAudit.created_at.desc())
+        .first()
+    )
+    assert row is not None
+    # Provider-reported tokens land on the audit row exactly, not as an
+    # estimate based on character count.
+    assert row.tokens_in_used == 123
+    assert row.tokens_out_used == 45
+    # cost = 123 * 0.001 + 45 * 0.003 = 0.123 + 0.135 = 0.258 → int(0.258) = 0
+    assert row.cost_pence == 0
+
+
+def test_runner_falls_back_to_char4_estimate_when_no_usage(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the upstream returns no usage block the runner falls back to
+    char/4. Audit token columns must match that fallback exactly."""
+    reply_text = "This is the assistant's reply about a treatment course."
+
+    def _stub_no_usage(**kwargs):
+        return reply_text, None
+
+    monkeypatch.setattr(
+        "app.services.chat_service._llm_chat_with_usage", _stub_no_usage
+    )
+
+    user_msg = "Tell me about the patient's last session please."
+    result = agent_runner.run_agent(
+        AGENT_REGISTRY["clinic.reception"],
+        message=user_msg,
+        actor=clinician_actor,
+        db=db_session,
+    )
+    assert result["reply"] == reply_text
+
+    row = (
+        db_session.query(AgentRunAudit)
+        .order_by(AgentRunAudit.created_at.desc())
+        .first()
+    )
+    assert row is not None
+    # tokens_out should be exactly len(reply)//4 per the runner's fallback.
+    expected_out = max(1, len(reply_text) // 4)
+    assert row.tokens_out_used == expected_out
+    # tokens_in is the rendered prompt char count // 4 — non-zero, and
+    # bigger than what a single user_msg//4 would give (system prompt is
+    # included in the prompt char count).
+    assert row.tokens_in_used > 0
+    assert row.tokens_in_used >= max(1, len(user_msg) // 4)
+
+
+def test_runner_emits_metered_source_log_line(
+    db_session,
+    clinician_actor: AuthenticatedActor,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The Phase-8 ``agent_run_metered`` log line fires on every successful
+    run, carrying ``source=provider`` when real numbers were captured and
+    ``source=estimated`` otherwise."""
+    import logging as _logging
+
+    # --- provider-reported usage path -----------------------------------
+    def _stub_with_usage(**kwargs):
+        return ("ok", {
+            "input_tokens": 7,
+            "output_tokens": 9,
+            "model": "z-ai/glm-4.5-air:free",
+            "provider": "openrouter",
+        })
+
+    monkeypatch.setattr(
+        "app.services.chat_service._llm_chat_with_usage", _stub_with_usage
+    )
+    caplog.clear()
+    with caplog.at_level(_logging.INFO, logger="app.services.agents.runner"):
+        agent_runner.run_agent(
+            AGENT_REGISTRY["clinic.reception"],
+            message="hi",
+            actor=clinician_actor,
+            db=db_session,
+        )
+    metered_records = [
+        r for r in caplog.records if r.message == "agent_run_metered"
+    ]
+    assert metered_records, "agent_run_metered log line did not fire"
+    assert getattr(metered_records[-1], "source", None) == "provider"
+    assert getattr(metered_records[-1], "tokens_in", None) == 7
+    assert getattr(metered_records[-1], "tokens_out", None) == 9
+
+    # --- estimated fallback path ----------------------------------------
+    def _stub_no_usage(**kwargs):
+        return ("estimated reply text", None)
+
+    monkeypatch.setattr(
+        "app.services.chat_service._llm_chat_with_usage", _stub_no_usage
+    )
+    caplog.clear()
+    with caplog.at_level(_logging.INFO, logger="app.services.agents.runner"):
+        agent_runner.run_agent(
+            AGENT_REGISTRY["clinic.reception"],
+            message="hi again",
+            actor=clinician_actor,
+            db=db_session,
+        )
+    metered_records = [
+        r for r in caplog.records if r.message == "agent_run_metered"
+    ]
+    assert metered_records, "agent_run_metered log line did not fire (fallback)"
+    assert getattr(metered_records[-1], "source", None) == "estimated"

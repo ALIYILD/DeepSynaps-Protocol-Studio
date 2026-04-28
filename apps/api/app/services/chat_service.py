@@ -1,11 +1,115 @@
+import contextvars
 import logging
 import os
 import re
+from typing import Any
 
 from anthropic import Anthropic
 from app.settings import get_settings
 
 _llm_log = logging.getLogger(__name__)
+
+
+# ── Phase 8 — provider usage capture sidecar ─────────────────────────────────
+# The shipped ``_llm_chat`` returns just the assistant text and discards the
+# provider response object. The Phase-7 budget pre-check works against a
+# rough chars/4 estimate; Phase-8 wants real provider numbers when the
+# upstream returned a usage block. To preserve every existing call site
+# (and every existing test that monkeypatches ``_llm_chat``) we keep
+# ``_llm_chat`` as the canonical implementation and let it stash usage on
+# a context-local sidecar. ``_llm_chat_with_usage`` then pops that sidecar
+# off after the call and returns it alongside the text.
+#
+# When ``_llm_chat`` is monkeypatched (tests), the sidecar stays at ``None``
+# and ``_llm_chat_with_usage`` returns ``(text, None)`` — which is exactly
+# the "provider didn't report usage" branch the runner already handles.
+_LAST_USAGE: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "_deepsynaps_last_llm_usage", default=None
+)
+
+
+def _capture_openrouter_usage(resp: Any, fallback_model: str) -> None:
+    """Pull a usage dict off an OpenAI/OpenRouter chat-completions response.
+
+    The OpenAI SDK exposes ``resp.usage`` with ``prompt_tokens`` /
+    ``completion_tokens`` attributes (or as dict keys when the response
+    was deserialised). We tolerate either shape and silently skip on
+    anything else — usage capture is opportunistic, never load-bearing.
+    """
+    try:
+        usage_obj = getattr(resp, "usage", None)
+        if usage_obj is None and isinstance(resp, dict):
+            usage_obj = resp.get("usage")
+        if usage_obj is None:
+            return
+        prompt_tokens = (
+            getattr(usage_obj, "prompt_tokens", None)
+            if not isinstance(usage_obj, dict)
+            else usage_obj.get("prompt_tokens")
+        )
+        completion_tokens = (
+            getattr(usage_obj, "completion_tokens", None)
+            if not isinstance(usage_obj, dict)
+            else usage_obj.get("completion_tokens")
+        )
+        if prompt_tokens is None and completion_tokens is None:
+            return
+        model = (
+            getattr(resp, "model", None)
+            if not isinstance(resp, dict)
+            else resp.get("model")
+        ) or fallback_model
+        _LAST_USAGE.set(
+            {
+                "input_tokens": int(prompt_tokens or 0),
+                "output_tokens": int(completion_tokens or 0),
+                "model": str(model or ""),
+                "provider": "openrouter",
+            }
+        )
+    except Exception:  # noqa: BLE001 — usage capture must never raise
+        return
+
+
+def _capture_anthropic_usage(resp: Any, fallback_model: str) -> None:
+    """Pull a usage dict off an Anthropic Messages API response.
+
+    The SDK exposes ``resp.usage`` with ``input_tokens`` / ``output_tokens``
+    attributes. Same fail-safe rules as the OpenRouter helper.
+    """
+    try:
+        usage_obj = getattr(resp, "usage", None)
+        if usage_obj is None and isinstance(resp, dict):
+            usage_obj = resp.get("usage")
+        if usage_obj is None:
+            return
+        input_tokens = (
+            getattr(usage_obj, "input_tokens", None)
+            if not isinstance(usage_obj, dict)
+            else usage_obj.get("input_tokens")
+        )
+        output_tokens = (
+            getattr(usage_obj, "output_tokens", None)
+            if not isinstance(usage_obj, dict)
+            else usage_obj.get("output_tokens")
+        )
+        if input_tokens is None and output_tokens is None:
+            return
+        model = (
+            getattr(resp, "model", None)
+            if not isinstance(resp, dict)
+            else resp.get("model")
+        ) or fallback_model
+        _LAST_USAGE.set(
+            {
+                "input_tokens": int(input_tokens or 0),
+                "output_tokens": int(output_tokens or 0),
+                "model": str(model or ""),
+                "provider": "anthropic",
+            }
+        )
+    except Exception:  # noqa: BLE001 — usage capture must never raise
+        return
 
 
 # ── Clinical-context extraction for evidence RAG ─────────────────────────────
@@ -127,6 +231,13 @@ def _llm_chat(
     temperature: float = 0.3,
     not_configured_message: str = "AI assistant is not configured. Set GLM_API_KEY or ANTHROPIC_API_KEY to enable this feature.",
 ) -> str:
+    """Sync LLM call. Returns just the assistant text.
+
+    On a successful provider response we *also* stash a usage dict on the
+    :data:`_LAST_USAGE` context-local so :func:`_llm_chat_with_usage` can
+    return real numbers without changing this function's signature
+    (10+ callers depend on the str return contract).
+    """
     settings = get_settings()
     if settings.glm_api_key:
         try:
@@ -138,6 +249,7 @@ def _llm_chat(
                 temperature=temperature,
                 messages=[{"role": "system", "content": system}] + messages,
             )
+            _capture_openrouter_usage(resp, fallback_model=_llm_model())
             return _sanitize_llm_output(resp.choices[0].message.content or "")
         except Exception as exc:
             _llm_log.warning("LLM call failed, trying fallback: %s", exc)
@@ -149,8 +261,47 @@ def _llm_chat(
             system=system,
             messages=messages,
         )
+        _capture_anthropic_usage(resp, fallback_model=_anthropic_fallback_model())
         return _sanitize_llm_output(resp.content[0].text)
     return not_configured_message
+
+
+def _llm_chat_with_usage(
+    system: str,
+    messages: list[dict],
+    max_tokens: int = 1024,
+    temperature: float = 0.3,
+    not_configured_message: str = "AI assistant is not configured. Set GLM_API_KEY or ANTHROPIC_API_KEY to enable this feature.",
+) -> tuple[str, dict[str, Any] | None]:
+    """Strict superset of :func:`_llm_chat` — returns ``(text, usage)``.
+
+    ``usage`` is a dict ``{"input_tokens": int, "output_tokens": int,
+    "model": str, "provider": str}`` when the upstream returned a usage
+    block we recognise (OpenAI / OpenRouter ``prompt_tokens`` /
+    ``completion_tokens``, or Anthropic ``input_tokens`` /
+    ``output_tokens``). Returns ``None`` when:
+
+    * the provider didn't return a usage block,
+    * the response shape didn't match either pattern,
+    * ``_llm_chat`` was monkeypatched (tests), so no real provider call
+      happened and the sidecar was never populated.
+
+    Never raises — usage parsing failures fall back to ``None`` so the
+    caller can apply its own char/4 estimate.
+    """
+    # Reset the sidecar so a stale capture from a prior call in this
+    # context can't leak into this one. The real provider paths in
+    # ``_llm_chat`` will re-populate it on success.
+    _LAST_USAGE.set(None)
+    text = _llm_chat(
+        system=system,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        not_configured_message=not_configured_message,
+    )
+    usage = _LAST_USAGE.get()
+    return text, usage
 
 
 async def _llm_chat_async(
