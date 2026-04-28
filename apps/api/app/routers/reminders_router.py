@@ -252,6 +252,7 @@ def list_outbox(
     patient_id: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
     campaign_id: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> OutboxListResponse:
@@ -265,7 +266,7 @@ def list_outbox(
         q = q.filter(ReminderOutboxMessage.status == status)
     if campaign_id:
         q = q.filter(ReminderOutboxMessage.campaign_id == campaign_id)
-    records = q.order_by(ReminderOutboxMessage.created_at.desc()).all()
+    records = q.order_by(ReminderOutboxMessage.created_at.desc()).limit(limit).all()
     items = [OutboxMessageOut.from_record(r) for r in records]
     return OutboxListResponse(items=items, total=len(items))
 

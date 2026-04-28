@@ -1698,7 +1698,7 @@ def list_call_requests(
     if not include_resolved:
         query = query.filter(Message.read_at.is_(None))
 
-    rows = query.order_by(Message.created_at.desc()).all()
+    rows = query.order_by(Message.created_at.desc()).limit(100).all()
     return [_call_request_to_out(msg, patient) for msg, patient in rows]
 
 
