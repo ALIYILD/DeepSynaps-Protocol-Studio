@@ -32,7 +32,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
-from .registry import AgentDefinition
+from .registry import AgentDefinition, resolve_system_prompt
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -40,6 +40,12 @@ if TYPE_CHECKING:
     from app.auth import AuthenticatedActor
 
 logger = logging.getLogger(__name__)
+
+#: Default package id used for the budget pre-check when the actor's
+#: ``package_id`` doesn't match a :class:`PackageTokenBudget` row. This
+#: is the most-restrictive tier so abusive accounts can never escape the
+#: caps simply by holding an unknown package id.
+_DEFAULT_BUDGET_PACKAGE_ID = "free"
 
 #: Maximum length of a user message in characters. Anything above this is
 #: rejected before the LLM call so we don't burn tokens on accidental dumps.
@@ -187,6 +193,195 @@ def _expires_at_iso(seconds_from_now: float) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Phase 7 — LLM metering helper
+# ---------------------------------------------------------------------------
+
+
+def _estimate_tokens(text: str) -> int:
+    """Rough char/4 estimate when the provider doesn't return usage.
+
+    Empirically OpenRouter free tier (``z-ai/glm-4.5-air:free``) often
+    returns no ``usage`` block, and the bare Anthropic SDK call exposes
+    ``response.usage`` but the sync ``_llm_chat`` shim discards the full
+    response object. The fallback is intentionally conservative — it
+    over-counts for code-heavy text and under-counts for emoji-heavy
+    text, but stays within the same order of magnitude as a real
+    BPE tokenizer for clinical English. Documented as fallback so the
+    operator knows the budget pre-check is approximate when the upstream
+    provider doesn't report usage.
+    """
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
+
+
+def _llm_chat_with_metering(
+    *,
+    system: str,
+    messages: list[dict],
+    max_tokens: int,
+    temperature: float,
+) -> tuple[str, dict[str, int]]:
+    """Wrap :func:`chat_service._llm_chat` and return ``(text, usage)``.
+
+    The shipped ``_llm_chat`` returns the assistant text only and
+    discards the provider's response object. We can't capture *real*
+    ``usage`` numbers without invasively reshaping that helper (which
+    other callers depend on), so this wrapper:
+
+    * delegates to the unchanged ``_llm_chat`` so its behaviour and
+      provider fall-through stay untouched, and
+    * returns a tokens estimate computed from the rendered prompt + the
+      reply via :func:`_estimate_tokens`.
+
+    The estimate is good enough for the Phase-7 budget pre-check (which
+    runs against the cumulative monthly sum, not a single reply). If a
+    later iteration plumbs real usage through ``_llm_chat`` it can hand
+    that back here without changing the runner — same return shape.
+    """
+    from app.services import chat_service
+
+    # Rendered prompt size = system + every message body. Approximates
+    # what the provider tokenizes on the way in.
+    prompt_chars = len(system or "")
+    for m in messages or []:
+        prompt_chars += len((m or {}).get("content", "") or "")
+
+    text = chat_service._llm_chat(
+        system=system,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+    usage = {
+        "tokens_in": _estimate_tokens("x" * prompt_chars),
+        "tokens_out": _estimate_tokens(text or ""),
+    }
+    return (text or "", usage)
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 — package-budget pre-check
+# ---------------------------------------------------------------------------
+
+
+def _month_window_start() -> datetime:
+    """First instant of the current calendar month, naive UTC.
+
+    The :class:`AgentRunAudit.created_at` column is naive on SQLite and
+    timezone-aware on Postgres; comparing a naive datetime to both is
+    safe (SQLAlchemy strips tz on the SQL side). UTC anchor is used so
+    a clinic spanning multiple time zones still sees a single budget
+    window per calendar month.
+    """
+    now = datetime.now(timezone.utc)
+    return datetime(now.year, now.month, 1)
+
+
+def _budget_pre_check(
+    *,
+    actor: "AuthenticatedActor",
+    db: "Session",
+) -> dict | None:
+    """Return a budget-exceeded envelope, or ``None`` if the run may proceed.
+
+    Sums every :class:`AgentRunAudit` row for ``actor.clinic_id`` whose
+    ``created_at`` falls in the current calendar month, and compares the
+    three running totals against the matching :class:`PackageTokenBudget`
+    row.
+
+    Parameters
+    ----------
+    actor
+        The authenticated invoker. Without a clinic_id there is no
+        tenant scope, so the pre-check is skipped (returns ``None``).
+    db
+        Active SQLAlchemy session.
+    """
+    from sqlalchemy import func
+
+    from app.persistence.models import AgentRunAudit, PackageTokenBudget
+
+    # Without a clinic scope we can't aggregate sensibly — skip the gate.
+    # This matches the audit-row scoping in :func:`record_run`.
+    if actor.clinic_id is None:
+        return None
+
+    package_id = actor.package_id or _DEFAULT_BUDGET_PACKAGE_ID
+    try:
+        budget = (
+            db.query(PackageTokenBudget)
+            .filter(PackageTokenBudget.package_id == package_id)
+            .first()
+        )
+        # Fall back to the ``free`` tier when the actor's package isn't
+        # configured. Conservative on purpose — see _DEFAULT_BUDGET_PACKAGE_ID.
+        if budget is None and package_id != _DEFAULT_BUDGET_PACKAGE_ID:
+            budget = (
+                db.query(PackageTokenBudget)
+                .filter(PackageTokenBudget.package_id == _DEFAULT_BUDGET_PACKAGE_ID)
+                .first()
+            )
+        if budget is None:
+            # No budgets seeded at all — nothing to enforce. Phase 7's
+            # migration seeds three rows so this branch only fires in
+            # un-migrated test databases.
+            return None
+
+        window_start = _month_window_start()
+        agg = (
+            db.query(
+                func.coalesce(func.sum(AgentRunAudit.tokens_in_used), 0),
+                func.coalesce(func.sum(AgentRunAudit.tokens_out_used), 0),
+                func.coalesce(func.sum(AgentRunAudit.cost_pence), 0),
+            )
+            .filter(AgentRunAudit.clinic_id == actor.clinic_id)
+            .filter(AgentRunAudit.created_at >= window_start)
+            .one()
+        )
+        total_in = int(agg[0] or 0)
+        total_out = int(agg[1] or 0)
+        total_cost = int(agg[2] or 0)
+    except Exception as exc:  # noqa: BLE001 — fail-safe, never block on DB hiccup
+        logger.warning(
+            "agent_budget_precheck_failed",
+            extra={
+                "event": "agent_budget_precheck_failed",
+                "clinic_id": actor.clinic_id,
+                "package_id": package_id,
+                "error_type": type(exc).__name__,
+            },
+        )
+        return None
+
+    over_in = total_in >= int(budget.monthly_tokens_in_cap)
+    over_out = total_out >= int(budget.monthly_tokens_out_cap)
+    over_cost = total_cost >= int(budget.monthly_cost_pence_cap)
+
+    if not (over_in or over_out or over_cost):
+        return None
+
+    return {
+        "tokens_in_used": total_in,
+        "tokens_in_cap": int(budget.monthly_tokens_in_cap),
+        "tokens_out_used": total_out,
+        "tokens_out_cap": int(budget.monthly_tokens_out_cap),
+        "cost_pence_used": total_cost,
+        "cost_pence_cap": int(budget.monthly_cost_pence_cap),
+        "package_id": budget.package_id,
+        "exceeded": [
+            name
+            for name, flag in (
+                ("tokens_in", over_in),
+                ("tokens_out", over_out),
+                ("cost_pence", over_cost),
+            )
+            if flag
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -268,10 +463,45 @@ def run_agent(
         )
         return envelope
 
+    # ---- Phase 7: per-package budget pre-check -------------------------
+    # Run BEFORE the LLM call so an over-cap clinic burns no tokens. The
+    # check is skipped when ``db`` or ``actor`` is missing (legacy / unit
+    # test path) — those callers already opt out of audit too.
+    if actor is not None and db is not None:
+        budget_status = _budget_pre_check(actor=actor, db=db)
+        if budget_status is not None:
+            _safe_record_run(
+                db=db,
+                actor=actor,
+                agent_id=agent.id,
+                message=message,
+                reply="",
+                context_used=[],
+                latency_ms=None,
+                ok=False,
+                error_code="budget_exceeded",
+                tokens_in=0,
+                tokens_out=0,
+                cost_pence=0,
+            )
+            return {
+                "agent_id": agent.id,
+                "reply": "",
+                "schema_id": SCHEMA_ID,
+                "safety_footer": SAFETY_FOOTER,
+                "context_used": [],
+                "error": "budget_exceeded",
+                "budget": budget_status,
+            }
+
     # ---- Phase 2: pre-fetch live clinic context via ToolBroker ----------
     live_context: dict[str, Any] = {}
     context_used: list[str] = []
-    system_prompt = agent.system_prompt
+    # Phase 7 — clinic-scoped / global prompt override resolution.
+    base_system_prompt = resolve_system_prompt(
+        agent, actor.clinic_id if actor is not None else None, db
+    )
+    system_prompt = base_system_prompt
 
     if actor is not None and db is not None and agent.tool_allowlist:
         try:
@@ -300,9 +530,10 @@ def run_agent(
         if context:
             merged["caller_context"] = context
         user_content = _build_user_message_with_live_context(message, merged)
-        # Stamp the system prompt so the model knows the context block is
-        # authoritative live data and must not be hallucinated past.
-        system_prompt = f"{agent.system_prompt}\n\n{LIVE_CONTEXT_SYSTEM_FOOTER}"
+        # Stamp the (possibly-overridden) system prompt so the model
+        # knows the context block is authoritative live data and must
+        # not be hallucinated past.
+        system_prompt = f"{base_system_prompt}\n\n{LIVE_CONTEXT_SYSTEM_FOOTER}"
     else:
         # Legacy path — preserves caller-supplied `context` behaviour.
         user_content = _build_user_message(message, context)
@@ -312,13 +543,10 @@ def run_agent(
 
     t0 = time.monotonic()
     try:
-        # Local import keeps `app.services.chat_service` import side-effects
-        # off the cold path of `from app.services.agents import runner`.
-        # It also makes monkeypatching trivial in tests:
-        #   monkeypatch.setattr("app.services.chat_service._llm_chat", ...)
-        from app.services import chat_service
-
-        reply_text = chat_service._llm_chat(
+        # ``_llm_chat_with_metering`` wraps ``chat_service._llm_chat`` so
+        # tests that monkeypatch ``chat_service._llm_chat`` keep working
+        # unchanged — the wrapper still goes through that exact symbol.
+        reply_text, usage = _llm_chat_with_metering(
             system=system_prompt,
             messages=[{"role": "user", "content": user_content}],
             max_tokens=800,
@@ -344,6 +572,9 @@ def run_agent(
             latency_ms=latency_ms,
             ok=False,
             error_code="llm_call_failed",
+            tokens_in=0,
+            tokens_out=0,
+            cost_pence=0,
         )
         return {
             "agent_id": agent.id,
@@ -356,6 +587,8 @@ def run_agent(
 
     latency_ms = int((time.monotonic() - t0) * 1000)
     reply_str = reply_text or ""
+    tokens_in_used = int(usage.get("tokens_in", 0))
+    tokens_out_used = int(usage.get("tokens_out", 0))
 
     # ---- Phase 2.5: parse a possible tool-call request -----------------
     tool_call = _try_parse_tool_call(reply_str)
@@ -369,6 +602,8 @@ def run_agent(
             tool_call=tool_call,
             context_used=context_used,
             latency_ms=latency_ms,
+            tokens_in=tokens_in_used,
+            tokens_out=tokens_out_used,
         )
 
     _safe_record_run(
@@ -381,6 +616,8 @@ def run_agent(
         latency_ms=latency_ms,
         ok=bool(reply_str),
         error_code=None if reply_str else "empty_reply",
+        tokens_in=tokens_in_used,
+        tokens_out=tokens_out_used,
     )
     return {
         "agent_id": agent.id,
@@ -406,6 +643,8 @@ def _handle_tool_call_request(
     tool_call: dict,
     context_used: list[str],
     latency_ms: int,
+    tokens_in: int = 0,
+    tokens_out: int = 0,
 ) -> dict:
     """Vet an LLM-issued tool call and either register it or refuse.
 
@@ -442,6 +681,8 @@ def _handle_tool_call_request(
             latency_ms=latency_ms,
             ok=False,
             error_code=f"tool_not_allowed:{tool_id}",
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
         )
         return {
             "agent_id": agent.id,
@@ -467,6 +708,8 @@ def _handle_tool_call_request(
             latency_ms=latency_ms,
             ok=False,
             error_code="tool_call_no_actor",
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
         )
         return {
             "agent_id": agent.id,
@@ -498,6 +741,8 @@ def _handle_tool_call_request(
         latency_ms=latency_ms,
         ok=True,
         error_code=f"pending:{tool_id}",
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
     )
     return {
         "agent_id": agent.id,
@@ -689,6 +934,9 @@ def _safe_record_run(
     latency_ms: int | None,
     ok: bool,
     error_code: str | None,
+    tokens_in: int | None = None,
+    tokens_out: int | None = None,
+    cost_pence: int | None = None,
 ):
     """Best-effort wrapper around :func:`audit.record_run`.
 
@@ -719,6 +967,9 @@ def _safe_record_run(
             latency_ms=latency_ms,
             ok=ok,
             error_code=error_code,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_pence=cost_pence,
         )
     except Exception as exc:  # noqa: BLE001 — never break the run on audit failure
         logger.warning(

@@ -28,23 +28,27 @@ Webhook events handled
 
 Idempotency
 -----------
-Webhook dedupe is in-memory (a bounded-size set keyed on Stripe ``event.id``)
-in this PR; phase-7 will introduce a DB-backed dedupe table that joins with
-:class:`StripeWebhookLog`. The in-memory cap is 1000 entries — enough for a
-single process to dedupe a redelivery storm without unbounded growth.
+Webhook dedupe is now DB-backed via :class:`StripeWebhookEvent` (Phase 7,
+migration 051). The handler INSERTs a row keyed on the Stripe ``event.id``
+inside a try/except IntegrityError; on collision the event is treated as
+a redelivery and the handler short-circuits without re-applying the
+update. The previous in-memory ``deque`` is preserved as
+``_reset_dedupe_for_tests`` for backward compatibility but no longer
+gates real traffic — multi-process / blue-green deploys could double-apply
+otherwise.
 """
 from __future__ import annotations
 
 import logging
 import os
-from collections import deque
 from datetime import datetime, timezone
 from threading import Lock
 from typing import TYPE_CHECKING, Any
 
 import stripe
+from sqlalchemy.exc import IntegrityError
 
-from app.persistence.models import AgentSubscription, User
+from app.persistence.models import AgentSubscription, StripeWebhookEvent, User
 from app.services.agents.registry import AGENT_REGISTRY
 
 if TYPE_CHECKING:
@@ -387,35 +391,45 @@ def create_checkout_session(
 # Webhook handling
 # ---------------------------------------------------------------------------
 
-# Bounded in-memory dedupe — phase-7 will move to a DB-backed log.
-_DEDUPE_LIMIT = 1000
-_processed_event_ids: deque[str] = deque(maxlen=_DEDUPE_LIMIT)
-_processed_event_set: set[str] = set()
-_DEDUPE_LOCK = Lock()
+def _try_claim_event(*, db: "Session", event_id: str, event_type: str) -> bool:
+    """Insert a :class:`StripeWebhookEvent` row, returning True if NEW.
 
+    Phase 7 — DB-backed dedupe. Race-safe across processes because the
+    primary key constraint on ``event_id`` means at most one process can
+    successfully INSERT for a given event id; everyone else gets an
+    :class:`sqlalchemy.exc.IntegrityError` and reports the event as a
+    duplicate.
 
-def _mark_processed(event_id: str) -> bool:
-    """Return True if the event id is new (and now marked processed)."""
-    with _DEDUPE_LOCK:
-        if event_id in _processed_event_set:
-            return False
-        # Evict oldest if the deque is at capacity.
-        if len(_processed_event_ids) >= _DEDUPE_LIMIT:
-            try:
-                evicted = _processed_event_ids[0]
-                _processed_event_set.discard(evicted)
-            except IndexError:  # pragma: no cover — defensive
-                pass
-        _processed_event_ids.append(event_id)
-        _processed_event_set.add(event_id)
-        return True
+    The row is committed up-front (before ``_apply_webhook`` runs) so
+    that a crash mid-apply still leaves the dedupe row in place — the
+    redelivery will be flagged as a duplicate, which is the conservative
+    default for billing-adjacent code. Operators can manually delete a
+    row to force a re-apply if needed.
+    """
+    if not event_id:
+        return True  # No id to dedupe on — let the caller proceed.
+    row = StripeWebhookEvent(
+        id=event_id,
+        event_type=event_type or "",
+        processed=True,
+    )
+    db.add(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return False
+    return True
 
 
 def _reset_dedupe_for_tests() -> None:
-    """Test helper — wipe the in-memory dedupe state."""
-    with _DEDUPE_LOCK:
-        _processed_event_ids.clear()
-        _processed_event_set.clear()
+    """Test helper — no-op now that dedupe is DB-backed (the test harness
+    truncates the ``stripe_webhook_event`` table via reset_database()).
+
+    Kept as a stable symbol so existing fixtures that call it don't
+    break — see ``tests/test_stripe_skus.py::_reset_skus_state``.
+    """
+    return None
 
 
 def handle_subscription_webhook(payload: bytes | str | dict, signature: str) -> dict:
@@ -471,9 +485,6 @@ def handle_subscription_webhook(payload: bytes | str | dict, signature: str) -> 
         event.get("type", "") if isinstance(event, dict) else getattr(event, "type", "")
     )
 
-    if event_id and not _mark_processed(event_id):
-        return {"ok": True, "event_type": event_type, "applied": False, "reason": "duplicate"}
-
     data_obj = (
         event["data"]["object"]
         if isinstance(event, dict)
@@ -485,6 +496,19 @@ def handle_subscription_webhook(payload: bytes | str | dict, signature: str) -> 
 
     db = SessionLocal()
     try:
+        # Phase 7 — DB-backed dedupe. Try to claim the event id before
+        # touching anything; on duplicate, return early without mutating
+        # any agent_subscriptions row.
+        if event_id and not _try_claim_event(
+            db=db, event_id=event_id, event_type=event_type
+        ):
+            return {
+                "ok": True,
+                "event_type": event_type,
+                "applied": False,
+                "reason": "duplicate",
+            }
+
         applied = _apply_webhook(db=db, event_type=event_type, data_obj=data_obj)
         db.commit()
     except Exception as exc:

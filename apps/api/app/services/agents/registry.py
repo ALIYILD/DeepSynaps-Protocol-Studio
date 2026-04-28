@@ -28,14 +28,19 @@ this contract on every response.
 """
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
     from app.auth import AuthenticatedActor
 
 from app.auth import ROLE_ORDER
+
+logger = logging.getLogger(__name__)
 
 AgentAudience = Literal["clinic", "patient"]
 AgentRoleRequired = Literal["clinician", "admin"]
@@ -440,10 +445,87 @@ def list_visible_agents(actor: "AuthenticatedActor") -> list[AgentDefinition]:
     return visible
 
 
+def resolve_system_prompt(
+    agent: AgentDefinition,
+    clinic_id: str | None,
+    db: "Session | None",
+) -> str:
+    """Return the active system prompt for ``agent`` in ``clinic_id``'s scope.
+
+    Resolution order, first hit wins:
+
+    1. Enabled :class:`AgentPromptOverride` row matching ``(agent.id,
+       clinic_id=<clinic_id>)`` — the clinic-scoped override.
+    2. Enabled :class:`AgentPromptOverride` row matching ``(agent.id,
+       clinic_id=NULL)`` — the global override.
+    3. ``agent.system_prompt`` from the registry default.
+
+    The DB lookup is fail-safe: if the table is missing (legacy DBs from
+    before migration 051) or the query raises, we log a warning and fall
+    back to the registry default rather than blocking the run. This keeps
+    new agent traffic working through a botched migration.
+
+    Parameters
+    ----------
+    agent
+        The :class:`AgentDefinition` whose prompt is being resolved.
+    clinic_id
+        ``actor.clinic_id`` (or ``None`` for cross-clinic / unscoped runs).
+    db
+        Active SQLAlchemy session. ``None`` is honoured — falls straight
+        through to the registry default. Lets the runner skip the lookup
+        when no session is available (legacy / unit-test path).
+    """
+    if db is None:
+        return agent.system_prompt
+
+    try:
+        # Local import keeps the registry module import-light when the
+        # ORM models would force a circular load.
+        from app.persistence.models import AgentPromptOverride
+
+        if clinic_id is not None:
+            row = (
+                db.query(AgentPromptOverride)
+                .filter(AgentPromptOverride.agent_id == agent.id)
+                .filter(AgentPromptOverride.clinic_id == clinic_id)
+                .filter(AgentPromptOverride.enabled.is_(True))
+                .order_by(AgentPromptOverride.version.desc())
+                .first()
+            )
+            if row is not None:
+                return row.system_prompt
+
+        # Global override (clinic_id NULL).
+        row = (
+            db.query(AgentPromptOverride)
+            .filter(AgentPromptOverride.agent_id == agent.id)
+            .filter(AgentPromptOverride.clinic_id.is_(None))
+            .filter(AgentPromptOverride.enabled.is_(True))
+            .order_by(AgentPromptOverride.version.desc())
+            .first()
+        )
+        if row is not None:
+            return row.system_prompt
+    except Exception as exc:  # noqa: BLE001 — fail-safe, never block a run
+        logger.warning(
+            "agent_prompt_override_resolve_failed",
+            extra={
+                "event": "agent_prompt_override_resolve_failed",
+                "agent_id": agent.id,
+                "clinic_id": clinic_id,
+                "error_type": type(exc).__name__,
+            },
+        )
+
+    return agent.system_prompt
+
+
 __all__ = [
     "AgentAudience",
     "AgentDefinition",
     "AgentRoleRequired",
     "AGENT_REGISTRY",
     "list_visible_agents",
+    "resolve_system_prompt",
 ]
