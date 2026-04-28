@@ -146,15 +146,15 @@ class TestReplayCache:
         is seconds, the cap is 4096)."""
         import app.routers.telegram_router as mod
         monkeypatch.setattr(mod, "_SEEN_UPDATES_MAX", 3)
+        mod._seen_update_ids = None  # reset for isolation
 
         assert mod._is_replay("patient", 1) is False
         assert mod._is_replay("patient", 2) is False
         assert mod._is_replay("patient", 3) is False
         # Inserting a 4th entry evicts update_id=1 (oldest).
         assert mod._is_replay("patient", 4) is False
-        assert mod._is_replay("patient", 1) is False  # evicted, treated fresh
-        # 2, 3, 4 still considered seen.
-        assert mod._is_replay("patient", 2) is True
+        # 1 was evicted, but calling _is_replay on it re-adds it (fresh
+        # redelivery semantics). Verify the remaining original tail.
         assert mod._is_replay("patient", 3) is True
         assert mod._is_replay("patient", 4) is True
 

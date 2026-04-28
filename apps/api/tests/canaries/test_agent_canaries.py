@@ -40,7 +40,7 @@ from app.services.agents import runner as agent_runner
 from app.services.agents.registry import AGENT_REGISTRY
 from app.services.agents.runner import SAFETY_FOOTER, SCHEMA_ID
 
-from tests.canaries.fixtures import (
+from .fixtures import (
     CANARY_INPUTS,
     CRISIS_AGENT_IDS,
     CRISIS_ESCALATION_TOKENS,
