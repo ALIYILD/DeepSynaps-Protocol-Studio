@@ -317,3 +317,39 @@ def test_run_agent_skips_context_when_db_or_actor_missing(
     assert result["context_used"] == []
     user_content = captured["messages"][0]["content"]  # type: ignore[index]
     assert '<context source="clinic_live">' not in user_content
+
+
+# ---------------------------------------------------------------------------
+# Patient-side agents (gated) — broker must safely return the
+# {"unavailable": True} envelope for every tool, never raise.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "agent_id",
+    [
+        "patient.care_companion",
+        "patient.adherence",
+        "patient.education",
+        "patient.crisis",
+    ],
+)
+def test_fetch_context_for_patient_agent_returns_unavailable_envelopes(
+    agent_id: str,
+    clinician_actor: AuthenticatedActor,
+    db_session,
+) -> None:
+    agent = AGENT_REGISTRY[agent_id]
+    ctx = broker.fetch_context(agent, clinician_actor, db_session)
+
+    # Every allowlisted tool should have produced *something*; nothing
+    # should have crashed and bubbled up.
+    assert set(ctx.keys()) == set(agent.tool_allowlist)
+    for tool_id, payload in ctx.items():
+        assert isinstance(payload, dict), (
+            f"{tool_id} payload should be a dict, got {type(payload)!r}"
+        )
+        assert payload.get("unavailable") is True, (
+            f"{tool_id} must return the unavailable envelope today; "
+            f"got {payload!r}"
+        )

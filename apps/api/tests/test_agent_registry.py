@@ -9,6 +9,26 @@ from app.services.agents.registry import (
     AgentDefinition,
     list_visible_agents,
 )
+from app.services.agents.tools.registry import TOOL_REGISTRY
+
+
+PATIENT_AGENT_IDS = {
+    "patient.care_companion",
+    "patient.adherence",
+    "patient.education",
+    "patient.crisis",
+}
+
+PATIENT_TOOL_IDS = {
+    "assessments.recent_for_patient",
+    "tasks.list_for_patient",
+    "medications.active_for_patient",
+    "treatment_courses.active_for_patient",
+    "evidence.search",
+    "patient.condition",
+    "risk.escalation_path",
+    "clinic.emergency_contact",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -31,12 +51,14 @@ def _actor(role: str, package_id: str = "explorer") -> AuthenticatedActor:
 # ---------------------------------------------------------------------------
 
 
-def test_registry_has_three_entries() -> None:
+def test_registry_has_seven_entries() -> None:
+    # 3 clinic-side (v1) + 4 patient-side (v1.5, gated).
     assert set(AGENT_REGISTRY.keys()) == {
         "clinic.reception",
         "clinic.reporting",
         "clinic.aliclaw_doctor_telegram",
-    }
+    } | PATIENT_AGENT_IDS
+    assert len(AGENT_REGISTRY) == 7
 
 
 def test_every_entry_is_an_agent_definition() -> None:
@@ -133,3 +155,121 @@ def test_admin_with_explorer_package_sees_nothing() -> None:
     # Admin trumps all roles, but the package gate still applies.
     actor = _actor("admin", "explorer")
     assert list_visible_agents(actor) == []
+
+
+# ---------------------------------------------------------------------------
+# Patient-side agents (v1.5) — gated behind ``pending_clinical_signoff``
+# ---------------------------------------------------------------------------
+
+
+def test_all_four_patient_agents_present() -> None:
+    for agent_id in PATIENT_AGENT_IDS:
+        assert agent_id in AGENT_REGISTRY, f"missing {agent_id!r}"
+
+
+def test_patient_agents_have_patient_audience() -> None:
+    for agent_id in PATIENT_AGENT_IDS:
+        assert AGENT_REGISTRY[agent_id].audience == "patient"
+
+
+def test_patient_agents_locked_behind_signoff_package() -> None:
+    for agent_id in PATIENT_AGENT_IDS:
+        assert AGENT_REGISTRY[agent_id].package_required == [
+            "pending_clinical_signoff"
+        ]
+
+
+def test_patient_crisis_agent_is_free() -> None:
+    # Free baseline — safety nets must never sit behind a paywall.
+    assert AGENT_REGISTRY["patient.crisis"].monthly_price_gbp == 0
+
+
+def test_patient_agent_prices_match_spec() -> None:
+    assert AGENT_REGISTRY["patient.care_companion"].monthly_price_gbp == 19
+    assert AGENT_REGISTRY["patient.adherence"].monthly_price_gbp == 12
+    assert AGENT_REGISTRY["patient.education"].monthly_price_gbp == 9
+    assert AGENT_REGISTRY["patient.crisis"].monthly_price_gbp == 0
+
+
+def test_care_companion_prompt_carries_safety_phrases() -> None:
+    prompt = AGENT_REGISTRY["patient.care_companion"].system_prompt.lower()
+    assert "999" in prompt
+    assert "911" in prompt
+    assert "not a clinician" in prompt
+
+
+def test_adherence_prompt_defers_dose_changes_to_clinician() -> None:
+    prompt = AGENT_REGISTRY["patient.adherence"].system_prompt.lower()
+    assert "let your clinician know" in prompt
+
+
+def test_education_prompt_constrained_to_approved_evidence() -> None:
+    prompt = AGENT_REGISTRY["patient.education"].system_prompt.lower()
+    assert ("clinic-approved" in prompt) or ("ask your clinician" in prompt)
+
+
+def test_crisis_prompt_carries_escalation_phrases() -> None:
+    prompt = AGENT_REGISTRY["patient.crisis"].system_prompt
+    assert "999" in prompt
+    assert "911" in prompt
+    # The hard-scripted role statement must be present verbatim — the test
+    # is intentionally case-sensitive on "ONLY job" because that emphasis
+    # is part of the safety contract baked into the prompt.
+    assert "ONLY job is to detect" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Patient-side tool placeholders — registered + always unavailable today.
+# ---------------------------------------------------------------------------
+
+
+def test_all_patient_tool_ids_registered() -> None:
+    missing = PATIENT_TOOL_IDS - set(TOOL_REGISTRY.keys())
+    assert not missing, f"unregistered patient tool ids: {sorted(missing)}"
+
+
+def test_patient_tool_handlers_return_unavailable_envelope() -> None:
+    # A throwaway actor + db is enough — the stub handlers don't touch
+    # either input, they just return the canonical envelope.
+    actor = _actor("clinician", "clinician_pro")
+    db = object()  # sentinel; the stub never dereferences it
+    for tool_id in PATIENT_TOOL_IDS:
+        tool = TOOL_REGISTRY[tool_id]
+        assert tool.handler is not None, f"{tool_id} should have a stub handler"
+        result = tool.handler(actor, db)
+        assert result.get("unavailable") is True, (
+            f"{tool_id} must return an unavailable envelope until clinical "
+            f"signoff; got {result!r}"
+        )
+
+
+def test_patient_tools_require_clinician_role() -> None:
+    # The clinic operates these on the patient's behalf — the role gate
+    # belongs to the clinician, not the patient.
+    for tool_id in PATIENT_TOOL_IDS:
+        assert TOOL_REGISTRY[tool_id].requires_role == "clinician"
+
+
+# ---------------------------------------------------------------------------
+# Visibility — patient agents must NOT leak via list_visible_agents for any
+# of the standard clinic packages.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("package_id", ["clinician_pro", "enterprise"])
+def test_normal_packages_do_not_see_patient_agents(package_id: str) -> None:
+    actor = _actor("admin", package_id)  # admin = highest role
+    visible_ids = {a.id for a in list_visible_agents(actor)}
+    assert visible_ids.isdisjoint(PATIENT_AGENT_IDS), (
+        f"package {package_id!r} unexpectedly sees patient agents: "
+        f"{visible_ids & PATIENT_AGENT_IDS}"
+    )
+
+
+def test_pending_signoff_package_unlocks_patient_agents() -> None:
+    # Sanity: when (if ever) a clinic actor is granted the sentinel
+    # package, the patient-side tiles do show up. This locks in the gate
+    # behaviour rather than relying solely on the negative tests above.
+    actor = _actor("clinician", "pending_clinical_signoff")
+    visible_ids = {a.id for a in list_visible_agents(actor)}
+    assert PATIENT_AGENT_IDS.issubset(visible_ids)
