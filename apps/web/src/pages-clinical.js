@@ -10056,18 +10056,18 @@ window._vcMarkMediaReviewed = function(id) {
   _vcRender();
 };
 window._vcConvertToNote = function(id) {
-  _vcToast('Note Created', 'A draft note has been created from this update. Open AI Notes to review and sign off.', 'success');
+  _vcToast('Draft Note Created', 'A local draft note has been created from this update. Open AI Notes to review before saving to the clinical record.', 'success');
 };
 window._vcFlagAdverse = function(id) {
-  _vcToast('Adverse Event Flagged', 'This update has been flagged for adverse event review. Add it to the patient\'s clinical record.', 'warning');
+  _vcToast('Adverse Event Flagged', 'This update has been flagged locally for adverse event review. Add it to the patient\'s clinical record after clinician confirmation.', 'warning');
 };
 window._vcSignOff = function(id) {
   const note = VC_MOCK.aiNotes.find(n => n.id === id);
   if (note) note.status = 'signed';
-  _vcRender(); _vcToast('Note Signed', 'Note signed off and saved to the clinical record.', 'success');
+  _vcRender(); _vcToast('Note Signed Locally', 'Note sign-off was recorded in this preview flow. Clinical-record persistence is not verified from this page.', 'success');
 };
 window._vcSaveNoteDraft = function(id) { _vcToast('Draft Saved', 'Note draft saved. You can return to sign off later.', 'success'); };
-window._vcConvertNoteAction = function(id) { _vcToast('Follow-up Created', 'A follow-up task has been added to the patient\'s care plan.', 'success'); };
+window._vcConvertNoteAction = function(id) { _vcToast('Follow-up Logged', 'A local follow-up item was added to this preview workflow. Care-plan persistence is not verified from this page.', 'success'); };
 window._vcDiscardNote = function(id) {
   const idx = VC_MOCK.aiNotes.findIndex(n => n.id === id);
   if (idx >= 0) VC_MOCK.aiNotes.splice(idx, 1);

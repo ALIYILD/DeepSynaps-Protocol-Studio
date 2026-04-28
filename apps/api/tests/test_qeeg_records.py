@@ -195,15 +195,18 @@ class TestUpdateQEEGRecord:
         assert findings["theta_alpha_ratio"] == 1.4
         assert findings["z_score_frontal_theta"] == 2.1
 
-    def test_update_raw_data_ref(self, client: TestClient, auth_headers: dict,
+    def test_update_raw_data_ref_is_ignored(self, client: TestClient, auth_headers: dict,
                                   record_id: str) -> None:
+        """raw_data_ref is intentionally immutable via PATCH — it can only
+        be set at create time where path-traversal validation runs."""
         resp = client.patch(
             f"/api/v1/qeeg-records/{record_id}",
             json={"raw_data_ref": "s3://bucket/updated-path.edf"},
             headers=auth_headers["clinician"],
         )
         assert resp.status_code == 200
-        assert resp.json()["raw_data_ref"] == "s3://bucket/updated-path.edf"
+        # raw_data_ref is silently ignored on PATCH
+        assert resp.json()["raw_data_ref"] != "s3://bucket/updated-path.edf"
 
     def test_update_nonexistent_returns_404(self, client: TestClient, auth_headers: dict) -> None:
         resp = client.patch(

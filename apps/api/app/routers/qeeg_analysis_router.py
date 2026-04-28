@@ -33,7 +33,11 @@ from app.persistence.models import (
     QEEGAnalysis,
     QEEGAIReport,
     QEEGComparison,
+    QEEGProtocolFit,
     QEEGRecord,
+    QEEGReportAudit,
+    QEEGReportFinding,
+    QEEGTimelineEvent,
 )
 from app.repositories.patients import resolve_patient_clinic_id
 from app.settings import get_settings
@@ -257,6 +261,14 @@ class AIReportOut(BaseModel):
     confidence_note: Optional[str] = None
     clinician_reviewed: bool
     clinician_amendments: Optional[str] = None
+    report_state: Optional[str] = None
+    reviewer_id: Optional[str] = None
+    model_version: Optional[str] = None
+    prompt_version: Optional[str] = None
+    report_version: Optional[str] = None
+    claim_governance: Optional[dict] = None
+    signed_by: Optional[str] = None
+    signed_at: Optional[str] = None
     created_at: str
 
     @classmethod
@@ -274,8 +286,83 @@ class AIReportOut(BaseModel):
             confidence_note=r.confidence_note,
             clinician_reviewed=r.clinician_reviewed,
             clinician_amendments=r.clinician_amendments,
+            report_state=r.report_state,
+            reviewer_id=r.reviewer_id,
+            model_version=r.model_version,
+            prompt_version=r.prompt_version,
+            report_version=r.report_version,
+            claim_governance=json.loads(r.claim_governance_json) if r.claim_governance_json else None,
+            signed_by=r.signed_by,
+            signed_at=r.signed_at.isoformat() if r.signed_at else None,
             created_at=r.created_at.isoformat() if r.created_at else "",
         )
+
+
+class ReportStateTransitionIn(BaseModel):
+    action: str
+    note: Optional[str] = None
+
+
+class ReportFindingUpdateIn(BaseModel):
+    status: str
+    clinician_note: Optional[str] = None
+    amended_text: Optional[str] = None
+
+
+class SafetyCockpitOut(BaseModel):
+    checks: list[dict]
+    red_flags: list[dict]
+    overall_status: str
+    disclaimer: str
+
+
+class RedFlagsOut(BaseModel):
+    flags: list[dict]
+    flag_count: int
+    high_severity_count: int
+    disclaimer: str
+
+
+class NormativeModelCardOut(BaseModel):
+    normative_db_name: Optional[str] = None
+    normative_db_version: Optional[str] = None
+    age_range: Optional[str] = None
+    eyes_condition_compatible: Optional[bool] = None
+    montage_compatible: Optional[bool] = None
+    zscore_method: Optional[str] = None
+    confidence_interval: Optional[str] = None
+    ood_warning: Optional[str] = None
+    limitations: list[str] = Field(default_factory=list)
+    complete: bool = False
+
+
+class ProtocolFitOut(BaseModel):
+    id: str
+    analysis_id: str
+    pattern_summary: str
+    symptom_linkage: Optional[dict] = None
+    contraindications: list[str] = Field(default_factory=list)
+    evidence_grade: Optional[str] = None
+    off_label_flag: bool = False
+    candidate_protocol: Optional[dict] = None
+    alternative_protocols: list[dict] = Field(default_factory=list)
+    match_rationale: Optional[str] = None
+    caution_rationale: Optional[str] = None
+    required_checks: list[str] = Field(default_factory=list)
+    clinician_reviewed: bool = False
+
+
+class TimelineEventOut(BaseModel):
+    date: str
+    event_type: str
+    title: str
+    summary: str
+    status: str
+    rci: Optional[float] = None
+    confounders: list[str] = Field(default_factory=list)
+    ai_explanation: Optional[str] = None
+    confidence: Optional[str] = None
+    source: str
 
 
 class ComparisonOut(BaseModel):
@@ -1155,6 +1242,24 @@ async def generate_ai_report_endpoint(
     report_data = report_result.get("data", {})
     literature_refs = report_result.get("literature_refs") or []
 
+    # ── Clinical Safety Cockpit (CONTRACT §1.2) ──────────────────────────
+    from app.services.qeeg_safety_engine import compute_safety_cockpit, compute_interpretability_status
+
+    cockpit = compute_safety_cockpit(analysis)
+    analysis.safety_cockpit_json = json.dumps(cockpit)
+    analysis.interpretability_status = compute_interpretability_status(cockpit)
+
+    # ── Claim Governance (CONTRACT §1.3) ─────────────────────────────────
+    from app.services.qeeg_claim_governance import classify_claims, sanitize_for_patient
+
+    ai_narrative_text = report_data.get("executive_summary", "")
+    for finding in report_data.get("findings", []):
+        ai_narrative_text += "\n" + (finding.get("description") or "")
+    governance = classify_claims(ai_narrative_text)
+
+    # ── Patient-facing report ──────────────────────────────────────────────
+    patient_report = sanitize_for_patient(report_data)
+
     # Save report — persist literature_refs so the frontend can render
     # numbered citations alongside the narrative (CONTRACT §5.5).
     report = QEEGAIReport(
@@ -1170,8 +1275,36 @@ async def generate_ai_report_endpoint(
         model_used=report_result.get("model_used"),
         prompt_hash=report_result.get("prompt_hash"),
         confidence_note=report_data.get("confidence_level"),
+        report_state="DRAFT_AI",
+        model_version=report_result.get("model_used"),
+        prompt_version=report_result.get("prompt_hash"),
+        report_version="1.0.0",
+        claim_governance_json=json.dumps(governance),
+        patient_facing_report_json=json.dumps(patient_report),
     )
     db.add(report)
+    db.commit()
+    db.refresh(report)
+
+    # ── Per-finding records (CONTRACT §1.4) ──────────────────────────────
+    for idx, finding in enumerate(report_data.get("findings", [])):
+        finding_text = finding.get("description", "")
+        finding_gov = classify_claims(finding_text)
+        # Use the first claim type or default to INFERRED
+        claim_type = "INFERRED"
+        if finding_gov.get("claims"):
+            claim_type = finding_gov["claims"][0].get("type", "INFERRED")
+
+        rf = QEEGReportFinding(
+            report_id=report.id,
+            patient_id=analysis.patient_id,
+            finding_text=finding_text,
+            claim_type=claim_type,
+            evidence_grade="C" if claim_type in ("INFERRED", "UNSUPPORTED") else "B",
+        )
+        db.add(rf)
+
+    db.commit()
 
     # Audit log — include qeeg_rag_literature in sources_used when RAG
     # actually returned references (CONTRACT §5.6).
@@ -1191,7 +1324,6 @@ async def generate_ai_report_endpoint(
     )
     db.add(audit)
     db.commit()
-    db.refresh(report)
 
     return AIReportOut.from_record(report)
 
@@ -3219,33 +3351,296 @@ def export_qeeg_fhir(
     )
 
 
-@router.get("/{analysis_id}/export/bids")
-def export_qeeg_bids(
+@router.get("/{analysis_id}/safety-cockpit", response_model=SafetyCockpitOut)
+def get_safety_cockpit(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> SafetyCockpitOut:
+    """Return the clinical safety cockpit for a qEEG analysis."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.qeeg_safety_engine import compute_safety_cockpit
+
+    # Use persisted cockpit if available, else compute on-the-fly
+    cockpit = None
+    if analysis.safety_cockpit_json:
+        try:
+            cockpit = json.loads(analysis.safety_cockpit_json)
+        except (TypeError, ValueError):
+            pass
+    if cockpit is None:
+        cockpit = compute_safety_cockpit(analysis)
+        analysis.safety_cockpit_json = json.dumps(cockpit)
+        db.commit()
+    return SafetyCockpitOut(**cockpit)
+
+
+@router.get("/{analysis_id}/red-flags", response_model=RedFlagsOut)
+def get_red_flags(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> RedFlagsOut:
+    """Return red-flag detector output for a qEEG analysis."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.qeeg_safety_engine import detect_red_flags
+
+    flags = None
+    if analysis.red_flags_json:
+        try:
+            flags = json.loads(analysis.red_flags_json)
+        except (TypeError, ValueError):
+            pass
+    if flags is None:
+        flags = detect_red_flags(analysis, notes=analysis.qeeg_record.summary_notes if analysis.qeeg_record else None)
+        analysis.red_flags_json = json.dumps(flags)
+        db.commit()
+    return RedFlagsOut(**flags)
+
+
+@router.get("/{analysis_id}/normative-model-card", response_model=NormativeModelCardOut)
+def get_normative_model_card(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> NormativeModelCardOut:
+    """Return normative model metadata for a qEEG analysis."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    meta = None
+    if analysis.normative_metadata_json:
+        try:
+            meta = json.loads(analysis.normative_metadata_json)
+        except (TypeError, ValueError):
+            pass
+
+    if meta:
+        return NormativeModelCardOut(**meta)
+
+    # Build from norm_db_version and best-guess defaults
+    norm_db = analysis.norm_db_version or "unknown"
+    return NormativeModelCardOut(
+        normative_db_name="DeepSynaps Normative",
+        normative_db_version=norm_db,
+        age_range="18–65 years (default)",
+        eyes_condition_compatible=bool(analysis.eyes_condition),
+        montage_compatible=True,
+        zscore_method="GAMLSS centiles with log-normal absolute power",
+        confidence_interval="95%",
+        ood_warning="Out-of-distribution detection not configured for this normative database.",
+        limitations=[
+            "Normative data may not represent the patient's specific demographic.",
+            "Z-scores are descriptive, not diagnostic.",
+        ],
+        complete=False,
+    )
+
+
+@router.post("/{analysis_id}/protocol-fit", response_model=ProtocolFitOut)
+def compute_protocol_fit_endpoint(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ProtocolFitOut:
+    """Compute and persist a protocol-fit recommendation."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    patient = db.query(Patient).filter_by(id=analysis.patient_id).first()
+    if not patient:
+        raise ApiServiceError(code="not_found", message="Patient not found", status_code=404)
+
+    from app.services.qeeg_protocol_fit import compute_protocol_fit
+
+    fit = compute_protocol_fit(analysis, patient, db)
+    db.commit()
+    db.refresh(fit)
+    return ProtocolFitOut(
+        id=fit.id,
+        analysis_id=fit.analysis_id,
+        pattern_summary=fit.pattern_summary,
+        symptom_linkage=json.loads(fit.symptom_linkage_json) if fit.symptom_linkage_json else None,
+        contraindications=json.loads(fit.contraindications_json) if fit.contraindications_json else [],
+        evidence_grade=fit.evidence_grade,
+        off_label_flag=fit.off_label_flag,
+        candidate_protocol=json.loads(fit.candidate_protocol_json) if fit.candidate_protocol_json else None,
+        alternative_protocols=json.loads(fit.alternative_protocols_json) if fit.alternative_protocols_json else [],
+        match_rationale=fit.match_rationale,
+        caution_rationale=fit.caution_rationale,
+        required_checks=json.loads(fit.required_checks_json) if fit.required_checks_json else [],
+        clinician_reviewed=fit.clinician_reviewed,
+    )
+
+
+@router.get("/{analysis_id}/protocol-fit", response_model=ProtocolFitOut)
+def get_protocol_fit_endpoint(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ProtocolFitOut:
+    """Return the persisted protocol-fit recommendation."""
+    require_minimum_role(actor, "clinician")
+    fit = db.query(QEEGProtocolFit).filter_by(analysis_id=analysis_id).order_by(QEEGProtocolFit.created_at.desc()).first()
+    if not fit:
+        raise ApiServiceError(code="not_found", message="Protocol fit not found. Run POST first.", status_code=404)
+    _gate_patient_access(actor, fit.patient_id, db)
+    return ProtocolFitOut(
+        id=fit.id,
+        analysis_id=fit.analysis_id,
+        pattern_summary=fit.pattern_summary,
+        symptom_linkage=json.loads(fit.symptom_linkage_json) if fit.symptom_linkage_json else None,
+        contraindications=json.loads(fit.contraindications_json) if fit.contraindications_json else [],
+        evidence_grade=fit.evidence_grade,
+        off_label_flag=fit.off_label_flag,
+        candidate_protocol=json.loads(fit.candidate_protocol_json) if fit.candidate_protocol_json else None,
+        alternative_protocols=json.loads(fit.alternative_protocols_json) if fit.alternative_protocols_json else [],
+        match_rationale=fit.match_rationale,
+        caution_rationale=fit.caution_rationale,
+        required_checks=json.loads(fit.required_checks_json) if fit.required_checks_json else [],
+        clinician_reviewed=fit.clinician_reviewed,
+    )
+
+
+@router.post("/reports/{report_id}/transition")
+def transition_report_state_endpoint(
+    report_id: str,
+    body: ReportStateTransitionIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Transition an AI report through its review workflow."""
+    require_minimum_role(actor, "clinician")
+    report = db.query(QEEGAIReport).filter_by(id=report_id).first()
+    if not report:
+        raise ApiServiceError(code="not_found", message="Report not found", status_code=404)
+    _gate_patient_access(actor, report.patient_id, db)
+
+    from app.services.qeeg_clinician_review import transition_report_state
+
+    report = transition_report_state(report, body.action, actor, db, note=body.note)
+    db.commit()
+    db.refresh(report)
+    return {"id": report.id, "report_state": report.report_state, "reviewer_id": report.reviewer_id, "reviewed_at": report.reviewed_at.isoformat() if report.reviewed_at else None}
+
+
+@router.post("/reports/{report_id}/findings/{finding_id}")
+def update_report_finding_endpoint(
+    report_id: str,
+    finding_id: str,
+    body: ReportFindingUpdateIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Update a single finding's review status."""
+    require_minimum_role(actor, "clinician")
+    report = db.query(QEEGAIReport).filter_by(id=report_id).first()
+    if not report:
+        raise ApiServiceError(code="not_found", message="Report not found", status_code=404)
+    _gate_patient_access(actor, report.patient_id, db)
+
+    from app.services.qeeg_clinician_review import update_finding_status
+
+    finding = update_finding_status(finding_id, body.status, body.clinician_note, body.amended_text, actor, db)
+    db.commit()
+    return {"id": finding.id, "status": finding.status, "claim_type": finding.claim_type}
+
+
+@router.post("/reports/{report_id}/sign")
+def sign_report_endpoint(
+    report_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Digitally sign-off on an approved report."""
+    require_minimum_role(actor, "clinician")
+    report = db.query(QEEGAIReport).filter_by(id=report_id).first()
+    if not report:
+        raise ApiServiceError(code="not_found", message="Report not found", status_code=404)
+    _gate_patient_access(actor, report.patient_id, db)
+
+    from app.services.qeeg_clinician_review import sign_report
+
+    report = sign_report(report_id, actor, db)
+    db.commit()
+    return {"id": report.id, "signed_by": report.signed_by, "signed_at": report.signed_at.isoformat() if report.signed_at else None}
+
+
+@router.get("/reports/{report_id}/patient-facing")
+def get_patient_facing_report(
+    report_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Return the sanitized patient-facing version of an AI report."""
+    require_minimum_role(actor, "clinician")
+    report = db.query(QEEGAIReport).filter_by(id=report_id).first()
+    if not report:
+        raise ApiServiceError(code="not_found", message="Report not found", status_code=404)
+    _gate_patient_access(actor, report.patient_id, db)
+
+    if not report.patient_facing_report_json:
+        return {"disclaimer": "Patient-facing report not yet generated.", "content": None}
+    return json.loads(report.patient_facing_report_json)
+
+
+@router.get("/patient/{patient_id}/timeline", response_model=list[TimelineEventOut])
+def get_patient_timeline(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> list[TimelineEventOut]:
+    """Return the longitudinal DeepTwin/qEEG timeline for a patient."""
+    require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
+
+    from app.services.qeeg_timeline import build_timeline
+
+    events = build_timeline(patient_id, db)
+    return [TimelineEventOut(**e) for e in events]
+
+
+@router.post("/{analysis_id}/export-bids")
+def export_bids_package(
     analysis_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> StreamingResponse:
-    """Stream a BIDS-EEG derivatives zip for a qEEG analysis."""
+    """Export a Clinical qEEG Package in BIDS-style zip format.
+
+    Gated: requires approved and signed-off report.
+    """
     require_minimum_role(actor, "clinician")
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
 
-    from app.services import bids_export
+    from app.services.qeeg_bids_export import build_bids_package
 
-    row = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
-    if row is None:
-        raise ApiServiceError(
-            code="not_found", message="Analysis not found", status_code=404,
-        )
-    pseudo_id = f"qeeg{str(row.id)[:8].replace('-', '')}"
-    buf = bids_export.build_qeeg_bids_derivatives(
-        row,
-        patient_pseudo_id=pseudo_id,
-    )
+    buf = build_bids_package(analysis_id, actor, db)
     return StreamingResponse(
         buf,
         media_type="application/zip",
         headers={
             "Content-Disposition": (
-                f'attachment; filename="qeeg_bids_{analysis_id}.zip"'
+                f'attachment; filename="qeeg_clinical_package_{analysis_id}.zip"'
             ),
         },
     )

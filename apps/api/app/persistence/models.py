@@ -2237,3 +2237,74 @@ class AgentRunAudit(Base):
     latency_ms: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     ok: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=True)
     error_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+
+# ── Clinical Intelligence Workbench Models (migration 048) ───────────────────
+
+
+class QEEGReportFinding(Base):
+    """Per-finding granularity within an AI-generated qEEG report."""
+    __tablename__ = "qeeg_report_findings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    report_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    finding_text: Mapped[str] = mapped_column(Text(), nullable=False)
+    claim_type: Mapped[str] = mapped_column(String(20), nullable=False, default="INFERRED")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    clinician_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    evidence_grade: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    amended_text: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+    )
+
+
+class QEEGReportAudit(Base):
+    """Audit trail for every qEEG report state change."""
+    __tablename__ = "qeeg_report_audits"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    report_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    previous_state: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    new_state: Mapped[str] = mapped_column(String(30), nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class QEEGProtocolFit(Base):
+    """AI Protocol Fit recommendation for a qEEG analysis."""
+    __tablename__ = "qeeg_protocol_fits"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    analysis_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    pattern_summary: Mapped[str] = mapped_column(Text(), nullable=False)
+    symptom_linkage_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    contraindications_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    evidence_grade: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    off_label_flag: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    candidate_protocol_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    alternative_protocols_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    match_rationale: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    caution_rationale: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    required_checks_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    clinician_reviewed: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class QEEGTimelineEvent(Base):
+    """Longitudinal timeline event for a patient (qEEG, outcomes, treatments, etc.)."""
+    __tablename__ = "qeeg_timeline_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    event_date: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    event_data_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    confidence: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))

@@ -514,7 +514,7 @@ async function _mountConsent(rootEl, opts) {
       'I have had the opportunity to ask questions and have received',
       'satisfactory answers. I voluntarily consent to the described procedure.',
       '',
-      consent.signed_at ? `Signed electronically on ${_fmtDateTime(consent.signed_at)}` : '[AWAITING SIGNATURE]',
+      consent.signed_at ? `Signed electronically on ${_fmtDateTime(consent.signed_at)}` : '[AWAITING CLINIC-DEVICE CAPTURE OR PENDING EXTERNAL FOLLOW-UP]',
       consent.ip_address ? `IP Address: ${consent.ip_address}` : '',
       '',
       '--------------------------------------------------------------',

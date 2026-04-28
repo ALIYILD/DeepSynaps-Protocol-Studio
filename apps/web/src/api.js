@@ -1187,6 +1187,30 @@ export const api = {
   fetchQEEGPatientTrajectory: (patientId) =>
     apiFetch(`/api/v1/qeeg-analysis/patients/${patientId}/trajectory`),
 
+  // ── qEEG Clinical Intelligence Workbench (Migration 048) ─────────────────
+  getQEEGSafetyCockpit: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/safety-cockpit`),
+  getQEEGRedFlags: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/red-flags`),
+  getQEEGNormativeModelCard: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/normative-model-card`),
+  computeQEEGProtocolFit: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/protocol-fit`, { method: 'POST' }),
+  getQEEGProtocolFit: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/protocol-fit`),
+  transitionQEEGReportState: (reportId, body) =>
+    apiFetch(`/api/v1/qeeg-analysis/reports/${reportId}/transition`, { method: 'POST', body: JSON.stringify(body) }),
+  updateQEEGReportFinding: (reportId, findingId, body) =>
+    apiFetch(`/api/v1/qeeg-analysis/reports/${reportId}/findings/${findingId}`, { method: 'POST', body: JSON.stringify(body) }),
+  signQEEGReport: (reportId) =>
+    apiFetch(`/api/v1/qeeg-analysis/reports/${reportId}/sign`, { method: 'POST' }),
+  getQEEGPatientFacingReport: (reportId) =>
+    apiFetch(`/api/v1/qeeg-analysis/reports/${reportId}/patient-facing`),
+  getQEEGPatientTimeline: (patientId) =>
+    apiFetch(`/api/v1/qeeg-analysis/patient/${patientId}/timeline`),
+  exportQEEGBidsPackage: (analysisId) =>
+    apiFetchBinary(`/api/v1/qeeg-analysis/${analysisId}/export-bids`),
+
   // ── MRI Analyzer (packages/mri-pipeline; see portal_integration/api_contract.md)
   // Multipart upload (.zip DICOM or .nii.gz NIfTI). FormData must include
   //   file: File, patient_id: string

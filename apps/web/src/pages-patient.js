@@ -990,7 +990,7 @@ export async function pgPatientDashboard(user) {
           </div>
           <div class="pth-empty">
             <div class="pth-empty-title">No tasks yet</div>
-            <div class="pth-empty-sub">Your care team will add tasks here.</div>
+            <div class="pth-empty-sub">Tasks will appear here when they are available in the portal workflow.</div>
           </div>
         </div>`;
     }
@@ -1586,7 +1586,7 @@ export async function pgPatientDashboard(user) {
   }
   function _hmPlanHtml() {
     if (!homeTasks.length) {
-      return `<div class="pth2-empty"><div class="pth2-empty-title">No tasks for today</div><div class="pth2-empty-sub">Your care team will post your plan here.</div></div>`;
+      return `<div class="pth2-empty"><div class="pth2-empty-title">No tasks for today</div><div class="pth2-empty-sub">Your plan will appear here when it is available in the portal workflow.</div></div>`;
     }
     return homeTasks.slice(0, 5).map(t => {
       const done = !!(t.completed || t.done);
@@ -3316,7 +3316,7 @@ export async function pgPatientSessions() {
   // 12" headings. Hides sections that have zero items.
   function _psGroupedListHtml() {
     if (!_psList.length) {
-      return `<div class="ps-empty">No sessions yet. Your care team will schedule your first session soon.</div>`;
+      return `<div class="ps-empty">No sessions yet. Your first session will appear here when it is available in the portal workflow.</div>`;
     }
     const liveIdxs      = [];
     const upcomingIdxs  = [];
@@ -5363,7 +5363,7 @@ async function _pgPatientAssessmentsImpl() {
                 <div class="as-daily-summary-ico">✅</div>
                 <div>
                   <div class="as-daily-summary-title">Check-in complete</div>
-                  <div class="as-daily-summary-sub">Your care team will see this update.</div>
+                  <div class="as-daily-summary-sub">Review timing depends on portal workflow.</div>
                 </div>
               </div>
               <div class="as-daily-summary-grid" id="as-daily-summary-grid"></div>
@@ -7089,9 +7089,9 @@ export async function pgPatientMessages() {
       if (status) {
         status.removeAttribute('hidden');
         status.className = 'ptmsg-send-status ptmsg-send-ok';
-        status.textContent = 'Your care team will get back to you shortly.';
+        status.textContent = 'Call request recorded. Response timing depends on portal workflow.';
       }
-      if (btn) { btn.disabled = true; btn.textContent = 'Sent'; }
+      if (btn) { btn.disabled = true; btn.textContent = 'Recorded'; }
       window._ptmsgPendingCallTier = null;
     } catch (e) {
       const msg = (e && e.data && e.data.message) || (e && e.message)
@@ -7881,7 +7881,7 @@ async function _pgPatientVirtualCareImpl() {
       // Real clinician thread — POST to care team via patient portal messages.
       try {
         await api.sendPortalMessage({ body, category: 'patient_message', thread_id: activeId === 'primary' ? undefined : activeId });
-        _showToast('Sent');
+        _showToast('Message accepted by care messaging');
       } catch (err) {
         console.error('[virtualcare] send failed:', err);
         _showToast('Failed to send — try again');
@@ -7890,7 +7890,7 @@ async function _pgPatientVirtualCareImpl() {
         if (sc3) { sc3.innerHTML = _convHtml(activeId); sc3.scrollTop = sc3.scrollHeight; }
       }
     } else {
-      _showToast('Sent');
+      _showToast('Message saved locally');
     }
   };
   window._vcQuick = function(kind) {
@@ -8150,7 +8150,7 @@ async function _pgPatientVirtualCareImpl() {
   };
 
   window._vcAcceptSchedule = function() {
-    _showToast('Schedule change accepted');
+    _showToast('Schedule change request recorded');
     setTimeout(() => window._navPatient && window._navPatient('patient-sessions'), 800);
   };
   window._vcRejectSchedule = function() {
@@ -8838,9 +8838,9 @@ async function _pgPatientEducationImpl() {
 
   // Learning paths
   const PATHS = [
-    { id:'p1', icoCls:'brain',  tag:'For your plan',     name:'Understanding tDCS, end-to-end',         desc:'From the basic physics of direct current to electrode placement, dosing, and what neuroplasticity actually changes in your brain.', lessons:8, mins:72, pct:62 },
-    { id:'p2', icoCls:'heart',  tag:'Recovery toolkit',  name:'MDD recovery — beyond the device',       desc:'Sleep, behavioral activation, exercise, social rhythm — the lifestyle scaffolding that makes neuromodulation stick.', lessons:7, mins:58, pct:18 },
-    { id:'p3', icoCls:'shield', tag:'Foundations',       name:'Brain health basics in 7 short videos',  desc:'A friendly tour of brain regions, neurotransmitters, neuroplasticity, qEEG, and how home devices fit into the broader picture.', lessons:7, mins:42, pct:8 },
+    { id:'p1', icoCls:'brain',  tag:'For your plan',     name:'Understanding tDCS, end-to-end',         desc:'From the basic physics of direct current to electrode placement, dosing, and what neuroplasticity actually changes in your brain.', lessons:8, mins:72, pct:0 },
+    { id:'p2', icoCls:'heart',  tag:'Recovery toolkit',  name:'MDD recovery — beyond the device',       desc:'Sleep, behavioral activation, exercise, social rhythm — the lifestyle scaffolding that makes neuromodulation stick.', lessons:7, mins:58, pct:0 },
+    { id:'p3', icoCls:'shield', tag:'Foundations',       name:'Brain health basics in 7 short videos',  desc:'A friendly tour of brain regions, neurotransmitters, neuroplasticity, qEEG, and how home devices fit into the broader picture.', lessons:7, mins:42, pct:0 },
   ];
 
   // Academy courses — curated learning resources with completion tracking
@@ -8985,7 +8985,7 @@ async function _pgPatientEducationImpl() {
             </div>
             <div class="el-hero-stat">
               <div class="el-hero-stat-icon purple"><svg width="18" height="18"><use href="#i-clock"/></svg></div>
-              <div class="el-hero-stat-content"><div class="el-hero-stat-val">2h 14m watched</div><div class="el-hero-stat-lbl">42% of recommended path</div></div>
+              <div class="el-hero-stat-content"><div class="el-hero-stat-val">\u2014</div><div class="el-hero-stat-lbl">Watch time tracked as you go</div></div>
             </div>
             <div class="el-hero-stat">
               <div class="el-hero-stat-icon amber"><svg width="18" height="18"><use href="#i-bookmark"/></svg></div>
@@ -9013,22 +9013,10 @@ async function _pgPatientEducationImpl() {
       <!-- Continue watching -->
       <div class="el-section">
         <div class="el-section-head">
-          <div class="el-section-title"><svg width="16" height="16"><use href="#i-play"/></svg>Continue watching <span class="el-section-count">${contDemo.length} in progress</span></div>
-          <div class="el-section-actions" style="display:none"><button class="btn btn-ghost btn-sm" onclick="window._edToast && window._edToast('History')">View history</button></div>
+          <div class="el-section-title"><svg width="16" height="16"><use href="#i-play"/></svg>Continue watching</div>
         </div>
-        <div class="el-continue-grid">
-          ${contDemo.map(c => `
-            <div class="el-continue-card" onclick="window._edOpen && window._edOpen('${esc(c.id)}')">
-              <div class="el-cont-thumb el-thumb-grad-${c.grad}">
-                <div class="el-thumb-icon"><svg><use href="#i-${esc(c.ico)}"/></svg></div>
-                <div class="el-cont-progress"><div class="el-cont-progress-fill" style="width:${c.pct}%"></div></div>
-              </div>
-              <div class="el-cont-info">
-                <div class="el-cont-title">${esc(c.title)}</div>
-                <div class="el-cont-sub">${esc(c.sub)}</div>
-                <div class="el-cont-time"><svg width="11" height="11"><use href="#i-play"/></svg>${esc(c.left)}</div>
-              </div>
-            </div>`).join('')}
+        <div style="padding:18px 0;text-align:center;color:var(--text-tertiary);font-size:12.5px;line-height:1.6">
+          No watch history yet. Open a video or article below to get started.
         </div>
       </div>
 
@@ -11845,6 +11833,7 @@ function _tasksGetEnrichedFromServer(serverTasks) {
 }
 
 function _taskRenderCard(task, today, opts) {
+  function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
   opts = opts || {};
   const done = _pttIsComplete(task.id, today);
   const cat = task.cat || _TASK_CAT_META['custom'];
@@ -11885,8 +11874,8 @@ function _taskRenderCard(task, today, opts) {
     '</div>' +
 
     '<div class="pt-tasks-card-body">' +
-      '<div class="pt-tasks-card-title' + (done ? ' pt-tasks-card-title--done' : '') + '">' + task.title + '</div>' +
-      (task.why ? '<div class="pt-tasks-card-why">' + task.why + '</div>' : '') +
+      '<div class="pt-tasks-card-title' + (done ? ' pt-tasks-card-title--done' : '') + '">' + esc(task.title) + '</div>' +
+      (task.why ? '<div class="pt-tasks-card-why">' + esc(task.why) + '</div>' : '') +
       (metaPills ? '<div class="pt-tasks-card-meta">' + metaPills + '</div>' : '') +
       careHTML +
     '</div>' +
@@ -12031,7 +12020,17 @@ export async function pgPatientWellness() {
       '</div>' +
     '</div>';
 
+    const _isDemoTasks = _looksDemo && _serverHomeProgramTasks && _serverHomeProgramTasks.some(function(t) { return t._isDemoData; });
+    const demoBanner = _isDemoTasks
+      ? '<div class="hw-demo-banner" role="status">' +
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
+          '<strong>Demo data</strong>' +
+          '&mdash; sample tasks shown while your clinic is being set up. Your real home program will appear once your care team activates your plan.' +
+        '</div>'
+      : '';
+
     return '<div class="pt-tasks-page">' +
+      demoBanner +
       '<div class="pt-tasks-page-date" style="padding:0 16px 12px">' + todayFmt + '</div>' +
       kpiRow +
       overdueSection +
@@ -12185,11 +12184,7 @@ export async function pgPatientWellness() {
     _launcherOpen(taskId,
       '<div class="pt-launcher-heading">Breathing Exercise</div>' +
       '<div style="text-align:center;padding:12px 0">' +
-        '<div class="pt-launcher-timer-circle" id="bl-circle">' +
-          '<div class="pt-launcher-timer-phase" id="bl-phase">Inhale</div>' +
-          '<div class="pt-launcher-timer-count" id="bl-count">4</div>' +
-        '</div>' +
-        '<div class="pt-launcher-timer-guide" id="bl-guide">Press Start to begin</div>' +
+        '<div style="font-size:13px;color:var(--text-secondary);line-height:1.5;max-width:320px;margin:0 auto">Choose a pattern below, then do the exercise on your own. Log your experience when done.</div>' +
       '</div>' +
       '<div class="pt-launcher-row">' +
         '<label class="pt-launcher-label">Rounds</label>' +
@@ -17355,13 +17350,13 @@ function _pgpBiometrics() {
   var bioRaw = null;
   try { bioRaw = JSON.parse(localStorage.getItem('ds_wearable_summary') || 'null'); } catch (_e) {}
   function bioNum(str) { return parseFloat(String(str || '').replace(/[^\d.]/g, '')); }
-  var sleepVal = bioRaw ? bioRaw.sleep : '7.2 hrs';
-  var hrvVal   = bioRaw ? bioRaw.hrv   : '48 ms';
-  var rhrVal   = bioRaw ? bioRaw.rhr   : '64 bpm';
+  var sleepVal = bioRaw ? bioRaw.sleep : '—';
+  var hrvVal   = bioRaw ? bioRaw.hrv   : '—';
+  var rhrVal   = bioRaw ? bioRaw.rhr   : '—';
   var sleepN = bioNum(sleepVal), hrvN = bioNum(hrvVal), rhrN = bioNum(rhrVal);
-  var sleepSt = sleepN >= 7 ? 'green' : sleepN >= 5.5 ? 'amber' : 'red';
-  var hrvSt   = hrvN   >= 50 ? 'green' : hrvN   >= 30  ? 'amber' : 'red';
-  var rhrSt   = rhrN   <= 65 ? 'green' : rhrN   <= 80  ? 'amber' : 'red';
+  var sleepSt = !bioRaw ? 'grey' : sleepN >= 7 ? 'green' : sleepN >= 5.5 ? 'amber' : 'red';
+  var hrvSt   = !bioRaw ? 'grey' : hrvN   >= 50 ? 'green' : hrvN   >= 30  ? 'amber' : 'red';
+  var rhrSt   = !bioRaw ? 'grey' : rhrN   <= 65 ? 'green' : rhrN   <= 80  ? 'amber' : 'red';
   // Adherence from check-in frequency
   var journal = [];
   try { journal = JSON.parse(localStorage.getItem('ds_symptom_journal') || '[]'); } catch (_e) {}
@@ -17369,9 +17364,9 @@ function _pgpBiometrics() {
   var adhRate = Math.min(100, Math.round((journal.filter(function(e) { return (e.date || (e.created_at || '').slice(0, 10)) >= cut14; }).length / 14) * 100));
   var adhSt   = adhRate >= 70 ? 'green' : adhRate >= 40 ? 'amber' : 'red';
   var tiles = [
-    { label: 'Sleep',      val: sleepVal,       sub: 'avg last 7 nights',  icon: '🌙', st: sleepSt },
-    { label: 'HRV',        val: hrvVal,         sub: 'avg last 7 days',    icon: '💚', st: hrvSt   },
-    { label: 'Resting HR', val: rhrVal,         sub: 'avg last 7 days',    icon: '❤️', st: rhrSt   },
+    { label: 'Sleep',      val: sleepVal,       sub: bioRaw ? 'avg last 7 nights' : 'no wearable connected',  icon: '🌙', st: sleepSt },
+    { label: 'HRV',        val: hrvVal,         sub: bioRaw ? 'avg last 7 days' : 'no wearable connected',    icon: '💚', st: hrvSt   },
+    { label: 'Resting HR', val: rhrVal,         sub: bioRaw ? 'avg last 7 days' : 'no wearable connected',    icon: '❤️', st: rhrSt   },
     { label: 'Adherence',  val: adhRate + '%',  sub: 'check-in rate',      icon: '📋', st: adhSt   },
   ];
   return '<div class="pgp-bio-grid">' +
@@ -17385,7 +17380,7 @@ function _pgpBiometrics() {
       '</div>';
     }).join('') +
     '</div>' +
-    '<div class="pgp-bio-sync">Last synced today &nbsp;·&nbsp; <a href="#" style="color:var(--accent-teal,#2dd4bf);text-decoration:none" onclick="window._navPatient(\'patient-wearables\');return false">Manage devices →</a></div>';
+    '<div class="pgp-bio-sync">' + (bioRaw ? 'Last synced today' : 'No wearable data yet') + ' &nbsp;·&nbsp; <a href="#" style="color:var(--accent-teal,#2dd4bf);text-decoration:none" onclick="window._navPatient(\'patient-wearables\');return false">Manage devices →</a></div>';
 }
 
 // ── Care assistant prompt panel ────────────────────────────────────────────────
@@ -18254,9 +18249,9 @@ function _pgpDomainCards(progress) {
     {
       title: 'Biomarkers',
       items: [
-        { label: 'Sleep duration', pct: wearable && wearable.sleep ? Math.min(100, Math.round(parseFloat(String(wearable.sleep).replace(/[^\d.]/g, '')) / 9 * 100)) : 72 },
-        { label: 'HRV recovery', pct: wearable && wearable.hrv ? Math.min(100, Math.round(parseFloat(String(wearable.hrv).replace(/[^\d.]/g, '')) / 70 * 100)) : 61 },
-        { label: 'Resting heart rate', pct: wearable && wearable.rhr ? Math.max(15, Math.min(100, 100 - Math.round((parseFloat(String(wearable.rhr).replace(/[^\d.]/g, '')) - 50) * 2))) : 68 },
+        { label: 'Sleep duration', pct: wearable && wearable.sleep ? Math.min(100, Math.round(parseFloat(String(wearable.sleep).replace(/[^\d.]/g, '')) / 9 * 100)) : 0 },
+        { label: 'HRV recovery', pct: wearable && wearable.hrv ? Math.min(100, Math.round(parseFloat(String(wearable.hrv).replace(/[^\d.]/g, '')) / 70 * 100)) : 0 },
+        { label: 'Resting heart rate', pct: wearable && wearable.rhr ? Math.max(15, Math.min(100, 100 - Math.round((parseFloat(String(wearable.rhr).replace(/[^\d.]/g, '')) - 50) * 2))) : 0 },
       ],
     },
   ];
@@ -19205,6 +19200,7 @@ window._outcomeToggleOverlay = function () {
 window._outcomeShowDay = function (dateStr) {
   const popup = document.getElementById('day-detail-popup');
   if (!popup) return;
+  function _esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
   let entry = null;
   try {
     const j = JSON.parse(localStorage.getItem('ds_symptom_journal') || '[]');
@@ -19213,10 +19209,10 @@ window._outcomeShowDay = function (dateStr) {
   popup.style.display = 'block';
   const df = new Date(dateStr).toLocaleDateString(getLocale() === 'tr' ? 'tr-TR' : 'en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   if (entry) {
-    const mood = entry.mood || entry.mood_score || '\u2014', nt = entry.notes || entry.free_text || '';
-    popup.innerHTML = '<strong style="color:var(--text,#f1f5f9)">' + df + '</strong><div style="margin-top:6px">Mood: <strong style="color:var(--accent-teal,#2dd4bf)">' + mood + '</strong></div>' + (nt ? '<div style="margin-top:6px;line-height:1.5">&#8220;' + nt + '&#8221;</div>' : '');
+    const mood = _esc(entry.mood || entry.mood_score || '\u2014'), nt = _esc(entry.notes || entry.free_text || '');
+    popup.innerHTML = '<strong style="color:var(--text,#f1f5f9)">' + _esc(df) + '</strong><div style="margin-top:6px">Mood: <strong style="color:var(--accent-teal,#2dd4bf)">' + mood + '</strong></div>' + (nt ? '<div style="margin-top:6px;line-height:1.5">&#8220;' + nt + '&#8221;</div>' : '');
   } else {
-    popup.innerHTML = '<strong style="color:var(--text,#f1f5f9)">' + df + '</strong><div style="margin-top:6px">No journal entry for this day. Visit <a href="#" onclick="window._navPatient(\'pt-journal\');return false" style="color:var(--accent-teal,#2dd4bf)">Symptom Journal</a> to add one.</div>';
+    popup.innerHTML = '<strong style="color:var(--text,#f1f5f9)">' + _esc(df) + '</strong><div style="margin-top:6px">No journal entry for this day. Visit <a href="#" onclick="window._navPatient(\'pt-journal\');return false" style="color:var(--accent-teal,#2dd4bf)">Symptom Journal</a> to add one.</div>';
   }
 };
 
