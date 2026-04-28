@@ -946,7 +946,7 @@ function _renderConsentDetail(S) {
   const signatureDisplay = consent.signature_data && !S.signatureMode ? `
     <div class="cm-signature-display">
       <div class="cm-group-title"><span class="cm-num">\u2713</span>Captured Signature</div>
-      <img src="${consent.signature_data}" class="cm-sig-image" alt="Patient signature">
+      <img src="${esc(consent.signature_data)}" class="cm-sig-image" alt="Patient signature">
       <div class="cm-sig-meta">Signed: ${_fmtDateTime(consent.signed_at)} \u00B7 Capture: ${esc(consent.capture_mode || 'clinic-device')}</div>
     </div>
   ` : '';
