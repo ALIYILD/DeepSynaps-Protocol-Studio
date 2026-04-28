@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_patient_owner
@@ -45,22 +45,38 @@ _audit_logger = logging.getLogger(__name__)
 # Technician, reviewer, guest: no legitimate use-case for patient-facing AI.
 _WEARABLE_PATIENT_ALLOWED_ROLES = frozenset({'patient', 'clinician', 'admin', 'supervisor'})
 
+# Body-shape caps. Pre-fix none of the chat request models had any
+# ``Field(max_length=...)`` or list-length cap. Combined with the
+# per-IP-only rate limit, a stolen clinician token plus a botnet
+# trivially exhausted the OpenAI / Anthropic budget. Caps are
+# generous enough for legitimate clinical context (~64 KB free-form
+# context, 32 KB per chat message, 100 messages of history) but
+# refuse the multi-MB payloads that move LLM cost into the dollar
+# range per request.
+_MSG_CONTENT_MAX = 32_000           # ~32 KB per message — fits a long clinical note
+_HISTORY_MAX_MESSAGES = 100         # max chat-history turns per request
+_CONTEXT_MAX = 64_000               # patient_context / dashboard_context / context blob
+_LANG_MAX = 16                      # BCP-47 codes are short; cap blocks injection
+_PROVIDER_MAX = 32
+_OPENAI_KEY_MAX = 256               # `sk-…` keys are ~120 chars max in practice
+_ROLE_MAX = 16                      # "user" | "assistant" | "system"
+
 
 class ChatMessage(BaseModel):
-    role: str  # "user" or "assistant"
-    content: str
+    role: str = Field(..., max_length=_ROLE_MAX)  # "user" or "assistant"
+    content: str = Field(..., max_length=_MSG_CONTENT_MAX)
 
 
 class ChatRequest(BaseModel):
-    messages: list[ChatMessage]
-    patient_context: str | None = None  # optional patient info for clinician context
+    messages: list[ChatMessage] = Field(..., max_length=_HISTORY_MAX_MESSAGES)
+    patient_context: str | None = Field(default=None, max_length=_CONTEXT_MAX)
     # When `patient_id` is provided and `patient_context` is empty, the clinician
     # chat endpoint auto-populates patient_context with a clinician-authored
     # assessment snapshot so the LLM always sees current severity. Never used
     # to fetch content for a patient-facing endpoint.
-    patient_id: str | None = None
-    dashboard_context: str | None = None  # optional patient-portal dashboard snapshot for /patient
-    language: str = "en"               # BCP-47 locale code for patient responses
+    patient_id: str | None = Field(default=None, max_length=64)
+    dashboard_context: str | None = Field(default=None, max_length=_CONTEXT_MAX)
+    language: str = Field(default="en", max_length=_LANG_MAX)
 
 
 class PublicChatRequest(BaseModel):
@@ -75,14 +91,14 @@ class PublicChatRequest(BaseModel):
     """
     model_config = {"extra": "forbid"}
 
-    messages: list[ChatMessage]
+    messages: list[ChatMessage] = Field(..., max_length=_HISTORY_MAX_MESSAGES)
 
 
 class AgentChatRequest(BaseModel):
-    messages: list[ChatMessage]
-    provider: str = "glm-free"            # "glm-free" | "anthropic" | "openai"
-    openai_key: str | None = None        # doctor's own OpenAI key (never stored)
-    context: str | None = None           # dashboard context snippet injected by frontend
+    messages: list[ChatMessage] = Field(..., max_length=_HISTORY_MAX_MESSAGES)
+    provider: str = Field(default="glm-free", max_length=_PROVIDER_MAX)  # "glm-free" | "anthropic" | "openai"
+    openai_key: str | None = Field(default=None, max_length=_OPENAI_KEY_MAX)  # doctor's own OpenAI key (never stored)
+    context: str | None = Field(default=None, max_length=_CONTEXT_MAX)        # dashboard context snippet injected by frontend
 
 
 class CitedPaper(BaseModel):
@@ -102,10 +118,10 @@ class ChatResponse(BaseModel):
 
 
 class SalesInquiryRequest(BaseModel):
-    name: str | None = None
-    email: str | None = None
-    message: str
-    source: str | None = "landing"
+    name: str | None = Field(default=None, max_length=200)
+    email: str | None = Field(default=None, max_length=320)  # RFC 5321 email cap
+    message: str = Field(..., max_length=4_000)
+    source: str | None = Field(default="landing", max_length=64)
 
 
 class SalesInquiryResponse(BaseModel):
@@ -298,13 +314,13 @@ def patient_chat(
 # ── Wearable copilot endpoints ─────────────────────────────────────────────────
 
 class WearablePatientChatRequest(BaseModel):
-    messages: list[ChatMessage]
-    patient_context: Optional[str] = None   # wearable summary string, built by frontend
+    messages: list[ChatMessage] = Field(..., max_length=_HISTORY_MAX_MESSAGES)
+    patient_context: Optional[str] = Field(default=None, max_length=_CONTEXT_MAX)  # wearable summary string, built by frontend
 
 
 class WearableClinicianChatRequest(BaseModel):
-    messages: list[ChatMessage]
-    patient_id: str
+    messages: list[ChatMessage] = Field(..., max_length=_HISTORY_MAX_MESSAGES)
+    patient_id: str = Field(..., max_length=64)
 
 
 def _build_wearable_context(patient_id: str, db: Session) -> str:
