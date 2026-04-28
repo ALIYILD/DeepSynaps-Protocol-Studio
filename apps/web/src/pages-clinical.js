@@ -10066,7 +10066,7 @@ window._vcSignOff = function(id) {
   if (note) note.status = 'signed';
   _vcRender(); _vcToast('Note Signed Locally', 'Note sign-off was recorded in this preview flow. Clinical-record persistence is not verified from this page.', 'success');
 };
-window._vcSaveNoteDraft = function(id) { _vcToast('Draft Saved', 'Note draft saved. You can return to sign off later.', 'success'); };
+window._vcSaveNoteDraft = function(id) { _vcToast('Draft Saved', 'Note draft saved in this browser view. You can return to sign off later.', 'success'); };
 window._vcConvertNoteAction = function(id) { _vcToast('Follow-up Logged', 'A local follow-up item was added to this preview workflow. Care-plan persistence is not verified from this page.', 'success'); };
 window._vcDiscardNote = function(id) {
   const idx = VC_MOCK.aiNotes.findIndex(n => n.id === id);

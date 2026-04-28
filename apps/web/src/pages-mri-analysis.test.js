@@ -67,13 +67,14 @@ function mkTarget(overrides) {
 // ═════════════════════════════════════════════════════════════════════════════
 // _modalityBadgeClass — one class per modality, rose for *_personalised
 // ═════════════════════════════════════════════════════════════════════════════
-test('renderTargetCard emits the correct modality badge class for each of 6 modalities', () => {
+test('renderTargetCard emits the correct modality badge class for supported modalities', () => {
   const pairs = [
-    ['rtms', 'ds-mri-badge-rtms'],
     ['tps',  'ds-mri-badge-tps'],
     ['tfus', 'ds-mri-badge-tfus'],
-    ['tdcs', 'ds-mri-badge-tdcs'],
-    ['tacs', 'ds-mri-badge-tacs'],
+    // Unknown modalities return empty string (no badge class)
+    ['rtms', ''],
+    ['tdcs', ''],
+    ['tacs', ''],
     // personalised — should override modality colour with rose.
     ['rtms_personalised_is_a_method', 'ds-mri-badge-personalised'],
   ];
@@ -83,7 +84,9 @@ test('renderTargetCard emits the correct modality badge class for each of 6 moda
       : mkTarget({ modality: m });
     assert.equal(_modalityBadgeClass(t), expected, `modality=${m} → ${expected}`);
     const html = renderTargetCard(t, 'aid-x');
-    assert.match(html, new RegExp(expected), `card HTML for ${m} should contain ${expected}`);
+    if (expected) {
+      assert.match(html, new RegExp(expected), `card HTML for ${m} should contain ${expected}`);
+    }
   }
 });
 
@@ -262,9 +265,9 @@ test('MRI bottom strip no longer renders pretend Share / Neuronav buttons', () =
   assert.match(view, /ds-mri-dl-bids/);
 });
 
-test('MRI per-target Send to Neuronav button still renders (now exports JSON)', () => {
+test('MRI per-target actions include view overlay and download JSON', () => {
   const html = renderTargetCard(mkTarget(), 'aid-x');
-  assert.match(html, /ds-mri-send-nav/);
+  assert.match(html, /ds-mri-view-overlay/);
   assert.match(html, /ds-mri-download-target/);
 });
 

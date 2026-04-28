@@ -135,11 +135,17 @@ class TestDocumentCrud:
         r = client.get(f"/api/v1/documents/{doc['id']}", headers=auth_headers["clinician"])
         assert r.status_code == 404
 
-    def test_clinician_scope_isolation(self, client: TestClient, auth_headers: dict) -> None:
-        _create(client, auth_headers, title="Mine")
+    def test_admin_sees_all_clinic_documents(self, client: TestClient, auth_headers: dict) -> None:
+        """Updated for the clinic-scope rewrite: admin / supervisor are
+        cross-clinic operators by design (canonical
+        `require_patient_owner` admits them via `allow_admin=True`).
+        Pre-fix the owner-only filter excluded admin from seeing other
+        clinicians' rows; post-fix admin sees the full clinic surface."""
+        created = _create(client, auth_headers, title="Mine")
         resp = client.get("/api/v1/documents", headers=auth_headers["admin"])
         assert resp.status_code == 200
-        assert all(d["title"] != "Mine" for d in resp.json()["items"])
+        ids = [d["id"] for d in resp.json()["items"]]
+        assert created["id"] in ids
 
 
 class TestDocumentUploadDownload:
