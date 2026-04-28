@@ -346,7 +346,7 @@ function _renderMsg(msg, agent) {
   const timeStr = msg.ts ? new Date(msg.ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '';
   return `<div class="agent-msg ${isUser ? 'agent-msg--user' : 'agent-msg--agent'}">
     <div class="agent-msg-bubble">
-      ${isUser ? '' : `<div class="agent-msg-label">${label}${msg.skill ? ` · ${msg.skill}` : ''}</div>`}
+      ${isUser ? '' : `<div class="agent-msg-label">${label}${msg.skill ? ` · ${_esc(msg.skill)}` : ''}</div>`}
       <div class="agent-msg-text">${_formatAgentText(msg.content)}</div>
       ${timeStr ? `<div style="font-size:9px;color:var(--text-tertiary);margin-top:4px;text-align:${isUser ? 'right' : 'left'}">${timeStr}</div>` : ''}
     </div>

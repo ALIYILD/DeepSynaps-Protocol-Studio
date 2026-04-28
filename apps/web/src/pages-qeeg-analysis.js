@@ -4234,8 +4234,8 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
                   if (progressEl && statusResp.progress_pct != null) {
                     progressEl.innerHTML = '<div style="margin-top:8px">'
                       + '<div style="background:rgba(255,255,255,0.1);border-radius:4px;height:6px;overflow:hidden">'
-                      + '<div style="width:' + statusResp.progress_pct + '%;background:var(--teal);height:100%;border-radius:4px;transition:width 0.3s"></div></div>'
-                      + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + (statusResp.completed_analyses || 0) + '/' + (statusResp.total_analyses || 25) + ' analyses completed</div></div>';
+                      + '<div style="width:' + (Number(statusResp.progress_pct) || 0) + '%;background:var(--teal);height:100%;border-radius:4px;transition:width 0.3s"></div></div>'
+                      + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + (Number(statusResp.completed_analyses) || 0) + '/' + (Number(statusResp.total_analyses) || 25) + ' analyses completed</div></div>';
                   }
                   if (statusResp.status === 'completed' || statusResp.status === 'failed') {
                     clearInterval(pollInterval);
@@ -4267,8 +4267,8 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             if (progressEl && statusResp.progress_pct != null) {
               progressEl.innerHTML = '<div style="margin-top:8px">'
                 + '<div style="background:rgba(255,255,255,0.1);border-radius:4px;height:6px;overflow:hidden">'
-                + '<div style="width:' + statusResp.progress_pct + '%;background:var(--teal);height:100%;border-radius:4px;transition:width 0.3s"></div></div>'
-                + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + (statusResp.completed_analyses || 0) + '/' + (statusResp.total_analyses || 25) + ' analyses completed</div></div>';
+                + '<div style="width:' + (Number(statusResp.progress_pct) || 0) + '%;background:var(--teal);height:100%;border-radius:4px;transition:width 0.3s"></div></div>'
+                + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + (Number(statusResp.completed_analyses) || 0) + '/' + (Number(statusResp.total_analyses) || 25) + ' analyses completed</div></div>';
             }
             if (statusResp.status === 'completed' || statusResp.status === 'failed') {
               clearInterval(pollInterval);

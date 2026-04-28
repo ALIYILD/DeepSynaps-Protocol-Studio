@@ -2999,7 +2999,7 @@ export async function pgPermissionsAdmin(setTopbar) {
     window._permSave   = () => { savePermissions(_workPerms); _permToast('Permissions saved in this browser view.'); };
     window._permReset  = () => {
       if (!confirm('Reset all permissions to defaults? This cannot be undone.')) return;
-      resetPermissions(); _workPerms = getPermissions(); render(); _permToast('Permissions reset to defaults.');
+      resetPermissions(); _workPerms = getPermissions(); render(); _permToast('Permissions reset to defaults in this browser view.');
     };
     window._permFilterCategory = cat => { _filterCat = cat; render(); };
     window._permToggleRole     = role => { if (_hiddenRoles.has(role)) _hiddenRoles.delete(role); else _hiddenRoles.add(role); render(); };
@@ -3020,7 +3020,7 @@ export async function pgPermissionsAdmin(setTopbar) {
     };
     window._apiKeyRevoke = id => {
       if (!confirm('Revoke this API key? This cannot be undone.')) return;
-      revokeApiKey(id); _revealedKeys.delete(id); render(); _permToast('API key revoked.');
+      revokeApiKey(id); _revealedKeys.delete(id); render(); _permToast('API key revoked in this browser view.');
     };
 
     window._secToggle       = (f, v)  => { const c = getSecurityConfig(); c[f] = v; saveSecurityConfig(c); };
