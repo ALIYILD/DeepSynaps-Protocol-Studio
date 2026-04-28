@@ -2203,3 +2203,37 @@ class DsHgEdgeCitation(Base):
     edge_id: Mapped[int] = mapped_column(Integer(), ForeignKey("kg_hyperedges.edge_id", ondelete="CASCADE"), nullable=False, index=True)
     citation_id: Mapped[str] = mapped_column(String(36), ForeignKey("ds_claim_citations.id", ondelete="CASCADE"), nullable=False, index=True)
     enriched_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
+# ── Agent Marketplace — per-run audit trail (migration 048) ──────────────────
+
+
+class AgentRunAudit(Base):
+    """One row per agent invocation — powers the "what did agent X say to
+    clinician Y on Tuesday at 14:32" admin view, plus future ratelimit /
+    abuse detection and refund handling.
+
+    Mirrors the ``AiSummaryAudit`` shape: opaque UUID PK, indexed
+    ``created_at`` for time-bucket queries, indexed ``actor_id`` for
+    per-user history, plus the agent-specific fields (agent id, message
+    + reply previews, latency, ok/error). Previews are length-bounded by
+    :func:`app.services.agents.audit.record_run` so PHI dumps don't
+    silently balloon row size.
+    """
+
+    __tablename__ = "agent_run_audit"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: uuid.uuid4().hex)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
+    # Nullable so guest probes / anonymous landing-page calls can still be
+    # audited (e.g. for abuse detection on unauthenticated traffic).
+    actor_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    clinic_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    agent_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    message_preview: Mapped[str] = mapped_column(String(220), nullable=False, default="")
+    reply_preview: Mapped[str] = mapped_column(String(520), nullable=False, default="")
+    # JSON-encoded list of tool ids actually fetched by the broker.
+    context_used_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    ok: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=True)
+    error_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)

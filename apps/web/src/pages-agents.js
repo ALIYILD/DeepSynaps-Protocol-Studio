@@ -379,6 +379,78 @@ let _marketplaceModalReply = null;
 let _marketplaceModalError = null;
 let _marketplaceModalBusy = false;
 
+// ── Marketplace tab state ────────────────────────────────────────────────────
+// Tracks which sub-view of the Marketplace section is active. Not persisted to
+// localStorage — fresh on each visit so the catalog is always the entry point.
+let _marketplaceTab = 'catalog'; // 'catalog' | 'activity'
+let _activityRuns = null;
+let _activityAgentFilter = '';
+let _activityLoading = false;
+let _activityError = null;
+
+const ACTIVITY_DEMO_RUNS = [
+  {
+    id: 'demo-run-1',
+    created_at: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
+    actor_id: 'actor-clinician-demo',
+    agent_id: 'clinic.reception',
+    message_preview: '(demo) Show me today’s bookings and any cancellations…',
+    reply_preview: '(demo) You have 3 sessions today: 09:00 J. Doe, 11:30 A. Singh (cancelled), 15:00 R. Patel.',
+    context_used: ['sessions.list', 'patients.search'],
+    latency_ms: 842,
+    ok: true,
+    error_code: null,
+  },
+  {
+    id: 'demo-run-2',
+    created_at: new Date(Date.now() - 47 * 60 * 1000).toISOString(),
+    actor_id: 'actor-clinician-demo',
+    agent_id: 'clinic.reporting',
+    message_preview: '(demo) Generate this week’s clinic digest with AE summary.',
+    reply_preview: '(demo) Weekly digest: 22 sessions completed, 1 mild AE (transient headache, resolved), avg PHQ-9 ↓1.2.',
+    context_used: ['sessions.list', 'assessments.list'],
+    latency_ms: 1320,
+    ok: true,
+    error_code: null,
+  },
+  {
+    id: 'demo-run-3',
+    created_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    actor_id: 'actor-clinician-demo',
+    agent_id: 'clinic.aliclaw_doctor_telegram',
+    message_preview: '(demo) /queue — what’s next?',
+    reply_preview: '(demo) Next: review J. Doe pre-session checklist, then approve A. Singh home-program update.',
+    context_used: ['tasks.list'],
+    latency_ms: 612,
+    ok: true,
+    error_code: null,
+  },
+  {
+    id: 'demo-run-4',
+    created_at: new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString(),
+    actor_id: 'actor-clinician-demo',
+    agent_id: 'clinic.reception',
+    message_preview: '(demo) Reschedule A. Singh from 11:30 to 16:00 tomorrow.',
+    reply_preview: '(demo) I can draft a reschedule request — clinician approval required before sending.',
+    context_used: ['sessions.list', 'patients.search'],
+    latency_ms: 980,
+    ok: true,
+    error_code: null,
+  },
+  {
+    id: 'demo-run-5',
+    created_at: new Date(Date.now() - 50 * 60 * 60 * 1000).toISOString(),
+    actor_id: 'actor-clinician-demo',
+    agent_id: 'clinic.reporting',
+    message_preview: '(demo) Email me the AE summary for last month.',
+    reply_preview: '',
+    context_used: [],
+    latency_ms: 1502,
+    ok: false,
+    error_code: 'tool_unavailable',
+  },
+];
+
 const MARKETPLACE_DEMO_AGENTS = [
   {
     id: 'clinic.reception',
@@ -534,6 +606,17 @@ export async function pgAgentChat(setTopbar) {
 }
 
 // ── Marketplace Section ──────────────────────────────────────────────────────
+function _renderMarketplaceTabStrip() {
+  const tab = (k, label) => {
+    const active = _marketplaceTab === k;
+    const style = active
+      ? 'font-size:11.5px;padding:4px 12px;border-radius:6px;background:var(--violet);color:#fff;border:1px solid var(--violet);font-weight:600;cursor:pointer'
+      : 'font-size:11.5px;padding:4px 12px;border-radius:6px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);font-weight:500;cursor:pointer';
+    return `<button type="button" style="${style}" onclick="window._agentMarketplaceSetTab('${k}')">${label}</button>`;
+  };
+  return `<div style="display:flex;gap:6px;margin-bottom:12px">${tab('catalog', 'Catalog')}${tab('activity', 'Activity')}</div>`;
+}
+
 function _renderMarketplaceSection() {
   // Use whatever's loaded; if nothing's loaded yet (very first paint) and we're
   // in demo mode, show the hardcoded list so reviewers see the marketplace.
@@ -541,13 +624,29 @@ function _renderMarketplaceSection() {
   if ((!agents || !agents.length) && _isMarketplaceDemoMode()) {
     agents = MARKETPLACE_DEMO_AGENTS;
   }
+
+  const header = `
+    <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 4px">Agent Marketplace</h2>
+    <p class="muted" style="font-size:12px;color:var(--text-secondary);margin:0 0 12px">Add specialised AI sub-agents to your clinic.</p>
+    ${_renderMarketplaceTabStrip()}
+  `;
+
+  if (_marketplaceTab === 'activity') {
+    return `
+      <div style="margin-bottom:20px">
+        ${header}
+        ${_renderActivitySection(agents)}
+      </div>
+      ${_renderMarketplaceModal()}
+    `;
+  }
+
   if (!agents || !agents.length) {
     // Pre-hydration placeholder — keeps the section visible so users know it's
     // loading and the page layout doesn't shift when the list arrives.
     return `
       <div style="margin-bottom:20px">
-        <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 4px">Agent Marketplace</h2>
-        <p class="muted" style="font-size:12px;color:var(--text-secondary);margin:0 0 12px">Add specialised AI sub-agents to your clinic.</p>
+        ${header}
         <div class="card" style="padding:14px 16px;font-size:11.5px;color:var(--text-tertiary)">Loading available agents…</div>
       </div>
     `;
@@ -589,8 +688,7 @@ function _renderMarketplaceSection() {
 
   return `
     <div style="margin-bottom:20px">
-      <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 4px">Agent Marketplace</h2>
-      <p class="muted" style="font-size:12px;color:var(--text-secondary);margin:0 0 12px">Add specialised AI sub-agents to your clinic.</p>
+      ${header}
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">
         ${tiles}
       </div>
@@ -625,6 +723,177 @@ function _formatGroundedTools(toolIds) {
     out.push(prefix);
   }
   return out;
+}
+
+// Compact relative-time formatter used by the Activity table. Falls back to a
+// raw locale string for anything older than ~30 days so the audit timeline
+// still reads sensibly when scrolled back.
+function _relTime(iso) {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return '';
+  const diff = Date.now() - t;
+  if (diff < 0) return 'in the future';
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return 'just now';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return min + 'm ago';
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return hr + 'h ago';
+  const day = Math.floor(hr / 24);
+  if (day === 1) return 'yesterday';
+  if (day < 7) return day + 'd ago';
+  if (day < 30) return Math.floor(day / 7) + 'w ago';
+  try { return new Date(iso).toLocaleDateString(); } catch { return iso; }
+}
+
+function _formatLatency(ms) {
+  if (!Number.isFinite(ms)) return '—';
+  if (ms < 1000) return ms + 'ms';
+  return (ms / 1000).toFixed(1) + 's';
+}
+
+function _truncate(str, n) {
+  const s = String(str ?? '');
+  if (s.length <= n) return s;
+  return s.slice(0, n - 1) + '…';
+}
+
+async function _loadActivityRuns(force = false) {
+  if (_activityLoading && !force) return _activityRuns;
+  _activityLoading = true;
+  _activityError = null;
+  try {
+    if (_isMarketplaceDemoMode()) {
+      // Mirror `_fetchMarketplaceAgents` demo fallback — the demo-mode shim in
+      // api.js returns `{items: []}` for any list endpoint, so we substitute
+      // synthetic runs covering the three clinic-side agents.
+      let runs = ACTIVITY_DEMO_RUNS.slice();
+      if (_activityAgentFilter) {
+        runs = runs.filter(r => r.agent_id === _activityAgentFilter);
+      }
+      _activityRuns = runs;
+      return _activityRuns;
+    }
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      const t = api.getToken && api.getToken();
+      if (t) headers['Authorization'] = 'Bearer ' + t;
+    } catch {}
+    const qs = '?limit=50' + (_activityAgentFilter ? '&agent_id=' + encodeURIComponent(_activityAgentFilter) : '');
+    let payload = null;
+    try {
+      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/runs${qs}`, {
+        method: 'GET', headers, credentials: 'include',
+      });
+      if (res.ok) payload = await res.json();
+      else _activityError = `Failed to load activity (${res.status})`;
+    } catch (err) {
+      _activityError = err?.message || 'Failed to load activity.';
+      payload = null;
+    }
+    let runs = [];
+    if (payload && Array.isArray(payload.runs)) runs = payload.runs;
+    else if (payload && Array.isArray(payload.items)) runs = payload.items;
+    _activityRuns = runs;
+    return _activityRuns;
+  } finally {
+    _activityLoading = false;
+  }
+}
+
+function _renderActivitySection(agents) {
+  // Filter dropdown options come from whatever marketplace catalog we've
+  // hydrated; fall back to whatever runs we already have so the dropdown is
+  // never empty in demo mode before the catalog finishes loading.
+  const agentOptions = Array.isArray(agents) && agents.length ? agents : MARKETPLACE_DEMO_AGENTS;
+  const optionsHtml = ['<option value="">All agents</option>']
+    .concat(agentOptions.map(a => {
+      const sel = _activityAgentFilter === a.id ? ' selected' : '';
+      return `<option value="${_esc(a.id)}"${sel}>${_esc(a.name || a.id)}</option>`;
+    }))
+    .join('');
+
+  const filterRow = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <label style="font-size:11px;color:var(--text-tertiary)">Filter:</label>
+      <select class="form-control" onchange="window._agentActivitySetFilter(this.value)" style="font-size:11.5px;padding:4px 8px;max-width:240px">
+        ${optionsHtml}
+      </select>
+      <button class="btn btn-sm btn-ghost" onclick="window._agentActivityRefresh()" style="font-size:11px" ${_activityLoading ? 'disabled' : ''}>${_activityLoading ? 'Refreshing…' : '↻ Refresh'}</button>
+      ${_activityError ? `<span style="font-size:11px;color:var(--red,#ef4444)">${_esc(_activityError)}</span>` : ''}
+    </div>
+  `;
+
+  // Loading placeholder for first paint before the lazy fetch resolves.
+  if (_activityRuns === null) {
+    return `
+      ${filterRow}
+      <div class="card" style="padding:14px 16px;font-size:11.5px;color:var(--text-tertiary)">Loading agent activity…</div>
+    `;
+  }
+
+  if (!_activityRuns.length) {
+    return `
+      ${filterRow}
+      <div class="card" style="padding:24px 16px;text-align:center">
+        <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">No agent runs yet.</div>
+        <div style="font-size:11.5px;color:var(--text-secondary)">Try a Marketplace agent to see activity here.</div>
+      </div>
+    `;
+  }
+
+  const agentNameById = new Map();
+  for (const a of agentOptions) agentNameById.set(a.id, a.name || a.id);
+
+  const rows = _activityRuns.map(r => {
+    const when = _esc(_relTime(r.created_at));
+    const agentName = _esc(agentNameById.get(r.agent_id) || r.agent_id || '');
+    const actorRaw = String(r.actor_id || '');
+    const actorShort = actorRaw.length > 8 ? actorRaw.slice(-8) : actorRaw;
+    const actor = `<span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px">${_esc(actorShort)}</span>`;
+    const message = _esc(_truncate(r.message_preview || '', 60));
+    const reply = _esc(_truncate(r.reply_preview || '', 80));
+    const grounded = _formatGroundedTools(r.context_used);
+    const groundedCell = grounded.length
+      ? `<span class="ds-pill" style="font-size:10px;padding:3px 9px;border-radius:99px;background:rgba(74,158,255,0.10);color:var(--blue);font-weight:600;border:1px solid rgba(74,158,255,0.25)">${_esc(grounded.join(', '))}</span>`
+      : '<span style="color:var(--text-tertiary)">—</span>';
+    const latency = _esc(_formatLatency(r.latency_ms));
+    const status = r.ok
+      ? '<span style="color:var(--green,#22c55e);font-weight:700">✓</span>'
+      : `<span style="color:var(--red,#ef4444);font-weight:700">✗ ${_esc(r.error_code || 'error')}</span>`;
+    return `<tr class="ds-tr">
+      <td style="white-space:nowrap">${when}</td>
+      <td>${agentName}</td>
+      <td>${actor}</td>
+      <td>${message}</td>
+      <td>${reply}</td>
+      <td>${groundedCell}</td>
+      <td style="white-space:nowrap">${latency}</td>
+      <td style="white-space:nowrap">${status}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    ${filterRow}
+    <div style="overflow-x:auto">
+      <table class="ds-table" style="width:100%;font-size:12px">
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Agent</th>
+            <th>Actor</th>
+            <th>Message</th>
+            <th>Reply</th>
+            <th>Grounded</th>
+            <th>Latency</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
 }
 
 function _renderMarketplaceModal() {
@@ -1386,4 +1655,43 @@ window._agentMarketplaceModalSend = async function() {
     _marketplaceModalBusy = false;
     pgAgentChat(_lastSetTopbar);
   }
+};
+
+// ── Activity tab handlers ────────────────────────────────────────────────────
+window._agentMarketplaceSetTab = function(tab) {
+  if (tab !== 'catalog' && tab !== 'activity') return;
+  if (_marketplaceTab === tab) return;
+  _marketplaceTab = tab;
+  // Lazy-load: only fetch runs the first time the user opens Activity. Mirror
+  // the marketplace catalog hydration pattern — re-render once data lands.
+  if (tab === 'activity' && _activityRuns === null && !_activityLoading) {
+    _loadActivityRuns().then(() => {
+      if (_agentView === 'hub' && _marketplaceTab === 'activity') {
+        try { pgAgentChat(_lastSetTopbar); } catch {}
+      }
+    }).catch(() => {});
+  }
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+};
+
+window._agentActivityRefresh = function() {
+  if (_activityLoading) return;
+  _loadActivityRuns(true).then(() => {
+    if (_agentView === 'hub' && _marketplaceTab === 'activity') {
+      try { pgAgentChat(_lastSetTopbar); } catch {}
+    }
+  }).catch(() => {});
+  // Re-render immediately so the button shows its disabled/loading state.
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+};
+
+window._agentActivitySetFilter = function(agentId) {
+  _activityAgentFilter = agentId || '';
+  _activityRuns = null; // force loading state during refetch
+  _loadActivityRuns(true).then(() => {
+    if (_agentView === 'hub' && _marketplaceTab === 'activity') {
+      try { pgAgentChat(_lastSetTopbar); } catch {}
+    }
+  }).catch(() => {});
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
 };
