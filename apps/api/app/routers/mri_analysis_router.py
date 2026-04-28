@@ -42,6 +42,7 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.persistence.models import (
     AiSummaryAudit,
     ClinicalSession,
@@ -747,7 +748,9 @@ def _audit_mri_analyze(
 
 
 @router.post("/upload", status_code=201)
+@limiter.limit("10/minute")
 async def upload_mri(
+    request: Request,
     file: UploadFile = File(...),
     patient_id: str = Form(...),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -858,7 +861,9 @@ async def upload_mri(
 
 
 @router.post("/analyze")
+@limiter.limit("10/minute")
 async def analyze_mri(
+    request: Request,
     upload_id: str = Form(...),
     patient_id: str = Form(...),
     condition: str = Form("mdd"),
@@ -869,6 +874,13 @@ async def analyze_mri(
     db: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Kick off the MRI pipeline for an uploaded session.
+
+    Pre-fix this route had no rate limit — an authenticated
+    clinician could POST 10 000 jobs in a tight loop, each writing
+    rows + audit + (in non-demo) enqueuing a real pipeline run.
+    No queue-depth check, no cost ceiling. The 10/min IP cap is a
+    minimum guard; real per-actor cost limits should be a separate
+    follow-up wired through the worker queue.
 
     Returns
     -------
