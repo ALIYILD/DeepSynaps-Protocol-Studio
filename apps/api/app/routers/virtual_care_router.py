@@ -52,13 +52,46 @@ def _trigger_vc_risk_recompute(patient_id: str, trigger: str, db_sess):
 router = APIRouter(prefix="/api/v1/virtual-care", tags=["Virtual Care"])
 
 _DEMO_PATIENT_ACTOR_ID = "actor-patient-demo"
+_DEMO_ALLOWED_ENVS = frozenset({"development", "test"})
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────────
 
 def _require_patient(actor: AuthenticatedActor, db: Session) -> Patient:
+    """Resolve the Patient row for the calling actor.
+
+    Pre-fix this helper had two gaps (same pattern fixed in PRs
+    #201, #206 for home_device_portal and patient_portal):
+
+    * No ``actor.role`` check — any non-patient role (clinician,
+      technician, reviewer, guest) whose ``user.email`` matched a
+      Patient row could resolve as that patient. Virtual-care
+      surfaces biometrics, voice / video analysis, and AI session
+      summaries — high-PHI surfaces.
+    * The demo bypass (``actor.actor_id == "actor-patient-demo"``)
+      was reachable in any environment, including production.
+
+    Post-fix only ``patient`` and ``admin`` roles pass; the demo
+    bypass is gated to ``app_env in {development, test}``.
+    """
     from app.persistence.models import User
+
+    if actor.role not in ("patient", "admin"):
+        raise ApiServiceError(
+            code="patient_role_required",
+            message="Virtual care is only available to patient accounts.",
+            status_code=403,
+        )
+
     if actor.actor_id == _DEMO_PATIENT_ACTOR_ID:
+        from app.settings import get_settings
+        app_env = (getattr(get_settings(), "app_env", None) or "production").lower()
+        if app_env not in _DEMO_ALLOWED_ENVS:
+            raise ApiServiceError(
+                code="demo_disabled",
+                message="Demo patient bypass is not available in this environment.",
+                status_code=403,
+            )
         patient = db.query(Patient).filter(Patient.email == "patient@demo.com").first()
         if patient:
             return patient

@@ -38,6 +38,11 @@ from app.database import get_db_session
 from app.limiter import limiter
 from app.logging_setup import get_logger
 from app.persistence.models import LiteraturePaper
+
+
+def _escape_like(s: str) -> str:
+    """Escape LIKE metacharacters so input is treated as a literal string."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 from app.services.chat_service import chat_clinician
 from app.services.registries import (
     get_condition,
@@ -254,7 +259,7 @@ def _summarize_condition(
     try:
         lit_count = (
             db.query(LiteraturePaper)
-            .filter(LiteraturePaper.condition.ilike(f"%{name}%"))
+            .filter(LiteraturePaper.condition.ilike(f"%{_escape_like(name)}%"))
             .count()
         )
     except Exception:

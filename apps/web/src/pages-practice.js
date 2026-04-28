@@ -761,7 +761,7 @@ export async function pgPrograms(setTopbar) {
         const act = b.dataset.act, asg = b.dataset.asg;
         if (act === 'resend') { setInProgress(asg); toast('Follow-up logged locally', 'This preview workflow does not send a patient notification from this page.', 'info'); render(); }
         else if (act === 'complete') { markComplete(asg); toast('Marked complete locally', 'Module completion was updated in this preview workflow.', 'success'); render(); }
-        else if (act === 'unassign') { unassign(asg); toast('Unassigned', 'Module removed from patient.', 'info'); render(); }
+        else if (act === 'unassign') { unassign(asg); toast('Removed locally', 'Module removed from this preview workflow.', 'info'); render(); }
       });
     });
     const cta = el.querySelector('#ep-asg-cta');
@@ -9916,7 +9916,7 @@ export async function pgHomeTaskManager(setTopbar) {
     saveTasksForPatient(pid, patientTasks);
     _modalOpen = false;
     render();
-    window._showNotifToast?.({ title:'Task Assigned', body:`${tmplName} assigned to ${patient?.name}.`, severity:'success' });
+    window._showNotifToast?.({ title:'Task Added', body:`${tmplName} was added to the task workflow for ${patient?.name}.`, severity:'success' });
   };
 
   window._htmReassign = function(taskId) {

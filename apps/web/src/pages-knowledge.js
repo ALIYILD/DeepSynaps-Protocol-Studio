@@ -10598,7 +10598,7 @@ export async function pgIRBManager(setTopbar) {
     lsSet('ds_irb_studies', studies);
     _wizardDraft = {info:{},population:{},arms:[{name:'',intervention:'',sessions:'',duration:'',frequency:''}],regulatory:{}};
     _wizardStep = 1; _activeTab = 'active-studies';
-    toast('Study submitted to IRB - pending approval');
+    toast('Study draft saved locally for IRB follow-up');
     render();
   };
 
@@ -10639,7 +10639,7 @@ export async function pgIRBManager(setTopbar) {
   };
   window._irbMarkIRBReported = function(id) {
     lsSet('ds_irb_adverse_events', getAEs().map(function(ae) { return ae.id===id ? Object.assign({},ae,{reportedToIRB:true,status:'reported_to_irb'}) : ae; }));
-    window._irbCloseModal('irb-ae-view-modal'); toast('Marked as reported to IRB'); render();
+    window._irbCloseModal('irb-ae-view-modal'); toast('Marked locally for IRB follow-up'); render();
   };
   window._irbResolveAE = function(id) {
     lsSet('ds_irb_adverse_events', getAEs().map(function(ae) { return ae.id===id ? Object.assign({},ae,{status:'resolved'}) : ae; }));
