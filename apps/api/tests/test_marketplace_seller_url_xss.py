@@ -125,3 +125,37 @@ def test_http_url_is_accepted(client: TestClient) -> None:
         external_url="http://example.com/legacy-product",
     )
     assert status == 201, body
+
+
+def _register_with_role(client: TestClient, email: str, role: str) -> str:
+    resp = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": email,
+            "display_name": "Seller",
+            "password": "testpass1234",
+            "role": role,
+        },
+    )
+    assert resp.status_code in (200, 201), resp.text
+    return resp.json()["access_token"]
+
+
+def test_create_listing_requires_clinician_role(client: TestClient) -> None:
+    """Pre-fix any authenticated user could become a seller. Now
+    ``require_minimum_role(actor, \"clinician\")`` blocks guest /
+    technician / reviewer self-registered tokens, so a malicious
+    actor must at minimum hold a clinician token before they can
+    post a listing that renders into clinician browsers."""
+    token = _register_with_role(client, "seller-guest@example.com", role="guest")
+    resp = client.post(
+        "/api/v1/marketplace/seller/items",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "name": "Spam Product",
+            "provider": "Spammer",
+            "external_url": "https://example.com/spam",
+            "kind": "product",
+        },
+    )
+    assert resp.status_code == 403, resp.text

@@ -22,13 +22,14 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, Path, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.persistence.models import MarketplaceItem, MarketplaceOrder, Patient, User
 
 router = APIRouter(prefix="/api/v1/patient-portal/marketplace", tags=["Patient Portal — Marketplace"])
@@ -117,13 +118,20 @@ class CreateOrderRequest(BaseModel):
 # ── Routes ───────────────────────────────────────────────────────────────────────
 
 @router.get("/items")
+@limiter.limit("60/minute")
 def list_marketplace_items(
+    request: Request,
     kind: Optional[str] = None,
     featured: Optional[bool] = None,
     clinical: Optional[bool] = None,
     db: Session = Depends(get_db_session),
 ) -> dict:
-    """List active marketplace items. Optional filters."""
+    """List active marketplace items. Optional filters.
+
+    Public-read by design (the Academy page is offline-friendly), but
+    capped at 60 req/min/IP so a scraper can't drain the catalog with
+    a tight loop.
+    """
     query = db.query(MarketplaceItem).filter(MarketplaceItem.active.is_(True))
     if kind:
         query = query.filter(MarketplaceItem.kind == kind)
@@ -138,7 +146,9 @@ def list_marketplace_items(
 
 
 @router.get("/items/{item_id}")
+@limiter.limit("60/minute")
 def get_marketplace_item(
+    request: Request,
     item_id: str = Path(..., min_length=1, max_length=36),
     db: Session = Depends(get_db_session),
 ) -> dict:
