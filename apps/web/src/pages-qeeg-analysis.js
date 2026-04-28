@@ -4829,7 +4829,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       // Mount Clinical Workbench panels (Migration 048)
       if (report && report.id && analysisId && analysisId !== 'demo') {
         setTimeout(function () {
-          try { mountClinicianReview('qeeg-clinician-review-panel', report.id, api); } catch (_) {}
+          try { mountClinicianReview('qeeg-clinician-review-panel', analysisId, report.id, api); } catch (_) {}
           try { mountPatientReport('qeeg-patient-report-panel', report.id, api); } catch (_) {}
         }, 40);
       }

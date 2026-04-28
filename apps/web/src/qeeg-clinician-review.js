@@ -74,18 +74,15 @@ function renderClinicianReview(report, findings) {
     + '</div></div>';
 }
 
-async function mountClinicianReview(containerId, reportId, api) {
+async function mountClinicianReview(containerId, analysisId, reportId, api) {
   var container = document.getElementById(containerId);
   if (!container) return;
   container.innerHTML = '<div class="ds-spinner"></div>';
 
   async function refresh() {
-    var report = await api.getQEEGAnalysisReports(reportId);
-    // getQEEGAnalysisReports returns a list; we need the specific report.
-    // Work around by fetching the single report if available, else use list.
-    if (Array.isArray(report)) {
-      report = report.find(function (r) { return r.id === reportId; }) || report[0];
-    }
+    var reports = await api.listQEEGAnalysisReports(analysisId);
+    reports = Array.isArray(reports) ? reports : (reports?.reports || []);
+    var report = reports.find(function (r) { return r.id === reportId; }) || reports[0] || null;
     var findings = []; // findings endpoint not exposed directly; hydrate from report narrative
     container.innerHTML = renderClinicianReview(report, findings);
     _wireActions(container, reportId, api, refresh);
