@@ -15,6 +15,11 @@ import {
   ffNotice,
 } from './friendly-forms.js';
 
+function _obEsc(v) {
+  if (v == null) return '';
+  return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+}
+
 // ── Module-level wizard state ─────────────────────────────────────────────────
 let onboardingStep = 1;
 let onboardingData = {};
@@ -646,7 +651,7 @@ function _wizStep2() {
         <div class="form-group">
           <label class="form-label">Clinic Name</label>
           <input id="wiz-clinic-name" class="form-control" type="text"
-            value="${saved.clinicName || ''}" placeholder="e.g. Synapse Wellness Clinic" />
+            value="${_obEsc(saved.clinicName)}" placeholder="e.g. Synapse Wellness Clinic" />
         </div>
         <div class="form-group">
           <label class="form-label">Clinic Type</label>

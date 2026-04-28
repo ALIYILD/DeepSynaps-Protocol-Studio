@@ -391,7 +391,7 @@ export function renderV2AnimationPanel(container, analysisId, caps) {
     if (!frames.length) return;
     currentFrame = Math.max(0, Math.min(idx, frames.length - 1));
     const f = frames[currentFrame];
-    playerEl.innerHTML = `<img src="${f.image_b64}" alt="${esc(f.label)}" style="max-width:100%;border-radius:8px;" />`;
+    playerEl.innerHTML = `<img src="${esc(f.image_b64)}" alt="${esc(f.label)}" style="max-width:100%;border-radius:8px;" />`;
     labelEl.textContent = `${f.label} (${currentFrame + 1}/${frames.length})`;
   }
 

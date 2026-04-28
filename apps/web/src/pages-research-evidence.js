@@ -125,7 +125,7 @@ export async function pgResearchEvidence(setTopbar, navigate) {
     return values.map(v =>
       `<button class="reg-domain-pill${v === active ? ' active' : ''}"
         aria-pressed="${v === active}"
-        onclick="window._reFilter['${tab}']='${esc(v)}';window._nav('research-evidence')">${esc(v)}</button>`
+        onclick="window._reFilter['${esc(tab)}']='${esc(v)}';window._nav('research-evidence')">${esc(v)}</button>`
     ).join('');
   }
 
