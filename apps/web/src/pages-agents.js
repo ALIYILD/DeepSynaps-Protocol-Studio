@@ -392,11 +392,126 @@ let _marketplaceModalCancelled = false;
 // ── Marketplace tab state ────────────────────────────────────────────────────
 // Tracks which sub-view of the Marketplace section is active. Not persisted to
 // localStorage — fresh on each visit so the catalog is always the entry point.
-let _marketplaceTab = 'catalog'; // 'catalog' | 'activity'
+// Phase 7 added two super-admin tabs: 'activation' (per-clinic patient agent
+// sign-off) and 'ops' (cross-clinic runs + abuse signals).
+let _marketplaceTab = 'catalog'; // 'catalog' | 'activity' | 'activation' | 'ops'
 let _activityRuns = null;
 let _activityAgentFilter = '';
 let _activityLoading = false;
 let _activityError = null;
+
+// ── Phase 7: chat suggestion chips ───────────────────────────────────────────
+// Per-agent chip lists rendered above the marketplace modal textarea. Clicking
+// a chip pre-fills the textarea but does NOT auto-send (clinician still
+// reviews). Patient-side agents get an empty array — they're locked anyway.
+const _MARKETPLACE_CHIPS = {
+  'clinic.reception': [
+    "Show today's queue",
+    'Book a session for Mr X tomorrow at 14:00',
+    'Cancel session sess-123',
+    'Add a follow-up for Ms Y',
+  ],
+  'clinic.reporting': [
+    'Weekly digest please',
+    'Show open AEs',
+    'Outcomes for the last 30 days',
+  ],
+  'clinic.drclaw_telegram': [
+    "What's on my list today?",
+    'Show pending notes',
+    'Approve draft draft-123 with edits',
+  ],
+};
+
+// ── Phase 7: super-admin gating helper ───────────────────────────────────────
+// Super-admin = role === 'admin' AND no clinic_id (cross-clinic operator).
+// Returns false on any localStorage parse failure so anonymous/expired
+// sessions never accidentally see the privileged tabs.
+function _isSuperAdmin() {
+  try {
+    const u = JSON.parse(localStorage.getItem('ds_user') || '{}');
+    if (!u || u.role !== 'admin') return false;
+    return u.clinic_id == null;
+  } catch { return false; }
+}
+
+// ── Phase 7: Activation panel state ──────────────────────────────────────────
+// In-memory cache of GET /api/v1/agent-admin/patient-activations rows. `null`
+// before first load so we can render a loading placeholder; otherwise an
+// array (possibly empty).
+let _activationsList = null;
+let _activationsLoading = false;
+let _activationsError = null;
+let _activationsBusy = false;
+let _activationsNotice = null; // { kind: 'success'|'error'|'info', text: string }
+
+// ── Phase 7: Ops panel state ─────────────────────────────────────────────────
+// Cross-clinic runs + abuse signals. Populated lazily on first Ops tab open.
+let _opsRuns = null;
+let _opsRunsLoading = false;
+let _opsRunsError = null;
+let _opsClinicFilter = '';
+let _opsAgentFilter = '';
+let _opsAbuse = null;
+let _opsAbuseLoading = false;
+let _opsAbuseError = null;
+
+const PATIENT_AGENT_OPTIONS = [
+  { id: 'patient.care_companion', label: 'Care Companion' },
+  { id: 'patient.adherence', label: 'Adherence' },
+  { id: 'patient.education', label: 'Education' },
+  { id: 'patient.crisis', label: 'Crisis' },
+];
+
+const OPS_DEMO_RUNS = [
+  {
+    id: 'demo-ops-1',
+    created_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+    clinic_id: 'clinic-oxford',
+    actor_id: 'actor-clin-ox-1',
+    agent_id: 'clinic.reception',
+    message_preview: '(demo) Reschedule Mr X to 15:00 tomorrow.',
+    reply_preview: '(demo) Drafted reschedule — clinician approval required.',
+    context_used: ['sessions.list'],
+    latency_ms: 720,
+    cost_pence: 4,
+    ok: true,
+    error_code: null,
+  },
+  {
+    id: 'demo-ops-2',
+    created_at: new Date(Date.now() - 22 * 60 * 1000).toISOString(),
+    clinic_id: 'clinic-bristol',
+    actor_id: 'actor-clin-bs-2',
+    agent_id: 'clinic.reporting',
+    message_preview: '(demo) Weekly digest please.',
+    reply_preview: '(demo) Digest: 17 sessions, 0 AE, avg PHQ-9 ↓0.9.',
+    context_used: ['sessions.list', 'assessments.list'],
+    latency_ms: 1180,
+    cost_pence: 7,
+    ok: true,
+    error_code: null,
+  },
+  {
+    id: 'demo-ops-3',
+    created_at: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
+    clinic_id: 'clinic-leeds',
+    actor_id: 'actor-clin-ld-3',
+    agent_id: 'clinic.drclaw_telegram',
+    message_preview: '(demo) /queue',
+    reply_preview: '(demo) 4 items pending review.',
+    context_used: ['tasks.list'],
+    latency_ms: 540,
+    cost_pence: 3,
+    ok: true,
+    error_code: null,
+  },
+];
+
+const OPS_DEMO_ABUSE = [
+  { clinic_id: 'clinic-leeds', agent_id: 'clinic.reception', runs_in_window: 184, median_multiple: 7.2, severity: 'high' },
+  { clinic_id: 'clinic-bristol', agent_id: 'clinic.reporting', runs_in_window: 62, median_multiple: 2.4, severity: 'medium' },
+];
 
 // ── Upgrade-CTA state ────────────────────────────────────────────────────────
 // Per-tile inline notice shown after the user clicks "Request upgrade →" on a
@@ -673,7 +788,10 @@ function _renderMarketplaceTabStrip() {
       : 'font-size:11.5px;padding:4px 12px;border-radius:6px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);font-weight:500;cursor:pointer';
     return `<button type="button" style="${style}" onclick="window._agentMarketplaceSetTab('${k}')">${label}</button>`;
   };
-  return `<div style="display:flex;gap:6px;margin-bottom:12px">${tab('catalog', 'Catalog')}${tab('activity', 'Activity')}</div>`;
+  const adminTabs = _isSuperAdmin()
+    ? tab('activation', 'Activation') + tab('ops', 'Ops')
+    : '';
+  return `<div style="display:flex;gap:6px;margin-bottom:12px">${tab('catalog', 'Catalog')}${tab('activity', 'Activity')}${adminTabs}</div>`;
 }
 
 function _renderMarketplaceSection() {
@@ -695,6 +813,29 @@ function _renderMarketplaceSection() {
       <div style="margin-bottom:20px">
         ${header}
         ${_renderActivitySection(agents)}
+      </div>
+      ${_renderMarketplaceModal()}
+    `;
+  }
+
+  // Phase 7: super-admin sub-tabs. If a non-super-admin somehow has the tab
+  // value set (stale state), fall through to the catalog rather than showing
+  // an unauthorised panel. The tab strip itself never renders these buttons
+  // for clinicians.
+  if (_marketplaceTab === 'activation' && _isSuperAdmin()) {
+    return `
+      <div style="margin-bottom:20px">
+        ${header}
+        ${_renderActivationSection()}
+      </div>
+      ${_renderMarketplaceModal()}
+    `;
+  }
+  if (_marketplaceTab === 'ops' && _isSuperAdmin()) {
+    return `
+      <div style="margin-bottom:20px">
+        ${header}
+        ${_renderOpsSection(agents)}
       </div>
       ${_renderMarketplaceModal()}
     `;
@@ -968,6 +1109,7 @@ function _renderActivitySection(agents) {
       ? `<span class="ds-pill" style="font-size:10px;padding:3px 9px;border-radius:99px;background:rgba(74,158,255,0.10);color:var(--blue);font-weight:600;border:1px solid rgba(74,158,255,0.25)">${_esc(grounded.join(', '))}</span>`
       : '<span style="color:var(--text-tertiary)">—</span>';
     const latency = _esc(_formatLatency(r.latency_ms));
+    const cost = _esc(_formatCost(r.cost_pence));
     const status = r.ok
       ? '<span style="color:var(--green,#22c55e);font-weight:700">✓</span>'
       : `<span style="color:var(--red,#ef4444);font-weight:700">✗ ${_esc(r.error_code || 'error')}</span>`;
@@ -979,9 +1121,15 @@ function _renderActivitySection(agents) {
       <td>${reply}</td>
       <td>${groundedCell}</td>
       <td style="white-space:nowrap">${latency}</td>
+      <td style="white-space:nowrap">${cost}</td>
       <td style="white-space:nowrap">${status}</td>
     </tr>`;
   }).join('');
+
+  // Footer summary: aggregate cost across the visible runs. Field may be
+  // missing on older backends — `_sumCostPence` treats null/undefined as 0.
+  const totalPence = _sumCostPence(_activityRuns);
+  const footerLine = `Total this view: £${(totalPence / 100).toFixed(2)} from ${_activityRuns.length} run${_activityRuns.length === 1 ? '' : 's'}`;
 
   return `
     ${filterRow}
@@ -996,12 +1144,397 @@ function _renderActivitySection(agents) {
             <th>Reply</th>
             <th>Grounded</th>
             <th>Latency</th>
+            <th>Cost</th>
             <th>Status</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
+    <div class="muted" style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">${footerLine}</div>
+  `;
+}
+
+// Phase 7: render `cost_pence` as £0.04. Null / 0 / undefined → em-dash so the
+// column reads cleanly when older backends omit the field or a run had no
+// LLM spend (cached, rejected, error).
+function _formatCost(pence) {
+  if (pence === null || pence === undefined) return '—';
+  const n = Number(pence);
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  return '£' + (n / 100).toFixed(2);
+}
+
+function _sumCostPence(runs) {
+  if (!Array.isArray(runs)) return 0;
+  let total = 0;
+  for (const r of runs) {
+    const n = Number(r && r.cost_pence);
+    if (Number.isFinite(n) && n > 0) total += n;
+  }
+  return total;
+}
+
+// ── Phase 7: Activation panel (super-admin) ──────────────────────────────────
+async function _fetchPatientActivations() {
+  if (_activationsLoading) return _activationsList;
+  _activationsLoading = true;
+  _activationsError = null;
+  try {
+    if (_isMarketplaceDemoMode()) {
+      // Demo mode never hits the activation API — start with empty list and
+      // simulate POST/DELETE locally below.
+      _activationsList = [];
+      return _activationsList;
+    }
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      const t = api.getToken && api.getToken();
+      if (t) headers['Authorization'] = 'Bearer ' + t;
+    } catch {}
+    let payload = null;
+    try {
+      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agent-admin/patient-activations`, {
+        method: 'GET', headers, credentials: 'include',
+      });
+      if (res.ok) payload = await res.json();
+      else if (res.status === 403) _activationsError = 'This action requires super-admin privileges.';
+      else _activationsError = `Failed to load activations (${res.status})`;
+    } catch (err) {
+      _activationsError = err?.message || 'Failed to load activations.';
+      payload = null;
+    }
+    let items = [];
+    if (payload && Array.isArray(payload.items)) items = payload.items;
+    else if (payload && Array.isArray(payload.activations)) items = payload.activations;
+    _activationsList = items;
+    return _activationsList;
+  } finally {
+    _activationsLoading = false;
+  }
+}
+
+function _renderActivationSection() {
+  const sectionHeader = `
+    <div style="margin-bottom:8px">
+      <div style="font-size:14px;font-weight:700;color:var(--text-primary)">Patient agent activation (super-admin)</div>
+    </div>
+    <div class="card" style="padding:10px 12px;margin-bottom:12px;border-left:3px solid var(--amber,#f59e0b);background:rgba(245,158,11,0.06);font-size:11.5px;color:var(--text-secondary);line-height:1.55">
+      Activating a patient agent for a clinic confirms the clinical PM has signed off on the safety copy for that clinic. Activation is per-clinic and per-agent. Production gate: agents stay locked unless DEEPSYNAPS_PATIENT_AGENTS_ACTIVATED=1 is also set on the API.
+    </div>
+  `;
+
+  const noticeBlock = (() => {
+    if (!_activationsNotice) return '';
+    const n = _activationsNotice;
+    const map = {
+      success: { bg: 'rgba(34,197,94,0.10)', border: 'rgba(34,197,94,0.30)', color: 'var(--green,#22c55e)' },
+      error:   { bg: 'rgba(239,68,68,0.10)', border: 'rgba(239,68,68,0.30)', color: 'var(--red,#ef4444)' },
+      info:    { bg: 'rgba(74,158,255,0.10)', border: 'rgba(74,158,255,0.30)', color: 'var(--blue)' },
+    };
+    const c = map[n.kind] || map.info;
+    return `<div style="margin-bottom:10px;padding:8px 12px;border-radius:6px;background:${c.bg};border:1px solid ${c.border};color:${c.color};font-size:11.5px">${_esc(n.text)}</div>`;
+  })();
+
+  // Table block — list current activations.
+  let tableBlock;
+  if (_activationsList === null) {
+    tableBlock = `<div class="card" style="padding:14px 16px;font-size:11.5px;color:var(--text-tertiary)">Loading activations…</div>`;
+  } else if (_activationsError) {
+    tableBlock = `<div class="card" style="padding:14px 16px;font-size:11.5px;color:var(--red,#ef4444)">${_esc(_activationsError)}</div>`;
+  } else if (!_activationsList.length) {
+    tableBlock = `<div class="card" style="padding:14px 16px;font-size:11.5px;color:var(--text-tertiary)">No patient agents activated yet.</div>`;
+  } else {
+    const rows = _activationsList.map(row => {
+      const clinic = _esc(String(row.clinic_id || ''));
+      const agentId = _esc(String(row.agent_id || ''));
+      const attestor = _esc(String(row.attested_by || row.attestor || ''));
+      const at = _esc(_relTime(row.attested_at || row.created_at || ''));
+      return `<tr class="ds-tr">
+        <td style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px">${clinic}</td>
+        <td style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px">${agentId}</td>
+        <td style="font-size:11.5px">${attestor}</td>
+        <td style="white-space:nowrap;font-size:11.5px">${at}</td>
+        <td style="white-space:nowrap"><button class="btn btn-sm btn-ghost" style="font-size:10.5px;color:var(--red,#ef4444)" onclick="window._agentActivationDeactivate('${clinic}','${agentId}')">Deactivate</button></td>
+      </tr>`;
+    }).join('');
+    tableBlock = `
+      <div style="overflow-x:auto;margin-bottom:14px">
+        <table class="ds-table" style="width:100%;font-size:12px">
+          <thead><tr><th>Clinic</th><th>Agent</th><th>Attested by</th><th>Attested at</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  // Activate form. Char counter is wired via a tiny inline oninput handler so
+  // we don't need a re-render on every keystroke.
+  const agentOptions = PATIENT_AGENT_OPTIONS.map(o =>
+    `<option value="${_esc(o.id)}">${_esc(o.label)} (${_esc(o.id)})</option>`
+  ).join('');
+  const busyAttr = _activationsBusy ? 'disabled' : '';
+  const formBlock = `
+    <div class="card" style="padding:14px 16px">
+      <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:10px">Activate a patient agent</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div class="form-group" style="margin:0">
+          <label class="form-label" style="font-size:11px">Clinic ID</label>
+          <input id="activation-clinic" class="form-control" type="text" placeholder="clinic-..." style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px" ${busyAttr}>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="form-label" style="font-size:11px">Patient agent</label>
+          <select id="activation-agent" class="form-control" style="font-size:12px" ${busyAttr}>${agentOptions}</select>
+        </div>
+      </div>
+      <div class="form-group" style="margin:0 0 10px">
+        <label class="form-label" style="font-size:11px">Attestation (min 32 chars)</label>
+        <textarea id="activation-attestation" class="form-control" rows="3" placeholder="I confirm the clinical PM has signed off on the safety copy for this clinic…" style="width:100%;resize:vertical;font-size:12px" oninput="window._agentActivationAttestationInput(this.value)" ${busyAttr}></textarea>
+        <div id="activation-attestation-count" style="margin-top:4px;font-size:10.5px;color:var(--text-tertiary)">0 / 32</div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button class="btn btn-sm btn-primary" onclick="window._agentActivationSubmit()" ${busyAttr}>${_activationsBusy ? 'Activating…' : 'Activate'}</button>
+      </div>
+    </div>
+  `;
+
+  return `
+    ${sectionHeader}
+    ${noticeBlock}
+    ${tableBlock}
+    ${formBlock}
+  `;
+}
+
+// ── Phase 7: Ops panel (super-admin) ─────────────────────────────────────────
+async function _fetchOpsRuns() {
+  if (_opsRunsLoading) return _opsRuns;
+  _opsRunsLoading = true;
+  _opsRunsError = null;
+  try {
+    if (_isMarketplaceDemoMode()) {
+      let runs = OPS_DEMO_RUNS.slice();
+      if (_opsClinicFilter) runs = runs.filter(r => r.clinic_id === _opsClinicFilter);
+      if (_opsAgentFilter) runs = runs.filter(r => r.agent_id === _opsAgentFilter);
+      _opsRuns = runs;
+      return _opsRuns;
+    }
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      const t = api.getToken && api.getToken();
+      if (t) headers['Authorization'] = 'Bearer ' + t;
+    } catch {}
+    const params = ['limit=50'];
+    if (_opsClinicFilter) params.push('clinic_id=' + encodeURIComponent(_opsClinicFilter));
+    if (_opsAgentFilter) params.push('agent_id=' + encodeURIComponent(_opsAgentFilter));
+    const qs = '?' + params.join('&');
+    let payload = null;
+    try {
+      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/ops/runs${qs}`, {
+        method: 'GET', headers, credentials: 'include',
+      });
+      if (res.ok) payload = await res.json();
+      else if (res.status === 403) _opsRunsError = 'This action requires super-admin privileges.';
+      else _opsRunsError = `Failed to load ops runs (${res.status})`;
+    } catch (err) {
+      _opsRunsError = err?.message || 'Failed to load ops runs.';
+      payload = null;
+    }
+    let runs = [];
+    if (payload && Array.isArray(payload.runs)) runs = payload.runs;
+    else if (payload && Array.isArray(payload.items)) runs = payload.items;
+    _opsRuns = runs;
+    return _opsRuns;
+  } finally {
+    _opsRunsLoading = false;
+  }
+}
+
+async function _fetchOpsAbuse() {
+  if (_opsAbuseLoading) return _opsAbuse;
+  _opsAbuseLoading = true;
+  _opsAbuseError = null;
+  try {
+    if (_isMarketplaceDemoMode()) {
+      _opsAbuse = OPS_DEMO_ABUSE.slice();
+      return _opsAbuse;
+    }
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      const t = api.getToken && api.getToken();
+      if (t) headers['Authorization'] = 'Bearer ' + t;
+    } catch {}
+    let payload = null;
+    try {
+      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/ops/abuse-signals?window_minutes=60`, {
+        method: 'GET', headers, credentials: 'include',
+      });
+      if (res.ok) payload = await res.json();
+      else if (res.status === 403) _opsAbuseError = 'This action requires super-admin privileges.';
+      else _opsAbuseError = `Failed to load abuse signals (${res.status})`;
+    } catch (err) {
+      _opsAbuseError = err?.message || 'Failed to load abuse signals.';
+      payload = null;
+    }
+    let items = [];
+    if (payload && Array.isArray(payload.signals)) items = payload.signals;
+    else if (payload && Array.isArray(payload.items)) items = payload.items;
+    _opsAbuse = items;
+    return _opsAbuse;
+  } finally {
+    _opsAbuseLoading = false;
+  }
+}
+
+function _renderOpsRunsCard(agents) {
+  const agentOptions = Array.isArray(agents) && agents.length ? agents : MARKETPLACE_DEMO_AGENTS;
+  const optionsHtml = ['<option value="">All agents</option>']
+    .concat(agentOptions.map(a => {
+      const sel = _opsAgentFilter === a.id ? ' selected' : '';
+      return `<option value="${_esc(a.id)}"${sel}>${_esc(a.name || a.id)}</option>`;
+    }))
+    .join('');
+
+  const filterRow = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <input id="ops-clinic-filter" class="form-control" type="text" placeholder="clinic_id (optional)" value="${_esc(_opsClinicFilter)}" style="font-size:11.5px;padding:4px 8px;max-width:200px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">
+      <select class="form-control" onchange="window._agentOpsSetAgentFilter(this.value)" style="font-size:11.5px;padding:4px 8px;max-width:200px">${optionsHtml}</select>
+      <button class="btn btn-sm btn-primary" onclick="window._agentOpsRefresh()" style="font-size:11px" ${_opsRunsLoading ? 'disabled' : ''}>${_opsRunsLoading ? 'Refreshing…' : '↻ Refresh'}</button>
+      ${_opsRunsError ? `<span style="font-size:11px;color:var(--red,#ef4444)">${_esc(_opsRunsError)}</span>` : ''}
+    </div>
+  `;
+
+  let tableBlock;
+  if (_opsRuns === null) {
+    tableBlock = `<div class="muted" style="padding:14px 16px;font-size:11.5px;color:var(--text-tertiary)">Loading cross-clinic runs…</div>`;
+  } else if (!_opsRuns.length) {
+    tableBlock = `<div class="muted" style="padding:14px 16px;font-size:11.5px;color:var(--text-tertiary)">No runs match the current filter.</div>`;
+  } else {
+    const agentNameById = new Map();
+    for (const a of agentOptions) agentNameById.set(a.id, a.name || a.id);
+    const rows = _opsRuns.map(r => {
+      const when = _esc(_relTime(r.created_at));
+      const clinic = _esc(String(r.clinic_id || ''));
+      const agentName = _esc(agentNameById.get(r.agent_id) || r.agent_id || '');
+      const actorRaw = String(r.actor_id || '');
+      const actorShort = actorRaw.length > 8 ? actorRaw.slice(-8) : actorRaw;
+      const actor = `<span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px">${_esc(actorShort)}</span>`;
+      const message = _esc(_truncate(r.message_preview || '', 50));
+      const reply = _esc(_truncate(r.reply_preview || '', 60));
+      const grounded = _formatGroundedTools(r.context_used);
+      const groundedCell = grounded.length
+        ? `<span class="ds-pill" style="font-size:10px;padding:3px 9px;border-radius:99px;background:rgba(74,158,255,0.10);color:var(--blue);font-weight:600;border:1px solid rgba(74,158,255,0.25)">${_esc(grounded.join(', '))}</span>`
+        : '<span style="color:var(--text-tertiary)">—</span>';
+      const latency = _esc(_formatLatency(r.latency_ms));
+      const cost = _esc(_formatCost(r.cost_pence));
+      const status = r.ok
+        ? '<span style="color:var(--green,#22c55e);font-weight:700">✓</span>'
+        : `<span style="color:var(--red,#ef4444);font-weight:700">✗ ${_esc(r.error_code || 'error')}</span>`;
+      return `<tr class="ds-tr">
+        <td style="white-space:nowrap">${when}</td>
+        <td style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px">${clinic}</td>
+        <td>${agentName}</td>
+        <td>${actor}</td>
+        <td>${message}</td>
+        <td>${reply}</td>
+        <td>${groundedCell}</td>
+        <td style="white-space:nowrap">${latency}</td>
+        <td style="white-space:nowrap">${cost}</td>
+        <td style="white-space:nowrap">${status}</td>
+      </tr>`;
+    }).join('');
+    tableBlock = `
+      <div style="overflow-x:auto">
+        <table class="ds-table" style="width:100%;font-size:12px">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Clinic</th>
+              <th>Agent</th>
+              <th>Actor</th>
+              <th>Message</th>
+              <th>Reply</th>
+              <th>Grounded</th>
+              <th>Latency</th>
+              <th>Cost</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="card" style="padding:14px 16px;margin-bottom:14px">
+      <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:8px">All runs</div>
+      ${filterRow}
+      ${tableBlock}
+    </div>
+  `;
+}
+
+function _renderOpsAbuseCard() {
+  let body;
+  if (_opsAbuse === null) {
+    body = `<div class="muted" style="padding:8px 0;font-size:11.5px;color:var(--text-tertiary)">Loading abuse signals…</div>`;
+  } else if (_opsAbuseError) {
+    body = `<div style="padding:8px 0;font-size:11.5px;color:var(--red,#ef4444)">${_esc(_opsAbuseError)}</div>`;
+  } else if (!_opsAbuse.length) {
+    body = `<div class="muted" style="padding:8px 0;font-size:11.5px;color:var(--text-tertiary)">No abuse signals in the last hour.</div>`;
+  } else {
+    const sevColor = sev => {
+      const s = String(sev || '').toLowerCase();
+      if (s === 'high' || s === 'critical') return 'var(--red,#ef4444)';
+      if (s === 'medium' || s === 'warn' || s === 'warning') return 'var(--amber,#f59e0b)';
+      return 'var(--text-secondary)';
+    };
+    const rows = _opsAbuse.map(s => {
+      const clinic = _esc(String(s.clinic_id || ''));
+      const agentId = _esc(String(s.agent_id || ''));
+      const runs = Number(s.runs_in_window);
+      const median = Number(s.median_multiple);
+      const sev = String(s.severity || 'low');
+      return `<tr class="ds-tr">
+        <td style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px">${clinic}</td>
+        <td style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px">${agentId}</td>
+        <td style="white-space:nowrap">${Number.isFinite(runs) ? runs : '—'}</td>
+        <td style="white-space:nowrap">${Number.isFinite(median) ? median.toFixed(2) + '×' : '—'}</td>
+        <td style="white-space:nowrap;color:${sevColor(sev)};font-weight:700">${_esc(sev)}</td>
+      </tr>`;
+    }).join('');
+    body = `
+      <div style="overflow-x:auto">
+        <table class="ds-table" style="width:100%;font-size:12px">
+          <thead><tr><th>Clinic</th><th>Agent</th><th>Runs in window</th><th>Median multiple</th><th>Severity</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  }
+  return `
+    <div class="card" style="padding:14px 16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary)">Abuse signals (last 60 min)</div>
+        <button class="btn btn-sm btn-ghost" onclick="window._agentOpsRefreshAbuse()" style="font-size:11px" ${_opsAbuseLoading ? 'disabled' : ''}>${_opsAbuseLoading ? 'Refreshing…' : '↻ Refresh'}</button>
+      </div>
+      ${body}
+    </div>
+  `;
+}
+
+function _renderOpsSection(agents) {
+  const sectionHeader = `
+    <div style="margin-bottom:10px">
+      <div style="font-size:14px;font-weight:700;color:var(--text-primary)">Cross-clinic ops</div>
+      <div class="muted" style="font-size:11.5px;color:var(--text-tertiary);margin-top:2px">Super-admin view across every clinic.</div>
+    </div>
+  `;
+  return `
+    ${sectionHeader}
+    ${_renderOpsRunsCard(agents)}
+    ${_renderOpsAbuseCard()}
   `;
 }
 
@@ -1082,6 +1615,22 @@ function _renderMarketplaceModal() {
     ? `<div style="margin-top:12px;padding:10px 12px;border-radius:8px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);font-size:11.5px;color:var(--red,#ef4444)">${_esc(_marketplaceModalError)}</div>`
     : '';
   const busyAttr = _marketplaceModalBusy ? 'disabled' : '';
+
+  // Phase 7: suggestion chips above the textarea. Pre-fills the input on
+  // click — never auto-sends. Patient-side agents have an empty list (locked).
+  // The chip text is stuffed into a `data-chip` attribute (HTML-escaped) so
+  // arbitrary apostrophes/quotes round-trip safely; the inline onclick reads
+  // it back via `this.dataset.chip` rather than fighting nested-quote escapes.
+  const chipList = Array.isArray(_MARKETPLACE_CHIPS[a.id]) ? _MARKETPLACE_CHIPS[a.id] : [];
+  const chipRow = chipList.length
+    ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        ${chipList.map(text => {
+          const safeAttr = _esc(text);
+          return `<button type="button" class="btn btn-sm btn-ghost" style="font-size:11px;padding:3px 9px" data-chip="${safeAttr}" onclick="window._agentMarketplaceChip(this.dataset.chip)">${safeAttr}</button>`;
+        }).join('')}
+      </div>`
+    : '';
+
   return `
     <div class="ds-modal-overlay" onclick="if(event.target===this){window._agentMarketplaceModalClose()}">
       <div class="ds-modal" style="min-width:420px;max-width:560px">
@@ -1092,6 +1641,7 @@ function _renderMarketplaceModal() {
           </div>
           <button class="btn btn-sm btn-ghost" onclick="window._agentMarketplaceModalClose()" style="font-size:14px;padding:2px 10px">×</button>
         </div>
+        ${chipRow}
         <textarea id="agent-marketplace-input" class="form-control" rows="4" placeholder="Ask this agent anything…" style="width:100%;resize:vertical;font-size:12.5px"></textarea>
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
           <button class="btn btn-sm btn-ghost" onclick="window._agentMarketplaceModalClose()" ${busyAttr}>Close</button>
@@ -2009,11 +2559,16 @@ window._agentRejectToolCall = async function(callId, agentId) {
 
 // ── Activity tab handlers ────────────────────────────────────────────────────
 window._agentMarketplaceSetTab = function(tab) {
-  if (tab !== 'catalog' && tab !== 'activity') return;
+  const valid = ['catalog', 'activity', 'activation', 'ops'];
+  if (!valid.includes(tab)) return;
+  // Super-admin gate — silently swallow attempts to navigate to admin tabs
+  // from a clinician session (the buttons aren't rendered for them, but URL
+  // / external triggers shouldn't punch through).
+  if ((tab === 'activation' || tab === 'ops') && !_isSuperAdmin()) return;
   if (_marketplaceTab === tab) return;
   _marketplaceTab = tab;
-  // Lazy-load: only fetch runs the first time the user opens Activity. Mirror
-  // the marketplace catalog hydration pattern — re-render once data lands.
+  // Lazy-load: only fetch on first open per tab. Mirror the marketplace
+  // catalog hydration pattern — re-render once data lands.
   if (tab === 'activity' && _activityRuns === null && !_activityLoading) {
     _loadActivityRuns().then(() => {
       if (_agentView === 'hub' && _marketplaceTab === 'activity') {
@@ -2021,6 +2576,216 @@ window._agentMarketplaceSetTab = function(tab) {
       }
     }).catch(() => {});
   }
+  if (tab === 'activation' && _activationsList === null && !_activationsLoading) {
+    _fetchPatientActivations().then(() => {
+      if (_agentView === 'hub' && _marketplaceTab === 'activation') {
+        try { pgAgentChat(_lastSetTopbar); } catch {}
+      }
+    }).catch(() => {});
+  }
+  if (tab === 'ops') {
+    if (_opsRuns === null && !_opsRunsLoading) {
+      _fetchOpsRuns().then(() => {
+        if (_agentView === 'hub' && _marketplaceTab === 'ops') {
+          try { pgAgentChat(_lastSetTopbar); } catch {}
+        }
+      }).catch(() => {});
+    }
+    if (_opsAbuse === null && !_opsAbuseLoading) {
+      _fetchOpsAbuse().then(() => {
+        if (_agentView === 'hub' && _marketplaceTab === 'ops') {
+          try { pgAgentChat(_lastSetTopbar); } catch {}
+        }
+      }).catch(() => {});
+    }
+  }
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+};
+
+// ── Phase 7: chat suggestion chip handler ────────────────────────────────────
+// Pre-fills the marketplace modal textarea but does NOT auto-send. The user
+// stays in control — they edit if needed and hit Send.
+window._agentMarketplaceChip = function(text) {
+  const input = document.getElementById('agent-marketplace-input');
+  if (!input) return;
+  input.value = String(text || '');
+  input.focus();
+};
+
+// ── Phase 7: Activation handlers ─────────────────────────────────────────────
+window._agentActivationAttestationInput = function(val) {
+  const counter = document.getElementById('activation-attestation-count');
+  if (!counter) return;
+  const len = String(val || '').length;
+  const ok = len >= 32;
+  counter.textContent = `${len} / 32`;
+  counter.style.color = ok ? 'var(--green,#22c55e)' : 'var(--text-tertiary)';
+};
+
+window._agentActivationSubmit = async function() {
+  if (_activationsBusy) return;
+  const clinicEl = document.getElementById('activation-clinic');
+  const agentEl = document.getElementById('activation-agent');
+  const attEl = document.getElementById('activation-attestation');
+  const clinicId = (clinicEl?.value || '').trim();
+  const agentId = (agentEl?.value || '').trim();
+  const attestation = (attEl?.value || '').trim();
+  if (!clinicId) {
+    _activationsNotice = { kind: 'error', text: 'Clinic ID is required.' };
+    pgAgentChat(_lastSetTopbar);
+    return;
+  }
+  if (!agentId) {
+    _activationsNotice = { kind: 'error', text: 'Pick a patient agent.' };
+    pgAgentChat(_lastSetTopbar);
+    return;
+  }
+  if (attestation.length < 32) {
+    _activationsNotice = { kind: 'error', text: `Attestation must be at least 32 characters (got ${attestation.length}).` };
+    pgAgentChat(_lastSetTopbar);
+    return;
+  }
+
+  // Demo mode — simulate success without network. Mirrors the upgrade-CTA
+  // and run-agent demo paths.
+  if (_isMarketplaceDemoMode()) {
+    const agentLabel = (PATIENT_AGENT_OPTIONS.find(o => o.id === agentId) || {}).label || agentId;
+    window._showNotifToast?.({
+      title: 'Activation (demo)',
+      body: `(demo) In production this would activate ${agentLabel} for ${clinicId}.`,
+      severity: 'info',
+    });
+    _activationsNotice = { kind: 'success', text: `(demo) Activated ${agentId} for ${clinicId}.` };
+    if (clinicEl) clinicEl.value = '';
+    if (attEl) attEl.value = '';
+    window._agentActivationAttestationInput('');
+    pgAgentChat(_lastSetTopbar);
+    return;
+  }
+
+  _activationsBusy = true;
+  pgAgentChat(_lastSetTopbar);
+
+  const headers = { 'Content-Type': 'application/json' };
+  try {
+    const t = api.getToken && api.getToken();
+    if (t) headers['Authorization'] = 'Bearer ' + t;
+  } catch {}
+
+  try {
+    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agent-admin/patient-activations`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({ clinic_id: clinicId, agent_id: agentId, attestation }),
+    });
+    if (res.status === 403) {
+      _activationsNotice = { kind: 'error', text: 'This action requires super-admin privileges.' };
+    } else if (!res.ok) {
+      let msg = `Activation failed (${res.status}).`;
+      try {
+        const body = await res.json();
+        if (body && body.detail) msg = String(body.detail);
+        else if (body && body.message) msg = String(body.message);
+      } catch {}
+      _activationsNotice = { kind: 'error', text: msg };
+    } else {
+      _activationsNotice = { kind: 'success', text: `Activated ${agentId} for ${clinicId}.` };
+      if (clinicEl) clinicEl.value = '';
+      if (attEl) attEl.value = '';
+      // Force a reload of the table to pick up the new row.
+      _activationsList = null;
+      _fetchPatientActivations().finally(() => {
+        if (_agentView === 'hub' && _marketplaceTab === 'activation') {
+          try { pgAgentChat(_lastSetTopbar); } catch {}
+        }
+      });
+    }
+  } catch (err) {
+    _activationsNotice = { kind: 'error', text: err?.message || 'Activation failed.' };
+  } finally {
+    _activationsBusy = false;
+    pgAgentChat(_lastSetTopbar);
+  }
+};
+
+window._agentActivationDeactivate = async function(clinicId, agentId) {
+  if (!clinicId || !agentId) return;
+  if (_activationsBusy) return;
+
+  if (_isMarketplaceDemoMode()) {
+    _activationsList = (_activationsList || []).filter(r => !(r.clinic_id === clinicId && r.agent_id === agentId));
+    _activationsNotice = { kind: 'info', text: `(demo) Deactivated ${agentId} for ${clinicId}.` };
+    pgAgentChat(_lastSetTopbar);
+    return;
+  }
+
+  _activationsBusy = true;
+  pgAgentChat(_lastSetTopbar);
+
+  const headers = { 'Content-Type': 'application/json' };
+  try {
+    const t = api.getToken && api.getToken();
+    if (t) headers['Authorization'] = 'Bearer ' + t;
+  } catch {}
+
+  try {
+    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agent-admin/patient-activations/${encodeURIComponent(clinicId)}/${encodeURIComponent(agentId)}`, {
+      method: 'DELETE',
+      headers,
+      credentials: 'include',
+    });
+    if (res.status === 403) {
+      _activationsNotice = { kind: 'error', text: 'This action requires super-admin privileges.' };
+    } else if (!res.ok && res.status !== 204) {
+      _activationsNotice = { kind: 'error', text: `Deactivation failed (${res.status}).` };
+    } else {
+      _activationsNotice = { kind: 'success', text: `Deactivated ${agentId} for ${clinicId}.` };
+      _activationsList = null;
+      _fetchPatientActivations().finally(() => {
+        if (_agentView === 'hub' && _marketplaceTab === 'activation') {
+          try { pgAgentChat(_lastSetTopbar); } catch {}
+        }
+      });
+    }
+  } catch (err) {
+    _activationsNotice = { kind: 'error', text: err?.message || 'Deactivation failed.' };
+  } finally {
+    _activationsBusy = false;
+    pgAgentChat(_lastSetTopbar);
+  }
+};
+
+// ── Phase 7: Ops handlers ────────────────────────────────────────────────────
+window._agentOpsRefresh = function() {
+  // Pick up the clinic_id input value too — it's a free-form text input so we
+  // can't rely on onchange firing reliably across browsers.
+  const clinicEl = document.getElementById('ops-clinic-filter');
+  if (clinicEl) _opsClinicFilter = (clinicEl.value || '').trim();
+  if (_opsRunsLoading) return;
+  _opsRuns = null;
+  _fetchOpsRuns().then(() => {
+    if (_agentView === 'hub' && _marketplaceTab === 'ops') {
+      try { pgAgentChat(_lastSetTopbar); } catch {}
+    }
+  }).catch(() => {});
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+};
+
+window._agentOpsSetAgentFilter = function(agentId) {
+  _opsAgentFilter = agentId || '';
+  // Don't trigger automatic fetch — wait for explicit Refresh click so the
+  // user can adjust both filters first.
+};
+
+window._agentOpsRefreshAbuse = function() {
+  if (_opsAbuseLoading) return;
+  _opsAbuse = null;
+  _fetchOpsAbuse().then(() => {
+    if (_agentView === 'hub' && _marketplaceTab === 'ops') {
+      try { pgAgentChat(_lastSetTopbar); } catch {}
+    }
+  }).catch(() => {});
   if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
 };
 
