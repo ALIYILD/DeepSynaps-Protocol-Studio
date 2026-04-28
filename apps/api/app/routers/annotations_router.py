@@ -139,8 +139,8 @@ class AnnotationOut(BaseModel):
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-def _analysis_exists(db: Session, analysis_id: str, analysis_type: str) -> bool:
-    """Return True if the referenced analysis row exists.
+def _get_analysis(db: Session, analysis_id: str, analysis_type: str):
+    """Return the referenced analysis row or None.
 
     Parameters
     ----------
@@ -150,15 +150,13 @@ def _analysis_exists(db: Session, analysis_id: str, analysis_type: str) -> bool:
 
     Returns
     -------
-    bool
+    QEEGAnalysis | MriAnalysis | None
     """
     if analysis_type == "qeeg":
-        return db.query(QEEGAnalysis).filter_by(id=analysis_id).first() is not None
+        return db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
     if analysis_type == "mri":
-        return (
-            db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first() is not None
-        )
-    return False
+        return db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    return None
 
 
 def _sanitise_tags(tags: Optional[list[str]]) -> list[str]:
@@ -254,12 +252,16 @@ def create_annotation(
             message=f"target_kind must be one of {_VALID_TARGET_KINDS!r}",
             status_code=422,
         )
-    if not _analysis_exists(db, body.analysis_id, body.analysis_type):
+    analysis = _get_analysis(db, body.analysis_id, body.analysis_type)
+    if analysis is None:
         raise ApiServiceError(
             code="analysis_not_found",
             message=f"{body.analysis_type} analysis {body.analysis_id!r} not found",
             status_code=404,
         )
+    # FK-stuffing / cross-clinic guard: the analysis must belong to a
+    # patient this clinician has access to.
+    _gate_patient_access(actor, analysis.patient_id, db)
 
     tags = _sanitise_tags(body.tags)
     row = Annotation(

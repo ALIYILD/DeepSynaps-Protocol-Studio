@@ -991,12 +991,12 @@ def test_annotations_rejects_foreign_target_id(
     resp = client.post(
         "/api/v1/annotations",
         json={
-            "patient_id": cross_clinic_setup["patient_id"],  # clinic A patient
-            "target_type": "qeeg",
-            "target_id": foreign_target_id,                  # clinic B qEEG
-            "body": "stuffed annotation",
+            "analysis_id": foreign_target_id,  # clinic B qEEG
+            "analysis_type": "qeeg",
+            "target_kind": "finding",
+            "text": "stuffed annotation",
         },
         headers=_auth(cross_clinic_setup["token_clin_a"]),
     )
-    assert resp.status_code == 422, resp.text
-    assert resp.json().get("code") == "invalid_annotation_target"
+    assert resp.status_code == 403, resp.text
+    assert resp.json().get("code") == "cross_clinic_access_denied"

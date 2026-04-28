@@ -3199,7 +3199,7 @@ export async function pgSettings(setTopbar, currentUser) {
           m.invited_at = Date.now();
           persistTeam(savedTeam);
           renderTeam();
-          toast(`Invite re-sent to ${m.email}.`);
+          toast(`Invite request refreshed for ${m.email}. Email delivery is not verified from this page.`);
         } catch (err) {
           toast('Could not resend invite: ' + (err?.message || 'retry'), 'warning');
         }
@@ -3248,7 +3248,7 @@ export async function pgSettings(setTopbar, currentUser) {
       renderTeam();
       if (emailEl) emailEl.value = '';
       if (msgEl)   { msgEl.textContent = ''; msgEl.style.color = 'var(--text-secondary)'; }
-      toast(`Invite sent to ${email}.`);
+      toast(`Invite request recorded for ${email}. Email delivery is not verified from this page.`);
     } catch (err) {
       if (msgEl) { msgEl.textContent = 'Invite failed: ' + (err?.message || 'retry'); msgEl.style.color = 'var(--red)'; }
       toast('Invite failed.', 'warning');
@@ -11914,8 +11914,8 @@ window._acEduListNew = (editItem) => {
           <input type="text" name="icon" placeholder="Icon emoji (e.g. &#127891;)" maxlength="10" value="${isEdit ? esc(editItem.icon || '') : ''}" style="width:120px;${iS}">
           <select name="tone" style="flex:1;${iS}">${toneOptions}</select>
         </div>
-        <button type="submit" style="padding:10px 16px;background:#10b981;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px">${isEdit ? 'Update Listing' : 'Publish Course'}</button>
-        <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">Your listing will be live immediately in the Academy Community Courses section.</div>
+        <button type="submit" style="padding:10px 16px;background:#10b981;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px">${isEdit ? 'Update Listing' : 'Save Listing'}</button>
+        <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">Your listing will be saved to your Academy catalog. Community visibility depends on listing status and active state.</div>
       </form>
     </div>`;
   document.body.appendChild(modal);
@@ -11923,7 +11923,7 @@ window._acEduListNew = (editItem) => {
   modal.querySelector('#ac-edu-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = e.target.querySelector('button[type="submit"]');
-    btn.disabled = true; btn.textContent = isEdit ? 'Updating...' : 'Publishing...';
+    btn.disabled = true; btn.textContent = isEdit ? 'Updating...' : 'Saving...';
     const fd = new FormData(e.target);
     const payload = {
       name: fd.get('name').trim(),
@@ -11943,10 +11943,10 @@ window._acEduListNew = (editItem) => {
       } else {
         await api.marketplaceSellerCreateItem(payload);
       }
-      modal.innerHTML = '<div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:420px;width:100%;padding:40px 32px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)"><div style="font-size:2.5rem;margin-bottom:12px">&#10003;</div><h3 style="color:var(--text-primary);margin:0 0 8px">' + (isEdit ? 'Listing Updated' : 'Course Published!') + '</h3><p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;line-height:1.5">Your ' + esc(payload.kind) + ' <strong>' + esc(payload.name) + '</strong> is now live in the Academy.</p><div style="display:flex;gap:8px;justify-content:center"><button onclick="window._acEduMyCourses();document.getElementById(\'ac-edu-modal\').remove()" style="padding:8px 20px;background:rgba(16,185,129,.15);color:#10b981;border:1px solid rgba(16,185,129,.25);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">View My Courses</button><button onclick="document.getElementById(\'ac-edu-modal\').remove();location.reload()" style="padding:8px 20px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer">Close</button></div></div>';
+      modal.innerHTML = '<div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:420px;width:100%;padding:40px 32px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)"><div style="font-size:2.5rem;margin-bottom:12px">&#10003;</div><h3 style="color:var(--text-primary);margin:0 0 8px">' + (isEdit ? 'Listing Updated' : 'Listing Saved') + '</h3><p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;line-height:1.5">Your ' + esc(payload.kind) + ' <strong>' + esc(payload.name) + '</strong> was saved to your Academy catalog. Community visibility depends on listing status and active state.</p><div style="display:flex;gap:8px;justify-content:center"><button onclick="window._acEduMyCourses();document.getElementById(\'ac-edu-modal\').remove()" style="padding:8px 20px;background:rgba(16,185,129,.15);color:#10b981;border:1px solid rgba(16,185,129,.25);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">View My Courses</button><button onclick="document.getElementById(\'ac-edu-modal\').remove();location.reload()" style="padding:8px 20px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer">Close</button></div></div>';
     } catch (err) {
-      btn.disabled = false; btn.textContent = isEdit ? 'Update Listing' : 'Publish Course';
-      window._showToast?.('Failed to ' + (isEdit ? 'update' : 'publish') + ': ' + (err.message || 'Please make sure you are logged in.'), 'error');
+      btn.disabled = false; btn.textContent = isEdit ? 'Update Listing' : 'Save Listing';
+      window._showToast?.('Failed to ' + (isEdit ? 'update' : 'save') + ': ' + (err.message || 'Please make sure you are logged in.'), 'error');
     }
   });
 };

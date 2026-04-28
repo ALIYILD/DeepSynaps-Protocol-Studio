@@ -1459,9 +1459,9 @@ export async function pgConsentAutomation(setTopbar) {
     if (!ids.length) return;
     const records = loadRecords();
     const names   = records.filter(r => ids.includes(r.id)).map(r => r.name);
-    if (!confirm(`Send re-consent request to ${names.join(', ')}?`)) return;
+    if (!confirm(`Log re-consent follow-up for ${names.join(', ')}?`)) return;
     names.forEach(n => addAudit('Re-send Triggered', n, 'Bulk re-consent'));
-    _dsToast(`Re-consent request sent to ${names.join(', ')}.`, 'success');
+    _dsToast(`Re-consent follow-up logged for ${names.join(', ')}. Remote delivery is not verified from this page.`, 'success');
     _selectedIds.clear();
     const body = document.getElementById('ggg-consent-body');
     if (body && _tab === 'tracker') body.innerHTML = renderTracker();
@@ -1495,7 +1495,7 @@ export async function pgConsentAutomation(setTopbar) {
     const r = records.find(x => x.id === id);
     if (!r) return;
     addAudit('Re-send Triggered', r.name, r.type);
-    _dsToast(`Re-consent request sent to ${r.name}.`, 'success');
+    _dsToast(`Re-consent follow-up logged for ${r.name}. Remote delivery is not verified from this page.`, 'success');
   };
 
   // Revoke: persist via PATCH so the change survives a reload. If the API call
@@ -10217,7 +10217,7 @@ export async function pgDocumentsHub(setTopbar) {
     docs=loadDocs(); const d=docs.find(x=>x.id===id); if(!d) return;
     d.sigState='pending-sig'; d.status='pending'; d.updatedDate=today();
     saveDocs(docs); renderPage(); _dhPersistUpdate(d);
-    window._showNotifToast?.({ title:'Sent for Signature', body:`${d.name} — signature request sent.`, severity:'success' });
+    window._showNotifToast?.({ title:'Pending Signature', body:`${d.name} was marked pending signature. Remote signature delivery is not verified from this page.`, severity:'success' });
   };
   window._dhMarkSigned = function(id) {
     docs=loadDocs(); const d=docs.find(x=>x.id===id); if(!d) return;

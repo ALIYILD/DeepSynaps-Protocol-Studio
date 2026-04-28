@@ -9828,8 +9828,8 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
               <option value="green"${isEdit && editItem.tone === 'green' ? ' selected' : ''}>Green</option>
             </select>
           </div>
-          <button type="submit" style="padding:10px 16px;background:#5dd9c4;color:#0a1a22;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px">${isEdit ? 'Update Listing' : 'Publish Listing'}</button>
-          <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">Your listing will be live immediately and visible to clinicians and patients.</div>
+          <button type="submit" style="padding:10px 16px;background:#5dd9c4;color:#0a1a22;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px">${isEdit ? 'Update Listing' : 'Save Listing'}</button>
+          <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">Your listing will be saved to your marketplace catalog. Public visibility depends on marketplace status and active state.</div>
         </form>
       </div>`;
     document.body.appendChild(modal);
@@ -9837,7 +9837,7 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
     modal.querySelector('#mp-list-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = e.target.querySelector('button[type="submit"]');
-      btn.disabled = true; btn.textContent = isEdit ? 'Updating...' : 'Publishing...';
+      btn.disabled = true; btn.textContent = isEdit ? 'Updating...' : 'Saving...';
       const fd = new FormData(e.target);
       const payload = {
         name: fd.get('name').trim(),
@@ -9857,10 +9857,10 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
         } else {
           await api.marketplaceSellerCreateItem(payload);
         }
-        modal.innerHTML = '<div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:420px;width:100%;padding:40px 32px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)"><div style="font-size:2.5rem;margin-bottom:12px">&#10003;</div><h3 style="color:var(--text-primary);margin:0 0 8px">' + (isEdit ? 'Listing Updated' : 'Listing Published!') + '</h3><p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;line-height:1.5">Your ' + esc(payload.kind) + ' <strong>' + esc(payload.name) + '</strong> is now live on the marketplace.</p><div style="display:flex;gap:8px;justify-content:center"><button onclick="window._mpMyListings();document.getElementById(\'mp-list-modal\').remove()" style="padding:8px 20px;background:rgba(155,127,255,.15);color:#9b7fff;border:1px solid rgba(155,127,255,.25);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">View My Listings</button><button onclick="document.getElementById(\'mp-list-modal\').remove()" style="padding:8px 20px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer">Close</button></div></div>';
+        modal.innerHTML = '<div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:420px;width:100%;padding:40px 32px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)"><div style="font-size:2.5rem;margin-bottom:12px">&#10003;</div><h3 style="color:var(--text-primary);margin:0 0 8px">' + (isEdit ? 'Listing Updated' : 'Listing Saved') + '</h3><p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;line-height:1.5">Your ' + esc(payload.kind) + ' <strong>' + esc(payload.name) + '</strong> was saved to your marketplace catalog. Public visibility depends on listing status and active state.</p><div style="display:flex;gap:8px;justify-content:center"><button onclick="window._mpMyListings();document.getElementById(\'mp-list-modal\').remove()" style="padding:8px 20px;background:rgba(155,127,255,.15);color:#9b7fff;border:1px solid rgba(155,127,255,.25);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">View My Listings</button><button onclick="document.getElementById(\'mp-list-modal\').remove()" style="padding:8px 20px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer">Close</button></div></div>';
       } catch (err) {
-        btn.disabled = false; btn.textContent = isEdit ? 'Update Listing' : 'Publish Listing';
-        window._showToast?.('Failed to ' + (isEdit ? 'update' : 'publish') + ' listing: ' + (err.message || 'Please try again.'), 'error');
+        btn.disabled = false; btn.textContent = isEdit ? 'Update Listing' : 'Save Listing';
+        window._showToast?.('Failed to ' + (isEdit ? 'update' : 'save') + ' listing: ' + (err.message || 'Please try again.'), 'error');
       }
     });
   };
