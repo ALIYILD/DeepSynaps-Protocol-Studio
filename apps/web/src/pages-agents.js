@@ -457,6 +457,33 @@ let _opsAbuse = null;
 let _opsAbuseLoading = false;
 let _opsAbuseError = null;
 
+// ── Phase 10: per-agent SLA panel state ──────────────────────────────────────
+// Lazy-loaded on first Ops tab open. ``_opsSlaWindowHours`` is one of
+// {1, 24, 168, 720} — matched to the toggle pills in the SLA card; the
+// backend clamps to [1, 168] so the 30d (720h) pill is rendered for parity
+// with other dashboards but is sent as 168 to stay within the supported
+// range. The dashboard refetches when the user clicks a different pill.
+let _opsSla = null;
+let _opsSlaLoading = false;
+let _opsSlaError = null;
+let _opsSlaWindowHours = 24;
+
+const OPS_SLA_WINDOW_OPTIONS = [
+  { hours: 1, label: '1h' },
+  { hours: 24, label: '24h' },
+  { hours: 168, label: '7d' },
+  { hours: 720, label: '30d' },
+];
+
+// Clamp the requested window to what the backend accepts (1..168). Anything
+// above 168 (e.g. the 30d pill) collapses to 168 — consistent with the
+// "max 7d of audit roll-up" cap baked into the endpoint.
+function _opsSlaApiHours(hours) {
+  const n = Number(hours || 24);
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return Math.min(168, Math.floor(n));
+}
+
 // ── Phase 9: Prompt overrides panel state (super-admin) ──────────────────────
 // Mirrors the Activation panel pattern: list cached in `_promptOverridesList`
 // (null until first fetch), `_promptEditingAgentId` tracks which row's inline
@@ -527,6 +554,12 @@ const OPS_DEMO_RUNS = [
 const OPS_DEMO_ABUSE = [
   { clinic_id: 'clinic-leeds', agent_id: 'clinic.reception', runs_in_window: 184, median_multiple: 7.2, severity: 'high' },
   { clinic_id: 'clinic-bristol', agent_id: 'clinic.reporting', runs_in_window: 62, median_multiple: 2.4, severity: 'medium' },
+];
+
+const OPS_DEMO_SLA = [
+  { agent_id: 'clinic.reception', runs: 142, errors: 9, error_rate: 0.063, p50_ms: 720, p95_ms: 2100, avg_cost_pence: 4.2 },
+  { agent_id: 'clinic.reporting', runs: 88, errors: 1, error_rate: 0.011, p50_ms: 1180, p95_ms: 3050, avg_cost_pence: 7.1 },
+  { agent_id: 'clinic.drclaw_telegram', runs: 41, errors: 0, error_rate: 0.0, p50_ms: 540, p95_ms: 1300, avg_cost_pence: 3.0 },
 ];
 
 // ── Upgrade-CTA state ────────────────────────────────────────────────────────
@@ -1375,6 +1408,43 @@ async function _fetchOpsRuns() {
   }
 }
 
+async function _fetchOpsSla() {
+  if (_opsSlaLoading) return _opsSla;
+  _opsSlaLoading = true;
+  _opsSlaError = null;
+  try {
+    if (_isMarketplaceDemoMode()) {
+      _opsSla = OPS_DEMO_SLA.slice();
+      return _opsSla;
+    }
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      const t = api.getToken && api.getToken();
+      if (t) headers['Authorization'] = 'Bearer ' + t;
+    } catch {}
+    const hours = _opsSlaApiHours(_opsSlaWindowHours);
+    let payload = null;
+    try {
+      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/ops/sla?since_hours=${encodeURIComponent(hours)}`, {
+        method: 'GET', headers, credentials: 'include',
+      });
+      if (res.ok) payload = await res.json();
+      else if (res.status === 403) _opsSlaError = 'This action requires super-admin privileges.';
+      else _opsSlaError = `Failed to load SLA rollup (${res.status})`;
+    } catch (err) {
+      _opsSlaError = err?.message || 'Failed to load SLA rollup.';
+      payload = null;
+    }
+    let rollup = [];
+    if (payload && Array.isArray(payload.rollup)) rollup = payload.rollup;
+    else if (payload && Array.isArray(payload.items)) rollup = payload.items;
+    _opsSla = rollup;
+    return _opsSla;
+  } finally {
+    _opsSlaLoading = false;
+  }
+}
+
 async function _fetchOpsAbuse() {
   if (_opsAbuseLoading) return _opsAbuse;
   _opsAbuseLoading = true;
@@ -1549,6 +1619,96 @@ function _renderOpsAbuseCard() {
   `;
 }
 
+function _renderOpsSlaCard(agents) {
+  // Window pill toggle — clicking a pill swaps `_opsSlaWindowHours`, clears
+  // the cached rollup, and re-fetches. The 30d pill is rendered for parity
+  // with other dashboards but the request is clamped to 168h (the backend
+  // ceiling) so the pill displays as the "longest available window".
+  const pills = OPS_SLA_WINDOW_OPTIONS.map(opt => {
+    const active = _opsSlaWindowHours === opt.hours;
+    const style = active
+      ? 'font-size:11px;padding:3px 10px;border-radius:6px;background:var(--violet);color:#fff;border:1px solid var(--violet);font-weight:600;cursor:pointer'
+      : 'font-size:11px;padding:3px 10px;border-radius:6px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);font-weight:500;cursor:pointer';
+    return `<button type="button" data-test="sla-window-${opt.hours}" style="${style}" onclick="window._agentOpsSetSlaWindow(${opt.hours})">${opt.label}</button>`;
+  }).join('');
+
+  const headerRow = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap">
+      <div style="font-size:13px;font-weight:700;color:var(--text-primary)">Per-agent SLA (last 24h)</div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        ${pills}
+        <button class="btn btn-sm btn-ghost" onclick="window._agentOpsRefreshSla()" style="font-size:11px" ${_opsSlaLoading ? 'disabled' : ''}>${_opsSlaLoading ? 'Refreshing…' : '↻ Refresh'}</button>
+      </div>
+    </div>
+  `;
+
+  let body;
+  if (_opsSla === null) {
+    body = `<div class="muted" style="padding:8px 0;font-size:11.5px;color:var(--text-tertiary)">Loading per-agent SLA…</div>`;
+  } else if (_opsSlaError) {
+    body = `<div data-test="sla-error" style="padding:8px 0;font-size:11.5px;color:var(--red,#ef4444)">${_esc(_opsSlaError)}</div>`;
+  } else if (!_opsSla.length) {
+    body = `<div data-test="sla-empty" class="muted" style="padding:8px 0;font-size:11.5px;color:var(--text-tertiary)">No agent runs in the selected window.</div>`;
+  } else {
+    const agentNameById = new Map();
+    const agentList = Array.isArray(agents) && agents.length ? agents : MARKETPLACE_DEMO_AGENTS;
+    for (const a of agentList) agentNameById.set(a.id, a.name || a.id);
+    const fmtMs = v => (Number.isFinite(Number(v)) ? `${Math.round(Number(v))} ms` : '—');
+    const fmtPence = v => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return '—';
+      // Pence → £ with 2 decimals.
+      return '£' + (n / 100).toFixed(2);
+    };
+    const errCellStyle = rate => {
+      const r = Number(rate || 0);
+      if (r > 0.05) return 'color:var(--red,#ef4444);font-weight:700';
+      if (r > 0.01) return 'color:var(--amber,#f59e0b);font-weight:700';
+      return 'color:var(--text-secondary)';
+    };
+    const rows = _opsSla.map(r => {
+      const agentId = String(r.agent_id || '');
+      const name = agentNameById.get(agentId) || agentId;
+      const rate = Number(r.error_rate || 0);
+      const ratePct = (rate * 100).toFixed(2) + '%';
+      return `<tr class="ds-tr" data-test="sla-row-${_esc(agentId)}">
+        <td style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px">${_esc(agentId)}</td>
+        <td>${_esc(name)}</td>
+        <td style="white-space:nowrap;text-align:right">${Number(r.runs || 0)}</td>
+        <td style="white-space:nowrap;text-align:right;${errCellStyle(rate)}" data-test="sla-error-rate-${_esc(agentId)}">${ratePct}</td>
+        <td style="white-space:nowrap;text-align:right">${fmtMs(r.p50_ms)}</td>
+        <td style="white-space:nowrap;text-align:right">${fmtMs(r.p95_ms)}</td>
+        <td style="white-space:nowrap;text-align:right">${fmtPence(r.avg_cost_pence)}</td>
+      </tr>`;
+    }).join('');
+    body = `
+      <div style="overflow-x:auto">
+        <table class="ds-table" data-test="sla-table" style="width:100%;font-size:12px">
+          <thead>
+            <tr>
+              <th style="text-align:left">Agent ID</th>
+              <th style="text-align:left">Name</th>
+              <th style="text-align:right">Runs</th>
+              <th style="text-align:right">Error rate</th>
+              <th style="text-align:right">p50</th>
+              <th style="text-align:right">p95</th>
+              <th style="text-align:right">Avg cost</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="card" data-test="sla-card" style="padding:14px 16px;margin-bottom:14px">
+      ${headerRow}
+      ${body}
+    </div>
+  `;
+}
+
 function _renderOpsSection(agents) {
   const sectionHeader = `
     <div style="margin-bottom:10px">
@@ -1558,6 +1718,7 @@ function _renderOpsSection(agents) {
   `;
   return `
     ${sectionHeader}
+    ${_renderOpsSlaCard(agents)}
     ${_renderOpsRunsCard(agents)}
     ${_renderOpsAbuseCard()}
   `;
@@ -2781,6 +2942,13 @@ window._agentMarketplaceSetTab = function(tab) {
         }
       }).catch(() => {});
     }
+    if (_opsSla === null && !_opsSlaLoading) {
+      _fetchOpsSla().then(() => {
+        if (_agentView === 'hub' && _marketplaceTab === 'ops') {
+          try { pgAgentChat(_lastSetTopbar); } catch {}
+        }
+      }).catch(() => {});
+    }
   }
   if (tab === 'prompts' && _promptOverridesList === null && !_promptOverridesLoading) {
     _fetchPromptOverrides().then(() => {
@@ -2972,6 +3140,31 @@ window._agentOpsRefreshAbuse = function() {
   if (_opsAbuseLoading) return;
   _opsAbuse = null;
   _fetchOpsAbuse().then(() => {
+    if (_agentView === 'hub' && _marketplaceTab === 'ops') {
+      try { pgAgentChat(_lastSetTopbar); } catch {}
+    }
+  }).catch(() => {});
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+};
+
+window._agentOpsRefreshSla = function() {
+  if (_opsSlaLoading) return;
+  _opsSla = null;
+  _fetchOpsSla().then(() => {
+    if (_agentView === 'hub' && _marketplaceTab === 'ops') {
+      try { pgAgentChat(_lastSetTopbar); } catch {}
+    }
+  }).catch(() => {});
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+};
+
+window._agentOpsSetSlaWindow = function(hours) {
+  const n = Number(hours);
+  if (!Number.isFinite(n) || n < 1) return;
+  if (_opsSlaWindowHours === n) return;
+  _opsSlaWindowHours = n;
+  _opsSla = null;
+  _fetchOpsSla().then(() => {
     if (_agentView === 'hub' && _marketplaceTab === 'ops') {
       try { pgAgentChat(_lastSetTopbar); } catch {}
     }
