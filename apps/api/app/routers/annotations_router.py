@@ -37,7 +37,7 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import AnalysisAnnotation, MriAnalysis, QEEGAnalysis
+from app.persistence.models import MriAnalysis, QEEGAnalysis
 from app.repositories.patients import resolve_patient_clinic_id
 
 

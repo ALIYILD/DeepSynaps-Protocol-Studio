@@ -4786,6 +4786,11 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           + '</div>'
         ) + html;
       }
+      // Clinical Workbench — review + patient-facing report panels
+      html += '<div id="qeeg-clinician-review-panel"></div>';
+      html += '<div id="qeeg-patient-report-panel"></div>';
+      html += '<div id="qeeg-timeline-panel"></div>';
+
       // Contract V2 §10 — copilot widget mount point (floating / fixed
       // position). Appended inside the tab so it survives tab re-renders
       // but is removed when the tab is navigated away from.
@@ -4820,6 +4825,18 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         setTimeout(function () {
           try { mountCopilotWidget('qeeg-copilot-mount', analysisId); } catch (_) {}
         }, 30);
+      }
+      // Mount Clinical Workbench panels (Migration 048)
+      if (report && report.id && analysisId && analysisId !== 'demo') {
+        setTimeout(function () {
+          try { mountClinicianReview('qeeg-clinician-review-panel', report.id, api); } catch (_) {}
+          try { mountPatientReport('qeeg-patient-report-panel', report.id, api); } catch (_) {}
+        }, 40);
+      }
+      if (analysisData && analysisData.patient_id && analysisId && analysisId !== 'demo') {
+        setTimeout(function () {
+          try { mountTimeline('qeeg-timeline-panel', analysisData.patient_id, api); } catch (_) {}
+        }, 50);
       }
 
       // Review handler
