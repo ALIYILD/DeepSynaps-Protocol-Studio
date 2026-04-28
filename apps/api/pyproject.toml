@@ -22,6 +22,10 @@ dependencies = [
     "deepsynaps-safety-engine",
     "deepsynaps-generation-engine",
     "slowapi>=0.1.9",
+    # APScheduler — BackgroundScheduler powers the Phase 9 agent abuse-signal
+    # hourly cron (apps/api/app/services/agent_scheduler.py). Gated on
+    # DEEPSYNAPS_AGENT_CRON_ENABLED so tests / CI don't fire jobs.
+    "apscheduler>=3.10",
     # Redis client used by SlowAPI's `limits` storage adapter when
     # DEEPSYNAPS_LIMITER_REDIS_URI is set. Without it the rate-limiter
     # backend falls back to in-memory and the warning at startup logs
