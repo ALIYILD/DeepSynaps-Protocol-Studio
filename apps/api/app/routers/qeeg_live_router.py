@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import time
 from typing import Any, AsyncIterator, Literal
@@ -17,6 +18,49 @@ from app.settings import get_settings
 
 
 router = APIRouter(prefix="/api/v1/qeeg/live", tags=["qeeg-live"])
+_logger = logging.getLogger(__name__)
+
+
+def _resolve_ws_token(websocket: WebSocket, query_token: str | None) -> str | None:
+    """Resolve the WS auth token, preferring the Authorization header.
+
+    Pre-fix the WebSocket route only read ``?token=`` from the query
+    string. Tokens placed in URLs leak into:
+
+    * Reverse-proxy / Fly access logs (Fly-Replay, GunicornAccessLog).
+    * Browser history and the Referer header on any subsequent
+      navigation while the WS is open.
+    * The page's HTML source if the URL is rendered into a debug
+      banner.
+
+    The header path is preferred so the token never enters the URL.
+    Browsers DO support ``Sec-WebSocket-Protocol: bearer.<token>`` for
+    in-band token delivery; reverse-proxies forward the
+    ``Authorization`` header on the upgrade request. Both routes
+    bypass URL-based logging. ``?token=`` is kept as a fallback for
+    legacy clients but logged at WARNING so security teams can spot
+    leaked tokens.
+    """
+    auth_header = websocket.headers.get("authorization") or ""
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+        if token:
+            return token
+
+    subproto = websocket.headers.get("sec-websocket-protocol") or ""
+    for part in [p.strip() for p in subproto.split(",") if p.strip()]:
+        if part.lower().startswith("bearer."):
+            token = part.split(".", 1)[1].strip()
+            if token:
+                return token
+
+    if query_token:
+        _logger.warning(
+            "qeeg_live_ws_token_in_query client=%s",
+            websocket.client.host if websocket.client else "unknown",
+        )
+        return query_token
+    return None
 
 
 def _validate_mock_source(edf_path: str | None) -> None:
@@ -213,8 +257,17 @@ async def qeeg_live_sse(
     line_freq_hz: float = Query(default=50.0, ge=45.0, le=65.0),
     token: str | None = Query(default=None),
 ) -> StreamingResponse:
-    # EventSource cannot set Authorization headers; accept token= as a fallback.
+    # EventSource cannot set Authorization headers, so a query-string
+    # fallback is unavoidable for browser SSE clients. Prefer the header
+    # path (already wired via Depends) so server access logs never see
+    # the JWT for native callers (curl, server-to-server). When the
+    # query path IS used, log a WARNING so security teams can audit
+    # tokens leaking through proxy logs.
     if token and (not getattr(actor, "token_id", None)):
+        _logger.warning(
+            "qeeg_live_sse_token_in_query client=%s",
+            request.client.host if request.client else "unknown",
+        )
         actor = get_authenticated_actor(authorization=f"Bearer {token}")
     _gate(actor)
 
@@ -251,10 +304,13 @@ async def qeeg_live_sse(
 async def qeeg_live_ws(
     websocket: WebSocket,
 ) -> None:
-    # WebSockets cannot attach Authorization headers from browsers; accept a
-    # `token=` query param and map it to the same JWT actor resolution.
-    token = websocket.query_params.get("token")
-    actor = get_authenticated_actor(authorization=f"Bearer {token}" if token else None)
+    # Prefer the Authorization header / Sec-WebSocket-Protocol so the
+    # JWT never enters the URL (which leaks into proxy access logs and
+    # browser history). Fall back to ``?token=`` for legacy clients —
+    # logged at WARNING by ``_resolve_ws_token``.
+    query_token = websocket.query_params.get("token")
+    raw_token = _resolve_ws_token(websocket, query_token)
+    actor = get_authenticated_actor(authorization=f"Bearer {raw_token}" if raw_token else None)
     _gate(actor)
 
     # Query params: source=lsl|mock, stream_name=..., edf_path=..., age=..., sex=...
