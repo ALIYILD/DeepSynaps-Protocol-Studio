@@ -45,7 +45,7 @@ from app.auth import (
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.limiter import limiter
-from app.persistence.models import AgentRunAudit
+from app.persistence.models import AgentPromptOverride, AgentRunAudit
 from app.services.agents import runner
 from app.services.agents.registry import (
     AGENT_REGISTRY,
@@ -558,6 +558,195 @@ def ops_abuse_signals(
         median_runs_per_pair=median,
         signals=signals,
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 — admin prompt-override endpoints
+# ---------------------------------------------------------------------------
+
+
+class PromptOverrideOut(BaseModel):
+    """One :class:`AgentPromptOverride` row, projected for the admin UI."""
+
+    id: str
+    agent_id: str
+    clinic_id: str | None
+    system_prompt: str
+    version: int
+    enabled: bool
+    created_at: str  # ISO-8601 UTC
+    created_by: str | None
+
+
+class PromptOverrideListResponse(BaseModel):
+    overrides: list[PromptOverrideOut]
+
+
+class PromptOverrideCreateRequest(BaseModel):
+    """Body for ``POST /admin/prompt-overrides``.
+
+    ``clinic_id=None`` creates a *global* override (applies to every
+    clinic that doesn't have its own override). A non-null ``clinic_id``
+    is clinic-scoped and wins over the global row at resolve time.
+    """
+
+    agent_id: str = Field(..., min_length=1, max_length=64)
+    clinic_id: str | None = Field(default=None, max_length=64)
+    system_prompt: str = Field(..., min_length=1, max_length=20_000)
+    enabled: bool = Field(default=True)
+
+
+def _row_to_override(row: AgentPromptOverride) -> PromptOverrideOut:
+    """Project a model row to its public-facing shape."""
+    ts = row.created_at
+    if ts is not None and ts.tzinfo is None:
+        iso_ts = ts.isoformat() + "Z"
+    else:
+        iso_ts = ts.isoformat() if ts is not None else ""
+    return PromptOverrideOut(
+        id=row.id,
+        agent_id=row.agent_id,
+        clinic_id=row.clinic_id,
+        system_prompt=row.system_prompt,
+        version=int(row.version or 1),
+        enabled=bool(row.enabled),
+        created_at=iso_ts,
+        created_by=row.created_by,
+    )
+
+
+@router.get(
+    "/admin/prompt-overrides",
+    response_model=PromptOverrideListResponse,
+)
+def list_prompt_overrides(
+    agent_id: str | None = Query(None, max_length=64),
+    clinic_id: str | None = Query(None, max_length=64),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PromptOverrideListResponse:
+    """Admin-only — list prompt overrides, optionally filtered.
+
+    Filters
+    -------
+    ``agent_id``
+        Narrow to a single agent.
+    ``clinic_id``
+        Narrow to a single clinic. Pass ``"__global__"`` to filter to
+        global overrides (``clinic_id IS NULL``); any other string is a
+        literal match on the column.
+    """
+    require_minimum_role(actor, "admin")
+
+    q = db.query(AgentPromptOverride)
+    if agent_id is not None:
+        q = q.filter(AgentPromptOverride.agent_id == agent_id)
+    if clinic_id is not None:
+        if clinic_id == "__global__":
+            q = q.filter(AgentPromptOverride.clinic_id.is_(None))
+        else:
+            q = q.filter(AgentPromptOverride.clinic_id == clinic_id)
+
+    rows = (
+        q.order_by(
+            AgentPromptOverride.agent_id.asc(),
+            AgentPromptOverride.created_at.desc(),
+        )
+        .all()
+    )
+    return PromptOverrideListResponse(
+        overrides=[_row_to_override(r) for r in rows]
+    )
+
+
+@router.post(
+    "/admin/prompt-overrides",
+    response_model=PromptOverrideOut,
+)
+@limiter.limit("10/minute")
+def create_prompt_override(
+    request: Request,
+    payload: PromptOverrideCreateRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PromptOverrideOut:
+    """Admin-only — create a new override row, version-stamped.
+
+    The new row's ``version`` is ``max(existing.version) + 1`` for the
+    same ``(agent_id, clinic_id)`` pair, so a chronological listing
+    naturally surfaces the active row at the top. Creating a fresh row
+    rather than updating in place is deliberate — it preserves prompt
+    history and lets us roll back by re-enabling an older row.
+    """
+    require_minimum_role(actor, "admin")
+
+    if payload.agent_id not in AGENT_REGISTRY:
+        raise ApiServiceError(
+            code="agent_not_found",
+            message=f"No agent is registered with id '{payload.agent_id}'.",
+            status_code=404,
+        )
+
+    # Bump version off the highest existing for this (agent, clinic) pair.
+    q = db.query(AgentPromptOverride).filter(
+        AgentPromptOverride.agent_id == payload.agent_id
+    )
+    if payload.clinic_id is None:
+        q = q.filter(AgentPromptOverride.clinic_id.is_(None))
+    else:
+        q = q.filter(AgentPromptOverride.clinic_id == payload.clinic_id)
+    last = q.order_by(AgentPromptOverride.version.desc()).first()
+    next_version = (int(last.version) + 1) if last is not None else 1
+
+    row = AgentPromptOverride(
+        agent_id=payload.agent_id,
+        clinic_id=payload.clinic_id,
+        system_prompt=payload.system_prompt,
+        version=next_version,
+        enabled=bool(payload.enabled),
+        created_by=actor.actor_id,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _row_to_override(row)
+
+
+@router.delete(
+    "/admin/prompt-overrides/{override_id}",
+    response_model=PromptOverrideOut,
+)
+@limiter.limit("10/minute")
+def delete_prompt_override(
+    request: Request,
+    override_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PromptOverrideOut:
+    """Admin-only — soft-delete by flipping ``enabled`` to ``False``.
+
+    The row is left in the table so the audit trail of who edited what
+    survives. The runner's prompt resolver skips disabled rows so the
+    LLM falls back to the registry default (or to a still-enabled row
+    of a different scope) on the next invocation.
+    """
+    require_minimum_role(actor, "admin")
+
+    row = (
+        db.query(AgentPromptOverride)
+        .filter(AgentPromptOverride.id == override_id)
+        .first()
+    )
+    if row is None:
+        raise ApiServiceError(
+            code="prompt_override_not_found",
+            message=f"No prompt override with id '{override_id}'.",
+            status_code=404,
+        )
+    row.enabled = False
+    db.commit()
+    db.refresh(row)
+    return _row_to_override(row)
 
 
 __all__ = ["router"]

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint, event
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -2237,6 +2237,15 @@ class AgentRunAudit(Base):
     latency_ms: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     ok: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=True)
     error_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # Phase 7 — per-run token + cost accounting. Nullable so legacy rows
+    # written before the migration still load. New writes always populate
+    # these via :func:`app.services.agents.audit.record_run`.
+    tokens_in_used: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True, default=0)
+    tokens_out_used: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True, default=0)
+    # ``cost_pence`` is computed by the runner from a fixed price card —
+    # it is NOT a real bill, just a decision-support indicator the budget
+    # pre-check uses to short-circuit runaway clinics.
+    cost_pence: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True, default=0)
 
 
 # ── Clinical Intelligence Workbench Models (migration 048) ───────────────────
@@ -2351,3 +2360,148 @@ class AgentSubscription(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+
+
+# ── Phase 7 — per-package token / cost budget caps (migration 051) ──────────
+
+
+class PackageTokenBudget(Base):
+    """Monthly per-package token + cost cap.
+
+    Looked up by ``package_id`` from :class:`app.auth.AuthenticatedActor`.
+    The runner sums the calling clinic's :class:`AgentRunAudit` rows for
+    the current calendar month and, if any cap is exceeded, refuses to
+    invoke the LLM. Three rows are seeded by migration 051: ``free``,
+    ``clinician_pro``, ``enterprise``. Operators can tune at runtime.
+    """
+
+    __tablename__ = "package_token_budget"
+    __table_args__ = (
+        UniqueConstraint("package_id", name="uq_package_token_budget_package_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    # Logical package identifier (e.g. ``"clinician_pro"``). Not a FK —
+    # packages live in code, like agents.
+    package_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    monthly_tokens_in_cap: Mapped[int] = mapped_column(Integer(), nullable=False, default=1_000_000)
+    monthly_tokens_out_cap: Mapped[int] = mapped_column(Integer(), nullable=False, default=200_000)
+    monthly_cost_pence_cap: Mapped[int] = mapped_column(Integer(), nullable=False, default=5000)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+# ── Phase 7 — DB-backed Stripe webhook dedupe (migration 051) ───────────────
+
+
+class StripeWebhookEvent(Base):
+    """Persistent dedupe row, one per Stripe event id we have processed.
+
+    Replaces the prior in-memory set in :mod:`app.services.stripe_skus`.
+    On insert collision (UNIQUE on ``id``) the webhook handler treats the
+    event as a duplicate and short-circuits. The row is written before
+    ``_apply_webhook`` runs so a redelivery can never be applied twice.
+    """
+
+    __tablename__ = "stripe_webhook_event"
+
+    # Stripe event id is the natural key — there is no second uuid PK.
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    processed: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=True)
+
+
+# ── Phase 7 — per-clinic agent prompt overrides (migration 051) ─────────────
+
+
+class AgentPromptOverride(Base):
+    """Operator-editable override of an agent's system prompt.
+
+    Resolution order (see :func:`app.services.agents.registry.resolve_system_prompt`):
+
+    1. enabled override matching ``(agent_id, clinic_id=<actor.clinic_id>)``
+    2. enabled override matching ``(agent_id, clinic_id=NULL)`` (global)
+    3. the registry's ``agent.system_prompt`` default
+
+    Disabled rows are skipped so soft-deletes leave history but stop
+    influencing live runs. Each save bumps ``version`` so the admin UI can
+    surface a deterministic edit history.
+    """
+
+    __tablename__ = "agent_prompt_override"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    # Agent canonical id — not a FK, agents live in AGENT_REGISTRY.
+    agent_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # NULL = global default override; non-NULL = clinic-scoped override.
+    clinic_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    system_prompt: Mapped[str] = mapped_column(Text(), nullable=False)
+    version: Mapped[int] = mapped_column(Integer(), nullable=False, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc)
+    )
+    # FK to users — SET NULL on delete so departed admin accounts don't
+    # take override history with them.
+    created_by: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+# ── Phase 7 default-budget seed (mirrors migration 051) ─────────────────────
+#
+# The migration's ``op.bulk_insert`` only fires when alembic upgrades the
+# DB. The test harness builds the schema with ``Base.metadata.create_all``
+# and never runs migrations, so a metadata-driven seed is needed for the
+# pre-LLM budget gate to find a row to compare against.
+#
+# Listener seeds three rows (free / clinician_pro / enterprise) the first
+# time the table is created. Idempotent under concurrent ``create_all``
+# calls because the ``package_id`` UNIQUE constraint rejects re-seeding.
+
+_DEFAULT_PACKAGE_BUDGETS = (
+    # (package_id, tokens_in_cap, tokens_out_cap, cost_pence_cap)
+    ("free", 50_000, 10_000, 500),
+    ("clinician_pro", 1_000_000, 200_000, 5_000),
+    ("enterprise", 5_000_000, 1_000_000, 20_000),
+)
+
+
+@event.listens_for(PackageTokenBudget.__table__, "after_create")
+def _seed_default_package_budgets(target, connection, **_kw):  # noqa: ARG001
+    """Insert the three default budget rows whenever the table is fresh.
+
+    The ``after_create`` event fires under both metadata-driven
+    ``create_all`` (test harness, ``init_database()``) and alembic
+    ``op.create_table`` paths. The migration also calls
+    :func:`op.bulk_insert` so production deployments end up with the
+    same three rows by either route — duplication is rejected by the
+    ``uq_package_token_budget_package_id`` constraint on the second
+    seeder, so concurrent calls stay safe.
+    """
+    now = datetime.now(timezone.utc)
+    rows = [
+        {
+            "id": f"pkg_budget_{pkg_id}",
+            "package_id": pkg_id,
+            "monthly_tokens_in_cap": ti,
+            "monthly_tokens_out_cap": to,
+            "monthly_cost_pence_cap": cp,
+            "created_at": now,
+            "updated_at": now,
+        }
+        for pkg_id, ti, to, cp in _DEFAULT_PACKAGE_BUDGETS
+    ]
+    try:
+        connection.execute(target.insert(), rows)
+    except Exception:  # pragma: no cover — defensive against re-seed races
+        pass
