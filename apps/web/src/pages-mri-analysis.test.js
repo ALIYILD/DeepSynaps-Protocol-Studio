@@ -46,6 +46,12 @@ const {
   _resetMRIState,
   _getMRIState,
   _INTERNALS,
+  renderMRISafetyCockpit,
+  renderMRIRedFlags,
+  renderMRIAtlasModelCard,
+  renderMRIProtocolGovernance,
+  renderMRIClinicianReview,
+  renderMRIPatientReport,
 } = mod;
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
@@ -284,4 +290,162 @@ test('DEMO_MRI_REPORT matches the authoritative sample shape', () => {
   assert.ok(methods.some((m) => m.endsWith('_personalised')));
   assert.ok(methods.includes('F3_Beam_projection'));
   assert.ok(methods.includes('tFUS_SCC_Riis'));
+});
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Clinical Workbench renderers (migration 053)
+// ═════════════════════════════════════════════════════════════════════════════
+
+test('renderMRISafetyCockpit shows overall status and checks', () => {
+  const cockpit = {
+    checks: [
+      { name: 'PHI_SCRUBBED', status: 'PASS', detail: 'No PHI detected' },
+      { name: 'MOTION', status: 'FAIL', severity: 'medium', detail: 'Motion > 0.5 mm' },
+    ],
+    red_flags: [],
+    overall_status: 'LIMITED_QUALITY',
+    disclaimer: 'Decision-support only.',
+  };
+  const html = renderMRISafetyCockpit(cockpit);
+  assert.match(html, /LIMITED_QUALITY/);
+  assert.match(html, /PHI_SCRUBBED/);
+  assert.match(html, /Motion/);
+  assert.match(html, /No PHI detected/);
+});
+
+test('renderMRISafetyCockpit shows PHI warning when PHI check fails', () => {
+  const cockpit = {
+    checks: [{ name: 'PHI_SCRUBBED', status: 'FAIL', detail: 'Name found' }],
+    red_flags: [],
+    overall_status: 'REJECTED',
+    disclaimer: 'Decision-support only.',
+  };
+  const html = renderMRISafetyCockpit(cockpit);
+  assert.match(html, /Potential PHI detected/);
+});
+
+test('renderMRIRedFlags renders severity-colored pills', () => {
+  const flags = {
+    flags: [
+      { title: 'Motion artifact', severity: 'medium', code: 'MOTION_HIGH' },
+      { title: 'Incidental finding', severity: 'high', code: 'INCIDENTAL' },
+    ],
+    flag_count: 2,
+    high_severity_count: 1,
+    disclaimer: 'Decision-support only.',
+  };
+  const html = renderMRIRedFlags(flags);
+  assert.match(html, /Motion artifact/);
+  assert.match(html, /Incidental finding/);
+  assert.match(html, /Red Flags \(2\)/);
+});
+
+test('renderMRIRedFlags shows empty state when no flags', () => {
+  const html = renderMRIRedFlags({ flags: [], flag_count: 0, high_severity_count: 0 });
+  assert.match(html, /No red flags detected/);
+});
+
+test('renderMRIAtlasModelCard renders metadata rows', () => {
+  const meta = {
+    template_space: 'MNI152',
+    atlas_version: 'Desikan-Killiany',
+    registration_method: 'ANTS SyN',
+    coordinate_uncertainty_mm: 1.5,
+  };
+  const html = renderMRIAtlasModelCard(meta);
+  assert.match(html, /MNI152/);
+  assert.match(html, /Desikan-Killiany/);
+  assert.match(html, /ANTS SyN/);
+  assert.match(html, /1\.5 mm/);
+});
+
+test('renderMRIProtocolGovernance renders per-target cards', () => {
+  const plans = [
+    {
+      anatomical_label: 'Left DLPFC',
+      registration_confidence: 'high',
+      coordinate_uncertainty_mm: 1.2,
+      evidence_grade: 'EV-B',
+      off_label_flag: false,
+      match_rationale: 'Candidate target for clinician review.',
+      contraindications: ['Verify MRI safety screening'],
+      required_checks: ['Check implant status'],
+    },
+  ];
+  const html = renderMRIProtocolGovernance(plans);
+  assert.match(html, /Left DLPFC/);
+  assert.match(html, /Candidate target for clinician review/);
+  assert.match(html, /EV-B/);
+  assert.match(html, /Verify MRI safety screening/);
+  assert.match(html, /Check implant status/);
+});
+
+test('renderMRIProtocolGovernance shows off-label badge', () => {
+  const plans = [{
+    anatomical_label: 'SCC',
+    registration_confidence: 'moderate',
+    off_label_flag: true,
+    match_rationale: 'Candidate target for clinician review.',
+    contraindications: [],
+    required_checks: [],
+  }];
+  const html = renderMRIProtocolGovernance(plans);
+  assert.match(html, /Off-label/);
+});
+
+test('renderMRIClinicianReview shows report state badge', () => {
+  const html = renderMRIClinicianReview({ report_state: 'MRI_APPROVED', signed_by: 'dr.smith' });
+  assert.match(html, /MRI_APPROVED/);
+  assert.match(html, /Signed by dr\.smith/);
+});
+
+test('renderMRIClinicianReview blocks approval radiology review warning', () => {
+  const html = renderMRIClinicianReview({ report_state: 'MRI_NEEDS_RADIOLOGY_REVIEW' });
+  assert.match(html, /MRI_NEEDS_RADIOLOGY_REVIEW/);
+  assert.match(html, /Radiology review required/);
+});
+
+test('renderMRIPatientReport shows placeholder when unavailable', () => {
+  const html = renderMRIPatientReport({});
+  assert.match(html, /Patient-facing report will be available/);
+});
+
+test('renderMRIPatientReport renders content when available', () => {
+  const html = renderMRIPatientReport({ patient_facing_content: { text: 'Your MRI shows normal structure.' } });
+  assert.match(html, /Your MRI shows normal structure/);
+  assert.match(html, /Decision-support only/);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Export gating on bottom strip
+// ═════════════════════════════════════════════════════════════════════════════
+test('BIDS export button is disabled when report is not approved and signed', () => {
+  const view = renderFullView({ report: DEMO_MRI_REPORT });
+  const bidsBtn = view.match(/ds-mri-dl-bids[^>]*>/);
+  assert.ok(bidsBtn, 'BIDS button should exist');
+  assert.ok(/disabled/.test(bidsBtn[0]), 'BIDS button should be disabled when not approved/signed');
+});
+
+test('BIDS export button is enabled when report is approved and signed', () => {
+  const approvedReport = Object.assign({}, DEMO_MRI_REPORT, {
+    report_state: 'MRI_APPROVED',
+    signed_by: 'dr.smith',
+  });
+  const view = renderFullView({ report: approvedReport });
+  const bidsBtn = view.match(/ds-mri-dl-bids[^>]*>/);
+  assert.ok(bidsBtn, 'BIDS button should exist');
+  assert.ok(!/disabled/.test(bidsBtn[0]), 'BIDS button should be enabled when approved and signed');
+});
+
+test('BIDS export button is disabled when radiology review is unresolved', () => {
+  const report = Object.assign({}, DEMO_MRI_REPORT, {
+    report_state: 'MRI_APPROVED',
+    signed_by: 'dr.smith',
+    red_flags: [{ code: 'RADIOLOGY_REVIEW_REQUIRED', resolved: false }],
+  });
+  const view = renderFullView({ report });
+  const bidsBtn = view.match(/ds-mri-dl-bids[^>]*>/);
+  assert.ok(bidsBtn, 'BIDS button should exist');
+  assert.ok(/disabled/.test(bidsBtn[0]), 'BIDS button should be disabled when radiology review unresolved');
 });

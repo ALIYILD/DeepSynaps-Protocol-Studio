@@ -13049,7 +13049,7 @@ export async function pgPatientMediaConsent() {
       if (msgEl) {
         msgEl.className = 'notice notice-success';
         msgEl.style.display = '';
-        msgEl.textContent = grantedValue ? 'Consent granted.' : 'Consent revoked.';
+        msgEl.textContent = grantedValue ? 'Consent marked granted in this portal view.' : 'Consent marked revoked in this portal view.';
         setTimeout(() => { if (msgEl) msgEl.style.display = 'none'; }, 2500);
       }
     } catch (err) {
@@ -14895,7 +14895,7 @@ export async function pgIntake(setTopbarFn) {
       sub.revoked = true;
       try { localStorage.setItem('ds_intake_submissions', JSON.stringify(subs)); } catch (_e) {}
     }
-    showToast('Consent revoked.', '#d97706');
+    showToast('Consent marked revoked in this browser view.', '#d97706');
     refreshContent();
   };
 

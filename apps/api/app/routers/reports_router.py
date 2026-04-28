@@ -186,7 +186,9 @@ def _assert_report_patient_access(db: Session, actor: AuthenticatedActor, patien
 
 
 @router.post("/upload")
+@limiter.limit("10/minute")
 async def upload_report(
+    request: Request,
     patient_id: str = Form(...),
     type: str = Form(...),
     title: str = Form(...),

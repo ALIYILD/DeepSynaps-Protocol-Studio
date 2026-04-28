@@ -2064,7 +2064,7 @@ export async function pgPatients(setTopbar, navigate) {
     if (_demoOk) {
       items = [...DEMO_PATIENT_ROSTER];
     } else {
-      el.innerHTML = `<div class="notice notice-warn">Could not load patients: ${e.message}</div>`;
+      el.innerHTML = `<div class="notice notice-warn">Could not load patients: ${_escCC(e.message)}</div>`;
       return;
     }
   }
@@ -2887,7 +2887,7 @@ export async function pgPatients(setTopbar, navigate) {
       rows = _parseCSV(text);
     } catch (e) {
       notice.style.display = '';
-      notice.innerHTML = `<div style="color:var(--red);font-size:12px">Parse error: ${e.message}</div>`;
+      notice.innerHTML = `<div style="color:var(--red);font-size:12px">Parse error: ${_escCC(e.message)}</div>`;
       section.style.display = 'none';
       return;
     }
@@ -2911,7 +2911,7 @@ export async function pgPatients(setTopbar, navigate) {
     const tbodyRows = rows.map(r => {
       const invalid = !r.first_name || !r.last_name;
       const bg = invalid ? 'background:rgba(255,107,107,0.06)' : '';
-      const cells = headers.map(h => `<td style="font-size:11px">${r[h] || ''}</td>`).join('');
+      const cells = headers.map(h => `<td style="font-size:11px">${_escCC(r[h] || '')}</td>`).join('');
       return `<tr style="${bg}">${cells}</tr>`;
     }).join('');
 
@@ -2967,7 +2967,7 @@ export async function pgPatients(setTopbar, navigate) {
       if (errors === 0) {
         resultEl.innerHTML = `<div class="notice" style="background:rgba(0,212,188,0.07);border:1px solid rgba(0,212,188,0.25);border-radius:6px;padding:10px 12px;font-size:12px;color:var(--teal)">${done} patient${done !== 1 ? 's' : ''} imported successfully.</div>`;
       } else {
-        resultEl.innerHTML = `<div class="notice notice-warn" style="font-size:12px">${done} imported, ${errors} failed.<br>${errorDetails.map(d => `<div style="margin-top:4px;color:var(--red)">• ${d}</div>`).join('')}</div>`;
+        resultEl.innerHTML = `<div class="notice notice-warn" style="font-size:12px">${done} imported, ${errors} failed.<br>${errorDetails.map(d => `<div style="margin-top:4px;color:var(--red)">• ${_escCC(d)}</div>`).join('')}</div>`;
       }
     }
     // Refresh patient list in background
@@ -3058,7 +3058,7 @@ export async function pgPatients(setTopbar, navigate) {
       }
       if (resultPanel) resultPanel.style.display = '';
     } catch (e) {
-      if (notice) { notice.style.display = ''; notice.innerHTML = `<div style="color:var(--red);font-size:12px">Extraction failed: ${e.message}</div>`; }
+      if (notice) { notice.style.display = ''; notice.innerHTML = `<div style="color:var(--red);font-size:12px">Extraction failed: ${_escCC(e.message)}</div>`; }
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = 'Extract Patient Data →'; }
     }
@@ -3614,7 +3614,7 @@ function _ccBarSVG(values, color = '#4cc9f0', w = 420, h = 120) {
   return `<svg viewBox="0 0 ${values.length * (bw + 1)} ${h}" style="width:100%;height:${h}px">${bars}</svg>`;
 }
 
-function _escCC(v) { return v == null ? '' : String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function _escCC(v) { return v == null ? '' : String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
 
 function _renderCommandCenterHTML(d) {
   const pid = _escCC(d.patient_id);
@@ -7060,10 +7060,10 @@ async function _pilRenderLibrary() {
     window._pilCondMap   = condMap;
 
     const condOptions = conds.map(c =>
-      `<option value="${c.id || c.Condition_ID}">${c.name || c.Condition_Name || c.id}</option>`
+      `<option value="${_escCC(c.id || c.Condition_ID)}">${_escCC(c.name || c.Condition_Name || c.id)}</option>`
     ).join('');
     const modOptions = mods.map(m =>
-      `<option value="${m.id || m.name || m.Modality_Name}">${m.name || m.Modality_Name || m.id}</option>`
+      `<option value="${_escCC(m.id || m.name || m.Modality_Name)}">${_escCC(m.name || m.Modality_Name || m.id)}</option>`
     ).join('');
 
     // Compute classification counts
@@ -7163,7 +7163,7 @@ function _pilRenderWizard() {
   const sel = window._pilSelectedProtocol;
   const bannerHtml = sel ? `
     <div class="pil-prefill-banner">
-      <span>Pre-filled from: <strong>${sel.name || sel.id}</strong></span>
+      <span>Pre-filled from: <strong>${_escCC(sel.name || sel.id)}</strong></span>
       <button class="btn btn-ghost btn-sm" onclick="window._pilSelectedProtocol=null;window._wizState._fresh=true;_pilRenderWizard()">Clear ×</button>
     </div>` : '';
 
@@ -8184,7 +8184,7 @@ function bindChat(chatHistory) {
       const noteEl = document.getElementById('chart-note-content');
       if (noteEl) noteEl.textContent = reply;
     } catch (e) {
-      msgs.innerHTML += `<div class="bubble bubble-in" style="color:var(--red)">Error: ${e.message}</div>`;
+      msgs.innerHTML += `<div class="bubble bubble-in" style="color:var(--red)">Error: ${_escCC(e.message)}</div>`;
     }
   };
   window.signNote = function() {
@@ -8963,7 +8963,7 @@ export function bindBrainData(records, patMap, patients, setTopbar) {
       allRecords = res?.items || [];
       container.innerHTML = _renderRecordRows(allRecords, patMap || {});
     } catch (e) {
-      container.innerHTML = `<div style="color:var(--red);font-size:12px">Load failed: ${e.message}</div>`;
+      container.innerHTML = `<div style="color:var(--red);font-size:12px">Load failed: ${_escCC(e.message)}</div>`;
     }
   };
 
@@ -9274,7 +9274,7 @@ export function bindBrainData(records, patMap, patients, setTopbar) {
         ${result?.red_flags?.length ? `<div class="notice notice-warn">⚠ Red flags: ${result.red_flags.join(', ')}</div>` : ''}
       `);
     } catch (e) {
-      if (res) res.innerHTML = `<div class="notice notice-warn">${e.message}</div>`;
+      if (res) res.innerHTML = `<div class="notice notice-warn">${_escCC(e.message)}</div>`;
     }
   };
 

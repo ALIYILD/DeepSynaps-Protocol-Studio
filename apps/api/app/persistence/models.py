@@ -2016,6 +2016,86 @@ class MriAnalysis(Base):
     age: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     sex: Mapped[Optional[str]] = mapped_column(String(4), nullable=True)
     failure_reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    # ── MRI Clinical Workbench (migration 053) ────────────────────────────
+    safety_cockpit_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    red_flags_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    claim_governance_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    patient_facing_report_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    report_state: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, default="MRI_DRAFT_AI")
+    reviewer_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    report_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    signed_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    signed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    interpretability_status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    atlas_metadata_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+
+
+class MriReportAudit(Base):
+    """Immutable audit trail for MRI report state transitions."""
+    __tablename__ = "mri_report_audits"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    analysis_id: Mapped[str] = mapped_column(String(36), ForeignKey("mri_analyses.analysis_id", ondelete="CASCADE"), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor_role: Mapped[str] = mapped_column(String(50), nullable=False)
+    previous_state: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    new_state: Mapped[str] = mapped_column(String(30), nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class MriReportFinding(Base):
+    """Per-target finding review record for MRI analyses."""
+    __tablename__ = "mri_report_findings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    analysis_id: Mapped[str] = mapped_column(String(36), ForeignKey("mri_analyses.analysis_id", ondelete="CASCADE"), nullable=False, index=True)
+    target_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    claim_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="PENDING_REVIEW")
+    evidence_grade: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    clinician_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    amended_text: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class MriTargetPlan(Base):
+    """Stimulation target governance record for MRI analyses."""
+    __tablename__ = "mri_target_plans"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    analysis_id: Mapped[str] = mapped_column(String(36), ForeignKey("mri_analyses.analysis_id", ondelete="CASCADE"), nullable=False, index=True)
+    target_index: Mapped[int] = mapped_column(Integer(), nullable=False)
+    anatomical_label: Mapped[str] = mapped_column(String(64), nullable=False)
+    modality_compatibility: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    atlas_version: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    registration_confidence: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    coordinate_uncertainty_mm: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    contraindications: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    evidence_grade: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    off_label_flag: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    match_rationale: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    caution_rationale: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    required_checks: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class MriTimelineEvent(Base):
+    """Longitudinal patient event log for MRI clinical workbench."""
+    __tablename__ = "mri_timeline_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(Text(), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_analysis_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("mri_analyses.analysis_id", ondelete="SET NULL"), nullable=True)
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    event_date: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    severity: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    resolved: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class MriUpload(Base):

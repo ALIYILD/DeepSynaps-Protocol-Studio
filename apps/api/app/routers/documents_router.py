@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -22,6 +22,7 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.persistence.models import DocumentTemplate, FormDefinition, Patient, User
 from app.repositories.patients import resolve_patient_clinic_id
 from app.settings import get_settings
@@ -595,7 +596,9 @@ def delete_document(
 # ── Upload / download ─────────────────────────────────────────────────────────
 
 @router.post("/upload", response_model=DocumentOut, status_code=201)
+@limiter.limit("20/minute")
 async def upload_document(
+    request: Request,
     file: UploadFile = File(...),
     title: Optional[str] = Form(default=None),
     doc_type: str = Form(default="uploaded"),

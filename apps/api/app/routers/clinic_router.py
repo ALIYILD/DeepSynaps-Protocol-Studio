@@ -21,7 +21,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from PIL import Image
 from sqlalchemy import select
@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db_session
 from ..errors import ApiServiceError
+from ..limiter import limiter
 from ..persistence.models import Clinic, User
 from ..services import auth_service
 
@@ -340,7 +341,9 @@ def update_clinic(
 
 
 @router.post("/logo", response_model=LogoResponse)
+@limiter.limit("10/minute")
 async def upload_logo(
+    request: Request,
     file: UploadFile = File(...),
     user: User = Depends(auth_service.current_clinic_admin),
     db: Session = Depends(get_db_session),

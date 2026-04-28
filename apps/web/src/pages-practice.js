@@ -5920,7 +5920,7 @@ export async function pgTelehealthRecorder(setTopbar) {
     a.download = `transcript-${rec.patientName.replace(/\s+/g, '-')}-${rec.id}.txt`;
     a.click();
     URL.revokeObjectURL(url);
-    _recShowToast('Transcript downloaded.', 'success');
+    _recShowToast('Transcript download started.', 'success');
   };
 
   // ── Search library ─────────────────────────────────────────────────────────
@@ -10923,7 +10923,7 @@ export async function pgTickets(setTopbar, navigate) {
           <button class="btn btn-sm btn-ghost" onclick="window._tkAgentReport('${_esc(t.id)}')" title="Simulate OpenClaw agent adding a diagnostic note">Agent Note</button>
           <button class="btn btn-sm btn-primary" onclick="window._tkReply('${_esc(t.id)}')">Send Reply</button>
         </div>
-      </div>` : '<div style="padding:12px;background:rgba(34,197,94,0.08);border-radius:var(--radius, 8px);text-align:center;font-size:13px;color:var(--green)">This ticket has been resolved.</div>'}
+      </div>` : '<div style="padding:12px;background:rgba(34,197,94,0.08);border-radius:var(--radius, 8px);text-align:center;font-size:13px;color:var(--green)">This ticket is marked resolved in this browser view.</div>'}
     </div>`;
   }
 

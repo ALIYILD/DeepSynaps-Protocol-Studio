@@ -5498,6 +5498,7 @@ export async function pgLibraryHub(setTopbar, navigate) {
 // pgMonitorHub — Patient Monitoring · Adverse Events · Notes & Dictation · Recording
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgMonitorHub(setTopbar, navigate) {
+  function _mhEsc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
   const tab = window._monitorHubTab || 'monitoring';
   window._monitorHubTab = tab;
   const TAB_META = {
@@ -6099,17 +6100,17 @@ export async function pgMonitorHub(setTopbar, navigate) {
         list.innerHTML = items.map(r => {
           const date = (r.uploaded_at || '').slice(0, 10);
           const dur = r.duration_seconds != null ? (r.duration_seconds + 's · ') : '';
-          const safeTitle = String(r.title || 'Untitled').replace(/'/g, "\\'");
-          return '<div class="book-row" data-rec-id="' + r.id + '">'
+          const safeTitle = _mhEsc(r.title || 'Untitled');
+          return '<div class="book-row" data-rec-id="' + _mhEsc(r.id) + '">'
             + '<div class="book-datetime"><div class="book-date">' + date + '</div><div class="book-time">' + dur + _fmtBytes(r.byte_size) + '</div></div>'
-            + '<div class="book-info"><div class="book-patient">' + safeTitle + '</div><div class="book-notes">' + (r.mime_type || '') + '</div></div>'
+            + '<div class="book-info"><div class="book-patient">' + safeTitle + '</div><div class="book-notes">' + _mhEsc(r.mime_type || '') + '</div></div>'
             + '<div class="book-actions">'
-            +   '<button class="ch-btn-sm" title="Play" onclick="window._recPlay(\'' + r.id + '\',\'' + (r.mime_type || '') + '\')">▶</button>'
-            +   '<button class="ch-btn-sm" title="Delete" style="margin-left:6px" onclick="window._recDelete(\'' + r.id + '\')">✕</button>'
+            +   '<button class="ch-btn-sm" title="Play" onclick="window._recPlay(\'' + _mhEsc(r.id) + '\',\'' + _mhEsc(r.mime_type || '') + '\')">▶</button>'
+            +   '<button class="ch-btn-sm" title="Delete" style="margin-left:6px" onclick="window._recDelete(\'' + _mhEsc(r.id) + '\')">✕</button>'
             + '</div></div>';
         }).join('');
       } catch (err) {
-        list.innerHTML = '<div class="ch-empty">Could not load recordings: ' + (err?.message || 'unknown error') + '</div>';
+        list.innerHTML = '<div class="ch-empty">Could not load recordings: ' + _mhEsc(err?.message || 'unknown error') + '</div>';
       }
     };
     window._recPlay = async (id, mime) => {
@@ -6125,9 +6126,9 @@ export async function pgMonitorHub(setTopbar, navigate) {
         const url = await api.recordingPlaybackUrl(id);
         window._recPlayingBlobUrl = url;
         const tag = (mime || '').startsWith('video/') ? 'video' : 'audio';
-        slot.innerHTML = '<' + tag + ' controls autoplay style="width:100%;max-height:240px;border-radius:6px;background:#000" src="' + url + '"></' + tag + '>';
+        slot.innerHTML = '<' + tag + ' controls autoplay style="width:100%;max-height:240px;border-radius:6px;background:#000" src="' + _mhEsc(url) + '"></' + tag + '>';
       } catch (err) {
-        slot.innerHTML = '<div style="font-size:12px;color:var(--red);padding:4px 0">Playback failed: ' + (err?.message || 'unknown error') + '</div>';
+        slot.innerHTML = '<div style="font-size:12px;color:var(--red);padding:4px 0">Playback failed: ' + _mhEsc(err?.message || 'unknown error') + '</div>';
       }
     };
     window._recUpload = () => {

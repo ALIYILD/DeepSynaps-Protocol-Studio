@@ -52,7 +52,8 @@ function _hubEscHtml(s) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
 }
 
 function _hubInterpretScore(scaleId, score, extraScalesMap) {
@@ -1131,10 +1132,10 @@ export async function pgConsentAutomation(setTopbar) {
     const rows = filtered.map(r => {
       const sel = _selectedIds.has(r.id);
       return `<tr class="${sel ? 'ggg-selected' : ''}">
-        <td><input type="checkbox" ${sel ? 'checked' : ''} onchange="window._consentToggleSelect('${r.id}',this.checked)"></td>
-        <td style="font-weight:600">${r.name}</td>
-        <td>${r.type}</td>
-        <td>${r.version || '\u2014'}</td>
+        <td><input type="checkbox" ${sel ? 'checked' : ''} onchange="window._consentToggleSelect('${_hubEscHtml(r.id)}',this.checked)"></td>
+        <td style="font-weight:600">${_hubEscHtml(r.name)}</td>
+        <td>${_hubEscHtml(r.type)}</td>
+        <td>${_hubEscHtml(r.version) || '\u2014'}</td>
         <td>${fmtDate(r.signed)}</td>
         <td>${fmtDate(r.expiry)}</td>
         <td>${badgeHTML(r.status)}</td>
@@ -1202,7 +1203,7 @@ export async function pgConsentAutomation(setTopbar) {
     const logItems = audit.map(l => `
       <li>
         <span class="ggg-audit-ts">${fmtTS(l.ts)}</span>
-        <span class="ggg-audit-event"><span class="ggg-audit-patient">${l.patient}</span> \u2014 ${l.event}${l.extra ? ` <span style="color:var(--text-muted)">(${l.extra})</span>` : ''}</span>
+        <span class="ggg-audit-event"><span class="ggg-audit-patient">${_hubEscHtml(l.patient)}</span> \u2014 ${_hubEscHtml(l.event)}${l.extra ? ` <span style="color:var(--text-muted)">(${_hubEscHtml(l.extra)})</span>` : ''}</span>
       </li>`).join('');
 
     return `
@@ -1320,23 +1321,23 @@ export async function pgConsentAutomation(setTopbar) {
     const score     = complianceScore();
 
     const delRows = deletions.map(d => `<tr>
-      <td style="font-weight:600">${d.patient}</td>
+      <td style="font-weight:600">${_hubEscHtml(d.patient)}</td>
       <td>${fmtDate(d.requestDate)}</td>
       <td>${badgeHTML(d.status)}</td>
-      <td style="font-size:.8rem;color:var(--text-muted)">${d.dataTypes}</td>
+      <td style="font-size:.8rem;color:var(--text-muted)">${_hubEscHtml(d.dataTypes)}</td>
       <td>${d.status !== 'completed'
-        ? `<button class="btn btn-secondary btn-xs" style="color:var(--accent-rose)" onclick="window._consentProcessDeletion('${d.id}')">Process</button>`
+        ? `<button class="btn btn-secondary btn-xs" style="color:var(--accent-rose)" onclick="window._consentProcessDeletion('${_hubEscHtml(d.id)}')">Process</button>`
         : '<span style="color:var(--text-muted);font-size:.78rem">Done</span>'}</td>
     </tr>`).join('');
 
-    const ptOpts = records.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+    const ptOpts = records.map(r => `<option value="${_hubEscHtml(r.id)}">${_hubEscHtml(r.name)}</option>`).join('');
 
     const auditTypes = ['all','Consent Signed','Consent Revoked','Re-send Triggered','Consent Expired','Deletion Requested','Deletion Completed'];
     const auditFiltered = _auditFilter === 'all' ? audit : audit.filter(l => l.event === _auditFilter);
     const auditItems = auditFiltered.slice(0, 50).map(l => `
       <li>
         <span class="ggg-audit-ts">${fmtTS(l.ts)}</span>
-        <span class="ggg-audit-event"><span class="ggg-audit-patient">${l.patient}</span> \u2014 ${l.event}${l.extra ? ` <span style="color:var(--text-muted)">(${l.extra})</span>` : ''}</span>
+        <span class="ggg-audit-event"><span class="ggg-audit-patient">${_hubEscHtml(l.patient)}</span> \u2014 ${_hubEscHtml(l.event)}${l.extra ? ` <span style="color:var(--text-muted)">(${_hubEscHtml(l.extra)})</span>` : ''}</span>
       </li>`).join('');
 
     return `
@@ -1474,10 +1475,10 @@ export async function pgConsentAutomation(setTopbar) {
     const overlay = document.createElement('div');
     overlay.className = 'ggg-modal-overlay';
     overlay.innerHTML = `<div class="ggg-modal">
-      <h3>Consent Record \u2014 ${r.name}</h3>
+      <h3>Consent Record \u2014 ${_hubEscHtml(r.name)}</h3>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:.875rem;margin-bottom:16px">
-        <div><span style="color:var(--text-muted)">Type:</span> ${r.type}</div>
-        <div><span style="color:var(--text-muted)">Version:</span> ${r.version || '\u2014'}</div>
+        <div><span style="color:var(--text-muted)">Type:</span> ${_hubEscHtml(r.type)}</div>
+        <div><span style="color:var(--text-muted)">Version:</span> ${_hubEscHtml(r.version) || '\u2014'}</div>
         <div><span style="color:var(--text-muted)">Signed:</span> ${fmtDate(r.signed)}</div>
         <div><span style="color:var(--text-muted)">Expiry:</span> ${fmtDate(r.expiry)}</div>
         <div><span style="color:var(--text-muted)">Status:</span> ${badgeHTML(r.status)}</div>
@@ -3002,14 +3003,14 @@ export async function pgMedInteractionChecker(setTopbar) {
     const cardsHtml = interactions.map(int => `
       <div class="qqq-interaction-card qqq-severity-${int.severity}${int.acknowledged ? ' acknowledged' : ''}" id="intcard-${int.id}">
         <div class="qqq-card-header">
-          <span class="qqq-drug-pair">${int.drugA} ↔ ${int.drugB}</span>
+          <span class="qqq-drug-pair">${_hubEscHtml(int.drugA)} ↔ ${_hubEscHtml(int.drugB)}</span>
           ${_severityBadge(int.severity)}
           ${int.type === 'drug-modality' ? '<span style="font-size:11px;color:var(--text-muted);background:var(--hover-bg);padding:2px 7px;border-radius:10px">Drug-Modality</span>' : ''}
           ${int.flagged ? '<span style="font-size:11px;color:#fbbf24">⚑ Flagged</span>' : ''}
           ${int.acknowledged ? '<span style="font-size:11px;color:var(--text-muted)">✓ Acknowledged</span>' : ''}
         </div>
-        <div class="qqq-mechanism"><strong>Mechanism:</strong> ${int.mechanism}</div>
-        <div class="qqq-recommendation">💡 ${int.recommendation}</div>
+        <div class="qqq-mechanism"><strong>Mechanism:</strong> ${_hubEscHtml(int.mechanism)}</div>
+        <div class="qqq-recommendation">💡 ${_hubEscHtml(int.recommendation)}</div>
         <div class="qqq-card-actions">
           ${!int.flagged ? `<button class="qqq-btn-sm flag" onclick="window._micFlagInteraction('${int.id}')">⚑ Flag for Prescriber</button>` : ''}
           ${!int.acknowledged ? `<button class="qqq-btn-sm" onclick="window._micAcknowledge('${int.id}')">✓ Acknowledge</button>` : ''}
@@ -3029,7 +3030,7 @@ export async function pgMedInteractionChecker(setTopbar) {
       const pillClass = `qqq-status-pill-${r.status}`;
       const pillLabel = r.status === 'go' ? '✓ Go' : r.status === 'caution' ? '⚠ Caution' : '✕ Hold';
       const reasoning = r.items.length
-        ? r.items.map(it => `<div style="margin-top:5px;padding:5px 8px;background:var(--hover-bg);border-radius:6px;font-size:12px"><strong>${it.drug}:</strong> ${it.mechanism} — <em>${it.recommendation}</em></div>`).join('')
+        ? r.items.map(it => `<div style="margin-top:5px;padding:5px 8px;background:var(--hover-bg);border-radius:6px;font-size:12px"><strong>${_hubEscHtml(it.drug)}:</strong> ${_hubEscHtml(it.mechanism)} — <em>${_hubEscHtml(it.recommendation)}</em></div>`).join('')
         : '<span style="font-size:12px;color:var(--text-muted)">No relevant drug interactions found for this modality.</span>';
       return `
         <div class="qqq-modality-status ${statusClass}">
@@ -3243,7 +3244,7 @@ export async function pgMedInteractionChecker(setTopbar) {
     _lsSet('ds_interaction_checks', checks);
 
     const sec = document.getElementById('mic-results-section');
-    sec.innerHTML = `<h3 style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:12px">Interaction Results — ${pt?.name || ''}</h3><div id="mic-int-cards"></div>`;
+    sec.innerHTML = `<h3 style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:12px">Interaction Results — ${_hubEscHtml(pt?.name)}</h3><div id="mic-int-cards"></div>`;
     _renderInteractionResults(_currentInteractions, 'mic-int-cards');
   };
 
