@@ -418,7 +418,22 @@ def wearable_patient_chat(
         try:
             from app.routers.patient_portal_router import _DEMO_PATIENT_ACTOR_ID
             if actor.actor_id == _DEMO_PATIENT_ACTOR_ID:
-                pt = db.query(Patient).filter(Patient.email == "patient@demo.com").first()
+                # Pre-fix the demo bypass resolved the demo Patient row in
+                # any environment, including production. Gate to the same
+                # env allowlist as ``patient_portal_router._require_patient``
+                # so a leaked / forged demo actor token cannot read the
+                # demo patient's wearable PHI in prod.
+                from app.settings import get_settings
+                _app_env = (getattr(get_settings(), "app_env", None) or "production").lower()
+                if _app_env not in {"development", "test"}:
+                    raise ApiServiceError(
+                        code="demo_disabled",
+                        message="Demo patient bypass is not available in this environment.",
+                        status_code=403,
+                    )
+                pt = db.query(Patient).filter(
+                    Patient.email.in_(["patient@deepsynaps.com", "patient@demo.com"])
+                ).first()
             else:
                 from app.persistence.models import User
                 user = db.query(User).filter_by(id=actor.actor_id).first()
@@ -426,6 +441,9 @@ def wearable_patient_chat(
             if pt:
                 # Always source context from DB — never trust client-supplied string
                 wearable_context = _build_wearable_context(pt.id, db)
+        except ApiServiceError:
+            # Don't swallow the prod demo-block.
+            raise
         except Exception:
             _audit_logger.warning("Failed to resolve patient wearable context from DB for actor %s", actor.actor_id)
     else:
