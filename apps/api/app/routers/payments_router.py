@@ -393,9 +393,10 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db_session)
     stripe_event_id = event.get("id", "")
     event_type = event.get("type", "")
 
-    # Upsert the log row (idempotent — Stripe may redeliver)
+    # Upsert the log row (idempotent — Stripe may redeliver).
     log = db.query(StripeWebhookLog).filter_by(stripe_event_id=stripe_event_id).first()
     if log is None:
+        # First-ever delivery — record and process inline.
         log = StripeWebhookLog(
             stripe_event_id=stripe_event_id,
             event_type=event_type,
@@ -408,14 +409,48 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db_session)
         db.commit()
         db.refresh(log)
     elif log.status == "succeeded":
-        # Already processed successfully — return 200 so Stripe stops retrying
+        # Already processed successfully — 200 stops Stripe retries.
+        return {"received": True}
+    elif log.status == "dead":
+        # Retries exhausted; the row is parked for manual review.
+        # Don't auto-revive on redelivery — that hides the alert and
+        # may re-fire stale business logic.
+        logger.error(
+            "Stripe webhook redelivered after dead: event=%s type=%s",
+            stripe_event_id, event_type,
+        )
         return {"received": True}
     else:
-        # Re-delivered while pending/failed/dead — bump to pending for another attempt
-        log.status = "pending"
+        # Redelivered while pending or failed. Pre-fix this branch
+        # bumped status back to pending and synchronously re-ran
+        # ``_process_webhook_event``. That had three problems:
+        #
+        # 1. Pending + concurrent redelivery double-ran business logic
+        #    (no row-level lock; both calls upsert subscriptions in
+        #    parallel, racing the same external Stripe state).
+        # 2. Failed events bypassed ``next_retry_at`` cool-off, so the
+        #    inline path hammered transient downstream failures.
+        # 3. Failed events could overwrite NEWER state from a more
+        #    recent webhook that already succeeded for the same
+        #    subscription — undoing a ``customer.subscription.deleted``
+        #    when an earlier ``customer.subscription.updated`` got
+        #    redelivered.
+        #
+        # Post-fix we hand redeliveries to the offline retry worker
+        # (``scripts/retry_stripe_webhooks.py``) which honours
+        # ``next_retry_at`` and processes events in ascending
+        # ``created_at`` order. Stripe still gets a 200 so it stops
+        # redelivering at their layer.
+        log.attempt_count += 1
+        if log.status == "failed":
+            log.next_retry_at = _compute_next_retry_at(log.attempt_count)
         log.updated_at = datetime.now(timezone.utc)
         db.commit()
-        db.refresh(log)
+        logger.info(
+            "Stripe webhook redelivery deferred to worker: event=%s type=%s status=%s attempts=%d",
+            stripe_event_id, event_type, log.status, log.attempt_count,
+        )
+        return {"received": True}
 
     try:
         _process_webhook_event(db, event)
