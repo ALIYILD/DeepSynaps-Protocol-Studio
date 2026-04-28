@@ -2406,7 +2406,7 @@ export function pgSignupPatient() {
         <div id="pt-done" style="display:none;text-align:center;padding:24px 0">
           <div style="width:56px;height:56px;border-radius:50%;background:rgba(74,158,255,0.1);border:1px solid var(--border-blue);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:22px;color:var(--blue)">&#9673;</div>
           <div style="font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Portal Activated</div>
-          <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.6">Welcome. Opening your portal now&hellip;</div>
+          <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.6">Welcome. Loading your portal&hellip;</div>
         </div>
       </div>
       <div style="text-align:center;margin-top:20px;font-size:12px;color:var(--text-tertiary)">
@@ -2921,7 +2921,7 @@ export async function pgPermissionsAdmin(setTopbar) {
         stepContent = `
           <div class="twofa-step">
             <h3 style="font-size:1rem;font-weight:700;margin-bottom:6px">Step 2 — Email Verification</h3>
-            <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:16px">A code has been sent to your email address.</p>
+            <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:16px">Use the demo verification code shown below. This step does not send a real email from the beta environment.</p>
             <div style="padding:12px;border-radius:8px;background:var(--hover-bg);margin-bottom:16px;font-size:.85rem">
               📧 <strong>demo@clinic.local</strong> — check your inbox for the 6-digit code.
             </div>

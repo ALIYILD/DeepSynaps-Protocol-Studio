@@ -1550,7 +1550,7 @@ export async function pgPatientDashboard(user) {
         kind: 'sleep',
         kicker: 'Synaps AI · Morning note',
         body: `Your sleep last night was ${hh}h ${String(mm).padStart(2,'0')}m — a bit short. That often shows up as low mood mid-morning. <strong>Try a 20-minute outdoor walk after breakfast</strong> — the light + movement combo is on your plan today.`,
-        primary: { label: 'Start walk timer', action: 'walk' },
+        primary: { label: 'Open homework', action: 'walk' },
       };
     }
     if (openTasks.length >= 3) {
@@ -1600,11 +1600,11 @@ export async function pgPatientDashboard(user) {
       if (done) {
         right = `<div class="hm-tl-done">\u2713 ${esc(t._doneAt || 'done')}</div>`;
       } else if (t.task_type === 'walk' || /walk/.test(String(t.title||'').toLowerCase())) {
-        right = `<button class="hm-tl-action primary" onclick="window._hmStartTask('${esc(t.id)}', 'walk')">Start</button>`;
+        right = `<button class="hm-tl-action primary" onclick="window._hmStartTask('${esc(t.id)}', 'walk')">Open</button>`;
       } else if (t.task_type === 'tdcs' || /tdcs/.test(String(t.title||'').toLowerCase())) {
         right = `<button class="hm-tl-action" onclick="window._hmStartTask('${esc(t.id)}', 'tdcs')">Prep</button>`;
       } else {
-        right = `<button class="hm-tl-action" onclick="window._hmStartTask('${esc(t.id)}', 'reminder')">Remind me</button>`;
+        right = `<button class="hm-tl-action" onclick="window._hmStartTask('${esc(t.id)}', 'reminder')">Open</button>`;
       }
       const pill = done
         ? '<span class="hm-tl-pill done">Done</span>'
@@ -1705,7 +1705,7 @@ export async function pgPatientDashboard(user) {
         </div>
         <div class="hm-next-actions">
           <button class="btn btn-primary btn-sm" onclick="window._navPatient('pt-sessions')"><svg width="13" height="13"><use href="#i-calendar"/></svg>Open session</button>
-          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')"><svg width="13" height="13"><use href="#i-clock"/></svg>Reschedule</button>
+          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')"><svg width="13" height="13"><use href="#i-clock"/></svg>Request reschedule</button>
         </div>
       </div>`;
   }
@@ -1863,15 +1863,15 @@ export async function pgPatientDashboard(user) {
   function _hmEducationHtml() {
     const weekN = (totalPlanned && sessDelivered) ? Math.max(1, Math.ceil(sessDelivered / Math.max(1, Math.round(totalPlanned / 10)))) : null;
     const picks = [
-      { id:'ed-1', t:'t1', dur:'6:42',  title:'Dr. Kolmar: What happens in weeks 6\u201310 of your tDCS course', meta:'Clinic · personalised for you' },
-      { id:'ed-2', t:'t2', dur:'14:03', title:'Huberman Lab: Sleep & mood \u2014 the morning light protocol',     meta:'Huberman · matches your plan' },
-      { id:'ed-3', t:'t3', dur:'4:18',  title:'Mayo Clinic: When to expect symptom improvement',                  meta:'Mayo Clinic · short read' },
+      { id:'ed-1', t:'t1', dur:'6:42',  title:'Dr. Kolmar: What happens in weeks 6\u201310 of your tDCS course', meta:'Sample · personalised for you' },
+      { id:'ed-2', t:'t2', dur:'14:03', title:'Huberman Lab: Sleep & mood \u2014 the morning light protocol',     meta:'Sample · matches your plan' },
+      { id:'ed-3', t:'t3', dur:'4:18',  title:'Mayo Clinic: When to expect symptom improvement',                  meta:'Sample · short read' },
     ];
     return `
       <div class="hm-card">
         <div class="hm-card-head">
-          <div><h3>For you today</h3><p>${picks.length} picks${weekN ? ' matched to Week ' + weekN : ''}</p></div>
-          <button class="hm-card-link" onclick="window._navPatient('pt-learn')">Library →</button>
+          <div><h3>For you today</h3><p>${picks.length} sample picks${weekN ? ' matched to Week ' + weekN : ''} &mdash; your clinic will curate real content here</p></div>
+          <button class="hm-card-link" onclick="window._navPatient('pt-learn')">Library &rarr;</button>
         </div>
         <div class="hm-edu-list">
           ${picks.map(p => `
@@ -1892,6 +1892,12 @@ export async function pgPatientDashboard(user) {
   // ── Render ────────────────────────────────────────────────────────────────
   el.innerHTML = `
     <div class="ptd-dashboard hm-dashboard" id="pt-route-home">
+
+      ${_hmDemo ? `<div class="hw-demo-banner" role="status">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <strong>Demo data</strong>
+        &mdash; sample dashboard shown while your clinic is being set up. Your real data will appear once your care team connects your account.
+      </div>` : ''}
 
       <!-- ═══ Greeting hero + KPIs ═══ -->
       <div class="hm-hero">
@@ -2137,17 +2143,15 @@ export async function pgPatientDashboard(user) {
   };
   window._hmStartTask = function(id, kind) {
     if (kind === 'walk') {
-      _hmShowToast('Walk timer started \u2014 20 min');
-      // Navigate to wellness page where the timer could live
-      setTimeout(() => window._navPatient && window._navPatient('patient-homework'), 600);
+      window._navPatient && window._navPatient('patient-homework');
     } else if (kind === 'tdcs') {
       window._navPatient && window._navPatient('patient-home-devices');
     } else {
-      _hmShowToast('Reminder set');
+      window._navPatient && window._navPatient('patient-homework');
     }
   };
   window._hmAiAction = function(action) {
-    if (action === 'walk') { window._hmStartTask(null, 'walk'); return; }
+    if (action === 'walk') { window._navPatient && window._navPatient('patient-homework'); return; }
     if (action === 'plan') { window._navPatient && window._navPatient('patient-homework'); return; }
     _hmShowToast('Noted');
   };
@@ -3371,7 +3375,7 @@ export async function pgPatientSessions() {
           <div><div class="ps-detail-meta-lbl">Clinician</div><div class="ps-detail-meta-val">${esc(clinician)}</div></div>
         </div>
         <div class="ps-detail-actions">
-          <button class="btn btn-primary btn-sm" onclick="window._navPatient && window._navPatient('patient-messages')"><span style="color:#04121c">&#9679;</span>&nbsp;Watch live from clinician</button>
+          <button class="btn btn-primary btn-sm" onclick="window._navPatient && window._navPatient('patient-messages')"><span style="color:#04121c">&#9679;</span>&nbsp;Message clinician</button>
           <button class="btn-outline" onclick="window._psReportStop && window._psReportStop()">Stop session</button>
           <button class="btn-outline" onclick="window._psReportDiscomfort && window._psReportDiscomfort()">Report discomfort</button>
         </div>
@@ -3650,6 +3654,12 @@ export async function pgPatientSessions() {
   }
 
   el.innerHTML = `
+    ${_SEED ? `<div class="hw-demo-banner" role="status">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <strong>Demo data</strong>
+      &mdash; sample session history shown while your clinic is being set up. Your real sessions will appear once your care team connects your account.
+    </div>` : ''}
+
     <!-- Page header -->
     <div class="ps-hd">
       <div>
@@ -4113,7 +4123,7 @@ async function _pgPatientHomeworkImpl() {
          ${t.task_type === 'tdcs'
            ? '<button class="btn btn-primary btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'tdcs\')">Start session<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>'
            : t.task_type === 'breathing'
-             ? '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'breathing\')"><svg width="11" height="11"><use href="#i-play"/></svg>Guided</button>'
+             ? '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'breathing\')">Open<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>'
              : t.task_type === 'walk' || t.task_type === 'activation'
                ? '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'walk\')"><svg width="11" height="11"><use href="#i-play"/></svg>Start</button>'
                : '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwOpen && window._hwOpen(\'' + esc(t.id) + '\')">Open<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>'}`;
@@ -4185,7 +4195,7 @@ async function _pgPatientHomeworkImpl() {
           <p>The at-home plan ${activeCourse?.primary_clinician_name ? esc(activeCourse.primary_clinician_name) + ' built around your' : 'your clinician will build around your'} ${esc(activeCourse?.modality_slug ? (activeCourse.modality_slug + '').toUpperCase() : 'treatment')} course. Small, evidence-based tasks that help the stimulation stick. Check things off as you go \u2014 your team sees your progress in real time.</p>
         </div>
         <div class="hw-hd-actions">
-          <button class="btn btn-ghost btn-sm" onclick="window._hwReminders && window._hwReminders()"><svg width="13" height="13"><use href="#i-bell"/></svg>Reminders \u00b7 <span id="hw-reminders-state">On</span></button>
+          <button class="btn btn-ghost btn-sm" onclick="window._hwReminders && window._hwReminders()"><svg width="13" height="13"><use href="#i-bell"/></svg>Reminders</button>
           <button class="btn btn-ghost btn-sm" onclick="window._hwExport && window._hwExport()"><svg width="13" height="13"><use href="#i-download"/></svg>Export plan</button>
         </div>
       </div>
@@ -4522,15 +4532,16 @@ async function _pgPatientHomeworkImpl() {
   window._hwStart = function(taskId, kind) {
     const task = _taskById.get(String(taskId));
     if (kind === 'tdcs') {
-      _hwToast('Starting home tDCS prep\u2026');
+      _hwToast('Opening home devices\u2026');
       setTimeout(() => window._navPatient && window._navPatient('patient-home-devices'), 500);
     } else if (kind === 'breathing') {
-      _hwToast('Opening breathing guide\u2026');
+      _hwToast('Opening education library\u2026');
       setTimeout(() => window._navPatient && window._navPatient('patient-education'), 500);
     } else if (kind === 'walk') {
       _hwOpenWalkTimer(task);
     } else {
-      _hwToast('Started');
+      // Unknown kind — open the task detail instead of a misleading toast.
+      if (task) window._hwOpen(taskId);
     }
     if (task && !(task.completed || task.done)) {
       // Don't auto-complete — let the patient confirm after finishing.
@@ -4670,11 +4681,7 @@ async function _pgPatientHomeworkImpl() {
   };
 
   window._hwReminders = function() {
-    const st = document.getElementById('hw-reminders-state');
-    if (!st) return;
-    const on = st.textContent.trim().toLowerCase() === 'on';
-    st.textContent = on ? 'Off' : 'On';
-    _hwToast('Reminders ' + (on ? 'muted for today' : 'on'));
+    _hwToast('Reminders are not yet available \u2014 your clinic will enable them');
   };
 
   window._hwExport = function() {
@@ -5264,6 +5271,12 @@ async function _pgPatientAssessmentsImpl() {
   el.innerHTML = `
     <div class="pt-route" id="pt-route-assessments">
 
+      ${_isDemo ? `<div class="hw-demo-banner" role="status">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <strong>Demo data</strong>
+        &mdash; sample assessments shown while your clinic is being set up. Your real questionnaires will appear once your care team activates your plan.
+      </div>` : ''}
+
       <div class="as-hd">
         <div>
           <h2>Assessments</h2>
@@ -5368,7 +5381,8 @@ async function _pgPatientAssessmentsImpl() {
           <span>Questionnaires prescribed for this week</span>
           <span class="as-due-lbl-right">${dueItems.length} due${dueItems.filter(a => a.overdue).length ? ' · ' + dueItems.filter(a => a.overdue).length + ' overdue' : ''}</span>
         </div>
-        <div class="as-due-grid">${dueItems.map(_dueCardHtml).join('')}</div>` : `
+        <div class="as-due-grid">${dueItems.map(_dueCardHtml).join('')}</div>
+        <div id="as-form-slot"></div>` : `
         <div class="as-due-lbl"><span>Nothing due this week</span></div>
         <div class="pth2-empty" style="padding:24px"><div class="pth2-empty-title">All caught up</div><div class="pth2-empty-sub">Your next prescribed questionnaire will appear here when scheduled.</div></div>`}
 
@@ -5616,11 +5630,15 @@ async function _pgPatientAssessmentsImpl() {
   };
 
   window._asStart = function(slug) {
-    _toast('Opening questionnaire: ' + String(slug).toUpperCase());
-    // If we have a real route for taking assessments, route there; otherwise Home.
-    setTimeout(() => {
-      if (window._navPatient) window._navPatient('patient-portal');
-    }, 400);
+    const formKey = String(slug).replace(/-/g, '');
+    const slot = document.getElementById('as-form-slot');
+    if (SUPPORTED_FORMS[formKey] && slot) {
+      renderAssessmentForm(formKey, 'as-form-slot', uid);
+      slot.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      _toast('Loading ' + String(slug).toUpperCase());
+      return;
+    }
+    _toast(String(slug).toUpperCase() + ' form is not yet available in this portal');
   };
 
   window._asHistFilter = function(f) {
@@ -5639,10 +5657,7 @@ async function _pgPatientAssessmentsImpl() {
   };
 
   window._asToggleRaw = function() {
-    _rawOn = !_rawOn;
-    const lbl = document.getElementById('as-toggle-raw-lbl');
-    if (lbl) lbl.textContent = _rawOn ? 'Hide raw scores' : 'Show raw scores';
-    _toast(_rawOn ? 'Raw scores visible' : 'Raw scores hidden');
+    _toast('Raw score view is not yet available in this portal');
   };
 
   window._asExport = function() {
@@ -5755,7 +5770,7 @@ async function _pgPatientAssessmentsImpl() {
     }
   };
 
-  window._asToggleReminder = function(on) { _toast('Daily reminder ' + (on ? 'on' : 'off')); };
+  window._asToggleReminder = function(on) { _toast('Reminders are not yet available \u2014 your clinic will enable them'); };
   window._asViewHistory = function(_id) { _toast('Assessment history details are unavailable from this beta portal.'); };
 }
 
@@ -20218,7 +20233,7 @@ export async function pgPatientHomeDevices() {
         catalog_id: item.id,
         note: 'Requested from the Home Devices page.',
       });
-      emitToast(item.name + ' request sent to your care team.', 'var(--teal)');
+      emitToast(item.name + ' request was submitted in the portal workflow. Care-team delivery timing is not confirmed from this page.', 'var(--teal)');
       await pgPatientHomeDevices();
     } catch (err) {
       emitToast(err?.message || ('Could not request ' + item.name + '.'), '#f87171');

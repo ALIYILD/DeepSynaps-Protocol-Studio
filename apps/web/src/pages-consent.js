@@ -199,7 +199,7 @@ const DEMO_AUDIT = [
   { id: _uid(), action: 'consent_countersigned', patient_name: 'Sarah M. Johnson', template: 'TMS / rTMS Consent Form', actor: 'Dr. Emily Chen', timestamp: '2026-04-20T14:32:00Z', ip: '192.168.1.45', details: 'Clinician attestation completed' },
   { id: _uid(), action: 'consent_created', patient_name: 'Michael R. Torres', template: 'tDCS Consent Form', actor: 'Dr. Emily Chen', timestamp: '2026-04-18T09:10:00Z', ip: '192.168.1.52', details: 'Consent form generated' },
   { id: _uid(), action: 'consent_signed', patient_name: 'Michael R. Torres', template: 'tDCS Consent Form', actor: 'Michael R. Torres (patient)', timestamp: '2026-04-18T09:15:00Z', ip: '192.168.1.52', details: 'Digital signature captured' },
-  { id: _uid(), action: 'consent_sent', patient_name: 'Lisa A. Park', template: 'TMS / rTMS Consent Form', actor: 'Dr. James Wilson', timestamp: '2026-04-22T08:00:00Z', ip: '192.168.1.33', details: 'Consent record marked pending external review follow-up' },
+  { id: _uid(), action: 'consent_pending_review', patient_name: 'Lisa A. Park', template: 'TMS / rTMS Consent Form', actor: 'Dr. James Wilson', timestamp: '2026-04-22T08:00:00Z', ip: '192.168.1.33', details: 'Consent record marked pending external review follow-up' },
   { id: _uid(), action: 'consent_revoked', patient_name: 'Robert J. Garcia', template: 'tDCS Consent Form', actor: 'Dr. Emily Chen', timestamp: '2026-04-01T10:00:00Z', ip: '192.168.1.61', details: 'Patient withdrew from treatment; consent revoked at patient request' },
   { id: _uid(), action: 'consent_expired', patient_name: 'Jennifer L. Adams', template: 'TMS / rTMS Consent Form', actor: 'System', timestamp: '2026-03-10T00:00:00Z', ip: 'system', details: 'Consent passed 12-month validity window' },
 ];
@@ -477,7 +477,7 @@ async function _mountConsent(rootEl, opts) {
       `Device: ${consent.device ? (DEVICES.find(d => d.id === consent.device)?.label || consent.device) : 'N/A'}`,
       `Clinician: ${consent.clinician || 'N/A'}`,
       `Status: ${consent.status.toUpperCase()}`,
-      consent.signed_at ? `Signed: ${_fmtDateTime(consent.signed_at)}` : 'Awaiting signature',
+      consent.signed_at ? `Signed: ${_fmtDateTime(consent.signed_at)}` : 'Awaiting clinic-device capture or pending external follow-up',
       consent.expires_at ? `Expires: ${_fmtDate(consent.expires_at)}` : '',
       '',
       '--------------------------------------------------------------',
@@ -978,7 +978,7 @@ function _renderConsentDetail(S) {
           </div>
           <div class="cm-detail-hero-dates">
             <span>Clinician: ${esc(consent.clinician)}</span>
-            ${consent.signed_at ? `<span>Signed: ${_fmtDateTime(consent.signed_at)}</span>` : '<span>Awaiting clinic-device capture or external signing</span>'}
+            ${consent.signed_at ? `<span>Signed: ${_fmtDateTime(consent.signed_at)}</span>` : '<span>Awaiting clinic-device capture or pending external follow-up</span>'}
             ${consent.expires_at ? `<span>Expires: ${_fmtDate(consent.expires_at)}</span>` : ''}
           </div>
         </div>

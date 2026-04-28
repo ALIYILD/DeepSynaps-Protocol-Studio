@@ -1,6 +1,7 @@
 README.md
 pyproject.toml
 src/deepsynaps_render_engine/__init__.py
+src/deepsynaps_render_engine/payload.py
 src/deepsynaps_render_engine/renderers.py
 src/deepsynaps_render_engine.egg-info/PKG-INFO
 src/deepsynaps_render_engine.egg-info/SOURCES.txt

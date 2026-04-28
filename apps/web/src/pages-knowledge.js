@@ -6278,7 +6278,7 @@ export async function pgStaffScheduling(setTopbar) {
           '<button class="btn btn-sm btn-ghost" style="color:#ef4444;margin-left:4px" onclick="window._staffDenySwap(\'' + req.id + '\')">Deny</button>'
         : '';
       var notif = req.status === 'approved'
-        ? '<div style="font-size:.72rem;color:var(--text-muted);margin-top:6px">Cover clinician will be notified via Virtual Care</div>'
+        ? '<div style="font-size:.72rem;color:var(--text-muted);margin-top:6px">Cover clinician handoff should be coordinated in Virtual Care. This staffing page does not send the notification.</div>'
         : '';
       return '<div class="swap-card">' +
         '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
@@ -7215,7 +7215,7 @@ export async function pgClinicAnalytics(setTopbar) {
 
   // ── Re-engagement action ────────────────────────────────────────────────────
   window._caSendReEngage = function(name) {
-    window._caShowToast(`Re-engagement message queued for ${name}`);
+    window._caShowToast(`Re-engagement follow-up logged locally for ${name}. Message delivery is not wired from this page.`);
   };
 
   // ── Toast helper ──────────────────────────────────────────────────────────
@@ -10130,7 +10130,7 @@ export async function pgTrialEnrollment(setTopbar) {
     }
     invites.push({ id:'inv_'+Date.now(), studyId:_selectedStudyId, patientId, patientName, date:new Date().toISOString().slice(0,10), status:'invited' });
     lsSet('ds_trial_invitations', invites);
-    showToast(`Invitation sent to ${patientName}`);
+    showToast(`Invitation logged locally for ${patientName}. Study outreach is not sent from this page.`);
     render();
   };
 
@@ -10146,7 +10146,7 @@ export async function pgTrialEnrollment(setTopbar) {
       }
     });
     lsSet('ds_trial_invitations', invites);
-    showToast(`${added} invitation${added!==1?'s':''} sent`);
+    showToast(`${added} invitation${added!==1?'s':''} logged locally. Study outreach is not sent from this page.`);
     render();
   };
 

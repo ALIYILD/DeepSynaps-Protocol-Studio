@@ -1760,7 +1760,7 @@ export async function pgSettings(setTopbar, currentUser) {
             <input type="email" id="acc-email" class="form-control" value="${escAttr(currentUser?.email || '')}" placeholder="you@clinic.com" style="flex:1">
             <button class="btn btn-primary btn-sm" id="acc-save-email">Save</button>
           </div>
-          <div id="acc-email-msg" style="font-size:11px;color:var(--text-tertiary);margin-top:4px;min-height:14px">A verification email will be sent to the new address.</div>
+          <div id="acc-email-msg" style="font-size:11px;color:var(--text-tertiary);margin-top:4px;min-height:14px">Saving a new address submits a verification request. The change completes only after the email link is confirmed.</div>
         </div>
 
         <!-- Credentials / Title -->
@@ -2519,7 +2519,7 @@ export async function pgSettings(setTopbar, currentUser) {
 
   window._openBillingPortal = async function() {
     const status = document.getElementById('portal-status');
-    if (status) status.textContent = 'Opening billing portal…';
+    if (status) status.textContent = 'Requesting billing portal link…';
     try {
       const res = await api.createPortal();
       if (res?.portal_url) { window.location.href = res.portal_url; return; }
@@ -2633,8 +2633,8 @@ export async function pgSettings(setTopbar, currentUser) {
       try {
         await api.requestEmailChange(val, pw);
         try { localStorage.setItem('ds_user_pending_email', val); } catch {}
-        if (msg) { msg.textContent = 'Verification email sent to ' + val + '. Click the link to confirm.'; msg.style.color = 'var(--teal)'; }
-        toast('Verification email sent.', 'info');
+        if (msg) { msg.textContent = 'Verification request submitted for ' + val + '. Use the email link to confirm the change.'; msg.style.color = 'var(--teal)'; }
+        toast('Verification request submitted.', 'info');
       } catch (e) {
         if (msg) { msg.textContent = 'Not saved — ' + (e?.message || 'retry'); msg.style.color = 'var(--amber)'; }
       } finally {

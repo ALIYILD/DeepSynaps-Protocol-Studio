@@ -1871,6 +1871,11 @@ class QEEGAnalysis(Base):
     session_number: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     days_from_baseline: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     analyzed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    # ── Clinical Intelligence Workbench (migration 048) ───────────────────────
+    safety_cockpit_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    red_flags_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    normative_metadata_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    interpretability_status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -1924,6 +1929,16 @@ class QEEGAIReport(Base):
     clinician_reviewed: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
     clinician_amendments: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    # ── Clinical Intelligence Workbench (migration 048) ───────────────────────
+    report_state: Mapped[str] = mapped_column(String(30), nullable=False, default="DRAFT_AI")
+    reviewer_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    model_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    prompt_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    report_version: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    claim_governance_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    patient_facing_report_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    signed_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    signed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 

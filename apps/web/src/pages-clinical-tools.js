@@ -6137,7 +6137,7 @@ export async function pgAssessmentsHub(setTopbar) {
       if (failed.length) {
         window._showNotifToast?.({ title: 'Some scales failed', body: failed.map(f => f.template_id + ': ' + f.reason).join(' | '), severity: 'warning' });
       } else {
-        window._showNotifToast?.({ title: 'Bundle assigned', body: scales.length + ' scales queued for ' + patient, severity: 'success' });
+        window._showNotifToast?.({ title: 'Bundle assigned', body: scales.length + ' scales were added to the assessment workflow for ' + patient + '.', severity: 'success' });
       }
       document.getElementById('ah2-assign-modal').classList.add('ah2-hidden');
       await hydrate();
@@ -13363,7 +13363,7 @@ export async function pgHomePrograms(setTopbar, navigate) {
     renderPage();
     window._showNotifToast?.({
       title: existId ? 'Task updated' : 'Task saved',
-      body: existId ? `Saved changes to "${title}".` : `"${title}" was saved and queued for sync. Patient delivery depends on backend task sync.`,
+      body: existId ? `Saved changes to "${title}".` : `"${title}" was saved to the home-task workflow. Patient delivery depends on backend task sync.`,
       severity: 'success',
     });
   };
