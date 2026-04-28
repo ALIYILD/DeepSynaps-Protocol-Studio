@@ -720,6 +720,111 @@ def list_prompt_overrides(
     )
 
 
+class PromptOverrideHistoryItem(BaseModel):
+    """One historical row in the per-(clinic, agent) override timeline.
+
+    The schema's soft-delete is the boolean ``enabled`` flag rather than a
+    nullable ``deactivated_at`` timestamp, so ``deactivated_at`` is always
+    serialised as ``None`` and ``is_active`` mirrors ``enabled``. Keeping
+    the ``deactivated_at`` field in the response shape lets the Phase 12
+    UI render the same timeline component if/when the column is added.
+    """
+
+    id: str
+    version: int
+    system_prompt: str
+    created_at: str  # ISO-8601 UTC
+    created_by_id: str | None
+    deactivated_at: str | None
+    is_active: bool
+
+
+class PromptOverrideHistoryResponse(BaseModel):
+    agent_id: str
+    history: list[PromptOverrideHistoryItem]
+
+
+@router.get(
+    "/admin/prompt-overrides/{agent_id}/history",
+    response_model=PromptOverrideHistoryResponse,
+)
+def get_prompt_override_history(
+    agent_id: str,
+    limit: int = Query(20, ge=1, le=100),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PromptOverrideHistoryResponse:
+    """Admin-only — return the prompt-override edit history for one agent.
+
+    Scope
+    -----
+    Clinic-scoped: only rows whose ``clinic_id`` matches the calling
+    actor's ``clinic_id`` are returned. A super-admin actor with no
+    ``clinic_id`` therefore sees only global (``clinic_id IS NULL``)
+    overrides — never another clinic's history.
+
+    Ordering + bounds
+    -----------------
+    Returned newest-first by ``created_at``. ``limit`` is clamped to the
+    inclusive range ``[1, 100]`` (default ``20``); FastAPI surfaces a 422
+    on out-of-range values.
+
+    Errors
+    ------
+    Unknown ``agent_id`` → 404. Empty history (agent valid, no overrides
+    ever set for this clinic) → 200 with ``history: []``.
+    """
+    require_minimum_role(actor, "admin")
+
+    if agent_id not in AGENT_REGISTRY:
+        raise ApiServiceError(
+            code="agent_not_found",
+            message=f"No agent is registered with id '{agent_id}'.",
+            status_code=404,
+        )
+
+    q = db.query(AgentPromptOverride).filter(
+        AgentPromptOverride.agent_id == agent_id
+    )
+    # Cross-dialect: ``is_()`` for NULL match, ``==`` otherwise. Critical —
+    # ``column == None`` collapses to ``column IS NULL`` on most dialects
+    # but is ambiguous in static analysis, so the explicit branch is kept.
+    if actor.clinic_id is None:
+        q = q.filter(AgentPromptOverride.clinic_id.is_(None))
+    else:
+        q = q.filter(AgentPromptOverride.clinic_id == actor.clinic_id)
+
+    rows = (
+        q.order_by(AgentPromptOverride.created_at.desc())
+        .limit(int(limit))
+        .all()
+    )
+
+    items: list[PromptOverrideHistoryItem] = []
+    for row in rows:
+        ts = row.created_at
+        if ts is not None and ts.tzinfo is None:
+            iso_ts = ts.isoformat() + "Z"
+        else:
+            iso_ts = ts.isoformat() if ts is not None else ""
+        items.append(
+            PromptOverrideHistoryItem(
+                id=row.id,
+                version=int(row.version or 1),
+                system_prompt=row.system_prompt,
+                created_at=iso_ts,
+                created_by_id=row.created_by,
+                # No ``deactivated_at`` column on this table — soft-delete
+                # is the ``enabled`` flag. Serialise as None to keep the
+                # contract stable for the UI.
+                deactivated_at=None,
+                is_active=bool(row.enabled),
+            )
+        )
+
+    return PromptOverrideHistoryResponse(agent_id=agent_id, history=items)
+
+
 @router.post(
     "/admin/prompt-overrides",
     response_model=PromptOverrideOut,
