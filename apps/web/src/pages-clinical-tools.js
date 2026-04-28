@@ -10182,7 +10182,7 @@ export async function pgDocumentsHub(setTopbar) {
       try {
         const file = await api.fetchDocumentDownload(d._apiId);
         downloadBlob(file.blob, file.filename || `${(d.name || 'document').replace(/\s+/g, '_')}`);
-        window._showNotifToast?.({ title:'Download ready', body:`${d.name} downloaded.`, severity:'success' });
+        window._showNotifToast?.({ title:'Download started', body:`${d.name} file is ready.`, severity:'success' });
       } catch (err) {
         window._showNotifToast?.({ title:'Download failed', body: err?.message || 'Stored document could not be downloaded.', severity:'error' });
       }
@@ -10192,7 +10192,7 @@ export async function pgDocumentsHub(setTopbar) {
       try {
         const file = await _dhFetchProtectedUrl(d.url);
         downloadBlob(file.blob, file.filename || `${(d.name || 'document').replace(/\s+/g, '_')}`);
-        window._showNotifToast?.({ title:'Download ready', body:`${d.name} downloaded.`, severity:'success' });
+        window._showNotifToast?.({ title:'Download started', body:`${d.name} file is ready.`, severity:'success' });
       } catch (err) {
         window._showNotifToast?.({ title:'Download failed', body: err?.message || 'Stored document could not be downloaded.', severity:'error' });
       }
@@ -11125,7 +11125,7 @@ export async function pgReportsHub(setTopbar) {
     try {
       const file = await _dhFetchProtectedUrl(r.file_url);
       downloadBlob(file.blob, file.filename || `${(r.title || 'report').replace(/\s+/g, '_')}`);
-      window._showNotifToast?.({ title:'Download ready', body:`${r.title || 'Report'} downloaded.`, severity:'success' });
+      window._showNotifToast?.({ title:'Download started', body:`${r.title || 'Report'} file is ready.`, severity:'success' });
     } catch (err) {
       window._showNotifToast?.({ title:'Download failed', body: err?.message || 'Attached report file could not be downloaded.', severity:'error' });
     }
