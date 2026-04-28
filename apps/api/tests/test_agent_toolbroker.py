@@ -121,10 +121,10 @@ def test_fetch_context_for_reception_agent_returns_only_read_tools(
         assert write_tool not in ctx
 
 
-def test_fetch_context_skips_write_tools_for_aliclaw_agent(
+def test_fetch_context_skips_write_tools_for_drclaw_agent(
     clinician_actor: AuthenticatedActor, db_session
 ) -> None:
-    agent = AGENT_REGISTRY["clinic.aliclaw_doctor_telegram"]
+    agent = AGENT_REGISTRY["clinic.drclaw_telegram"]
     ctx = broker.fetch_context(agent, clinician_actor, db_session)
     assert "notes.approve_draft" not in ctx
     # The remaining read tools should all show up.

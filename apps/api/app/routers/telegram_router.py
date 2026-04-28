@@ -182,6 +182,41 @@ async def _handle_telegram_update(
             )
             return {"ok": True}
 
+        # ── Clinician free-text fallback → DrClaw agent ────────
+        # Route any non-slash-command free-text from a *linked* clinician
+        # through the DrClaw agent so the bot has full access to
+        # the agent's tool allowlist + audit trail. Slash commands (LINK
+        # / CONFIRM / CANCEL / HELP / /start /help) have already been
+        # dispatched above; this branch only sees free-form prose.
+        #
+        # The patient bot keeps its existing chat_patient path — patient-
+        # side agents remain gated behind the ``pending_clinical_signoff``
+        # sentinel package and aren't safe for free-text routing yet.
+        if bot_kind == "clinician" and not text.startswith("/"):
+            from app.services.telegram_agent_dispatch import (
+                dispatch_clinician_message,
+            )
+
+            tg_user_id = (
+                message.get("from", {}).get("id")
+                if isinstance(message.get("from"), dict)
+                else None
+            ) or chat_id
+
+            outcome = dispatch_clinician_message(
+                db=db,
+                telegram_user_id=int(tg_user_id),
+                telegram_chat_id=int(chat_id),
+                message_text=text,
+            )
+            tg.send_message(
+                chat_id,
+                _truncate_reply(outcome.get("reply_text", "")),
+                bot_kind=bot_kind,
+                parse_mode=None,
+            )
+            return {"ok": True}
+
         # Prompt-injection guard: wrap the raw Telegram message in
         # untrusted-input delimiters so the LLM is told this content is
         # data, not directives. Pre-fix the message text was inlined

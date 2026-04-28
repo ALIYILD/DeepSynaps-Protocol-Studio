@@ -58,7 +58,7 @@ Generated: 2026-04-28
 |---|---|---|---|---|
 | `clinic.reception` | Clinic Reception | 99 | clinician | clinician_pro / enterprise |
 | `clinic.reporting` | Clinic Reporting | 49 | admin | clinician_pro / enterprise |
-| `clinic.aliclaw_doctor_telegram` | AliClaw Doctor (Telegram) | 79 | clinician | clinician_pro / enterprise |
+| `clinic.drclaw_telegram` | DrClaw (Telegram) | 79 | clinician | clinician_pro / enterprise |
 
 ### Patient-side (4, locked behind `pending_clinical_signoff`)
 
@@ -108,7 +108,7 @@ Ordered by ROI × ship-feasibility:
 1. **Stripe SKU wiring** — bind `monthly_price_gbp` to real per-clinic billing. Highest revenue impact. Risk: real money, needs careful testing.
 2. **Patient agent activation flow** — clinical PM signoff workflow + per-clinic enable. Unlocks £40/mo per patient potential.
 3. **More live write handlers** — `sessions.cancel`, `notes.approve_draft`, `tasks.create`. Each ~3h.
-4. **Telegram channel adapter** — same agents, callable from Telegram (AliClaw Doctor's promised channel). Telegram bot infra already exists in repo.
+4. **Telegram channel adapter** — same agents, callable from Telegram (DrClaw's promised channel). Telegram bot infra already exists in repo.
 5. **Cross-clinic ops dashboard** — super-admin view of audit stream + abuse detection (rate-spike alerts). Ops feature.
 6. **Agent prompt versioning** — ship system_prompt edits without code deploy via DB-backed override. Useful when clinical PM tunes safety copy.
 7. **Per-agent token budgets** — guard against runaway cost. `agent_run_audit.tokens_used` column + monthly cap per package.

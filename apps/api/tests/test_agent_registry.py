@@ -56,7 +56,7 @@ def test_registry_has_seven_entries() -> None:
     assert set(AGENT_REGISTRY.keys()) == {
         "clinic.reception",
         "clinic.reporting",
-        "clinic.aliclaw_doctor_telegram",
+        "clinic.drclaw_telegram",
     } | PATIENT_AGENT_IDS
     assert len(AGENT_REGISTRY) == 7
 
@@ -97,14 +97,14 @@ def test_agent_definition_is_frozen() -> None:
 def test_known_prices_match_spec() -> None:
     assert AGENT_REGISTRY["clinic.reception"].monthly_price_gbp == 99
     assert AGENT_REGISTRY["clinic.reporting"].monthly_price_gbp == 49
-    assert AGENT_REGISTRY["clinic.aliclaw_doctor_telegram"].monthly_price_gbp == 79
+    assert AGENT_REGISTRY["clinic.drclaw_telegram"].monthly_price_gbp == 79
 
 
 def test_known_packages_match_spec() -> None:
     for agent_id in (
         "clinic.reception",
         "clinic.reporting",
-        "clinic.aliclaw_doctor_telegram",
+        "clinic.drclaw_telegram",
     ):
         assert AGENT_REGISTRY[agent_id].package_required == [
             "clinician_pro",
@@ -120,9 +120,9 @@ def test_known_packages_match_spec() -> None:
 def test_clinician_pro_clinician_sees_clinician_agents_only() -> None:
     actor = _actor("clinician", "clinician_pro")
     visible_ids = {a.id for a in list_visible_agents(actor)}
-    # Reception + AliClaw require clinician role (which clinician satisfies);
+    # Reception + DrClaw require clinician role (which clinician satisfies);
     # reporting requires admin (which clinician does not satisfy).
-    assert visible_ids == {"clinic.reception", "clinic.aliclaw_doctor_telegram"}
+    assert visible_ids == {"clinic.reception", "clinic.drclaw_telegram"}
 
 
 def test_admin_with_enterprise_sees_all_three() -> None:
@@ -131,7 +131,7 @@ def test_admin_with_enterprise_sees_all_three() -> None:
     assert visible_ids == {
         "clinic.reception",
         "clinic.reporting",
-        "clinic.aliclaw_doctor_telegram",
+        "clinic.drclaw_telegram",
     }
 
 

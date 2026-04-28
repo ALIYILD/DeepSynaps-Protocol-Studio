@@ -46,8 +46,8 @@ def test_list_agents_for_clinician(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     ids = {item["id"] for item in body["agents"]}
-    # clinician role + clinician_pro package = reception + aliclaw, no reporting
-    assert ids == {"clinic.reception", "clinic.aliclaw_doctor_telegram"}
+    # clinician role + clinician_pro package = reception + drclaw, no reporting
+    assert ids == {"clinic.reception", "clinic.drclaw_telegram"}
 
     # Tile shape — system_prompt must NOT leak; the marketplace fields must.
     sample = body["agents"][0]
@@ -75,7 +75,7 @@ def test_list_agents_for_admin_sees_all_three(
     assert ids == {
         "clinic.reception",
         "clinic.reporting",
-        "clinic.aliclaw_doctor_telegram",
+        "clinic.drclaw_telegram",
     }
 
 
