@@ -8658,17 +8658,17 @@ async function _pgPatientCareTeamImpl() {
   }
 
   window._ctMessage = function(_id) {
-    _toast('Opening Virtual Care…');
+    _toast('Opening care messaging…');
     setTimeout(() => window._navPatient && window._navPatient('patient-virtualcare'), 400);
   };
   window._ctBook = function(_id) {
-    _toast('Opening scheduling…');
+    _toast('Opening session schedule…');
     setTimeout(() => window._navPatient && window._navPatient('patient-sessions'), 400);
   };
   window._ctMessageTeam  = function() { window._ctMessage(); };
   window._ctBookConsult  = function() { window._ctBook(); };
   window._ctAskAI        = function() {
-    _toast('Opening Synaps AI…');
+    _toast('Opening Virtual Care assistant…');
     setTimeout(() => window._navPatient && window._navPatient('patient-virtualcare'), 400);
   };
   window._ctAIPrefs      = function() { _toast('AI preferences saved'); };
@@ -11411,7 +11411,7 @@ export async function pgPatientSettings(user) {
             <div class="st-danger-row">
               <div>
                 <div class="t">Pause treatment plan</div>
-                <div class="s">Temporarily stop sessions, reminders, and homework. Your care team will be notified. Resume anytime.</div>
+                <div class="s">Temporarily stop sessions, reminders, and homework in this portal view. Care-team notification is not confirmed from this beta portal. Resume anytime.</div>
               </div>
               <button class="st-danger-btn" data-st-danger="pause">Pause</button>
             </div>

@@ -653,7 +653,7 @@ function renderResearch(ctx) {
       <div class="dv2bm-research-card dv2bm-research-wide">
         <div class="dv2bm-research-title">E-field simulation</div>
         <div class="dv2bm-research-body">
-          Finite-element modeling (ROAST / SimNIBS) · coming soon. Current overlay on the Clinical tab is a qualitative heatmap derived from electrode geometry only.
+          Finite-element modeling (ROAST / SimNIBS) is unavailable in this beta build. The current overlay on the Clinical tab is a qualitative heatmap derived from electrode geometry only.
         </div>
       </div>
       <div class="dv2bm-research-card">
