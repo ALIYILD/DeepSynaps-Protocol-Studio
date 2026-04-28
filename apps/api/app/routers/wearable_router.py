@@ -26,6 +26,7 @@ from app.limiter import limiter
 from app.persistence.models import (
     DeviceConnection,
     Patient,
+    User,
     WearableAlertFlag,
     WearableDailySummary,
     WearableObservation,
@@ -202,20 +203,28 @@ def dismiss_alert(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> dict:
+    """Dismiss a wearable alert flag.
+
+    Pre-fix the ownership check was the legacy owner-only model:
+    ``Patient.clinician_id == actor.actor_id``. That over-restricted
+    legitimate same-clinic colleagues (a covering clinician
+    couldn't dismiss alerts on their teammate's patients) AND the
+    admin branch was unscoped (admin of clinic A could dismiss
+    flags on clinic-B patients — cross-clinic suppression of a
+    HIPAA-relevant safety signal).
+
+    Post-fix the route routes through ``_require_patient_access``
+    which uses the canonical ``resolve_patient_clinic_id`` +
+    ``require_patient_owner`` pair: any clinician/reviewer/
+    technician at the same clinic can dismiss; admin is the only
+    legitimately cross-clinic role.
+    """
     _require_clinician_access(actor)
     flag = db.query(WearableAlertFlag).filter_by(id=flag_id).first()
     if flag is None:
         raise ApiServiceError(code='not_found', message='Alert flag not found.', status_code=404)
-    # Ownership check: non-admin clinicians may only dismiss alerts for patients
-    # assigned to them (Patient.clinician_id == actor.actor_id).
-    if actor.role != 'admin':
-        patient = db.query(Patient).filter_by(id=flag.patient_id, clinician_id=actor.actor_id).first()
-        if patient is None:
-            raise ApiServiceError(
-                code='forbidden',
-                message='Not authorized to dismiss this alert.',
-                status_code=403,
-            )
+    if flag.patient_id:
+        _require_patient_access(actor, flag.patient_id, db)
     flag.dismissed = True
     flag.reviewed_at = datetime.now(timezone.utc)
     flag.reviewed_by = actor.actor_id
@@ -490,14 +499,34 @@ def get_clinic_alert_summary(
     """Aggregate undismissed wearable alert counts across all clinic patients.
     Used by the clinician dashboard KPI bar to surface wearable degradation
     without N per-patient queries.
+
+    Pre-fix the non-admin filter joined ``Patient.clinician_id ==
+    actor.actor_id`` (legacy owner-only). That:
+
+    * Over-restricted: a covering clinician saw zero alerts for
+      colleagues' patients in the same clinic, even though the rest
+      of the wearable router uses clinic-scoped access.
+    * Was inconsistent with ``_require_patient_access`` further up
+      the file, which scopes by ``User.clinic_id``.
+
+    Post-fix the join walks ``WearableAlertFlag -> Patient ->
+    User`` and filters on ``actor.clinic_id`` for non-admins.
+    Admin (and supervisor) remain unscoped.
     """
     _require_clinician_access(actor)
     q = db.query(WearableAlertFlag).filter(WearableAlertFlag.dismissed == False)  # noqa: E712
-    if actor.role != "admin":
-        # Scope to patients owned by this clinician so data never leaks across clinics.
-        q = q.join(Patient, WearableAlertFlag.patient_id == Patient.id).filter(
-            Patient.clinician_id == actor.actor_id
-        )
+    if actor.role not in ("admin", "supervisor"):
+        if not getattr(actor, "clinic_id", None):
+            # No clinic on the actor — return an empty slice rather
+            # than the legacy "all clinicians' patients globally"
+            # match-nothing fallback.
+            q = q.filter(WearableAlertFlag.id.is_(None))
+        else:
+            q = (
+                q.join(Patient, WearableAlertFlag.patient_id == Patient.id)
+                .join(User, User.id == Patient.clinician_id)
+                .filter(User.clinic_id == actor.clinic_id)
+            )
     flags = q.all()
     urgent  = sum(1 for f in flags if f.severity == 'urgent')
     warning = sum(1 for f in flags if f.severity == 'warning')
