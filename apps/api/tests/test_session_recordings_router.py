@@ -44,10 +44,14 @@ class TestSessionRecordingsCreateAndList:
         from app.settings import get_settings
         monkeypatch.setattr(get_settings(), "media_storage_root", str(tmp_path))
 
+        # Real ISO BMFF ftyp signature so the magic-byte sniff
+        # accepts the payload (introduced in PR #197/#214 to refuse
+        # arbitrary binary tagged with a media MIME).
+        mp4_bytes = b"\x00\x00\x00\x20ftypisom" + b"\x00" * 16
         result = _upload(
             client,
             auth_headers,
-            payload=b"\x00\x00\x00 fake mp4",
+            payload=mp4_bytes,
             filename="visit.mp4",
             mime="video/mp4",
             title="Telehealth Visit",
@@ -61,7 +65,7 @@ class TestSessionRecordingsCreateAndList:
         owner_dir = tmp_path / "recordings" / "actor-clinician-demo"
         stored = owner_dir / rec_id
         assert stored.is_file()
-        assert stored.read_bytes() == b"\x00\x00\x00 fake mp4"
+        assert stored.read_bytes() == mp4_bytes
 
     def test_list_filters_by_patient_and_orders_recent_first(
         self, client: TestClient, auth_headers: dict, tmp_path: Path, monkeypatch

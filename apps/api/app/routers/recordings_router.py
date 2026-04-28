@@ -25,6 +25,7 @@ from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimu
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import SessionRecording
+from app.services import media_storage
 from app.settings import get_settings
 
 router = APIRouter(prefix="/api/v1/recordings", tags=["recordings"])
@@ -138,6 +139,23 @@ async def create_recording(
         raise ApiServiceError(
             code="file_too_large",
             message=f"Recording exceeds maximum size of {_MAX_BYTES} bytes.",
+            status_code=422,
+        )
+
+    # Magic-byte verification — pre-fix the only check on the file
+    # content was ``file.content_type`` (client-controlled HTTP
+    # header), so a clinician could ``POST`` arbitrary binary tagged
+    # ``audio/webm`` and the router happily wrote it to disk and
+    # served it back with that MIME on download.
+    is_audio = mime.startswith("audio/")
+    looks_ok = (
+        media_storage.looks_like_audio(file_bytes) if is_audio
+        else media_storage.looks_like_video(file_bytes)
+    )
+    if not looks_ok:
+        raise ApiServiceError(
+            code="invalid_file_content",
+            message="Upload bytes do not match the declared MIME type.",
             status_code=422,
         )
 
