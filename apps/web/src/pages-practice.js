@@ -749,7 +749,7 @@ export async function pgPrograms(setTopbar) {
         if (!pid) { toast('No patient', 'Add a patient before assigning modules.', 'warn'); return; }
         assignModuleToPatient(pid, mid);
         const m = MODULES.find(x => x.id === mid);
-        toast('Module assigned', `${m ? m.title : 'Module'} → ${(pats.find(p=>p.id===pid)||{}).name||pid}`, 'success');
+        toast('Module added locally', `${m ? m.title : 'Module'} was added to this preview workflow for ${(pats.find(p=>p.id===pid)||{}).name||pid}. Patient delivery is not verified from this page.`, 'success');
       });
     });
 

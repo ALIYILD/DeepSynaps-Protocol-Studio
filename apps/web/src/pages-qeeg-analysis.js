@@ -22,6 +22,13 @@ import {
   renderLongitudinalSparklines,
   mountCopilotWidget,
 } from './qeeg-ai-panels.js';
+import { renderSafetyCockpit, mountSafetyCockpit } from './qeeg-safety-cockpit.js';
+import { renderRedFlags, mountRedFlags } from './qeeg-red-flags.js';
+import { renderNormativeModelCard, mountNormativeModelCard } from './qeeg-normative-card.js';
+import { renderProtocolFit, mountProtocolFit } from './qeeg-protocol-fit.js';
+import { renderClinicianReview, mountClinicianReview } from './qeeg-clinician-review.js';
+import { renderPatientReport, mountPatientReport } from './qeeg-patient-report.js';
+import { renderTimeline, mountTimeline } from './qeeg-timeline.js';
 import { EvidenceChip, createEvidenceQueryForTarget, initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips } from './evidence-intelligence.js';
 
 const FUSION_API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
@@ -4466,6 +4473,11 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         if (_aiUpgradesFeatureFlagEnabled()) {
           html += renderAiUpgradePanels(data);
         }
+        // Clinical Intelligence Workbench panels (Migration 048)
+        html += '<div id="qeeg-safety-cockpit-panel"></div>';
+        html += '<div id="qeeg-red-flags-panel"></div>';
+        html += '<div id="qeeg-normative-card-panel"></div>';
+        html += '<div id="qeeg-protocol-fit-panel"></div>';
         html += renderFusionSummaryCard(_fusionSummary, data && data.patient_id);
 
         // Action buttons
@@ -4543,6 +4555,13 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           }).catch(function (err) {
             vizMount.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:8px;">Viz v2 not available: ' + esc(String(err.message || err)) + '</p>';
           });
+        }
+        // ── Mount Clinical Intelligence Workbench panels (Migration 048) ────
+        if (analysisId && analysisId !== 'demo') {
+          mountSafetyCockpit('qeeg-safety-cockpit-panel', analysisId, api);
+          mountRedFlags('qeeg-red-flags-panel', analysisId, api);
+          mountNormativeModelCard('qeeg-normative-card-panel', analysisId, api);
+          mountProtocolFit('qeeg-protocol-fit-panel', analysisId, api);
         }
         var runBtn = document.getElementById('qeeg-run-advanced-btn');
         if (runBtn) {

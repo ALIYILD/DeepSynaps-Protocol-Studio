@@ -964,7 +964,7 @@ export async function pgPatientDashboard(user) {
     } else if (sessDelivered > 0) {
       metricLine = `You've completed <strong style="color:var(--teal)">${sessDelivered}</strong> session${sessDelivered === 1 ? '' : 's'} so far.`;
     } else {
-      metricLine = `Your course hasn't started yet — your clinician will schedule your first session.`;
+      metricLine = `Your course hasn't started yet — your first session will appear here when it is available in the portal workflow.`;
     }
     const deltaHtml = outcomeDelta
       ? `<div class="pth-progress-delta">${outcomeDelta}</div>`
@@ -1164,7 +1164,7 @@ export async function pgPatientDashboard(user) {
     if (sessDelivered > 0) {
       return `You've completed <strong style="color:var(--teal)">${sessDelivered}</strong> session${sessDelivered === 1 ? '' : 's'} so far.`;
     }
-    return `Your care team will schedule your first session.`;
+    return `Your first session will appear here when it is available in the portal workflow.`;
   }
 
   function _pth2QuickTilesHtml() {
@@ -1399,7 +1399,7 @@ export async function pgPatientDashboard(user) {
       return `
         <div class="pth2-empty">
           <div class="pth2-empty-title">No tasks yet</div>
-          <div class="pth2-empty-sub">Your care team will add tasks here.</div>
+          <div class="pth2-empty-sub">Tasks will appear here when they are available in the portal workflow.</div>
         </div>`;
     }
     const rows = homeTasks.slice(0, 4).map(t => {
@@ -1678,7 +1678,7 @@ export async function pgPatientDashboard(user) {
         <div class="hm-next-wrap">
           <div class="hm-next-kicker">Next clinical session</div>
           <div class="hm-next-title">No session scheduled yet</div>
-          <div class="hm-next-sub">Your care team will schedule your next session shortly. Reach out if you'd like to check in.</div>
+          <div class="hm-next-sub">Your next session will appear here when it is available in the portal workflow. Reach out if you'd like to check in.</div>
           <div class="hm-next-actions">
             <button class="btn btn-primary btn-sm" onclick="window._navPatient('patient-messages')"><svg width="13" height="13"><use href="#i-mail"/></svg>Message care team</button>
           </div>
@@ -4184,7 +4184,7 @@ async function _pgPatientHomeworkImpl() {
       <div class="hw-demo-banner" role="status">
         <svg width="14" height="14"><use href="#i-info"/></svg>
         <strong>Demo data</strong>
-        <span>\u2014 your clinician will replace these with your real homework once your plan is activated.</span>
+        <span>\u2014 these preview tasks will be replaced when your portal homework plan is available.</span>
         <span style="margin-left:auto">Preview mode</span>
       </div>` : ''}
 
@@ -4192,7 +4192,7 @@ async function _pgPatientHomeworkImpl() {
       <div class="hw-hd">
         <div>
           <h2>Homework</h2>
-          <p>The at-home plan ${activeCourse?.primary_clinician_name ? esc(activeCourse.primary_clinician_name) + ' built around your' : 'your clinician will build around your'} ${esc(activeCourse?.modality_slug ? (activeCourse.modality_slug + '').toUpperCase() : 'treatment')} course. Small, evidence-based tasks that help the stimulation stick. Check things off as you go \u2014 your team sees your progress in real time.</p>
+          <p>The at-home plan ${activeCourse?.primary_clinician_name ? esc(activeCourse.primary_clinician_name) + ' built around your' : 'built around your'} ${esc(activeCourse?.modality_slug ? (activeCourse.modality_slug + '').toUpperCase() : 'treatment')} course. Small, evidence-based tasks that help the stimulation stick. Check things off as you go \u2014 progress review depends on portal workflow.</p>
         </div>
         <div class="hw-hd-actions">
           <button class="btn btn-ghost btn-sm" onclick="window._hwReminders && window._hwReminders()"><svg width="13" height="13"><use href="#i-bell"/></svg>Reminders</button>
@@ -4270,7 +4270,7 @@ async function _pgPatientHomeworkImpl() {
             <div class="hw-section-hd">
               <div>
                 <h3>Today \u00b7 ${esc(new Date().toLocaleDateString(loc, { weekday: 'long', month: 'long', day: 'numeric' }))}</h3>
-                <p>${todays.length ? 'Tap an item to open it. Walk and mood log are the high-priority items.' : 'No tasks scheduled for today yet \u2014 your clinician will add some.'}</p>
+                <p>${todays.length ? 'Tap an item to open it. Walk and mood log are the high-priority items.' : 'No tasks scheduled for today yet \u2014 new items will appear here when available in the portal workflow.'}</p>
               </div>
               <a class="hw-see-all" href="javascript:void(0)" onclick="window._hwFilter && window._hwFilter('week')">View full week <svg width="12" height="12"><use href="#i-arrow-right"/></svg></a>
             </div>
@@ -4384,7 +4384,7 @@ async function _pgPatientHomeworkImpl() {
                   return `<div style="flex:1">
                     <div class="hw-next-kick">No clinic session booked</div>
                     <div class="hw-next-title">Message your team</div>
-                    <div class="hw-next-sub">Your care team will schedule the next one shortly.</div>
+                    <div class="hw-next-sub">The next session will appear here when it is available in the portal workflow.</div>
                   </div>`;
                 }
                 const d = new Date(nextInClinic.scheduled_at);
@@ -4731,7 +4731,7 @@ async function _pgPatientHomeworkImpl() {
     if (!_isDemo && api.mutateHomeProgramTask && uid) {
       try {
         await api.mutateHomeProgramTask({ ...newTask, patient_id: uid });
-        _hwToast('Added \u2014 your clinician will confirm');
+        _hwToast('Added to your home-task workflow');
       } catch (e) { console.warn('[homework] add lib failed:', e); }
     } else {
       _hwToast('Added to today\u2019s plan');
@@ -5462,7 +5462,7 @@ async function _pgPatientAssessmentsImpl() {
       <div class="as-panel" id="as-panel-scheduled" style="display:none">
         <div class="as-sched-lbl">Upcoming · auto-reminders are on</div>
         <div class="as-sched-list">
-          ${scheduledItems.length ? scheduledItems.map(_schedRowHtml).join('') : '<div class="pth2-empty" style="padding:24px"><div class="pth2-empty-title">No future assessments scheduled</div><div class="pth2-empty-sub">Your clinician will add new ones as your plan progresses.</div></div>'}
+          ${scheduledItems.length ? scheduledItems.map(_schedRowHtml).join('') : '<div class="pth2-empty" style="padding:24px"><div class="pth2-empty-title">No future assessments scheduled</div><div class="pth2-empty-sub">New assessments will appear here when they are available in the portal workflow.</div></div>'}
         </div>
       </div>
 
@@ -8472,6 +8472,8 @@ async function _pgPatientCareTeamImpl() {
   el.innerHTML = `
     <div class="pt-route" id="pt-route-careteam">
 
+      ${_isDemo ? '<div class="hw-demo-banner" role="status"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><strong>Demo data</strong>&mdash; the people below are fictional examples. Your real care team will appear once your clinic assigns your treatment plan.</div>' : ''}
+
       <!-- HERO -->
       <div class="ct-hero">
         <div class="ct-hero-top">
@@ -8482,7 +8484,7 @@ async function _pgPatientCareTeamImpl() {
             <div class="ct-hero-stats">
               <div class="ct-hero-stat"><div class="ct-hero-stat-n">${squad.length}</div><div class="ct-hero-stat-l">Core clinicians</div></div>
               <div class="ct-hero-stat"><div class="ct-hero-stat-n">${specialists.length}</div><div class="ct-hero-stat-l">Specialists on call</div></div>
-              <div class="ct-hero-stat"><div class="ct-hero-stat-n">48 min</div><div class="ct-hero-stat-l">Avg reply time</div></div>
+              <div class="ct-hero-stat"><div class="ct-hero-stat-n">${_isDemo ? '\u2014' : '\u2264 2 hrs'}</div><div class="ct-hero-stat-l">${_isDemo ? 'No data yet' : 'Business hours'}</div></div>
               <div class="ct-hero-stat"><div class="ct-hero-stat-n">24/7</div><div class="ct-hero-stat-l">Crisis line</div></div>
             </div>
           </div>
@@ -8604,7 +8606,7 @@ async function _pgPatientCareTeamImpl() {
             <div class="ct-esc-ring amber"><svg width="15" height="15"><use href="#i-pulse"/></svg></div>
             <div><div class="ct-esc-title">Urgent clinical after-hours</div><div class="ct-esc-sub">For DeepSynaps patients · device issues, medication, severe symptom spike</div></div>
             <div class="ct-esc-hours">After 6 PM · wknd</div>
-            <div class="ct-esc-num" onclick="window._ctUrgentCall && window._ctUrgentCall()">(+1) 617-555-0143</div>
+            <div class="ct-esc-num" style="cursor:default;opacity:0.6">Set by your clinic</div>
           </div>
           <div class="ct-esc-row">
             <div class="ct-esc-ring teal"><svg width="15" height="15"><use href="#i-sparkle"/></svg></div>
@@ -9810,7 +9812,7 @@ async function pgPatientSettingsLegacy(user) {
             <div class="st-row">
               <div>
                 <div class="st-row-label">Preferred contact method</div>
-                <div class="st-row-sub">Your care team will try this first for non-urgent check-ins.</div>
+                <div class="st-row-sub">This preference is used for non-urgent check-ins when portal workflow supports it.</div>
               </div>
               <div class="st-seg" data-st-seg>
                 <button class="active">Portal message</button>
@@ -11128,7 +11130,7 @@ export async function pgPatientSettings(user) {
             <div class="st-row">
               <div>
                 <div class="st-row-label">Preferred contact method</div>
-                <div class="st-row-sub">Your care team will try this first for non-urgent check-ins.</div>
+                <div class="st-row-sub">This preference is used for non-urgent check-ins when portal workflow supports it.</div>
               </div>
               <div class="st-seg" data-st-seg>
                 <button class="active">Portal message</button>
@@ -11414,30 +11416,30 @@ export async function pgPatientSettings(user) {
             <div class="st-danger-row">
               <div>
                 <div class="t">Pause treatment plan</div>
-                <div class="s">Temporarily stop sessions, reminders, and homework in this portal view. Care-team notification is not confirmed from this beta portal. Resume anytime.</div>
+                <div class="s">This request is managed by your clinic and cannot be started from this beta settings page.</div>
               </div>
-              <button class="st-danger-btn" data-st-danger="pause">Pause</button>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Clinic only</button>
             </div>
             <div class="st-danger-row">
               <div>
                 <div class="t">Revoke all data sharing</div>
-                <div class="s">Immediately stop sharing with PCP, insurance (where legally possible), and research programs. Cannot be bulk-undone.</div>
+                <div class="s">This request is managed by your clinic and cannot be started from this beta settings page.</div>
               </div>
-              <button class="st-danger-btn" data-st-danger="revoke">Revoke all</button>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Clinic only</button>
             </div>
             <div class="st-danger-row">
               <div>
                 <div class="t">Transfer records to another provider</div>
-                <div class="s">Your coordinator will prepare a full FHIR export and coordinate with your new clinic. Your DeepSynaps account remains open until you close it.</div>
+                <div class="s">Your coordinator must initiate this transfer outside the beta portal.</div>
               </div>
-              <button class="st-danger-btn" data-st-danger="transfer">Start transfer</button>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Clinic only</button>
             </div>
             <div class="st-danger-row">
               <div>
                 <div class="t">Delete account</div>
-                <div class="s">Permanently removes all personal identifiers after the clinical retention period (7 years per HIPAA). De-identified research contributions are retained. Cannot be reversed.</div>
+                <div class="s">Account deletion is not initiated from this beta portal. Contact your clinic for the formal process.</div>
               </div>
-              <button class="st-danger-btn" data-st-danger="delete">Delete account</button>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Clinic only</button>
             </div>
           </div>
         </section>
@@ -11534,8 +11536,21 @@ function _wireSettingsPage() {
 
   const saveBtn = document.getElementById('st-save');
   const discardBtn = document.getElementById('st-discard');
-  if (saveBtn) saveBtn.addEventListener('click', () => { clearDirty(); stToast('Settings saved'); });
-  if (discardBtn) discardBtn.addEventListener('click', () => { clearDirty(); stToast('Changes discarded'); });
+  if (saveBtn) saveBtn.addEventListener('click', async () => {
+    clearDirty();
+    try {
+      if (api.updatePatientPreferences) {
+        const prefs = {};
+        st.querySelectorAll('[data-st-toggle]').forEach(t => { prefs[t.dataset.stToggle] = t.classList.contains('on'); });
+        await api.updatePatientPreferences(prefs);
+      }
+      stToast('Settings saved');
+    } catch (err) {
+      stToast('Save failed \u2014 try again');
+      console.error('[settings] save failed', err);
+    }
+  });
+  if (discardBtn) discardBtn.addEventListener('click', () => { clearDirty(); stToast('Changes discarded'); window.location.reload(); });
 
   const nav = document.getElementById('st-nav');
   if (nav) {

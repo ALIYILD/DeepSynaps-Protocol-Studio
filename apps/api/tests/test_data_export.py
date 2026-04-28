@@ -201,11 +201,11 @@ def test_export_endpoints_hide_other_clinicians_patients(client: TestClient, aut
         json={"patient_id": patient_id},
         headers=other_headers,
     )
-    assert fhir.status_code == 404, fhir.text
+    assert fhir.status_code == 403, fhir.text
 
     bids = client.post(
         "/api/v1/export/bids-derivatives",
         json={"patient_id": patient_id},
         headers=other_headers,
     )
-    assert bids.status_code == 404, bids.text
+    assert bids.status_code == 403, bids.text

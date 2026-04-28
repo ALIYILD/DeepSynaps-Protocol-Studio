@@ -5993,9 +5993,9 @@ export async function pgAssessmentsHub(setTopbar) {
         }
         try { await hydrate(); render(); } catch {}
         if (window._showNotifToast) {
-          window._showNotifToast({ title: 'Assessment Assigned', body: '\u201c' + title + '\u201d assigned to ' + patientName, severity: 'success' });
+          window._showNotifToast({ title: 'Assessment Added', body: '\u201c' + title + '\u201d was added to the assessment workflow for ' + patientName, severity: 'success' });
         } else {
-          _dsToast('\u201c' + title + '\u201d assigned to ' + patientName, 'success');
+          _dsToast('\u201c' + title + '\u201d was added to the assessment workflow for ' + patientName, 'success');
         }
       }
     });
@@ -10105,9 +10105,9 @@ export async function pgDocumentsHub(setTopbar) {
           }
         } catch {}
         if (window._showNotifToast) {
-          window._showNotifToast({ title: 'Document Assigned', body: '\u201c' + name + '\u201d assigned to ' + patientName, severity: 'success' });
+          window._showNotifToast({ title: 'Document Added', body: '\u201c' + name + '\u201d was added to the document workflow for ' + patientName, severity: 'success' });
         } else {
-          _dsToast('\u201c' + name + '\u201d assigned to ' + patientName, 'success');
+          _dsToast('\u201c' + name + '\u201d was added to the document workflow for ' + patientName, 'success');
         }
       }
     });
@@ -10256,7 +10256,7 @@ export async function pgDocumentsHub(setTopbar) {
     const newDoc = { id:'doc_'+Date.now(), patientId:pid, templateId, name, category:cat, desc, status:'pending', sigState:cat==='Consent'?'unsigned':'not-required', assignedBy:'Clinician', assignedDate:today(), completedDate:null, updatedDate:today(), expiryDate:null };
     docs.push(newDoc);
     saveDocs(docs); renderPage(); _dhPersistUpdate(newDoc);
-    window._showNotifToast?.({ title:'Form Assigned', body:`${name} assigned to patient.`, severity:'success' });
+    window._showNotifToast?.({ title:'Form Added', body:`${name} was added to the patient workflow.`, severity:'success' });
   };
   window._dhAssignBundle = function(bundleId) {
     const pid=activePid;
