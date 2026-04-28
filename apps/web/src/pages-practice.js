@@ -683,7 +683,7 @@ export async function pgPrograms(setTopbar) {
     a.download = 'education-programs-completion.csv';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    toast('Export ready', 'Completion CSV downloaded.', 'success');
+    toast('Download started', 'Completion CSV file is ready.', 'success');
   }
 
   // ── Page render ────────────────────────────────────────────────────────

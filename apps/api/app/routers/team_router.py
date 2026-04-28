@@ -47,8 +47,7 @@ _ALLOWED_ROLES = {"admin", "clinician", "technician", "read-only"}
 _INVITE_TTL_HOURS = 48
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-# TODO: enforce against Subscription.seat_limit with proper billing lookup.
-# v0 falls back to this value when the admin's Subscription row is missing.
+# Seat-limit fallback when the admin's Subscription row is missing.
 DEFAULT_SEAT_LIMIT = 5
 
 
