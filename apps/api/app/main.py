@@ -110,6 +110,7 @@ from app.routers.patient_summary_router import router as patient_summary_router
 from app.routers.patient_timeline_router import router as patient_timeline_router
 from app.routers.clinical_text_router import router as clinical_text_router
 from app.routers.agents_router import router as agents_router
+from app.routers.agent_admin_router import router as agent_admin_router
 from app.routers.admin_pgvector_router import router as admin_pgvector_router
 from app.routers.fusion_router import router as fusion_router
 from app.routers.monitor_router import router as monitor_router
@@ -293,6 +294,7 @@ app.include_router(patient_summary_router)
 app.include_router(patient_timeline_router)
 app.include_router(clinical_text_router)
 app.include_router(agents_router)
+app.include_router(agent_admin_router)
 app.include_router(admin_pgvector_router)
 app.include_router(feature_store_router)
 app.include_router(citation_validator_router)
