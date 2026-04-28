@@ -6,6 +6,11 @@ import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence, getTopCondi
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition } from './protocols-data.js';
 import { renderBrainMap10_20, SITES_10_20 } from './brain-map-svg.js';
 
+function _kEsc(v) {
+  if (v == null) return '';
+  return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+}
+
 // ── Evidence Library ──────────────────────────────────────────────────────────
 export async function pgEvidence(setTopbar) {
   setTopbar('Evidence Library', '');
@@ -192,10 +197,10 @@ function _openEvidenceModal(evidence) {
           <span style="font-size:16px;font-weight:800;color:${g.color}">${evGrade}</span>
         </div>
         <div style="flex:1;min-width:0">
-          <div style="font-family:var(--font-display);font-size:16px;font-weight:700;color:var(--text-primary);line-height:1.35">${evidence.title || evidence.condition || '—'}</div>
+          <div style="font-family:var(--font-display);font-size:16px;font-weight:700;color:var(--text-primary);line-height:1.35">${_kEsc(evidence.title || evidence.condition) || '—'}</div>
           <div style="display:flex;gap:6px;align-items:center;margin-top:5px;flex-wrap:wrap">
             <span style="font-size:10px;padding:2px 8px;border-radius:999px;background:${g.color}18;color:${g.color};font-weight:600">${g.label}</span>
-            ${evidence.modality ? `<span style="font-size:10px;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-tertiary)">${evidence.modality}</span>` : ''}
+            ${evidence.modality ? `<span style="font-size:10px;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-tertiary)">${_kEsc(evidence.modality)}</span>` : ''}
           </div>
         </div>
         <button onclick="document.getElementById('ds-evidence-modal')?.remove();document.body.style.overflow=''" style="background:none;border:none;color:var(--text-tertiary);cursor:pointer;font-size:20px;padding:4px 8px">&times;</button>
