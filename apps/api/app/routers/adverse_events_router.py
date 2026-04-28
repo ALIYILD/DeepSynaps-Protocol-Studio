@@ -32,6 +32,7 @@ def _gate_patient_access(actor: AuthenticatedActor, patient_id: str | None, db: 
         require_patient_owner(actor, clinic_id)
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.persistence.models import AdverseEvent, ClinicalSession, TreatmentCourse
 
 import logging as _logging
@@ -116,6 +117,7 @@ class AdverseEventListResponse(BaseModel):
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @router.post("", response_model=AdverseEventOut, status_code=201)
+@limiter.limit("30/minute")
 def report_adverse_event(
     body: AdverseEventCreate,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

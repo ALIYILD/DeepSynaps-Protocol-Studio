@@ -37,6 +37,7 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.persistence.models import MriAnalysis, QEEGAnalysis
 from app.repositories.patients import resolve_patient_clinic_id
 
@@ -220,6 +221,7 @@ def _audit(db: Session, actor: AuthenticatedActor, action: str, ann: Annotation)
 
 @router.post("", response_model=AnnotationOut, status_code=201)
 @router.post("/", response_model=AnnotationOut, status_code=201)
+@limiter.limit("60/minute")
 def create_annotation(
     body: AnnotationIn,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

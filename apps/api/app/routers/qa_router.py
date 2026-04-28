@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.limiter import limiter
 from deepsynaps_qa.audit import emit_audit_record
 from deepsynaps_qa.demotion import apply_demotion, should_demote
 from deepsynaps_qa.engine import QAEngine
@@ -69,6 +70,7 @@ class CheckListResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.post("/run", response_model=QARunResponse)
+@limiter.limit("30/minute")
 def qa_run(
     payload: QARunRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

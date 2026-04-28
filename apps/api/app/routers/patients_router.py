@@ -823,6 +823,7 @@ def cohort_summary_endpoint(
 
 
 @router.post("", response_model=PatientOut, status_code=201)
+@limiter.limit("30/minute")
 def create_patient_endpoint(
     body: PatientCreate,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -899,6 +900,7 @@ class InviteCreateResponse(BaseModel):
 
 
 @router.post("/invite", response_model=InviteCreateResponse, status_code=201)
+@limiter.limit("20/minute")
 def create_patient_invite(
     body: InviteCreateRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
