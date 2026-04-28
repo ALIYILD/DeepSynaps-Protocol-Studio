@@ -126,6 +126,24 @@ async def _handle_telegram_update(
 
     try:
         payload = await request.json()
+
+        # ── Inline-keyboard callback (button tap) ──────────────
+        # Telegram delivers button taps as ``callback_query`` updates,
+        # NOT ``message``. Only the clinician bot exposes DrClaw
+        # buttons; patient-side updates fall through to the existing
+        # message branches (and silently ignore unknown callback_query
+        # payloads — Telegram still gets ``{"ok": True}``).
+        cq = payload.get("callback_query")
+        if cq and bot_kind == "clinician":
+            from app.services.telegram_agent_dispatch import (
+                handle_drclaw_callback,
+            )
+
+            handle_drclaw_callback(
+                db=db, bot_kind=bot_kind, callback_query=cq
+            )
+            return {"ok": True}
+
         message = payload.get("message") or {}
         text = (message.get("text") or "").strip()
         chat_id = message.get("chat", {}).get("id")
@@ -209,12 +227,27 @@ async def _handle_telegram_update(
                 telegram_chat_id=int(chat_id),
                 message_text=text,
             )
-            tg.send_message(
-                chat_id,
-                _truncate_reply(outcome.get("reply_text", "")),
-                bot_kind=bot_kind,
-                parse_mode=None,
-            )
+            reply_text = _truncate_reply(outcome.get("reply_text", ""))
+            inline_kb = outcome.get("inline_keyboard")
+            if inline_kb:
+                # Pending tool call → render the in-band approval
+                # keyboard. The webhook handler in this module owns all
+                # outbound sends so the dispatcher stays free of HTTP
+                # side-effects and stays unit-testable.
+                tg.send_message_with_keyboard(
+                    bot_kind=bot_kind,
+                    chat_id=chat_id,
+                    text=reply_text,
+                    inline_keyboard=inline_kb,
+                    parse_mode=None,
+                )
+            else:
+                tg.send_message(
+                    chat_id,
+                    reply_text,
+                    bot_kind=bot_kind,
+                    parse_mode=None,
+                )
             return {"ok": True}
 
         # Prompt-injection guard: wrap the raw Telegram message in

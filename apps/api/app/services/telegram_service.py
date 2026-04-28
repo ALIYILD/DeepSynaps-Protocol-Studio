@@ -42,6 +42,80 @@ def _make_bot(token: str):
         return None
 
 
+def _build_inline_markup(inline_keyboard: list[list[dict]] | None):
+    """Convert a JSON-shaped inline keyboard into a python-telegram-bot
+    :class:`InlineKeyboardMarkup`.
+
+    The dispatcher / webhook stay in plain dicts so callers don't have
+    to import the telegram SDK; this helper does the one-shot mapping.
+    Returns ``None`` when ``inline_keyboard`` is empty or the SDK is
+    unavailable — the caller falls back to a plain text message.
+    """
+    if not inline_keyboard:
+        return None
+    try:
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    except ImportError:  # pragma: no cover — telegram SDK missing
+        logger.warning("python-telegram-bot not installed; keyboard skipped.")
+        return None
+    rows = []
+    for row in inline_keyboard:
+        buttons = []
+        for btn in row:
+            text = btn.get("text", "")
+            cb = btn.get("callback_data")
+            url = btn.get("url")
+            if cb is not None:
+                buttons.append(InlineKeyboardButton(text=text, callback_data=cb))
+            elif url is not None:
+                buttons.append(InlineKeyboardButton(text=text, url=url))
+        if buttons:
+            rows.append(buttons)
+    if not rows:
+        return None
+    return InlineKeyboardMarkup(rows)
+
+
+def send_message_with_keyboard(
+    *,
+    bot_kind: BotKind,
+    chat_id: int | str,
+    text: str,
+    inline_keyboard: list[list[dict]] | None = None,
+    parse_mode: str | None = None,
+) -> dict:
+    """Send Telegram message with optional inline keyboard.
+
+    ``inline_keyboard`` follows the Telegram Bot API shape, e.g.::
+
+        [[{"text": "✅ Approve", "callback_data": "drclaw:apr:<call_id>"},
+          {"text": "❌ Reject",  "callback_data": "drclaw:rej:<call_id>"}]]
+
+    Returns a dict ``{"ok": bool, "message_id": int | None}`` so callers
+    can correlate later edits. Errors are swallowed and surface as
+    ``{"ok": False, ...}`` — Telegram outages must not crash the webhook.
+    """
+    token = _token_for_kind(bot_kind)
+    if not token:
+        return {"ok": False, "message_id": None, "error": "no_token"}
+    bot = _make_bot(token)
+    if bot is None:
+        return {"ok": False, "message_id": None, "error": "no_bot"}
+    markup = _build_inline_markup(inline_keyboard)
+    try:
+        kwargs: dict = {"chat_id": chat_id, "text": text}
+        if parse_mode:
+            kwargs["parse_mode"] = parse_mode
+        if markup is not None:
+            kwargs["reply_markup"] = markup
+        sent = asyncio.run(bot.send_message(**kwargs))
+        message_id = getattr(sent, "message_id", None)
+        return {"ok": True, "message_id": message_id}
+    except Exception as e:
+        logger.error("Telegram send_message_with_keyboard failed: %s", e)
+        return {"ok": False, "message_id": None, "error": str(e)}
+
+
 def send_message(
     chat_id: str | int,
     text: str,
@@ -49,22 +123,91 @@ def send_message(
     bot_kind: BotKind = "patient",
     parse_mode: str | None = "Markdown",
 ) -> bool:
-    """Send a plain text message. Returns True on success."""
+    """Send a plain text message. Returns True on success.
+
+    Thin wrapper around :func:`send_message_with_keyboard` so existing
+    callers (slash-command flows, daily digests, reminders) stay on the
+    same code path as the new keyboard-aware send.
+    """
+    out = send_message_with_keyboard(
+        bot_kind=bot_kind,
+        chat_id=chat_id,
+        text=text,
+        inline_keyboard=None,
+        parse_mode=parse_mode,
+    )
+    return bool(out.get("ok"))
+
+
+def edit_message_text(
+    *,
+    bot_kind: BotKind,
+    chat_id: int | str,
+    message_id: int,
+    text: str,
+    inline_keyboard: list[list[dict]] | None = None,
+    parse_mode: str | None = None,
+) -> dict:
+    """Edit a message previously sent by the bot.
+
+    Used after a callback_query has been handled so the inline buttons
+    disappear and the result text replaces the prompt. Pass an empty /
+    ``None`` keyboard to drop the buttons.
+    """
     token = _token_for_kind(bot_kind)
     if not token:
-        return False
+        return {"ok": False, "error": "no_token"}
     bot = _make_bot(token)
     if bot is None:
-        return False
+        return {"ok": False, "error": "no_bot"}
+    markup = _build_inline_markup(inline_keyboard)
     try:
-        kwargs = {"chat_id": chat_id, "text": text}
+        kwargs: dict = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+        }
         if parse_mode:
             kwargs["parse_mode"] = parse_mode
-        asyncio.run(bot.send_message(**kwargs))
-        return True
+        if markup is not None:
+            kwargs["reply_markup"] = markup
+        asyncio.run(bot.edit_message_text(**kwargs))
+        return {"ok": True}
     except Exception as e:
-        logger.error("Telegram send_message failed: %s", e)
-        return False
+        logger.error("Telegram edit_message_text failed: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+def answer_callback_query(
+    *,
+    bot_kind: BotKind,
+    callback_query_id: str,
+    text: str = "",
+    show_alert: bool = False,
+) -> dict:
+    """Acknowledge a callback_query.
+
+    Telegram requires this within ~10s — without it the user's tap
+    never resolves and they see a perpetual spinner on the button. We
+    swallow errors so an outage on this leg can't crash the webhook.
+    """
+    token = _token_for_kind(bot_kind)
+    if not token:
+        return {"ok": False, "error": "no_token"}
+    bot = _make_bot(token)
+    if bot is None:
+        return {"ok": False, "error": "no_bot"}
+    try:
+        kwargs: dict = {"callback_query_id": callback_query_id}
+        if text:
+            kwargs["text"] = text
+        if show_alert:
+            kwargs["show_alert"] = True
+        asyncio.run(bot.answer_callback_query(**kwargs))
+        return {"ok": True}
+    except Exception as e:
+        logger.error("Telegram answer_callback_query failed: %s", e)
+        return {"ok": False, "error": str(e)}
 
 
 def send_session_reminder(chat_id: str | int, patient_name: str, session_time: str, modality: str, session_num: int, total: int) -> bool:
