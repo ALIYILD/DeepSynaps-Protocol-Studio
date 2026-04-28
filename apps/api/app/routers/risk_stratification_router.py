@@ -32,6 +32,7 @@ from app.persistence.models import (
     Patient,
     RiskStratificationAudit,
     RiskStratificationResult,
+    User,
 )
 from app.repositories.patients import resolve_patient_clinic_id
 from app.services.risk_clinical_scores import (
@@ -188,13 +189,22 @@ def get_clinic_risk_summary(
     """Return a per-patient risk summary for the clinic dashboard."""
     require_minimum_role(actor, "clinician")
 
-    # Fetch all active patients for this clinician
-    patients = db.execute(
-        select(Patient).where(
-            Patient.clinician_id == actor.actor_id,
-            Patient.status == "active",
-        )
-    ).scalars().all()
+    # Clinic-scope, not owner-only: covering clinicians at the same clinic
+    # see each other's at-risk patients (the entire point of a clinic
+    # dashboard), and admin / supervisor — cross-clinic operators by
+    # design — see the full surface. Pre-fix the
+    # ``Patient.clinician_id == actor.actor_id`` filter showed each
+    # clinician only their own panel, which silently dropped other
+    # clinicians' RED-level patients from the dashboard a covering
+    # clinician relied on.
+    base = (
+        select(Patient)
+        .join(User, User.id == Patient.clinician_id, isouter=True)
+        .where(Patient.status == "active")
+    )
+    if actor.role != "admin":
+        base = base.where(User.clinic_id == actor.clinic_id)
+    patients = db.execute(base).scalars().all()
 
     summaries: list[PatientRiskSummary] = []
 
