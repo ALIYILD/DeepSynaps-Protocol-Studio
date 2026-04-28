@@ -22,9 +22,10 @@ Auth + entitlement gates
 """
 from __future__ import annotations
 
+import json as _json
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -36,7 +37,8 @@ from app.auth import (
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.limiter import limiter
-from app.services.agents import audit, runner
+from app.persistence.models import AgentRunAudit
+from app.services.agents import runner
 from app.services.agents.registry import (
     AGENT_REGISTRY,
     AgentAudience,
@@ -74,6 +76,37 @@ class AgentListResponse(BaseModel):
 class AgentRunRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=runner.MAX_MESSAGE_CHARS)
     context: dict[str, Any] | None = None
+    # Phase 2.5 — when present, this run is a clinician confirmation of a
+    # previously-issued ``pending_tool_call``. The runner looks up the call
+    # in :mod:`app.services.agents.pending_calls` and executes it via the
+    # tool dispatcher instead of going to the LLM. Reject by sending
+    # ``message="reject"`` with the same id.
+    confirmed_tool_call_id: str | None = None
+
+
+class PendingToolCallOut(BaseModel):
+    """One pending tool call awaiting clinician confirmation.
+
+    Mirrors the in-memory ``_PendingCall`` but stamps the ISO ``expires_at``
+    that the UI uses to render the countdown. The clinician approves by
+    POSTing a follow-up ``/run`` carrying ``confirmed_tool_call_id`` set
+    to ``call_id``.
+    """
+
+    call_id: str
+    tool_id: str
+    args: dict[str, Any]
+    summary: str
+    expires_at: str  # ISO-8601 UTC
+
+
+class ToolCallResultOut(BaseModel):
+    """Outcome envelope returned after a confirmed write executed."""
+
+    tool_id: str
+    ok: bool
+    result_preview: str
+    audit_id: str | None = None
 
 
 class AgentRunResponse(BaseModel):
@@ -85,6 +118,11 @@ class AgentRunResponse(BaseModel):
     # into the live <context> block. Empty list when no live context was
     # attached. Useful for the UI tag "Grounded in: …".
     context_used: list[str] = Field(default_factory=list)
+    # Phase 2.5 — at most one of these is set. ``pending_tool_call`` on
+    # the first call when the LLM requested a write; ``tool_call_executed``
+    # on the confirmation call after the dispatcher ran.
+    pending_tool_call: PendingToolCallOut | None = None
+    tool_call_executed: ToolCallResultOut | None = None
     error: str | None = None
 
 
@@ -157,22 +195,20 @@ def run_agent_endpoint(
             status_code=403,
         )
 
+    # NOTE: the runner now writes the AgentRunAudit row itself (so the
+    # latency it captures is the *real* LLM wall-clock, not the response-
+    # serialisation tail). No explicit audit.record_run call here.
     result = runner.run_agent(
         agent_def,
         message=payload.message,
         context=payload.context,
         actor=actor,
         db=db,
+        confirmed_tool_call_id=payload.confirmed_tool_call_id,
     )
 
-    ok = bool(result.get("reply")) and not result.get("error")
-    audit.record_run(
-        actor_id=actor.actor_id,
-        agent_id=agent_def.id,
-        message_preview=payload.message,
-        reply_preview=str(result.get("reply", "")),
-        ok=ok,
-    )
+    pending_raw = result.get("pending_tool_call")
+    executed_raw = result.get("tool_call_executed")
 
     return AgentRunResponse(
         agent_id=result["agent_id"],
@@ -180,8 +216,121 @@ def run_agent_endpoint(
         schema_id=result["schema_id"],
         safety_footer=result["safety_footer"],
         context_used=list(result.get("context_used", []) or []),
+        pending_tool_call=(
+            PendingToolCallOut(**pending_raw) if pending_raw else None
+        ),
+        tool_call_executed=(
+            ToolCallResultOut(**executed_raw) if executed_raw else None
+        ),
         error=result.get("error"),
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/agents/runs — admin / clinician audit history
+# ---------------------------------------------------------------------------
+
+
+class AgentRunOut(BaseModel):
+    """One row of the agent run audit, projected for the history view."""
+
+    id: str
+    created_at: str  # ISO-8601 UTC
+    actor_id: str | None
+    agent_id: str
+    message_preview: str
+    reply_preview: str
+    context_used: list[str] = Field(default_factory=list)
+    latency_ms: int | None = None
+    ok: bool
+    error_code: str | None = None
+
+
+class AgentRunListResponse(BaseModel):
+    runs: list[AgentRunOut]
+
+
+def _decode_context_used(raw: str | None) -> list[str]:
+    """Best-effort decode of the JSON ``context_used_json`` column.
+
+    Returns ``[]`` for empty / malformed payloads so the response shape
+    stays consistent — the audit log should never crash the history
+    endpoint just because one row was written by an older runner version.
+    """
+    if not raw:
+        return []
+    try:
+        parsed = _json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(x) for x in parsed]
+
+
+@router.get("/runs", response_model=AgentRunListResponse)
+def list_agent_runs(
+    request: Request,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+    limit: int = Query(50, ge=1, le=200),
+    agent_id: str | None = Query(None),
+) -> AgentRunListResponse:
+    """Return recent agent runs visible to the calling actor.
+
+    Visibility rules
+    ----------------
+    * Caller must be at least ``clinician``. Guests / patients get a 403
+      via :func:`require_minimum_role`.
+    * Rows are filtered to ``actor.clinic_id`` — clinicians and admins
+      see only the runs scoped to their tenant. An admin without a
+      ``clinic_id`` (cross-clinic super-admin) sees nothing here; the
+      cross-tenant view will live behind a separate ops-only endpoint.
+    * Optional ``agent_id`` further narrows by agent.
+    * ``limit`` is clamped to ``[1, 200]`` (FastAPI ``Query`` enforces).
+
+    Ordered ``created_at DESC`` so the freshest run is at the top.
+    """
+    require_minimum_role(actor, "clinician")
+
+    q = db.query(AgentRunAudit)
+    # A clinic-scoped clinician/admin only sees their own clinic's audit
+    # rows. ``actor.clinic_id is None`` (e.g. cross-clinic super-admin or
+    # demo accounts not bound to a Clinic) intentionally returns an empty
+    # list rather than leaking other tenants' rows.
+    q = q.filter(AgentRunAudit.clinic_id == actor.clinic_id)
+
+    if agent_id is not None:
+        q = q.filter(AgentRunAudit.agent_id == agent_id)
+
+    rows = q.order_by(AgentRunAudit.created_at.desc()).limit(limit).all()
+
+    runs: list[AgentRunOut] = []
+    for row in rows:
+        # ``created_at`` is stored without tz info on SQLite; the runner
+        # writes UTC, so we surface ISO-8601 + ``Z`` for clarity. On
+        # Postgres the column is timezone-aware and isoformat() already
+        # carries the offset.
+        ts = row.created_at
+        if ts is not None and ts.tzinfo is None:
+            iso_ts = ts.isoformat() + "Z"
+        else:
+            iso_ts = ts.isoformat() if ts is not None else ""
+        runs.append(
+            AgentRunOut(
+                id=row.id,
+                created_at=iso_ts,
+                actor_id=row.actor_id,
+                agent_id=row.agent_id,
+                message_preview=row.message_preview or "",
+                reply_preview=row.reply_preview or "",
+                context_used=_decode_context_used(row.context_used_json),
+                latency_ms=row.latency_ms,
+                ok=bool(row.ok),
+                error_code=row.error_code,
+            )
+        )
+    return AgentRunListResponse(runs=runs)
 
 
 __all__ = ["router"]
