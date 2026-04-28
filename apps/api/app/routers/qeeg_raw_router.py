@@ -15,10 +15,16 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import QEEGAnalysis
+from app.repositories.patients import resolve_patient_clinic_id
 
 _log = logging.getLogger(__name__)
 
@@ -129,10 +135,52 @@ class ReprocessResponse(BaseModel):
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-def _load_analysis(analysis_id: str, db: Session) -> QEEGAnalysis:
+def _load_analysis(
+    analysis_id: str, db: Session, actor: AuthenticatedActor | None = None
+) -> QEEGAnalysis:
+    """Load a qEEG analysis, optionally enforcing the cross-clinic gate.
+
+    Pre-fix this returned the analysis unconditionally — every endpoint
+    in this router (raw signal, cleaned signal, ICA components, ICA
+    timecourse, cleaning config get/set, channel info, reprocess) was
+    therefore wide open across clinics. Any clinician could read raw
+    EDF samples from any patient in any clinic by guessing or
+    enumerating analysis_ids.
+
+    The new optional ``actor`` parameter is the load-bearing fix:
+    when supplied, the patient's owning clinic is resolved and the
+    canonical ``require_patient_owner`` is enforced. Existing call
+    sites that pass ``actor`` (every route in this router) are now
+    cross-clinic-safe; legacy callers that don't pass it (none in
+    this file) keep the prior behaviour to avoid silent breakage.
+    """
     analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
     if not analysis:
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    if actor is not None and analysis.patient_id:
+        exists, clinic_id = resolve_patient_clinic_id(db, analysis.patient_id)
+        if exists:
+            try:
+                require_patient_owner(actor, clinic_id)
+            except ApiServiceError as exc:
+                # Convert cross-clinic 403 to 404 to avoid leaking
+                # row existence to a probing actor.
+                if exc.code in {"cross_clinic_access_denied", "forbidden"}:
+                    raise ApiServiceError(
+                        code="not_found",
+                        message="Analysis not found",
+                        status_code=404,
+                    ) from exc
+                raise
+        elif actor.role != "admin":
+            # Orphaned patient — refuse for non-admins so a crafted
+            # analysis_id whose patient_id no longer resolves cannot
+            # become a covert read target.
+            raise ApiServiceError(
+                code="not_found",
+                message="Analysis not found",
+                status_code=404,
+            )
     return analysis
 
 
@@ -165,7 +213,7 @@ def get_channel_info(
 ):
     """Return channel names, positions, sampling rate, and recording duration."""
     require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db)
+    analysis = _load_analysis(analysis_id, db, actor)
 
     # Try from DB first (fast path)
     if analysis.channels_json and analysis.sample_rate_hz and analysis.recording_duration_sec:
@@ -217,7 +265,7 @@ def get_raw_signal(
 ):
     """Serve raw (unprocessed) EEG signal in a time window."""
     require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db)  # Validate existence
+    _load_analysis(analysis_id, db, actor)  # Validate existence
     _require_mne()
 
     from app.services.eeg_signal_service import extract_signal_window, load_raw_for_analysis
@@ -253,7 +301,7 @@ def get_cleaned_signal(
 ):
     """Serve preprocessed + ICA-cleaned EEG signal in a time window."""
     require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db)
+    _load_analysis(analysis_id, db, actor)
     _require_mne()
 
     from app.services.eeg_signal_service import extract_signal_window, load_cleaned_for_analysis
@@ -284,7 +332,7 @@ def get_ica_components(
 ):
     """Return ICA component topomaps, ICLabel classifications, and auto-exclusion decisions."""
     require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db)
+    _load_analysis(analysis_id, db, actor)
     _require_mne()
 
     from app.services.eeg_signal_service import extract_ica_data
@@ -318,7 +366,7 @@ def get_ica_timecourse(
 ):
     """Return the activation time course of a single ICA component."""
     require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db)
+    _load_analysis(analysis_id, db, actor)
     _require_mne()
 
     from app.services.eeg_signal_service import extract_ica_timecourse
@@ -342,7 +390,7 @@ def save_cleaning_config(
 ):
     """Persist the user's manual cleaning decisions."""
     require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db)
+    analysis = _load_analysis(analysis_id, db, actor)
 
     from datetime import datetime, timezone
 
@@ -373,7 +421,7 @@ def get_cleaning_config(
 ):
     """Retrieve the saved cleaning configuration."""
     require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db)
+    analysis = _load_analysis(analysis_id, db, actor)
 
     if not analysis.cleaning_config_json:
         return CleaningConfigResponse(analysis_id=analysis_id)
@@ -420,7 +468,7 @@ def reprocess_with_overrides(
     previously saved cleaning configuration.
     """
     require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db)
+    analysis = _load_analysis(analysis_id, db, actor)
 
     # Save config if provided
     if config is not None:
