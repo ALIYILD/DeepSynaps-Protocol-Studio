@@ -1,4 +1,4 @@
-"""Route a clinician's free-text Telegram message through the AliClaw
+"""Route a clinician's free-text Telegram message through the DrClaw
 Doctor agent and produce a Telegram-friendly reply.
 
 The clinician Telegram bot is wired up in
@@ -6,7 +6,7 @@ The clinician Telegram bot is wired up in
 CANCEL / HELP slash-commands and free-text → ``chat_agent``) stay
 untouched. This module adds a single, narrow integration: when a linked
 clinician sends a non-slash message, route it through the
-``clinic.aliclaw_doctor_telegram`` agent registered in
+``clinic.drclaw_telegram`` agent registered in
 :mod:`app.services.agents.registry` and turn the structured agent
 envelope back into a single short Telegram message.
 
@@ -32,9 +32,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: Stable agent id for the AliClaw Doctor Telegram persona — kept as a
+#: Stable agent id for the DrClaw Telegram persona — kept as a
 #: module-level constant so a typo blows up at import time.
-ALICLAW_AGENT_ID = "clinic.aliclaw_doctor_telegram"
+DRCLAW_AGENT_ID = "clinic.drclaw_telegram"
 
 #: URL the dispatcher points clinicians to when a write needs explicit
 #: confirmation in the web app. Lives in ``CLAUDE.md`` as the canonical
@@ -48,7 +48,7 @@ _REPLY_NO_LINK = (
 
 #: Friendly, fixed reply when the linked user lacks an entitled package.
 _REPLY_NO_PACKAGE = (
-    "AliClaw Doctor requires a Pro or Enterprise plan. Visit your "
+    "DrClaw requires a Pro or Enterprise plan. Visit your "
     "DeepSynaps web dashboard to upgrade."
 )
 
@@ -60,7 +60,7 @@ def dispatch_clinician_message(
     telegram_chat_id: int,
     message_text: str,
 ) -> dict:
-    """Route a clinician's free-text Telegram message through AliClaw Doctor.
+    """Route a clinician's free-text Telegram message through DrClaw.
 
     The Telegram webhook owns:
 
@@ -148,12 +148,12 @@ def dispatch_clinician_message(
     # check verbatim so a clinician who's blocked on the web /run endpoint
     # is also blocked here. Bail BEFORE invoking the LLM so we don't burn
     # tokens on a request we'd refuse anyway.
-    agent = AGENT_REGISTRY.get(ALICLAW_AGENT_ID)
+    agent = AGENT_REGISTRY.get(DRCLAW_AGENT_ID)
     if agent is None:  # pragma: no cover — registry is module-level
         return {
             "ok": False,
             "reason": "agent_not_registered",
-            "reply_text": "AliClaw Doctor is not available in this build.",
+            "reply_text": "DrClaw is not available in this build.",
         }
 
     if agent.package_required and (
@@ -254,7 +254,7 @@ def _compose_reply(response: dict) -> str:
 
 
 __all__ = [
-    "ALICLAW_AGENT_ID",
+    "DRCLAW_AGENT_ID",
     "WEB_APP_URL",
     "dispatch_clinician_message",
 ]

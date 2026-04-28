@@ -137,7 +137,7 @@ with the most material findings. Keep clinical interpretation strictly
 neutral."""
 
 
-_ALICLAW_DOCTOR_TELEGRAM_SYSTEM_PROMPT = """You are AliClaw Doctor, the personal queue assistant for a clinician,
+_DRCLAW_TELEGRAM_SYSTEM_PROMPT = """You are DrClaw, the personal queue assistant for a clinician,
 delivered over Telegram.
 
 Your role is to help the clinician triage and progress their daily
@@ -323,9 +323,9 @@ AGENT_REGISTRY: dict[str, AgentDefinition] = {
         monthly_price_gbp=49,
         tags=["operations", "reporting", "admin"],
     ),
-    "clinic.aliclaw_doctor_telegram": AgentDefinition(
-        id="clinic.aliclaw_doctor_telegram",
-        name="AliClaw Doctor (Telegram)",
+    "clinic.drclaw_telegram": AgentDefinition(
+        id="clinic.drclaw_telegram",
+        name="DrClaw (Telegram)",
         tagline="Your personal queue agent over Telegram — triage, lookups, draft approvals.",
         audience="clinic",
         role_required="clinician",
@@ -337,7 +337,7 @@ AGENT_REGISTRY: dict[str, AgentDefinition] = {
             "notes.approve_draft",
             "tasks.list",
         ],
-        system_prompt=_ALICLAW_DOCTOR_TELEGRAM_SYSTEM_PROMPT,
+        system_prompt=_DRCLAW_TELEGRAM_SYSTEM_PROMPT,
         monthly_price_gbp=79,
         tags=["clinician", "telegram", "personal-assistant"],
     ),

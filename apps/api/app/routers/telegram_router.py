@@ -182,9 +182,9 @@ async def _handle_telegram_update(
             )
             return {"ok": True}
 
-        # ── Clinician free-text fallback → AliClaw Doctor agent ────────
+        # ── Clinician free-text fallback → DrClaw agent ────────
         # Route any non-slash-command free-text from a *linked* clinician
-        # through the AliClaw Doctor agent so the bot has full access to
+        # through the DrClaw agent so the bot has full access to
         # the agent's tool allowlist + audit trail. Slash commands (LINK
         # / CONFIRM / CANCEL / HELP / /start /help) have already been
         # dispatched above; this branch only sees free-form prose.

@@ -331,7 +331,7 @@ def test_runs_endpoint_returns_clinic_scoped_rows_only(
 ) -> None:
     # Two rows in clinic-demo-default + one in another tenant.
     _seed_audit_row(db=db_session, agent_id="clinic.reception")
-    _seed_audit_row(db=db_session, agent_id="clinic.aliclaw_doctor_telegram")
+    _seed_audit_row(db=db_session, agent_id="clinic.drclaw_telegram")
     _seed_audit_row(
         db=db_session,
         agent_id="clinic.reception",
@@ -350,7 +350,7 @@ def test_runs_endpoint_returns_clinic_scoped_rows_only(
     assert len(runs) == 2
     assert {r["agent_id"] for r in runs} == {
         "clinic.reception",
-        "clinic.aliclaw_doctor_telegram",
+        "clinic.drclaw_telegram",
     }
     # Each row carries the documented projection.
     sample = runs[0]
@@ -375,7 +375,7 @@ def test_runs_endpoint_filters_by_agent_id(
     db_session,
 ) -> None:
     _seed_audit_row(db=db_session, agent_id="clinic.reception")
-    _seed_audit_row(db=db_session, agent_id="clinic.aliclaw_doctor_telegram")
+    _seed_audit_row(db=db_session, agent_id="clinic.drclaw_telegram")
 
     resp = client.get(
         "/api/v1/agents/runs?agent_id=clinic.reception",
@@ -426,7 +426,7 @@ def test_runs_endpoint_orders_newest_first(
     first = _seed_audit_row(db=db_session, agent_id="clinic.reception")
     _t.sleep(0.01)  # ensure created_at differs even on coarse clocks
     second = _seed_audit_row(
-        db=db_session, agent_id="clinic.aliclaw_doctor_telegram"
+        db=db_session, agent_id="clinic.drclaw_telegram"
     )
 
     resp = client.get(

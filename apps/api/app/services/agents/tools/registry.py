@@ -356,7 +356,7 @@ def _h_notes_list(actor: "AuthenticatedActor", db: "Session") -> dict:
         return {"unavailable": True, "reason": "ClinicianNoteDraft model not available"}
 
     # Without a clinician_id column on the draft we surface drafts whose
-    # generated_by matches the actor (covers AliClaw drafts) — and fall
+    # generated_by matches the actor (covers DrClaw drafts) — and fall
     # back to "unavailable" with reason if that returns nothing
     # consistent. Keep the query bounded.
     rows = (

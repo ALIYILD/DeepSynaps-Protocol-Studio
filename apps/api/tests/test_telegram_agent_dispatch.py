@@ -1,6 +1,6 @@
 """Tests for :mod:`app.services.telegram_agent_dispatch`.
 
-Covers the seam that wires the clinician Telegram bot into the AliClaw
+Covers the seam that wires the clinician Telegram bot into the DrClaw
 Doctor agent runner. The runner itself (and its package gate at the
 ``/api/v1/agents`` HTTP layer) has its own unit tests; this module
 focuses on the dispatcher's contract:
@@ -126,7 +126,7 @@ def test_dispatch_linked_clinician_invokes_runner_and_returns_reply(
 
     assert out["ok"] is True
     assert out["reply_text"] == "Sure — here's your queue."
-    assert captured["agent_id"] == "clinic.aliclaw_doctor_telegram"
+    assert captured["agent_id"] == "clinic.drclaw_telegram"
     assert captured["message"] == "What's on my list today?"
     assert captured["actor_id"] == "actor-clinician-demo"
     assert captured["actor_role"] == "clinician"
