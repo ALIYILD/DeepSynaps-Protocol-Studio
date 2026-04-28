@@ -12,7 +12,7 @@ Re-exports the public surface so callers can write::
 
 instead of reaching into the individual submodules.
 """
-from . import audit, broker, registry, runner
+from . import audit, broker, pending_calls, registry, runner, tool_dispatcher
 from .audit import record_run
 from .broker import fetch_context
 from .registry import (
@@ -45,8 +45,10 @@ __all__ = [
     "fetch_context",
     "is_write_tool",
     "list_visible_agents",
+    "pending_calls",
     "record_run",
     "registry",
     "run_agent",
     "runner",
+    "tool_dispatcher",
 ]

@@ -76,6 +76,37 @@ class AgentListResponse(BaseModel):
 class AgentRunRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=runner.MAX_MESSAGE_CHARS)
     context: dict[str, Any] | None = None
+    # Phase 2.5 — when present, this run is a clinician confirmation of a
+    # previously-issued ``pending_tool_call``. The runner looks up the call
+    # in :mod:`app.services.agents.pending_calls` and executes it via the
+    # tool dispatcher instead of going to the LLM. Reject by sending
+    # ``message="reject"`` with the same id.
+    confirmed_tool_call_id: str | None = None
+
+
+class PendingToolCallOut(BaseModel):
+    """One pending tool call awaiting clinician confirmation.
+
+    Mirrors the in-memory ``_PendingCall`` but stamps the ISO ``expires_at``
+    that the UI uses to render the countdown. The clinician approves by
+    POSTing a follow-up ``/run`` carrying ``confirmed_tool_call_id`` set
+    to ``call_id``.
+    """
+
+    call_id: str
+    tool_id: str
+    args: dict[str, Any]
+    summary: str
+    expires_at: str  # ISO-8601 UTC
+
+
+class ToolCallResultOut(BaseModel):
+    """Outcome envelope returned after a confirmed write executed."""
+
+    tool_id: str
+    ok: bool
+    result_preview: str
+    audit_id: str | None = None
 
 
 class AgentRunResponse(BaseModel):
@@ -87,6 +118,11 @@ class AgentRunResponse(BaseModel):
     # into the live <context> block. Empty list when no live context was
     # attached. Useful for the UI tag "Grounded in: …".
     context_used: list[str] = Field(default_factory=list)
+    # Phase 2.5 — at most one of these is set. ``pending_tool_call`` on
+    # the first call when the LLM requested a write; ``tool_call_executed``
+    # on the confirmation call after the dispatcher ran.
+    pending_tool_call: PendingToolCallOut | None = None
+    tool_call_executed: ToolCallResultOut | None = None
     error: str | None = None
 
 
@@ -168,7 +204,11 @@ def run_agent_endpoint(
         context=payload.context,
         actor=actor,
         db=db,
+        confirmed_tool_call_id=payload.confirmed_tool_call_id,
     )
+
+    pending_raw = result.get("pending_tool_call")
+    executed_raw = result.get("tool_call_executed")
 
     return AgentRunResponse(
         agent_id=result["agent_id"],
@@ -176,6 +216,12 @@ def run_agent_endpoint(
         schema_id=result["schema_id"],
         safety_footer=result["safety_footer"],
         context_used=list(result.get("context_used", []) or []),
+        pending_tool_call=(
+            PendingToolCallOut(**pending_raw) if pending_raw else None
+        ),
+        tool_call_executed=(
+            ToolCallResultOut(**executed_raw) if executed_raw else None
+        ),
         error=result.get("error"),
     )
 
