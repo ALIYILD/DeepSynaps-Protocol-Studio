@@ -60,6 +60,14 @@ _COUNT_TABLES: tuple[tuple[str, str], ...] = (
     ("kg_entities", "kg_entities_with_embedding"),
 )
 
+# Allowlist of table names that ``_count_with_embedding`` may
+# interpolate into raw SQL via f-string. Pre-fix the helper accepted
+# any ``table: str`` input — safe today because every call site
+# passes a literal from ``_COUNT_TABLES``, but a future caller that
+# forwarded user input would create a SQL-injection sink. The
+# allowlist below is the load-bearing static guard.
+_PGVECTOR_TABLE_ALLOWLIST = frozenset(t for t, _ in _COUNT_TABLES)
+
 
 def _table_exists(session: Session, table: str) -> bool:
     """Return True if ``table`` exists on the bound engine.
@@ -98,6 +106,17 @@ def _count_with_embedding(
     int
         Zero on any error (logged WARNING).
     """
+    # Defense-in-depth: refuse any table name not in the static
+    # allowlist. Today every call site passes a literal from
+    # ``_COUNT_TABLES`` so this is a no-op, but it locks the
+    # contract so a future caller that forwards user input cannot
+    # turn the f-string interpolation below into SQL injection.
+    if table not in _PGVECTOR_TABLE_ALLOWLIST:
+        _log.warning(
+            "rejecting pgvector count on non-allowlisted table %r", table
+        )
+        return 0
+
     if not _table_exists(session, table):
         return 0
 
