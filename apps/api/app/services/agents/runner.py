@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json as _json
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from .registry import AgentDefinition
@@ -130,7 +131,7 @@ def run_agent(
     Never raises — all exceptions are swallowed and surfaced as ``error``.
     """
     if message is None or len(message) > MAX_MESSAGE_CHARS:
-        return {
+        envelope = {
             "agent_id": agent.id,
             "reply": "",
             "schema_id": SCHEMA_ID,
@@ -138,6 +139,18 @@ def run_agent(
             "context_used": [],
             "error": "message_too_long",
         }
+        _safe_record_run(
+            db=db,
+            actor=actor,
+            agent_id=agent.id,
+            message=message or "",
+            reply="",
+            context_used=[],
+            latency_ms=None,
+            ok=False,
+            error_code="message_too_long",
+        )
+        return envelope
 
     # ---- Phase 2: pre-fetch live clinic context via ToolBroker ----------
     live_context: dict[str, Any] = {}
@@ -178,6 +191,7 @@ def run_agent(
         # Legacy path — preserves caller-supplied `context` behaviour.
         user_content = _build_user_message(message, context)
 
+    t0 = time.monotonic()
     try:
         # Local import keeps `app.services.chat_service` import side-effects
         # off the cold path of `from app.services.agents import runner`.
@@ -192,6 +206,7 @@ def run_agent(
             temperature=0.4,
         )
     except Exception as exc:  # noqa: BLE001 — fail-safe envelope, see docstring
+        latency_ms = int((time.monotonic() - t0) * 1000)
         logger.warning(
             "agent_run_failed",
             extra={
@@ -199,6 +214,17 @@ def run_agent(
                 "agent_id": agent.id,
                 "error_type": type(exc).__name__,
             },
+        )
+        _safe_record_run(
+            db=db,
+            actor=actor,
+            agent_id=agent.id,
+            message=message,
+            reply="",
+            context_used=context_used,
+            latency_ms=latency_ms,
+            ok=False,
+            error_code="llm_call_failed",
         )
         return {
             "agent_id": agent.id,
@@ -209,13 +235,76 @@ def run_agent(
             "error": "llm_call_failed",
         }
 
+    latency_ms = int((time.monotonic() - t0) * 1000)
+    reply_str = reply_text or ""
+    _safe_record_run(
+        db=db,
+        actor=actor,
+        agent_id=agent.id,
+        message=message,
+        reply=reply_str,
+        context_used=context_used,
+        latency_ms=latency_ms,
+        ok=bool(reply_str),
+        error_code=None if reply_str else "empty_reply",
+    )
     return {
         "agent_id": agent.id,
-        "reply": reply_text or "",
+        "reply": reply_str,
         "schema_id": SCHEMA_ID,
         "safety_footer": SAFETY_FOOTER,
         "context_used": context_used,
     }
+
+
+def _safe_record_run(
+    *,
+    db: "Session | None",
+    actor: "AuthenticatedActor | None",
+    agent_id: str,
+    message: str,
+    reply: str,
+    context_used: list[str],
+    latency_ms: int | None,
+    ok: bool,
+    error_code: str | None,
+) -> None:
+    """Best-effort wrapper around :func:`audit.record_run`.
+
+    The audit table is non-critical to the user-facing response — if a
+    DB hiccup or a misconfigured test session breaks the insert we log
+    a warning and continue. The agent reply is what the user is waiting
+    for; losing the audit row never blocks it.
+
+    Skipped entirely when ``db`` is ``None`` (legacy callers / unit tests
+    that exercise the runner without a DB).
+    """
+    if db is None:
+        return
+    try:
+        from . import audit
+
+        audit.record_run(
+            db=db,
+            actor=actor,
+            agent_id=agent_id,
+            message=message,
+            reply=reply,
+            context_used=context_used,
+            latency_ms=latency_ms,
+            ok=ok,
+            error_code=error_code,
+        )
+    except Exception as exc:  # noqa: BLE001 — never break the run on audit failure
+        logger.warning(
+            "agent_run_audit_failed",
+            extra={
+                "event": "agent_run_audit_failed",
+                "agent_id": agent_id,
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+            },
+        )
 
 
 __all__ = [
