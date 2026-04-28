@@ -14,7 +14,12 @@ from fastapi import APIRouter, Depends, Form, Response, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import (
@@ -31,7 +36,9 @@ from app.persistence.models import (
     PatientMediaTranscript,
     PatientMediaUpload,
     TreatmentCourse,
+    User,
 )
+from app.repositories.patients import resolve_patient_clinic_id
 from app.services import media_analysis_service, media_storage, transcription_service
 from app.settings import get_settings
 
@@ -136,6 +143,65 @@ def _check_patient_access(patient_id: str, actor: AuthenticatedActor, db: Sessio
             message="Patient not found.",
             status_code=404,
         )
+
+
+def _check_patient_clinic_access(
+    patient_id: str, actor: AuthenticatedActor, db: Session
+) -> None:
+    """Cross-clinic ownership gate for the review pipeline.
+
+    Pre-fix the review-queue list and the per-upload review/analyze/
+    approve/amend/dismiss routes loaded uploads (and their analyses /
+    red-flags) by id alone — any clinician/reviewer at clinic A could
+    see, action, and approve uploads belonging to patients at clinic B.
+
+    Uses the canonical ``resolve_patient_clinic_id`` +
+    ``require_patient_owner`` helpers so every refusal goes through one
+    code path. Cross-clinic 403 is converted to 404 so the row's
+    existence isn't leaked. Orphan patients (patient row with no
+    clinician.clinic_id) are refused for non-admins so a crafted
+    patient_id can't become a covert read target.
+    """
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if not exists:
+        raise ApiServiceError(
+            code="not_found",
+            message="Patient not found.",
+            status_code=404,
+        )
+    try:
+        require_patient_owner(actor, clinic_id)
+    except ApiServiceError as exc:
+        if exc.status_code == 403:
+            raise ApiServiceError(
+                code="not_found",
+                message="Patient not found.",
+                status_code=404,
+            ) from exc
+        raise
+
+
+def _scope_uploads_query_to_clinic(q, actor: AuthenticatedActor):
+    """Restrict a ``PatientMediaUpload`` query to the actor's clinic.
+
+    Pre-fix ``GET /api/v1/media/review-queue`` returned every upload in
+    ``pending_review`` / ``reupload_requested`` across every clinic. A
+    clinician at clinic A could see — and via the per-id review action
+    routes, action — uploads from clinic B. Joining
+    ``Patient`` -> ``User`` and filtering on ``actor.clinic_id``
+    scopes the queue to the actor's clinic. Admin / supervisor still
+    cross-clinic by design (platform operators / quality reviewers).
+    """
+    if actor.role in ("admin", "supervisor"):
+        return q
+    if not getattr(actor, "clinic_id", None):
+        # No clinic -> no rows. Better than leaking every clinic's queue.
+        return q.filter(PatientMediaUpload.id.is_(None))
+    return (
+        q.join(Patient, Patient.id == PatientMediaUpload.patient_id)
+        .join(User, User.id == Patient.clinician_id)
+        .filter(User.clinic_id == actor.clinic_id)
+    )
 
 
 def _write_audit(
@@ -797,15 +863,14 @@ def get_review_queue(
     """Return uploads pending review, urgent items first."""
     _require_clinician_or_reviewer(actor)
 
-    uploads = (
-        db.query(PatientMediaUpload)
-        .filter(
-            PatientMediaUpload.status.in_(["pending_review", "reupload_requested"]),
-            PatientMediaUpload.deleted_at.is_(None),
-        )
-        .order_by(PatientMediaUpload.created_at.asc())
-        .all()
+    base_q = db.query(PatientMediaUpload).filter(
+        PatientMediaUpload.status.in_(["pending_review", "reupload_requested"]),
+        PatientMediaUpload.deleted_at.is_(None),
     )
+    # Clinic-scope: a clinician/reviewer at clinic A must NOT see
+    # clinic B's queue. Admin / supervisor cross-clinic by design.
+    base_q = _scope_uploads_query_to_clinic(base_q, actor)
+    uploads = base_q.order_by(PatientMediaUpload.created_at.asc()).all()
 
     # Retrieve urgent flag status for all uploads in one pass
     upload_ids = [u.id for u in uploads]
@@ -882,6 +947,9 @@ def review_action(
     )
     if upload is None:
         raise ApiServiceError(code="not_found", message="Upload not found.", status_code=404)
+
+    # Clinic-scope: refuses cross-clinic actions on uploads loaded by id.
+    _check_patient_clinic_access(upload.patient_id, actor, db)
 
     _VALID_ACTIONS = {
         "approve", "reject", "request_reupload", "flag_urgent", "mark_reviewed",
@@ -960,6 +1028,9 @@ async def analyze_upload(
     )
     if upload is None:
         raise ApiServiceError(code="not_found", message="Upload not found.", status_code=404)
+
+    # Clinic-scope before any AI work or state mutation.
+    _check_patient_clinic_access(upload.patient_id, actor, db)
 
     if upload.status != "approved_for_analysis":
         raise ApiServiceError(
@@ -1129,6 +1200,8 @@ def get_analysis(
             )
     else:
         _require_clinician_or_reviewer(actor)
+        # Clinic-scope so a clinician at clinic A can't read clinic B's analyses.
+        _check_patient_clinic_access(upload.patient_id, actor, db)
 
     analysis = db.query(PatientMediaAnalysis).filter_by(upload_id=upload_id).first()
     if analysis is None:
@@ -1152,6 +1225,12 @@ def approve_analysis(
     """Clinician approves AI analysis for clinical use, optionally saving edits."""
     _require_clinician(actor)
 
+    upload = db.query(PatientMediaUpload).filter_by(id=upload_id).first()
+    if upload is None:
+        raise ApiServiceError(code="not_found", message="Upload not found.", status_code=404)
+    # Clinic-scope before approving analysis bound to a cross-clinic upload.
+    _check_patient_clinic_access(upload.patient_id, actor, db)
+
     analysis = db.query(PatientMediaAnalysis).filter_by(upload_id=upload_id).first()
     if analysis is None:
         raise ApiServiceError(code="not_found", message="Analysis not found.", status_code=404)
@@ -1166,9 +1245,7 @@ def approve_analysis(
         if body.clinician_amendments is not None:
             analysis.clinician_amendments = body.clinician_amendments
 
-    upload = db.query(PatientMediaUpload).filter_by(id=upload_id).first()
-    if upload:
-        upload.status = "clinician_reviewed"
+    upload.status = "clinician_reviewed"
 
     _write_audit(
         db,
@@ -1192,6 +1269,13 @@ def amend_analysis(
 ) -> dict:
     """Clinician amends AI analysis with their own notes."""
     _require_clinician(actor)
+
+    upload = db.query(PatientMediaUpload).filter_by(id=upload_id).first()
+    if upload is None:
+        raise ApiServiceError(code="not_found", message="Upload not found.", status_code=404)
+    # Clinic-scope: a clinician at clinic A cannot amend an analysis
+    # bound to a clinic-B patient.
+    _check_patient_clinic_access(upload.patient_id, actor, db)
 
     analysis = db.query(PatientMediaAnalysis).filter_by(upload_id=upload_id).first()
     if analysis is None:
@@ -1248,6 +1332,12 @@ def dismiss_red_flag(
     flag = db.query(MediaRedFlag).filter_by(id=flag_id).first()
     if flag is None:
         raise ApiServiceError(code="not_found", message="Red flag not found.", status_code=404)
+
+    # Clinic-scope: a flag attached to a clinic-B patient cannot be
+    # dismissed by a clinic-A clinician (suppressing safety signals
+    # across clinics is a HIPAA-relevant abuse path).
+    if flag.patient_id:
+        _check_patient_clinic_access(flag.patient_id, actor, db)
 
     flag.dismissed = True
     flag.reviewed_at = datetime.now(timezone.utc)
