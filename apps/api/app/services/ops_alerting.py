@@ -39,6 +39,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.persistence.models import AgentRunAudit
+from app.services.email_notifications import send_email
 
 logger = logging.getLogger(__name__)
 
@@ -159,44 +160,92 @@ def post_alert(
         * ``{ok: False, reason: "transport_error"}`` — network / DNS failure.
     """
     webhook_url = os.environ.get("SLACK_OPS_WEBHOOK_URL", "").strip()
-    if not webhook_url:
-        return {"ok": True, "reason": "no_webhook_configured", "status_code": None}
 
+    # Dedupe is applied BEFORE either side-channel so a second call within
+    # the same hour bucket suppresses both Slack and email noise.
     if dedupe_key is not None and _dedupe_seen(dedupe_key):
         return {"ok": True, "reason": "deduped", "status_code": None}
 
-    payload = _build_payload(severity=severity, title=title, body=body)
+    # ---- Slack channel ---------------------------------------------------
+    # Slack is gated on SLACK_OPS_WEBHOOK_URL. When unset we still try
+    # email below — the two side-channels are independent.
+    slack_result: dict[str, Any]
+    if not webhook_url:
+        slack_result = {
+            "ok": True,
+            "reason": "no_webhook_configured",
+            "status_code": None,
+        }
+    else:
+        payload = _build_payload(severity=severity, title=title, body=body)
+        try:
+            resp = httpx.post(webhook_url, json=payload, timeout=5.0)
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "slack webhook transport error",
+                extra={
+                    "event": "slack_webhook_transport_error",
+                    "error": str(exc),
+                },
+            )
+            slack_result = {
+                "ok": False,
+                "reason": "transport_error",
+                "status_code": None,
+            }
+        else:
+            if 200 <= resp.status_code < 300:
+                slack_result = {
+                    "ok": True,
+                    "reason": None,
+                    "status_code": resp.status_code,
+                }
+            elif 400 <= resp.status_code < 500:
+                logger.warning(
+                    "slack webhook rejected request",
+                    extra={
+                        "event": "slack_webhook_4xx",
+                        "status_code": resp.status_code,
+                    },
+                )
+                slack_result = {
+                    "ok": False,
+                    "reason": "slack_4xx",
+                    "status_code": resp.status_code,
+                }
+            else:
+                logger.warning(
+                    "slack webhook server error",
+                    extra={
+                        "event": "slack_webhook_5xx",
+                        "status_code": resp.status_code,
+                    },
+                )
+                slack_result = {
+                    "ok": False,
+                    "reason": "slack_5xx",
+                    "status_code": resp.status_code,
+                }
 
+    # ---- Email channel ---------------------------------------------------
+    # Wrapped in its own try/except so an email-side bug cannot impact the
+    # Slack return contract. ``send_email`` is documented as never raising,
+    # but defence-in-depth costs us nothing.
     try:
-        resp = httpx.post(webhook_url, json=payload, timeout=5.0)
-    except httpx.HTTPError as exc:
-        logger.warning(
-            "slack webhook transport error",
-            extra={"event": "slack_webhook_transport_error", "error": str(exc)},
+        send_email(
+            subject=f"[DeepSynaps] {title}",
+            body=body,
         )
-        return {"ok": False, "reason": "transport_error", "status_code": None}
-
-    if 200 <= resp.status_code < 300:
-        return {"ok": True, "reason": None, "status_code": resp.status_code}
-
-    if 400 <= resp.status_code < 500:
+    except Exception as exc:  # noqa: BLE001 — never let email break Slack
         logger.warning(
-            "slack webhook rejected request",
+            "email side-channel raised",
             extra={
-                "event": "slack_webhook_4xx",
-                "status_code": resp.status_code,
+                "event": "ops_alert_email_error",
+                "error": str(exc),
             },
         )
-        return {"ok": False, "reason": "slack_4xx", "status_code": resp.status_code}
 
-    logger.warning(
-        "slack webhook server error",
-        extra={
-            "event": "slack_webhook_5xx",
-            "status_code": resp.status_code,
-        },
-    )
-    return {"ok": False, "reason": "slack_5xx", "status_code": resp.status_code}
+    return slack_result
 
 
 # ---------------------------------------------------------------------------
