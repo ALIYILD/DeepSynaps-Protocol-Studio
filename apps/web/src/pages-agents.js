@@ -366,6 +366,140 @@ function _appendMsg(msg, agent) {
 
 let _lastSetTopbar = () => {};
 
+// ── Agent Marketplace state ──────────────────────────────────────────────────
+// Module-scope cache for the marketplace agent catalogue. Hydrated lazily on
+// first hub render; falls back to a hardcoded demo list when the backend is
+// unavailable or returns an empty/unknown shape (the demo-mode shim in api.js
+// turns every list response into `{ items: [] }`).
+let _marketplaceAgents = [];
+let _marketplaceLoaded = false;
+let _marketplaceLoading = false;
+let _marketplaceModalAgent = null;
+let _marketplaceModalReply = null;
+let _marketplaceModalError = null;
+let _marketplaceModalBusy = false;
+
+const MARKETPLACE_DEMO_AGENTS = [
+  {
+    id: 'clinic.reception',
+    name: 'Reception Agent',
+    tagline: 'Books, reschedules, runs intake forms.',
+    audience: 'clinic',
+    role_required: 'clinician',
+    package_required: ['clinician_pro', 'enterprise'],
+    tool_allowlist: ['sessions.list', 'sessions.create', 'sessions.cancel', 'patients.search', 'forms.list', 'consent.status'],
+    monthly_price_gbp: 99,
+    tags: ['scheduling', 'intake'],
+  },
+  {
+    id: 'clinic.reporting',
+    name: 'Reporting Agent',
+    tagline: 'Weekly clinic digest + AE summary.',
+    audience: 'clinic',
+    role_required: 'admin',
+    package_required: ['clinician_pro', 'enterprise'],
+    monthly_price_gbp: 49,
+    tags: ['analytics'],
+  },
+  {
+    id: 'clinic.aliclaw_doctor_telegram',
+    name: 'AliClaw Doctor (Telegram)',
+    tagline: 'Your personal queue agent over Telegram.',
+    audience: 'clinic',
+    role_required: 'clinician',
+    package_required: ['clinician_pro', 'enterprise'],
+    monthly_price_gbp: 79,
+    tags: ['telegram', 'doctor'],
+  },
+];
+
+function _isMarketplaceDemoMode() {
+  try {
+    const flag = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+    if (!flag) return false;
+    const t = api.getToken && api.getToken();
+    return !!(t && String(t).endsWith('-demo-token'));
+  } catch { return false; }
+}
+
+function _marketplaceApiBase() {
+  try { return import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'; }
+  catch { return 'http://127.0.0.1:8000'; }
+}
+
+async function _fetchMarketplaceAgents() {
+  if (_marketplaceLoading) return _marketplaceAgents;
+  _marketplaceLoading = true;
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      const t = api.getToken && api.getToken();
+      if (t) headers['Authorization'] = 'Bearer ' + t;
+    } catch {}
+    let payload = null;
+    try {
+      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents`, {
+        method: 'GET', headers, credentials: 'include',
+      });
+      if (res.ok) payload = await res.json();
+    } catch { payload = null; }
+
+    let agents = [];
+    if (payload && Array.isArray(payload.agents)) agents = payload.agents;
+    else if (payload && Array.isArray(payload.items)) agents = payload.items;
+
+    if (!agents.length) agents = MARKETPLACE_DEMO_AGENTS.slice();
+    _marketplaceAgents = agents;
+    _marketplaceLoaded = true;
+    return _marketplaceAgents;
+  } finally {
+    _marketplaceLoading = false;
+  }
+}
+
+async function _runMarketplaceAgent(agentId, message) {
+  if (_isMarketplaceDemoMode()) {
+    return {
+      agent_id: agentId,
+      reply: `Demo agent: I would normally [do X based on your message: "${message}"]. (Real responses require a clinician account.)`,
+      schema_id: 'demo.v1',
+      safety_footer: 'Decision-support only — not autonomous diagnosis.',
+    };
+  }
+  const headers = { 'Content-Type': 'application/json' };
+  try {
+    const t = api.getToken && api.getToken();
+    if (t) headers['Authorization'] = 'Bearer ' + t;
+  } catch {}
+  const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/${encodeURIComponent(agentId)}/run`, {
+    method: 'POST',
+    headers,
+    credentials: 'include',
+    body: JSON.stringify({ message, context: {} }),
+  });
+  let data = null;
+  try { data = await res.json(); } catch {}
+  if (!res.ok && !data) {
+    throw new Error(`Agent run failed (${res.status})`);
+  }
+  return data || { agent_id: agentId, reply: '', error: 'No response' };
+}
+
+function _marketplaceCurrentPackageId() {
+  try {
+    const u = JSON.parse(localStorage.getItem('ds_user') || '{}');
+    return u.package_id || null;
+  } catch { return null; }
+}
+
+function _marketplaceIsLocked(agent) {
+  const pkg = _marketplaceCurrentPackageId();
+  const required = Array.isArray(agent?.package_required) ? agent.package_required : [];
+  if (!required.length) return false; // no gating
+  if (!pkg) return true;
+  return !required.includes(pkg);
+}
+
 // ── Main Export ──────────────────────────────────────────────────────────────
 export async function pgAgentChat(setTopbar) {
   _lastSetTopbar = setTopbar;
@@ -381,10 +515,119 @@ export async function pgAgentChat(setTopbar) {
       }
     }).catch(() => {});
   }
+  if (!_marketplaceLoaded && !_marketplaceLoading) {
+    // Fire-and-forget; the hub renders immediately with an empty list, then
+    // re-renders once the catalogue arrives (or the demo fallback fills in).
+    _fetchMarketplaceAgents().then(() => {
+      if (_agentView === 'hub') {
+        try { pgAgentChat(_lastSetTopbar); } catch {}
+      }
+    }).catch(() => {});
+  }
   if (_agentView === 'hub') return _renderHub(setTopbar);
   if (_agentView === 'chat-clinician') return _renderChat(setTopbar, 'clinician');
   if (_agentView === 'chat-patient') return _renderChat(setTopbar, 'patient');
   if (_agentView === 'config') return _renderConfig(setTopbar);
+}
+
+// ── Marketplace Section ──────────────────────────────────────────────────────
+function _renderMarketplaceSection() {
+  // Use whatever's loaded; if nothing's loaded yet (very first paint) and we're
+  // in demo mode, show the hardcoded list so reviewers see the marketplace.
+  let agents = _marketplaceAgents;
+  if ((!agents || !agents.length) && _isMarketplaceDemoMode()) {
+    agents = MARKETPLACE_DEMO_AGENTS;
+  }
+  if (!agents || !agents.length) {
+    // Pre-hydration placeholder — keeps the section visible so users know it's
+    // loading and the page layout doesn't shift when the list arrives.
+    return `
+      <div style="margin-bottom:20px">
+        <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 4px">Agent Marketplace</h2>
+        <p class="muted" style="font-size:12px;color:var(--text-secondary);margin:0 0 12px">Add specialised AI sub-agents to your clinic.</p>
+        <div class="card" style="padding:14px 16px;font-size:11.5px;color:var(--text-tertiary)">Loading available agents…</div>
+      </div>
+    `;
+  }
+
+  const tiles = agents.map(a => {
+    const locked = _marketplaceIsLocked(a);
+    const audience = _esc(a.audience || 'clinic');
+    const required = Array.isArray(a.package_required) ? a.package_required : [];
+    const packageBadge = locked
+      ? '<span class="ds-pill" style="font-size:10px;padding:3px 9px;border-radius:99px;background:rgba(245,158,11,0.12);color:var(--amber,#f59e0b);font-weight:600;border:1px solid rgba(245,158,11,0.25)">Locked — upgrade required</span>'
+      : `<span class="ds-pill" style="font-size:10px;padding:3px 9px;border-radius:99px;background:rgba(0,212,188,0.10);color:var(--teal);font-weight:600;border:1px solid rgba(0,212,188,0.25)">${_esc(required[0] || 'included')}</span>`;
+    const audPill = `<span class="ds-pill" style="font-size:10px;padding:3px 9px;border-radius:99px;background:rgba(74,158,255,0.10);color:var(--blue);font-weight:600;border:1px solid rgba(74,158,255,0.25)">${audience}</span>`;
+    const lockedAttrs = locked ? 'disabled title="Upgrade required" style="opacity:0.55;cursor:not-allowed"' : '';
+    const tryBtn = locked
+      ? `<button class="btn btn-sm btn-primary" ${lockedAttrs}>Try in chat</button>`
+      : `<button class="btn btn-sm btn-primary" onclick="window._agentMarketplaceTry('${_esc(a.id)}')" style="font-size:11.5px">Try in chat</button>`;
+    const cfgBtn = locked
+      ? `<button class="btn btn-sm btn-ghost" ${lockedAttrs}>Configure</button>`
+      : `<button class="btn btn-sm btn-ghost" onclick="window._agentMarketplaceConfigure('${_esc(a.id)}')" style="font-size:11.5px;opacity:0.7" title="Configuration coming soon">Configure</button>`;
+    const dimStyle = locked ? 'opacity:0.7;' : '';
+    const price = Number.isFinite(a.monthly_price_gbp) ? a.monthly_price_gbp : (a.monthly_price_gbp || 0);
+    return `
+      <div class="card ds-card" style="${dimStyle}padding:14px 16px;display:flex;flex-direction:column;gap:8px;min-height:170px">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          ${audPill}
+          ${packageBadge}
+        </div>
+        <h3 style="font-size:14px;font-weight:700;color:var(--text-primary);margin:0">${_esc(a.name || a.id)}</h3>
+        <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.4;flex:1">${_esc(a.tagline || '')}</div>
+        <div style="font-size:12px;font-weight:700;color:var(--text-primary)">£${_esc(String(price))}/mo</div>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          ${tryBtn}
+          ${cfgBtn}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div style="margin-bottom:20px">
+      <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 4px">Agent Marketplace</h2>
+      <p class="muted" style="font-size:12px;color:var(--text-secondary);margin:0 0 12px">Add specialised AI sub-agents to your clinic.</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">
+        ${tiles}
+      </div>
+    </div>
+    ${_renderMarketplaceModal()}
+  `;
+}
+
+function _renderMarketplaceModal() {
+  if (!_marketplaceModalAgent) return '';
+  const a = _marketplaceModalAgent;
+  const replyBlock = _marketplaceModalReply
+    ? `<div style="margin-top:12px;padding:12px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid var(--border);font-size:12px;color:var(--text-primary);line-height:1.55;white-space:pre-wrap">${_formatAgentText(_marketplaceModalReply.reply || '(empty reply)')}
+        <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text-tertiary);font-style:italic">${_esc(_marketplaceModalReply.safety_footer || 'Decision-support, not autonomous diagnosis.')}</div>
+      </div>`
+    : '';
+  const errBlock = _marketplaceModalError
+    ? `<div style="margin-top:12px;padding:10px 12px;border-radius:8px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);font-size:11.5px;color:var(--red,#ef4444)">${_esc(_marketplaceModalError)}</div>`
+    : '';
+  const busyAttr = _marketplaceModalBusy ? 'disabled' : '';
+  return `
+    <div class="ds-modal-overlay" onclick="if(event.target===this){window._agentMarketplaceModalClose()}">
+      <div class="ds-modal" style="min-width:420px;max-width:560px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
+          <div>
+            <div style="font-size:15px;font-weight:700;color:var(--text-primary)">${_esc(a.name || a.id)}</div>
+            <div style="font-size:11.5px;color:var(--text-tertiary);margin-top:2px">${_esc(a.tagline || '')}</div>
+          </div>
+          <button class="btn btn-sm btn-ghost" onclick="window._agentMarketplaceModalClose()" style="font-size:14px;padding:2px 10px">×</button>
+        </div>
+        <textarea id="agent-marketplace-input" class="form-control" rows="4" placeholder="Ask this agent anything…" style="width:100%;resize:vertical;font-size:12.5px"></textarea>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
+          <button class="btn btn-sm btn-ghost" onclick="window._agentMarketplaceModalClose()" ${busyAttr}>Close</button>
+          <button class="btn btn-sm btn-primary" onclick="window._agentMarketplaceModalSend()" ${busyAttr}>${_marketplaceModalBusy ? 'Sending…' : 'Send'}</button>
+        </div>
+        ${errBlock}
+        ${replyBlock}
+      </div>
+    </div>
+  `;
 }
 
 // ── Hub View ─────────────────────────────────────────────────────────────────
@@ -452,6 +695,9 @@ function _renderHub(setTopbar) {
         </div>
       </div>
     </div>
+
+    <!-- Agent Marketplace (above existing clinician/patient launch cards) -->
+    ${_renderMarketplaceSection()}
 
     <!-- Two agent launch cards -->
     <div class="agent-hub-grid" style="margin-bottom:20px">
@@ -1048,4 +1294,57 @@ window._agentQuickAction = function(agent, prompt) {
   const input = document.getElementById('agent-input');
   if (input) { input.value = prompt; input.focus(); }
   window._agentSend(agent);
+};
+
+// ── Marketplace handlers ─────────────────────────────────────────────────────
+window._agentMarketplaceTry = function(agentId) {
+  const agent = (_marketplaceAgents && _marketplaceAgents.find(x => x.id === agentId))
+    || MARKETPLACE_DEMO_AGENTS.find(x => x.id === agentId);
+  if (!agent) return;
+  if (_marketplaceIsLocked(agent)) {
+    window._showNotifToast?.({ title: 'Upgrade required', body: 'This agent is not included in your current package.', severity: 'warning' });
+    return;
+  }
+  _marketplaceModalAgent = agent;
+  _marketplaceModalReply = null;
+  _marketplaceModalError = null;
+  _marketplaceModalBusy = false;
+  pgAgentChat(_lastSetTopbar);
+  setTimeout(() => document.getElementById('agent-marketplace-input')?.focus(), 50);
+};
+
+window._agentMarketplaceConfigure = function(/* agentId */) {
+  // Placeholder per spec — full configuration UI lands in a follow-up PR.
+  alert('Configuration coming soon');
+};
+
+window._agentMarketplaceModalClose = function() {
+  _marketplaceModalAgent = null;
+  _marketplaceModalReply = null;
+  _marketplaceModalError = null;
+  _marketplaceModalBusy = false;
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+};
+
+window._agentMarketplaceModalSend = async function() {
+  if (_marketplaceModalBusy || !_marketplaceModalAgent) return;
+  const input = document.getElementById('agent-marketplace-input');
+  const message = (input?.value || '').trim();
+  if (!message) return;
+  _marketplaceModalBusy = true;
+  _marketplaceModalError = null;
+  pgAgentChat(_lastSetTopbar);
+  try {
+    const result = await _runMarketplaceAgent(_marketplaceModalAgent.id, message);
+    if (result && result.error && !result.reply) {
+      _marketplaceModalError = String(result.error);
+    } else {
+      _marketplaceModalReply = result || { reply: '' };
+    }
+  } catch (err) {
+    _marketplaceModalError = err?.message || 'Agent run failed.';
+  } finally {
+    _marketplaceModalBusy = false;
+    pgAgentChat(_lastSetTopbar);
+  }
 };
