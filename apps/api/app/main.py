@@ -53,6 +53,7 @@ from app.routers.export_router import router as export_router
 from app.routers.personalization_router import router as personalization_router
 from app.routers.patients_router import router as patients_router
 from app.routers.payments_router import router as payments_router
+from app.routers.agent_billing_router import router as agent_billing_router
 from app.routers.finance_router import router as finance_router
 from app.routers.sessions_router import router as sessions_router
 from app.routers.treatment_courses_router import router as treatment_courses_router
@@ -225,6 +226,7 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(payments_router)
+app.include_router(agent_billing_router)
 app.include_router(finance_router)
 app.include_router(export_router)
 app.include_router(personalization_router)
