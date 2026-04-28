@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint, event
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, DateTime, Enum, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, event, text as sa_text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -2505,3 +2505,77 @@ def _seed_default_package_budgets(target, connection, **_kw):  # noqa: ARG001
         connection.execute(target.insert(), rows)
     except Exception:  # pragma: no cover — defensive against re-seed races
         pass
+
+
+# ── Phase 8 — DB-backed patient agent activation (migration 052) ────────────
+
+
+class PatientAgentActivation(Base):
+    """Clinic-level activation record for a patient-facing agent (Phase 8).
+
+    Phase 7 (PR #221) shipped this flow with a module-scoped in-memory set
+    that did not survive a Fly machine restart. Phase 8 promotes it to a
+    real audit-style table:
+
+    * One row per (clinic_id, agent_id) attestation event.
+    * Soft-delete via ``deactivated_at`` / ``deactivated_by`` — never
+      hard-delete; the row is the audit evidence of who attested what.
+    * Re-activating a previously-deactivated pair creates a *new* row;
+      the prior soft-deleted row is preserved.
+    * Active uniqueness is enforced by a partial unique index over
+      ``(clinic_id, agent_id) WHERE deactivated_at IS NULL`` — declared
+      at the migration level (sqlite + postgres both support it). Mirrors
+      :class:`AgentSubscription`'s column conventions.
+
+    Production guardrail still lives in
+    :func:`app.services.patient_agent_activation.is_activated`: even with
+    an active row present, callers see ``False`` unless
+    ``DEEPSYNAPS_PATIENT_AGENTS_ACTIVATED=1``.
+    """
+
+    __tablename__ = "patient_agent_activation"
+
+    id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, default=lambda: uuid.uuid4().hex
+    )
+    # Clinic owning the activation. Not a FK — the activation table is
+    # operator audit, and we keep it loose so a clinic deletion doesn't
+    # silently lose the attestation history.
+    clinic_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # Agent canonical id (e.g. "patient.care_companion"). Not a FK —
+    # agents live in the in-process AGENT_REGISTRY.
+    agent_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    # Free-text attestation written by the super-admin. Service-layer
+    # enforces a >= 32-char minimum so this is never trivial.
+    attestation: Mapped[str] = mapped_column(Text(), nullable=False)
+    # Actor id of the super-admin recording the attestation.
+    attested_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    attested_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    # Soft-delete: when present, the row is treated as historical and the
+    # partial unique index ignores it. ``deactivated_by`` records the
+    # actor that flipped the row off.
+    deactivated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(), nullable=True
+    )
+    deactivated_by: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
+
+
+# Partial unique index — only enforce uniqueness for rows where
+# ``deactivated_at IS NULL``. SQLite (>= 3.8) and Postgres both honour the
+# dialect-specific ``*_where`` kwargs; the metadata-driven schema build
+# (``Base.metadata.create_all``) emits the partial WHERE clause natively
+# so the test harness exercises the same constraint as production.
+Index(
+    "uq_active_pair",
+    PatientAgentActivation.clinic_id,
+    PatientAgentActivation.agent_id,
+    unique=True,
+    sqlite_where=sa_text("deactivated_at IS NULL"),
+    postgresql_where=sa_text("deactivated_at IS NULL"),
+)
