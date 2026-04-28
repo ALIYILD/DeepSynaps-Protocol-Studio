@@ -6,9 +6,15 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import (
@@ -20,15 +26,14 @@ from app.persistence.models import (
     Patient,
     PatientAdherenceEvent,
     TreatmentCourse,
+    User,
     WearableDailySummary,
 )
+from app.repositories.patients import resolve_patient_clinic_id
 from app.repositories.sessions import (
     check_conflicts,
     create_session,
     delete_session,
-    get_session,
-    list_sessions_for_clinician,
-    list_sessions_for_patient,
     update_session,
 )
 
@@ -534,11 +539,53 @@ def _build_runtime_payload(db: Session, record: ClinicalSession, patient: Option
     )
 
 
-def _get_owned_session_or_404(db: Session, session_id: str, actor: AuthenticatedActor) -> ClinicalSession:
-    record = get_session(db, session_id, actor.actor_id)
+def _resolve_session_for_actor(
+    db: Session, session_id: str, actor: AuthenticatedActor
+) -> ClinicalSession:
+    """Return the session if ``actor`` may read/write it; raise 404 otherwise.
+
+    Pre-fix the router used the legacy owner-only model
+    (``clinical_sessions.clinician_id == actor.actor_id``) so a covering
+    clinician at the same clinic could not read or update a colleague's
+    session, and admin / supervisor were also locked out of cross-clinic
+    rows that they are explicitly meant to see.
+
+    Post-fix the gate routes through the canonical
+    ``resolve_patient_clinic_id`` + ``require_patient_owner`` helpers and
+    converts the 403 cross-clinic denial into a 404 so the existence of
+    another clinic's session id never leaks to a probing client.
+    """
+    record = db.query(ClinicalSession).filter(ClinicalSession.id == session_id).first()
     if record is None:
         raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+    _, clinic_id = resolve_patient_clinic_id(db, record.patient_id)
+    try:
+        require_patient_owner(actor, clinic_id, allow_admin=True)
+    except ApiServiceError as exc:
+        # Convert cross-clinic 403 → 404 to avoid leaking row existence.
+        if exc.code == "cross_clinic_access_denied":
+            raise ApiServiceError(
+                code="not_found", message="Session not found.", status_code=404
+            ) from None
+        raise
     return record
+
+
+def _clinic_member_ids(db: Session, actor: AuthenticatedActor) -> list[str]:
+    """Return user-ids whose ``clinic_id`` matches ``actor.clinic_id``.
+
+    Used by the list endpoints so a covering clinician sees their
+    teammates' sessions instead of the empty list the owner-only filter
+    produced. Returns ``[actor.actor_id]`` when the actor has no clinic
+    binding (solo practitioner) so the list still works.
+    """
+    if actor.clinic_id is None:
+        return [actor.actor_id]
+    rows = db.execute(
+        select(User.id).where(User.clinic_id == actor.clinic_id)
+    ).all()
+    ids = [r[0] for r in rows]
+    return ids or [actor.actor_id]
 
 
 def _append_session_event(
@@ -573,10 +620,29 @@ def list_sessions_endpoint(
     session: Session = Depends(get_db_session),
 ) -> SessionListResponse:
     require_minimum_role(actor, "clinician")
-    if patient_id:
-        records = list_sessions_for_patient(session, patient_id, actor.actor_id)
+    # Clinic-scope: covering clinicians at the same clinic see each other's
+    # sessions; admin sees the full surface across clinics. Pre-fix the
+    # owner-only filter produced an empty list for any user who wasn't the
+    # row's ``clinician_id``.
+    if actor.role == "admin":
+        query = session.query(ClinicalSession)
     else:
-        records = list_sessions_for_clinician(session, actor.actor_id)
+        member_ids = _clinic_member_ids(session, actor)
+        query = session.query(ClinicalSession).filter(
+            ClinicalSession.clinician_id.in_(member_ids)
+        )
+    if patient_id:
+        # Refuse to leak rows for a patient that isn't in the actor's clinic.
+        _, patient_clinic_id = resolve_patient_clinic_id(session, patient_id)
+        try:
+            require_patient_owner(actor, patient_clinic_id, allow_admin=True)
+        except ApiServiceError as exc:
+            if exc.code == "cross_clinic_access_denied":
+                # Empty list (not 404) — listing is not a row read.
+                return SessionListResponse(items=[], total=0)
+            raise
+        query = query.filter(ClinicalSession.patient_id == patient_id)
+    records = list(query.order_by(ClinicalSession.scheduled_at.desc()).all())
     items = [SessionOut.from_record(r) for r in records]
     return SessionListResponse(items=items, total=len(items))
 
@@ -588,9 +654,23 @@ def create_session_endpoint(
     session: Session = Depends(get_db_session),
 ) -> SessionOut:
     require_minimum_role(actor, "clinician")
-    patient = session.query(Patient).filter_by(id=body.patient_id, clinician_id=actor.actor_id).first()
+    # Clinic-scope the patient lookup so a colleague at the same clinic can
+    # book sessions for the patient they're covering. The owner-only check
+    # would 404 a covering clinician booking on the owning clinician's
+    # behalf — pre-fix this turned routine cross-cover into a permission
+    # mystery rather than a real error.
+    patient = session.query(Patient).filter(Patient.id == body.patient_id).first()
     if patient is None:
         raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+    _, patient_clinic_id = resolve_patient_clinic_id(session, body.patient_id)
+    try:
+        require_patient_owner(actor, patient_clinic_id, allow_admin=True)
+    except ApiServiceError as exc:
+        if exc.code == "cross_clinic_access_denied":
+            raise ApiServiceError(
+                code="not_found", message="Patient not found.", status_code=404
+            ) from None
+        raise
 
     # Validate appointment_type
     if body.appointment_type not in VALID_APPOINTMENT_TYPES:
@@ -600,10 +680,14 @@ def create_session_endpoint(
             status_code=400,
         )
 
-    # Check for scheduling conflicts
+    # Conflict detection still scopes to the patient's owning clinician —
+    # that's the calendar an overlap matters on. Two clinicians at the
+    # same clinic legitimately have separate calendars and shouldn't
+    # collide on each other's bookings.
+    booking_clinician_id = patient.clinician_id
     conflicts = check_conflicts(
         session,
-        clinician_id=actor.actor_id,
+        clinician_id=booking_clinician_id,
         scheduled_at=body.scheduled_at,
         duration_minutes=body.duration_minutes,
         room_id=body.room_id,
@@ -618,7 +702,7 @@ def create_session_endpoint(
             details={"conflicting_session_ids": conflict_ids},
         )
 
-    record = create_session(session, clinician_id=actor.actor_id, **body.model_dump())
+    record = create_session(session, clinician_id=booking_clinician_id, **body.model_dump())
     return SessionOut.from_record(record)
 
 
@@ -628,18 +712,22 @@ def get_current_session_endpoint(
     session: Session = Depends(get_db_session),
 ) -> SessionRuntimeOut:
     require_minimum_role(actor, "clinician")
-    rows = (
-        session.query(ClinicalSession)
-        .filter(
-            ClinicalSession.clinician_id == actor.actor_id,
-            ClinicalSession.status.in_(("in_progress", "checked_in", "confirmed", "scheduled")),
+    # Clinic-scoped pick: a covering clinician at the same clinic surfaces
+    # the team's active session, not the empty list the owner-only filter
+    # produced.
+    if actor.role == "admin":
+        base = session.query(ClinicalSession)
+    else:
+        base = session.query(ClinicalSession).filter(
+            ClinicalSession.clinician_id.in_(_clinic_member_ids(session, actor))
         )
-        .all()
-    )
+    rows = base.filter(
+        ClinicalSession.status.in_(("in_progress", "checked_in", "confirmed", "scheduled")),
+    ).all()
     if not rows:
         raise ApiServiceError(code="not_found", message="No active or upcoming session found.", status_code=404)
     record = sorted(rows, key=_session_priority)[0]
-    patient = session.query(Patient).filter_by(id=record.patient_id, clinician_id=actor.actor_id).first()
+    patient = session.query(Patient).filter(Patient.id == record.patient_id).first()
     return _build_runtime_payload(session, record, patient)
 
 
@@ -650,9 +738,7 @@ def get_session_endpoint(
     session: Session = Depends(get_db_session),
 ) -> SessionOut:
     require_minimum_role(actor, "clinician")
-    record = get_session(session, session_id, actor.actor_id)
-    if record is None:
-        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+    record = _resolve_session_for_actor(session, session_id, actor)
     return SessionOut.from_record(record)
 
 
@@ -663,7 +749,7 @@ def list_session_events_endpoint(
     session: Session = Depends(get_db_session),
 ) -> list[SessionEventOut]:
     require_minimum_role(actor, "clinician")
-    _get_owned_session_or_404(session, session_id, actor)
+    _resolve_session_for_actor(session, session_id, actor)
     rows = (
         session.query(ClinicalSessionEvent)
         .filter_by(session_id=session_id)
@@ -681,7 +767,7 @@ def create_session_event_endpoint(
     session: Session = Depends(get_db_session),
 ) -> SessionEventOut:
     require_minimum_role(actor, "clinician")
-    record = _get_owned_session_or_404(session, session_id, actor)
+    record = _resolve_session_for_actor(session, session_id, actor)
     row = _append_session_event(
         session,
         record=record,
@@ -711,7 +797,7 @@ def transition_session_phase_endpoint(
     session: Session = Depends(get_db_session),
 ) -> SessionRuntimeOut:
     require_minimum_role(actor, "clinician")
-    record = _get_owned_session_or_404(session, session_id, actor)
+    record = _resolve_session_for_actor(session, session_id, actor)
     _append_session_event(
         session,
         record=record,
@@ -722,7 +808,7 @@ def transition_session_phase_endpoint(
     )
     if body.phase == "ended":
         record = _finalize_session_runtime(session, record=record, actor=actor)
-    patient = session.query(Patient).filter_by(id=record.patient_id, clinician_id=actor.actor_id).first()
+    patient = session.query(Patient).filter(Patient.id == record.patient_id).first()
     return _build_runtime_payload(session, record, patient)
 
 
@@ -733,7 +819,7 @@ def start_session_video_endpoint(
     session: Session = Depends(get_db_session),
 ) -> SessionVideoOut:
     require_minimum_role(actor, "clinician")
-    record = _get_owned_session_or_404(session, session_id, actor)
+    record = _resolve_session_for_actor(session, session_id, actor)
     room_name = f"ds-live-{record.id}"
     _append_session_event(
         session,
@@ -753,7 +839,7 @@ def end_session_video_endpoint(
     session: Session = Depends(get_db_session),
 ) -> SessionVideoOut:
     require_minimum_role(actor, "clinician")
-    record = _get_owned_session_or_404(session, session_id, actor)
+    record = _resolve_session_for_actor(session, session_id, actor)
     room_name = f"ds-live-{record.id}"
     _append_session_event(
         session,
@@ -773,7 +859,7 @@ def get_remote_monitor_snapshot_endpoint(
     session: Session = Depends(get_db_session),
 ) -> RemoteMonitorSnapshotOut:
     require_minimum_role(actor, "clinician")
-    record = _get_owned_session_or_404(session, session_id, actor)
+    record = _resolve_session_for_actor(session, session_id, actor)
     latest_summary = (
         session.query(WearableDailySummary)
         .filter(WearableDailySummary.patient_id == record.patient_id)
@@ -815,7 +901,7 @@ def set_session_impedance_endpoint(
     session: Session = Depends(get_db_session),
 ) -> SessionEventOut:
     require_minimum_role(actor, "clinician")
-    record = _get_owned_session_or_404(session, session_id, actor)
+    record = _resolve_session_for_actor(session, session_id, actor)
     row = _append_session_event(
         session,
         record=record,
@@ -837,10 +923,13 @@ def update_session_endpoint(
     require_minimum_role(actor, "clinician")
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
 
-    # Fetch existing record
-    record = get_session(session, session_id, actor.actor_id)
-    if record is None:
-        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+    # Clinic-scope gate first: confirms the actor may touch this session
+    # at all. The repo update/delete functions still take ``clinician_id``
+    # for their internal filter so we pass the session's owning clinician
+    # — the gate above is what authorises cross-clinician (same-clinic)
+    # operation; passing the row's own ``clinician_id`` keeps the repo
+    # filter satisfied without re-introducing the owner-only block.
+    record = _resolve_session_for_actor(session, session_id, actor)
 
     # Validate appointment_type if being changed
     if "appointment_type" in updates and updates["appointment_type"] not in VALID_APPOINTMENT_TYPES:
@@ -864,13 +953,15 @@ def update_session_endpoint(
         elif new_status == "cancelled":
             updates.setdefault("cancelled_at", now_iso)
 
-    # Check for scheduling conflicts if time/resource changed
+    # Conflict detection scopes to the session's owning clinician — same
+    # rationale as the create path. Two clinicians at the same clinic
+    # legitimately have separate calendars.
     time_changed = "scheduled_at" in updates or "duration_minutes" in updates
     resource_changed = "room_id" in updates or "device_id" in updates
     if time_changed or resource_changed:
         conflicts = check_conflicts(
             session,
-            clinician_id=actor.actor_id,
+            clinician_id=record.clinician_id,
             scheduled_at=updates.get("scheduled_at", record.scheduled_at),
             duration_minutes=updates.get("duration_minutes", record.duration_minutes),
             room_id=updates.get("room_id", record.room_id),
@@ -886,7 +977,7 @@ def update_session_endpoint(
                 details={"conflicting_session_ids": conflict_ids},
             )
 
-    result = update_session(session, session_id, actor.actor_id, **updates)
+    result = update_session(session, session_id, record.clinician_id, **updates)
     if result is None:
         raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
     return SessionOut.from_record(result)
@@ -899,6 +990,7 @@ def delete_session_endpoint(
     session: Session = Depends(get_db_session),
 ) -> None:
     require_minimum_role(actor, "clinician")
-    deleted = delete_session(session, session_id, actor.actor_id)
+    record = _resolve_session_for_actor(session, session_id, actor)
+    deleted = delete_session(session, session_id, record.clinician_id)
     if not deleted:
         raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
