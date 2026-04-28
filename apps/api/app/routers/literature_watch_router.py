@@ -35,13 +35,46 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+
+from app.limiter import limiter
 from pydantic import BaseModel, Field
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 
 
 logger = logging.getLogger("literature_watch")
+
+# Concurrency cap on background refresh tasks. Pre-fix the route fired
+# unbounded ``asyncio.create_task`` calls — N parallel tasks across
+# protocols (multiplied by the per-IP rate limit) would exhaust HTTP
+# connections to PubMed / OpenAlex / EuropePMC and blow the per-source
+# politeness budget. 4 in-flight is a generous cap for the realistic
+# clinical-research workload while keeping the worker pool predictable.
+_REFRESH_MAX_CONCURRENCY = int(os.environ.get("LIT_WATCH_MAX_CONCURRENCY", "4"))
+_REFRESH_SEMAPHORE: asyncio.Semaphore | None = None
+
+
+def _refresh_semaphore() -> asyncio.Semaphore:
+    """Lazy-construct the semaphore so it binds to the running loop.
+
+    Built lazily because ``asyncio.Semaphore()`` at import time can
+    bind to a different event loop than FastAPI uses, depending on
+    the ASGI runner. Constructing on first use ensures it lives on
+    the correct loop.
+    """
+    global _REFRESH_SEMAPHORE
+    if _REFRESH_SEMAPHORE is None:
+        _REFRESH_SEMAPHORE = asyncio.Semaphore(_REFRESH_MAX_CONCURRENCY)
+    return _REFRESH_SEMAPHORE
+
+
+async def _bounded_run_refresh_job(job_id: int, protocol_id: str, src: str) -> None:
+    """Wrap ``_run_refresh_job`` so concurrent dispatches block on
+    ``_REFRESH_SEMAPHORE``. Pre-fix every dispatch ran in parallel."""
+    sem = _refresh_semaphore()
+    async with sem:
+        await _run_refresh_job(job_id, protocol_id, src)
 
 router = APIRouter(prefix="/api/v1", tags=["Literature Watch"])
 
@@ -153,8 +186,11 @@ def _spend_summary(conn: sqlite3.Connection) -> dict[str, Any]:
 
 # ── Schemas ─────────────────────────────────────────────────────────────────
 class RefreshRequest(BaseModel):
-    source: str = Field(default="pubmed", description="pubmed | consensus | apify")
-    requested_by: Optional[str] = Field(default=None)
+    source: str = Field(default="pubmed", max_length=32, description="pubmed | consensus | apify")
+    # `requested_by` is logged into the `refresh_jobs.requested_by`
+    # column. Cap at 64 to match every other actor-id column in the
+    # codebase and refuse mega-string DoS at the schema layer.
+    requested_by: Optional[str] = Field(default=None, max_length=64)
 
 
 class RefreshResponse(BaseModel):
@@ -203,8 +239,8 @@ class PendingListResponse(BaseModel):
 
 
 class ReviewRequest(BaseModel):
-    verdict: str  # 'relevant' | 'not-relevant' | 'promoted'
-    protocol_id: str
+    verdict: str = Field(..., max_length=32)  # 'relevant' | 'not-relevant' | 'promoted'
+    protocol_id: str = Field(..., max_length=64)
 
 
 class ReviewResponse(BaseModel):
@@ -359,7 +395,9 @@ async def _run_refresh_job(
     response_model=RefreshResponse,
     status_code=202,
 )
+@limiter.limit("5/minute")
 async def refresh_literature(
+    request: Request,
     protocol_id: str,
     body: RefreshRequest = Body(default_factory=RefreshRequest),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -367,7 +405,11 @@ async def refresh_literature(
     """Enqueue an on-demand literature refresh and kick off a background task.
 
     Budget gate: §5.5 — total monthly cost ≥ $100 ⇒ 402.
-    PubMed is free so it bypasses the cost check entirely.
+    PubMed is free so it bypasses the cost check entirely, BUT the
+    rate limit + concurrency cap above are the load-bearing guards
+    against an authed clinician spamming free-source refreshes
+    (each one fans out into PubMed / OpenAlex queries and rebuilds
+    pending-paper review state).
     """
     require_minimum_role(actor, "clinician")
     src = (body.source or "pubmed").lower()
@@ -411,10 +453,12 @@ async def refresh_literature(
     finally:
         conn.close()
 
-    # Fire-and-forget. asyncio.create_task is the spec-friendly choice
-    # ("Trigger the worker on endpoint call via asyncio.create_task or a
-    # thread — don't require a separate daemon").
-    asyncio.create_task(_run_refresh_job(job_id, protocol_id, src))
+    # Fire-and-forget. Wrapped in `_bounded_run_refresh_job` so the
+    # `_REFRESH_SEMAPHORE` caps concurrent in-flight tasks at
+    # `_REFRESH_MAX_CONCURRENCY` (default 4). Pre-fix every call
+    # spawned an unbounded `asyncio.create_task`, exhausting HTTP
+    # connection pools to PubMed / OpenAlex / EuropePMC.
+    asyncio.create_task(_bounded_run_refresh_job(job_id, protocol_id, src))
 
     return RefreshResponse(
         job_id=job_id, status="queued", source=src, protocol_id=protocol_id
