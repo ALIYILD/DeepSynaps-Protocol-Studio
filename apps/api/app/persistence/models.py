@@ -2579,3 +2579,55 @@ Index(
     sqlite_where=sa_text("deactivated_at IS NULL"),
     postgresql_where=sa_text("deactivated_at IS NULL"),
 )
+
+
+# ── Phase 9 — per-clinic monthly cost cap (migration 053) ───────────────────
+
+
+class ClinicMonthlyCostCap(Base):
+    """Per-clinic monthly cost ceiling for agent runs (Phase 9).
+
+    Phase 8 populated :class:`AgentRunAudit.cost_pence` with real numbers.
+    Phase 9 layers a budget guardrail on top of that data: each clinic
+    optionally pins a ``cap_pence`` and the runner refuses to dispatch a
+    new LLM turn whenever the month-to-date sum of ``cost_pence`` for the
+    clinic meets or exceeds the cap.
+
+    Design contract
+    ---------------
+    * One row per clinic — ``clinic_id`` is unique-indexed.
+    * ``cap_pence == 0`` means *disabled* (no enforcement). Operators
+      flip a clinic off by setting the cap to 0 rather than deleting the
+      row, so the audit trail of who set what survives.
+    * ``updated_by_id`` is FK -> ``users.id`` with ON DELETE SET NULL —
+      we keep the cap row alive after a user is deleted but lose the
+      attribution link, mirroring :class:`AgentRunAudit.actor_id`.
+    """
+
+    __tablename__ = "clinic_monthly_cost_cap"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    clinic_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("clinics.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    cap_pence: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    updated_by_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
