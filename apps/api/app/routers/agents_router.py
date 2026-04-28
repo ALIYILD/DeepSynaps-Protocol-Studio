@@ -26,12 +26,14 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from app.auth import (
     AuthenticatedActor,
     get_authenticated_actor,
     require_minimum_role,
 )
+from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.limiter import limiter
 from app.services.agents import audit, runner
@@ -79,6 +81,10 @@ class AgentRunResponse(BaseModel):
     reply: str
     schema_id: str
     safety_footer: str
+    # Phase 2 / ToolBroker — tool ids the runner pre-fetched and folded
+    # into the live <context> block. Empty list when no live context was
+    # attached. Useful for the UI tag "Grounded in: …".
+    context_used: list[str] = Field(default_factory=list)
     error: str | None = None
 
 
@@ -123,6 +129,7 @@ def run_agent_endpoint(
     agent_id: str,
     payload: AgentRunRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> AgentRunResponse:
     """Execute one turn of the requested agent on behalf of the actor."""
     agent_def = AGENT_REGISTRY.get(agent_id)
@@ -151,7 +158,11 @@ def run_agent_endpoint(
         )
 
     result = runner.run_agent(
-        agent_def, message=payload.message, context=payload.context
+        agent_def,
+        message=payload.message,
+        context=payload.context,
+        actor=actor,
+        db=db,
     )
 
     ok = bool(result.get("reply")) and not result.get("error")
@@ -168,6 +179,7 @@ def run_agent_endpoint(
         reply=result.get("reply", ""),
         schema_id=result["schema_id"],
         safety_footer=result["safety_footer"],
+        context_used=list(result.get("context_used", []) or []),
         error=result.get("error"),
     )
 

@@ -170,7 +170,13 @@ def test_run_with_context_passes_through(
     auth_headers: dict[str, dict[str, str]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The runner should embed the context block in the user message."""
+    """The runner should embed a context block in the user message.
+
+    Phase 2 (ToolBroker) now prepends a ``<context source="clinic_live">``
+    block populated by the broker. Caller-supplied ``context`` is folded
+    into the same block under a ``caller_context`` key so the model still
+    sees it.
+    """
     captured: dict[str, object] = {}
 
     def _capture(**kwargs):
@@ -189,7 +195,8 @@ def test_run_with_context_passes_through(
     )
     assert resp.status_code == 200
     user_content = captured["messages"][0]["content"]  # type: ignore[index]
-    assert "<context>" in user_content
+    # Either the live-context tag OR the legacy bare tag must appear.
+    assert "<context" in user_content
     assert "pat-123" in user_content
     assert "Look up patient." in user_content
 
