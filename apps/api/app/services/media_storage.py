@@ -148,6 +148,90 @@ def allowed_video_types() -> list[str]:
     ]
 
 
+# Pre-fix the patient-upload routes derived the on-disk extension from
+# `file.filename.rsplit(".", 1)[-1]` with no allowlist — a user could
+# supply ``audio.php`` (or worse, with shell metacharacters) and the
+# extension would be persisted verbatim in `save_upload`. The two maps
+# below pin every accepted MIME type to a known-safe extension so the
+# filename written to disk is always one of a fixed set.
+_AUDIO_MIME_TO_EXT = {
+    "audio/webm": "webm",
+    "audio/mp4": "m4a",
+    "audio/mpeg": "mp3",
+    "audio/ogg": "ogg",
+    "audio/wav": "wav",
+}
+_VIDEO_MIME_TO_EXT = {
+    "video/mp4": "mp4",
+    "video/webm": "webm",
+}
+
+
+def safe_audio_ext(mime: str | None) -> str:
+    """Return the canonical disk extension for an audio MIME type."""
+    return _AUDIO_MIME_TO_EXT.get((mime or "").lower(), "webm")
+
+
+def safe_video_ext(mime: str | None) -> str:
+    """Return the canonical disk extension for a video MIME type."""
+    return _VIDEO_MIME_TO_EXT.get((mime or "").lower(), "webm")
+
+
+# Magic-byte sniffing tables. Pre-fix the upload routes accepted the
+# client-supplied ``Content-Type`` header at face value — a user could
+# upload arbitrary binary and tag it as ``audio/webm``. The signatures
+# below are checked against the first ~32 bytes of the uploaded body
+# at the boundary; mismatch => 422.
+_AUDIO_MAGIC_SIGNATURES: tuple[tuple[bytes, bytes | None], ...] = (
+    # WebM / Matroska — leading EBML header.
+    (b"\x1a\x45\xdf\xa3", None),
+    # OGG — "OggS"
+    (b"OggS", None),
+    # WAV — RIFF....WAVE
+    (b"RIFF", b"WAVE"),
+    # MP3 with ID3v2 tag.
+    (b"ID3", None),
+    # Bare MP3 frame sync (MPEG audio).
+    (b"\xff\xfb", None),
+    (b"\xff\xf3", None),
+    (b"\xff\xf2", None),
+    # MP4 / M4A — ISO BMFF "ftyp" box (offset 4).
+    (b"\x00\x00\x00", b"ftyp"),
+)
+_VIDEO_MAGIC_SIGNATURES: tuple[tuple[bytes, bytes | None], ...] = (
+    # WebM / Matroska
+    (b"\x1a\x45\xdf\xa3", None),
+    # MP4 — ftyp box
+    (b"\x00\x00\x00", b"ftyp"),
+)
+
+
+def looks_like_audio(payload_head: bytes) -> bool:
+    """Return True if the leading bytes look like an accepted audio
+    container/codec. Refuses arbitrary binary masquerading as audio."""
+    if len(payload_head) < 4:
+        return False
+    head = payload_head[:32]
+    for prefix, contains in _AUDIO_MAGIC_SIGNATURES:
+        if head.startswith(prefix):
+            if contains is None or contains in head:
+                return True
+    return False
+
+
+def looks_like_video(payload_head: bytes) -> bool:
+    """Return True if the leading bytes look like an accepted video
+    container. Refuses arbitrary binary masquerading as video."""
+    if len(payload_head) < 8:
+        return False
+    head = payload_head[:32]
+    for prefix, contains in _VIDEO_MAGIC_SIGNATURES:
+        if head.startswith(prefix):
+            if contains is None or contains in head:
+                return True
+    return False
+
+
 def max_upload_bytes(settings) -> int:
     """Return the maximum allowed upload size in bytes (default 50 MB)."""
     return getattr(settings, "media_max_upload_bytes", None) or _DEFAULT_MEDIA_MAX_BYTES

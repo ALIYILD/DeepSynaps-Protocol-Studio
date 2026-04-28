@@ -487,8 +487,21 @@ async def patient_upload_audio(
             status_code=422,
         )
 
+    # Magic-byte verification — refuses arbitrary binary tagged as
+    # audio. Client-controlled ``Content-Type`` header was the only
+    # check pre-fix.
+    if not media_storage.looks_like_audio(file_bytes):
+        raise ApiServiceError(
+            code="invalid_file_content",
+            message="Upload bytes do not match an accepted audio format.",
+            status_code=422,
+        )
+
     upload_id = str(uuid.uuid4())
-    ext = (file.filename or "audio.webm").rsplit(".", 1)[-1]
+    # Pin the on-disk extension to the validated MIME type instead of
+    # taking it from the user-supplied filename. Pre-fix a filename of
+    # ``audio.php`` would write ``…/audio.php`` to disk.
+    ext = media_storage.safe_audio_ext(file.content_type)
 
     try:
         file_ref = await media_storage.save_upload(
@@ -594,8 +607,19 @@ async def patient_upload_video(
             status_code=422,
         )
 
+    # Magic-byte verification — refuses arbitrary binary tagged as
+    # video by the client-controlled Content-Type header.
+    if not media_storage.looks_like_video(file_bytes):
+        raise ApiServiceError(
+            code="invalid_file_content",
+            message="Upload bytes do not match an accepted video format.",
+            status_code=422,
+        )
+
     upload_id = str(uuid.uuid4())
-    ext = (file.filename or "video.webm").rsplit(".", 1)[-1]
+    # Pin the on-disk extension to the validated MIME — never trust the
+    # user-supplied filename suffix.
+    ext = media_storage.safe_video_ext(file.content_type)
 
     try:
         file_ref = await media_storage.save_upload(
@@ -1388,8 +1412,17 @@ async def clinician_note_audio(
             status_code=422,
         )
 
+    # Magic-byte sniff — same defense as the patient-facing route.
+    if not media_storage.looks_like_audio(file_bytes):
+        raise ApiServiceError(
+            code="invalid_file_content",
+            message="Upload bytes do not match an accepted audio format.",
+            status_code=422,
+        )
+
     note_id = str(uuid.uuid4())
-    ext = (file.filename or "audio.webm").rsplit(".", 1)[-1]
+    # Pin the disk extension to the validated MIME, not the filename.
+    ext = media_storage.safe_audio_ext(file.content_type)
 
     try:
         file_ref = await media_storage.save_upload(
