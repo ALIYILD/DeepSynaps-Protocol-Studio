@@ -484,6 +484,16 @@ function _opsSlaApiHours(hours) {
   return Math.min(168, Math.floor(n));
 }
 
+// ── Phase 11: Stripe webhook replay state (super-admin) ──────────────────────
+// Tiny operator card that POSTs `{event_id}` at the Phase 10
+// `/api/v1/agent-billing/admin/webhook-replay` endpoint and renders the JSON
+// envelope returned. Pure form — no list cache, no auto-fetch, just last
+// result kept in memory until the next click. `_webhookReplayResult` shape:
+//   { ok: bool, status: number, body: object|null, error: string|null }
+let _webhookReplayInput = '';
+let _webhookReplayBusy = false;
+let _webhookReplayResult = null;
+
 // ── Phase 9: Prompt overrides panel state (super-admin) ──────────────────────
 // Mirrors the Activation panel pattern: list cached in `_promptOverridesList`
 // (null until first fetch), `_promptEditingAgentId` tracks which row's inline
@@ -1709,6 +1719,90 @@ function _renderOpsSlaCard(agents) {
   `;
 }
 
+// ── Phase 11: Stripe webhook replay card (super-admin) ──────────────────────
+// Operator UI for the Phase 10 admin endpoint. The button stays disabled
+// until the input matches `evt_*`. Click → confirm() → POST → render the
+// JSON envelope below. Panel colour:
+//   ok=true            → green
+//   ok=false / 500 / network → red
+//   404 (event_not_found) → amber
+function _renderOpsWebhookReplayCard() {
+  const input = String(_webhookReplayInput || '');
+  const validInput = /^evt_/.test(input);
+  const buttonDisabled = !validInput || _webhookReplayBusy;
+  const buttonStyle = buttonDisabled
+    ? 'font-size:11.5px;opacity:0.5;cursor:not-allowed'
+    : 'font-size:11.5px';
+  const buttonLabel = _webhookReplayBusy ? 'Replaying…' : 'Replay';
+
+  let resultPanel = '';
+  if (_webhookReplayResult) {
+    const r = _webhookReplayResult;
+    let bg, border, colour, badge, body;
+    if (r.ok && r.body && r.body.ok === true) {
+      bg = 'rgba(34,197,94,0.10)';
+      border = 'rgba(34,197,94,0.30)';
+      colour = 'var(--green,#22c55e)';
+      badge = 'OK';
+    } else if (r.status === 404) {
+      bg = 'rgba(245,158,11,0.10)';
+      border = 'rgba(245,158,11,0.30)';
+      colour = 'var(--amber,#f59e0b)';
+      badge = 'Event not found';
+    } else {
+      bg = 'rgba(239,68,68,0.10)';
+      border = 'rgba(239,68,68,0.30)';
+      colour = 'var(--red,#ef4444)';
+      badge = r.error ? 'Error' : `HTTP ${r.status}`;
+    }
+    let displayObj;
+    if (r.body && typeof r.body === 'object') {
+      displayObj = r.body;
+    } else if (r.error) {
+      displayObj = { ok: false, error: r.error };
+    } else {
+      displayObj = { ok: false, status: r.status };
+    }
+    let pretty;
+    try { pretty = JSON.stringify(displayObj, null, 2); }
+    catch { pretty = String(displayObj); }
+    body = `<pre data-test="webhook-replay-json" style="margin:6px 0 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;white-space:pre-wrap;word-break:break-word;color:var(--text-primary)">${_esc(pretty)}</pre>`;
+    resultPanel = `
+      <div data-test="webhook-replay-result" style="margin-top:10px;padding:10px 12px;border-radius:6px;background:${bg};border:1px solid ${border}">
+        <div style="font-size:11.5px;font-weight:700;color:${colour}">${_esc(badge)}</div>
+        ${body}
+      </div>
+    `;
+  }
+
+  return `
+    <div class="card" data-test="webhook-replay-card" style="padding:14px 16px;margin-top:14px">
+      <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:4px">Replay Stripe webhook event</div>
+      <div class="muted" style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:10px">Re-runs subscription handler for a single Stripe event. Use when a webhook handler bug is fixed and the customer is stuck.</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <input
+          id="webhook-replay-input"
+          data-test="webhook-replay-input"
+          class="form-control"
+          type="text"
+          placeholder="evt_..."
+          value="${_esc(input)}"
+          oninput="window._agentOpsWebhookReplayInput(this.value)"
+          style="font-size:11.5px;padding:4px 8px;max-width:280px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace"
+        >
+        <button
+          class="btn btn-sm btn-primary"
+          data-test="webhook-replay-btn"
+          onclick="window._agentOpsWebhookReplaySubmit()"
+          ${buttonDisabled ? 'disabled' : ''}
+          style="${buttonStyle}"
+        >${buttonLabel}</button>
+      </div>
+      ${resultPanel}
+    </div>
+  `;
+}
+
 function _renderOpsSection(agents) {
   const sectionHeader = `
     <div style="margin-bottom:10px">
@@ -1721,6 +1815,7 @@ function _renderOpsSection(agents) {
     ${_renderOpsSlaCard(agents)}
     ${_renderOpsRunsCard(agents)}
     ${_renderOpsAbuseCard()}
+    ${_renderOpsWebhookReplayCard()}
   `;
 }
 
@@ -3172,6 +3267,77 @@ window._agentOpsSetSlaWindow = function(hours) {
   if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
 };
 
+// ── Phase 11: Stripe webhook replay handlers ─────────────────────────────────
+// `oninput` keeps the input mirror state in sync so the disabled-state of the
+// Replay button updates as the user types. We re-render so the button's
+// `disabled` attribute flips on every keystroke (cheap — Ops tab only).
+window._agentOpsWebhookReplayInput = function(val) {
+  _webhookReplayInput = String(val == null ? '' : val);
+  if (_agentView === 'hub' && _marketplaceTab === 'ops') {
+    try { pgAgentChat(_lastSetTopbar); } catch {}
+  }
+};
+
+window._agentOpsWebhookReplaySubmit = async function() {
+  if (_webhookReplayBusy) return;
+  // Pull live input value too — covers the case where oninput hasn't fired
+  // yet (e.g. paste-then-click in Safari).
+  try {
+    const el = document.getElementById('webhook-replay-input');
+    if (el && typeof el.value === 'string') _webhookReplayInput = el.value;
+  } catch {}
+  const eventId = String(_webhookReplayInput || '').trim();
+  if (!/^evt_/.test(eventId)) return;
+
+  // Mandatory operator-confirm — re-running a webhook handler against current
+  // DB state is irreversible and the brief explicitly requires this prompt.
+  const confirmFn = (typeof window !== 'undefined' && typeof window.confirm === 'function') ? window.confirm : null;
+  if (confirmFn) {
+    const ok = confirmFn(`Replay event ${eventId}? This re-runs the handler against current DB state.`);
+    if (!ok) return;
+  }
+
+  _webhookReplayBusy = true;
+  if (_agentView === 'hub' && _marketplaceTab === 'ops') {
+    try { pgAgentChat(_lastSetTopbar); } catch {}
+  }
+
+  const headers = { 'Content-Type': 'application/json' };
+  try {
+    const t = api.getToken && api.getToken();
+    if (t) headers['Authorization'] = 'Bearer ' + t;
+  } catch {}
+
+  try {
+    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agent-billing/admin/webhook-replay`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({ event_id: eventId }),
+    });
+    let body = null;
+    try { body = await res.json(); } catch {}
+    _webhookReplayResult = {
+      ok: res.ok,
+      status: res.status,
+      body: body && typeof body === 'object' ? body : null,
+      error: null,
+    };
+  } catch (err) {
+    _webhookReplayResult = {
+      ok: false,
+      status: 0,
+      body: null,
+      error: err?.message || 'Network error',
+    };
+  } finally {
+    _webhookReplayBusy = false;
+    if (_agentView === 'hub' && _marketplaceTab === 'ops') {
+      try { pgAgentChat(_lastSetTopbar); } catch {}
+    }
+  }
+};
+
 window._agentActivityRefresh = function() {
   if (_activityLoading) return;
   _loadActivityRuns(true).then(() => {
@@ -3452,6 +3618,40 @@ export const __promptOverridesTestApi__ = {
       editorError: _promptEditorError,
       notice: _promptNotice,
       busy: _promptOverridesBusy,
+    };
+  },
+};
+
+// ── Phase 11: Test surface — Stripe webhook replay UI ───────────────────────
+// Mirrors `__promptOverridesTestApi__`. Same rationale: keep the Ops card's
+// state observable for the unit tests in
+// `apps/web/tests/webhook-replay-ui.test.js` without standing up a DOM.
+export const __webhookReplayTestApi__ = {
+  reset() {
+    _marketplaceTab = 'catalog';
+    _webhookReplayInput = '';
+    _webhookReplayBusy = false;
+    _webhookReplayResult = null;
+    _agentView = 'detached';
+    _lastSetTopbar = () => {};
+  },
+  renderCard() {
+    return _renderOpsWebhookReplayCard();
+  },
+  renderTabStrip() {
+    return _renderMarketplaceTabStrip();
+  },
+  isSuperAdmin() {
+    return _isSuperAdmin();
+  },
+  setInput(val) {
+    _webhookReplayInput = String(val == null ? '' : val);
+  },
+  getState() {
+    return {
+      input: _webhookReplayInput,
+      busy: _webhookReplayBusy,
+      result: _webhookReplayResult,
     };
   },
 };
