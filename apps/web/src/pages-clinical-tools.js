@@ -9559,7 +9559,7 @@ export async function pgMedicalHistory(setTopbar) {
     if (activePid && activePid !== '__demo') saveHistory(activePid, data);
     editingSection = null;
     buildPage();
-    window._showNotifToast && window._showNotifToast({ title: 'Saved', body: sec.label + ' updated.', severity: 'success' });
+    window._showNotifToast && window._showNotifToast({ title: 'Saved', body: sec.label + ' updated in this browser view.', severity: 'success' });
   };
 
   window._mhSave = function() {
@@ -9581,7 +9581,7 @@ export async function pgMedicalHistory(setTopbar) {
     }
     editingSection = null;
     buildPage();
-    window._showNotifToast && window._showNotifToast({ title: 'Saved', body: 'Medical history saved.', severity: 'success' });
+    window._showNotifToast && window._showNotifToast({ title: 'Saved', body: 'Medical history saved in this browser view.', severity: 'success' });
   };
 
   window._mhExpandAll = function() {
