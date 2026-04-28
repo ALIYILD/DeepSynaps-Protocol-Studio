@@ -45,7 +45,12 @@ from app.auth import (
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.limiter import limiter
-from app.persistence.models import AgentPromptOverride, AgentRunAudit
+from app.persistence.models import (
+    AgentPromptOverride,
+    AgentRunAudit,
+    ClinicMonthlyCostCap,
+)
+from app.services.agents import cost_cap as cost_cap_service
 from app.services.agents import runner
 from app.services.agents.registry import (
     AGENT_REGISTRY,
@@ -747,6 +752,103 @@ def delete_prompt_override(
     db.commit()
     db.refresh(row)
     return _row_to_override(row)
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 — per-clinic monthly cost cap admin endpoints
+# ---------------------------------------------------------------------------
+
+
+class CostCapOut(BaseModel):
+    """One-clinic cost-cap projection for the admin UI.
+
+    ``cap_pence == 0`` means the cap is disabled; ``spend_pence_mtd`` is
+    surfaced unconditionally so the admin tile can display the running
+    total even when no cap is configured.
+    """
+
+    cap_pence: int
+    spend_pence_mtd: int
+    currency: str = "GBP"
+
+
+class CostCapUpdateRequest(BaseModel):
+    """Body for ``PUT /admin/cost-cap``.
+
+    ``cap_pence`` is a non-negative integer in pence. ``0`` disables the
+    cap (allow all); any positive value enforces the monthly ceiling.
+    Pydantic's ``ge=0`` constraint produces a 422 on negative input.
+    """
+
+    cap_pence: int = Field(..., ge=0)
+
+
+def _require_clinic_admin(actor: AuthenticatedActor) -> str:
+    """Admin-or-above with a clinic scope. Returns the actor's clinic_id."""
+    require_minimum_role(actor, "admin")
+    if actor.clinic_id is None:
+        raise ApiServiceError(
+            code="clinic_scope_required",
+            message="This endpoint requires a clinic-scoped admin actor.",
+            status_code=403,
+        )
+    return actor.clinic_id
+
+
+@router.get("/admin/cost-cap", response_model=CostCapOut)
+def get_cost_cap(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CostCapOut:
+    """Admin-only — return the calling clinic's cost cap + MTD spend."""
+    clinic_id = _require_clinic_admin(actor)
+    cap = cost_cap_service.get_cap_pence(db, clinic_id)
+    spend = cost_cap_service.month_to_date_spend_pence(db, clinic_id)
+    return CostCapOut(
+        cap_pence=int(cap or 0),
+        spend_pence_mtd=spend,
+    )
+
+
+@router.put("/admin/cost-cap", response_model=CostCapOut)
+@limiter.limit("10/minute")
+def upsert_cost_cap(
+    request: Request,
+    payload: CostCapUpdateRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CostCapOut:
+    """Admin-only — set the calling clinic's monthly cost cap.
+
+    ``cap_pence == 0`` disables enforcement (allow all). The row is
+    upserted in place so an admin tile rendering the cap always sees a
+    deterministic single row.
+    """
+    clinic_id = _require_clinic_admin(actor)
+
+    row = (
+        db.query(ClinicMonthlyCostCap)
+        .filter(ClinicMonthlyCostCap.clinic_id == clinic_id)
+        .first()
+    )
+    if row is None:
+        row = ClinicMonthlyCostCap(
+            clinic_id=clinic_id,
+            cap_pence=int(payload.cap_pence),
+            updated_by_id=actor.actor_id,
+        )
+        db.add(row)
+    else:
+        row.cap_pence = int(payload.cap_pence)
+        row.updated_by_id = actor.actor_id
+    db.commit()
+    db.refresh(row)
+
+    spend = cost_cap_service.month_to_date_spend_pence(db, clinic_id)
+    return CostCapOut(
+        cap_pence=int(row.cap_pence or 0),
+        spend_pence_mtd=spend,
+    )
 
 
 __all__ = ["router"]

@@ -523,6 +523,52 @@ def run_agent(
                 "budget": budget_status,
             }
 
+    # ---- Phase 9: per-clinic monthly cost cap pre-check ---------------
+    # Independent of the per-package gate above — operators can pin a
+    # tighter clinic-level ceiling on top of the package's defaults. Skip
+    # cleanly when the actor has no clinic scope (anonymous / cross-clinic
+    # super-admin) or when the runner is being invoked without a DB
+    # session (legacy / unit-test path).
+    if actor is not None and db is not None and actor.clinic_id is not None:
+        try:
+            from .cost_cap import check_cap
+
+            ok, spend, cap = check_cap(db, actor.clinic_id)
+        except Exception as exc:  # noqa: BLE001 — fail-safe, never block on DB hiccup
+            logger.warning(
+                "agent_cost_cap_precheck_failed",
+                extra={
+                    "event": "agent_cost_cap_precheck_failed",
+                    "clinic_id": actor.clinic_id,
+                    "error_type": type(exc).__name__,
+                },
+            )
+            ok, spend, cap = True, 0, 0
+        if not ok:
+            _safe_record_run(
+                db=db,
+                actor=actor,
+                agent_id=agent.id,
+                message=message,
+                reply="",
+                context_used=[],
+                latency_ms=None,
+                ok=False,
+                error_code="monthly_cost_cap_reached",
+                tokens_in=0,
+                tokens_out=0,
+                cost_pence=0,
+            )
+            return {
+                "agent_id": agent.id,
+                "reply": "",
+                "error": "monthly_cost_cap_reached",
+                "schema_id": SCHEMA_ID,
+                "safety_footer": SAFETY_FOOTER,
+                "cap_pence": cap,
+                "spend_pence": spend,
+            }
+
     # ---- Phase 2: pre-fetch live clinic context via ToolBroker ----------
     live_context: dict[str, Any] = {}
     context_used: list[str] = []

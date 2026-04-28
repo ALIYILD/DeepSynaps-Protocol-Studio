@@ -393,8 +393,9 @@ let _marketplaceModalCancelled = false;
 // Tracks which sub-view of the Marketplace section is active. Not persisted to
 // localStorage — fresh on each visit so the catalog is always the entry point.
 // Phase 7 added two super-admin tabs: 'activation' (per-clinic patient agent
-// sign-off) and 'ops' (cross-clinic runs + abuse signals).
-let _marketplaceTab = 'catalog'; // 'catalog' | 'activity' | 'activation' | 'ops'
+// sign-off) and 'ops' (cross-clinic runs + abuse signals). Phase 9 adds a
+// third super-admin tab: 'prompts' (per-agent system prompt overrides).
+let _marketplaceTab = 'catalog'; // 'catalog' | 'activity' | 'activation' | 'ops' | 'prompts'
 let _activityRuns = null;
 let _activityAgentFilter = '';
 let _activityLoading = false;
@@ -455,6 +456,21 @@ let _opsAgentFilter = '';
 let _opsAbuse = null;
 let _opsAbuseLoading = false;
 let _opsAbuseError = null;
+
+// ── Phase 9: Prompt overrides panel state (super-admin) ──────────────────────
+// Mirrors the Activation panel pattern: list cached in `_promptOverridesList`
+// (null until first fetch), `_promptEditingAgentId` tracks which row's inline
+// editor is open, `_promptDraft` holds the textarea value while editing,
+// `_promptNotice` is a transient success/error banner that fades after 3s.
+let _promptOverridesList = null;
+let _promptOverridesLoading = false;
+let _promptOverridesError = null;
+let _promptOverridesBusy = false;
+let _promptEditingAgentId = null;
+let _promptDraft = '';
+let _promptEditorError = null;
+let _promptNotice = null; // { kind: 'success'|'error'|'info', text: string }
+let _promptNoticeTimer = null;
 
 const PATIENT_AGENT_OPTIONS = [
   { id: 'patient.care_companion', label: 'Care Companion' },
@@ -789,7 +805,7 @@ function _renderMarketplaceTabStrip() {
     return `<button type="button" style="${style}" onclick="window._agentMarketplaceSetTab('${k}')">${label}</button>`;
   };
   const adminTabs = _isSuperAdmin()
-    ? tab('activation', 'Activation') + tab('ops', 'Ops')
+    ? tab('activation', 'Activation') + tab('ops', 'Ops') + tab('prompts', 'Prompts')
     : '';
   return `<div style="display:flex;gap:6px;margin-bottom:12px">${tab('catalog', 'Catalog')}${tab('activity', 'Activity')}${adminTabs}</div>`;
 }
@@ -836,6 +852,15 @@ function _renderMarketplaceSection() {
       <div style="margin-bottom:20px">
         ${header}
         ${_renderOpsSection(agents)}
+      </div>
+      ${_renderMarketplaceModal()}
+    `;
+  }
+  if (_marketplaceTab === 'prompts' && _isSuperAdmin()) {
+    return `
+      <div style="margin-bottom:20px">
+        ${header}
+        ${_renderPromptOverridesSection(agents)}
       </div>
       ${_renderMarketplaceModal()}
     `;
@@ -1535,6 +1560,164 @@ function _renderOpsSection(agents) {
     ${sectionHeader}
     ${_renderOpsRunsCard(agents)}
     ${_renderOpsAbuseCard()}
+  `;
+}
+
+// ── Phase 9: Prompt overrides (super-admin) ─────────────────────────────────
+// Lazy-fetch the override list. Backend returns `{ overrides: [...] }` with
+// rows shaped as { id, agent_id, clinic_id, system_prompt, version, enabled,
+// created_at, created_by }. We surface only the most recent enabled row per
+// agent_id (clinic-scoped if the actor has a clinic_id, otherwise global).
+async function _fetchPromptOverrides() {
+  if (_promptOverridesLoading) return _promptOverridesList;
+  _promptOverridesLoading = true;
+  _promptOverridesError = null;
+  try {
+    if (_isMarketplaceDemoMode()) {
+      _promptOverridesList = [];
+      return _promptOverridesList;
+    }
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      const t = api.getToken && api.getToken();
+      if (t) headers['Authorization'] = 'Bearer ' + t;
+    } catch {}
+    let payload = null;
+    try {
+      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/admin/prompt-overrides`, {
+        method: 'GET', headers, credentials: 'include',
+      });
+      if (res.ok) payload = await res.json();
+      else if (res.status === 403) _promptOverridesError = 'This action requires super-admin privileges.';
+      else _promptOverridesError = `Failed to load prompt overrides (${res.status})`;
+    } catch (err) {
+      _promptOverridesError = err?.message || 'Failed to load prompt overrides.';
+      payload = null;
+    }
+    let items = [];
+    if (payload && Array.isArray(payload.overrides)) items = payload.overrides;
+    else if (payload && Array.isArray(payload.items)) items = payload.items;
+    _promptOverridesList = items;
+    return _promptOverridesList;
+  } finally {
+    _promptOverridesLoading = false;
+  }
+}
+
+// Resolve the active enabled override row (if any) for a given agent_id from
+// the cached list. Returns the most-recent enabled row, ignoring disabled
+// (soft-deleted) rows so the UI matches what the runner actually applies.
+function _activeOverrideForAgent(agentId) {
+  if (!Array.isArray(_promptOverridesList)) return null;
+  const rows = _promptOverridesList.filter(r => r && r.agent_id === agentId && r.enabled !== false);
+  if (!rows.length) return null;
+  // Pick highest version, falling back to created_at if version missing.
+  rows.sort((a, b) => {
+    const va = Number(a.version || 0);
+    const vb = Number(b.version || 0);
+    if (va !== vb) return vb - va;
+    const ta = String(a.created_at || '');
+    const tb = String(b.created_at || '');
+    return tb.localeCompare(ta);
+  });
+  return rows[0];
+}
+
+function _renderPromptOverridesSection(agents) {
+  const sectionHeader = `
+    <div style="margin-bottom:8px">
+      <div style="font-size:14px;font-weight:700;color:var(--text-primary)">Agent prompt overrides (super-admin)</div>
+    </div>
+    <div class="card" style="padding:10px 12px;margin-bottom:12px;border-left:3px solid var(--violet);background:rgba(155,127,255,0.06);font-size:11.5px;color:var(--text-secondary);line-height:1.55">
+      Override the default system prompt used for an agent. Saved overrides apply to every run for the actor's clinic on the next invocation. Reset removes the override and falls back to the registry default.
+    </div>
+  `;
+
+  const noticeBlock = (() => {
+    if (!_promptNotice) return '';
+    const n = _promptNotice;
+    const map = {
+      success: { bg: 'rgba(34,197,94,0.10)', border: 'rgba(34,197,94,0.30)', color: 'var(--green,#22c55e)' },
+      error:   { bg: 'rgba(239,68,68,0.10)', border: 'rgba(239,68,68,0.30)', color: 'var(--red,#ef4444)' },
+      info:    { bg: 'rgba(74,158,255,0.10)', border: 'rgba(74,158,255,0.30)', color: 'var(--blue)' },
+    };
+    const c = map[n.kind] || map.info;
+    return `<div data-test="prompts-notice" style="margin-bottom:10px;padding:8px 12px;border-radius:6px;background:${c.bg};border:1px solid ${c.border};color:${c.color};font-size:11.5px">${_esc(n.text)}</div>`;
+  })();
+
+  let tableBlock;
+  if (_promptOverridesList === null) {
+    tableBlock = `<div class="card" style="padding:14px 16px;font-size:11.5px;color:var(--text-tertiary)">Loading prompt overrides…</div>`;
+  } else if (_promptOverridesError) {
+    tableBlock = `<div class="card" style="padding:14px 16px;font-size:11.5px;color:var(--red,#ef4444)">${_esc(_promptOverridesError)}</div>`;
+  } else {
+    // Use the loaded marketplace catalog so the table covers every agent the
+    // backend knows about. Falls back to demo agents on first paint.
+    const catalogAgents = Array.isArray(agents) && agents.length ? agents : MARKETPLACE_DEMO_AGENTS;
+    if (!catalogAgents.length) {
+      tableBlock = `<div class="card" style="padding:14px 16px;font-size:11.5px;color:var(--text-tertiary)">No agents in the catalog yet.</div>`;
+    } else {
+      const rows = catalogAgents.map(a => {
+        const agentId = String(a.id || '');
+        const override = _activeOverrideForAgent(agentId);
+        const isCustom = !!override;
+        const editing = _promptEditingAgentId === agentId;
+        const badge = isCustom
+          ? '<span class="ds-pill" data-test="prompts-badge-custom" style="font-size:10px;padding:3px 9px;border-radius:99px;background:rgba(155,127,255,0.12);color:var(--violet);font-weight:600;border:1px solid rgba(155,127,255,0.25)">Custom</span>'
+          : '<span class="ds-pill" data-test="prompts-badge-default" style="font-size:10px;padding:3px 9px;border-radius:99px;background:rgba(74,158,255,0.10);color:var(--blue);font-weight:600;border:1px solid rgba(74,158,255,0.25)">Default</span>';
+        const editBtnLabel = editing ? 'Close' : (isCustom ? 'View / Edit' : 'View / Edit');
+        const busyAttr = _promptOverridesBusy ? 'disabled' : '';
+        const editorBlock = editing ? `
+          <tr data-test="prompts-editor-row-${_esc(agentId)}">
+            <td colspan="4" style="padding:10px 12px;background:rgba(255,255,255,0.02)">
+              <div class="form-group" style="margin:0 0 8px">
+                <label class="form-label" style="font-size:11px">System prompt override</label>
+                <textarea id="prompt-override-textarea" data-test="prompts-textarea" class="form-control" rows="8" placeholder="Enter the override system prompt for this agent…" style="width:100%;resize:vertical;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace" ${busyAttr} oninput="window._agentPromptOverrideDraftInput(this.value)">${_esc(_promptDraft || '')}</textarea>
+              </div>
+              ${_promptEditorError ? `<div data-test="prompts-editor-error" style="margin-bottom:8px;font-size:11.5px;color:var(--red,#ef4444)">${_esc(_promptEditorError)}</div>` : ''}
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <button class="btn btn-sm btn-primary" data-test="prompts-save-btn" onclick="window._agentPromptOverrideSave('${_esc(agentId)}')" ${busyAttr}>${_promptOverridesBusy ? 'Saving…' : 'Save'}</button>
+                ${isCustom ? `<button class="btn btn-sm btn-ghost" data-test="prompts-reset-btn" style="font-size:11px;color:var(--red,#ef4444)" onclick="window._agentPromptOverrideReset('${_esc(agentId)}')" ${busyAttr}>Reset to default</button>` : ''}
+                <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="window._agentPromptOverrideCancel()" ${busyAttr}>Cancel</button>
+                ${isCustom && override?.version ? `<span class="muted" style="font-size:10.5px;color:var(--text-tertiary);margin-left:auto">v${_esc(String(override.version))}${override.created_by ? ' · ' + _esc(String(override.created_by)) : ''}</span>` : ''}
+              </div>
+            </td>
+          </tr>
+        ` : '';
+        return `
+          <tr class="ds-tr" data-test="prompts-row-${_esc(agentId)}">
+            <td style="font-size:12px;font-weight:600;color:var(--text-primary)">${_esc(a.name || agentId)}</td>
+            <td style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px">${_esc(agentId)}</td>
+            <td style="white-space:nowrap">${badge}</td>
+            <td style="white-space:nowrap;text-align:right">
+              <button class="btn btn-sm btn-ghost" data-test="prompts-edit-btn-${_esc(agentId)}" style="font-size:11px" onclick="window._agentPromptOverrideEdit('${_esc(agentId)}')" ${busyAttr}>${editBtnLabel}</button>
+            </td>
+          </tr>
+          ${editorBlock}
+        `;
+      }).join('');
+      tableBlock = `
+        <div style="overflow-x:auto">
+          <table class="ds-table" data-test="prompts-table" style="width:100%;font-size:12px">
+            <thead>
+              <tr>
+                <th>Agent</th>
+                <th>ID</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `;
+    }
+  }
+
+  return `
+    ${sectionHeader}
+    ${noticeBlock}
+    ${tableBlock}
   `;
 }
 
@@ -2559,12 +2742,12 @@ window._agentRejectToolCall = async function(callId, agentId) {
 
 // ── Activity tab handlers ────────────────────────────────────────────────────
 window._agentMarketplaceSetTab = function(tab) {
-  const valid = ['catalog', 'activity', 'activation', 'ops'];
+  const valid = ['catalog', 'activity', 'activation', 'ops', 'prompts'];
   if (!valid.includes(tab)) return;
   // Super-admin gate — silently swallow attempts to navigate to admin tabs
   // from a clinician session (the buttons aren't rendered for them, but URL
   // / external triggers shouldn't punch through).
-  if ((tab === 'activation' || tab === 'ops') && !_isSuperAdmin()) return;
+  if ((tab === 'activation' || tab === 'ops' || tab === 'prompts') && !_isSuperAdmin()) return;
   if (_marketplaceTab === tab) return;
   _marketplaceTab = tab;
   // Lazy-load: only fetch on first open per tab. Mirror the marketplace
@@ -2598,6 +2781,13 @@ window._agentMarketplaceSetTab = function(tab) {
         }
       }).catch(() => {});
     }
+  }
+  if (tab === 'prompts' && _promptOverridesList === null && !_promptOverridesLoading) {
+    _fetchPromptOverrides().then(() => {
+      if (_agentView === 'hub' && _marketplaceTab === 'prompts') {
+        try { pgAgentChat(_lastSetTopbar); } catch {}
+      }
+    }).catch(() => {});
   }
   if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
 };
@@ -2809,4 +2999,266 @@ window._agentActivitySetFilter = function(agentId) {
     }
   }).catch(() => {});
   if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+};
+
+// ── Phase 9: Prompt override handlers ────────────────────────────────────────
+// Set a transient notice that auto-clears after 3s. Mirrors the pattern asked
+// for in the Phase 9 brief — green for success, red for error, fades silently.
+function _promptSetNotice(kind, text) {
+  if (_promptNoticeTimer) {
+    try { clearTimeout(_promptNoticeTimer); } catch {}
+    _promptNoticeTimer = null;
+  }
+  _promptNotice = { kind, text };
+  if (kind === 'success' || kind === 'info') {
+    _promptNoticeTimer = setTimeout(() => {
+      _promptNotice = null;
+      _promptNoticeTimer = null;
+      if (_agentView === 'hub' && _marketplaceTab === 'prompts') {
+        try { pgAgentChat(_lastSetTopbar); } catch {}
+      }
+    }, 3000);
+  }
+}
+
+window._agentPromptOverrideEdit = function(agentId) {
+  if (!agentId) return;
+  if (_promptEditingAgentId === agentId) {
+    // Toggle close.
+    _promptEditingAgentId = null;
+    _promptDraft = '';
+    _promptEditorError = null;
+  } else {
+    _promptEditingAgentId = agentId;
+    const active = _activeOverrideForAgent(agentId);
+    _promptDraft = active ? String(active.system_prompt || '') : '';
+    _promptEditorError = null;
+  }
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+};
+
+window._agentPromptOverrideCancel = function() {
+  _promptEditingAgentId = null;
+  _promptDraft = '';
+  _promptEditorError = null;
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+};
+
+window._agentPromptOverrideDraftInput = function(val) {
+  _promptDraft = String(val == null ? '' : val);
+};
+
+window._agentPromptOverrideSave = async function(agentId) {
+  if (!agentId) return;
+  if (_promptOverridesBusy) return;
+  // Pull live textarea value if available — covers the case where oninput
+  // hasn't fired yet (e.g. blur-after-paste edge case in Safari).
+  try {
+    const ta = document.getElementById('prompt-override-textarea');
+    if (ta && typeof ta.value === 'string') _promptDraft = ta.value;
+  } catch {}
+  const draft = String(_promptDraft || '').trim();
+  if (!draft) {
+    _promptEditorError = 'System prompt cannot be empty.';
+    if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+    return;
+  }
+
+  if (_isMarketplaceDemoMode()) {
+    // Demo mode — simulate save locally. Mirrors the activation demo path.
+    const fake = {
+      id: 'demo-' + Date.now(),
+      agent_id: agentId,
+      clinic_id: null,
+      system_prompt: draft,
+      version: 1,
+      enabled: true,
+      created_at: new Date().toISOString(),
+      created_by: 'demo',
+    };
+    _promptOverridesList = (_promptOverridesList || [])
+      .filter(r => !(r.agent_id === agentId && r.enabled !== false))
+      .concat([fake]);
+    _promptEditingAgentId = null;
+    _promptDraft = '';
+    _promptEditorError = null;
+    _promptSetNotice('success', `(demo) Saved override for ${agentId}.`);
+    if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+    return;
+  }
+
+  _promptOverridesBusy = true;
+  _promptEditorError = null;
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+
+  const headers = { 'Content-Type': 'application/json' };
+  try {
+    const t = api.getToken && api.getToken();
+    if (t) headers['Authorization'] = 'Bearer ' + t;
+  } catch {}
+
+  try {
+    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/admin/prompt-overrides`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({ agent_id: agentId, system_prompt: draft }),
+    });
+    if (res.status === 403) {
+      _promptEditorError = 'This action requires super-admin privileges.';
+    } else if (!res.ok) {
+      let msg = `Save failed (${res.status}).`;
+      try {
+        const body = await res.json();
+        if (body && body.detail) msg = String(body.detail);
+        else if (body && body.message) msg = String(body.message);
+      } catch {}
+      _promptEditorError = msg;
+    } else {
+      _promptEditingAgentId = null;
+      _promptDraft = '';
+      _promptEditorError = null;
+      _promptSetNotice('success', `Saved override for ${agentId}.`);
+      // Force a refetch so badges + version label reflect the new row.
+      _promptOverridesList = null;
+      _fetchPromptOverrides().finally(() => {
+        if (_agentView === 'hub' && _marketplaceTab === 'prompts') {
+          try { pgAgentChat(_lastSetTopbar); } catch {}
+        }
+      });
+    }
+  } catch (err) {
+    _promptEditorError = err?.message || 'Save failed.';
+  } finally {
+    _promptOverridesBusy = false;
+    if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+  }
+};
+
+window._agentPromptOverrideReset = async function(agentId) {
+  if (!agentId) return;
+  if (_promptOverridesBusy) return;
+  const active = _activeOverrideForAgent(agentId);
+  if (!active) return;
+  // Confirm step per the Phase 9 brief — destructive, so block on the user
+  // saying yes. `confirm` is stubbed in tests so we can drive both branches.
+  let proceed = true;
+  try {
+    proceed = (typeof window.confirm === 'function')
+      ? window.confirm(`Reset the prompt for ${agentId} to the registry default? This disables the current override.`)
+      : true;
+  } catch { proceed = true; }
+  if (!proceed) return;
+
+  if (_isMarketplaceDemoMode()) {
+    _promptOverridesList = (_promptOverridesList || []).map(r => {
+      if (r.agent_id === agentId && r.enabled !== false) return { ...r, enabled: false };
+      return r;
+    });
+    _promptEditingAgentId = null;
+    _promptDraft = '';
+    _promptEditorError = null;
+    _promptSetNotice('success', `(demo) Reset override for ${agentId}.`);
+    if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+    return;
+  }
+
+  _promptOverridesBusy = true;
+  _promptEditorError = null;
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+
+  const headers = { 'Content-Type': 'application/json' };
+  try {
+    const t = api.getToken && api.getToken();
+    if (t) headers['Authorization'] = 'Bearer ' + t;
+  } catch {}
+
+  try {
+    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/admin/prompt-overrides/${encodeURIComponent(active.id)}`, {
+      method: 'DELETE',
+      headers,
+      credentials: 'include',
+    });
+    if (res.status === 403) {
+      _promptEditorError = 'This action requires super-admin privileges.';
+    } else if (!res.ok && res.status !== 204) {
+      _promptEditorError = `Reset failed (${res.status}).`;
+    } else {
+      _promptEditingAgentId = null;
+      _promptDraft = '';
+      _promptEditorError = null;
+      _promptSetNotice('success', `Reset override for ${agentId} to default.`);
+      _promptOverridesList = null;
+      _fetchPromptOverrides().finally(() => {
+        if (_agentView === 'hub' && _marketplaceTab === 'prompts') {
+          try { pgAgentChat(_lastSetTopbar); } catch {}
+        }
+      });
+    }
+  } catch (err) {
+    _promptEditorError = err?.message || 'Reset failed.';
+  } finally {
+    _promptOverridesBusy = false;
+    if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+  }
+};
+
+// ── Phase 9: Test surface ────────────────────────────────────────────────────
+// Internal exports used by the unit-test suite. Not part of the public API —
+// nothing in `apps/web/src/main.js` (or any prod entry-point) imports this.
+// Kept named `__promptOverridesTestApi__` so a casual reader sees it's a
+// testing seam, not something to call from product code.
+export const __promptOverridesTestApi__ = {
+  // State resets between tests so order doesn't matter.
+  reset() {
+    _marketplaceTab = 'catalog';
+    _promptOverridesList = null;
+    _promptOverridesLoading = false;
+    _promptOverridesError = null;
+    _promptOverridesBusy = false;
+    _promptEditingAgentId = null;
+    _promptDraft = '';
+    _promptEditorError = null;
+    _promptNotice = null;
+    if (_promptNoticeTimer) {
+      try { clearTimeout(_promptNoticeTimer); } catch {}
+      _promptNoticeTimer = null;
+    }
+    _marketplaceAgents = [];
+    _marketplaceLoaded = false;
+    _marketplaceLoading = false;
+    // Park the view off-hub so handler-triggered re-renders are no-ops in
+    // tests (no need to mock `document.getElementById('content')`).
+    _agentView = 'detached';
+    _lastSetTopbar = () => {};
+  },
+  // Direct render helper — drives `_renderPromptOverridesSection` without
+  // needing a `<div id="content">` host. Returns the raw HTML string.
+  renderSection(agents) {
+    return _renderPromptOverridesSection(agents);
+  },
+  renderTabStrip() {
+    return _renderMarketplaceTabStrip();
+  },
+  setTab(tab) {
+    _marketplaceTab = tab;
+  },
+  isSuperAdmin() {
+    return _isSuperAdmin();
+  },
+  fetchOverrides() {
+    return _fetchPromptOverrides();
+  },
+  getState() {
+    return {
+      tab: _marketplaceTab,
+      list: _promptOverridesList,
+      error: _promptOverridesError,
+      editingAgentId: _promptEditingAgentId,
+      draft: _promptDraft,
+      editorError: _promptEditorError,
+      notice: _promptNotice,
+      busy: _promptOverridesBusy,
+    };
+  },
 };

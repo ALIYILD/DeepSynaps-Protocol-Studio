@@ -134,6 +134,7 @@ from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.audit import get_audit_trail
 from app.services.brain_regions import list_brain_regions
+from app.services.agent_scheduler import shutdown_scheduler, start_scheduler
 from app.services.agent_skills_seed import seed_default_agent_skills
 from app.services.clinical_data import seed_clinical_dataset
 from app.services.devices import list_devices
@@ -221,7 +222,13 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         )
     finally:
         session.close()
-    yield
+    # Phase 9 — boot the agent-ops cron (gated on
+    # DEEPSYNAPS_AGENT_CRON_ENABLED so tests / CI don't fire jobs).
+    start_scheduler()
+    try:
+        yield
+    finally:
+        shutdown_scheduler()
 
 
 app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
