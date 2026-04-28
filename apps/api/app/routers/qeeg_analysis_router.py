@@ -1297,7 +1297,6 @@ async def generate_ai_report_endpoint(
 
         rf = QEEGReportFinding(
             report_id=report.id,
-            patient_id=analysis.patient_id,
             finding_text=finding_text,
             claim_type=claim_type,
             evidence_grade="C" if claim_type in ("INFERRED", "UNSUPPORTED") else "B",

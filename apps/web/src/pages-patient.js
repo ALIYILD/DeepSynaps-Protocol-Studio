@@ -8205,7 +8205,7 @@ async function _pgPatientVirtualCareImpl() {
         </div>
         <!-- Live biometrics overlay -->
         <div id="vc-live-bio" style="position:absolute;top:12px;right:12px;z-index:10;background:rgba(0,0,0,.6);padding:12px 14px;border-radius:10px;color:#fff;font-size:11px;display:flex;flex-direction:column;gap:8px;min-width:160px;backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.08)">
-          <div style="font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px;opacity:.7;margin-bottom:2px">Live biometrics</div>
+          <div style="font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px;opacity:.7;margin-bottom:2px">Simulated biometrics</div>
           <div style="display:flex;align-items:center;gap:8px"><span style="width:28px">HR</span><div style="flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden"><div id="vc-bio-hr-bar" style="width:0%;height:100%;background:#ff8ab3;border-radius:2px;transition:width .4s ease"></div></div><span id="vc-bio-hr" style="width:36px;text-align:right;font-weight:700;color:#ff8ab3;font-size:11px">--</span></div>
           <div style="display:flex;align-items:center;gap:8px"><span style="width:28px">HRV</span><div style="flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden"><div id="vc-bio-hrv-bar" style="width:0%;height:100%;background:#4a9eff;border-radius:2px;transition:width .4s ease"></div></div><span id="vc-bio-hrv" style="width:36px;text-align:right;font-weight:700;color:#4a9eff;font-size:11px">--</span></div>
           <div style="display:flex;align-items:center;gap:8px"><span style="width:28px">SpO₂</span><div style="flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden"><div id="vc-bio-spo2-bar" style="width:0%;height:100%;background:#4ade80;border-radius:2px;transition:width .4s ease"></div></div><span id="vc-bio-spo2" style="width:36px;text-align:right;font-weight:700;color:#4ade80;font-size:11px">--</span></div>
@@ -8255,7 +8255,7 @@ async function _pgPatientVirtualCareImpl() {
       // Submit snapshot to backend every 30s if session exists.
       if (window._vcActiveSessionId && elapsed % 30 === 0) {
         api.virtualCareSubmitBiometrics(window._vcActiveSessionId, {
-          source: 'wearable', heart_rate_bpm: hr, hrv_ms: hrv, spo2_pct: spo2, stress_score: stress,
+          source: 'simulated', heart_rate_bpm: hr, hrv_ms: hrv, spo2_pct: spo2, stress_score: stress,
         }).catch(() => {});
       }
     }, 3000);
@@ -8282,7 +8282,7 @@ async function _pgPatientVirtualCareImpl() {
         api.virtualCareSubmitVoiceAnalysis(window._vcActiveSessionId, {
           segment_start_sec: Math.max(0, elapsed - 10), segment_end_sec: elapsed,
           sentiment, stress_level: sentiment === 'distressed' ? 75 : sentiment === 'negative' ? 45 : sentiment === 'positive' ? 15 : 30,
-          energy_level: sentiment === 'positive' ? 75 : 50,
+          energy_level: sentiment === 'positive' ? 75 : 50, source: 'simulated',
         }).catch(() => {});
       }
     }, 12000);
