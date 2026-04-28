@@ -229,6 +229,7 @@ async def _handle_telegram_update(
             )
             reply_text = _truncate_reply(outcome.get("reply_text", ""))
             inline_kb = outcome.get("inline_keyboard")
+            parse_mode = outcome.get("parse_mode")
             if inline_kb:
                 # Pending tool call → render the in-band approval
                 # keyboard. The webhook handler in this module owns all
@@ -239,14 +240,14 @@ async def _handle_telegram_update(
                     chat_id=chat_id,
                     text=reply_text,
                     inline_keyboard=inline_kb,
-                    parse_mode=None,
+                    parse_mode=parse_mode,
                 )
             else:
                 tg.send_message(
                     chat_id,
                     reply_text,
                     bot_kind=bot_kind,
-                    parse_mode=None,
+                    parse_mode=parse_mode,
                 )
             return {"ok": True}
 

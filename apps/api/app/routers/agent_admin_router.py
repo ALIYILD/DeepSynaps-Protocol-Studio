@@ -161,6 +161,7 @@ def create_patient_activation(
     request: Request,
     payload: PatientActivationCreate,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> PatientActivationOut:
     """Record a clinic-level activation for a patient-facing agent.
 
@@ -170,6 +171,7 @@ def create_patient_activation(
     """
     _require_super_admin(actor)
     result = patient_agent_activation.activate(
+        db=db,
         clinic_id=payload.clinic_id,
         agent_id=payload.agent_id,
         attestation=payload.attestation,
@@ -188,16 +190,21 @@ def delete_patient_activation(
     clinic_id: str,
     agent_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> dict[str, bool]:
-    """Remove a (clinic, agent) activation.
+    """Soft-delete a (clinic, agent) activation.
 
-    Idempotent — deactivating a pair that was never activated still
-    returns 200. The response ``removed`` flag tells the caller whether
-    state actually changed.
+    Idempotent — deactivating a pair with no active row still returns
+    200. The response ``removed`` flag tells the caller whether state
+    actually changed. Phase 8 records ``deactivated_by`` from the actor
+    so the audit row preserves the operator that flipped it off.
     """
     _require_super_admin(actor)
     result = patient_agent_activation.deactivate(
-        clinic_id=clinic_id, agent_id=agent_id
+        db=db,
+        clinic_id=clinic_id,
+        agent_id=agent_id,
+        deactivated_by=actor.actor_id,
     )
     return {"ok": bool(result["ok"]), "removed": bool(result["removed"])}
 
@@ -208,6 +215,7 @@ def delete_patient_activation(
 )
 def list_patient_activations(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> PatientActivationListResponse:
     """List all current activations and report the env-flag state.
 
@@ -217,7 +225,7 @@ def list_patient_activations(
     "live" from a populated list.
     """
     _require_super_admin(actor)
-    rows = patient_agent_activation.list_activations()
+    rows = patient_agent_activation.list_activations(db=db)
     return PatientActivationListResponse(
         activations=[PatientActivationOut(**r) for r in rows],
         env_flag_enabled=patient_agent_activation.env_flag_enabled(),
@@ -232,17 +240,20 @@ def check_patient_activation(
     clinic_id: str = Query(..., min_length=1, max_length=200),
     agent_id: str = Query(..., min_length=1, max_length=200),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> PatientActivationCheckResponse:
     """Return whether ``(clinic_id, agent_id)`` is callable for the actor.
 
     Any authenticated actor can hit this — the patient web UI uses it to
     decide whether to surface the agent tile on the marketplace.
 
-    ``activated=True`` requires *both* the env flag to be set *and* the
-    pair to have been activated by a super-admin.
+    ``activated=True`` requires *both* the env flag to be set *and* an
+    active row in the activation table for the pair.
     """
     require_minimum_role(actor, "guest")  # any authenticated identity passes
-    activated = patient_agent_activation.is_activated(clinic_id, agent_id)
+    activated = patient_agent_activation.is_activated(
+        db=db, clinic_id=clinic_id, agent_id=agent_id
+    )
     return PatientActivationCheckResponse(
         activated=activated,
         env_flag_enabled=patient_agent_activation.env_flag_enabled(),

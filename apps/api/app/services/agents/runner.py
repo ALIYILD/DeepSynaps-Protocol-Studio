@@ -221,43 +221,72 @@ def _llm_chat_with_metering(
     messages: list[dict],
     max_tokens: int,
     temperature: float,
-) -> tuple[str, dict[str, int]]:
-    """Wrap :func:`chat_service._llm_chat` and return ``(text, usage)``.
+) -> tuple[str, dict[str, Any]]:
+    """Wrap :func:`chat_service._llm_chat_with_usage` and return ``(text, usage)``.
 
-    The shipped ``_llm_chat`` returns the assistant text only and
-    discards the provider's response object. We can't capture *real*
-    ``usage`` numbers without invasively reshaping that helper (which
-    other callers depend on), so this wrapper:
+    Phase 8 — prefer the real provider numbers when they came back on the
+    response, fall back to the conservative char/4 estimate otherwise.
+    The fallback is reached when:
 
-    * delegates to the unchanged ``_llm_chat`` so its behaviour and
-      provider fall-through stay untouched, and
-    * returns a tokens estimate computed from the rendered prompt + the
-      reply via :func:`_estimate_tokens`.
+    * the provider call didn't surface a ``usage`` block (e.g. some
+      OpenRouter free models strip it), or
+    * the response shape didn't match either OpenAI or Anthropic, or
+    * ``_llm_chat`` was monkeypatched (tests use a deterministic stub).
 
-    The estimate is good enough for the Phase-7 budget pre-check (which
-    runs against the cumulative monthly sum, not a single reply). If a
-    later iteration plumbs real usage through ``_llm_chat`` it can hand
-    that back here without changing the runner — same return shape.
+    The returned ``usage`` dict carries the runner-internal contract:
+
+    * ``tokens_in`` / ``tokens_out`` — int counts that flow into
+      :func:`audit.record_run` and the budget pre-check.
+    * ``metered_source`` — ``"provider"`` when the upstream reported
+      real numbers, ``"estimated"`` when we fell back to char/4. The
+      runner logs this so ops can spot models / packages that systematically
+      under-report; it is NOT persisted (no migration) — keeps the audit
+      row shape stable.
     """
     from app.services import chat_service
 
-    # Rendered prompt size = system + every message body. Approximates
-    # what the provider tokenizes on the way in.
-    prompt_chars = len(system or "")
-    for m in messages or []:
-        prompt_chars += len((m or {}).get("content", "") or "")
+    # Prefer the new ``_llm_chat_with_usage`` when it exists. Falling back
+    # via getattr keeps this safe under partial / future-rolled-back
+    # deployments where only the legacy helper is present.
+    fn = getattr(chat_service, "_llm_chat_with_usage", None)
+    if fn is not None:
+        text, provider_usage = fn(
+            system=system,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+    else:  # pragma: no cover — defensive; current chat_service always exposes it
+        text = chat_service._llm_chat(
+            system=system,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        provider_usage = None
 
-    text = chat_service._llm_chat(
-        system=system,
-        messages=messages,
-        max_tokens=max_tokens,
-        temperature=temperature,
-    )
-    usage = {
-        "tokens_in": _estimate_tokens("x" * prompt_chars),
-        "tokens_out": _estimate_tokens(text or ""),
+    text = text or ""
+
+    if provider_usage and "input_tokens" in provider_usage:
+        tokens_in = max(0, int(provider_usage.get("input_tokens") or 0))
+        tokens_out = max(0, int(provider_usage.get("output_tokens") or 0))
+        metered_source = "provider"
+    else:
+        # Char/4 fallback. ``max(1, ...)`` keeps the figures non-zero even
+        # for tiny prompts so the budget aggregator doesn't treat the
+        # call as a no-op.
+        prompt_chars = len(system or "")
+        for m in messages or []:
+            prompt_chars += len((m or {}).get("content", "") or "")
+        tokens_in = max(1, prompt_chars // 4)
+        tokens_out = max(1, len(text) // 4)
+        metered_source = "estimated"
+
+    return text, {
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "metered_source": metered_source,
     }
-    return (text or "", usage)
 
 
 # ---------------------------------------------------------------------------
@@ -589,6 +618,22 @@ def run_agent(
     reply_str = reply_text or ""
     tokens_in_used = int(usage.get("tokens_in", 0))
     tokens_out_used = int(usage.get("tokens_out", 0))
+    metered_source = str(usage.get("metered_source", "estimated"))
+
+    # Phase 8 — emit a structured log line so ops can monitor how often
+    # the provider actually returns usage vs how often we fall back to
+    # the char/4 estimate. NOT persisted on the audit row (would need a
+    # migration); the log line is enough for the decision-support tile.
+    logger.info(
+        "agent_run_metered",
+        extra={
+            "event": "agent_run_metered",
+            "agent_id": agent.id,
+            "source": metered_source,
+            "tokens_in": tokens_in_used,
+            "tokens_out": tokens_out_used,
+        },
+    )
 
     # ---- Phase 2.5: parse a possible tool-call request -----------------
     tool_call = _try_parse_tool_call(reply_str)

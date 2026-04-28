@@ -21,6 +21,55 @@ logger = logging.getLogger(__name__)
 BotKind = Literal["patient", "clinician"]
 
 
+# ---------------------------------------------------------------------------
+# MarkdownV2 helpers
+# ---------------------------------------------------------------------------
+# Telegram's MarkdownV2 parser reserves 18 characters that must be escaped
+# whenever they appear as literal text inside a formatted message. Reference:
+# https://core.telegram.org/bots/api#markdownv2-style
+#
+# Use :func:`escape_markdown_v2` on user-supplied substrings BEFORE splicing
+# them into a markdown template. We never auto-escape the entire reply
+# because the LLM is asked (in the DrClaw system prompt) to emit
+# already-escaped MarkdownV2 — auto-escaping its output would double-escape
+# the bold / italic / monospace markers it intentionally produced.
+_MV2_SPECIAL = r"_*[]()~`>#+-=|{}.!"
+
+
+def escape_markdown_v2(text: str) -> str:
+    """Escape characters that have semantic meaning in MarkdownV2.
+
+    Use on user-supplied substrings before splicing into a markdown
+    template. The 18 reserved characters are documented as
+    ``_*[]()~`>#+-=|{}.!`` — every one of them must be prefixed with a
+    backslash whenever rendered as literal text. Don't shrink the set,
+    even for characters that "look harmless" (``.``, ``-``, ``=``) —
+    Telegram still rejects the message if any reserved character is
+    unescaped.
+
+    Reference: https://core.telegram.org/bots/api#markdownv2-style
+    """
+    out: list[str] = []
+    for ch in text:
+        if ch in _MV2_SPECIAL:
+            out.append("\\")
+        out.append(ch)
+    return "".join(out)
+
+
+def _is_parse_entities_error(exc: Exception) -> bool:
+    """Heuristic — does the Telegram error look like a MarkdownV2 parse failure?
+
+    Telegram returns 400 with a body like ``can't parse entities: ...``
+    when the parse_mode payload is malformed. python-telegram-bot raises
+    a :class:`telegram.error.BadRequest` whose ``str()`` carries that
+    message. We can't ``isinstance`` against the SDK exception class
+    without importing it (and it's optional), so we string-match.
+    """
+    msg = str(exc).lower()
+    return "can't parse" in msg or "parse entities" in msg or "bad request" in msg
+
+
 def _token_for_kind(bot_kind: BotKind) -> str | None:
     s = get_settings()
     if bot_kind == "patient":
@@ -102,16 +151,40 @@ def send_message_with_keyboard(
     if bot is None:
         return {"ok": False, "message_id": None, "error": "no_bot"}
     markup = _build_inline_markup(inline_keyboard)
+    kwargs: dict = {"chat_id": chat_id, "text": text}
+    if parse_mode:
+        kwargs["parse_mode"] = parse_mode
+    if markup is not None:
+        kwargs["reply_markup"] = markup
     try:
-        kwargs: dict = {"chat_id": chat_id, "text": text}
-        if parse_mode:
-            kwargs["parse_mode"] = parse_mode
-        if markup is not None:
-            kwargs["reply_markup"] = markup
         sent = asyncio.run(bot.send_message(**kwargs))
         message_id = getattr(sent, "message_id", None)
         return {"ok": True, "message_id": message_id}
     except Exception as e:
+        # MarkdownV2 fallback: when Telegram rejects the formatted payload
+        # (bad escapes, unbalanced markers), retry once as plain text so
+        # the clinician still sees a readable message instead of silence.
+        if parse_mode and _is_parse_entities_error(e):
+            snippet = text if len(text) <= 200 else text[:199] + "…"
+            logger.warning(
+                "Telegram parse_mode=%s rejected; retrying as plain text. "
+                "error=%s text=%r",
+                parse_mode,
+                e,
+                snippet,
+            )
+            try:
+                fallback_kwargs = dict(kwargs)
+                fallback_kwargs.pop("parse_mode", None)
+                sent = asyncio.run(bot.send_message(**fallback_kwargs))
+                message_id = getattr(sent, "message_id", None)
+                return {"ok": True, "message_id": message_id, "fallback": True}
+            except Exception as e2:
+                logger.error(
+                    "Telegram send_message_with_keyboard plain-text retry failed: %s",
+                    e2,
+                )
+                return {"ok": False, "message_id": None, "error": str(e2)}
         logger.error("Telegram send_message_with_keyboard failed: %s", e)
         return {"ok": False, "message_id": None, "error": str(e)}
 
@@ -161,19 +234,42 @@ def edit_message_text(
     if bot is None:
         return {"ok": False, "error": "no_bot"}
     markup = _build_inline_markup(inline_keyboard)
+    kwargs: dict = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "text": text,
+    }
+    if parse_mode:
+        kwargs["parse_mode"] = parse_mode
+    if markup is not None:
+        kwargs["reply_markup"] = markup
     try:
-        kwargs: dict = {
-            "chat_id": chat_id,
-            "message_id": message_id,
-            "text": text,
-        }
-        if parse_mode:
-            kwargs["parse_mode"] = parse_mode
-        if markup is not None:
-            kwargs["reply_markup"] = markup
         asyncio.run(bot.edit_message_text(**kwargs))
         return {"ok": True}
     except Exception as e:
+        # Same single-shot fallback as send_message_with_keyboard so a
+        # malformed MarkdownV2 edit doesn't leave stale buttons on a
+        # message — retry once as plain text.
+        if parse_mode and _is_parse_entities_error(e):
+            snippet = text if len(text) <= 200 else text[:199] + "…"
+            logger.warning(
+                "Telegram parse_mode=%s rejected on edit; retrying as plain text. "
+                "error=%s text=%r",
+                parse_mode,
+                e,
+                snippet,
+            )
+            try:
+                fallback_kwargs = dict(kwargs)
+                fallback_kwargs.pop("parse_mode", None)
+                asyncio.run(bot.edit_message_text(**fallback_kwargs))
+                return {"ok": True, "fallback": True}
+            except Exception as e2:
+                logger.error(
+                    "Telegram edit_message_text plain-text retry failed: %s",
+                    e2,
+                )
+                return {"ok": False, "error": str(e2)}
         logger.error("Telegram edit_message_text failed: %s", e)
         return {"ok": False, "error": str(e)}
 
