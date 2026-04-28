@@ -134,8 +134,14 @@ def _owned_export_or_404(db: Session, export_id: str, user: User) -> DataExport:
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
-@limiter.limit("1/day")
+# Decorator order matters: SlowAPI's `@limiter.limit` MUST be the
+# innermost decorator (closest to the function) so FastAPI's wrapper
+# triggers it on every call. Pre-fix this had `@limiter.limit` ABOVE
+# `@router.post`, which makes the limit silently ineffective — the
+# route was registered with the unwrapped function and the limiter
+# decorator only mutated a name in the module namespace.
 @router.post("/export", response_model=DataExportCreateResponse)
+@limiter.limit("1/day")
 def create_export(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -144,9 +150,10 @@ def create_export(
 ) -> DataExportCreateResponse:
     """Queue a new GDPR data export.
 
-    Rate-limited to 1/day (shared with SlowAPI's IP-based default — if the
-    same user hits this from multiple IPs they effectively get more than one
-    job, which is acceptable v0 behaviour).
+    Rate-limited to 1/day per IP. If the same user hits this from
+    multiple IPs they get more than one job, which is acceptable v0
+    behaviour — the cap is primarily there to prevent storage-flood
+    abuse, not to enforce a fairness contract.
 
     The actual bundling happens in a BackgroundTask. The response returns
     immediately with the queued job id so the client can poll
