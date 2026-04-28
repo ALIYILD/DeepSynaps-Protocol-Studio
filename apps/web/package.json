@@ -8,7 +8,7 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "test": "npm run build && npm run test:unit",
-    "test:unit": "node --test src/registries/scale-assessment-registry.test.js src/registries/assessment-implementation-status.test.js src/home-program-condition-templates.test.js src/home-program-task-sync.test.js src/api-home-program-mutation-transport.test.js src/personalization-explainability.test.js src/brain-map-planner-state.test.js src/clinical-hub-patients-table.test.js src/evidence-intelligence.test.js src/beta-readiness-regressions.test.js src/qeeg-clinical-workbench.test.js src/agents-prompt-overrides.test.js tests/onboarding-wizard.test.js",
+    "test:unit": "node --test src/registries/scale-assessment-registry.test.js src/registries/assessment-implementation-status.test.js src/home-program-condition-templates.test.js src/home-program-task-sync.test.js src/api-home-program-mutation-transport.test.js src/personalization-explainability.test.js src/brain-map-planner-state.test.js src/clinical-hub-patients-table.test.js src/evidence-intelligence.test.js src/beta-readiness-regressions.test.js src/qeeg-clinical-workbench.test.js src/agents-prompt-overrides.test.js tests/onboarding-wizard.test.js tests/webhook-replay-ui.test.js tests/marketplace-landing.test.js",
     "preview": "vite preview",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
