@@ -31,6 +31,7 @@ from app.services.agents.runner import run_agent
 from app.services.telegram_service import (
     answer_callback_query,
     edit_message_text,
+    escape_markdown_v2,
     get_user_id_for_chat,
     send_message_with_keyboard,
 )
@@ -134,6 +135,7 @@ def dispatch_clinician_message(
             "ok": False,
             "reason": "no_linked_account",
             "reply_text": _REPLY_NO_LINK,
+            "parse_mode": None,
         }
 
     user = db.query(User).filter_by(id=user_id).first()
@@ -152,6 +154,7 @@ def dispatch_clinician_message(
             "ok": False,
             "reason": "no_linked_account",
             "reply_text": _REPLY_NO_LINK,
+            "parse_mode": None,
         }
 
     actor = _actor_from_user(user)
@@ -162,6 +165,7 @@ def dispatch_clinician_message(
             "ok": False,
             "reason": "agent_not_registered",
             "reply_text": "DrClaw is not available in this build.",
+            "parse_mode": None,
         }
 
     if agent.package_required and (
@@ -181,6 +185,7 @@ def dispatch_clinician_message(
             "ok": False,
             "reason": "package_not_allowed",
             "reply_text": _REPLY_NO_PACKAGE,
+            "parse_mode": None,
         }
 
     response = run_agent(
@@ -203,7 +208,12 @@ def dispatch_clinician_message(
             "error_code": response.get("error"),
         },
     )
-    out: dict = {"ok": True, "reason": None, "reply_text": envelope["reply_text"]}
+    out: dict = {
+        "ok": True,
+        "reason": None,
+        "reply_text": envelope["reply_text"],
+        "parse_mode": envelope.get("parse_mode"),
+    }
     if envelope.get("inline_keyboard"):
         out["inline_keyboard"] = envelope["inline_keyboard"]
         out["pending_call_id"] = envelope["pending_call_id"]
@@ -320,6 +330,13 @@ def handle_drclaw_callback(
             )
         return
 
+    # ``parse_mode`` for the edit / fallback send. Static refusal /
+    # cancelled / expired strings are plain text — no formatting needed,
+    # and the leading "⚠" / "Cancelled." templates would require their
+    # own escapes if we tried to render them as MarkdownV2. Anything
+    # derived from a tool result_preview or an LLM reply is MarkdownV2.
+    result_parse_mode: str | None = None
+
     if opcode == "rej":
         # Drop the pending call directly — no LLM call needed.
         removed = pending_calls.discard(call_id)
@@ -350,8 +367,10 @@ def handle_drclaw_callback(
         executed = response.get("tool_call_executed")
         if executed:
             preview = (executed.get("result_preview") or "").strip()
+            escaped = escape_markdown_v2(preview)
             prefix = "✓" if executed.get("ok") else "✗"
-            result_text = f"{prefix} {preview}".rstrip()
+            result_text = f"{prefix} {escaped}".rstrip()
+            result_parse_mode = "MarkdownV2"
             tooltip = "Done" if executed.get("ok") else "Failed"
         else:
             reply = (response.get("reply") or "").strip()
@@ -360,7 +379,11 @@ def handle_drclaw_callback(
                 result_text = "⚠ This action has expired."
                 tooltip = "Expired"
             elif reply:
+                # Trust the LLM's MarkdownV2 output (system prompt asks it
+                # to escape literals on its own); the IO-layer plain-text
+                # fallback covers malformed payloads.
                 result_text = reply
+                result_parse_mode = "MarkdownV2"
                 tooltip = "Done"
             else:
                 result_text = "Action could not be completed."
@@ -386,6 +409,7 @@ def handle_drclaw_callback(
             message_id=int(message_id),
             text=truncated,
             inline_keyboard=None,
+            parse_mode=result_parse_mode,
         )
         edited = bool(edit_out.get("ok"))
         if not edited:
@@ -407,6 +431,7 @@ def handle_drclaw_callback(
             chat_id=chat_id,
             text=truncated,
             inline_keyboard=None,
+            parse_mode=result_parse_mode,
         )
 
     if cq_id:
@@ -443,8 +468,27 @@ def _truncate_for_telegram(text: str, *, cap: int = 3900) -> str:
 def _compose_dispatch_envelope(response: dict) -> dict:
     """Flatten the runner's structured envelope into a Telegram payload.
 
-    Returns a dict carrying ``reply_text`` plus, when relevant,
-    ``inline_keyboard`` + ``pending_call_id``.
+    Returns a dict carrying ``reply_text``, ``parse_mode`` (``"MarkdownV2"``
+    for agent-authored prose, ``None`` for the static fallback), plus
+    ``inline_keyboard`` + ``pending_call_id`` when the agent issued a
+    pending tool call.
+
+    MarkdownV2 escaping rules applied here:
+
+    * The static template (``⚠️``, ``Approve or reject below.``) splices
+      around a runner-supplied ``summary``. The summary may contain
+      reserved characters ("Dr. Smith's 2pm" — the dot and apostrophe
+      are reserved) so it goes through :func:`escape_markdown_v2`. The
+      trailing literal ``.`` is reserved too — escape it explicitly.
+    * Tool-call result previews come from tool implementations and may
+      include patient IDs, dashes, dots, parentheses — all reserved.
+      Escape the whole preview.
+    * Plain agent replies are TRUSTED as already-MarkdownV2 — the system
+      prompt instructs the LLM to escape user-supplied substrings
+      itself. Re-escaping here would double-escape its bold / italic
+      markers. If the LLM produces an unparseable payload, the
+      :mod:`telegram_service` retry-without-parse_mode fallback
+      protects the user from a silent drop.
     """
     pending = response.get("pending_tool_call")
     if pending:
@@ -453,10 +497,14 @@ def _compose_dispatch_envelope(response: dict) -> dict:
         )
         call_id = str(pending.get("call_id") or "")
         text = (
-            f"⚠️ {summary}\n\nApprove or reject below."
+            "⚠️ "
+            + escape_markdown_v2(summary)
+            + "\n\nApprove or reject below"
+            + escape_markdown_v2(".")
         )
         return {
             "reply_text": text,
+            "parse_mode": "MarkdownV2",
             "inline_keyboard": [
                 [
                     {
@@ -475,19 +523,30 @@ def _compose_dispatch_envelope(response: dict) -> dict:
     executed = response.get("tool_call_executed")
     if executed:
         preview = (executed.get("result_preview") or "").strip()
+        escaped = escape_markdown_v2(preview)
         if executed.get("ok"):
-            return {"reply_text": f"✓ {preview}".rstrip()}
-        return {"reply_text": f"✗ {preview}".rstrip()}
+            return {
+                "reply_text": f"✓ {escaped}".rstrip(),
+                "parse_mode": "MarkdownV2",
+            }
+        return {
+            "reply_text": f"✗ {escaped}".rstrip(),
+            "parse_mode": "MarkdownV2",
+        }
 
     reply = (response.get("reply") or "").strip()
     if reply:
-        return {"reply_text": reply}
+        # Trust the LLM's MarkdownV2 output — it's prompted to escape
+        # user-supplied substrings on its own. Telegram-side fallback
+        # in telegram_service catches any malformed entities.
+        return {"reply_text": reply, "parse_mode": "MarkdownV2"}
 
     return {
         "reply_text": (
             "I couldn't generate a reply just now. Please try again in a "
             "moment."
-        )
+        ),
+        "parse_mode": None,
     }
 
 

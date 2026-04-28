@@ -204,9 +204,15 @@ def test_dispatch_pending_tool_call_returns_inline_keyboard(
     assert out["ok"] is True
     body = out["reply_text"]
     # Quotes the LLM's one-line summary so the clinician knows what
-    # they're approving.
-    assert "Approve draft d-1 for patient P-7." in body
-    assert "Approve or reject below." in body
+    # they're approving. With MarkdownV2 escaping, the dash and dots in
+    # the summary text are backslash-escaped before being spliced into
+    # the template. The trailing literal "." after "below" is also
+    # escaped because "." is reserved in MarkdownV2.
+    assert "Approve draft d\\-1 for patient P\\-7\\." in body
+    assert "Approve or reject below\\." in body
+    # Pending-tool envelope is sent as MarkdownV2 so the LLM-authored
+    # summary keeps its formatting (bold patient names, italic times).
+    assert out["parse_mode"] == "MarkdownV2"
 
     kb = out["inline_keyboard"]
     assert isinstance(kb, list) and len(kb) == 1
@@ -258,7 +264,9 @@ def test_dispatch_tool_call_executed_ok_prefixes_check(
     )
     assert out["ok"] is True
     assert out["reply_text"].startswith("✓")
-    assert "draft d-1 approved" in out["reply_text"]
+    # Result preview is escaped — dash is reserved in MarkdownV2.
+    assert "draft d\\-1 approved" in out["reply_text"]
+    assert out["parse_mode"] == "MarkdownV2"
 
 
 def test_dispatch_tool_call_executed_failure_prefixes_cross(
@@ -467,8 +475,10 @@ def test_handle_callback_approve_invokes_runner_and_edits_message(
     assert edit["chat_id"] == chat_id
     assert edit["message_id"] == 77
     assert edit["text"].startswith("✓")
-    assert "Cancelled session sess-123." in edit["text"]
+    # Result preview is escaped: dash and dot are MarkdownV2 reserved.
+    assert "Cancelled session sess\\-123\\." in edit["text"]
     assert edit["inline_keyboard"] is None  # buttons removed
+    assert edit["parse_mode"] == "MarkdownV2"
 
     assert captured["sends"] == []  # edit succeeded, no fallback send
 
@@ -723,7 +733,8 @@ def test_dispatch_envelope_with_keyboard_round_trip_via_webhook(
     assert len(sends) == 1
     sent = sends[0]
     assert sent["chat_id"] == chat_id
-    assert "Cancel session sess-1" in sent["text"]
+    # Summary is escaped (dash reserved in MarkdownV2).
+    assert "Cancel session sess\\-1" in sent["text"]
     kb = sent["inline_keyboard"]
     assert kb[0][0]["callback_data"] == f"drclaw:apr:{'e' * 32}"
     assert kb[0][1]["callback_data"] == f"drclaw:rej:{'e' * 32}"
@@ -761,3 +772,472 @@ def test_webhook_callback_query_routes_to_handler(
     assert resp.json() == {"ok": True}
     assert captured["bot_kind"] == "clinician"
     assert captured["callback_query"]["id"] == "cq-99"
+
+
+# ---------------------------------------------------------------------------
+# 9. MarkdownV2 — escape helper, parse_mode plumbing, and 400-fallback.
+#
+# These tests target the upgrade from plain Telegram text to MarkdownV2:
+# replies render with bold patient names, italic timestamps, monospace
+# IDs, and bullet lists. The escape helper is exhaustively covered; the
+# dispatcher / callback handler are checked for parse_mode plumbing; and
+# the IO-layer fallback (Telegram 400 → retry without parse_mode) is
+# verified at the bot helper level so a malformed MarkdownV2 payload
+# never silently drops the clinician's reply.
+# ---------------------------------------------------------------------------
+
+
+def test_escape_markdown_v2_escapes_all_18_reserved_characters() -> None:
+    """All 18 reserved characters get a leading backslash, others pass through."""
+    from app.services.telegram_service import escape_markdown_v2
+
+    # Round-trip a representative example from the spec.
+    assert escape_markdown_v2("Hello (world).") == "Hello \\(world\\)\\."
+
+    # Every reserved character must be individually escaped.
+    for ch in "_*[]()~`>#+-=|{}.!":
+        assert escape_markdown_v2(ch) == f"\\{ch}", ch
+
+    # Non-reserved characters are untouched (letters, digits, spaces,
+    # apostrophes, colons, slashes — all common in clinician replies).
+    assert escape_markdown_v2("abc 123 :/'") == "abc 123 :/'"
+    assert escape_markdown_v2("") == ""
+
+
+def test_dispatch_no_link_refusal_is_plain_text() -> None:
+    """Auth refusals stay plain text — they include URLs that would
+    require extra escaping if rendered as MarkdownV2 and the formatting
+    adds no value to a "please run /link" prompt."""
+    from app.database import SessionLocal
+    s = SessionLocal()
+    try:
+        out = tad.dispatch_clinician_message(
+            db=s,
+            telegram_user_id=42,
+            telegram_chat_id=42,
+            message_text="hi",
+        )
+    finally:
+        s.close()
+    assert out["ok"] is False
+    # parse_mode key is present and explicitly None — the router must
+    # not pass MarkdownV2 for refusal envelopes.
+    assert out["parse_mode"] is None
+
+
+def test_dispatch_package_refusal_is_plain_text(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Package-gate refusal: parse_mode is None so the upgrade prompt
+    isn't fed through MarkdownV2 (avoids accidental escapes on the
+    user-facing copy)."""
+    user = db_session.query(User).filter_by(id="actor-clinician-demo").one()
+    user.package_id = "explorer"
+    db_session.commit()
+    chat_id = _link_clinician_chat(db_session, chat_id=5550140)
+
+    monkeypatch.setattr(
+        tad, "run_agent",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("gated")),
+    )
+
+    out = tad.dispatch_clinician_message(
+        db=db_session,
+        telegram_user_id=1,
+        telegram_chat_id=chat_id,
+        message_text="hi",
+    )
+    assert out["ok"] is False
+    assert out["parse_mode"] is None
+
+
+def test_dispatch_plain_reply_envelope_is_markdown_v2(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """LLM-authored plain replies are returned as MarkdownV2 untouched
+    — the system prompt asks the LLM to escape user-supplied substrings
+    on its own; re-escaping here would mangle bold / italic markers."""
+    chat_id = _link_clinician_chat(db_session, chat_id=5550141)
+
+    formatted = "*Dr Smith* — _2pm_, see `pat-1`"
+
+    def fake_run_agent(agent, *, message, actor, db, **kwargs):
+        return {
+            "agent_id": agent.id,
+            "reply": formatted,
+            "schema_id": "deepsynaps.agents.run/v1",
+            "safety_footer": "decision-support, not autonomous diagnosis",
+            "context_used": [],
+        }
+
+    monkeypatch.setattr(tad, "run_agent", fake_run_agent)
+
+    out = tad.dispatch_clinician_message(
+        db=db_session,
+        telegram_user_id=1,
+        telegram_chat_id=chat_id,
+        message_text="who's next?",
+    )
+    assert out["ok"] is True
+    assert out["parse_mode"] == "MarkdownV2"
+    # Reply is passed through verbatim (after .strip()) — the LLM owns
+    # all escaping inside the formatted text.
+    assert out["reply_text"] == formatted
+
+
+def test_dispatch_pending_envelope_template_uses_explicit_escape(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Static pending-tool template: ``⚠️ {summary}\\n\\nApprove or
+    reject below.`` — summary AND trailing dot must be escaped."""
+    chat_id = _link_clinician_chat(db_session, chat_id=5550142)
+
+    def fake_run_agent(agent, *, message, actor, db, **kwargs):
+        return {
+            "agent_id": agent.id,
+            "reply": "Awaiting approval.",
+            "schema_id": "deepsynaps.agents.run/v1",
+            "safety_footer": "decision-support, not autonomous diagnosis",
+            "context_used": [],
+            "pending_tool_call": {
+                "call_id": "a" * 32,
+                "tool_id": "sessions.book",
+                "args": {},
+                "summary": "Book Dr Smith's 2pm",
+                "expires_at": "2099-01-01T00:00:00+00:00",
+            },
+        }
+
+    monkeypatch.setattr(tad, "run_agent", fake_run_agent)
+
+    out = tad.dispatch_clinician_message(
+        db=db_session,
+        telegram_user_id=1,
+        telegram_chat_id=chat_id,
+        message_text="book Dr Smith's 2pm",
+    )
+    # Summary "Book Dr Smith's 2pm" has no reserved characters — passes
+    # through verbatim. The trailing literal "." is reserved → escaped.
+    assert out["reply_text"] == (
+        "⚠️ Book Dr Smith's 2pm\n\nApprove or reject below\\."
+    )
+    assert out["parse_mode"] == "MarkdownV2"
+
+
+def test_dispatch_tool_executed_escapes_dash_in_preview(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Result-preview escaping: ``"Booked: pat-1 at 14:00"`` →
+    ``"✓ Booked: pat\\-1 at 14:00"`` (dash escaped, colons not reserved)."""
+    chat_id = _link_clinician_chat(db_session, chat_id=5550143)
+
+    def fake_run_agent(agent, *, message, actor, db, **kwargs):
+        return {
+            "agent_id": agent.id,
+            "reply": "ok",
+            "schema_id": "deepsynaps.agents.run/v1",
+            "safety_footer": "decision-support, not autonomous diagnosis",
+            "context_used": [],
+            "tool_call_executed": {
+                "tool_id": "sessions.book",
+                "ok": True,
+                "result_preview": "Booked: pat-1 at 14:00",
+                "audit_id": "audit-1",
+            },
+        }
+
+    monkeypatch.setattr(tad, "run_agent", fake_run_agent)
+
+    out = tad.dispatch_clinician_message(
+        db=db_session,
+        telegram_user_id=1,
+        telegram_chat_id=chat_id,
+        message_text="confirm",
+    )
+    assert out["reply_text"] == "✓ Booked: pat\\-1 at 14:00"
+    assert out["parse_mode"] == "MarkdownV2"
+
+
+def test_handle_callback_approve_passes_parse_mode_markdown_v2(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Callback approve → edit_message_text receives parse_mode='MarkdownV2'
+    AND the result_preview is escaped."""
+    chat_id = _link_clinician_chat(db_session, chat_id=5550150)
+    captured = _stub_telegram_io(monkeypatch)
+
+    def fake_run_agent(agent, *, message, actor, db, confirmed_tool_call_id=None):
+        return {
+            "agent_id": agent.id,
+            "reply": "ok",
+            "schema_id": "deepsynaps.agents.run/v1",
+            "safety_footer": "decision-support, not autonomous diagnosis",
+            "context_used": [],
+            "tool_call_executed": {
+                "tool_id": "sessions.cancel",
+                "ok": True,
+                "result_preview": "Cancelled sess-9 (P-2).",
+                "audit_id": "audit-1",
+            },
+        }
+
+    monkeypatch.setattr(tad, "run_agent", fake_run_agent)
+
+    tad.handle_drclaw_callback(
+        db=db_session,
+        bot_kind="clinician",
+        callback_query=_cq("b" * 32, "apr", chat_id=chat_id),
+    )
+
+    assert len(captured["edits"]) == 1
+    edit = captured["edits"][0]
+    assert edit["parse_mode"] == "MarkdownV2"
+    # All MarkdownV2-reserved characters in the preview are escaped.
+    assert edit["text"] == "✓ Cancelled sess\\-9 \\(P\\-2\\)\\."
+
+
+def test_handle_callback_reject_static_text_no_parse_mode(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reject's static "Cancelled." string is sent as plain text — there
+    is no MarkdownV2 content and rendering it under MarkdownV2 would
+    require escaping the trailing dot just to display "Cancelled." which
+    adds no value."""
+    chat_id = _link_clinician_chat(db_session, chat_id=5550151)
+    captured = _stub_telegram_io(monkeypatch)
+
+    pending = pending_calls.register(
+        actor_id="actor-clinician-demo",
+        agent_id=tad.DRCLAW_AGENT_ID,
+        tool_id="sessions.cancel",
+        args={},
+        summary="Cancel sess-x",
+    )
+
+    tad.handle_drclaw_callback(
+        db=db_session,
+        bot_kind="clinician",
+        callback_query=_cq(pending.call_id, "rej", chat_id=chat_id),
+    )
+
+    assert len(captured["edits"]) == 1
+    edit = captured["edits"][0]
+    # parse_mode passed through as None — Telegram renders as plain text.
+    assert edit.get("parse_mode") is None
+    assert edit["text"] == "Cancelled."
+
+
+def test_telegram_service_send_falls_back_to_plain_text_on_400(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mock the Telegram bot SDK directly: first call (with parse_mode)
+    raises a Telegram 400 "can't parse entities", second call (no
+    parse_mode) succeeds. The helper must report success."""
+    from app.services import telegram_service as ts
+
+    monkeypatch.setattr(
+        ts, "_token_for_kind", lambda bot_kind: "fake-token"
+    )
+
+    calls: list[dict] = []
+
+    class FakeBot:
+        async def send_message(self, **kwargs):
+            calls.append(kwargs)
+            if "parse_mode" in kwargs:
+                raise RuntimeError("Bad Request: can't parse entities at byte 13")
+            return type("Sent", (), {"message_id": 42})()
+
+    monkeypatch.setattr(ts, "_make_bot", lambda token: FakeBot())
+
+    out = ts.send_message_with_keyboard(
+        bot_kind="clinician",
+        chat_id=123,
+        text="*unbalanced",
+        parse_mode="MarkdownV2",
+    )
+    assert out["ok"] is True
+    assert out.get("fallback") is True
+    assert out["message_id"] == 42
+
+    # Two calls: first with parse_mode, second without.
+    assert len(calls) == 2
+    assert calls[0].get("parse_mode") == "MarkdownV2"
+    assert "parse_mode" not in calls[1]
+
+
+def test_telegram_service_send_double_400_returns_failure_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If both the MarkdownV2 send AND the plain-text retry fail, the
+    helper returns ``{"ok": False, ...}`` instead of raising — the
+    webhook must not crash."""
+    from app.services import telegram_service as ts
+
+    monkeypatch.setattr(
+        ts, "_token_for_kind", lambda bot_kind: "fake-token"
+    )
+
+    calls: list[dict] = []
+
+    class FakeBot:
+        async def send_message(self, **kwargs):
+            calls.append(kwargs)
+            raise RuntimeError("Bad Request: can't parse entities")
+
+    monkeypatch.setattr(ts, "_make_bot", lambda token: FakeBot())
+
+    out = ts.send_message_with_keyboard(
+        bot_kind="clinician",
+        chat_id=123,
+        text="*unbalanced",
+        parse_mode="MarkdownV2",
+    )
+    assert out["ok"] is False
+    assert "error" in out
+    # No raise, despite both attempts failing.
+    assert len(calls) == 2
+
+
+def test_telegram_service_edit_falls_back_to_plain_text_on_400(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same retry contract for edit_message_text: first attempt with
+    MarkdownV2 raises a parse error, second without parse_mode wins."""
+    from app.services import telegram_service as ts
+
+    monkeypatch.setattr(
+        ts, "_token_for_kind", lambda bot_kind: "fake-token"
+    )
+
+    calls: list[dict] = []
+
+    class FakeBot:
+        async def edit_message_text(self, **kwargs):
+            calls.append(kwargs)
+            if "parse_mode" in kwargs:
+                raise RuntimeError("Bad Request: can't parse entities")
+            return None
+
+    monkeypatch.setattr(ts, "_make_bot", lambda token: FakeBot())
+
+    out = ts.edit_message_text(
+        bot_kind="clinician",
+        chat_id=123,
+        message_id=99,
+        text="*unbalanced",
+        parse_mode="MarkdownV2",
+    )
+    assert out["ok"] is True
+    assert out.get("fallback") is True
+    assert len(calls) == 2
+    assert calls[0].get("parse_mode") == "MarkdownV2"
+    assert "parse_mode" not in calls[1]
+
+
+def test_telegram_service_no_fallback_when_parse_mode_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failure on a plain-text send (no parse_mode) does NOT trigger
+    the fallback path — the failure is final and reported as-is."""
+    from app.services import telegram_service as ts
+
+    monkeypatch.setattr(
+        ts, "_token_for_kind", lambda bot_kind: "fake-token"
+    )
+
+    calls: list[dict] = []
+
+    class FakeBot:
+        async def send_message(self, **kwargs):
+            calls.append(kwargs)
+            raise RuntimeError("network error")
+
+    monkeypatch.setattr(ts, "_make_bot", lambda token: FakeBot())
+
+    out = ts.send_message_with_keyboard(
+        bot_kind="clinician",
+        chat_id=123,
+        text="hello",
+        parse_mode=None,
+    )
+    assert out["ok"] is False
+    # Only one attempt — fallback only fires when a parse_mode was set.
+    assert len(calls) == 1
+
+
+def test_drclaw_system_prompt_documents_markdown_v2() -> None:
+    """The DrClaw system prompt must teach the LLM to emit MarkdownV2 —
+    otherwise the LLM keeps producing plain text and the parse_mode
+    upgrade is silent. A surgical regression guard so a future prompt
+    rewrite doesn't accidentally drop the formatting contract."""
+    from app.services.agents.registry import _DRCLAW_TELEGRAM_SYSTEM_PROMPT
+
+    prompt = _DRCLAW_TELEGRAM_SYSTEM_PROMPT
+    assert "MarkdownV2" in prompt
+    assert "*bold*" in prompt
+    assert "_italic_" in prompt
+    assert "`monospace`" in prompt
+    # The literal escape rule must be in the prompt — the dispatcher
+    # trusts the LLM to emit pre-escaped text.
+    assert "_*[]()~`>#+-=|{}.!" in prompt
+
+
+def test_callback_query_smoke_still_works_after_markdown_upgrade(
+    client: TestClient, db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End-to-end smoke: a callback_query approval still resolves with
+    the new MarkdownV2 plumbing in place. Mirrors the existing webhook
+    smoke but asserts parse_mode reaches the IO layer."""
+    chat_id = _link_clinician_chat(db_session, chat_id=5550160)
+
+    def fake_run_agent(agent, *, message, actor, db, confirmed_tool_call_id=None):
+        return {
+            "agent_id": agent.id,
+            "reply": "ok",
+            "schema_id": "deepsynaps.agents.run/v1",
+            "safety_footer": "decision-support, not autonomous diagnosis",
+            "context_used": [],
+            "tool_call_executed": {
+                "tool_id": "sessions.cancel",
+                "ok": True,
+                "result_preview": "Cancelled sess-7.",
+                "audit_id": "audit-1",
+            },
+        }
+
+    monkeypatch.setattr(tad, "run_agent", fake_run_agent)
+
+    edits: list[dict] = []
+    answers: list[dict] = []
+
+    def fake_edit(**kw):
+        edits.append(kw)
+        return {"ok": True}
+
+    def fake_answer(**kw):
+        answers.append(kw)
+        return {"ok": True}
+
+    monkeypatch.setattr(tad, "edit_message_text", fake_edit)
+    monkeypatch.setattr(tad, "answer_callback_query", fake_answer)
+
+    payload = {
+        "callback_query": {
+            "id": "cq-md",
+            "from": {"id": 7},
+            "data": f"drclaw:apr:{'b' * 32}",
+            "message": {"message_id": 5, "chat": {"id": chat_id}},
+        }
+    }
+    resp = client.post(
+        "/api/v1/telegram/webhook/clinician", json=payload
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+
+    assert len(edits) == 1
+    assert edits[0]["parse_mode"] == "MarkdownV2"
+    assert edits[0]["text"] == "✓ Cancelled sess\\-7\\."
+    assert len(answers) == 1
+    assert answers[0]["text"] == "Done"
