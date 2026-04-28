@@ -31,6 +31,41 @@ def _truncate_reply(text: str) -> str:
     return text[: _MAX_TG_REPLY - 1] + "…"
 
 
+# Replay-protection cache for Telegram update_ids.
+#
+# Pre-fix the webhook had no dedup. Telegram retries delivery of an
+# unacknowledged update with the same ``update_id`` for up to 24h,
+# and an attacker who learned the webhook secret could replay any
+# captured update — re-firing an LLM call (cost), a callback_query
+# DrClaw action, or a free-form ask audit on every replay.
+#
+# In-process LRU keyed by ``(bot_kind, update_id)`` is sufficient
+# for Telegram's retry burst (seconds, not days) on a single-instance
+# Fly app. Multi-instance / persistent dedup belongs in a DB unique
+# constraint and is left for a follow-up.
+_SEEN_UPDATES_MAX = 4096
+_seen_update_ids: "OrderedDict[tuple[str, int], None]" = None  # type: ignore[assignment]
+
+
+def _is_replay(bot_kind: str, update_id: int | None) -> bool:
+    """Return True if ``(bot_kind, update_id)`` was seen recently."""
+    if update_id is None:
+        return False
+    global _seen_update_ids
+    if _seen_update_ids is None:
+        from collections import OrderedDict
+        _seen_update_ids = OrderedDict()
+    key = (bot_kind, int(update_id))
+    if key in _seen_update_ids:
+        # Refresh LRU position so a redelivery resets the timer.
+        _seen_update_ids.move_to_end(key)
+        return True
+    _seen_update_ids[key] = None
+    if len(_seen_update_ids) > _SEEN_UPDATES_MAX:
+        _seen_update_ids.popitem(last=False)  # FIFO eviction
+    return False
+
+
 class TelegramLinkResponse(BaseModel):
     code: str
     instructions: str
@@ -52,35 +87,40 @@ def _expected_webhook_secret(bot_kind: str) -> str:
     return s.telegram_webhook_secret or ""
 
 
+_DEV_TEST_ENVS = frozenset({"development", "test"})
+
+
 def _webhook_secret_ok(
     presented: str | None,
     bot_kind: str,
 ) -> bool:
     """Validate the ``X-Telegram-Bot-Api-Secret-Token`` header.
 
-    Pre-fix this returned True whenever the configured secret was empty,
-    leaving the webhook fully unauthenticated. Post-fix:
+    Pre-fix this returned True whenever the configured secret was empty
+    in any env that wasn't ``production`` / ``staging`` — a denylist.
+    A typo in ``app_env`` (``"preview"``, ``"ci"``, an unset env that
+    defaulted to something other than ``development``) silently
+    fail-opened, accepting unauthenticated webhooks.
 
-    * Production / staging require a configured secret. No secret =>
-      fail closed.
-    * Development / test allow empty-secret traffic so local
-      ``ngrok`` testing keeps working.
-    * Comparison is constant-time via :func:`hmac.compare_digest` to
-      prevent timing-side-channel discovery of the secret.
+    Post-fix the dev-bypass is an explicit allowlist of
+    ``{"development", "test"}``. Anything else — known prod-like envs
+    AND unrecognised values — fail closed when no secret is configured.
+
+    Comparison stays constant-time via :func:`hmac.compare_digest`.
     """
     settings = get_settings()
     expected = _expected_webhook_secret(bot_kind)
     app_env = (settings.app_env or "development").lower()
 
     if not expected:
-        if app_env in {"production", "staging"}:
+        if app_env not in _DEV_TEST_ENVS:
             _log.warning(
                 "telegram webhook rejected: no secret configured for bot_kind=%s in app_env=%s",
                 bot_kind,
                 app_env,
             )
             return False
-        # Dev / test: no secret => allow.
+        # Dev / test only: no secret => allow.
         return True
 
     return hmac.compare_digest((presented or "").strip(), expected)
@@ -126,6 +166,17 @@ async def _handle_telegram_update(
 
     try:
         payload = await request.json()
+
+        # ── Replay protection ──────────────────────────────────
+        # Telegram retries delivery on any non-2xx and on slow handlers,
+        # so the same ``update_id`` can hit us multiple times. Without
+        # dedup an attacker who replays a captured update body (or a
+        # noisy retry storm) can re-trigger side-effects: dispatched
+        # AI tasks, billing-charged completions, audit-log noise.
+        # Single-process LRU is sufficient because the Fly app runs as
+        # one instance and Telegram retries within seconds.
+        if _is_replay(bot_kind, payload.get("update_id")):
+            return {"ok": True}
 
         # ── Inline-keyboard callback (button tap) ──────────────
         # Telegram delivers button taps as ``callback_query`` updates,
