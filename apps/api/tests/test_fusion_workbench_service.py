@@ -468,3 +468,98 @@ def test_patient_facing_strips_blocked_claims():
     claims = report["claims"]
     assert all(c["claim_type"] != "BLOCKED" for c in claims)
     assert "confirms ADHD" not in report["summary"]
+
+
+def test_patient_facing_sanitizes_protocol_recommendation():
+    from app.services.fusion_workbench_service import _build_patient_facing_report
+    case = FusionCase(
+        id="case-prot-1",
+        patient_id="p-1",
+        clinician_id="c-1",
+        summary="Test",
+        confidence=0.5,
+        confidence_grade="heuristic",
+        governance_json=json.dumps([]),
+        protocol_fusion_json=json.dumps({"recommendation": "This confirms depression. Proceed with tDCS."}),
+        limitations_json=json.dumps([]),
+        generated_at=datetime.now(timezone.utc),
+    )
+    report = _build_patient_facing_report(case)
+    assert "confirms depression" not in report["protocol_recommendation"]
+    assert "[Language softened" in report["protocol_recommendation"] or "consistent with" in report["protocol_recommendation"]
+
+
+def test_patient_facing_adds_registration_confidence_limitation_low():
+    from app.services.fusion_workbench_service import _build_patient_facing_report
+    case = FusionCase(
+        id="case-reg-1",
+        patient_id="p-1",
+        clinician_id="c-1",
+        summary="Test",
+        confidence=0.5,
+        confidence_grade="heuristic",
+        governance_json=json.dumps([]),
+        protocol_fusion_json=json.dumps({}),
+        limitations_json=json.dumps([]),
+        mri_registration_confidence="low",
+        generated_at=datetime.now(timezone.utc),
+    )
+    report = _build_patient_facing_report(case)
+    assert any("low" in lim and "Spatial alignment" in lim for lim in report["limitations"])
+
+
+def test_patient_facing_adds_registration_confidence_limitation_moderate():
+    from app.services.fusion_workbench_service import _build_patient_facing_report
+    case = FusionCase(
+        id="case-reg-2",
+        patient_id="p-1",
+        clinician_id="c-1",
+        summary="Test",
+        confidence=0.5,
+        confidence_grade="heuristic",
+        governance_json=json.dumps([]),
+        protocol_fusion_json=json.dumps({}),
+        limitations_json=json.dumps([]),
+        mri_registration_confidence="moderate",
+        generated_at=datetime.now(timezone.utc),
+    )
+    report = _build_patient_facing_report(case)
+    assert any("moderate" in lim and "caution" in lim for lim in report["limitations"])
+
+
+def test_patient_facing_adds_registration_confidence_limitation_unknown():
+    from app.services.fusion_workbench_service import _build_patient_facing_report
+    case = FusionCase(
+        id="case-reg-3",
+        patient_id="p-1",
+        clinician_id="c-1",
+        summary="Test",
+        confidence=0.5,
+        confidence_grade="heuristic",
+        governance_json=json.dumps([]),
+        protocol_fusion_json=json.dumps({}),
+        limitations_json=json.dumps([]),
+        mri_registration_confidence="unknown",
+        generated_at=datetime.now(timezone.utc),
+    )
+    report = _build_patient_facing_report(case)
+    assert any("unknown" in lim and "cannot be verified" in lim for lim in report["limitations"])
+
+
+def test_patient_facing_no_limitation_when_registration_high():
+    from app.services.fusion_workbench_service import _build_patient_facing_report
+    case = FusionCase(
+        id="case-reg-4",
+        patient_id="p-1",
+        clinician_id="c-1",
+        summary="Test",
+        confidence=0.5,
+        confidence_grade="heuristic",
+        governance_json=json.dumps([]),
+        protocol_fusion_json=json.dumps({}),
+        limitations_json=json.dumps([]),
+        mri_registration_confidence="high",
+        generated_at=datetime.now(timezone.utc),
+    )
+    report = _build_patient_facing_report(case)
+    assert len(report["limitations"]) == 0

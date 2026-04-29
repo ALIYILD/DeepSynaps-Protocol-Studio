@@ -596,14 +596,36 @@ def _build_patient_facing_report(fusion_case: FusionCase) -> dict[str, Any]:
     # Sanitize the summary itself for patient-facing output
     safe_summary = _sanitize_patient_summary(fusion_case.summary or "")
 
+    # Sanitize protocol recommendation text
+    raw_recommendation = (_load_json(fusion_case.protocol_fusion_json) or {}).get("recommendation")
+    safe_protocol_recommendation = _sanitize_patient_summary(raw_recommendation) if raw_recommendation else None
+
+    # Build limitations list, appending registration confidence if applicable
+    limitations = _load_json(fusion_case.limitations_json) or []
+    reg_confidence = getattr(fusion_case, "mri_registration_confidence", None)
+    if reg_confidence and str(reg_confidence).lower() != "high":
+        confidence_lower = str(reg_confidence).lower()
+        if confidence_lower == "low":
+            limitations.append(
+                "MRI registration confidence is low. Spatial alignment between qEEG and MRI may be uncertain."
+            )
+        elif confidence_lower == "moderate":
+            limitations.append(
+                "MRI registration confidence is moderate. Spatial alignment should be interpreted with caution."
+            )
+        else:
+            limitations.append(
+                "MRI registration confidence is unknown. Spatial alignment cannot be verified."
+            )
+
     return {
         "patient_id_hash": f"sha256:{patient_id_hash}",
         "summary": safe_summary,
         "confidence": fusion_case.confidence,
         "confidence_grade": fusion_case.confidence_grade,
-        "protocol_recommendation": (_load_json(fusion_case.protocol_fusion_json) or {}).get("recommendation"),
+        "protocol_recommendation": safe_protocol_recommendation,
         "claims": allowed_claims,
-        "limitations": _load_json(fusion_case.limitations_json) or [],
+        "limitations": limitations,
         "disclaimer": (
             "This report is decision-support only and not a diagnosis or prescription. "
             "Always consult your clinician for care decisions."
