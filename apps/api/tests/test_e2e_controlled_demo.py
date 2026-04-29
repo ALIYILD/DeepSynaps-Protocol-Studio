@@ -780,13 +780,22 @@ def test_unsigned_qeeg_blocks_fusion_finalisation(
     assert case["source_qeeg_state"] in ("DRAFT_AI", None)
 
     case_id = case["id"]
-    for action in ("needs_clinical_review", "approve", "sign"):
+    for action in ("needs_clinical_review", "approve"):
         resp = client.post(
             f"/api/v1/fusion/cases/{case_id}/transition",
             json={"action": action},
             headers=auth_headers["clinician"],
         )
         assert resp.status_code == 200
+
+    # Sign is hard-blocked because source qEEG is DRAFT_AI
+    resp = client.post(
+        f"/api/v1/fusion/cases/{case_id}/transition",
+        json={"action": "sign"},
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 400
+    assert "qEEG" in resp.text or "source" in resp.text.lower()
 
 
 # Cross-cutting: Low registration confidence

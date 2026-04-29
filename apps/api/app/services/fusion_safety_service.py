@@ -85,6 +85,50 @@ def _check_radiology_review(mri: MriAnalysis | None) -> list[str]:
     return reasons
 
 
+def _check_registration_confidence(mri: MriAnalysis | None) -> tuple[list[str], list[str]]:
+    """Return (block_reasons, warnings) for MRI native-to-template registration quality.
+
+    Confidence is read from ``structural_json.registration.confidence`` and
+    can be ``high``, ``moderate``, ``low``, or ``unknown``.
+    """
+    block_reasons: list[str] = []
+    warnings: list[str] = []
+    if mri is None:
+        return block_reasons, warnings
+
+    structural = _load_json(getattr(mri, "structural_json", None)) or {}
+    reg = structural.get("registration") or {}
+    confidence_raw = reg.get("confidence")
+
+    if confidence_raw is None:
+        # No registration QA data present — cannot assess; warn only
+        warnings.append(
+            "MRI registration confidence is not available. "
+            "Consider running registration QA for the most accurate fusion."
+        )
+        return block_reasons, warnings
+
+    confidence = str(confidence_raw).lower()
+    if confidence == "low":
+        block_reasons.append(
+            "MRI registration confidence is low. "
+            "Re-run registration or verify alignment before fusion."
+        )
+    elif confidence == "unknown":
+        block_reasons.append(
+            "MRI registration confidence is unknown. "
+            "Run registration QA before fusion."
+        )
+    elif confidence == "moderate":
+        warnings.append(
+            "MRI registration confidence is moderate. "
+            "Clinician should verify target coordinates."
+        )
+    # "high" → no action needed
+
+    return block_reasons, warnings
+
+
 def _check_report_state(
     analysis: QEEGAnalysis | MriAnalysis | None,
     source: str,
@@ -159,6 +203,11 @@ def run_safety_gates(
     # ── Radiology review ──
     block.reasons.extend(_check_radiology_review(mri))
 
+    # ── Registration confidence ──
+    reg_block, reg_warn = _check_registration_confidence(mri)
+    block.reasons.extend(reg_block)
+    block.warnings.extend(reg_warn)
+
     # ── Report state warnings ──
     qeeg_ai_report = None
     if qeeg is not None:
@@ -180,6 +229,7 @@ def run_safety_gates(
         block.next_steps = [
             "Review and resolve all blocking red flags in the source analyses.",
             "Complete required radiology review if applicable.",
+            "Re-run MRI registration QA if registration confidence is low or unknown.",
             "Re-run safety checks after resolution.",
         ]
 

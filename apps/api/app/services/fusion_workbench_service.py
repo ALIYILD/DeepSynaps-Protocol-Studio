@@ -831,6 +831,21 @@ def transition_fusion_case_state(
     if action == "amend" and amendments:
         case.clinician_amendments = amendments
     if action == "sign":
+        # Hard block: both source modalities must be clinically reviewed/signed
+        has_qeeg = getattr(case, "qeeg_analysis_id", None) is not None
+        has_mri = getattr(case, "mri_analysis_id", None) is not None
+        draft_qeeg = has_qeeg and case.source_qeeg_state == "DRAFT_AI"
+        draft_mri = has_mri and case.source_mri_state == "MRI_DRAFT_AI"
+        if draft_qeeg:
+            raise ValueError(
+                f"Cannot sign fusion case: source qEEG report is in '{case.source_qeeg_state}' state. "
+                "Clinician review and sign-off of the qEEG report is required first."
+            )
+        if draft_mri:
+            raise ValueError(
+                f"Cannot sign fusion case: source MRI report is in '{case.source_mri_state}' state. "
+                "Clinician review and sign-off of the MRI report is required first."
+            )
         case.signed_by = actor_id
         case.signed_at = datetime.now(timezone.utc)
 

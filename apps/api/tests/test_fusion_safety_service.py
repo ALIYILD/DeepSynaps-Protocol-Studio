@@ -207,6 +207,7 @@ def test_run_safety_gates_all_clear():
     )
     mri = FakeMriAnalysis(
         safety_cockpit_json=json.dumps({"red_flags": []}),
+        structural_json=json.dumps({"registration": {"confidence": "high"}}),
         report_state="MRI_APPROVED",
         created_at=datetime.now(timezone.utc) - timedelta(days=10),
     )
@@ -235,7 +236,7 @@ def test_run_safety_gates_blocked_by_red_flags():
     assert result.blocked is True
     assert len(result.reasons) == 1
     assert "EPILEPTIFORM" in result.reasons[0]
-    assert len(result.next_steps) == 3
+    assert len(result.next_steps) == 4
 
 
 def test_run_safety_gates_blocked_by_radiology():
@@ -273,6 +274,7 @@ def test_run_safety_gates_warnings_present():
     )
     mri = FakeMriAnalysis(
         safety_cockpit_json=json.dumps({"red_flags": []}),
+        structural_json=json.dumps({"registration": {"confidence": "high"}}),
         report_state="MRI_DRAFT_AI",
         created_at=datetime.now(timezone.utc) - timedelta(days=250),
     )
@@ -280,3 +282,87 @@ def test_run_safety_gates_warnings_present():
     result = run_safety_gates(db, qeeg, mri)
     assert result.blocked is False
     assert len(result.warnings) == 4  # qEEG draft + MRI draft + qEEG stale + MRI stale
+
+
+# ── Registration confidence tests ────────────────────────────────────────────
+
+def test_check_registration_confidence_high_no_block():
+    mri = FakeMriAnalysis(
+        structural_json=json.dumps({"registration": {"confidence": "high"}}),
+    )
+    from app.services.fusion_safety_service import _check_registration_confidence
+    block, warn = _check_registration_confidence(mri)
+    assert block == []
+    assert warn == []
+
+
+def test_check_registration_confidence_moderate_warns():
+    mri = FakeMriAnalysis(
+        structural_json=json.dumps({"registration": {"confidence": "moderate"}}),
+    )
+    from app.services.fusion_safety_service import _check_registration_confidence
+    block, warn = _check_registration_confidence(mri)
+    assert block == []
+    assert len(warn) == 1
+    assert "moderate" in warn[0].lower()
+
+
+def test_check_registration_confidence_low_blocks():
+    mri = FakeMriAnalysis(
+        structural_json=json.dumps({"registration": {"confidence": "low"}}),
+    )
+    from app.services.fusion_safety_service import _check_registration_confidence
+    block, warn = _check_registration_confidence(mri)
+    assert len(block) == 1
+    assert "low" in block[0].lower()
+    assert warn == []
+
+
+def test_check_registration_confidence_unknown_blocks():
+    mri = FakeMriAnalysis(
+        structural_json=json.dumps({"registration": {"confidence": "unknown"}}),
+    )
+    from app.services.fusion_safety_service import _check_registration_confidence
+    block, warn = _check_registration_confidence(mri)
+    assert len(block) == 1
+    assert "unknown" in block[0].lower()
+    assert warn == []
+
+
+def test_check_registration_confidence_no_mri():
+    from app.services.fusion_safety_service import _check_registration_confidence
+    block, warn = _check_registration_confidence(None)
+    assert block == []
+    assert warn == []
+
+
+def test_run_safety_gates_blocks_on_low_registration_confidence():
+    db = MagicMock()
+    db.query.return_value.filter_by.return_value.order_by.return_value.first.return_value = None
+
+    qeeg = FakeQEEGAnalysis(
+        id="q1",
+        safety_cockpit_json=json.dumps({"red_flags": []}),
+        analyzed_at=datetime.now(timezone.utc) - timedelta(days=10),
+    )
+    mri = FakeMriAnalysis(
+        safety_cockpit_json=json.dumps({"red_flags": []}),
+        structural_json=json.dumps({"registration": {"confidence": "low"}}),
+        report_state="APPROVED",
+        created_at=datetime.now(timezone.utc) - timedelta(days=10),
+    )
+
+    result = run_safety_gates(db, qeeg, mri)
+    assert result.blocked is True
+    assert any("registration confidence" in r.lower() for r in result.reasons)
+
+
+def test_check_registration_confidence_missing_warns():
+    mri = FakeMriAnalysis(
+        structural_json=json.dumps({}),
+    )
+    from app.services.fusion_safety_service import _check_registration_confidence
+    block, warn = _check_registration_confidence(mri)
+    assert block == []
+    assert len(warn) == 1
+    assert "not available" in warn[0].lower()
