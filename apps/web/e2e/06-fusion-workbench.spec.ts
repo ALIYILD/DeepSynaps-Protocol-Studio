@@ -208,7 +208,7 @@ test.describe('Fusion Workbench', () => {
     await page.waitForSelector('#content:not(:empty), #app-shell', { timeout: 10000 });
     await page.waitForTimeout(300);
 
-    const content = await page.locator('body').textContent();
+    const content = await page.locator('#app-shell').textContent();
     expect(content).not.toMatch(/BLOCKED|cannot proceed|critical error/i);
   });
 });

@@ -671,6 +671,7 @@ function renderQEEGSessionRail(data, options) {
         + (data.eyes_condition ? badge('Eyes ' + data.eyes_condition, 'var(--violet)') : '')
         + (qualityPct != null ? badge('Quality ' + qualityPct + '%', qualityTone) : '')
         + badge(normSummary.significant + ' significant z-flags', normSummary.significant ? 'var(--amber)' : 'var(--green)')
+        + '<button class="btn btn-sm btn-outline" style="margin-left:4px" onclick="window._qeegOpenRawTab&&window._qeegOpenRawTab()" title="Open raw EEG viewer">View Raw EEG</button>'
       + '</div>'
     + '</div>'
     + '<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">'
@@ -4095,6 +4096,12 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   const tab = window._qeegTab || 'patient';
   window._qeegTab = tab;
   const el = document.getElementById('content');
+
+  // Global helper to open raw tab from session rail
+  window._qeegOpenRawTab = function () {
+    window._qeegTab = 'raw';
+    if (typeof window._nav === 'function') window._nav('qeeg-analysis');
+  };
 
   setTopbar('qEEG Analyzer', '');
 

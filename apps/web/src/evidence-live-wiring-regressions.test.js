@@ -32,5 +32,22 @@ test('Courses route keeps live protocol watch in detail and session execution', 
   assert.match(src, /Live protocol watch:/);
   assert.match(src, /sex-live-evidence-watch/);
   assert.match(src, /Live Protocol Watch/);
-  assert.match(src, /protocolCoverage\(\{ condition: course\.condition_slug, modality: course\.modality_slug, limit: 8 \}\)/);
+  assert.match(src, /api\.protocolCoverage\(\{ condition: course\.condition_slug \|\| '', modality: course\.modality_slug \|\| '', limit: 8 \}\)/);
+});
+
+test('Patient route keeps live evidence context on Home and Reports surfaces', () => {
+  const src = read('./pages-patient.js');
+  assert.match(src, /api\.evidencePatientOverview\?\.\(patientId\)/);
+  assert.match(src, /For you today/);
+  assert.match(src, /live evidence highlights/);
+  assert.match(src, /Evidence linked to your reports/);
+});
+
+test('Patient Analytics route keeps live evidence and report context wiring', () => {
+  const src = read('./pages-patient-analytics.js');
+  assert.match(src, /api\.evidencePatientOverview\?\.\(patientId\)/);
+  assert.match(src, /Evidence highlights/);
+  assert.match(src, /saved citations/);
+  assert.match(src, /saved reports/);
+  assert.match(src, /live patient evidence\/report store/);
 });

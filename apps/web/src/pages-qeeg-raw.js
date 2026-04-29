@@ -14,6 +14,11 @@
 //   - Bad channel marking, segment annotation, ICA review
 //   - Filter controls (LFF, HFF, Notch)
 //   - Page counter (Page X of Y)
+//   - Band power dashboard (Delta/Theta/Alpha/Beta/Gamma)
+//   - Per-channel quality indicator dots
+//   - Recording timeline overview strip
+//   - Keyboard shortcuts help overlay (? key)
+//   - Snapshot PNG export
 // ─────────────────────────────────────────────────────────────────────────────
 import { api } from './api.js';
 import { emptyState, showToast } from './helpers.js';
@@ -498,6 +503,9 @@ function _buildLayout(state, isDemo) {
 
   // Actions
   html += '<div class="eeg-tb__group">'
+    + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-snapshot-btn" title="Snapshot PNG (S)">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>'
+    + ' Snapshot</button>'
     + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-export-btn" title="Export (CSV/PNG)">'
     + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
     + ' Export</button>'
@@ -536,6 +544,9 @@ function _buildLayout(state, isDemo) {
   html += '<div class="eeg-viewer__spectral-wrap" id="eeg-spectral-wrap" style="display:' + (state.spectralVisible ? 'block' : 'none') + '"></div>';
   html += '</div>'; // main-stack
 
+  // Timeline overview strip
+  html += _buildTimelineOverview(state);
+
   // Right sidebar
   html += '<div class="eeg-viewer__sidebar" id="eeg-sidebar">';
   html += _buildRecordingInfoSection(state);
@@ -550,9 +561,12 @@ function _buildLayout(state, isDemo) {
 
   // ── Status bar
   html += '<div class="eeg-viewer__statusbar">'
-    + '<span>Scroll: navigate \u00B7 Ctrl+Scroll: zoom \u00B7 Click label: toggle bad \u00B7 Drag: annotate \u00B7 Ctrl+Z/Y: undo/redo</span>'
+    + '<span>Scroll: navigate \u00B7 Ctrl+Scroll: zoom \u00B7 Click label: toggle bad \u00B7 Drag: annotate \u00B7 Ctrl+Z/Y: undo/redo \u00B7 ?: shortcuts</span>'
     + '<span id="eeg-save-indicator"></span>'
     + '</div>';
+
+  // ── Shortcuts help overlay (hidden by default)
+  html += _buildShortcutsHelp();
 
   html += '</div>'; // eeg-viewer
 
@@ -763,6 +777,7 @@ function _renderICAGrid(state) {
 
 function _buildRecordingInfoSection(state) {
   var info = state.channelInfo || {};
+  var fp = state.filterParams || {};
   return '<div class="eeg-sb__section">'
     + '<div class="eeg-sb__title">Recording Info</div>'
     + '<div class="eeg-sb__rec-info">'
@@ -770,6 +785,10 @@ function _buildRecordingInfoSection(state) {
     + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">Sfreq</span><span class="eeg-sb__rec-val">' + (info.sfreq || 0) + ' Hz</span></div>'
     + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">Duration</span><span class="eeg-sb__rec-val">' + _formatDuration(info.duration_sec || 0) + '</span></div>'
     + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">Samples</span><span class="eeg-sb__rec-val">' + (info.n_samples || 0).toLocaleString() + '</span></div>'
+    + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">LFF</span><span class="eeg-sb__rec-val" id="eeg-rec-lff">' + (fp.lff != null ? fp.lff + ' Hz' : '—') + '</span></div>'
+    + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">HFF</span><span class="eeg-sb__rec-val" id="eeg-rec-hff">' + (fp.hff != null ? fp.hff + ' Hz' : '—') + '</span></div>'
+    + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">Notch</span><span class="eeg-sb__rec-val" id="eeg-rec-notch">' + (fp.notch ? fp.notch + ' Hz' : 'Off') + '</span></div>'
+    + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">Montage</span><span class="eeg-sb__rec-val" id="eeg-rec-montage">' + (state.montage || 'referential') + '</span></div>'
     + '</div></div>';
 }
 
@@ -791,6 +810,84 @@ function _buildEventsSection(state) {
     + '</div></div>';
 }
 
+// ── Timeline overview strip ─────────────────────────────────────────────────
+
+function _buildTimelineOverview(state) {
+  var dur = (state.channelInfo || {}).duration_sec || 0;
+  return '<div class="eeg-timeline" id="eeg-timeline">'
+    + '<div class="eeg-timeline__track" id="eeg-timeline-track" title="Click to jump">'
+    + '<div class="eeg-timeline__window" id="eeg-timeline-window"></div>'
+    + '<div class="eeg-timeline__segments" id="eeg-timeline-segments"></div>'
+    + '<div class="eeg-timeline__events" id="eeg-timeline-events"></div>'
+    + '</div>'
+    + '<div class="eeg-timeline__labels">'
+    + '<span class="eeg-timeline__label" id="eeg-timeline-start">0s</span>'
+    + '<span class="eeg-timeline__label" id="eeg-timeline-cur">---</span>'
+    + '<span class="eeg-timeline__label" id="eeg-timeline-end">' + _formatDuration(dur) + '</span>'
+    + '</div></div>';
+}
+
+function _updateTimelineOverview(state) {
+  var dur = (state.channelInfo || {}).duration_sec || 0;
+  if (!dur) return;
+  var winEl = document.getElementById('eeg-timeline-window');
+  var segContainer = document.getElementById('eeg-timeline-segments');
+  var evtContainer = document.getElementById('eeg-timeline-events');
+  var curLabel = document.getElementById('eeg-timeline-cur');
+  if (winEl) {
+    var leftPct = (state.tStart / dur) * 100;
+    var widthPct = (state.windowSec / dur) * 100;
+    winEl.style.left = Math.max(0, Math.min(100, leftPct)) + '%';
+    winEl.style.width = Math.max(0.5, Math.min(100, widthPct)) + '%';
+  }
+  if (curLabel) curLabel.textContent = _formatDuration(state.tStart) + ' – ' + _formatDuration(Math.min(dur, state.tStart + state.windowSec));
+  if (segContainer) {
+    segContainer.innerHTML = state.badSegments.map(function (seg) {
+      var left = (seg.start_sec / dur) * 100;
+      var width = ((seg.end_sec - seg.start_sec) / dur) * 100;
+      return '<div class="eeg-timeline__seg" style="left:' + left + '%;width:' + width + '%"></div>';
+    }).join('');
+  }
+  if (evtContainer) {
+    var events = state.eventEditor ? state.eventEditor.getEvents() : [];
+    evtContainer.innerHTML = events.map(function (evt) {
+      var left = (evt.time / dur) * 100;
+      return '<div class="eeg-timeline__evt" style="left:' + left + '%;background:' + (evt.color || '#4caf50') + '" title="' + esc(evt.label) + ' @ ' + evt.time.toFixed(1) + 's"></div>';
+    }).join('');
+  }
+}
+
+// ── Shortcuts help overlay ──────────────────────────────────────────────────
+
+function _buildShortcutsHelp() {
+  var rows = [
+    { key: '\u2190 / \u2192', desc: 'Previous / next page (Shift = \u00D75)' },
+    { key: '\u2191 / \u2193', desc: 'Zoom in / out (sensitivity)' },
+    { key: 'Home / End', desc: 'First / last page' },
+    { key: 'J / K', desc: 'Previous / next event' },
+    { key: 'S', desc: 'Snapshot PNG' },
+    { key: 'Ctrl+Z', desc: 'Undo' },
+    { key: 'Ctrl+Y', desc: 'Redo' },
+    { key: '?', desc: 'Toggle this help' },
+  ];
+  return '<div class="eeg-help" id="eeg-help" style="display:none">'
+    + '<div class="eeg-help__panel">'
+    + '<div class="eeg-help__header">Keyboard Shortcuts <button class="eeg-help__close" id="eeg-help-close">\u00D7</button></div>'
+    + '<div class="eeg-help__body">' + rows.map(function (r) {
+      return '<div class="eeg-help__row"><kbd>' + r.key + '</kbd><span>' + esc(r.desc) + '</span></div>';
+    }).join('') + '</div>'
+    + '</div></div>';
+}
+
+function _showShortcutsHelp() {
+  var el = document.getElementById('eeg-help');
+  if (el) el.style.display = 'flex';
+}
+function _hideShortcutsHelp() {
+  var el = document.getElementById('eeg-help');
+  if (el) el.style.display = 'none';
+}
+
 // ── Data loading ────────────────────────────────────────────────────────────
 
 async function _loadSignalWindow(analysisId, state, renderer, spectralPanel) {
@@ -809,6 +906,7 @@ async function _loadSignalWindow(analysisId, state, renderer, spectralPanel) {
       // Compute channel quality and band power
       _computeChannelQuality(state, demoData.channels, demoData.data, demoData.sfreq, renderer);
       _updateBandPower(state, renderer);
+      _updateTimelineOverview(state);
       return;
     }
 
@@ -838,6 +936,7 @@ async function _loadSignalWindow(analysisId, state, renderer, spectralPanel) {
     // Compute channel quality and band power
     if (_lastChannels) _computeChannelQuality(state, _lastChannels, _lastData, _lastSfreq, renderer);
     _updateBandPower(state, renderer);
+    _updateTimelineOverview(state);
   } catch (err) {
     showToast('Signal load failed: ' + (err.message || err), 'error');
   }
@@ -885,9 +984,9 @@ function _wireToolbar(analysisId, state, renderer, spectralPanel) {
   var lffSel = document.getElementById('eeg-lff-sel');
   var hffSel = document.getElementById('eeg-hff-sel');
   var notchSel = document.getElementById('eeg-notch-sel');
-  if (lffSel) lffSel.onchange = function () { state.filterParams.lff = parseFloat(lffSel.value); state.hasUnsavedChanges = true; _updateSaveIndicator(state); };
-  if (hffSel) hffSel.onchange = function () { state.filterParams.hff = parseFloat(hffSel.value); state.hasUnsavedChanges = true; _updateSaveIndicator(state); };
-  if (notchSel) notchSel.onchange = function () { state.filterParams.notch = parseFloat(notchSel.value); state.hasUnsavedChanges = true; _updateSaveIndicator(state); };
+  if (lffSel) lffSel.onchange = function () { state.filterParams.lff = parseFloat(lffSel.value); state.hasUnsavedChanges = true; _updateSaveIndicator(state); var rl = document.getElementById('eeg-rec-lff'); if (rl) rl.textContent = state.filterParams.lff + ' Hz'; };
+  if (hffSel) hffSel.onchange = function () { state.filterParams.hff = parseFloat(hffSel.value); state.hasUnsavedChanges = true; _updateSaveIndicator(state); var rh = document.getElementById('eeg-rec-hff'); if (rh) rh.textContent = state.filterParams.hff + ' Hz'; };
+  if (notchSel) notchSel.onchange = function () { state.filterParams.notch = parseFloat(notchSel.value); state.hasUnsavedChanges = true; _updateSaveIndicator(state); var rn = document.getElementById('eeg-rec-notch'); if (rn) rn.textContent = state.filterParams.notch ? state.filterParams.notch + ' Hz' : 'Off'; };
 
   // Navigation buttons
   function _navTo(tStart) {
@@ -900,6 +999,20 @@ function _wireToolbar(analysisId, state, renderer, spectralPanel) {
   document.getElementById('eeg-nav-prev')?.addEventListener('click', function () { _navTo(Math.max(0, state.tStart - state.windowSec)); });
   document.getElementById('eeg-nav-next')?.addEventListener('click', function () { _navTo(Math.min(dur - state.windowSec, state.tStart + state.windowSec)); });
   document.getElementById('eeg-nav-last')?.addEventListener('click', function () { _navTo(Math.max(0, dur - state.windowSec)); });
+
+  // Snapshot
+  document.getElementById('eeg-snapshot-btn')?.addEventListener('click', function () { _takeSnapshot(state); });
+
+  // Timeline click-to-navigate
+  var timelineTrack = document.getElementById('eeg-timeline-track');
+  if (timelineTrack) {
+    timelineTrack.addEventListener('click', function (e) {
+      var rect = timelineTrack.getBoundingClientRect();
+      var pct = (e.clientX - rect.left) / rect.width;
+      var tStart = Math.max(0, Math.min(dur - state.windowSec, pct * dur));
+      _navTo(tStart);
+    });
+  }
 
   // Save
   document.getElementById('eeg-save-btn')?.addEventListener('click', async function () {
@@ -1054,6 +1167,16 @@ function _wireKeyboard(analysisId, state, renderer, tabEl, spectralPanel) {
       case 'y':
         if (e.ctrlKey || e.metaKey) { e.preventDefault(); state.undoManager.redo(); _updateUndoButtons(state); }
         break;
+      case '?':
+        e.preventDefault();
+        var helpEl = document.getElementById('eeg-help');
+        if (helpEl && helpEl.style.display === 'flex') _hideShortcutsHelp(); else _showShortcutsHelp();
+        break;
+      case 's':
+      case 'S':
+        e.preventDefault();
+        _takeSnapshot(state);
+        break;
     }
   };
 
@@ -1063,6 +1186,10 @@ function _wireKeyboard(analysisId, state, renderer, tabEl, spectralPanel) {
     viewer.addEventListener('keydown', handler);
     viewer.focus();
   }
+
+  // Help close button
+  var helpClose = document.getElementById('eeg-help-close');
+  if (helpClose) helpClose.addEventListener('click', _hideShortcutsHelp);
 }
 
 function _wireICAButtons(state) {
@@ -1160,6 +1287,19 @@ function _wireV2Tools(analysisId, state, renderer, spectralPanel) {
 }
 
 // ── UI update helpers ───────────────────────────────────────────────────────
+
+function _takeSnapshot(state) {
+  var canvas = document.getElementById('qeeg-raw-canvas');
+  if (!canvas) { showToast('No canvas to snapshot', 'error'); return; }
+  try {
+    var link = document.createElement('a');
+    var ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    link.download = 'qeeg-snapshot-' + ts + '-t' + Math.round(state.tStart) + 's.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    showToast('Snapshot saved', 'success');
+  } catch (err) { showToast('Snapshot failed: ' + (err.message || err), 'error'); }
+}
 
 function _updatePageCounter(state) {
   var el = document.getElementById('eeg-page-counter');
@@ -1417,6 +1557,28 @@ function _injectCSS() {
 .eeg-sb__ch-quality--good { background:#66bb6a; }
 .eeg-sb__ch-quality--fair { background:#ffa726; }
 .eeg-sb__ch-quality--poor { background:#ef5350; }
+
+/* Timeline overview strip */
+.eeg-timeline { padding:4px 12px 6px; background:rgba(255,255,255,0.015); border-top:1px solid rgba(255,255,255,0.06); flex-shrink:0; }
+.eeg-timeline__track { position:relative; height:14px; background:rgba(255,255,255,0.04); border-radius:7px; cursor:pointer; overflow:hidden; }
+.eeg-timeline__window { position:absolute; top:0; height:100%; background:rgba(0,212,188,0.25); border-radius:7px; border:1px solid rgba(0,212,188,0.4); transition:left .2s ease, width .2s ease; }
+.eeg-timeline__segments { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+.eeg-timeline__seg { position:absolute; top:0; height:100%; background:rgba(239,83,80,0.35); }
+.eeg-timeline__events { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+.eeg-timeline__evt { position:absolute; top:2px; width:3px; height:10px; border-radius:1px; }
+.eeg-timeline__labels { display:flex; justify-content:space-between; margin-top:3px; }
+.eeg-timeline__label { font-size:9px; color:#475569; font-family:'JetBrains Mono','SF Mono',monospace; }
+
+/* Shortcuts help overlay */
+.eeg-help { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.6); z-index:50; backdrop-filter:blur(2px); }
+.eeg-help__panel { background:#0c1222; border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:0; width:320px; max-width:90vw; box-shadow:0 20px 60px rgba(0,0,0,0.5); }
+.eeg-help__header { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid rgba(255,255,255,0.06); font-size:12px; font-weight:700; color:#e2e8f0; }
+.eeg-help__close { background:none; border:none; color:#64748b; font-size:18px; cursor:pointer; line-height:1; }
+.eeg-help__close:hover { color:#ef5350; }
+.eeg-help__body { padding:10px 16px 14px; }
+.eeg-help__row { display:flex; align-items:center; gap:12px; padding:5px 0; font-size:11px; color:#94a3b8; border-bottom:1px solid rgba(255,255,255,0.03); }
+.eeg-help__row:last-child { border-bottom:none; }
+.eeg-help__row kbd { display:inline-flex; align-items:center; justify-content:center; min-width:56px; padding:2px 6px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); border-radius:4px; font-family:'JetBrains Mono','SF Mono',monospace; font-size:10px; color:#e2e8f0; flex-shrink:0; }
 
 /* Disabled nav buttons */
 .eeg-tb__nav-btn:disabled { opacity:0.35; cursor:not-allowed; pointer-events:none; }
