@@ -3,15 +3,41 @@ import { mockApiSuccess, setAuthToken } from './helpers';
 
 test.describe('Patient Management', () => {
   test.beforeEach(async ({ page }) => {
-    await mockApiSuccess(page);
     await setAuthToken(page);
-    // Catch-all for any other API calls the patients page makes
-    await page.route('**/api/v1/**', (route) => {
-      if (route.request().url().includes('/auth/me')) {
-        route.fallback();
-        return;
+
+    // Mock auth/me
+    await page.route('**/api/v1/auth/me', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'test-user-1',
+          email: 'test@clinic.com',
+          display_name: 'Dr. Test User',
+          role: 'clinician',
+        }),
+      });
+    });
+
+    // Mock patients endpoint (with query params) — must be before catch-all
+    await page.route('**/api/v1/patients*', (route) => {
+      if (route.request().method() === 'GET') {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            { id: 'p1', first_name: 'Alice', last_name: 'Smith', primary_condition: 'ADHD', created_at: new Date().toISOString() },
+            { id: 'p2', first_name: 'Bob', last_name: 'Jones', primary_condition: 'Anxiety', created_at: new Date().toISOString() },
+          ]),
+        });
+      } else {
+        route.continue();
       }
-      if (route.request().url().includes('/patients')) {
+    });
+
+    // Catch-all for any other API calls
+    await page.route('**/api/v1/**', (route) => {
+      if (route.request().url().includes('/auth/me') || route.request().url().includes('/patients')) {
         route.fallback();
         return;
       }

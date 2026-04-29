@@ -23,6 +23,7 @@
 import { api } from './api.js';
 import { emptyState, showToast } from './helpers.js';
 import { EEGSignalRenderer } from './eeg-signal-renderer.js';
+import { renderBrainMap10_20 } from './brain-map-svg.js';
 import { EEGSpectralPanel, _computePSD } from './eeg-spectral-panel.js';
 import { EEGEventEditor, EEGMeasurementTool, EEGExporter, EEGUndoManager } from './eeg-tools.js';
 import { EEGMontageEditor, EEGChannelManager, EEGRecordingInfo } from './eeg-montage-editor.js';
@@ -552,6 +553,8 @@ function _buildLayout(state, isDemo) {
   html += _buildRecordingInfoSection(state);
   html += _buildBandPowerSection(state);
   html += _buildEpochStatsSection(state);
+  html += _buildMontageDiagramSection(state);
+  html += _buildCorrelationSection(state);
   html += _buildChannelSection(state);
   html += _buildSegmentsSection(state);
   html += _buildEventsSection(state);
@@ -781,6 +784,87 @@ function _renderICAGrid(state) {
 
 // ── v2 section builders ─────────────────────────────────────────────────────
 
+function _buildCorrelationSection(state) {
+  return '<div class="eeg-sb__section">'
+    + '<div class="eeg-sb__title">Correlation <span class="eeg-sb__hint-inline">current window</span></div>'
+    + '<div class="eeg-sb__corr" id="eeg-corr-matrix">'
+    + '<div class="eeg-sb__hint">Load signal to see correlation matrix</div>'
+    + '</div></div>';
+}
+
+function _updateCorrelationMatrix(state, channels, data) {
+  var container = document.getElementById('eeg-corr-matrix');
+  if (!container || !channels || !data || channels.length < 2) return;
+  // Compute Pearson correlation for first 8 channels (to keep it small)
+  var n = Math.min(channels.length, 8);
+  var cors = [];
+  for (var i = 0; i < n; i++) {
+    cors[i] = [];
+    for (var j = 0; j < n; j++) {
+      if (!data[i] || !data[j] || !data[i].length || !data[j].length) { cors[i][j] = 0; continue; }
+      var meanI = 0, meanJ = 0;
+      for (var k = 0; k < data[i].length; k++) meanI += data[i][k];
+      for (var k = 0; k < data[j].length; k++) meanJ += data[j][k];
+      meanI /= data[i].length; meanJ /= data[j].length;
+      var num = 0, denI = 0, denJ = 0;
+      var len = Math.min(data[i].length, data[j].length);
+      for (var k = 0; k < len; k++) {
+        var di = data[i][k] - meanI;
+        var dj = data[j][k] - meanJ;
+        num += di * dj;
+        denI += di * di;
+        denJ += dj * dj;
+      }
+      var den = Math.sqrt(denI * denJ);
+      cors[i][j] = den > 0 ? num / den : 0;
+    }
+  }
+  // Build mini heatmap grid
+  var cellSize = Math.max(12, Math.floor(140 / n));
+  var html = '<div style="display:grid;grid-template-columns:repeat(' + n + ',' + cellSize + 'px);gap:1px;">';
+  for (var i = 0; i < n; i++) {
+    for (var j = 0; j < n; j++) {
+      var r = cors[i][j];
+      var absR = Math.abs(r);
+      var hue = r >= 0 ? 160 : 0; // teal for positive, red for negative
+      var sat = Math.min(100, absR * 100);
+      var light = 15 + (1 - absR) * 15;
+      var color = 'hsl(' + hue + ',' + sat.toFixed(0) + '%,' + light.toFixed(0) + '%)';
+      var title = esc(channels[i]) + ' \u2194 ' + esc(channels[j]) + '  r=' + r.toFixed(2);
+      html += '<div style="width:' + cellSize + 'px;height:' + cellSize + 'px;background:' + color + ';border-radius:2px;" title="' + title + '"></div>';
+    }
+  }
+  html += '</div>';
+  // Labels
+  html += '<div style="display:flex;justify-content:space-between;margin-top:4px;font-size:8px;color:#475569;font-family:monospace">';
+  for (var i = 0; i < n; i++) html += '<span style="width:' + cellSize + 'px;text-align:center;overflow:hidden;text-overflow:ellipsis">' + esc(channels[i]) + '</span>';
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function _buildMontageDiagramSection(state) {
+  var info = state.channelInfo || {};
+  var channels = (info.channels || []).map(function (ch) { return ch.name; });
+  var mapHtml = '';
+  try {
+    mapHtml = renderBrainMap10_20({ size: 180, highlightSites: channels, showZones: false });
+  } catch (_) { mapHtml = '<div class="eeg-sb__hint">Montage map unavailable</div>'; }
+  return '<div class="eeg-sb__section">'
+    + '<div class="eeg-sb__title">Montage <span class="eeg-sb__hint-inline">10–20</span></div>'
+    + '<div class="eeg-sb__montage" id="eeg-montage-diagram">' + mapHtml + '</div>'
+    + '</div>';
+}
+
+function _updateMontageDiagram(state) {
+  var container = document.getElementById('eeg-montage-diagram');
+  if (!container) return;
+  var info = state.channelInfo || {};
+  var channels = (info.channels || []).map(function (ch) { return ch.name; });
+  try {
+    container.innerHTML = renderBrainMap10_20({ size: 180, highlightSites: channels, showZones: false });
+  } catch (_) {}
+}
+
 function _buildEpochStatsSection(state) {
   return '<div class="eeg-sb__section">'
     + '<div class="eeg-sb__title">Epoch Stats <span class="eeg-sb__hint-inline">current window</span></div>'
@@ -946,6 +1030,8 @@ async function _loadSignalWindow(analysisId, state, renderer, spectralPanel) {
       _computeChannelQuality(state, demoData.channels, demoData.data, demoData.sfreq, renderer);
       _updateBandPower(state, renderer);
       _updateEpochStats(state, demoData.channels, demoData.data);
+      _updateCorrelationMatrix(state, demoData.channels, demoData.data);
+      _updateMontageDiagram(state);
       _updateTimelineOverview(state);
       return;
     }
@@ -977,6 +1063,8 @@ async function _loadSignalWindow(analysisId, state, renderer, spectralPanel) {
     if (_lastChannels) _computeChannelQuality(state, _lastChannels, _lastData, _lastSfreq, renderer);
     _updateBandPower(state, renderer);
     if (_lastChannels) _updateEpochStats(state, _lastChannels, _lastData);
+    if (_lastChannels) _updateCorrelationMatrix(state, _lastChannels, _lastData);
+    _updateMontageDiagram(state);
     _updateTimelineOverview(state);
   } catch (err) {
     showToast('Signal load failed: ' + (err.message || err), 'error');
@@ -1599,6 +1687,10 @@ function _injectCSS() {
 .eeg-sb__stat-row { display:flex; justify-content:space-between; padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.03); font-size:10px; }
 .eeg-sb__stat-ch { font-family:'JetBrains Mono','SF Mono',monospace; color:#94a3b8; }
 .eeg-sb__stat-val { font-family:'JetBrains Mono','SF Mono',monospace; color:#cbd5e1; }
+
+/* Montage diagram sidebar */
+.eeg-sb__montage { display:flex; justify-content:center; padding:4px 0; }
+.eeg-sb__montage svg { max-width:100%; height:auto; }
 
 /* Channel quality indicator */
 .eeg-sb__ch-quality { width:5px; height:5px; border-radius:50%; flex-shrink:0; }
