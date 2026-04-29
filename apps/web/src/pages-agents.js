@@ -494,6 +494,33 @@ let _webhookReplayInput = '';
 let _webhookReplayBusy = false;
 let _webhookReplayResult = null;
 
+// ── Phase 13: Onboarding funnel dashboard state (super-admin) ────────────────
+// Renders inside the Ops tab body as a dashboard card. Backed by
+// `GET /api/v1/onboarding/funnel?days=N` (admin+, server clamps 1..90).
+// `_onboardingFunnelByDays` is a tiny per-window cache so re-clicking the
+// same window pill does NOT re-fetch — the brief explicitly requires this.
+// `_onboardingFunnelError` is window-scoped (cleared on every fetch attempt).
+const ONBOARDING_FUNNEL_WINDOW_OPTIONS = [
+  { days: 1, label: '1d' },
+  { days: 7, label: '7d' },
+  { days: 30, label: '30d' },
+  { days: 90, label: '90d' },
+];
+const ONBOARDING_FUNNEL_STEPS = [
+  { key: 'started', label: 'Started' },
+  { key: 'package_selected', label: 'Package selected' },
+  { key: 'stripe_initiated', label: 'Stripe initiated' },
+  { key: 'stripe_skipped', label: 'Stripe skipped' },
+  { key: 'agents_enabled', label: 'Agents enabled' },
+  { key: 'team_invited', label: 'Team invited' },
+  { key: 'completed', label: 'Completed' },
+  { key: 'skipped', label: 'Skipped' },
+];
+let _onboardingFunnelDays = 7;
+let _onboardingFunnelLoading = false;
+let _onboardingFunnelError = null;
+let _onboardingFunnelByDays = Object.create(null); // { [days]: payload }
+
 // ── Phase 9: Prompt overrides panel state (super-admin) ──────────────────────
 // Mirrors the Activation panel pattern: list cached in `_promptOverridesList`
 // (null until first fetch), `_promptEditingAgentId` tracks which row's inline
@@ -1816,6 +1843,173 @@ function _renderOpsWebhookReplayCard() {
   `;
 }
 
+// ── Phase 13: Onboarding funnel card (super-admin) ───────────────────────────
+// Lazy-fetches GET /api/v1/onboarding/funnel?days=N and caches per-window so
+// re-clicking the same pill is a no-op (cache hit). On window change we only
+// fetch if the cache slot is empty. Visual: two top-line conversion stats +
+// 8 horizontal bars (one per funnel step) sized by count/max_count.
+async function _fetchOnboardingFunnel(days) {
+  const n = _onboardingFunnelClampDays(days);
+  if (_onboardingFunnelLoading) return _onboardingFunnelByDays[n] || null;
+  // Cache hit — caller asked for a window we already have. Skip the network.
+  if (Object.prototype.hasOwnProperty.call(_onboardingFunnelByDays, n)) {
+    return _onboardingFunnelByDays[n];
+  }
+  _onboardingFunnelLoading = true;
+  _onboardingFunnelError = null;
+  try {
+    if (_isMarketplaceDemoMode()) {
+      _onboardingFunnelByDays[n] = _onboardingFunnelDemoPayload(n);
+      return _onboardingFunnelByDays[n];
+    }
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      const t = api.getToken && api.getToken();
+      if (t) headers['Authorization'] = 'Bearer ' + t;
+    } catch {}
+    let payload = null;
+    try {
+      const res = await fetch(`${_marketplaceApiBase()}/api/v1/onboarding/funnel?days=${encodeURIComponent(n)}`, {
+        method: 'GET', headers, credentials: 'include',
+      });
+      if (res.ok) payload = await res.json();
+      else if (res.status === 403) _onboardingFunnelError = 'This action requires super-admin privileges.';
+      else if (res.status === 422) _onboardingFunnelError = `Invalid window (HTTP 422)`;
+      else _onboardingFunnelError = `Failed to load onboarding funnel (${res.status})`;
+    } catch (err) {
+      _onboardingFunnelError = err?.message || 'Failed to load onboarding funnel.';
+      payload = null;
+    }
+    if (payload && typeof payload === 'object') {
+      _onboardingFunnelByDays[n] = payload;
+    }
+    return _onboardingFunnelByDays[n] || null;
+  } finally {
+    _onboardingFunnelLoading = false;
+  }
+}
+
+function _onboardingFunnelClampDays(days) {
+  const n = Number(days);
+  if (!Number.isFinite(n) || n < 1) return 1;
+  if (n > 90) return 90;
+  return Math.floor(n);
+}
+
+function _onboardingFunnelDemoPayload(days) {
+  // Conservative demo numbers — taper through the funnel so the bars look
+  // sensible. Used only when VITE_ENABLE_DEMO=1 + demo token; never in prod.
+  const totals = {
+    started: 120,
+    package_selected: 96,
+    stripe_initiated: 60,
+    stripe_skipped: 24,
+    agents_enabled: 70,
+    team_invited: 48,
+    completed: 38,
+    skipped: 12,
+  };
+  return {
+    since_days: days,
+    totals,
+    conversion: {
+      started_to_completed: totals.started ? totals.completed / totals.started : 0,
+      started_to_skipped: totals.started ? totals.skipped / totals.started : 0,
+    },
+  };
+}
+
+function _onboardingConversionColor(rate) {
+  const r = Number(rate || 0);
+  if (r > 0.25) return 'var(--green,#22c55e)';
+  if (r >= 0.10) return 'var(--amber,#f59e0b)';
+  return 'var(--red,#ef4444)';
+}
+
+function _renderOpsOnboardingFunnelCard() {
+  const days = _onboardingFunnelClampDays(_onboardingFunnelDays);
+  const cached = _onboardingFunnelByDays[days] || null;
+
+  const pills = ONBOARDING_FUNNEL_WINDOW_OPTIONS.map(opt => {
+    const active = days === opt.days;
+    const style = active
+      ? 'font-size:11px;padding:3px 10px;border-radius:6px;background:var(--violet);color:#fff;border:1px solid var(--violet);font-weight:600;cursor:pointer'
+      : 'font-size:11px;padding:3px 10px;border-radius:6px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);font-weight:500;cursor:pointer';
+    return `<button type="button" data-test="funnel-window-${opt.days}" style="${style}" onclick="window._agentOpsSetFunnelWindow(${opt.days})">${opt.label}</button>`;
+  }).join('');
+
+  const headerRow = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap">
+      <div style="font-size:13px;font-weight:700;color:var(--text-primary)">Onboarding funnel</div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        ${pills}
+      </div>
+    </div>
+  `;
+
+  let body;
+  if (_onboardingFunnelError) {
+    body = `<div data-test="funnel-error" style="padding:10px 12px;font-size:11.5px;color:var(--red,#ef4444);background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.30);border-radius:6px">${_esc(_onboardingFunnelError)}</div>`;
+  } else if (cached === null) {
+    body = `<div class="muted" style="padding:8px 0;font-size:11.5px;color:var(--text-tertiary)">Loading onboarding funnel…</div>`;
+  } else {
+    const totals = (cached && cached.totals && typeof cached.totals === 'object') ? cached.totals : {};
+    const conversion = (cached && cached.conversion && typeof cached.conversion === 'object') ? cached.conversion : {};
+    const completedRate = Number(conversion.started_to_completed || 0);
+    const skippedRate = Number(conversion.started_to_skipped || 0);
+    const completedPct = (completedRate * 100).toFixed(1) + '%';
+    const skippedPct = (skippedRate * 100).toFixed(1) + '%';
+    const completedColor = _onboardingConversionColor(completedRate);
+    const skippedColor = _onboardingConversionColor(skippedRate);
+
+    const stats = `
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">
+        <div data-test="funnel-stat-completed" style="flex:1 1 200px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary,transparent)">
+          <div class="muted" style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em">Started → Completed</div>
+          <div data-test="funnel-stat-completed-value" style="font-size:24px;font-weight:700;color:${completedColor};margin-top:4px">${completedPct}</div>
+        </div>
+        <div data-test="funnel-stat-skipped" style="flex:1 1 200px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary,transparent)">
+          <div class="muted" style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em">Started → Skipped</div>
+          <div data-test="funnel-stat-skipped-value" style="font-size:24px;font-weight:700;color:${skippedColor};margin-top:4px">${skippedPct}</div>
+        </div>
+      </div>
+    `;
+
+    // Compute max for bar normalisation. Guard against all-zero (avoid /0).
+    let maxCount = 0;
+    for (const step of ONBOARDING_FUNNEL_STEPS) {
+      const v = Number(totals[step.key] || 0);
+      if (v > maxCount) maxCount = v;
+    }
+    const bars = ONBOARDING_FUNNEL_STEPS.map(step => {
+      const count = Number(totals[step.key] || 0);
+      const pct = maxCount > 0 ? Math.max(0, Math.min(100, (count / maxCount) * 100)) : 0;
+      const widthStyle = `width:${pct.toFixed(2)}%`;
+      return `
+        <div data-test="funnel-bar-${step.key}" style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          <div style="flex:0 0 140px;font-size:11.5px;color:var(--text-secondary)">${_esc(step.label)}</div>
+          <div style="flex:1;height:14px;background:var(--bg-secondary,rgba(127,127,127,0.10));border-radius:4px;overflow:hidden;border:1px solid var(--border)">
+            <div style="${widthStyle};height:100%;background:var(--violet);min-width:${count > 0 ? '2px' : '0'}"></div>
+          </div>
+          <div data-test="funnel-bar-count-${step.key}" style="flex:0 0 60px;text-align:right;font-size:11.5px;font-variant-numeric:tabular-nums;color:var(--text-primary);font-weight:600">${count}</div>
+        </div>
+      `;
+    }).join('');
+
+    body = `
+      ${stats}
+      <div data-test="funnel-bars">${bars}</div>
+    `;
+  }
+
+  return `
+    <div class="card" data-test="funnel-card" style="padding:14px 16px;margin-top:14px">
+      ${headerRow}
+      ${body}
+    </div>
+  `;
+}
+
 function _renderOpsSection(agents) {
   const sectionHeader = `
     <div style="margin-bottom:10px">
@@ -1829,6 +2023,7 @@ function _renderOpsSection(agents) {
     ${_renderOpsRunsCard(agents)}
     ${_renderOpsAbuseCard()}
     ${_renderOpsWebhookReplayCard()}
+    ${_renderOpsOnboardingFunnelCard()}
   `;
 }
 
@@ -3227,6 +3422,15 @@ window._agentMarketplaceSetTab = function(tab) {
         }
       }).catch(() => {});
     }
+    // Phase 13: lazy-fetch the funnel for the current window if not cached.
+    const _funnelDays = _onboardingFunnelClampDays(_onboardingFunnelDays);
+    if (!Object.prototype.hasOwnProperty.call(_onboardingFunnelByDays, _funnelDays) && !_onboardingFunnelLoading) {
+      _fetchOnboardingFunnel(_funnelDays).then(() => {
+        if (_agentView === 'hub' && _marketplaceTab === 'ops') {
+          try { pgAgentChat(_lastSetTopbar); } catch {}
+        }
+      }).catch(() => {});
+    }
   }
   if (tab === 'prompts' && _promptOverridesList === null && !_promptOverridesLoading) {
     _fetchPromptOverrides().then(() => {
@@ -3519,6 +3723,28 @@ window._agentOpsWebhookReplaySubmit = async function() {
       try { pgAgentChat(_lastSetTopbar); } catch {}
     }
   }
+};
+
+// ── Phase 13: Onboarding funnel handlers ─────────────────────────────────────
+// Switching the window pill: if we already have the new window cached, swap
+// the active window and re-render (no fetch). Otherwise fetch then re-render.
+// Re-clicking the active pill is a no-op — required by the brief and tested.
+window._agentOpsSetFunnelWindow = function(days) {
+  const n = _onboardingFunnelClampDays(days);
+  if (_onboardingFunnelDays === n) return;
+  _onboardingFunnelDays = n;
+  if (Object.prototype.hasOwnProperty.call(_onboardingFunnelByDays, n)) {
+    if (_agentView === 'hub' && _marketplaceTab === 'ops') {
+      try { pgAgentChat(_lastSetTopbar); } catch {}
+    }
+    return;
+  }
+  _fetchOnboardingFunnel(n).then(() => {
+    if (_agentView === 'hub' && _marketplaceTab === 'ops') {
+      try { pgAgentChat(_lastSetTopbar); } catch {}
+    }
+  }).catch(() => {});
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
 };
 
 window._agentActivityRefresh = function() {
@@ -3934,6 +4160,49 @@ export const __webhookReplayTestApi__ = {
       input: _webhookReplayInput,
       busy: _webhookReplayBusy,
       result: _webhookReplayResult,
+    };
+  },
+};
+
+// ── Phase 13: Test surface — Onboarding funnel dashboard card ───────────────
+// Mirrors the prompt-override / webhook-replay testing seam so the Phase 13
+// tests in `apps/web/tests/onboarding-funnel-ui.test.js` can drive the card
+// without a DOM. `reset()` wipes the per-window cache, error, and the active
+// window pill back to the 7d default.
+export const __onboardingFunnelTestApi__ = {
+  reset() {
+    _marketplaceTab = 'catalog';
+    _onboardingFunnelDays = 7;
+    _onboardingFunnelLoading = false;
+    _onboardingFunnelError = null;
+    _onboardingFunnelByDays = Object.create(null);
+    _agentView = 'detached';
+    _lastSetTopbar = () => {};
+  },
+  renderCard() {
+    return _renderOpsOnboardingFunnelCard();
+  },
+  renderTabStrip() {
+    return _renderMarketplaceTabStrip();
+  },
+  renderOpsSection(agents) {
+    return _renderOpsSection(agents);
+  },
+  isSuperAdmin() {
+    return _isSuperAdmin();
+  },
+  fetchFunnel(days) {
+    return _fetchOnboardingFunnel(days);
+  },
+  setWindow(days) {
+    _onboardingFunnelDays = _onboardingFunnelClampDays(days);
+  },
+  getState() {
+    return {
+      days: _onboardingFunnelDays,
+      loading: _onboardingFunnelLoading,
+      error: _onboardingFunnelError,
+      byDays: _onboardingFunnelByDays,
     };
   },
 };
