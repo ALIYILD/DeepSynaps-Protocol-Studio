@@ -124,6 +124,7 @@ function _initState() {
       interactionMode: 'select',
       spectralMode: 'psd',
       spectralVisible: false,
+      notepad: '',
       eventEditor: new EEGEventEditor(),
       measurementTool: new EEGMeasurementTool(),
       undoManager: new EEGUndoManager(),
@@ -558,6 +559,7 @@ function _buildLayout(state, isDemo) {
   html += _buildChannelSection(state);
   html += _buildSegmentsSection(state);
   html += _buildEventsSection(state);
+  html += _buildNotepadSection(state);
   html += _buildICASection(state);
   html += '</div>';
 
@@ -913,6 +915,15 @@ function _buildRecordingInfoSection(state) {
     + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">Notch</span><span class="eeg-sb__rec-val" id="eeg-rec-notch">' + (fp.notch ? fp.notch + ' Hz' : 'Off') + '</span></div>'
     + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">Montage</span><span class="eeg-sb__rec-val" id="eeg-rec-montage">' + (state.montage || 'referential') + '</span></div>'
     + '</div></div>';
+}
+
+function _buildNotepadSection(state) {
+  var notes = state.notepad || '';
+  return '<div class="eeg-sb__section">'
+    + '<div class="eeg-sb__title">Notepad</div>'
+    + '<textarea class="eeg-sb__notepad" id="eeg-notepad" placeholder="Clinical observations, impressions, notes...">' + esc(notes) + '</textarea>'
+    + '<div class="eeg-sb__notepad-hint">Auto-saved to session</div>'
+    + '</div>';
 }
 
 function _buildEventsSection(state) {
@@ -1319,6 +1330,16 @@ function _wireKeyboard(analysisId, state, renderer, tabEl, spectralPanel) {
   // Help close button
   var helpClose = document.getElementById('eeg-help-close');
   if (helpClose) helpClose.addEventListener('click', _hideShortcutsHelp);
+
+  // Notepad
+  var notepad = document.getElementById('eeg-notepad');
+  if (notepad) {
+    notepad.addEventListener('input', function () {
+      state.notepad = notepad.value;
+      state.hasUnsavedChanges = true;
+      _updateSaveIndicator(state);
+    });
+  }
 }
 
 function _wireICAButtons(state) {
@@ -1691,6 +1712,12 @@ function _injectCSS() {
 /* Montage diagram sidebar */
 .eeg-sb__montage { display:flex; justify-content:center; padding:4px 0; }
 .eeg-sb__montage svg { max-width:100%; height:auto; }
+
+/* Notepad sidebar */
+.eeg-sb__notepad { width:100%; min-height:80px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:8px; font-size:11px; color:#cbd5e1; resize:vertical; font-family:'Inter',system-ui,sans-serif; }
+.eeg-sb__notepad:focus { outline:none; border-color:rgba(0,212,188,0.3); box-shadow:0 0 0 2px rgba(0,212,188,0.1); }
+.eeg-sb__notepad::placeholder { color:#475569; }
+.eeg-sb__notepad-hint { font-size:9px; color:#475569; margin-top:4px; text-align:right; }
 
 /* Channel quality indicator */
 .eeg-sb__ch-quality { width:5px; height:5px; border-radius:50%; flex-shrink:0; }

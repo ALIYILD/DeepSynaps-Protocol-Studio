@@ -665,6 +665,7 @@ function renderQEEGSessionRail(data, options) {
   if (!hasAdvanced) quickActions += '<button class="btn btn-sm btn-primary" style="margin-left:4px" onclick="window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\');setTimeout(function(){var b=document.getElementById(\'qeeg-run-advanced-btn\');b&&b.click()},300)" title="Run advanced analyses">Run Advanced</button>';
   if (!hasReport) quickActions += '<button class="btn btn-sm btn-outline" style="margin-left:4px" onclick="window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')" title="Generate AI report">AI Report</button>';
   if (!hasProtocol) quickActions += '<button class="btn btn-sm btn-outline" style="margin-left:4px" onclick="window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\');setTimeout(function(){var b=document.querySelector(\'[data-qeeg-ai-action=protocol]\');b&&b.click()},300)" title="Recommend neuromodulation protocol">Protocol</button>';
+  quickActions += '<button class="btn btn-sm btn-outline" style="margin-left:4px" onclick="window._qeegExportBandPowerCSV&&window._qeegExportBandPowerCSV()" title="Export band power CSV">Export CSV</button>';
   return '<div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;padding:14px 16px;border-radius:14px;background:linear-gradient(135deg, rgba(11,23,37,0.94), rgba(16,28,48,0.9));border:1px solid rgba(255,255,255,0.08)">'
     + '<div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-start">'
       + '<div>'
