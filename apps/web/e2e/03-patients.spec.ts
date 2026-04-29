@@ -5,6 +5,18 @@ test.describe('Patient Management', () => {
   test.beforeEach(async ({ page }) => {
     await mockApiSuccess(page);
     await setAuthToken(page);
+    // Catch-all for any other API calls the patients page makes
+    await page.route('**/api/v1/**', (route) => {
+      if (route.request().url().includes('/auth/me')) {
+        route.fallback();
+        return;
+      }
+      if (route.request().url().includes('/patients')) {
+        route.fallback();
+        return;
+      }
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+    });
   });
 
   test('patients page loads and shows patient list', async ({ page }) => {

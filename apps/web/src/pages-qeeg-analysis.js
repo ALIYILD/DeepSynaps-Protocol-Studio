@@ -658,6 +658,11 @@ function renderQEEGSessionRail(data, options) {
   var qualityTone = qualityPct == null ? 'var(--text-secondary)' : (qualityPct >= 80 ? 'var(--green)' : qualityPct >= 60 ? 'var(--amber)' : 'var(--red)');
   var normDev = data.normative_deviations_json || data.normative_deviations || null;
   var normSummary = _getWorkspaceNormativeSummary(normDev);
+  var hasAdvanced = data.advanced_analyses && data.advanced_analyses.meta && data.advanced_analyses.meta.completed > 0;
+  var hasReport = data.ai_report_json || data.report_json;
+  var quickActions = '';
+  if (!hasAdvanced) quickActions += '<button class="btn btn-sm btn-primary" style="margin-left:4px" onclick="window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\');setTimeout(function(){var b=document.getElementById(\'qeeg-run-advanced-btn\');b&&b.click()},300)" title="Run advanced analyses">Run Advanced</button>';
+  if (!hasReport) quickActions += '<button class="btn btn-sm btn-outline" style="margin-left:4px" onclick="window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')" title="Generate AI report">AI Report</button>';
   return '<div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;padding:14px 16px;border-radius:14px;background:linear-gradient(135deg, rgba(11,23,37,0.94), rgba(16,28,48,0.9));border:1px solid rgba(255,255,255,0.08)">'
     + '<div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-start">'
       + '<div>'
@@ -672,6 +677,7 @@ function renderQEEGSessionRail(data, options) {
         + (qualityPct != null ? badge('Quality ' + qualityPct + '%', qualityTone) : '')
         + badge(normSummary.significant + ' significant z-flags', normSummary.significant ? 'var(--amber)' : 'var(--green)')
         + '<button class="btn btn-sm btn-outline" style="margin-left:4px" onclick="window._qeegOpenRawTab&&window._qeegOpenRawTab()" title="Open raw EEG viewer">View Raw EEG</button>'
+        + quickActions
       + '</div>'
     + '</div>'
     + '<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">'

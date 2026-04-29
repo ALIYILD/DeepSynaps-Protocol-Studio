@@ -551,6 +551,7 @@ function _buildLayout(state, isDemo) {
   html += '<div class="eeg-viewer__sidebar" id="eeg-sidebar">';
   html += _buildRecordingInfoSection(state);
   html += _buildBandPowerSection(state);
+  html += _buildEpochStatsSection(state);
   html += _buildChannelSection(state);
   html += _buildSegmentsSection(state);
   html += _buildEventsSection(state);
@@ -737,6 +738,10 @@ function _updateBandPower(state, renderer) {
   var maxVal = Math.max.apply(null, avgBands);
   if (maxVal <= 0) maxVal = 1;
 
+  // Find dominant band
+  var domIdx = 0;
+  for (var i = 1; i < avgBands.length; i++) if (avgBands[i] > avgBands[domIdx]) domIdx = i;
+
   var rows = container.querySelectorAll('.eeg-sb__bp-row');
   for (var ri = 0; ri < rows.length && ri < BAND_DEFS.length; ri++) {
     var pct = avgBands[ri];
@@ -744,6 +749,7 @@ function _updateBandPower(state, renderer) {
     var val = rows[ri].querySelector('.eeg-sb__bp-val');
     if (bar) bar.style.width = Math.min(100, (pct / maxVal * 100)).toFixed(1) + '%';
     if (val) val.textContent = (pct * 100).toFixed(1) + '%';
+    rows[ri].style.opacity = ri === domIdx ? '1' : '0.65';
   }
 }
 
@@ -774,6 +780,39 @@ function _renderICAGrid(state) {
 }
 
 // ── v2 section builders ─────────────────────────────────────────────────────
+
+function _buildEpochStatsSection(state) {
+  return '<div class="eeg-sb__section">'
+    + '<div class="eeg-sb__title">Epoch Stats <span class="eeg-sb__hint-inline">current window</span></div>'
+    + '<div class="eeg-sb__stats" id="eeg-epoch-stats">'
+    + '<div class="eeg-sb__hint">Load signal to see statistics</div>'
+    + '</div></div>';
+}
+
+function _updateEpochStats(state, channels, data) {
+  var container = document.getElementById('eeg-epoch-stats');
+  if (!container || !channels || !data) return;
+  var rows = channels.map(function (ch, ci) {
+    var vals = data[ci];
+    if (!vals || !vals.length) return '<div class="eeg-sb__stat-row"><span class="eeg-sb__stat-ch">' + esc(ch) + '</span><span class="eeg-sb__stat-val">--</span></div>';
+    var min = vals[0], max = vals[0], sum = 0;
+    for (var i = 0; i < vals.length; i++) {
+      if (vals[i] < min) min = vals[i];
+      if (vals[i] > max) max = vals[i];
+      sum += vals[i];
+    }
+    var mean = sum / vals.length;
+    var sqSum = 0;
+    for (var i = 0; i < vals.length; i++) sqSum += (vals[i] - mean) * (vals[i] - mean);
+    var sd = Math.sqrt(sqSum / vals.length);
+    var range = max - min;
+    return '<div class="eeg-sb__stat-row" title="Mean ' + mean.toFixed(1) + ' \u00B5V  \u00B7  SD ' + sd.toFixed(1) + '">'
+      + '<span class="eeg-sb__stat-ch">' + esc(ch) + '</span>'
+      + '<span class="eeg-sb__stat-val">' + range.toFixed(0) + ' \u00B5V</span>'
+      + '</div>';
+  }).join('');
+  container.innerHTML = '<div class="eeg-sb__stats-head"><span>Ch</span><span>Range</span></div>' + rows;
+}
 
 function _buildRecordingInfoSection(state) {
   var info = state.channelInfo || {};
@@ -906,6 +945,7 @@ async function _loadSignalWindow(analysisId, state, renderer, spectralPanel) {
       // Compute channel quality and band power
       _computeChannelQuality(state, demoData.channels, demoData.data, demoData.sfreq, renderer);
       _updateBandPower(state, renderer);
+      _updateEpochStats(state, demoData.channels, demoData.data);
       _updateTimelineOverview(state);
       return;
     }
@@ -936,6 +976,7 @@ async function _loadSignalWindow(analysisId, state, renderer, spectralPanel) {
     // Compute channel quality and band power
     if (_lastChannels) _computeChannelQuality(state, _lastChannels, _lastData, _lastSfreq, renderer);
     _updateBandPower(state, renderer);
+    if (_lastChannels) _updateEpochStats(state, _lastChannels, _lastData);
     _updateTimelineOverview(state);
   } catch (err) {
     showToast('Signal load failed: ' + (err.message || err), 'error');
@@ -1551,6 +1592,13 @@ function _injectCSS() {
 .eeg-sb__bp-bar { height:100%; border-radius:5px; transition:width .4s ease; }
 .eeg-sb__bp-val { font-family:'JetBrains Mono','SF Mono',monospace; font-size:9px; color:#cbd5e1; width:36px; text-align:right; flex-shrink:0; }
 .eeg-sb__bp-legend { font-size:9px; color:#475569; margin-top:6px; text-align:center; }
+
+/* Epoch stats sidebar */
+.eeg-sb__stats { max-height:180px; overflow-y:auto; }
+.eeg-sb__stats-head { display:flex; justify-content:space-between; font-size:9px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:.04em; padding:0 0 4px; border-bottom:1px solid rgba(255,255,255,0.05); margin-bottom:2px; }
+.eeg-sb__stat-row { display:flex; justify-content:space-between; padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.03); font-size:10px; }
+.eeg-sb__stat-ch { font-family:'JetBrains Mono','SF Mono',monospace; color:#94a3b8; }
+.eeg-sb__stat-val { font-family:'JetBrains Mono','SF Mono',monospace; color:#cbd5e1; }
 
 /* Channel quality indicator */
 .eeg-sb__ch-quality { width:5px; height:5px; border-radius:50%; flex-shrink:0; }
