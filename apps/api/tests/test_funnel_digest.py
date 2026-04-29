@@ -195,7 +195,12 @@ def _scrub_cron_env(monkeypatch):
 
 
 def test_start_scheduler_registers_both_abuse_scan_and_funnel_digest(monkeypatch):
-    """With the env var set, both jobs appear exactly once."""
+    """With the env var set, both jobs appear exactly once.
+
+    Phase 14 added a third ``webhook_auto_replay`` job; this test still
+    asserts the funnel_digest job is registered alongside abuse_scan but
+    no longer pins ``len(jobs) == 2``.
+    """
     monkeypatch.setenv("DEEPSYNAPS_AGENT_CRON_ENABLED", "1")
 
     sched = agent_scheduler.start_scheduler()
@@ -205,7 +210,6 @@ def test_start_scheduler_registers_both_abuse_scan_and_funnel_digest(monkeypatch
 
         jobs = sched.get_jobs()
         job_ids = {j.id for j in jobs}
-        assert len(jobs) == 2, f"expected 2 jobs, got {len(jobs)}: {job_ids}"
         assert agent_scheduler.ABUSE_SCAN_JOB_ID in job_ids
         assert agent_scheduler.FUNNEL_DIGEST_JOB_ID in job_ids
     finally:
@@ -213,7 +217,12 @@ def test_start_scheduler_registers_both_abuse_scan_and_funnel_digest(monkeypatch
 
 
 def test_start_scheduler_idempotent_keeps_two_jobs(monkeypatch):
-    """A second call to start_scheduler must not double-register either job."""
+    """A second call to start_scheduler must not double-register either job.
+
+    Phase 14 added a third ``webhook_auto_replay`` job; this test now
+    asserts the funnel_digest + abuse_scan pair both appear exactly once
+    on a re-call (rather than a strict total job count).
+    """
     monkeypatch.setenv("DEEPSYNAPS_AGENT_CRON_ENABLED", "1")
 
     first = agent_scheduler.start_scheduler()
@@ -221,12 +230,8 @@ def test_start_scheduler_idempotent_keeps_two_jobs(monkeypatch):
     try:
         assert first is not None
         assert second is first
-        jobs = second.get_jobs()
-        job_ids = {j.id for j in jobs}
-        assert len(jobs) == 2
-        assert job_ids == {
-            agent_scheduler.ABUSE_SCAN_JOB_ID,
-            agent_scheduler.FUNNEL_DIGEST_JOB_ID,
-        }
+        ids = [j.id for j in second.get_jobs()]
+        assert ids.count(agent_scheduler.ABUSE_SCAN_JOB_ID) == 1
+        assert ids.count(agent_scheduler.FUNNEL_DIGEST_JOB_ID) == 1
     finally:
         agent_scheduler.shutdown_scheduler()
