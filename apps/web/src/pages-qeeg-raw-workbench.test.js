@@ -121,7 +121,7 @@ await test('workbench shell renders root container with clinical class', () => {
 await test('clinical CSS uses paper-tone background and indigo selected row', () => {
   const html = root.innerHTML;
   assert.ok(html.includes('background:#FAF7F2'), 'paper-tone background CSS');
-  assert.ok(html.includes('#e6edfb'), 'pale indigo selected row');
+  assert.ok(html.includes('#d8e1f3'), 'pale indigo selected row');
   assert.ok(!html.includes('#0f1115'), 'no dark background colour leaks through');
   assert.ok(html.includes('.qwb-canvas-el'), 'clinical canvas class block');
 });
@@ -132,15 +132,23 @@ await test('paper-tone redesign exposes patient chip, clock, and AI-watching pul
   assert.ok(html.includes('data-testid="qwb-titlebar-time"'), 'live clock in title bar');
   assert.ok(html.includes('data-testid="qwb-ai-watching"'), 'AI-watching pulse in status bar');
   assert.ok(html.includes('AI watching'), 'AI watching label rendered');
-  assert.ok(html.includes('DEEPSYNAPS'), 'brand label in title cluster');
+  assert.ok(html.includes('DeepSynaps'), 'brand label in title cluster');
+  assert.ok(html.includes('data-testid="qwb-view-toggle"'), '4-button view-mode toggle');
+  assert.ok(html.includes('data-testid="qwb-minimap"'), 'mini-map row');
+  assert.ok(html.includes('data-testid="qwb-topo-strip"'), 'topomap strip');
 });
 
 // ── Top toolbar + back navigation ────────────────────────────────────────────
 
 await test('top toolbar exposes all required controls', () => {
   const html = root.innerHTML;
-  for (const id of ['qwb-speed','qwb-gain','qwb-lowcut','qwb-highcut','qwb-notch','qwb-montage','qwb-view','qwb-timebase']) {
+  // numeric inputs + selects (view is a 4-button toggle, not a select)
+  for (const id of ['qwb-speed','qwb-gain','qwb-baseline','qwb-lowcut','qwb-highcut','qwb-notch','qwb-montage','qwb-timebase']) {
     assert.ok(html.includes('id="' + id + '"'), 'toolbar control: ' + id);
+  }
+  // Transport controls
+  for (const tid of ['qwb-prev-window','qwb-play','qwb-next-window']) {
+    assert.ok(html.includes('data-testid="' + tid + '"'), 'transport: ' + tid);
   }
 });
 
@@ -151,32 +159,28 @@ await test('top toolbar exposes both back-navigation buttons', () => {
   assert.ok(html.includes('data-testid="qwb-back-patient"'), 'back-to-patient button');
 });
 
-await test('context cluster shows analysis id and version slot', () => {
-  const html = root.innerHTML;
-  assert.ok(html.includes('id="qwb-ctx-id"'), 'analysis context line');
-  assert.ok(html.includes('id="qwb-ctx-version"'), 'cleaning-version context line');
-});
-
 await test('top toolbar exposes next-step buttons', () => {
   const html = root.innerHTML;
-  for (const tid of ['qwb-save','qwb-rerun','qwb-return-report']) {
+  for (const tid of ['qwb-save','qwb-rerun','qwb-return-report','qwb-export']) {
     assert.ok(html.includes('data-testid="' + tid + '"'), 'next-step: ' + tid);
   }
   assert.ok(html.includes('Save Cleaning Version'), 'save label');
-  assert.ok(html.includes('Re-run qEEG Analysis'), 'rerun label');
-  assert.ok(html.includes('Return to qEEG Report'), 'return-report label');
+  assert.ok(html.includes('Re-run qEEG'), 'rerun label');
+  assert.ok(html.includes('Return to Report'), 'return-report label');
   assert.ok(html.includes('id="qwb-compare"'), 'raw-vs-cleaned button');
+  assert.ok(html.includes('data-testid="qwb-export-modal"'), 'export modal present');
 });
 
 // ── Channel rail (clinical look) ─────────────────────────────────────────────
 
-await test('channel rail renders default 20 channels with clinical class', () => {
+await test('channel rail renders the 19-channel 10-20 montage (no ECG)', () => {
   const html = root.innerHTML;
   assert.ok(html.includes('data-testid="qwb-rail"'), 'rail testid');
-  for (const ch of ['Fp1-Av','Fp2-Av','F7-Av','Cz-Av','T3-Av','Pz-Av','O1-Av','O2-Av','ECG']) {
+  for (const ch of ['Fp1-Av','Fp2-Av','F7-Av','Cz-Av','T3-Av','Pz-Av','O1-Av','O2-Av']) {
     assert.ok(html.includes(ch), 'channel: ' + ch);
   }
-  assert.ok(html.includes('Channels (20)'), 'channel count header');
+  assert.ok(!html.includes('>ECG<') && !html.includes('"ECG"'), 'ECG not in rail (matches design source data.jsx)');
+  assert.ok(html.includes('CH (19)'), '19-channel header');
 });
 
 // ── Right panel: tabs + collapsible ─────────────────────────────────────────
@@ -200,8 +204,8 @@ await test('cleaning tools panel renders all four sections', () => {
   }
   assert.ok(html.includes('Open ICA review'), 'ICA review entry');
   assert.ok(html.includes('Save Cleaning Version'), 'save reprocess button');
-  assert.ok(html.includes('Re-run qEEG Analysis'), 'rerun reprocess button');
-  assert.ok(html.includes('Return to qEEG Report'), 'return-to-report button in panel');
+  assert.ok(html.includes('Re-run qEEG analysis'), 'rerun reprocess button');
+  assert.ok(html.includes('Return to Report'), 'return-to-report button in panel');
   assert.ok(html.includes('Decision-support only'), 'safety footer');
 });
 
@@ -279,7 +283,7 @@ await test('unsaved-edits modal is in the DOM with clinical wording', () => {
 
 await test('exported entrypoint and helpers match router registration', () => {
   assert.equal(typeof mod.pgQEEGRawWorkbench, 'function');
-  assert.ok(Array.isArray(mod.DEFAULT_CHANNELS) && mod.DEFAULT_CHANNELS.length === 20);
+  assert.ok(Array.isArray(mod.DEFAULT_CHANNELS) && mod.DEFAULT_CHANNELS.length === 19);
   assert.equal(typeof mod.navBack, 'function');
 });
 
