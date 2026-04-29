@@ -1,7 +1,7 @@
 # DeepSynaps Protocol Studio — End-to-End Controlled Demo Script
 
 **Date:** 2026-04-29  
-**Commit:** `3480c89` + verification doc updates  
+**Commit:** `9fe9353` (Fusion Workbench router integration + UAT hardening)  
 **Tester:** Kimi Code CLI (automated + manual verification)  
 **Data:** Synthetic / demo only — no real PHI  
 **Environment:** Local test DB (SQLite), FastAPI TestClient
@@ -255,7 +255,7 @@ FUSION_DRAFT_AI → needs_clinical_review → FUSION_NEEDS_CLINICAL_REVIEW
 | No PHI in filenames | ✅ | Export has no patient names |
 | No PHI in exports | ✅ | `patient_id_hash` is SHA-256 prefix; no emails/phones in payload |
 | Unsafe claims blocked | ✅ | BLOCKED claims stripped from patient-facing report |
-| Unsigned qEEG blocks fusion finalisation | ⚠️ **Documented** | Safety gates warn on draft qEEG; transition gate does not hard-block (product policy decision) |
+| Unsigned qEEG blocks fusion finalisation | ✅ | `transition_fusion_case_state` raises 400 if source qEEG is `DRAFT_AI` |
 | Unresolved MRI radiology review blocks fusion | ✅ | `run_safety_gates` returns `blocked: true` with radiology reason |
 | Low registration confidence blocks target | ✅ | Safety cockpit shows `MRI_LIMITED_QUALITY` with registration warn |
 | Audit events recorded | ✅ | FusionCaseAudit table captures create + all transitions |
@@ -267,9 +267,9 @@ FUSION_DRAFT_AI → needs_clinical_review → FUSION_NEEDS_CLINICAL_REVIEW
 
 ## Known Limitations Documented
 
-1. **Unsigned qEEG → fusion transition is not hard-blocked.** The safety service warns about `DRAFT_AI` state, but the state machine transition endpoint still allows `sign`. This is the current product behaviour; a future policy gate could enforce source-modality sign-off before fusion finalisation.
+1. ~~**Unsigned qEEG → fusion transition is not hard-blocked.**~~ ✅ **FIXED** — `transition_fusion_case_state()` now raises 400 if qEEG is `DRAFT_AI` or MRI is `MRI_DRAFT_AI`. Commit `956c708`.
 
-2. **Patient-facing report placeholder.** When qEEG/MRI patient-facing reports are not explicitly generated, the endpoint returns a placeholder (`content: null, disclaimer: ...`) rather than a 404. This is harmless but should be noted for demo scripts.
+2. ~~**Patient-facing report placeholder.**~~ ✅ **FIXED** — MRI auto-generates `patient_facing_report_json` via `sanitize_for_patient` on analysis completion. qEEG already generated it on AI report creation. Commit `4ed64a5`.
 
 3. **Cleaning config field names.** The `qeeg-raw` cleaning config endpoint uses `bandpass_low`/`bandpass_high` internally; the `highpass_hz`/`lowpass_hz` names in the POST body are mapped by the router. The round-trip works but exact field names may differ between request and response.
 
