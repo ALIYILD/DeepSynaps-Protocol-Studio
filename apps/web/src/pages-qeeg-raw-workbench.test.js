@@ -462,6 +462,94 @@ await test('title-bar menus dispatch to real actions, not placeholders', () => {
     'placeholder "(coming soon)" copy removed');
 });
 
+// ── 2026-04-29 feature port: summary strip / cursor / tools / info / band / headmap / event nav ──
+
+await test('recording summary strip renders under the toolbar with key:value pairs and status pill', () => {
+  const html = root.innerHTML;
+  assert.ok(html.includes('data-testid="qwb-recording-strip"'), 'recording-strip testid present');
+  assert.ok(html.includes('data-testid="qwb-recording-strip-pill"'), 'status pill testid present');
+  assert.ok(html.includes('19 ch'), 'channel count rendered');
+  assert.ok(html.includes('256 Hz'), 'sample rate rendered');
+  assert.ok(html.includes('10-20 Avg') || html.includes('10‑20 Avg'), 'montage label rendered');
+});
+
+await test('live cursor readout exists in the status bar', () => {
+  const html = root.innerHTML;
+  assert.ok(html.includes('data-testid="qwb-cursor-readout"'), 'cursor-readout testid present');
+  assert.ok(html.includes('id="qwb-cursor-readout"'), 'cursor-readout element id');
+  assert.ok(/mousemove[\s\S]+updateCursorReadout/.test(WORKBENCH_SRC), 'mousemove handler wires updateCursorReadout');
+});
+
+await test('toolbar quick action row exposes Snapshot / Export / Save / Reprocess / Spectral buttons', () => {
+  const html = root.innerHTML;
+  for (const tid of [
+    'qwb-quick-snapshot',
+    'qwb-quick-export',
+    'qwb-quick-save',
+    'qwb-quick-rerun',
+    'qwb-quick-spectral',
+  ]) {
+    assert.ok(html.includes(`data-testid="${tid}"`), 'quick-action: ' + tid);
+  }
+  assert.ok(WORKBENCH_SRC.includes('snapshotTraceWindow'), 'snapshot handler defined');
+  assert.ok(WORKBENCH_SRC.includes('Spectral view coming in v0.3'), 'spectral honest stub copy');
+});
+
+await test('vertical tool selector is rendered at the left edge of the trace area', () => {
+  const html = root.innerHTML;
+  assert.ok(html.includes('data-testid="qwb-tool-selector"'), 'tool-selector testid');
+  for (const tid of [
+    'qwb-tool-select',
+    'qwb-tool-bad-segment',
+    'qwb-tool-bad-channel',
+    'qwb-tool-annotate',
+    'qwb-tool-measure',
+  ]) {
+    assert.ok(html.includes(`data-testid="${tid}"`), 'tool button: ' + tid);
+  }
+  assert.ok(WORKBENCH_SRC.includes("state.tool = 'select'") || WORKBENCH_SRC.includes("tool: 'select'"),
+    'select tool is the default');
+  assert.ok(WORKBENCH_SRC.includes('setActiveTool'), 'setActiveTool handler defined');
+});
+
+await test('Recording Info card is wired into the Cleaning tab', () => {
+  const body = document.getElementById('qwb-right-body');
+  const html = (body && body.innerHTML) || '';
+  assert.ok(html.includes('data-testid="qwb-recording-info"'), 'recording-info testid in cleaning panel body');
+  assert.ok(html.includes('Recording Info'), 'recording-info heading');
+  for (const label of ['Patient','Date','Duration','Montage','Sample rate','Channels','Reference','File']) {
+    assert.ok(html.includes(label), 'recording-info row: ' + label);
+  }
+});
+
+await test('Band Power module is declared in source and renders inside the Best-Practice tab', () => {
+  assert.ok(WORKBENCH_SRC.includes('data-testid="qwb-band-power"'), 'band-power testid');
+  for (const band of ['Delta','Theta','Alpha','Beta','Gamma']) {
+    assert.ok(WORKBENCH_SRC.includes(band), 'band row: ' + band);
+  }
+  assert.ok(WORKBENCH_SRC.includes('getComputedBandPower'), 'getComputedBandPower helper defined');
+  assert.ok(WORKBENCH_SRC.includes('renderBandPowerSection(state)'), 'help panel mounts band-power section');
+});
+
+await test('Mini head map (10-20) is wired into the Cleaning tab', () => {
+  const body = document.getElementById('qwb-right-body');
+  const html = (body && body.innerHTML) || '';
+  assert.ok(html.includes('data-testid="qwb-mini-headmap"'), 'mini-headmap testid in cleaning panel body');
+  assert.ok(html.includes('qwb-mini-headmap-svg'), 'headmap svg present');
+  assert.ok(WORKBENCH_SRC.includes('QWB_HEADMAP_COORDS'), 'headmap coords constant defined');
+  assert.ok(WORKBENCH_SRC.includes('attachMiniHeadmap'), 'headmap click handler attaches');
+});
+
+await test('Better window/event navigation: ◀ Prev / Next ▶ + event-prev / event-next', () => {
+  const html = root.innerHTML;
+  assert.ok(html.includes('data-testid="qwb-event-prev"'), 'event-prev testid');
+  assert.ok(html.includes('data-testid="qwb-event-next"'), 'event-next testid');
+  assert.ok(html.includes('◀ Prev'), 'larger prev label');
+  assert.ok(html.includes('Next ▶'), 'larger next label');
+  assert.ok(html.includes('data-testid="qwb-window-breadcrumb"'), 'breadcrumb testid');
+  assert.ok(WORKBENCH_SRC.includes('jumpEvent'), 'jumpEvent handler defined');
+});
+
 // ── Inline trace event labels (state.events drawn on the trace itself) ──────
 
 await test('seeded state.events render inline on the trace with paper-tone labels', () => {

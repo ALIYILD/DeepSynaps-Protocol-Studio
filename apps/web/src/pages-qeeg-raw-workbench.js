@@ -346,6 +346,25 @@ export async function pgQEEGRawWorkbench(setTopbar, navigate) {
     isDirty: false,
     pendingNav: null,
     rerunDoneNotice: null,
+    // Active editing tool — drives the left tool-selector strip and the
+    // trace canvas mouse semantics. Defaults to 'select' (cursor mode).
+    tool: 'select',
+    measurePoints: [],   // populated when tool === 'measure'
+    cursorPos: null,     // { tStr, ch, uv } updated on mousemove over trace
+    // Recording metadata used by the summary strip + Recording Info card.
+    // Real-data flows replace these with values from state.metadata.
+    recording: {
+      patient: 'Asel Akman',
+      date: '2026-04-29',
+      duration: '12:34',
+      durationSec: 754,
+      channelCount: 19,
+      sampleRate: 256,
+      montageLabel: '10-20 Avg',
+      condition: 'Awake/Eyes-closed',
+      reference: 'Avg',
+      file: 'study_2026-04-29_001.edf (demo)',
+    },
     // Feature-parity additions (RAW DATA source):
     selection: null,        // { startSec, endSec } captured by drag-to-select
     drag: null,             // live drag rectangle while mousedown is held
@@ -392,6 +411,8 @@ export async function pgQEEGRawWorkbench(setTopbar, navigate) {
   attachStatusBar(state);
   attachKeyboard(state, navigate);
   attachExportModal(state);
+  attachToolSelector(state);
+  attachTraceCursor(state);
 
   await loadAll(state);
   redrawCanvas(state);
@@ -410,8 +431,10 @@ function workbenchShell(state) {
   <div class="qwb-root qwb-clinical" data-testid="qwb-root">
     ${titleBar(state)}
     ${toolBar(state)}
+    ${recordingSummaryStrip(state)}
     <div class="qwb-main">
       ${channelGutterHtml(state)}
+      ${toolSelectorHtml(state)}
       <div class="qwb-trace-col">
         <div id="qwb-canvas-wrap" class="qwb-canvas-wrap" data-testid="qwb-trace">
           <div class="qwb-time-ruler" id="qwb-time-ruler" data-testid="qwb-time-ruler"></div>
@@ -435,6 +458,72 @@ function workbenchShell(state) {
     ${exportModal(state)}
     ${aiExplainPopover(state)}
   </div>`;
+}
+
+// ── Recording summary strip (28px row under toolbar) ──────────
+function recordingSummaryStrip(state) {
+  const r = recordingMeta(state);
+  const status = recordingStatus(state);
+  const items = [
+    `${r.channelCount} ch`,
+    `${r.sampleRate} Hz`,
+    r.duration,
+    r.montageLabel,
+    r.condition,
+  ];
+  const parts = items.map((it, i) => {
+    const sep = i < items.length - 1 ? '<span class="qwb-sum-sep">·</span>' : '';
+    return `<span class="qwb-sum-item">${esc(it)}</span>${sep}`;
+  }).join('');
+  return `
+  <div class="qwb-summary-strip" data-testid="qwb-recording-strip">
+    ${parts}
+    <span class="qwb-sum-sep">·</span>
+    <span class="qwb-sum-item" data-testid="qwb-recording-strip-version">${state.cleaningVersion ? `Cleaned (v${state.cleaningVersion.version_number})` : 'No cleaning version'}</span>
+    <span class="qwb-sum-pill ${status.cls}" data-testid="qwb-recording-strip-pill">${esc(status.label)}</span>
+  </div>`;
+}
+
+function recordingMeta(state) {
+  const r = state.recording || {};
+  return {
+    patient:      state.metadata?.patient_name      || r.patient || '—',
+    date:         state.metadata?.recording_date    || r.date || '—',
+    duration:     state.metadata?.duration_label    || r.duration || '—',
+    durationSec:  state.metadata?.duration_sec      || r.durationSec || 600,
+    channelCount: state.metadata?.channel_count     || r.channelCount || DEFAULT_CHANNELS.length,
+    sampleRate:   state.metadata?.sample_rate       || r.sampleRate || 256,
+    montageLabel: state.metadata?.montage_label     || r.montageLabel || '10-20 Avg',
+    condition:    state.metadata?.condition         || r.condition || '—',
+    reference:    state.metadata?.reference         || r.reference || 'Avg',
+    file:         state.metadata?.source_file       || r.file || '—',
+  };
+}
+
+function recordingStatus(state) {
+  if (state.signOff) return { cls: 'signed-off', label: 'Signed off' };
+  if (state.cleaningVersion) return { cls: 'cleaned', label: `Cleaned (v${state.cleaningVersion.version_number})` };
+  if (state.isDirty || (state.auditLog && state.auditLog.length > 0) || state.badChannels.size > 0 || state.rejectedSegments.length > 0) {
+    return { cls: 'in-progress', label: 'In progress' };
+  }
+  return { cls: 'untouched', label: 'Untouched' };
+}
+
+// ── Tool selector (left of trace) ─────────────────────────────
+const QWB_TOOLS = [
+  { id: 'select',      label: 'Select',      glyph: '↖', testid: 'qwb-tool-select' },
+  { id: 'mark-segment', label: 'Mark bad segment', glyph: 'B', testid: 'qwb-tool-bad-segment' },
+  { id: 'mark-channel', label: 'Mark bad channel', glyph: 'C', testid: 'qwb-tool-bad-channel' },
+  { id: 'annotate',    label: 'Annotate',    glyph: '✎', testid: 'qwb-tool-annotate' },
+  { id: 'measure',     label: 'Measure',     glyph: '⇔', testid: 'qwb-tool-measure' },
+];
+
+function toolSelectorHtml(state) {
+  const buttons = QWB_TOOLS.map(t => {
+    const active = state.tool === t.id;
+    return `<button class="qwb-tool-btn${active ? ' is-active' : ''}" data-tool="${esc(t.id)}" data-testid="${esc(t.testid)}" title="${esc(t.label)}" aria-label="${esc(t.label)}">${esc(t.glyph)}</button>`;
+  }).join('');
+  return `<div id="qwb-tool-selector" class="qwb-tool-selector" data-testid="qwb-tool-selector">${buttons}</div>`;
 }
 
 function aiExplainPopover(state) {
@@ -467,7 +556,7 @@ function clinicalCss() {
     .qwb-clinical {
       position:fixed; inset:0; z-index:9000;
       display:grid;
-      grid-template-rows: 44px 40px 1fr 110px 24px;
+      grid-template-rows: 44px 40px 28px 1fr 128px 24px;
       background:#FAF7F2; color:#1a1a1a;
       font-family: 'Inter Tight', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
       font-size: 12px; line-height:1.3;
@@ -594,10 +683,106 @@ function clinicalCss() {
       background:#1a1a1a; color:#FAF7F2; font-weight:500;
     }
 
-    /* ── Main grid (channel gutter | trace+spectro | side) ──── */
+    /* ── Recording summary strip (between toolbar and trace) ─── */
+    .qwb-summary-strip {
+      display:flex; align-items:center; gap:0;
+      padding:0 14px;
+      background:#FAF7F2; border-bottom:1px solid #d8d1c3;
+      font-family:var(--qwb-mono); font-size:11px; color:#3a3633;
+      overflow-x:auto; overflow-y:hidden;
+    }
+    .qwb-summary-strip .qwb-sum-item { white-space:nowrap; }
+    .qwb-summary-strip .qwb-sum-item b { color:#1a1a1a; font-weight:600; }
+    .qwb-summary-strip .qwb-sum-sep {
+      margin:0 10px; color:#a39d94; user-select:none;
+    }
+    .qwb-summary-strip .qwb-sum-pill {
+      margin-left:auto; padding:2px 9px; border-radius:10px;
+      font-family:'Inter Tight', system-ui, sans-serif;
+      font-size:10.5px; font-weight:600; letter-spacing:0.02em;
+      border:1px solid;
+    }
+    .qwb-sum-pill.untouched { background:#ECE5D8; color:#6b6660; border-color:#bdb5a2; }
+    .qwb-sum-pill.in-progress { background:#f6e6cb; color:#b8741a; border-color:#b8741a; }
+    .qwb-sum-pill.cleaned { background:#d6ebee; color:#1d6f7a; border-color:#1d6f7a; }
+    .qwb-sum-pill.signed-off { background:#d6e8d6; color:#2f6b3a; border-color:#2f6b3a; }
+
+    /* ── Tool selector (left edge of trace area) ─────────────── */
+    .qwb-tool-selector {
+      display:flex; flex-direction:column; align-items:center;
+      gap:4px; padding:6px 4px;
+      background:#F3EEE5; border-right:1px solid #d8d1c3;
+    }
+    .qwb-tool-btn {
+      width:32px; height:32px; padding:0;
+      display:inline-flex; align-items:center; justify-content:center;
+      background:#FAF7F2; border:1px solid #d8d1c3; border-radius:4px;
+      color:#3a3633; font-size:13px; cursor:pointer;
+    }
+    .qwb-tool-btn:hover { background:#fff; border-color:#bdb5a2; }
+    .qwb-tool-btn.is-active {
+      background:#1d6f7a; color:#fff; border-color:#1d6f7a;
+    }
+
+    /* ── Window/event breadcrumb under mini-map ──────────────── */
+    .qwb-window-breadcrumb {
+      padding:3px 10px 2px;
+      background:#F3EEE5; border-top:1px dashed #d8d1c3;
+      font-family:var(--qwb-mono); font-size:10px; color:#6b6660;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    }
+    .qwb-window-breadcrumb b { color:#3a3633; font-weight:600; }
+
+    /* ── Recording Info card (Cleaning tab) ──────────────────── */
+    .qwb-rec-info-grid {
+      display:grid; grid-template-columns:auto 1fr; gap:3px 10px;
+      font-size:11px; line-height:1.4;
+    }
+    .qwb-rec-info-grid dt {
+      color:#6b6660; font-family:var(--qwb-mono); font-size:10px;
+      text-transform:uppercase; letter-spacing:0.04em;
+    }
+    .qwb-rec-info-grid dd { margin:0; color:#1a1a1a; font-weight:500; }
+
+    /* ── Mini head map (Cleaning tab) ────────────────────────── */
+    .qwb-mini-headmap {
+      display:flex; flex-direction:column; align-items:center; gap:4px;
+    }
+    .qwb-mini-headmap svg { display:block; }
+    .qwb-mini-headmap-legend {
+      display:flex; flex-wrap:wrap; gap:8px;
+      font-family:var(--qwb-mono); font-size:9.5px; color:#6b6660;
+    }
+    .qwb-mini-headmap-legend span { display:inline-flex; align-items:center; gap:3px; }
+    .qwb-mini-headmap-legend i {
+      width:8px; height:8px; border-radius:50%; display:inline-block;
+    }
+
+    /* ── Band power card (Best-Practice tab) ─────────────────── */
+    .qwb-band-rows { display:flex; flex-direction:column; gap:4px; margin-top:6px; }
+    .qwb-band-row {
+      display:grid; grid-template-columns:90px 1fr 38px;
+      gap:8px; align-items:center;
+      font-family:var(--qwb-mono); font-size:10.5px; color:#3a3633;
+    }
+    .qwb-band-track {
+      height:8px; background:#ECE5D8; border-radius:3px; overflow:hidden;
+    }
+    .qwb-band-fill { height:100%; background:#1d6f7a; transition:width 0.15s ease; }
+
+    /* ── Cursor readout (status bar) ─────────────────────────── */
+    .qwb-cursor-readout {
+      display:inline-flex; align-items:center; gap:4px;
+      padding:0 8px; height:18px;
+      background:#FAF7F2; border:1px solid #d8d1c3; border-radius:3px;
+      font-family:var(--qwb-mono); font-size:10px; color:#3a3633;
+    }
+    .qwb-cursor-readout b { color:#1d6f7a; font-weight:600; }
+
+    /* ── Main grid (channel gutter | tool strip | trace+spectro | side) ── */
     .qwb-main {
       display:grid;
-      grid-template-columns: 56px 1fr 360px;
+      grid-template-columns: 56px 44px 1fr 360px;
       min-height:0;
       background:#FAF7F2;
     }
@@ -889,10 +1074,19 @@ function clinicalCss() {
     /* ── Mini-map row ────────────────────────────────────────── */
     .qwb-minimap-row {
       display:grid;
-      grid-template-columns: 56px 1fr 360px;
+      grid-template-columns: 56px 44px 1fr 360px;
+      grid-template-rows: auto auto;
       border-top:1px solid #d8d1c3;
       background:#F3EEE5;
     }
+    .qwb-minimap-row > .qwb-minimap-gutter { grid-row:1 / span 2; }
+    .qwb-minimap-row > .qwb-minimap-gutter-tool {
+      grid-row:1 / span 2;
+      background:#F3EEE5; border-right:1px solid #d8d1c3;
+    }
+    .qwb-minimap-row > .qwb-minimap { grid-column:3; grid-row:1; }
+    .qwb-minimap-row > .qwb-window-breadcrumb { grid-column:3; grid-row:2; }
+    .qwb-minimap-row > .qwb-topo-strip { grid-column:4; grid-row:1 / span 2; }
     .qwb-minimap-gutter {
       background:#F3EEE5; border-right:1px solid #d8d1c3;
       display:flex; align-items:center; justify-content:center;
@@ -1231,10 +1425,21 @@ function toolBar(state) {
       <span class="qwb-tb-label">Montage</span>${sel('qwb-montage', MONTAGES, state.montage)}
       <span class="qwb-tb-label">Window</span>${sel('qwb-timebase', TIMEBASES.map(t=>`${t}s`), `${state.timebase}s`)}
     </div>
-    <div class="qwb-tb-group" style="margin-left:auto;border-right:0">
-      <button class="qwb-tb-btn" id="qwb-prev-window" data-testid="qwb-prev-window" title="Previous window">⏮</button>
+    <div class="qwb-tb-group" style="margin-left:auto">
+      <button class="qwb-tb-btn" id="qwb-event-prev" data-testid="qwb-event-prev" title="Jump to previous event">◀ Event</button>
+      <button class="qwb-tb-btn" id="qwb-prev-window" data-testid="qwb-prev-window" title="Previous window" style="min-width:60px;height:28px">◀ Prev</button>
       <button class="qwb-tb-btn" id="qwb-play" data-testid="qwb-play" title="Play / pause">▶</button>
-      <button class="qwb-tb-btn" id="qwb-next-window" data-testid="qwb-next-window" title="Next window">⏭</button>
+      <button class="qwb-tb-btn" id="qwb-next-window" data-testid="qwb-next-window" title="Next window" style="min-width:60px;height:28px">Next ▶</button>
+      <button class="qwb-tb-btn" id="qwb-event-next" data-testid="qwb-event-next" title="Jump to next event">Event ▶</button>
+    </div>
+    <div class="qwb-tb-group">
+      <button class="qwb-tb-btn" id="qwb-quick-snapshot" data-testid="qwb-quick-snapshot" title="Save current window as PNG">⤓ Snapshot</button>
+      <button class="qwb-tb-btn" id="qwb-quick-export" data-testid="qwb-quick-export" title="Export cleaning bundle">⇪ Export</button>
+      <button class="qwb-tb-btn" id="qwb-quick-save" data-testid="qwb-quick-save" title="Save cleaning version">💾 Save</button>
+      <button class="qwb-tb-btn" id="qwb-quick-rerun" data-testid="qwb-quick-rerun" title="Re-run qEEG analysis">↻ Reprocess</button>
+      <button class="qwb-tb-btn" id="qwb-quick-spectral" data-testid="qwb-quick-spectral" title="Spectral view">∿ Spectral</button>
+    </div>
+    <div class="qwb-tb-group" style="border-right:0">
       ${viewToggle}${displayToggle}
       <button class="qwb-tb-btn" id="qwb-compare">Raw vs Cleaned</button>
       <button class="qwb-tb-btn" id="qwb-return-report" data-testid="qwb-return-report">Return to Report</button>
@@ -1355,9 +1560,11 @@ function miniMapRow(state) {
     { id: 'alpha', label: 'Alpha', range: '8–12 Hz',  accent: '#1d6f7a' },
     { id: 'beta',  label: 'Beta',  range: '12–30 Hz', accent: '#2851a3' },
   ].map(b => topoMiniSvg(b)).join('');
+  const breadcrumb = windowBreadcrumb(state);
   return `
   <div class="qwb-minimap-row">
     <div class="qwb-minimap-gutter">map</div>
+    <div class="qwb-minimap-gutter-tool"></div>
     <div class="qwb-minimap" data-testid="qwb-minimap">
       <div class="qwb-minimap-head">
         <span class="qwb-minimap-title">Recording timeline · 10:00</span>
@@ -1370,8 +1577,52 @@ function miniMapRow(state) {
           style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%"></div>
       </div>
     </div>
+    <div id="qwb-window-breadcrumb" class="qwb-window-breadcrumb" data-testid="qwb-window-breadcrumb">${breadcrumb}</div>
     <div class="qwb-topo-strip" data-testid="qwb-topo-strip">${bands}</div>
   </div>`;
+}
+
+function windowBreadcrumb(state) {
+  const r = recordingMeta(state);
+  const total = r.durationSec || 600;
+  const tb = state.timebase || 10;
+  const winIdx = Math.floor((state.windowStart || 0) / tb) + 1;
+  const winTotal = Math.max(1, Math.ceil(total / tb));
+  const startLabel = formatTime(state.windowStart);
+  const endLabel = formatTime(state.windowStart + tb);
+  const next = nextEventAfter(state, state.windowStart);
+  const nextLabel = next ? `Next event: ${next.label} @ ${formatTime(next.t)}` : 'No upcoming events';
+  return `<b>Window ${winIdx}/${winTotal}</b> · ${startLabel}–${endLabel} · ${esc(nextLabel)}`;
+}
+
+function formatTime(sec) {
+  if (sec == null || isNaN(sec)) return '—';
+  const s = Math.max(0, Math.floor(sec));
+  const m = Math.floor(s / 60);
+  const ss = (s % 60).toString().padStart(2, '0');
+  return `${m}:${ss}`;
+}
+
+function nextEventAfter(state, sec) {
+  const evs = combinedEvents(state);
+  const after = evs.filter(e => e.t > sec).sort((a, b) => a.t - b.t);
+  if (after.length) return after[0];
+  // Wrap to first event so the navigation feels continuous.
+  return evs.length ? evs.slice().sort((a, b) => a.t - b.t)[0] : null;
+}
+
+function prevEventBefore(state, sec) {
+  const evs = combinedEvents(state);
+  const before = evs.filter(e => e.t < sec).sort((a, b) => b.t - a.t);
+  if (before.length) return before[0];
+  return evs.length ? evs.slice().sort((a, b) => b.t - a.t)[0] : null;
+}
+
+function combinedEvents(state) {
+  const out = [];
+  for (const e of EVENT_TIMELINE) out.push({ t: e.t, label: e.label });
+  for (const e of (state.events || [])) out.push({ t: e.t, label: e.label });
+  return out;
 }
 
 function topoMiniSvg({ id, label, range, accent }) {
@@ -1425,6 +1676,7 @@ function bottomBar(state) {
     <span class="qwb-stat">Retained: <b id="qwb-st-retain">100%</b></span>
     <span class="qwb-stat" id="qwb-st-version">No cleaning version</span>
     <span class="qwb-stat" id="qwb-st-signoff">Not signed off</span>
+    <span id="qwb-cursor-readout" class="qwb-cursor-readout" data-testid="qwb-cursor-readout" title="Live cursor t · channel · amplitude">t=—:—.— · ch=— · — µV</span>
     <div class="qwb-bottombar-right">
       <span class="qwb-ai-watch" id="qwb-ai-watching" data-testid="qwb-ai-watching">
         <span class="qwb-pulse"></span><span id="qwb-ai-watching-label">AI watching · 0 pending</span>
@@ -2007,8 +2259,115 @@ function _channelQualityMatrix(state) {
     + '</tr></thead><tbody>' + rows + '</tbody></table>';
 }
 
+// ── Recording Info card (top of Cleaning tab) ─────────────────
+function renderRecordingInfoSection(state) {
+  const r = recordingMeta(state);
+  const rows = [
+    ['Patient',     r.patient],
+    ['Date',        r.date],
+    ['Duration',    r.duration],
+    ['Montage',     r.montageLabel],
+    ['Sample rate', `${r.sampleRate} Hz`],
+    ['Channels',    String(r.channelCount)],
+    ['Reference',   r.reference],
+    ['File',        r.file],
+  ];
+  return `
+    <div class="qwb-side-section" data-testid="qwb-recording-info">
+      <h4>Recording Info</h4>
+      <dl class="qwb-rec-info-grid">
+        ${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}
+      </dl>
+    </div>`;
+}
+
+// ── 10-20 mini head-map (Cleaning tab) ────────────────────────
+// Coordinates are 0..1 in (x, y) — same canonical 10-20 layout used by
+// the topomap thumbnails on the mini-map row.
+const QWB_HEADMAP_COORDS = [
+  ['Fp1-Av', 0.36, 0.10],['Fp2-Av', 0.64, 0.10],
+  ['F7-Av',  0.20, 0.28],['F3-Av',  0.36, 0.28],['Fz-Av', 0.50, 0.28],['F4-Av', 0.64, 0.28],['F8-Av', 0.80, 0.28],
+  ['T3-Av',  0.12, 0.50],['C3-Av',  0.32, 0.50],['Cz-Av', 0.50, 0.50],['C4-Av', 0.68, 0.50],['T4-Av', 0.88, 0.50],
+  ['T5-Av',  0.20, 0.72],['P3-Av',  0.36, 0.72],['Pz-Av', 0.50, 0.72],['P4-Av', 0.64, 0.72],['T6-Av', 0.80, 0.72],
+  ['O1-Av',  0.40, 0.90],['O2-Av',  0.60, 0.90],
+];
+
+function renderMiniHeadmapSection(state) {
+  const W = 180, H = 180;
+  const flagged = new Set(((state.aiSuggestions || []).map(s => s.channel)).filter(Boolean));
+  const dots = QWB_HEADMAP_COORDS.map(([id, x, y]) => {
+    const cx = (x * W).toFixed(1);
+    const cy = (y * H).toFixed(1);
+    const isBad = state.badChannels && state.badChannels.has(id);
+    const isAI = !isBad && flagged.has(id);
+    const isSel = state.selectedChannel === id;
+    let fill = '#FAF7F2', stroke = '#a39d94', sw = 0.8;
+    if (isBad) { fill = '#b03434'; stroke = '#7a2424'; sw = 1.2; }
+    else if (isAI) { stroke = '#b8741a'; sw = 1.6; }
+    if (isSel) { stroke = '#1d6f7a'; sw = 2.2; }
+    const shortLabel = id.replace('-Av','');
+    return `<g class="qwb-mini-headmap-node" data-channel="${esc(id)}" style="cursor:pointer">
+      <circle cx="${cx}" cy="${cy}" r="9" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>
+      <text x="${cx}" y="${(parseFloat(cy)+3).toFixed(1)}" text-anchor="middle" font-size="7" font-family="ui-monospace,Menlo,monospace" fill="${isBad ? '#fff' : '#3a3633'}">${esc(shortLabel)}</text>
+    </g>`;
+  }).join('');
+  return `
+    <div class="qwb-side-section" data-testid="qwb-mini-headmap">
+      <h4>Channel Map (10-20)</h4>
+      <div class="qwb-mini-headmap">
+        <svg id="qwb-mini-headmap-svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-label="10-20 mini head map">
+          <ellipse cx="${W/2}" cy="${H/2 + 4}" rx="${W/2 - 6}" ry="${H/2 - 8}" fill="#FAF7F2" stroke="#a39d94" stroke-width="1"/>
+          <path d="M ${W/2 - 8} 8 L ${W/2} 1 L ${W/2 + 8} 8" fill="none" stroke="#a39d94" stroke-width="1"/>
+          ${dots}
+        </svg>
+        <div class="qwb-mini-headmap-legend">
+          <span><i style="background:#b03434"></i>Bad</span>
+          <span><i style="background:#FAF7F2;border:1.5px solid #b8741a"></i>AI flag</span>
+          <span><i style="background:#FAF7F2;border:2px solid #1d6f7a"></i>Focus</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── Band power card (Best-Practice tab) ───────────────────────
+function getComputedBandPower(state) {
+  // Real backend hook would compute a 5-band PSD on the visible window. For
+  // the demo path, return realistic deterministic numbers — but bias them
+  // by the demo seed so the bar never looks identical between sessions.
+  const t0 = state.windowStart || 0;
+  const seedRot = (t0 % 60) / 60; // 0..1, repeats every minute
+  const wobble = (n) => Math.max(0, Math.min(100, n + (seedRot - 0.5) * 6));
+  return [
+    { id: 'delta', label: 'δ Delta',  range: '1–4 Hz',   pct: wobble(62) },
+    { id: 'theta', label: 'θ Theta',  range: '4–8 Hz',   pct: wobble(38) },
+    { id: 'alpha', label: 'α Alpha',  range: '8–13 Hz',  pct: wobble(78) },
+    { id: 'beta',  label: 'β Beta',   range: '13–30 Hz', pct: wobble(22) },
+    { id: 'gamma', label: 'γ Gamma',  range: '30–45 Hz', pct: wobble(8)  },
+  ];
+}
+
+function renderBandPowerSection(state) {
+  const bands = getComputedBandPower(state);
+  const rows = bands.map(b => {
+    const pct = Math.max(0, Math.min(100, b.pct)).toFixed(0);
+    return `<div class="qwb-band-row" data-band="${esc(b.id)}">
+      <span><b>${esc(b.label)}</b> <span style="color:#6b6660">${esc(b.range)}</span></span>
+      <span class="qwb-band-track"><span class="qwb-band-fill" style="width:${pct}%"></span></span>
+      <span style="text-align:right">${pct}%</span>
+    </div>`;
+  }).join('');
+  return `
+    <div class="qwb-side-section" data-testid="qwb-band-power">
+      <h4>Band Power (visible window)</h4>
+      <div style="font-size:10px;color:#6b6660;margin-bottom:4px">Static demo values; will be wired to live PSD when the backend exposes per-window band power.</div>
+      <div class="qwb-band-rows">${rows}</div>
+    </div>`;
+}
+
 function renderCleaningPanel(state) {
   return `
+    ${renderRecordingInfoSection(state)}
+    ${renderMiniHeadmapSection(state)}
     <div class="qwb-side-section">
       <h4><span class="qwb-letter">A</span>Manual cleaning</h4>
       <div class="qwb-side-grid">
@@ -2145,6 +2504,7 @@ function renderHelpPanel(state) {
     { label: 'Saved cleaned version', done: !!state.cleaningVersion },
   ];
   return `
+    ${renderBandPowerSection(state)}
     <div class="qwb-side-section">
       <h4>Cleaning quality score</h4>
       <div class="qwb-bp-score">
@@ -2409,6 +2769,21 @@ function renderStatusBar(state) {
     mw.style.left  = ((state.windowStart / total) * 100).toFixed(2) + '%';
     mw.style.width = ((state.timebase   / total) * 100).toFixed(2) + '%';
   }
+  // Keep the recording-strip status pill (Untouched / In progress /
+  // Cleaned / Signed off) in sync with the rest of the bottom bar.
+  const pill = document.querySelector ? document.querySelector('[data-testid="qwb-recording-strip-pill"]') : null;
+  if (pill) {
+    const status = recordingStatus(state);
+    pill.textContent = status.label;
+    pill.className = `qwb-sum-pill ${status.cls}`;
+  }
+  const ver = document.querySelector ? document.querySelector('[data-testid="qwb-recording-strip-version"]') : null;
+  if (ver) {
+    ver.textContent = state.cleaningVersion ? `Cleaned (v${state.cleaningVersion.version_number})` : 'No cleaning version';
+  }
+  // Window/event breadcrumb under the mini-map.
+  const crumb = document.getElementById('qwb-window-breadcrumb');
+  if (crumb) crumb.innerHTML = windowBreadcrumb(state);
 }
 
 function renderRerunNotice(state) {
@@ -2623,15 +2998,42 @@ function attachToolBar(state, navigate) {
 
   document.getElementById('qwb-prev-window')?.addEventListener('click', () => {
     state.windowStart = Math.max(0, state.windowStart - state.timebase);
-    redrawCanvas(state); renderStatusBar(state);
+    redrawCanvas(state); renderStatusBar(state); refreshSummaryStrip(state); refreshBreadcrumb(state);
   });
   document.getElementById('qwb-next-window')?.addEventListener('click', () => {
     state.windowStart += state.timebase;
-    redrawCanvas(state); renderStatusBar(state);
+    redrawCanvas(state); renderStatusBar(state); refreshSummaryStrip(state); refreshBreadcrumb(state);
   });
   document.getElementById('qwb-play')?.addEventListener('click', () => {
     togglePlay(state);
   });
+
+  // ── Quick-action buttons ───────────────────────────────────
+  document.getElementById('qwb-quick-snapshot')?.addEventListener('click', () => snapshotTraceWindow(state));
+  document.getElementById('qwb-quick-export')?.addEventListener('click', () => {
+    appendAudit(state, 'quick_export_open');
+    toggleExport(state, true);
+  });
+  document.getElementById('qwb-quick-save')?.addEventListener('click', () => {
+    appendAudit(state, 'quick_save');
+    saveCleaningVersion(state);
+  });
+  document.getElementById('qwb-quick-rerun')?.addEventListener('click', () => {
+    appendAudit(state, 'quick_rerun');
+    rerunAnalysis(state);
+  });
+  document.getElementById('qwb-quick-spectral')?.addEventListener('click', () => {
+    appendAudit(state, 'quick_spectral_stub');
+    state.rightTab = 'ai';
+    syncTabActive(state);
+    renderRightPanel(state);
+    state.saveStatus = 'Spectral view coming in v0.3';
+    renderStatusBar(state);
+  });
+
+  // ── Event-nav buttons (jump to prev/next event in state.events + EVENT_TIMELINE) ──
+  document.getElementById('qwb-event-prev')?.addEventListener('click', () => jumpEvent(state, -1));
+  document.getElementById('qwb-event-next')?.addEventListener('click', () => jumpEvent(state,  1));
 
   document.getElementById('qwb-baseline-reset')?.addEventListener('click', () => {
     state.baseline = 0; const el = document.getElementById('qwb-baseline');
@@ -2852,10 +3254,216 @@ function attachStatusBar(state) {
   }
 }
 
+// ── Tool-selector wiring (Select / Mark seg / Mark ch / Annotate / Measure) ──
+function attachToolSelector(state) {
+  const root = document.getElementById('qwb-tool-selector');
+  if (!root) return;
+  const buttons = root.querySelectorAll ? root.querySelectorAll('.qwb-tool-btn') : [];
+  buttons.forEach && buttons.forEach(btn => {
+    btn.addEventListener('click', () => setActiveTool(state, btn.dataset.tool));
+  });
+}
+
+function setActiveTool(state, tool) {
+  if (!tool) return;
+  const prev = state.tool;
+  state.tool = tool;
+  state.measurePoints = [];
+  // Update button active class.
+  const root = document.getElementById('qwb-tool-selector');
+  if (root && root.querySelectorAll) {
+    root.querySelectorAll('.qwb-tool-btn').forEach(b => {
+      b.classList && b.classList.toggle('is-active', b.dataset.tool === tool);
+    });
+  }
+  appendAudit(state, 'tool_change', { from: prev, to: tool });
+  // Direct-action tools also fire the corresponding cleaning handler so a
+  // single click on Mark Bad Channel / Mark Bad Segment / Annotate is
+  // honoured. Measure stays in measure mode and waits for two clicks.
+  if (tool === 'mark-segment') handleCleaningAction(state, 'mark-segment');
+  else if (tool === 'mark-channel') handleCleaningAction(state, 'mark-channel');
+  else if (tool === 'annotate') handleCleaningAction(state, 'annotate');
+  else if (tool === 'measure') {
+    state.saveStatus = 'Measure mode: click two points on the trace';
+    renderStatusBar(state);
+  } else {
+    state.saveStatus = 'Tool: select';
+    renderStatusBar(state);
+  }
+}
+
+// ── Live cursor readout: mousemove over trace canvas wrap ──
+function attachTraceCursor(state) {
+  const wrap = document.getElementById('qwb-canvas-wrap');
+  if (!wrap || !wrap.addEventListener) return;
+  wrap.addEventListener('mousemove', (e) => updateCursorReadout(state, e));
+  wrap.addEventListener('click', (e) => handleTraceClick(state, e));
+}
+
+function updateCursorReadout(state, e) {
+  const wrap = document.getElementById('qwb-canvas-wrap');
+  if (!wrap) return;
+  const rect = (typeof wrap.getBoundingClientRect === 'function') ? wrap.getBoundingClientRect() : { left: 0, top: 0, width: 1280, height: 600 };
+  const x = (e.clientX || 0) - rect.left;
+  const y = (e.clientY || 0) - rect.top;
+  const W = rect.width || 1;
+  const H = rect.height || 1;
+  const rulerH = 22;
+  const tb = state.timebase || 10;
+  const tSec = state.windowStart + (Math.max(0, Math.min(W, x)) / W) * tb;
+  const channels = DEFAULT_CHANNELS;
+  const rowH = (H - rulerH) / channels.length;
+  let chIdx = Math.floor(Math.max(0, Math.min(H - rulerH - 1, y - rulerH)) / Math.max(1, rowH));
+  chIdx = Math.max(0, Math.min(channels.length - 1, chIdx));
+  const ch = channels[chIdx];
+  // Approximate amplitude: invert the rendered y (paper-space) → µV using
+  // the same ampScale the trace renderer uses. We do not have the actual
+  // sample so we ladder back through the synth signal — that's intentionally
+  // an approximation since the demo signals are deterministic.
+  let uv = '—';
+  try {
+    const sampleRate = 256;
+    const totalSamples = Math.floor(tb * sampleRate);
+    const archetypeAt = state.isDemo ? {
+      blinkStart: Math.floor(2.4 * sampleRate),
+      blinkEnd:   Math.floor(3.1 * sampleRate),
+      muscleStart: Math.floor(7.2 * sampleRate),
+      muscleEnd:   Math.floor(8.4 * sampleRate),
+    } : null;
+    const sig = synthSignal(chIdx, totalSamples, sampleRate, archetypeAt);
+    const idx = Math.max(0, Math.min(totalSamples - 1, Math.floor((tSec - state.windowStart) / tb * totalSamples)));
+    uv = sig[idx].toFixed(0);
+  } catch (_e) {}
+  state.cursorPos = { tSec, ch, uv };
+  const el = document.getElementById('qwb-cursor-readout');
+  if (el) {
+    const m = Math.floor(tSec / 60);
+    const s = (tSec - m * 60).toFixed(1);
+    const ss = (parseFloat(s) < 10 ? '0' : '') + s;
+    el.textContent = `t=${m}:${ss} · ch=${ch.replace('-Av','')} · ${uv} µV`;
+  }
+}
+
+function handleTraceClick(state, e) {
+  if (state.tool !== 'measure') return;
+  const wrap = document.getElementById('qwb-canvas-wrap');
+  if (!wrap) return;
+  const rect = (typeof wrap.getBoundingClientRect === 'function') ? wrap.getBoundingClientRect() : { left: 0, width: 1280 };
+  const x = (e.clientX || 0) - rect.left;
+  const W = rect.width || 1;
+  const tb = state.timebase || 10;
+  const tSec = state.windowStart + (Math.max(0, Math.min(W, x)) / W) * tb;
+  const uv = state.cursorPos ? parseFloat(state.cursorPos.uv) : 0;
+  state.measurePoints = state.measurePoints || [];
+  state.measurePoints.push({ tSec, uv });
+  if (state.measurePoints.length >= 2) {
+    const [p0, p1] = state.measurePoints;
+    const dt = (p1.tSec - p0.tSec).toFixed(2);
+    const du = (p1.uv - p0.uv).toFixed(0);
+    const summary = `Δt=${dt}s Δµ=${du}µV`;
+    state.saveStatus = `Measure: ${summary}`;
+    appendAudit(state, 'measure', { dt: parseFloat(dt), du: parseFloat(du) });
+    state.measurePoints = [];
+    renderStatusBar(state);
+    if (state.rightTab === 'log') renderRightPanel(state);
+  } else {
+    state.saveStatus = `Measure: point 1 set @ ${tSec.toFixed(2)}s — click second point`;
+    renderStatusBar(state);
+  }
+}
+
+// ── Mini-headmap click → focus channel ──
+function attachMiniHeadmap(state) {
+  const svg = document.getElementById('qwb-mini-headmap-svg');
+  if (!svg || !svg.querySelectorAll) return;
+  svg.querySelectorAll('.qwb-mini-headmap-node').forEach(node => {
+    node.addEventListener('click', () => {
+      const ch = node.dataset.channel;
+      if (!ch) return;
+      state.selectedChannel = ch;
+      appendAudit(state, 'headmap_focus', { channel: ch });
+      rerenderRail(state);
+      renderRightPanel(state);
+      redrawCanvas(state);
+      renderStatusBar(state);
+    });
+  });
+}
+
+// ── Snapshot the visible trace canvas as a PNG download ──
+function snapshotTraceWindow(state) {
+  const canvas = document.getElementById('qwb-canvas');
+  let url = null;
+  try {
+    if (canvas && typeof canvas.toDataURL === 'function') {
+      url = canvas.toDataURL('image/png');
+    }
+  } catch (_e) {}
+  if (url && typeof document.createElement === 'function') {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `qeeg-snapshot-${state.analysisId || 'demo'}-${Date.now()}.png`;
+    if (document.body && document.body.appendChild) document.body.appendChild(a);
+    if (typeof a.click === 'function') a.click();
+    if (a.remove) a.remove();
+    state.saveStatus = 'Snapshot saved';
+  } else {
+    state.saveStatus = 'Snapshot: canvas not available (demo only)';
+  }
+  appendAudit(state, 'snapshot');
+  renderStatusBar(state);
+}
+
+// ── Event nav: jump to next/prev event across EVENT_TIMELINE + state.events ──
+function jumpEvent(state, dir) {
+  const center = (state.windowStart || 0) + (state.timebase || 10) / 2;
+  const target = dir > 0 ? nextEventAfter(state, center) : prevEventBefore(state, center);
+  if (!target) {
+    state.saveStatus = 'No events to navigate to';
+    renderStatusBar(state);
+    return;
+  }
+  state.windowStart = Math.max(0, Math.floor(target.t - (state.timebase || 10) / 2));
+  state.saveStatus = `→ ${dir > 0 ? 'Next' : 'Prev'} event: ${target.label} @ ${target.t.toFixed(0)}s`;
+  appendAudit(state, 'event_nav', { dir, label: target.label, t: target.t });
+  redrawCanvas(state); renderStatusBar(state);
+  refreshSummaryStrip(state);
+  refreshBreadcrumb(state);
+}
+
+// ── Audit log helper used by the new feature wiring ──
+function appendAudit(state, action_type, extra) {
+  const entry = Object.assign({
+    action_type,
+    source: 'clinician',
+    created_at: new Date().toISOString(),
+  }, extra || {});
+  state.auditLog = state.auditLog || [];
+  state.auditLog.unshift(entry);
+  if (state.rightTab === 'log') renderRightPanel(state);
+}
+
+// ── Light re-renderers so the summary strip and breadcrumb stay in sync ──
+function refreshSummaryStrip(state) {
+  const host = document.querySelector ? document.querySelector('[data-testid="qwb-recording-strip"]') : null;
+  if (!host) return;
+  // Re-render the summary strip in place — cheap because it's just text.
+  const tmp = document.createElement('div');
+  tmp.innerHTML = recordingSummaryStrip(state);
+  const fresh = tmp.firstElementChild;
+  if (fresh && host.parentElement) host.parentElement.replaceChild(fresh, host);
+}
+
+function refreshBreadcrumb(state) {
+  const el = document.getElementById('qwb-window-breadcrumb');
+  if (el) el.innerHTML = windowBreadcrumb(state);
+}
+
 function attachCleaningPanelHandlers(state) {
   document.querySelectorAll('#qwb-right-body [data-action]').forEach(b => {
     b.addEventListener('click', () => handleCleaningAction(state, b.dataset.action));
   });
+  attachMiniHeadmap(state);
   document.getElementById('qwb-open-signoff')?.addEventListener('click', () => toggleSignOff(state, true));
   document.getElementById('qwb-revoke-signoff')?.addEventListener('click', () => {
     if (!confirm('Revoke sign‑off? This will allow further editing.')) return;
