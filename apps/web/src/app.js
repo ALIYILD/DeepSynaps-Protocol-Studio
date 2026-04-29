@@ -2083,17 +2083,99 @@ async function bootApp() {
   // ── Deep-link: honour ?page= query param or #hash so reloads and bookmarks
   //    land where the user expects. Falls back to role-based entry above if
   //    the requested id doesn't pass a safe-slug check.
+  //    Hash form supports:
+  //      #foo               → page id "foo"
+  //      #/foo              → page id "foo" (leading slash tolerated)
+  //      #/foo/<entityId>   → page id "foo", entityId stashed for the page
+  //      #/foo/<entityId>?mode=... → mode stashed too
+  //    The second path segment, when present and matching qEEG / patient
+  //    routes, is bridged to the legacy globals (window._qeegSelectedId,
+  //    window._qeegRawWorkbenchMode, window._currentPatientId, etc.) so
+  //    page modules read it as if the user had clicked the launcher.
   {
     let deepLinkId = null;
+    let deepLinkArg = null;
+    let deepLinkMode = null;
     try {
       const qp = new URL(location.href).searchParams.get('page');
-      if (qp) deepLinkId = qp;
-      else if (location.hash && location.hash.length > 1) deepLinkId = location.hash.slice(1);
+      if (qp) {
+        deepLinkId = qp;
+      } else if (location.hash && location.hash.length > 1) {
+        let raw = location.hash.slice(1);
+        // Tolerate a leading "/" so /#/foo and /#foo both work.
+        if (raw.startsWith('/')) raw = raw.slice(1);
+        // Strip and capture ?mode= or any other query string on the hash.
+        const qIdx = raw.indexOf('?');
+        let queryStr = '';
+        if (qIdx >= 0) { queryStr = raw.slice(qIdx + 1); raw = raw.slice(0, qIdx); }
+        if (queryStr) {
+          try {
+            const sp = new URLSearchParams(queryStr);
+            const m = sp.get('mode'); if (m) deepLinkMode = m;
+          } catch {}
+        }
+        // Split path segments — first becomes the route id, second is an
+        // optional entity id (analysis id, patient id, etc.).
+        const segs = raw.split('/').filter(Boolean);
+        if (segs.length > 0) deepLinkId = segs[0];
+        if (segs.length > 1) deepLinkArg = segs[1];
+      }
     } catch {}
     if (deepLinkId && /^[a-z0-9][a-z0-9-]{0,63}$/i.test(deepLinkId)) {
       currentPage = normalizeRouteId(deepLinkId);
+      // Bridge entity ids to the per-page globals the existing modules read.
+      if (deepLinkArg && /^[a-z0-9][a-z0-9_\-]{0,127}$/i.test(deepLinkArg)) {
+        if (currentPage === 'qeeg-raw-workbench' || currentPage === 'qeeg-analysis' || currentPage === 'qeeg-raw') {
+          window._qeegSelectedId = deepLinkArg;
+        }
+        if (currentPage === 'qeeg-raw-workbench' && deepLinkMode) {
+          window._qeegRawWorkbenchMode = deepLinkMode;
+        }
+        if (currentPage === 'patient-profile' || currentPage === 'patients-v2') {
+          window._currentPatientId = deepLinkArg;
+          window._profilePatientId = deepLinkArg;
+          window._selectedPatientId = deepLinkArg;
+        }
+      }
     }
   }
+  // ── Hashchange listener: keep the SPA in sync when the user edits the URL
+  //    bar (back/forward, manual edit, copy-paste). Same parsing rules as
+  //    the boot-time deep-link block above.
+  window.addEventListener('hashchange', (ev) => {
+    try {
+      let raw = (location.hash || '').slice(1);
+      if (raw.startsWith('/')) raw = raw.slice(1);
+      const qIdx = raw.indexOf('?');
+      let queryStr = '';
+      if (qIdx >= 0) { queryStr = raw.slice(qIdx + 1); raw = raw.slice(0, qIdx); }
+      const segs = raw.split('/').filter(Boolean);
+      const id = segs[0];
+      const arg = segs[1];
+      if (!id || !/^[a-z0-9][a-z0-9-]{0,63}$/i.test(id)) return;
+      if (arg && /^[a-z0-9][a-z0-9_\-]{0,127}$/i.test(arg)) {
+        if (id === 'qeeg-raw-workbench' || id === 'qeeg-analysis' || id === 'qeeg-raw') {
+          window._qeegSelectedId = arg;
+        }
+        if (id === 'patient-profile' || id === 'patients-v2') {
+          window._currentPatientId = arg;
+          window._profilePatientId = arg;
+          window._selectedPatientId = arg;
+        }
+      }
+      if (queryStr && id === 'qeeg-raw-workbench') {
+        try {
+          const sp = new URLSearchParams(queryStr);
+          const m = sp.get('mode'); if (m) window._qeegRawWorkbenchMode = m;
+        } catch {}
+      }
+      const norm = normalizeRouteId(id);
+      if (norm !== currentPage && typeof window._nav === 'function') {
+        window._nav(norm);
+      }
+    } catch {}
+  });
+
   // Initialise clinic switcher for multi-clinic roles
   window._initClinicSwitcher(currentUser);
   renderNav();
