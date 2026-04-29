@@ -449,6 +449,9 @@ def _populate_row_from_report(row: MriAnalysis, report: dict[str, Any]) -> None:
         row.pipeline_version = str(report["pipeline_version"])[:16] or None
     if "norm_db_version" in report:
         row.norm_db_version = str(report["norm_db_version"])[:16] or None
+    # Generate patient-facing report at the same time as the analysis report
+    from app.services.mri_claim_governance import sanitize_for_patient
+    row.patient_facing_report_json = json.dumps(sanitize_for_patient(report))
 
 
 def _viewer_payload_from_report(analysis_id: str, report: dict[str, Any]) -> dict[str, Any]:
