@@ -2,6 +2,7 @@ import { api, downloadBlob } from './api.js';
 import { spinner, emptyState, evidenceBadge, labelBadge, safetyBadge, approvalBadge, govFlag, fr, cardWrap, tag } from './helpers.js';
 import { FALLBACK_ASSESSMENT_TEMPLATES, FALLBACK_CONDITIONS, FALLBACK_MODALITIES } from './constants.js';
 import { currentUser } from './auth.js';
+import { getEvidenceUiStats } from './evidence-ui-live.js';
 import {
   EVIDENCE_TOTAL_PAPERS,
   EVIDENCE_TOTAL_TRIALS,
@@ -63,6 +64,34 @@ const SOAP_TEMPLATES = {
     plan: '',
   },
 };
+
+let _coursesEvidenceStats = {
+  totalPapers: EVIDENCE_TOTAL_PAPERS,
+  totalTrials: EVIDENCE_TOTAL_TRIALS,
+  modalityDistribution: EVIDENCE_SUMMARY.modalityDistribution || {},
+};
+
+function _coursesTotalPapers() {
+  return Number(_coursesEvidenceStats.totalPapers) || EVIDENCE_TOTAL_PAPERS;
+}
+
+function _coursesModalityCount(label, fallback) {
+  const dist = _coursesEvidenceStats.modalityDistribution || {};
+  const candidates = [label];
+  if (label === 'TMS') candidates.push('TMS / rTMS', 'rTMS');
+  const found = candidates.find((key) => Number(dist[key]) > 0);
+  return found ? Number(dist[found]) : fallback;
+}
+
+async function _ensureCoursesEvidenceStats() {
+  try {
+    _coursesEvidenceStats = await getEvidenceUiStats({
+      fallbackSummary: EVIDENCE_SUMMARY,
+      fallbackConditionCount: 15,
+      fallbackMetaAnalyses: 0,
+    });
+  } catch {}
+}
 
 // ── Shared color maps ─────────────────────────────────────────────────────────
 const STATUS_COLOR = {
@@ -231,11 +260,11 @@ function renderPredictionCard(pred, outcomeCount) {
 // ── Clinical Intelligence — Cohort Benchmarks ────────────────────────────────
 
 const BENCHMARKS = {
-  'tDCS':          { condition: 'Depression (MDD)',               expected_responder_rate: 52, evidence: `Meta-analysis (n=1,144) · ${(EVIDENCE_SUMMARY.modalityDistribution['tDCS'] || 18200).toLocaleString()} papers indexed` },
-  'TMS':           { condition: 'Treatment-Resistant Depression', expected_responder_rate: 58, evidence: `FDA-cleared indication · ${(EVIDENCE_SUMMARY.modalityDistribution['TMS / rTMS'] || 24800).toLocaleString()} papers indexed` },
-  'Neurofeedback': { condition: 'ADHD',                          expected_responder_rate: 64, evidence: `Meta-analysis (n=830) · ${(EVIDENCE_SUMMARY.modalityDistribution['Neurofeedback'] || 10400).toLocaleString()} papers indexed` },
-  'taVNS':         { condition: 'Epilepsy',                      expected_responder_rate: 45, evidence: `RCT data (n=600) · ${(EVIDENCE_SUMMARY.modalityDistribution['taVNS'] || 5200).toLocaleString()} papers indexed` },
-  'CES':           { condition: 'Anxiety/Insomnia',              expected_responder_rate: 55, evidence: `Meta-analysis (n=2,400) · ${(EVIDENCE_SUMMARY.modalityDistribution['CES'] || 4800).toLocaleString()} papers indexed` },
+  'tDCS':          { condition: 'Depression (MDD)',               expected_responder_rate: 52, evidence: () => `Meta-analysis (n=1,144) · ${_coursesModalityCount('tDCS', 18200).toLocaleString()} papers indexed` },
+  'TMS':           { condition: 'Treatment-Resistant Depression', expected_responder_rate: 58, evidence: () => `FDA-cleared indication · ${_coursesModalityCount('TMS', 24800).toLocaleString()} papers indexed` },
+  'Neurofeedback': { condition: 'ADHD',                          expected_responder_rate: 64, evidence: () => `Meta-analysis (n=830) · ${_coursesModalityCount('Neurofeedback', 10400).toLocaleString()} papers indexed` },
+  'taVNS':         { condition: 'Epilepsy',                      expected_responder_rate: 45, evidence: () => `RCT data (n=600) · ${_coursesModalityCount('taVNS', 5200).toLocaleString()} papers indexed` },
+  'CES':           { condition: 'Anxiety/Insomnia',              expected_responder_rate: 55, evidence: () => `Meta-analysis (n=2,400) · ${_coursesModalityCount('CES', 4800).toLocaleString()} papers indexed` },
 };
 
 function benchmarkRow(modality, clinicRate, benchmarkRate, benchmark) {
@@ -267,7 +296,7 @@ function benchmarkRow(modality, clinicRate, benchmarkRate, benchmark) {
         </div>
       </div>
     </div>
-    <div style="font-size:10px;color:var(--text-tertiary);margin-top:3px">${benchmark.evidence} &middot; ${benchmark.condition}</div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:3px">${typeof benchmark.evidence === 'function' ? benchmark.evidence() : benchmark.evidence} &middot; ${benchmark.condition}</div>
   </div>`;
 }
 
@@ -433,6 +462,7 @@ function _tcCard(c, openAEs = []) {
 
 // ── pgCourses — Treatment Courses list ───────────────────────────────────────
 export async function pgCourses(setTopbar, navigate) {
+  await _ensureCoursesEvidenceStats();
   const canCreate = ['clinician', 'admin', 'supervisor'].includes(currentUser?.role);
   setTopbar('Treatment Courses',
     canCreate ? `<button class="btn btn-primary btn-sm" onclick="window._nav('protocol-wizard')">+ New Course</button>` : ''
@@ -8629,7 +8659,7 @@ function _predResultHTML(result, ci) {
 
   let scoreInterpretation;
   if (predictedScore >= 75) {
-    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> indicates a <strong>strong likelihood of clinical improvement</strong> with current treatment parameters. This patient profile aligns closely with high-responder cohorts in the ${EVIDENCE_TOTAL_PAPERS.toLocaleString()}-paper neuromodulation evidence base.`;
+    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> indicates a <strong>strong likelihood of clinical improvement</strong> with current treatment parameters. This patient profile aligns closely with high-responder cohorts in the ${_coursesTotalPapers().toLocaleString()}-paper neuromodulation evidence base.`;
   } else if (predictedScore >= 55) {
     scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> suggests a <strong>moderate probability of meaningful improvement</strong>. Close monitoring and protocol optimisation are recommended to maximise this patient's response trajectory.`;
   } else if (predictedScore >= 40) {
@@ -8801,6 +8831,7 @@ function _predHistoryTableHTML() {
 }
 
 export async function pgOutcomePrediction(setTopbar) {
+  await _ensureCoursesEvidenceStats();
   setTopbar('Outcome Prediction & ML Scoring', '');
   _initPredictions();
 

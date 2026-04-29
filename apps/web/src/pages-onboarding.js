@@ -1,5 +1,6 @@
 import { api } from './api.js';
 import { currentUser } from './auth.js';
+import { getEvidenceUiStats } from './evidence-ui-live.js';
 import { spinner } from './helpers.js';
 import {
   EVIDENCE_TOTAL_PAPERS,
@@ -23,8 +24,21 @@ function _obEsc(v) {
 // ── Module-level wizard state ─────────────────────────────────────────────────
 let onboardingStep = 1;
 let onboardingData = {};
+let _onboardingEvidenceStats = {
+  totalPapers: EVIDENCE_TOTAL_PAPERS,
+  modalityDistribution: EVIDENCE_SUMMARY.modalityDistribution || {},
+};
 
 const ONB_STEP_LABELS = ['Practice', 'Patient', 'Protocol', 'Ready'];
+
+function _onboardingTotalPapers() {
+  return Number(_onboardingEvidenceStats.totalPapers) || EVIDENCE_TOTAL_PAPERS;
+}
+
+function _onboardingModalityCount() {
+  return Object.keys(_onboardingEvidenceStats.modalityDistribution || {}).length
+    || Object.keys(EVIDENCE_SUMMARY.modalityDistribution || {}).length;
+}
 
 // ── Step indicator (friendly-forms stepper) ──────────────────────────────────
 function pipHtml(step) {
@@ -173,7 +187,7 @@ function step3Html() {
 
       <div class="ff-card">
         <div class="ff-card-title">Protocol basics</div>
-        <p class="ff-card-sub">We use these to seed recommendations from our ${EVIDENCE_TOTAL_PAPERS.toLocaleString()}-paper evidence base — you can refine every parameter afterwards.</p>
+        <p class="ff-card-sub">We use these to seed recommendations from our ${_onboardingTotalPapers().toLocaleString()}-paper evidence base — you can refine every parameter afterwards.</p>
         ${ffInput({
           id: 'onb-proto-condition',
           label: 'Condition',
@@ -188,7 +202,7 @@ function step3Html() {
           label: 'Modality',
           options: MODALITIES,
           placeholder: 'Select modality…',
-          help: `Choose the neuromodulation method you plan to use for this patient. Recommendations draw from ${EVIDENCE_TOTAL_PAPERS.toLocaleString()} indexed papers across ${Object.keys(EVIDENCE_SUMMARY.modalityDistribution).length} modalities.`,
+          help: `Choose the neuromodulation method you plan to use for this patient. Recommendations draw from ${_onboardingTotalPapers().toLocaleString()} indexed papers across ${_onboardingModalityCount()} modalities.`,
         })}
         ${ffTextarea({
           id: 'onb-proto-symptoms',
@@ -447,6 +461,13 @@ window._onbSelectCond = function(el, cond) {
 export async function pgOnboarding(setTopbar, navigate) {
   // Reset step to 1 on each fresh visit (unless resuming)
   if (onboardingStep < 1 || onboardingStep > 4) onboardingStep = 1;
+  try {
+    _onboardingEvidenceStats = await getEvidenceUiStats({
+      fallbackSummary: EVIDENCE_SUMMARY,
+      fallbackConditionCount: 15,
+      fallbackMetaAnalyses: 0,
+    });
+  } catch {}
   renderOnboarding(setTopbar);
 }
 
@@ -609,7 +630,7 @@ function _wizStep1() {
         <div style="background:linear-gradient(135deg,var(--card-bg,var(--bg-card)) 0%,rgba(0,212,188,0.03) 100%);border:1px solid rgba(0,212,188,0.2);border-radius:12px;padding:16px;text-align:center">
           <div style="width:40px;height:40px;border-radius:50%;background:rgba(0,212,188,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;margin:0 auto 10px">📋</div>
           <div style="font-size:12.5px;font-weight:700;color:var(--text-primary);margin-bottom:4px">Evidence-Based Protocols</div>
-          <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">Backed by peer-reviewed research across 15+ conditions</div>
+          <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">Backed by ${_onboardingTotalPapers().toLocaleString()} indexed papers across ${Math.max(_onboardingModalityCount(), 1)} modalities</div>
         </div>
         <div style="background:linear-gradient(135deg,var(--card-bg,var(--bg-card)) 0%,rgba(59,130,246,0.03) 100%);border:1px solid rgba(59,130,246,0.2);border-radius:12px;padding:16px;text-align:center">
           <div style="width:40px;height:40px;border-radius:50%;background:rgba(59,130,246,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;margin:0 auto 10px">👥</div>

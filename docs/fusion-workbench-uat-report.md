@@ -61,13 +61,15 @@ Verified via automated test suite (`test_fusion_router.py`, `test_fusion_workben
 |--------------------|----------------|------|--------|
 | qEEG report not approved/signed | `_check_report_state()` warns on DRAFT_AI | `test_check_report_state_qeeg_draft_ai_warns` | ✅ |
 | MRI report not approved/signed | `_check_report_state()` warns on MRI_DRAFT_AI | `test_check_report_state_mri_draft_ai_warns` | ✅ |
+| Source qEEG report in DRAFT_AI at sign-off | `transition_fusion_case_state()` hard-blocks `sign` action | `test_sign_blocked_when_qeeg_draft` | ✅ |
+| Source MRI report in MRI_DRAFT_AI at sign-off | `transition_fusion_case_state()` hard-blocks `sign` action | `test_sign_blocked_when_mri_draft` | ✅ |
 | MRI radiology review unresolved | `_check_radiology_review()` blocks on `RADIOLOGY_REVIEW_REQUIRED` flag | `test_check_radiology_review_required_unresolved_blocks` | ✅ |
-| MRI registration confidence too low | **Not implemented as explicit gate.** Registration confidence is stored in MRI target JSON but not checked by safety service. | — | ⚠️ Gap identified |
+| MRI registration confidence too low | `_check_registration_confidence()` in `fusion_safety_service.py`; blocks on `low`/`unknown`, warns on `moderate`/missing | `test_registration_confidence_low_blocks`, `test_registration_confidence_moderate_warns` | ✅ |
 | qEEG red flags unresolved | `_check_red_flags()` blocks on CRITICAL/BLOCKS_EXPORT severity | `test_check_red_flags_critical_unresolved_blocks` | ✅ |
 | Protocol evidence grade insufficient | Evidence grade capped at "heuristic" in `_generate_summary()` | `test_generate_summary_dual` | ✅ |
 | Contraindications unresolved | Covered by red-flags check (CRITICAL severity) | `test_check_red_flags_critical_unresolved_blocks` | ✅ |
 
-**Note:** MRI registration confidence gating is not yet implemented. Recommendation: add a threshold check (e.g., `< 0.70`) to `_check_radiology_review()` or a new `_check_registration_confidence()` gate.
+**Note:** MRI registration confidence gating implemented. Reads `structural_json.registration.confidence` from MRI analysis; blocks case creation/sign-off on `low`/`unknown`, warns on `moderate` or missing value. Next steps advise re-running MRI registration QA when blocked.
 
 ---
 
