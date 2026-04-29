@@ -88,6 +88,96 @@ def create_checkout(
     )
 
 
+class BillingPortalRequest(BaseModel):
+    return_url: str = Field(
+        ...,
+        description=(
+            "URL Stripe redirects the user back to after they exit the "
+            "Customer Portal. Must be an https:// URL."
+        ),
+        min_length=1,
+        max_length=2048,
+    )
+
+
+@router.post("/portal")
+@limiter.limit("10/minute")
+def create_billing_portal(
+    request: Request,
+    payload: BillingPortalRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Create a Stripe Customer Portal session for the actor's clinic.
+
+    Mirrors the role gate of ``/checkout/{agent_id}`` — clinic admins (and
+    super-admins) only. The portal lets paying clinics self-serve cancellations,
+    card updates, and invoice downloads without contacting support.
+
+    Status mapping
+    --------------
+    * 400 — ``return_url`` does not start with ``https://``.
+    * 403 — actor is not at least an admin (``require_minimum_role`` raises).
+    * 404 — the clinic has no Stripe customer yet (no prior subscription).
+    * 503 — the Stripe SDK raised a non-validation error (e.g. API outage).
+    * 200 — ``{"url": "https://billing.stripe.com/..."}``.
+    """
+    require_minimum_role(actor, "admin")
+
+    if not payload.return_url.startswith("https://"):
+        raise ApiServiceError(
+            code="invalid_return_url",
+            message="return_url must be an https:// URL.",
+            status_code=400,
+        )
+
+    if actor.clinic_id is None:
+        # Clinic-less admins (super-admins) can't have a portal session
+        # because the portal is keyed on the clinic's existing customer.
+        raise ApiServiceError(
+            code="no_stripe_customer",
+            message="No Stripe customer found — start a subscription first.",
+            status_code=404,
+        )
+
+    try:
+        return stripe_skus.create_billing_portal_session(
+            db=db,
+            clinic_id=actor.clinic_id,
+            return_url=payload.return_url,
+        )
+    except ValueError as exc:
+        if str(exc) == "no_stripe_customer":
+            raise ApiServiceError(
+                code="no_stripe_customer",
+                message="No Stripe customer found — start a subscription first.",
+                status_code=404,
+            ) from exc
+        # Any other ValueError is a programming error — surface as 503 so the
+        # UI can render a safe envelope without leaking internals.
+        raise ApiServiceError(
+            code="billing_portal_unavailable",
+            message="Billing portal is temporarily unavailable. Please try again.",
+            status_code=503,
+        ) from exc
+    except ApiServiceError:
+        raise
+    except Exception as exc:  # pragma: no cover — Stripe SDK / network failures
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "billing_portal_session_create failed for clinic=%s: %s: %s",
+            actor.clinic_id,
+            type(exc).__name__,
+            exc,
+        )
+        raise ApiServiceError(
+            code="billing_portal_unavailable",
+            message="Billing portal is temporarily unavailable. Please try again.",
+            status_code=503,
+        ) from exc
+
+
 @router.get("/subscriptions")
 def list_subscriptions(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

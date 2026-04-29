@@ -785,7 +785,76 @@ def replay_webhook_event(db: "Session", *, event_id: str) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Phase 12 — Stripe Customer Portal
+# ---------------------------------------------------------------------------
+
+
+def create_billing_portal_session(
+    db: "Session", *, clinic_id: str, return_url: str
+) -> dict:
+    """Create a Stripe Customer Portal session for the clinic's existing customer.
+
+    The Customer Portal is Stripe's hosted self-service surface for cancellations,
+    payment-method updates, and invoice history. We hand out a short-lived
+    session URL keyed on the clinic's existing Stripe Customer id; the clinic
+    admin is then redirected to ``billing.stripe.com``.
+
+    Lookup is intentionally narrow: we ONLY reuse a ``stripe_customer_id`` that
+    is already stamped on an :class:`AgentSubscription` row for this clinic.
+    A clinic that has never started a subscription has no Stripe customer to
+    point at, and we refuse rather than minting a brand-new customer (which
+    would produce an empty portal with nothing to manage).
+
+    Parameters
+    ----------
+    db
+        Active SQLAlchemy session — used only for the customer-id lookup.
+    clinic_id
+        The actor's clinic id (already validated upstream by the router).
+    return_url
+        The page Stripe redirects the user back to after they exit the portal.
+        Caller is responsible for validating the scheme (the router enforces
+        ``https://``).
+
+    Returns
+    -------
+    dict
+        ``{"url": "https://billing.stripe.com/..."}`` on success.
+
+    Raises
+    ------
+    ValueError
+        ``ValueError("no_stripe_customer")`` when the clinic has no
+        :class:`AgentSubscription` row carrying a ``stripe_customer_id``. The
+        router translates this into a 404 with a "start a subscription first"
+        message.
+    """
+    sdk = _get_client()
+
+    # Match the lookup style used by ``_find_or_create_customer`` step (1) —
+    # any AgentSubscription row for this clinic that has a Stripe Customer id
+    # stamped is sufficient. We do NOT mint a fresh customer here: a clinic
+    # with no prior subscription has nothing to manage in the portal.
+    row = (
+        db.query(AgentSubscription)
+        .filter(AgentSubscription.clinic_id == clinic_id)
+        .filter(AgentSubscription.stripe_customer_id.isnot(None))
+        .first()
+    )
+    if row is None or not row.stripe_customer_id:
+        raise ValueError("no_stripe_customer")
+
+    session = sdk.billing_portal.Session.create(
+        customer=row.stripe_customer_id,
+        return_url=return_url,
+    )
+    url = session["url"] if isinstance(session, dict) else session.url
+    return {"url": url}
+
+
 __all__ = [
+    "create_billing_portal_session",
     "create_checkout_session",
     "handle_subscription_webhook",
     "list_clinic_subscriptions",
