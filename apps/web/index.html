@@ -19,10 +19,20 @@
 <link rel="icon" type="image/svg+xml" href="/deepsynaps-logo.svg">
 <link rel="icon" type="image/png" href="/deepsynaps-logo.png">
 <link rel="apple-touch-icon" href="/icon-192.png">
+<!-- Default Open Graph + Twitter card tags. The runtime SEO helper in
+     pages-marketplace.js (`_mlSetSeoTags`) overrides these on the
+     ?page=marketplace-landing route so social-card scrapers see the
+     landing-page-specific copy. Everywhere else, these defaults are what
+     Slack / LinkedIn / Twitter render before SPA hydration. -->
 <meta property="og:title" content="DeepSynaps Protocol Studio — Clinical OS">
 <meta property="og:description" content="Intelligent operating system for neuromodulation clinics">
-<meta property="og:image" content="/deepsynaps-logo.png">
+<meta property="og:image" content="https://deepsynaps-studio-preview.netlify.app/deepsynaps-logo.png">
 <meta property="og:type" content="website">
+<meta property="og:url" content="https://deepsynaps-studio-preview.netlify.app/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="DeepSynaps Protocol Studio — Clinical OS">
+<meta name="twitter:description" content="Intelligent operating system for neuromodulation clinics">
+<meta name="twitter:image" content="https://deepsynaps-studio-preview.netlify.app/deepsynaps-logo.png">
 <link rel="manifest" href="./manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">

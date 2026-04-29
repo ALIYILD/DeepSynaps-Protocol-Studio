@@ -509,6 +509,19 @@ let _promptEditorError = null;
 let _promptNotice = null; // { kind: 'success'|'error'|'info', text: string }
 let _promptNoticeTimer = null;
 
+// ── Phase 12: Prompt-override version-history drawer state (super-admin) ─────
+// `_promptHistoryOpenAgentId` tracks which agent's drawer is currently expanded
+// (null = no drawer open; only one open at a time per the brief). The history
+// itself is cached per-agent_id in `_promptHistoryByAgent` so re-opening the
+// same drawer doesn't refetch. `_promptHistoryDiffOpen` is a string of the
+// form "<agent_id>:<version>" — at most one diff is expanded at a time inside
+// the open drawer.
+let _promptHistoryOpenAgentId = null;
+let _promptHistoryByAgent = {}; // { [agentId]: [{id, version, system_prompt, created_at, created_by_id, deactivated_at, is_active}] }
+let _promptHistoryLoading = false;
+let _promptHistoryError = null;
+let _promptHistoryDiffOpen = null; // "<agent_id>:<version>" or null
+
 const PATIENT_AGENT_OPTIONS = [
   { id: 'patient.care_companion', label: 'Care Companion' },
   { id: 'patient.adherence', label: 'Adherence' },
@@ -1879,6 +1892,171 @@ function _activeOverrideForAgent(agentId) {
   return rows[0];
 }
 
+// ── Phase 12: prompt-override version history (super-admin) ─────────────────
+// Hits the Phase 11C endpoint and caches the DESC-ordered list per agent_id.
+// On error we set `_promptHistoryError` (rendered red inline inside the drawer)
+// and leave the cache untouched so a successful retry doesn't blink stale data.
+async function _fetchPromptHistory(agentId) {
+  if (!agentId) return [];
+  if (_promptHistoryLoading) return _promptHistoryByAgent[agentId] || [];
+  _promptHistoryLoading = true;
+  _promptHistoryError = null;
+  try {
+    if (_isMarketplaceDemoMode()) {
+      _promptHistoryByAgent[agentId] = _promptHistoryByAgent[agentId] || [];
+      return _promptHistoryByAgent[agentId];
+    }
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      const t = api.getToken && api.getToken();
+      if (t) headers['Authorization'] = 'Bearer ' + t;
+    } catch {}
+    let payload = null;
+    try {
+      const url = `${_marketplaceApiBase()}/api/v1/agents/admin/prompt-overrides/${encodeURIComponent(agentId)}/history?limit=20`;
+      const res = await fetch(url, { method: 'GET', headers, credentials: 'include' });
+      if (res.ok) payload = await res.json();
+      else if (res.status === 403) _promptHistoryError = 'This action requires super-admin privileges.';
+      else _promptHistoryError = `Failed to load history (${res.status}).`;
+    } catch (err) {
+      _promptHistoryError = err?.message || 'Failed to load history.';
+      payload = null;
+    }
+    let items = [];
+    if (payload && Array.isArray(payload.history)) items = payload.history;
+    else if (payload && Array.isArray(payload.items)) items = payload.items;
+    _promptHistoryByAgent[agentId] = items;
+    return items;
+  } finally {
+    _promptHistoryLoading = false;
+  }
+}
+
+// Tiny line-by-line LCS diff. Returns an array of {kind, text} where kind is
+// one of 'eq' | 'add' | 'del'. Matches the unified-diff convention: removed
+// lines from `prev` come before the corresponding added lines from `curr`.
+// Naïve O(n*m) DP — fine for the ~20-line system prompts we're diffing in
+// this drawer; we deliberately avoid a library dependency per the brief.
+function _diffLines(prev, curr) {
+  const a = String(prev || '').split('\n');
+  const b = String(curr || '').split('\n');
+  const m = a.length;
+  const n = b.length;
+  // dp[i][j] = LCS length of a[i..] vs b[j..]
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const out = [];
+  let i = 0, j = 0;
+  while (i < m && j < n) {
+    if (a[i] === b[j]) { out.push({ kind: 'eq', text: a[i] }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ kind: 'del', text: a[i] }); i++; }
+    else { out.push({ kind: 'add', text: b[j] }); j++; }
+  }
+  while (i < m) { out.push({ kind: 'del', text: a[i++] }); }
+  while (j < n) { out.push({ kind: 'add', text: b[j++] }); }
+  return out;
+}
+
+function _renderPromptHistoryDiff(prevRow, currRow) {
+  const lines = _diffLines(prevRow ? prevRow.system_prompt : '', currRow ? currRow.system_prompt : '');
+  const styleEq  = 'color:var(--text-tertiary)';
+  const styleAdd = 'background:rgba(34,197,94,0.10);color:var(--green,#22c55e)';
+  const styleDel = 'background:rgba(239,68,68,0.10);color:var(--red,#ef4444)';
+  const rendered = lines.map(l => {
+    if (l.kind === 'add') return `<div data-test="prompt-diff-add" style="${styleAdd};padding:1px 6px">+ ${_esc(l.text)}</div>`;
+    if (l.kind === 'del') return `<div data-test="prompt-diff-del" style="${styleDel};padding:1px 6px">- ${_esc(l.text)}</div>`;
+    return `<div style="${styleEq};padding:1px 6px">  ${_esc(l.text)}</div>`;
+  }).join('');
+  return `<pre data-test="prompt-diff-pre" style="margin:0;padding:8px;border:1px solid rgba(255,255,255,0.06);border-radius:6px;background:rgba(0,0,0,0.18);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.45;white-space:pre-wrap;overflow-x:auto">${rendered}</pre>`;
+}
+
+function _renderPromptHistoryDrawer(agentId, agentName) {
+  const list = _promptHistoryByAgent[agentId];
+  // Loading state — list not yet seeded for this agent and a fetch is in flight.
+  if (list === undefined || list === null) {
+    return `
+      <tr data-test="prompts-history-row-${_esc(agentId)}">
+        <td colspan="4" style="padding:10px 12px;background:rgba(255,255,255,0.02)">
+          <div style="font-size:11.5px;color:var(--text-tertiary)">Loading override history…</div>
+        </td>
+      </tr>
+    `;
+  }
+  const errorBlock = _promptHistoryError
+    ? `<div data-test="prompts-history-error" style="margin-bottom:8px;padding:8px 12px;border-radius:6px;background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.30);color:var(--red,#ef4444);font-size:11.5px">${_esc(_promptHistoryError)}</div>`
+    : '';
+  if (!list.length) {
+    return `
+      <tr data-test="prompts-history-row-${_esc(agentId)}">
+        <td colspan="4" style="padding:10px 12px;background:rgba(255,255,255,0.02)">
+          <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:6px">Override history — ${_esc(agentName || agentId)}</div>
+          ${errorBlock}
+          <div data-test="prompts-history-empty" style="font-size:11.5px;color:var(--text-tertiary)">No history yet — this agent uses the default prompt.</div>
+        </td>
+      </tr>
+    `;
+  }
+  // List is DESC by version (server contract). Map index → previous-version row
+  // is just `list[idx + 1]` because the next index is one version older.
+  const versionRows = list.map((row, idx) => {
+    const prev = list[idx + 1] || null;
+    const diffKey = `${agentId}:${row.version}`;
+    const diffOpen = _promptHistoryDiffOpen === diffKey;
+    const diffDisabled = !prev;
+    const diffBtnAttr = diffDisabled ? 'disabled' : '';
+    const activeBadge = row.is_active
+      ? '<span class="ds-pill" data-test="prompts-history-active" style="font-size:10px;padding:2px 7px;border-radius:99px;background:rgba(34,197,94,0.12);color:var(--green,#22c55e);font-weight:600;border:1px solid rgba(34,197,94,0.25)">active</span>'
+      : '<span class="ds-pill" style="font-size:10px;padding:2px 7px;border-radius:99px;background:rgba(255,255,255,0.04);color:var(--text-tertiary);font-weight:600;border:1px solid rgba(255,255,255,0.08)">inactive</span>';
+    const diffCellInner = diffOpen
+      ? `<tr data-test="prompts-history-diff-row-${_esc(agentId)}-${_esc(String(row.version))}">
+           <td colspan="4" style="padding:8px 12px;background:rgba(0,0,0,0.10)">
+             <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px">Diff v${_esc(String(prev ? prev.version : '?'))} → v${_esc(String(row.version))}</div>
+             ${_renderPromptHistoryDiff(prev, row)}
+           </td>
+         </tr>`
+      : '';
+    return `
+      <tr data-test="prompts-history-version-row-${_esc(agentId)}-${_esc(String(row.version))}">
+        <td style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px">v${_esc(String(row.version))}</td>
+        <td style="font-size:11px;color:var(--text-secondary)">${_esc(String(row.created_at || ''))}</td>
+        <td style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--text-secondary)">${_esc(String(row.created_by_id || '—'))}</td>
+        <td style="white-space:nowrap">${activeBadge}</td>
+        <td style="white-space:nowrap;text-align:right">
+          <button class="btn btn-sm btn-ghost" data-test="prompts-history-diff-btn-${_esc(agentId)}-${_esc(String(row.version))}" style="font-size:11px" onclick="window._agentPromptHistoryDiffToggle('${_esc(agentId)}', ${Number(row.version) || 0})" ${diffBtnAttr}>${diffOpen ? 'Hide diff' : 'Diff vs previous'}</button>
+        </td>
+      </tr>
+      ${diffCellInner}
+    `;
+  }).join('');
+
+  return `
+    <tr data-test="prompts-history-row-${_esc(agentId)}">
+      <td colspan="4" style="padding:10px 12px;background:rgba(255,255,255,0.02)">
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Override history — ${_esc(agentName || agentId)}</div>
+        ${errorBlock}
+        <div style="overflow-x:auto">
+          <table class="ds-table" data-test="prompts-history-table-${_esc(agentId)}" style="width:100%;font-size:12px">
+            <thead>
+              <tr>
+                <th style="text-align:left">Version</th>
+                <th style="text-align:left">Created</th>
+                <th style="text-align:left">Author</th>
+                <th style="text-align:left">Active?</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>${versionRows}</tbody>
+          </table>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
 function _renderPromptOverridesSection(agents) {
   const sectionHeader = `
     <div style="margin-bottom:8px">
@@ -1940,6 +2118,9 @@ function _renderPromptOverridesSection(agents) {
             </td>
           </tr>
         ` : '';
+        const historyOpen = _promptHistoryOpenAgentId === agentId;
+        const historyBtnLabel = historyOpen ? 'Hide history' : 'History';
+        const historyDrawer = historyOpen ? _renderPromptHistoryDrawer(agentId, a.name || agentId) : '';
         return `
           <tr class="ds-tr" data-test="prompts-row-${_esc(agentId)}">
             <td style="font-size:12px;font-weight:600;color:var(--text-primary)">${_esc(a.name || agentId)}</td>
@@ -1947,9 +2128,11 @@ function _renderPromptOverridesSection(agents) {
             <td style="white-space:nowrap">${badge}</td>
             <td style="white-space:nowrap;text-align:right">
               <button class="btn btn-sm btn-ghost" data-test="prompts-edit-btn-${_esc(agentId)}" style="font-size:11px" onclick="window._agentPromptOverrideEdit('${_esc(agentId)}')" ${busyAttr}>${editBtnLabel}</button>
+              <button class="btn btn-sm btn-ghost" data-test="prompts-history-btn-${_esc(agentId)}" style="font-size:11px;margin-left:6px" onclick="window._agentPromptHistoryToggle('${_esc(agentId)}')" ${busyAttr}>${historyBtnLabel}</button>
             </td>
           </tr>
           ${editorBlock}
+          ${historyDrawer}
         `;
       }).join('');
       tableBlock = `
@@ -3562,6 +3745,43 @@ window._agentPromptOverrideReset = async function(agentId) {
   }
 };
 
+// ── Phase 12: prompt-override history drawer handlers ───────────────────────
+// Toggle the drawer for `agentId`. Re-clicking History on the same row closes
+// it (per the brief — "Drawer collapses when 'History' is clicked again");
+// clicking History on a different row closes the previous drawer and opens
+// the new one ("Only one drawer open at a time per Prompts table"). On open
+// we kick off the fetch and re-render when it lands.
+window._agentPromptHistoryToggle = function(agentId) {
+  if (!agentId) return;
+  if (_promptHistoryOpenAgentId === agentId) {
+    _promptHistoryOpenAgentId = null;
+    _promptHistoryDiffOpen = null;
+    if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+    return;
+  }
+  _promptHistoryOpenAgentId = agentId;
+  _promptHistoryDiffOpen = null;
+  // Always refetch on open so a save in another tab doesn't leave stale data.
+  // Mark the cache as null (loading state) so the drawer renders the spinner
+  // while the request is in flight.
+  _promptHistoryByAgent[agentId] = null;
+  _promptHistoryError = null;
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+  _fetchPromptHistory(agentId).finally(() => {
+    if (_agentView === 'hub' && _marketplaceTab === 'prompts') {
+      try { pgAgentChat(_lastSetTopbar); } catch {}
+    }
+  });
+};
+
+window._agentPromptHistoryDiffToggle = function(agentId, version) {
+  if (!agentId) return;
+  const key = `${agentId}:${version}`;
+  if (_promptHistoryDiffOpen === key) _promptHistoryDiffOpen = null;
+  else _promptHistoryDiffOpen = key;
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+};
+
 // ── Phase 9: Test surface ────────────────────────────────────────────────────
 // Internal exports used by the unit-test suite. Not part of the public API —
 // nothing in `apps/web/src/main.js` (or any prod entry-point) imports this.
@@ -3619,6 +3839,68 @@ export const __promptOverridesTestApi__ = {
       notice: _promptNotice,
       busy: _promptOverridesBusy,
     };
+  },
+};
+
+// ── Phase 12: Test surface — prompt-override history drawer ─────────────────
+// Mirrors `__promptOverridesTestApi__`. Exposes the history-drawer state +
+// renderer to `apps/web/tests/agents-prompt-history.test.js` without standing
+// up the live DOM. `reset()` also clears the underlying overrides cache so a
+// fresh fetch happens on each test.
+export const __promptHistoryTestApi__ = {
+  reset() {
+    _marketplaceTab = 'catalog';
+    _promptOverridesList = null;
+    _promptOverridesLoading = false;
+    _promptOverridesError = null;
+    _promptOverridesBusy = false;
+    _promptEditingAgentId = null;
+    _promptDraft = '';
+    _promptEditorError = null;
+    _promptNotice = null;
+    if (_promptNoticeTimer) {
+      try { clearTimeout(_promptNoticeTimer); } catch {}
+      _promptNoticeTimer = null;
+    }
+    _promptHistoryOpenAgentId = null;
+    _promptHistoryByAgent = {};
+    _promptHistoryLoading = false;
+    _promptHistoryError = null;
+    _promptHistoryDiffOpen = null;
+    _marketplaceAgents = [];
+    _marketplaceLoaded = false;
+    _marketplaceLoading = false;
+    _agentView = 'detached';
+    _lastSetTopbar = () => {};
+  },
+  // Seed the overrides list so renderSection can render the rows + History
+  // button without needing a separate fetchOverrides() call. Most history
+  // tests don't care about the override badges, just the History drawer.
+  seedOverrides(rows) {
+    _promptOverridesList = Array.isArray(rows) ? rows.slice() : [];
+  },
+  renderSection(agents) {
+    return _renderPromptOverridesSection(agents);
+  },
+  isSuperAdmin() {
+    return _isSuperAdmin();
+  },
+  fetchHistory(agentId) {
+    return _fetchPromptHistory(agentId);
+  },
+  getState() {
+    return {
+      openAgentId: _promptHistoryOpenAgentId,
+      byAgent: _promptHistoryByAgent,
+      loading: _promptHistoryLoading,
+      error: _promptHistoryError,
+      diffOpen: _promptHistoryDiffOpen,
+    };
+  },
+  // Direct access to the diff helper so we can unit-test the diff output
+  // without needing a full render.
+  diffLines(prev, curr) {
+    return _diffLines(prev, curr);
   },
 };
 

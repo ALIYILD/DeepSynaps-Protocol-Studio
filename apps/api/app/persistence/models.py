@@ -2711,3 +2711,59 @@ class ClinicMonthlyCostCap(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+
+
+# ── Phase 12 — onboarding wizard funnel telemetry (migration 056) ────────────
+
+
+class OnboardingEvent(Base):
+    """Single event emitted by the agent-onboarding wizard.
+
+    Phase 10 shipped the four-step wizard but no telemetry — we had no idea
+    how many users dropped off, where, or whether the Stripe step was the
+    main blocker. This table is the funnel substrate: each row is a single
+    step transition recorded by the browser. The accompanying
+    ``/api/v1/onboarding/funnel`` endpoint aggregates them into the
+    started → completed conversion rate that ops monitors weekly.
+
+    Design contract
+    ---------------
+    * ``clinic_id`` and ``actor_id`` are both nullable — the wizard renders
+      pre-login (anonymous browser visiting the studio for the first time)
+      and after login. Anonymous events still feed the funnel; we just lose
+      the per-clinic dimension for them.
+    * ``actor_id`` uses ``ON DELETE SET NULL`` so deleting a user does not
+      orphan their funnel rows; we keep the audit trail with a NULL actor.
+    * ``step`` is a small string enum, validated at the API boundary
+      (``app.routers.onboarding_router._VALID_STEPS``). Stored as a plain
+      VARCHAR so we can ship a new step name without an enum migration.
+    * ``payload_json`` is small free-form JSON (package id, agent id, count
+      of invitees) serialised to TEXT — cross-dialect (SQLite + Postgres)
+      and never queried structurally.
+    * ``created_at`` is indexed because the funnel query always filters by
+      ``created_at >= now() - interval``; without the index Postgres would
+      degrade to a seq scan as the table grows.
+    """
+
+    __tablename__ = "onboarding_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    clinic_id: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        ForeignKey("clinics.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    actor_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    step: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    payload_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
