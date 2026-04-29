@@ -1195,6 +1195,7 @@ function _renderActivitySection(agents) {
         ${optionsHtml}
       </select>
       <button class="btn btn-sm btn-ghost" onclick="window._agentActivityRefresh()" style="font-size:11px" ${_activityLoading ? 'disabled' : ''}>${_activityLoading ? 'Refreshing…' : '↻ Refresh'}</button>
+      <button class="btn btn-sm btn-ghost" onclick="window._agentActivityExportCsv()" style="font-size:11px" title="Download recent agent-run audit rows as CSV (finance export)">⬇ Export CSV</button>
       ${_activityError ? `<span style="font-size:11px;color:var(--red,#ef4444)">${_esc(_activityError)}</span>` : ''}
     </div>
   `;
@@ -3988,6 +3989,28 @@ window._agentActivitySetFilter = function(agentId) {
     }
   }).catch(() => {});
   if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+};
+
+// Phase 14: finance CSV export. Spec is explicit — let the browser handle
+// the redirect (do NOT fetch+Blob) so the auth-cookie session flows cleanly
+// to the StreamingResponse without re-implementing Content-Disposition save.
+// The window currently shown by the chart pill (`_usageChartSinceDays`) is
+// reused as the CSV's `since_days` so what the user sees is what they get.
+window._agentActivityExportCsv = function() {
+  try {
+    const days = Number(_usageChartSinceDays);
+    const sinceDays = Number.isFinite(days) && days > 0 ? Math.min(365, Math.floor(days)) : 30;
+    const params = ['since_days=' + encodeURIComponent(sinceDays)];
+    if (_activityAgentFilter) {
+      params.push('agent_id=' + encodeURIComponent(_activityAgentFilter));
+    }
+    const url = `${_marketplaceApiBase()}/api/v1/agents/runs.csv?${params.join('&')}`;
+    window.location = url;
+  } catch (err) {
+    // Surface the failure inline rather than silently no-op'ing.
+    _activityError = (err && err.message) ? err.message : 'CSV export failed.';
+    if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+  }
 };
 
 // ── Phase 9: Prompt override handlers ────────────────────────────────────────
