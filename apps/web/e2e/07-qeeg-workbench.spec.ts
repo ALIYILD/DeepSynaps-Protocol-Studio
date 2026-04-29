@@ -57,10 +57,14 @@ test.describe('qEEG Raw Workbench', () => {
   test('detector buttons create AI suggestions', async ({ page }) => {
     await page.goto('/#/qeeg-raw-workbench/demo');
     await page.waitForSelector('#qwb-canvas', { timeout: 10000 });
+    // Snapshot suggestion count on the AI tab before triggering the detector
     await page.click('.qwb-tab[data-tab="ai"]');
     const before = await page.locator('.qwb-card[data-suggestion]').count();
+    // detect-blink lives on the Cleaning tab side panel — switch back first
+    await page.click('.qwb-tab[data-tab="cleaning"]');
     await page.click('button[data-action="detect-blink"]');
     await page.waitForTimeout(300);
+    await page.click('.qwb-tab[data-tab="ai"]');
     await expect(async () => {
       const after = await page.locator('.qwb-card[data-suggestion]').count();
       expect(after).toBeGreaterThan(before);
