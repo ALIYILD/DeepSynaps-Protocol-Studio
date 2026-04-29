@@ -56,6 +56,7 @@ from app.persistence.models import (
     QEEGRecord,
 )
 from app.repositories.patients import resolve_patient_clinic_id
+from app.services.evidence_intelligence import list_saved_citations
 from app.services import mri_pipeline as mri_pipeline_facade
 from app.settings import get_settings
 
@@ -409,8 +410,25 @@ def _report_from_row(row: MriAnalysis) -> dict[str, Any]:
         # includes ``requires_clinical_correlation: True`` and hedged
         # language; never says "diagnosis".
         "findings": findings,
+        "saved_evidence_citations": [],
         "disclaimer": _DISCLAIMER,
     }
+
+
+def _attach_saved_evidence_citations(
+    row: MriAnalysis,
+    report: dict[str, Any],
+    db: Session,
+) -> dict[str, Any]:
+    scoped = list_saved_citations(
+        row.patient_id,
+        db,
+        context_kind="mri",
+        analysis_id=row.analysis_id,
+    )
+    report_with_citations = dict(report)
+    report_with_citations["saved_evidence_citations"] = scoped
+    return report_with_citations
 
 
 def _status_payload_from_row(row: MriAnalysis, job_id: str) -> dict[str, Any]:
@@ -914,7 +932,8 @@ def get_report(
             status_code=404,
         )
     _gate_patient_access(actor, row.patient_id, db)
-    return JSONResponse(_report_from_row(row))
+    report = _attach_saved_evidence_citations(row, _report_from_row(row), db)
+    return JSONResponse(report)
 
 
 @router.get("/report/{analysis_id}/fusion_payload")
@@ -1005,7 +1024,7 @@ def get_report_pdf(
         )
     _gate_patient_access(actor, row.patient_id, db)
 
-    report = _report_from_row(row)
+    report = _attach_saved_evidence_citations(row, _report_from_row(row), db)
     pdf_bytes = mri_pipeline_facade.generate_report_pdf_safe(analysis_id, report)
     if pdf_bytes is None:
         return JSONResponse(
@@ -1047,7 +1066,7 @@ def get_report_html(
             status_code=404,
         )
     _gate_patient_access(actor, row.patient_id, db)
-    report = _report_from_row(row)
+    report = _attach_saved_evidence_citations(row, _report_from_row(row), db)
     html = mri_pipeline_facade.generate_report_html_safe(analysis_id, report)
     return HTMLResponse(html)
 

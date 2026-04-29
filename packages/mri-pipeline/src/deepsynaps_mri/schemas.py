@@ -351,6 +351,7 @@ class MRIReport(BaseModel):
     # progress — surfaced only.
     qc_warnings: list[str] = Field(default_factory=list)
     clinical_summary: dict = Field(default_factory=dict)
+    saved_evidence_citations: list[dict] = Field(default_factory=list)
 
     model_config = ConfigDict(
         json_schema_extra={

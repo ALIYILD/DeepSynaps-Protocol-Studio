@@ -332,7 +332,13 @@ async function _loadMRISavedEvidenceCitations(patientId) {
     return [];
   }
   try {
-    var rows = await api.listEvidenceSavedCitations(patientId);
+    var ctx = _getMRIReportEvidenceContext();
+    var rows = await api.listEvidenceSavedCitations({
+      patient_id: patientId,
+      context_kind: ctx.kind,
+      analysis_id: ctx.analysisId,
+      report_id: ctx.reportId,
+    });
     _mriSavedEvidenceCitations = Array.isArray(rows) ? rows : (rows && rows.items) || [];
   } catch (_) {
     _mriSavedEvidenceCitations = [];

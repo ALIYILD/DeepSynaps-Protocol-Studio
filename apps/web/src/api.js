@@ -726,8 +726,20 @@ export const api = {
     apiFetch('/api/v1/evidence/by-finding', { method: 'POST', body: JSON.stringify(data) }),
   saveEvidenceCitation: (data = {}) =>
     apiFetch('/api/v1/evidence/save-citation', { method: 'POST', body: JSON.stringify(data) }),
-  listEvidenceSavedCitations: (patientId) =>
-    apiFetch(`/api/v1/evidence/patient/${encodeURIComponent(patientId)}/saved-citations`),
+  listEvidenceSavedCitations: (arg) => {
+    if (arg && typeof arg === 'object') {
+      const patientId = arg.patient_id || arg.patientId || '';
+      const q = new URLSearchParams(
+        Object.entries({
+          context_kind: arg.context_kind,
+          analysis_id: arg.analysis_id,
+          report_id: arg.report_id,
+        }).filter(([, v]) => v != null && v !== '')
+      ).toString();
+      return apiFetch(`/api/v1/evidence/patient/${encodeURIComponent(patientId)}/saved-citations${q ? '?' + q : ''}`);
+    }
+    return apiFetch(`/api/v1/evidence/patient/${encodeURIComponent(arg)}/saved-citations`);
+  },
   evidenceReportPayload: (data = {}) =>
     apiFetch('/api/v1/evidence/report-payload', { method: 'POST', body: JSON.stringify(data) }),
 

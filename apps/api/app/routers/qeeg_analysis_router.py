@@ -40,6 +40,7 @@ from app.persistence.models import (
     QEEGTimelineEvent,
 )
 from app.repositories.patients import resolve_patient_clinic_id
+from app.services.evidence_intelligence import list_saved_citations
 from app.settings import get_settings
 
 _log = logging.getLogger(__name__)
@@ -1902,6 +1903,7 @@ def _build_confidence_bar(confidence: float) -> str:
 def _render_report_html(
     report: QEEGAIReport,
     analysis: QEEGAnalysis,
+    saved_citations: Optional[list[dict]] = None,
 ) -> str:
     """Build a print-optimized HTML page from a qEEG AI report."""
     narrative = json.loads(report.ai_narrative_json) if report.ai_narrative_json else {}
@@ -1967,6 +1969,33 @@ def _render_report_html(
             else:
                 ref_items.append(f"<li>{_esc(str(ref))}</li>")
         refs_html = "<h2>Literature References</h2><ol>" + "".join(ref_items) + "</ol>"
+
+    saved_refs_html = ""
+    if saved_citations:
+        ref_items = []
+        for citation in saved_citations:
+            payload = citation.get("citation_payload") if isinstance(citation, dict) else {}
+            payload = payload if isinstance(payload, dict) else {}
+            title = _esc(
+                payload.get("title")
+                or citation.get("title")
+                or payload.get("citation")
+                or "Untitled citation"
+            )
+            source = _esc(payload.get("journal") or payload.get("source") or "")
+            year = _esc(payload.get("year") or "")
+            url = _esc(payload.get("url") or payload.get("record_url") or payload.get("doi_url") or "")
+            summary = _esc(payload.get("abstract") or payload.get("summary") or "")
+            parts = [title]
+            meta = " · ".join(part for part in [source, year] if part)
+            if meta:
+                parts.append(f"<span style=\"color:#6b7280;\">{meta}</span>")
+            if url:
+                parts.append(f'<div><a href="{url}">{url}</a></div>')
+            if summary:
+                parts.append(f"<div>{summary}</div>")
+            ref_items.append("<li>" + "".join(parts) + "</li>")
+        saved_refs_html = "<h2>Saved Evidence Citations</h2><ol>" + "".join(ref_items) + "</ol>"
 
     # Metadata
     report_date = report.created_at.strftime("%Y-%m-%d %H:%M UTC") if report.created_at else "N/A"
@@ -2102,6 +2131,7 @@ def _render_report_html(
   {conditions_html}
   {protocols_html}
   {refs_html}
+  {saved_refs_html}
 
   {"<h2>Clinician Amendments</h2><p>" + _esc(report.clinician_amendments) + "</p>" if report.clinician_amendments else ""}
 
@@ -2142,7 +2172,14 @@ def export_report_html(
     if not report:
         raise ApiServiceError(code="not_found", message="Report not found", status_code=404)
 
-    html_content = _render_report_html(report, analysis)
+    saved_citations = list_saved_citations(
+        analysis.patient_id,
+        db,
+        context_kind="qeeg",
+        analysis_id=analysis_id,
+        report_id=report_id,
+    )
+    html_content = _render_report_html(report, analysis, saved_citations=saved_citations)
     short_id = report_id[:8]
 
     return HTMLResponse(

@@ -412,6 +412,9 @@ function wireDrawer(host, result, patientId) {
       return {
         ...payload,
         finding_id: _contextAwareFindingId(baseFindingId, reportContext),
+        context_kind: reportContext?.kind || null,
+        analysis_id: reportContext?.analysisId || null,
+        report_id: reportContext?.reportId || null,
         citation_payload: {
           ...(payload.citation_payload || {}),
           report_context: reportContext || null,

@@ -1309,6 +1309,9 @@ class EvidenceSavedCitation(Base):
     paper_title: Mapped[str] = mapped_column(Text(), nullable=False)
     pmid: Mapped[Optional[str]] = mapped_column(String(60), nullable=True, index=True)
     doi: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    context_kind: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, index=True)
+    analysis_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    report_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     citation_payload_json: Mapped[str] = mapped_column(Text(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 

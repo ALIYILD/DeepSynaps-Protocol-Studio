@@ -185,6 +185,9 @@ class SaveCitationRequest(BaseModel):
     paper_title: str
     pmid: Optional[str] = None
     doi: Optional[str] = None
+    context_kind: Optional[str] = None
+    analysis_id: Optional[str] = None
+    report_id: Optional[str] = None
     citation_payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -193,6 +196,9 @@ class ReportPayloadRequest(BaseModel):
     finding_ids: list[str] = Field(default_factory=list)
     include_saved: bool = True
     max_results_per_finding: int = Field(default=5, ge=1, le=20)
+    context_kind: Optional[str] = None
+    analysis_id: Optional[str] = None
+    report_id: Optional[str] = None
 
 
 class EvidenceFilterState(BaseModel):
@@ -717,6 +723,9 @@ def save_citation(body: SaveCitationRequest, actor_id: str, db: Session) -> dict
             paper_title=body.paper_title,
             pmid=body.pmid,
             doi=body.doi,
+            context_kind=body.context_kind,
+            analysis_id=body.analysis_id,
+            report_id=body.report_id,
             citation_payload_json=json.dumps(body.citation_payload),
         )
         db.add(existing)
@@ -725,12 +734,26 @@ def save_citation(body: SaveCitationRequest, actor_id: str, db: Session) -> dict
     return saved_record_to_dict(existing)
 
 
-def list_saved_citations(patient_id: str, db: Session) -> list[dict[str, Any]]:
-    rows = db.scalars(
+def list_saved_citations(
+    patient_id: str,
+    db: Session,
+    *,
+    context_kind: str | None = None,
+    analysis_id: str | None = None,
+    report_id: str | None = None,
+) -> list[dict[str, Any]]:
+    stmt = (
         select(EvidenceSavedCitation)
         .where(EvidenceSavedCitation.patient_id == patient_id)
         .order_by(EvidenceSavedCitation.created_at.desc())
-    ).all()
+    )
+    if context_kind:
+        stmt = stmt.where(EvidenceSavedCitation.context_kind == context_kind)
+    if analysis_id:
+        stmt = stmt.where(EvidenceSavedCitation.analysis_id == analysis_id)
+    if report_id:
+        stmt = stmt.where(EvidenceSavedCitation.report_id == report_id)
+    rows = db.scalars(stmt).all()
     return [saved_record_to_dict(row) for row in rows]
 
 
@@ -749,6 +772,9 @@ def saved_record_to_dict(row: EvidenceSavedCitation) -> dict[str, Any]:
         "paper_title": row.paper_title,
         "pmid": row.pmid,
         "doi": row.doi,
+        "context_kind": row.context_kind,
+        "analysis_id": row.analysis_id,
+        "report_id": row.report_id,
         "citation_payload": payload,
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
@@ -762,7 +788,13 @@ def build_report_payload(body: ReportPayloadRequest, db: Session) -> dict[str, A
         result = query_evidence(build_default_query(body.patient_id, target), db)
         findings.append(summary_from_result(result))
         citations.extend(result.export_citations[: body.max_results_per_finding])
-    saved = list_saved_citations(body.patient_id, db) if body.include_saved else []
+    saved = list_saved_citations(
+        body.patient_id,
+        db,
+        context_kind=body.context_kind,
+        analysis_id=body.analysis_id,
+        report_id=body.report_id,
+    ) if body.include_saved else []
     return {
         "patient_id": body.patient_id,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -770,6 +802,11 @@ def build_report_payload(body: ReportPayloadRequest, db: Session) -> dict[str, A
         "findings": [f.model_dump() for f in findings],
         "citations": [c.model_dump() for c in citations],
         "saved_citations": saved,
+        "report_context": {
+            "context_kind": body.context_kind,
+            "analysis_id": body.analysis_id,
+            "report_id": body.report_id,
+        },
     }
 
 
@@ -1062,4 +1099,3 @@ def _is_saved(db: Session, patient_id: str, finding_id: str) -> bool:
         EvidenceSavedCitation.patient_id == patient_id,
         EvidenceSavedCitation.finding_id == finding_id,
     ).limit(1)) is not None
-

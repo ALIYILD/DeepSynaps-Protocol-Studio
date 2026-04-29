@@ -2100,7 +2100,13 @@ async function _loadQEEGSavedEvidenceCitations(patientId) {
     return [];
   }
   try {
-    var rows = await api.listEvidenceSavedCitations(patientId);
+    var ctx = _getQEEGReportEvidenceContext();
+    var rows = await api.listEvidenceSavedCitations({
+      patient_id: patientId,
+      context_kind: ctx.kind,
+      analysis_id: ctx.analysisId,
+      report_id: ctx.reportId,
+    });
     _qeegSavedEvidenceCitations = Array.isArray(rows) ? rows : (rows && rows.items) || [];
   } catch (_) {
     _qeegSavedEvidenceCitations = [];

@@ -719,11 +719,20 @@ def save_evidence_citation(
 @router.get("/patient/{patient_id}/saved-citations")
 def get_saved_evidence_citations(
     patient_id: str,
+    context_kind: str | None = Query(default=None),
+    analysis_id: str | None = Query(default=None),
+    report_id: str | None = Query(default=None),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> list[dict]:
     require_minimum_role(actor, "clinician")
-    return list_saved_citations(patient_id, db)
+    return list_saved_citations(
+        patient_id,
+        db,
+        context_kind=context_kind,
+        analysis_id=analysis_id,
+        report_id=report_id,
+    )
 
 
 @router.post("/report-payload")
