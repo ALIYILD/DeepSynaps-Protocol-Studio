@@ -44,6 +44,86 @@ function _mlApiBase() {
 // it lives here next to the only consumer.
 const ML_DEMO_EMAIL = 'dr.aliyildirim123@gmail.com';
 
+// ── SEO + social-card meta tag values ──────────────────────────────────────
+// Source-of-truth strings for the Phase 12 SEO injection. The hero copy
+// above and these constants must stay aligned (manual coupling, but the
+// strings are short so drift risk is low). The OG image URL points at a
+// follow-up asset that does not yet exist in the repo — see follow-up issue.
+const ML_SEO = {
+  title: 'DeepSynaps Studio — Agents that run your clinic',
+  description:
+    'Decision-support agents for neuromodulation clinics — booking, reporting, and clinician hand-off. Built with NHS clinicians. You stay in charge.',
+  url: 'https://deepsynaps-studio-preview.netlify.app/?page=marketplace-landing',
+  image: 'https://deepsynaps-studio-preview.netlify.app/og-marketplace.png',
+};
+
+// List of `[selectorAttr, selectorValue, content]` rows we upsert into
+// <head>. Kept declarative so the test seam can iterate over the same shape.
+function _mlSeoTagSpecs() {
+  return [
+    ['name',     'description',        ML_SEO.description],
+    ['property', 'og:title',           ML_SEO.title],
+    ['property', 'og:description',     ML_SEO.description],
+    ['property', 'og:type',            'website'],
+    ['property', 'og:url',             ML_SEO.url],
+    ['property', 'og:image',           ML_SEO.image],
+    ['name',     'twitter:card',       'summary_large_image'],
+    ['name',     'twitter:title',      ML_SEO.title],
+    ['name',     'twitter:description', ML_SEO.description],
+    ['name',     'twitter:image',      ML_SEO.image],
+  ];
+}
+
+// Upsert a single <meta> tag identified by (attrName, attrValue) — update
+// content in place if it already exists, otherwise create a fresh node and
+// append to <head>. Idempotent — calling repeatedly never duplicates tags.
+function _mlUpsertMeta(attrName, attrValue, content) {
+  if (typeof document === 'undefined' || !document.head) return;
+  let el = null;
+  try {
+    el = document.head.querySelector(`meta[${attrName}="${attrValue}"]`);
+  } catch { el = null; }
+  if (el && typeof el.setAttribute === 'function') {
+    el.setAttribute('content', content);
+    return;
+  }
+  if (typeof document.createElement !== 'function') return;
+  const tag = document.createElement('meta');
+  if (typeof tag.setAttribute === 'function') {
+    tag.setAttribute(attrName, attrValue);
+    tag.setAttribute('content', content);
+  } else {
+    tag[attrName] = attrValue;
+    tag.content = content;
+  }
+  if (typeof document.head.appendChild === 'function') {
+    document.head.appendChild(tag);
+  }
+}
+
+// Public hook — sets <title> and upserts every meta tag in the spec table.
+// Idempotent: re-running on the same page never duplicates. The SPA does NOT
+// expose a teardown / unmount hook for routes (see app.js router) so we
+// deliberately leave the tags in place when the user navigates away —
+// downstream pages that care about their own SEO will overwrite via the
+// same upsert path. Static <title> mutation by other pages will likewise
+// override `document.title`.
+function _mlSetSeoTags() {
+  if (typeof document === 'undefined') return;
+  try { document.title = ML_SEO.title; } catch {}
+  for (const [attrName, attrValue, content] of _mlSeoTagSpecs()) {
+    _mlUpsertMeta(attrName, attrValue, content);
+  }
+}
+
+// No-op-ish counterpart kept for documentation symmetry. The SPA router
+// has no per-page teardown callback, so this is intentionally a no-op:
+// see comment on `_mlSetSeoTags` above. Exposed via the test seam so a
+// future router refactor can wire it up without touching this file again.
+function _mlClearSeoTags() {
+  // Intentional no-op. See `_mlSetSeoTags` comment for the rationale.
+}
+
 // ── Pricing — mirrors AGENT_ONB_PACKAGES in agent-onboarding-wizard.js ─────
 const ML_PRICING = [
   {
@@ -311,6 +391,10 @@ function _mlRenderFooterCta() {
 // ── Entry point used by the SPA router (apps/web/src/app.js) ───────────────
 
 export async function pgMarketplaceLanding(setTopbar /* , navigate */) {
+  // Phase 12 — apply SEO + OG/Twitter card meta tags before render so any
+  // crawler that hydrates the SPA picks up the right title/description.
+  // Idempotent — safe to re-run on every navigation back to this page.
+  try { _mlSetSeoTags(); } catch {}
   // Keep the topbar minimal for an anonymous landing surface.
   if (typeof setTopbar === 'function') {
     try { setTopbar('Marketplace'); } catch {}
@@ -355,4 +439,10 @@ export const __marketplaceLandingTestApi__ = {
   PRICING: ML_PRICING,
   AGENT_CATALOG: ML_AGENT_CATALOG,
   DEMO_EMAIL: ML_DEMO_EMAIL,
+  // Phase 12 — SEO seam.
+  setSeoTags: _mlSetSeoTags,
+  clearSeoTags: _mlClearSeoTags,
+  upsertMeta: _mlUpsertMeta,
+  seoTagSpecs: _mlSeoTagSpecs,
+  SEO: ML_SEO,
 };
