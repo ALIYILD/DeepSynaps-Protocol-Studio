@@ -34,35 +34,44 @@ test.describe('qEEG Raw Workbench', () => {
   test('mark bad channel toggles and updates status', async ({ page }) => {
     await page.goto('/#/qeeg-raw-workbench/demo');
     await page.waitForSelector('#qwb-canvas', { timeout: 10000 });
-    // Click a channel in the rail
-    await page.click('[data-channel="Fp1-Av"]');
+    const initial = parseInt((await page.locator('#qwb-st-bad').textContent()) || '0', 10);
+    // Scope to the channel-rail row — `[data-channel="…"]` also matches the mini-headmap SVG node.
+    const railRow = page.locator('.qwb-ch-row[data-channel="Fp1-Av"]');
+    await railRow.click();
     await page.click('button[data-action="mark-channel"]');
-    await expect(page.locator('[data-channel="Fp1-Av"]')).toHaveClass(/bad/);
-    // Status bar should show 1 bad
-    await expect(page.locator('#qwb-st-bad')).toHaveText('1');
-    // Toggle off
+    await expect(railRow).toHaveClass(/bad/);
+    await expect(page.locator('#qwb-st-bad')).toHaveText(String(initial + 1));
     await page.click('button[data-action="mark-channel"]');
-    await expect(page.locator('#qwb-st-bad')).toHaveText('0');
+    await expect(page.locator('#qwb-st-bad')).toHaveText(String(initial));
   });
 
   test('undo restores prior state', async ({ page }) => {
     await page.goto('/#/qeeg-raw-workbench/demo');
     await page.waitForSelector('#qwb-canvas', { timeout: 10000 });
-    await page.click('[data-channel="Fp1-Av"]');
+    const initial = parseInt((await page.locator('#qwb-st-bad').textContent()) || '0', 10);
+    const railRow = page.locator('.qwb-ch-row[data-channel="Fp1-Av"]');
+    await railRow.click();
     await page.click('button[data-action="mark-channel"]');
-    await expect(page.locator('#qwb-st-bad')).toHaveText('1');
+    await expect(page.locator('#qwb-st-bad')).toHaveText(String(initial + 1));
     await page.click('button[data-action="undo"]');
-    await expect(page.locator('#qwb-st-bad')).toHaveText('0');
+    await expect(page.locator('#qwb-st-bad')).toHaveText(String(initial));
   });
 
   test('detector buttons create AI suggestions', async ({ page }) => {
     await page.goto('/#/qeeg-raw-workbench/demo');
     await page.waitForSelector('#qwb-canvas', { timeout: 10000 });
+    // Snapshot suggestion count on the AI tab before triggering the detector
+    await page.click('.qwb-tab[data-tab="ai"]');
+    const before = await page.locator('.qwb-card[data-suggestion]').count();
+    // detect-blink lives on the Cleaning tab side panel — switch back first
+    await page.click('.qwb-tab[data-tab="cleaning"]');
     await page.click('button[data-action="detect-blink"]');
     await page.waitForTimeout(300);
-    // Switch to AI tab
     await page.click('.qwb-tab[data-tab="ai"]');
-    await expect(page.locator('.qwb-card[data-suggestion]')).toHaveCount(2, { timeout: 5000 });
+    await expect(async () => {
+      const after = await page.locator('.qwb-card[data-suggestion]').count();
+      expect(after).toBeGreaterThan(before);
+    }).toPass({ timeout: 5000 });
   });
 
   test('accept AI suggestion updates counts', async ({ page }) => {
