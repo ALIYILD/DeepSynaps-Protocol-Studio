@@ -255,7 +255,7 @@ def _seed_qeeg_and_mri(
     qeeg_safety: dict | None = None,
     mri_safety: dict | None = None,
     qeeg_report_state: str | None = None,
-    mri_report_state: str | None = None,
+    mri_report_state: str | None = "MRI_APPROVED",
 ) -> tuple[str, str]:
     """Create QEEGAnalysis + MriAnalysis rows directly. Returns (qeeg_id, mri_id)."""
     db = SessionLocal()
