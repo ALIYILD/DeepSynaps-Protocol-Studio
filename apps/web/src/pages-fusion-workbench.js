@@ -102,7 +102,7 @@ function _renderReviewActions(caseState, caseId) {
 
 // ── Section 1: Case Selector ─────────────────────────────────────────────────
 export function renderCaseSelector(cases, selectedId) {
-  if (!cases || cases.length === 0) {
+  if (!Array.isArray(cases) || cases.length === 0) {
     return _card('Fusion Cases', '<p style="color:var(--text-secondary)">No fusion cases yet. Create one to get started.</p>');
   }
   let html = '<select class="fusion-case-select" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);">'
@@ -398,12 +398,22 @@ export async function pgFusionWorkbench(setTopbar, navigate) {
     return;
   }
 
-  el.innerHTML = '<div id="fusion-workbench-root"></div>';
-
   // Extract patient_id from URL if present
   const params = new URLSearchParams(window.location.search);
   const patientId = params.get('patient_id') || window._selectedPatientId || null;
 
+  if (!patientId) {
+    el.innerHTML = '<div style="padding:24px;max-width:800px;margin:0 auto;">'
+      + '<div style="padding:24px;border-radius:12px;background:var(--surface-elevated);border:1px solid var(--border);text-align:center;">'
+      + '<div style="font-size:32px;margin-bottom:12px;">&#x2696;&#xFE0F;</div>'
+      + '<h2 style="margin:0 0 8px;">Fusion Workbench</h2>'
+      + '<p style="color:var(--text-secondary);margin:0 0 16px;">Select a patient to view or create fusion cases.</p>'
+      + '<button class="ds-btn" onclick="window._nav(\'patients-v2\')" style="background:var(--teal);color:#fff;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;font-size:14px;">Go to Patients</button>'
+      + '</div></div>';
+    return;
+  }
+
+  el.innerHTML = '<div id="fusion-workbench-root"></div>';
   mountFusionWorkbench('fusion-workbench-root', patientId);
 }
 
@@ -419,7 +429,7 @@ export function mountFusionWorkbench(containerId, patientId) {
   async function loadCases() {
     try {
       const cases = await api.listFusionCases(patientId);
-      currentCases = cases;
+      currentCases = Array.isArray(cases) ? cases : [];
       refresh();
     } catch (e) {
       container.innerHTML = '<p style="padding:24px;color:var(--text-secondary)">Error loading fusion cases.</p>';
