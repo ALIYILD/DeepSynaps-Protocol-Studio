@@ -461,3 +461,17 @@ await test('title-bar menus dispatch to real actions, not placeholders', () => {
   assert.ok(!/'\$\{menu\} menu \(coming soon\)'/.test(WORKBENCH_SRC),
     'placeholder "(coming soon)" copy removed');
 });
+
+// ── Inline trace event labels (state.events drawn on the trace itself) ──────
+
+await test('seeded state.events render inline on the trace with paper-tone labels', () => {
+  const html = root.innerHTML;
+  // The inline-event group carries the qwb-event-marker testid so tests can
+  // scope assertions to it.
+  const m = html.match(/data-testid="qwb-event-marker"[^>]*>([\s\S]*?)<\/div>\s*<div id="qwb-rerun-notice"/);
+  assert.ok(m, 'qwb-event-marker container is in the trace area, before the rerun notice');
+  const inner = m[1];
+  assert.ok(inner.includes('Eyes Closed'), '"Eyes Closed" label rendered inside qwb-event-marker structure');
+  assert.ok(inner.includes('Photic 6 Hz'), '"Photic 6 Hz" label also rendered');
+  assert.ok(inner.includes('qwb-trace-event-line'), 'each event has a vertical dashed line');
+});
