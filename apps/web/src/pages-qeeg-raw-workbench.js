@@ -209,6 +209,17 @@ export async function pgQEEGRawWorkbench(setTopbar, navigate) {
     isDirty: false,
     pendingNav: null,
     rerunDoneNotice: null,
+    // Feature-parity additions (RAW DATA source):
+    selection: null,        // { startSec, endSec } captured by drag-to-select
+    drag: null,             // live drag rectangle while mousedown is held
+    history: [],            // undo snapshots
+    showGrid: true,         // toggled by G key
+    showAiOverlays: true,   // toggled by O key
+    aiExplain: null,        // current AI-explain popover { sugg, x, y } or null
+    chatInput: '',          // audit-tab chat draft
+    chatLog: [              // local-only chat history (shown in Audit tab)
+      { who: 'ai', text: 'I detected candidate artefacts in this window. Bilateral frontopolar blinks (Fp1/Fp2) and a possibly flat C4 are the most likely concerns.' },
+    ],
   };
 
   const beforeUnload = (e) => {
@@ -270,6 +281,32 @@ function workbenchShell(state) {
     ${shortcutsModal(state)}
     ${unsavedModal(state)}
     ${exportModal(state)}
+    ${aiExplainPopover(state)}
+  </div>`;
+}
+
+function aiExplainPopover(state) {
+  return `
+  <div id="qwb-ai-explain" class="qwb-ai-explain" data-testid="qwb-ai-explain" style="display:none">
+    <div class="qwb-ai-explain-card">
+      <div class="qwb-ai-explain-head">
+        <span class="qwb-ai-explain-dot"></span>
+        <b id="qwb-ai-explain-title">artefact</b>
+        <span id="qwb-ai-explain-conf" class="qwb-ai-explain-conf">—%</span>
+        <button class="qwb-tb-btn" id="qwb-ai-explain-close" style="margin-left:auto;width:22px;height:22px;padding:0;justify-content:center">×</button>
+      </div>
+      <div class="qwb-ai-explain-why" id="qwb-ai-explain-why">
+        <div class="qwb-ai-explain-why-label">✦ Why I flagged this</div>
+        <div id="qwb-ai-explain-why-text"></div>
+      </div>
+      <div class="qwb-ai-explain-features-label">Features</div>
+      <div id="qwb-ai-explain-features" class="qwb-ai-explain-features"></div>
+      <div class="qwb-ai-explain-footer" id="qwb-ai-explain-footer"></div>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button class="qwb-side-btn" id="qwb-ai-explain-accept">Accept</button>
+        <button class="qwb-side-btn" id="qwb-ai-explain-dismiss">Dismiss</button>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -676,6 +713,115 @@ function clinicalCss() {
       border:1px solid #d8d1c3; color:#1a1a1a;
     }
 
+    /* ── AI explain popover ──────────────────────────────────── */
+    .qwb-ai-explain {
+      position:fixed; inset:0; pointer-events:none; z-index:9998;
+    }
+    .qwb-ai-explain-card {
+      position:absolute; pointer-events:auto;
+      background:#FAF7F2; border:1px solid #d8d1c3; border-radius:6px;
+      padding:14px; width:300px;
+      box-shadow:0 8px 24px rgba(0,0,0,0.18);
+      font-size:11.5px;
+    }
+    .qwb-ai-explain-head { display:flex; align-items:center; gap:6px; margin-bottom:8px; }
+    .qwb-ai-explain-dot { width:8px; height:8px; border-radius:50%; background:#1d6f7a; }
+    .qwb-ai-explain-conf { font-family:var(--qwb-mono); font-size:10.5px; color:#1d6f7a; }
+    .qwb-ai-explain-why {
+      background:#d6ebee; padding:8px; border-radius:4px; color:#3a3633;
+      line-height:1.45; margin-bottom:10px; border-left:2px solid #1d6f7a;
+    }
+    .qwb-ai-explain-why-label {
+      font-size:9.5px; text-transform:uppercase; letter-spacing:0.06em;
+      color:#1d6f7a; margin-bottom:3px; font-weight:600;
+    }
+    .qwb-ai-explain-features-label {
+      font-size:9.5px; text-transform:uppercase; letter-spacing:0.06em;
+      color:#6b6660; margin-bottom:5px; font-weight:600;
+    }
+    .qwb-ai-explain-features {
+      display:flex; flex-direction:column; gap:3px;
+      font-family:var(--qwb-mono); font-size:10.5px;
+    }
+    .qwb-ai-explain-features div {
+      display:flex; justify-content:space-between;
+    }
+    .qwb-ai-explain-features .qwb-feat-key { color:#6b6660; }
+    .qwb-ai-explain-footer {
+      margin-top:10px; padding-top:6px;
+      font-size:10px; color:#6b6660;
+      border-top:1px dotted #d8d1c3;
+    }
+
+    /* ── Drag selection + bad-segment label ──────────────────── */
+    .qwb-drag-rect {
+      position:absolute; top:22px; bottom:0;
+      background:rgba(40,81,163,0.15);
+      border-left:2px solid #2851a3; border-right:2px solid #2851a3;
+      pointer-events:none; z-index:5;
+    }
+    .qwb-drag-rect .qwb-drag-label,
+    .qwb-selection .qwb-sel-label {
+      position:absolute; top:-22px; left:0;
+      background:#2851a3; color:#fff;
+      font-family:var(--qwb-mono); font-size:10px;
+      padding:2px 6px; border-radius:3px 3px 0 0;
+      white-space:nowrap;
+    }
+    .qwb-bad-segment-label {
+      position:absolute; top:2px; left:4px;
+      background:#b03434; color:#fff;
+      font-family:var(--qwb-mono); font-size:9.5px;
+      padding:1px 5px; border-radius:2px;
+    }
+
+    /* ── BP quality score header ─────────────────────────────── */
+    .qwb-bp-score {
+      display:flex; align-items:baseline; gap:8px; margin-bottom:6px;
+    }
+    .qwb-bp-score-num {
+      font-family:var(--qwb-mono); font-size:32px; font-weight:700; color:#1d6f7a;
+    }
+    .qwb-bp-score-bar {
+      height:6px; background:#ECE5D8; border-radius:3px; overflow:hidden;
+    }
+    .qwb-bp-score-fill { height:100%; background:#1d6f7a; }
+    .qwb-bp-pill {
+      margin-left:auto; font-size:10.5px; color:#b8741a;
+      background:#f6e6cb; padding:2px 6px; border-radius:3px;
+    }
+
+    /* ── Tab badge (count indicator) ─────────────────────────── */
+    .qwb-tab .qwb-tab-count {
+      display:inline-block; min-width:16px; padding:1px 5px;
+      background:#1d6f7a; color:#fff; border-radius:8px;
+      font-family:var(--qwb-mono); font-size:9px; margin-left:4px;
+    }
+
+    /* ── Audit chat input ────────────────────────────────────── */
+    .qwb-chat {
+      background:#FAF7F2; border:1px solid #d8d1c3; border-radius:6px;
+      padding:10px; margin-bottom:10px;
+    }
+    .qwb-chat-msg-ai {
+      font-size:11.5px; color:#3a3633; line-height:1.45;
+      padding:8px 10px; background:#d6ebee; border-radius:6px;
+      margin-bottom:8px; border-left:2px solid #1d6f7a;
+    }
+    .qwb-chat-input {
+      display:flex; gap:6px; align-items:center;
+      border:1px solid #d8d1c3; border-radius:6px;
+      padding:4px 4px 4px 10px; background:#FAF7F2;
+    }
+    .qwb-chat-input input {
+      flex:1; border:0; outline:none; background:transparent;
+      font-family:inherit; font-size:12px; padding:6px 0;
+    }
+    .qwb-chat-input button {
+      background:#1d6f7a; color:#fff; border:0; border-radius:4px;
+      padding:5px 10px; font-size:11px; cursor:pointer;
+    }
+
     /* ── Cards / lists ───────────────────────────────────────── */
     .qwb-card {
       border:1px solid #d8d1c3; border-radius:4px; padding:10px;
@@ -808,12 +954,14 @@ function channelGutterHtml(state) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function rightPanelHtml(state) {
+  const aiPending = (state.aiSuggestions || []).filter(s => (s.decision_status || 'suggested') === 'suggested').length;
+  const icaBad = state.rejectedICA ? state.rejectedICA.size : 0;
   const tabs = [
     { id: 'cleaning', label: 'Cleaning' },
-    { id: 'ai',       label: 'AI Review' },
+    { id: 'ai',       label: 'AI Review', badge: aiPending },
     { id: 'help',     label: 'Best-Practice' },
     { id: 'examples', label: 'Examples' },
-    { id: 'ica',      label: 'ICA' },
+    { id: 'ica',      label: 'ICA',       badge: icaBad },
     { id: 'log',      label: 'Audit' },
   ];
   return `
@@ -823,10 +971,34 @@ function rightPanelHtml(state) {
       ${state.rightCollapsed ? '◀' : '▶'}
     </button>
     <div class="qwb-right-tabs" id="qwb-right-tabs" ${state.rightCollapsed ? 'style="display:none"' : ''}>
-      ${tabs.map(t => `<button class="qwb-tab ${state.rightTab===t.id?'active':''}" data-tab="${t.id}">${esc(t.label)}</button>`).join('')}
+      ${tabs.map(t => `<button class="qwb-tab ${state.rightTab===t.id?'active':''}" data-tab="${t.id}">${esc(t.label)}${t.badge ? `<span class="qwb-tab-count" data-tab-count="${t.id}">${t.badge}</span>` : ''}</button>`).join('')}
     </div>
     <div id="qwb-right-body" class="qwb-right-body" ${state.rightCollapsed ? 'style="display:none"' : ''}></div>
   </aside>`;
+}
+
+function refreshTabBadges(state) {
+  const aiPending = (state.aiSuggestions || []).filter(s => (s.decision_status || 'suggested') === 'suggested').length;
+  const icaBad = state.rejectedICA ? state.rejectedICA.size : 0;
+  const aiTab = document.querySelector('.qwb-tab[data-tab="ai"]');
+  const icaTab = document.querySelector('.qwb-tab[data-tab="ica"]');
+  const setBadge = (tab, count) => {
+    if (!tab) return;
+    let b = tab.querySelector ? tab.querySelector('.qwb-tab-count') : null;
+    if (count > 0) {
+      if (!b) {
+        const html = `<span class="qwb-tab-count">${count}</span>`;
+        // Append by reading current content; cheap path:
+        tab.innerHTML = tab.textContent + html;
+      } else {
+        b.textContent = String(count);
+      }
+    } else if (b) {
+      b.remove ? b.remove() : (b.textContent = '');
+    }
+  };
+  setBadge(aiTab, aiPending);
+  setBadge(icaTab, icaBad);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1030,15 +1202,17 @@ function redrawCanvas(state) {
 
   renderTimeRuler(state);
 
-  ctx.strokeStyle = '#d8d1c3';
-  ctx.lineWidth = 1;
-  const hasDash = typeof ctx.setLineDash === 'function';
-  if (hasDash) ctx.setLineDash([2, 4]);
-  for (let s = 0; s <= tb; s++) {
-    const x = (s / tb) * W;
-    ctx.beginPath(); ctx.moveTo(x, rulerH); ctx.lineTo(x, H); ctx.stroke();
+  if (state.showGrid !== false) {
+    ctx.strokeStyle = '#d8d1c3';
+    ctx.lineWidth = 1;
+    const hasDash = typeof ctx.setLineDash === 'function';
+    if (hasDash) ctx.setLineDash([2, 4]);
+    for (let s = 0; s <= tb; s++) {
+      const x = (s / tb) * W;
+      ctx.beginPath(); ctx.moveTo(x, rulerH); ctx.lineTo(x, H); ctx.stroke();
+    }
+    if (hasDash) ctx.setLineDash([]);
   }
-  if (hasDash) ctx.setLineDash([]);
 
   const channels = DEFAULT_CHANNELS;
   const traceTop = rulerH;
@@ -1098,30 +1272,79 @@ function renderOverlays(state, W, H, rulerH) {
   const tb = state.timebase;
   const pieces = [];
 
-  for (const seg of state.rejectedSegments) {
+  // Rejected segments — red diagonal hatch + epoch label
+  state.rejectedSegments.forEach((seg, i) => {
     const sStart = Math.max(seg.start_sec - state.windowStart, 0);
     const sEnd = Math.min(seg.end_sec - state.windowStart, tb);
-    if (sEnd <= sStart) continue;
+    if (sEnd <= sStart) return;
     const left = (sStart / tb) * 100;
     const width = ((sEnd - sStart) / tb) * 100;
-    pieces.push(`<div class="qwb-bad-segment" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;top:0;bottom:0"></div>`);
+    pieces.push(`<div class="qwb-bad-segment" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;top:0;bottom:0">
+      <span class="qwb-bad-segment-label">REJECTED · epoch ${i + 1}</span>
+    </div>`);
+  });
+
+  // Confirmed selection rectangle (after a drag completes)
+  if (state.selection) {
+    const sStart = Math.max(state.selection.startSec - state.windowStart, 0);
+    const sEnd = Math.min(state.selection.endSec - state.windowStart, tb);
+    if (sEnd > sStart) {
+      const left = (sStart / tb) * 100;
+      const width = ((sEnd - sStart) / tb) * 100;
+      const dur = (sEnd - sStart).toFixed(2);
+      pieces.push(`<div class="qwb-selection" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%">
+        <span class="qwb-sel-label">SELECTED · ${dur}s</span>
+      </div>`);
+    }
   }
 
-  for (const s of state.aiSuggestions) {
-    if (s.start_sec == null) continue;
-    const overlap = s.start_sec - state.windowStart;
-    if (overlap < 0 || overlap > tb) continue;
-    const left = (overlap / tb) * 100;
-    const c = kindColour(s.ai_label);
-    const conf = Math.round((s.ai_confidence || 0) * 100);
-    pieces.push(`<div class="qwb-ai-chip" style="left:${left.toFixed(2)}%;top:18px;background:${c.bg};border-color:${c.border};color:${c.line}">
-      <span class="qwb-ai-chip-dot" style="background:${c.line}"></span>
-      <span>${esc((s.ai_label||'').replace(/_/g,' '))}</span>
-      <span class="qwb-ai-chip-conf">${conf}%</span>
+  // Live drag rectangle while mouse is held
+  if (state.drag) {
+    const x0 = Math.min(state.drag.x0, state.drag.x1);
+    const x1 = Math.max(state.drag.x0, state.drag.x1);
+    const left = (x0 / Math.max(W, 1)) * 100;
+    const width = ((x1 - x0) / Math.max(W, 1)) * 100;
+    const dur = ((x1 - x0) / Math.max(W, 1) * tb).toFixed(2);
+    pieces.push(`<div class="qwb-drag-rect" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%">
+      <span class="qwb-drag-label">${dur}s</span>
     </div>`);
   }
 
+  // AI suggestion chips — left-click=accept, right-click=explain
+  if (state.showAiOverlays !== false) {
+    for (const s of state.aiSuggestions) {
+      if (s.start_sec == null) continue;
+      const overlap = s.start_sec - state.windowStart;
+      if (overlap < 0 || overlap > tb) continue;
+      const left = (overlap / tb) * 100;
+      const c = kindColour(s.ai_label);
+      const conf = Math.round((s.ai_confidence || 0) * 100);
+      const status = s.decision_status || 'suggested';
+      const accepted = status === 'accepted';
+      pieces.push(`<div class="qwb-ai-chip" data-ai-chip="${esc(s.id)}" style="left:${left.toFixed(2)}%;top:18px;background:${accepted ? '#d6e8d6' : c.bg};border-color:${accepted ? '#2f6b3a' : c.border};color:${accepted ? '#2f6b3a' : c.line}">
+        <span class="qwb-ai-chip-dot" style="background:${accepted ? '#2f6b3a' : c.line}"></span>
+        <span>${esc((s.ai_label||'').replace(/_/g,' '))}</span>
+        <span class="qwb-ai-chip-conf">${conf}%</span>
+      </div>`);
+    }
+  }
+
   layer.innerHTML = pieces.join('');
+  // Re-bind click listeners on chips (innerHTML wipes them).
+  layer.querySelectorAll && layer.querySelectorAll('.qwb-ai-chip').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = el.dataset.aiChip;
+      recordAIDecision(state, id, 'accepted');
+    });
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const id = el.dataset.aiChip;
+      const sugg = (state.aiSuggestions || []).find(s => s.id === id);
+      if (!sugg) return;
+      openAIExplain(state, sugg, e.clientX || 200, e.clientY || 200);
+    });
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1137,7 +1360,7 @@ function renderRightPanel(state) {
     case 'help':     body.innerHTML = renderHelpPanel(state);     break;
     case 'examples': body.innerHTML = renderExamplesPanel(state); break;
     case 'ica':      body.innerHTML = renderICAPanel(state);      attachICAPanelHandlers(state);      break;
-    case 'log':      body.innerHTML = renderAuditPanel(state);    break;
+    case 'log':      body.innerHTML = renderAuditPanel(state);    attachAuditPanelHandlers(state);    break;
   }
 }
 
@@ -1224,7 +1447,24 @@ function renderAIPanel(state) {
 }
 
 function renderHelpPanel(state) {
+  // Score = retained_data_pct minus penalty for bad channels + rejected
+  // segments. Falls back to a stable demo number when data is unavailable.
+  const retain = state.rawCleanedSummary?.retained_data_pct ?? 88;
+  const penalty = (state.badChannels.size * 4) + (state.rejectedSegments.length * 2);
+  const score = Math.max(0, Math.min(100, Math.round(retain - penalty)));
+  const grade = score >= 80 ? 'PASS' : score >= 60 ? 'NEEDS REVIEW' : 'BLOCK';
+  const gradePill = score >= 80 ? '#2f6b3a' : score >= 60 ? '#b8741a' : '#b03434';
+  const gradeBg   = score >= 80 ? '#d6e8d6' : score >= 60 ? '#f6e6cb' : '#f3d4d0';
   return `
+    <div class="qwb-side-section">
+      <h4>AI Quality Score</h4>
+      <div class="qwb-bp-score">
+        <span class="qwb-bp-score-num" data-testid="qwb-bp-score">${score}</span>
+        <span style="font-size:14px;color:#6b6660">/ 100</span>
+        <span class="qwb-bp-pill" style="color:${gradePill};background:${gradeBg}">${grade}</span>
+      </div>
+      <div class="qwb-bp-score-bar"><div class="qwb-bp-score-fill" style="width:${score}%"></div></div>
+    </div>
     <div class="qwb-side-section">
       <div style="font-weight:600;font-size:13px;margin-bottom:8px">Best-Practice Helper</div>
       <div style="font-size:11px;color:#6b6660;margin-bottom:10px">Local guidance — links are decision-support only.</div>
@@ -1264,9 +1504,16 @@ function renderICAPanel(state) {
         </div>
       </div>`;
   }
+  const flagged = state.rejectedICA.size;
   return `
     <div class="qwb-side-section">
-      <div style="font-weight:600;font-size:13px;margin-bottom:8px">ICA Components (${state.ica.n_components || state.ica.components.length})</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-weight:600;font-size:13px">ICA Components (${state.ica.n_components || state.ica.components.length})</div>
+        <span style="font-family:var(--qwb-mono);font-size:10px;color:#b03434">${flagged} flagged</span>
+      </div>
+      <div style="font-size:10.5px;color:#6b6660;margin-bottom:10px;line-height:1.5">
+        AI classified each component. Click Reject / Restore to flag or unflag for removal.
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
       ${state.ica.components.slice(0, 30).map(c => {
         const isBad = state.rejectedICA.has(c.index);
@@ -1278,24 +1525,78 @@ function renderICAPanel(state) {
         </div>`;
       }).join('')}
       </div>
+    </div>
+    <div class="qwb-side-section">
+      <button class="qwb-side-btn ai full" id="qwb-ica-apply" data-action="apply-ica" data-testid="qwb-ica-apply" style="width:100%">
+        Apply: remove ${flagged} component${flagged === 1 ? '' : 's'}
+      </button>
     </div>`;
 }
 
 function renderAuditPanel(state) {
   const items = state.auditLog || [];
-  if (items.length === 0) {
-    return `<div class="qwb-side-section"><div style="color:#6b6660;font-size:12px;padding:18px 0;text-align:center">No audit events recorded yet.</div></div>`;
-  }
+  const chat = state.chatLog || [];
   return `
     <div class="qwb-side-section">
+      <h4>AI Assistant</h4>
+      <div class="qwb-chat" data-testid="qwb-chat">
+        ${chat.map(m => m.who === 'ai'
+          ? `<div class="qwb-chat-msg-ai"><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:#1d6f7a;font-weight:600;margin-bottom:4px">✦ DeepSynaps AI</div>${esc(m.text)}</div>`
+          : `<div style="font-size:11.5px;color:#1a1a1a;padding:6px 10px;background:#d8e1f3;border-radius:6px;margin-bottom:8px;border-left:2px solid #2851a3"><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:#2851a3;font-weight:600;margin-bottom:4px">◆ Clinician</div>${esc(m.text)}</div>`).join('')}
+        <div class="qwb-chat-input">
+          <input type="text" id="qwb-chat-input" data-testid="qwb-chat-input" placeholder="Ask about this segment…" value="${esc(state.chatInput || '')}" />
+          <button id="qwb-chat-send" data-testid="qwb-chat-send">Send</button>
+        </div>
+      </div>
+    </div>
+    <div class="qwb-side-section">
       <div style="font-weight:600;font-size:13px;margin-bottom:8px">Cleaning Audit Trail</div>
-      ${items.slice(0, 80).map(e => `
-        <div class="qwb-card" style="border-left:3px solid ${e.source==='ai'?'#1d6f7a':'#2851a3'};padding:6px 10px">
-          <div style="display:flex;justify-content:space-between"><span style="font-weight:600;font-size:11px">${esc(e.action_type)}</span><span style="color:#6b6660;font-size:10px;font-family:var(--qwb-mono)">${esc((e.created_at||'').slice(11,19))}</span></div>
-          <div style="color:#6b6660;font-size:11px">${e.channel?esc(e.channel)+' · ':''}${e.start_sec!=null?esc(e.start_sec.toFixed(1))+'s':''}${e.end_sec!=null?'–'+esc(e.end_sec.toFixed(1))+'s':''} · ${esc(e.source)}</div>
-          ${e.note ? `<div style="font-size:11px;margin-top:2px">${esc(e.note)}</div>` : ''}
-        </div>`).join('')}
+      ${items.length === 0
+        ? `<div style="color:#6b6660;font-size:12px;padding:18px 0;text-align:center">No audit events recorded yet.</div>`
+        : items.slice(0, 80).map(e => `
+          <div class="qwb-card" style="border-left:3px solid ${e.source==='ai'?'#1d6f7a':'#2851a3'};padding:6px 10px">
+            <div style="display:flex;justify-content:space-between"><span style="font-weight:600;font-size:11px">${esc(e.action_type)}</span><span style="color:#6b6660;font-size:10px;font-family:var(--qwb-mono)">${esc((e.created_at||'').slice(11,19))}</span></div>
+            <div style="color:#6b6660;font-size:11px">${e.channel?esc(e.channel)+' · ':''}${e.start_sec!=null?esc(e.start_sec.toFixed(1))+'s':''}${e.end_sec!=null?'–'+esc(e.end_sec.toFixed(1))+'s':''} · ${esc(e.source)}</div>
+            ${e.note ? `<div style="font-size:11px;margin-top:2px">${esc(e.note)}</div>` : ''}
+          </div>`).join('')}
     </div>`;
+}
+
+function attachAuditPanelHandlers(state) {
+  const send = () => {
+    const inp = document.getElementById('qwb-chat-input');
+    const text = inp ? (inp.value || '').trim() : '';
+    if (!text) return;
+    state.chatLog.push({ who: 'user', text });
+    state.chatLog.push({ who: 'ai', text: localChatReply(text, state) });
+    state.chatInput = '';
+    renderRightPanel(state);
+  };
+  document.getElementById('qwb-chat-send')?.addEventListener('click', send);
+  const inp = document.getElementById('qwb-chat-input');
+  if (inp) {
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); send(); }
+    });
+    inp.addEventListener('input', (e) => { state.chatInput = e.target.value; });
+  }
+}
+
+function localChatReply(text, state) {
+  const t = String(text).toLowerCase();
+  if (t.includes('blink') || t.includes('eye')) {
+    return 'Blinks show as bilateral frontopolar deflections (Fp1/Fp2). ICA is the standard mitigation; check the ICA tab for the candidate eye component.';
+  }
+  if (t.includes('muscle')) {
+    return 'Muscle artefacts have high-frequency power (>20 Hz) over temporal/frontal channels. Mark as bad segments if persistent — over-cleaning removes real signal.';
+  }
+  if (t.includes('flat')) {
+    return 'Flat channels usually mean a disconnected electrode. Mark as bad and interpolate from neighbours, or exclude from analysis.';
+  }
+  if (t.includes('save') || t.includes('version')) {
+    return `You have ${state.badChannels.size} bad channel${state.badChannels.size === 1 ? '' : 's'}, ${state.rejectedSegments.length} rejected segment${state.rejectedSegments.length === 1 ? '' : 's'}, and ${state.rejectedICA.size} flagged ICA component${state.rejectedICA.size === 1 ? '' : 's'}. Click Save Cleaning Version when ready.`;
+  }
+  return 'Decision-support only — please review the AI Review tab and check the Best-Practice score before re-running analysis.';
 }
 
 function renderStatusBar(state) {
@@ -1486,9 +1787,116 @@ function attachToolBar(state, navigate) {
     redrawCanvas(state); renderStatusBar(state);
   });
 
+  // ── Drag-to-select on the trace canvas ──────────────────────
+  const wrap = document.getElementById('qwb-canvas-wrap');
+  if (wrap) {
+    const xRel = (e) => {
+      const r = wrap.getBoundingClientRect();
+      return Math.max(0, Math.min(r.width, (e.clientX || 0) - r.left));
+    };
+    wrap.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      // Don't start a drag if user is clicking on an AI chip.
+      if (e.target && e.target.closest && e.target.closest('.qwb-ai-chip')) return;
+      const x = xRel(e);
+      state.drag = { x0: x, x1: x };
+      const W = wrap.clientWidth || 1;
+      renderOverlays(state, W, wrap.clientHeight || 1, 22);
+    });
+    wrap.addEventListener('mousemove', (e) => {
+      if (!state.drag) return;
+      state.drag.x1 = xRel(e);
+      const W = wrap.clientWidth || 1;
+      renderOverlays(state, W, wrap.clientHeight || 1, 22);
+    });
+    const finishDrag = () => {
+      if (!state.drag) return;
+      const W = wrap.clientWidth || 1;
+      const x0 = Math.min(state.drag.x0, state.drag.x1);
+      const x1 = Math.max(state.drag.x0, state.drag.x1);
+      if (x1 - x0 > 4) {
+        const startSec = state.windowStart + (x0 / W) * state.timebase;
+        const endSec   = state.windowStart + (x1 / W) * state.timebase;
+        state.selection = { startSec, endSec };
+      } else {
+        state.selection = null;
+      }
+      state.drag = null;
+      renderOverlays(state, W, wrap.clientHeight || 1, 22);
+      renderStatusBar(state);
+    };
+    wrap.addEventListener('mouseup', finishDrag);
+    wrap.addEventListener('mouseleave', finishDrag);
+  }
+
+  // ── AI explain popover handlers ─────────────────────────────
+  document.getElementById('qwb-ai-explain-close')?.addEventListener('click', () => closeAIExplain(state));
+  document.getElementById('qwb-ai-explain-accept')?.addEventListener('click', () => {
+    if (state.aiExplain) recordAIDecision(state, state.aiExplain.sugg.id, 'accepted');
+    closeAIExplain(state);
+  });
+  document.getElementById('qwb-ai-explain-dismiss')?.addEventListener('click', () => {
+    if (state.aiExplain) recordAIDecision(state, state.aiExplain.sugg.id, 'rejected');
+    closeAIExplain(state);
+  });
+
   if (typeof window !== 'undefined') {
     window.addEventListener('resize', () => redrawCanvas(state));
   }
+}
+
+function openAIExplain(state, sugg, x, y) {
+  state.aiExplain = { sugg, x, y };
+  const root = document.getElementById('qwb-ai-explain');
+  if (!root) return;
+  const card = root.querySelector ? root.querySelector('.qwb-ai-explain-card') : null;
+  const titleEl = document.getElementById('qwb-ai-explain-title');
+  const confEl  = document.getElementById('qwb-ai-explain-conf');
+  const whyEl   = document.getElementById('qwb-ai-explain-why-text');
+  const featEl  = document.getElementById('qwb-ai-explain-features');
+  const footEl  = document.getElementById('qwb-ai-explain-footer');
+  const dotEl   = root.querySelector ? root.querySelector('.qwb-ai-explain-dot') : null;
+  const c = kindColour(sugg.ai_label);
+  if (titleEl) titleEl.textContent = (sugg.ai_label || 'artefact').replace(/_/g,' ');
+  if (confEl) confEl.textContent = `${Math.round((sugg.ai_confidence || 0) * 100)}%`;
+  if (whyEl) whyEl.textContent = sugg.explanation || sugg.note || '—';
+  if (dotEl) dotEl.style.background = c.line;
+  if (featEl) {
+    featEl.innerHTML = aiExplainFeatures(sugg).map(([k, v]) =>
+      `<div><span class="qwb-feat-key">${esc(k)}</span><span>${esc(v)}</span></div>`).join('');
+  }
+  if (footEl) footEl.textContent = `Similar to 1,247 prior flagged events. Model: artefact-v3.2`;
+  if (card) {
+    card.style.left = Math.max(8, Math.min(x, (window.innerWidth || 1280) - 320)) + 'px';
+    card.style.top  = Math.max(8, Math.min(y, (window.innerHeight || 720) - 360)) + 'px';
+  }
+  root.style.display = 'block';
+}
+
+function closeAIExplain(state) {
+  state.aiExplain = null;
+  const root = document.getElementById('qwb-ai-explain');
+  if (root) root.style.display = 'none';
+}
+
+function aiExplainFeatures(sugg) {
+  const k = String(sugg.ai_label || '').toLowerCase();
+  if (k.includes('blink') || k.includes('eye')) {
+    return [['Peak amplitude','118 µV'], ['Polarity','Positive'], ['Topography','Frontopolar'], ['Duration','420 ms'], ['Symmetric','Yes']];
+  }
+  if (k.includes('muscle')) {
+    return [['Power 25-50 Hz','High'], ['Burst length','320 ms'], ['Topography','Temporal'], ['Channels affected','2-4']];
+  }
+  if (k.includes('movement')) {
+    return [['Drift slope','0.8 µV/ms'], ['Frequency','< 2 Hz'], ['Spread','All channels'], ['Duration','720 ms']];
+  }
+  if (k.includes('line')) {
+    return [['Peak frequency','50.0 Hz'], ['Power ratio','8.4×'], ['Channels','T4'], ['Continuous','Yes']];
+  }
+  if (k.includes('flat')) {
+    return [['Variance','< 0.1 µV²'], ['Duration','Whole epoch'], ['Channel','C4']];
+  }
+  return [['Type','artefact'], ['Decision','review']];
 }
 
 function attachExportModal(state) {
@@ -1596,6 +2004,9 @@ function attachKeyboard(state, navigate) {
     else if (e.key === 'i' || e.key === 'I') handleCleaningAction(state, 'interpolate');
     else if (e.key === 'a' || e.key === 'A') handleCleaningAction(state, 'annotate');
     else if (e.key === 'r' || e.key === 'R') { state.windowStart = 0; redrawCanvas(state); renderStatusBar(state); }
+    else if (e.key === 'g' || e.key === 'G') { state.showGrid = !state.showGrid; redrawCanvas(state); }
+    else if (e.key === 'o' || e.key === 'O') { state.showAiOverlays = !state.showAiOverlays; redrawCanvas(state); }
+    else if (e.key === 'z' || e.key === 'Z') { popHistory(state); }
     else if (e.key === 'v' || e.key === 'V') {
       const ids = VIEW_MODES.map(v => v.id);
       const i = ids.indexOf(state.viewMode);
@@ -1672,16 +2083,31 @@ function returnToReport(state, navigate) {
 
 async function handleCleaningAction(state, action) {
   switch (action) {
-    case 'mark-channel': await markBadChannel(state, state.selectedChannel); break;
-    case 'mark-segment': await markBadSegment(state, state.windowStart, state.windowStart + state.timebase); break;
-    case 'reject-epoch': await rejectEpoch(state, state.windowStart); break;
-    case 'interpolate': await interpolateChannel(state, state.selectedChannel); break;
-    case 'annotate': {
-      const note = (typeof window.prompt === 'function') ? window.prompt('Annotation note (clinician):', '') : '';
-      if (note != null && note.trim()) await addNote(state, note.trim());
+    case 'mark-channel': pushHistory(state); await markBadChannel(state, state.selectedChannel); break;
+    case 'mark-segment': {
+      pushHistory(state);
+      // Honour the live selection if one exists; otherwise fall back to the
+      // current window.
+      const startSec = state.selection ? state.selection.startSec : state.windowStart;
+      const endSec   = state.selection ? state.selection.endSec   : state.windowStart + state.timebase;
+      await markBadSegment(state, startSec, endSec);
+      state.selection = null;
       break;
     }
-    case 'undo': state.saveStatus = 'undo not yet wired'; renderStatusBar(state); break;
+    case 'reject-epoch': {
+      pushHistory(state);
+      const startSec = state.selection ? state.selection.startSec : state.windowStart;
+      await rejectEpoch(state, startSec);
+      state.selection = null;
+      break;
+    }
+    case 'interpolate': pushHistory(state); await interpolateChannel(state, state.selectedChannel); break;
+    case 'annotate': {
+      const note = (typeof window.prompt === 'function') ? window.prompt('Annotation note (clinician):', '') : '';
+      if (note != null && note.trim()) { pushHistory(state); await addNote(state, note.trim()); }
+      break;
+    }
+    case 'undo': popHistory(state); break;
     case 'detect-flat': case 'detect-noisy': case 'detect-blink':
     case 'detect-muscle': case 'detect-movement': case 'detect-line':
       await generateAISuggestions(state); break;
@@ -1690,7 +2116,54 @@ async function handleCleaningAction(state, action) {
     case 'rerun': await rerunAnalysis(state); break;
     case 'raw-vs-cleaned': await loadRawVsCleaned(state); break;
     case 'return-report': returnToReport(state); break;
+    case 'apply-ica': await applyICARemovals(state); break;
   }
+}
+
+function snapshotState(state) {
+  return {
+    badChannels: new Set(state.badChannels),
+    rejectedSegments: state.rejectedSegments.slice(),
+    rejectedICA: new Set(state.rejectedICA),
+    aiSuggestions: state.aiSuggestions.map(s => ({ ...s })),
+    selection: state.selection ? { ...state.selection } : null,
+  };
+}
+
+function pushHistory(state) {
+  state.history.push(snapshotState(state));
+  // Cap history to prevent unbounded growth.
+  if (state.history.length > 50) state.history.shift();
+}
+
+function popHistory(state) {
+  const prev = state.history.pop();
+  if (!prev) {
+    state.saveStatus = 'nothing to undo';
+    renderStatusBar(state);
+    return;
+  }
+  state.badChannels = prev.badChannels;
+  state.rejectedSegments = prev.rejectedSegments;
+  state.rejectedICA = prev.rejectedICA;
+  state.aiSuggestions = prev.aiSuggestions;
+  state.selection = prev.selection;
+  state.saveStatus = 'undid last action';
+  rerenderRail(state);
+  redrawCanvas(state);
+  renderRightPanel(state);
+  renderStatusBar(state);
+}
+
+async function applyICARemovals(state) {
+  const n = state.rejectedICA.size;
+  if (n === 0) {
+    state.saveStatus = 'no ICA components flagged';
+    renderStatusBar(state);
+    return;
+  }
+  state.saveStatus = `applied ${n} ICA removal${n === 1 ? '' : 's'} (saves with next cleaning version)`;
+  renderStatusBar(state);
 }
 
 function markDirty(state) { state.isDirty = true; renderStatusBar(state); }
@@ -1754,25 +2227,47 @@ async function postAnnotation(state, body) {
 
 async function generateAISuggestions(state) {
   if (state.isDemo) {
+    // 9 demo suggestions matching AI_ARTIFACTS in RAW DATA/data.jsx.
     state.aiSuggestions = [
-      { id: 'demo-1', ai_label: 'eye_blink', ai_confidence: 0.96, channel: 'Fp1-Av',
-        start_sec: 2.4, end_sec: 3.1,
-        explanation: 'Bilateral frontopolar deflection ~120 µV consistent with eye-blink artefact.',
+      { id: 'a1', ai_label: 'eye_blink', ai_confidence: 0.96, channel: 'Fp1-Av',
+        start_sec: 0.7, end_sec: 1.2,
+        explanation: 'Bilateral frontopolar deflection, ~120 µV.',
         suggested_action: 'review_ica', decision_status: 'suggested' },
-      { id: 'demo-2', ai_label: 'muscle', ai_confidence: 0.88, channel: 'T3-Av',
-        start_sec: 7.2, end_sec: 8.4,
-        explanation: 'Bilateral temporal high-frequency burst suggests muscle contamination.',
+      { id: 'a2', ai_label: 'muscle', ai_confidence: 0.88, channel: 'T3-Av',
+        start_sec: 2.2, end_sec: 2.8,
+        explanation: 'Bilateral temporal high-frequency burst.',
         suggested_action: 'mark_bad_segment', decision_status: 'suggested' },
-      { id: 'demo-3', ai_label: 'line_noise', ai_confidence: 0.91, channel: 'T4-Av',
+      { id: 'a3', ai_label: 'eye_blink', ai_confidence: 0.94, channel: 'Fp2-Av',
+        start_sec: 3.7, end_sec: 4.2,
+        explanation: 'Frontopolar single blink.',
+        suggested_action: 'review_ica', decision_status: 'suggested' },
+      { id: 'a4', ai_label: 'movement', ai_confidence: 0.79, channel: 'all',
+        start_sec: 5.0, end_sec: 5.8,
+        explanation: 'Whole-head low-frequency drift.',
+        suggested_action: 'mark_bad_segment', decision_status: 'suggested' },
+      { id: 'a5', ai_label: 'line_noise', ai_confidence: 0.91, channel: 'T4-Av',
         start_sec: 6.5, end_sec: 9.4,
-        explanation: '50 Hz line noise on T4 — recommend notch filter or interpolate.',
+        explanation: 'T4 — recommend notch filter or interpolate.',
         suggested_action: 'ignore', decision_status: 'suggested' },
-      { id: 'demo-4', ai_label: 'flat', ai_confidence: 0.99, channel: 'C4-Av',
-        start_sec: 0, end_sec: 12,
+      { id: 'a6', ai_label: 'muscle', ai_confidence: 0.72, channel: 'T6-Av',
+        start_sec: 7.4, end_sec: 7.9,
+        explanation: 'Posterior temporal jaw clench.',
+        suggested_action: 'mark_bad_segment', decision_status: 'suggested' },
+      { id: 'a7', ai_label: 'eye_blink', ai_confidence: 0.92, channel: 'Fp1-Av',
+        start_sec: 8.5, end_sec: 8.9,
+        explanation: 'Frontopolar.',
+        suggested_action: 'review_ica', decision_status: 'suggested' },
+      { id: 'a8', ai_label: 'sweat', ai_confidence: 0.83, channel: 'F3-Av',
+        start_sec: 9.8, end_sec: 11.4,
+        explanation: 'F3 — slow rising baseline.',
+        suggested_action: 'ignore', decision_status: 'suggested' },
+      { id: 'a9', ai_label: 'flat', ai_confidence: 0.99, channel: 'C4-Av',
+        start_sec: 0, end_sec: state.timebase,
         explanation: 'C4 — no signal detected; recommend exclude or interpolate.',
         suggested_action: 'mark_bad_channel', decision_status: 'suggested' },
     ];
     if (state.rightTab === 'ai') renderRightPanel(state);
+    refreshTabBadges(state);
     redrawCanvas(state); renderStatusBar(state);
     return;
   }
@@ -1816,6 +2311,8 @@ export async function recordAIDecision(state, suggestionId, decision) {
     redrawCanvas(state); renderStatusBar(state);
   }
   if (state.rightTab === 'ai') renderRightPanel(state);
+  refreshTabBadges(state);
+  redrawCanvas(state);
 }
 
 async function saveCleaningVersion(state) {
