@@ -4047,6 +4047,15 @@ const SEED_PATIENT_OUTCOMES = [
   { id:'po8', condition:'OCD',        modality:'TMS',           n:7,  meanChange:-8.2,  sdChange:3.3, pctImproved:71 },
 ];
 
+const _ebLiveState = {
+  loaded: false,
+  loading: null,
+  protocols: [],
+  coverageRows: [],
+  safetySignals: [],
+  papersByProtocolId: {},
+};
+
 function _ebLoad(key, def) {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; }
 }
@@ -4056,6 +4065,93 @@ function _ebSave(key, val) {
 function _ebEsc(v) {
   if (v == null) return '';
   return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+}
+
+function _ebSlug(v) {
+  return String(v || '')
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function _ebNormalizeConditionLabel(v) {
+  const raw = String(v || '').trim();
+  if (!raw) return '';
+  return raw
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, ch => ch.toUpperCase());
+}
+
+function _ebNormalizeModalityLabel(v) {
+  const raw = String(v || '').trim();
+  if (!raw) return '';
+  const lower = raw.toLowerCase();
+  if (lower === 'tdcs') return 'tDCS';
+  if (lower === 'tacs') return 'tACS';
+  if (lower === 'tfus') return 'tFUS';
+  if (lower === 'tms' || lower === 'rtms' || lower === 'tms-rtms') return 'TMS';
+  if (lower === 'neurofeedback') return 'Neurofeedback';
+  return raw.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+}
+
+function _ebProtocolIdFromPair(condition, modality, target) {
+  return ['live', _ebSlug(condition), _ebSlug(modality), _ebSlug(target)].filter(Boolean).join('::');
+}
+
+async function _ebEnsureLiveData() {
+  if (_ebLiveState.loaded) return _ebLiveState;
+  if (_ebLiveState.loading) return _ebLiveState.loading;
+  _ebLiveState.loading = (async () => {
+    try {
+      const [coverageRes, templateRes, safetyRes] = await Promise.all([
+        api.protocolCoverage({ limit: 18 }),
+        api.listResearchProtocolTemplates({ limit: 18 }),
+        api.listResearchSafetySignals({ limit: 40 }),
+      ]);
+      const templates = Array.isArray(templateRes) ? templateRes : [];
+      _ebLiveState.protocols = templates.map((row) => ({
+        id: _ebProtocolIdFromPair(row.indication, row.modality, row.target),
+        name: [row.modality, row.indication, row.target].filter(Boolean).join(' — ') || 'Live protocol template',
+        modality: _ebNormalizeModalityLabel(row.modality),
+        condition: _ebNormalizeConditionLabel(row.indication),
+        description: row.example_titles || row.top_parameter_tags || 'Live research-backed protocol template.',
+        notes: '',
+        target: row.target || '',
+        indicationSlug: _ebSlug(row.indication),
+        modalitySlug: _ebSlug(row.modality),
+        liveTemplate: row,
+      }));
+      _ebLiveState.coverageRows = Array.isArray(coverageRes?.rows) ? coverageRes.rows : [];
+      _ebLiveState.safetySignals = Array.isArray(safetyRes) ? safetyRes : [];
+      _ebLiveState.loaded = _ebLiveState.protocols.length > 0 || _ebLiveState.coverageRows.length > 0 || _ebLiveState.safetySignals.length > 0;
+    } catch {
+      _ebLiveState.loaded = false;
+    } finally {
+      _ebLiveState.loading = null;
+    }
+    return _ebLiveState;
+  })();
+  return _ebLiveState.loading;
+}
+
+async function _ebEnsureLivePapersForProtocol(proto) {
+  if (!proto || !proto.id || !proto.indicationSlug || !proto.modalitySlug) return [];
+  if (_ebLiveState.papersByProtocolId[proto.id]) return _ebLiveState.papersByProtocolId[proto.id];
+  try {
+    const papers = await api.searchResearchPapers({
+      indication: proto.indicationSlug,
+      modality: proto.modalitySlug,
+      target: proto.target || '',
+      ranking_mode: 'clinical',
+      limit: 8,
+    });
+    _ebLiveState.papersByProtocolId[proto.id] = Array.isArray(papers) ? papers : [];
+  } catch {
+    _ebLiveState.papersByProtocolId[proto.id] = [];
+  }
+  return _ebLiveState.papersByProtocolId[proto.id];
 }
 
 function _ebGetLiterature() {
@@ -4069,6 +4165,9 @@ function _ebGetLiterature() {
 }
 
 function _ebGetProtocols() {
+  if (_ebLiveState.loaded && Array.isArray(_ebLiveState.protocols) && _ebLiveState.protocols.length) {
+    return _ebLiveState.protocols;
+  }
   return _ebLoad('ds_protocols', [
     { id:'proto1', name:'TMS for Depression (Standard)', modality:'TMS', condition:'Depression', description:'10 Hz rTMS protocol targeting left DLPFC for MDD treatment.', notes:'' },
     { id:'proto2', name:'Neurofeedback ADHD Alpha/Beta', modality:'Neurofeedback', condition:'ADHD', description:'Alpha/beta neurofeedback targeting frontal midline theta suppression.', notes:'' },
@@ -4096,6 +4195,25 @@ function _ebRelevanceScore(paper, protocol) {
 }
 
 function _ebMatchPapers(protocol) {
+  if (protocol && Array.isArray(_ebLiveState.papersByProtocolId[protocol.id]) && _ebLiveState.papersByProtocolId[protocol.id].length) {
+    return _ebLiveState.papersByProtocolId[protocol.id].map((paper, idx) => ({
+      id: paper.paper_key || paper.pmid || paper.doi || `${protocol.id}-${idx}`,
+      title: paper.title,
+      authors: paper.authors,
+      year: paper.year,
+      journal: paper.journal,
+      modality: _ebNormalizeModalityLabel(paper.primary_modality || protocol.modality),
+      condition: _ebNormalizeConditionLabel((paper.indication_tags && paper.indication_tags[0]) || protocol.condition),
+      effectSize: null,
+      ci: '',
+      n: Number(paper.citation_count || 0),
+      design: paper.study_type_normalized || 'Research paper',
+      outcome: paper.research_summary || paper.regulatory_clinical_signal || 'Bundle evidence',
+      relevance: Number(paper.protocol_relevance_score || 0),
+      record_url: paper.record_url || '',
+      evidence_tier: paper.evidence_tier || '',
+    }));
+  }
   const lit = _ebGetLiterature();
   return lit
     .filter(p => p.modality === protocol.modality || p.condition === protocol.condition)
@@ -4136,7 +4254,7 @@ function _ebRenderMatchCard(paper) {
       ${_ebDesignBadge(paper.design)}
     </div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--text-muted)">
-      <span><strong style="color:var(--text)">Effect size:</strong> d = ${paper.effectSize} ${_ebEsc(paper.ci)}</span>
+      <span><strong style="color:var(--text)">${paper.evidence_tier ? 'Evidence tier:' : 'Effect size:'}</strong> ${paper.evidence_tier ? _ebEsc(paper.evidence_tier) : `d = ${paper.effectSize} ${_ebEsc(paper.ci)}`}</span>
       <span><strong style="color:var(--text)">N:</strong> ${paper.n}</span>
       <span><strong style="color:var(--text)">Outcome:</strong> ${_ebEsc(paper.outcome)}</span>
       <span><strong style="color:var(--text)">Modality:</strong> ${_ebEsc(paper.modality)}</span>
@@ -4151,6 +4269,7 @@ function _ebRenderMatchCard(paper) {
         <div class="nnnc-effect-bar" style="height:100%;width:${barW}%;background:var(--accent-teal);border-radius:3px;transition:width 0.4s"></div>
       </div>
     </div>
+    ${paper.record_url ? `<div style="margin-top:10px;display:flex;justify-content:flex-end"><a href="${_ebEsc(paper.record_url)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent-blue);text-decoration:none">Open source ↗</a></div>` : ''}
     <div style="margin-top:10px;display:flex;justify-content:flex-end">
       <button class="btn btn-sm" onclick="window._ebAddCitation('${_ebEsc(paper.id)}')" style="font-size:11px">+ Add to Protocol Notes</button>
     </div>
@@ -4217,6 +4336,56 @@ function _ebInterpretation(clinicES, pubCILow, pubCIHigh, condition, modality) {
 }
 
 function _ebRenderGapSection(protocols, literature) {
+  if (_ebLiveState.loaded && _ebLiveState.coverageRows.length) {
+    const wishlist = _ebLoad('ds_irb_wishlist', []);
+    const items = _ebLiveState.coverageRows
+      .filter((row) => row.gap && row.gap !== 'None')
+      .map((row) => {
+        const proto = protocols.find((p) => _ebSlug(p.condition) === _ebSlug(row.condition) && _ebSlug(p.modality) === _ebSlug(row.modality))
+          || {
+            id: `coverage::${row.id}`,
+            name: `${row.modality} — ${row.condition}`,
+            modality: row.modality,
+            condition: row.condition,
+          };
+        const matchedSignals = _ebLiveState.safetySignals.filter((signal) => {
+          const indicationHit = (signal.indication_tags || []).some((tag) => _ebSlug(tag) === _ebSlug(row.condition));
+          const modalityHit = (signal.canonical_modalities || []).some((tag) => _ebSlug(tag) === _ebSlug(row.modality))
+            || _ebSlug(signal.primary_modality) === _ebSlug(row.modality);
+          return indicationHit && modalityHit;
+        }).slice(0, 2);
+        const severity = row.paper_count < 10 ? 'high' : 'medium';
+        const action = matchedSignals.length
+          ? 'Review live safety signals and narrow patient-selection criteria before expanding this protocol.'
+          : 'Review live protocol templates and strengthen the evidence base before scaling this protocol.';
+        return { proto, type: row.gap, action, severity, row, matchedSignals };
+      });
+    if (!items.length) {
+      return `<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">No live evidence gaps detected across the top protocol coverage rows.</div>`;
+    }
+    return items.map((g) => {
+      const sColor = g.severity === 'high' ? 'var(--accent-rose)' : 'var(--accent-amber)';
+      const alreadyAdded = wishlist.some(i => i.protoId === g.proto.id && i.gapType === g.type);
+      return `<div class="nnnc-gap-item">
+        <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px">${_ebEsc(g.proto.name)}</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+              <span style="font-size:10.5px;font-weight:600;color:${sColor};background:${sColor}18;padding:2px 8px;border-radius:4px;border:1px solid ${sColor}33">${_ebEsc(g.type)}</span>
+              <span style="font-size:11px;color:var(--text-muted)">${_ebEsc(g.proto.modality)} / ${_ebEsc(g.proto.condition)} · ${g.row.paper_count} papers · coverage ${g.row.coverage}%</span>
+            </div>
+            <div style="font-size:12px;color:var(--text-muted)">Suggested action: ${_ebEsc(g.action)}</div>
+            ${g.matchedSignals.length ? `<div style="font-size:11px;color:var(--text-muted);margin-top:6px">Safety signals: ${g.matchedSignals.map((signal) => _ebEsc((signal.safety_signal_tags || []).concat(signal.contraindication_signal_tags || []).join(', ') || signal.title || 'Signal')).join(' · ')}</div>` : ''}
+          </div>
+          <button class="btn btn-sm" ${alreadyAdded ? 'disabled style="opacity:0.5"' : ''}
+            onclick="window._ebAddToIRB('${_ebEsc(g.proto.id)}','${_ebEsc(g.proto.name)}','${_ebEsc(g.type)}')"
+            style="flex-shrink:0;font-size:11px;${alreadyAdded ? '' : 'border-color:var(--accent-violet);color:var(--accent-violet)'}">
+            ${alreadyAdded ? 'Added to IRB ✓' : '+ IRB Wishlist'}
+          </button>
+        </div>
+      </div>`;
+    }).join('');
+  }
   const gaps = [];
   for (const proto of protocols) {
     const matched = literature.filter(p => p.modality === proto.modality && p.condition === proto.condition);
@@ -4269,6 +4438,7 @@ export async function pgEvidenceBuilder(setTopbar) {
 
   const el = document.getElementById('content');
   if (!el) return;
+  const shouldHydrateLive = !_ebLiveState.loaded;
 
   // Ensure seed data is ready
   _ebGetLiterature();
@@ -4366,21 +4536,29 @@ export async function pgEvidenceBuilder(setTopbar) {
     if (!panel) return;
     if (!proto) { panel.innerHTML = '<div style="color:var(--text-muted);font-size:13px">Protocol not found.</div>'; return; }
     panel.innerHTML = _ebMatchedPapersHTML(proto);
+    if (proto.liveTemplate && !_ebLiveState.papersByProtocolId[proto.id]) {
+      panel.innerHTML = '<div style="padding:16px;color:var(--text-muted);font-size:13px">Loading live evidence matches…</div>';
+      _ebEnsureLivePapersForProtocol(proto).then(() => {
+        const targetPanel = document.getElementById('eb-matched-papers');
+        if (targetPanel) targetPanel.innerHTML = _ebMatchedPapersHTML(proto);
+      });
+    }
     // Also update summary selector
     const sumSel = document.getElementById('eb-sum-proto-select');
     if (sumSel) sumSel.value = protoId;
   };
 
   window._ebAddCitation = function(paperId) {
-    const literature = _ebGetLiterature();
-    const paper = literature.find(p => p.id === paperId);
-    if (!paper) return;
     const proSel = document.getElementById('eb-proto-select');
     const protoId = proSel ? proSel.value : null;
     const protocols = _ebGetProtocols();
     const protoIdx = protocols.findIndex(p => p.id === protoId);
     if (protoIdx === -1) { _dsToast('Please select a protocol first.', 'warn'); return; }
-    const citation = `[${paper.authors} (${paper.year}), ${paper.journal}] "${paper.title}" — Effect size: d=${paper.effectSize} ${paper.ci}, N=${paper.n}, ${paper.design}.`;
+    const paper = _ebMatchPapers(protocols[protoIdx]).find(p => p.id === paperId);
+    if (!paper) return;
+    const citation = paper.evidence_tier
+      ? `[${paper.authors} (${paper.year}), ${paper.journal}] "${paper.title}" — Evidence tier: ${paper.evidence_tier}, citations: ${paper.n}, study type: ${paper.design}.`
+      : `[${paper.authors} (${paper.year}), ${paper.journal}] "${paper.title}" — Effect size: d=${paper.effectSize} ${paper.ci}, N=${paper.n}, ${paper.design}.`;
     protocols[protoIdx].notes = ((protocols[protoIdx].notes || '') + '\n' + citation).trim();
     _ebSave('ds_protocols', protocols);
     const btn = event.target;
@@ -4449,6 +4627,9 @@ export async function pgEvidenceBuilder(setTopbar) {
     const date = new Date().toLocaleDateString('en-GB', { year:'numeric', month:'long', day:'numeric' });
     const studyLines = matched.map((p,i) => {
       const level = _ebEvidenceLevel(p.design);
+      if (p.evidence_tier || p.effectSize == null) {
+        return `  ${i+1}. ${p.authors} (${p.year}). "${p.title}". ${p.journal}.\n     Evidence tier: ${p.evidence_tier || level}, Citations: ${p.n}, Study type: ${p.design}, Outcome summary: ${p.outcome}.\n     Source: ${p.record_url || 'Research bundle record'}.`;
+      }
       const clinSig = p.effectSize >= 0.8 ? 'Large effect' : p.effectSize >= 0.5 ? 'Medium effect' : 'Small effect';
       return `  ${i+1}. ${p.authors} (${p.year}). "${p.title}". ${p.journal}.\n     Effect: d=${p.effectSize} ${p.ci}, N=${p.n}, Design: ${p.design}, Outcome: ${p.outcome}.\n     Evidence level: ${level}. Clinical significance: ${clinSig}.`;
     }).join('\n\n');
@@ -4523,12 +4704,23 @@ export async function pgEvidenceBuilder(setTopbar) {
 
   // Trigger initial comparison render
   window._ebRenderComparison();
+
+  if (shouldHydrateLive) _ebEnsureLiveData().then(async () => {
+    if (_ebLiveState.loaded) {
+      const refreshedProtocols = _ebGetProtocols();
+      const refreshedProto = refreshedProtocols[0] || null;
+      if (refreshedProto) {
+        await _ebEnsureLivePapersForProtocol(refreshedProto);
+      }
+      pgEvidenceBuilder(setTopbar);
+    }
+  }).catch(() => null);
 }
 
 function _ebMatchedPapersHTML(proto) {
   const papers = _ebMatchPapers(proto);
   if (papers.length === 0) {
-    return `<div style="padding:16px;color:var(--text-muted);font-size:13px;text-align:center">No literature matches found for <strong>${_ebEsc(proto.name)}</strong>. Try adding more studies to the Evidence Library.</div>`;
+    return `<div style="padding:16px;color:var(--text-muted);font-size:13px;text-align:center">No literature matches found for <strong>${_ebEsc(proto.name)}</strong>. ${proto.liveTemplate ? 'The live research bundle did not return ranked papers for this protocol yet.' : 'Try adding more studies to the Evidence Library.'}</div>`;
   }
   return `<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">${papers.length} matched paper${papers.length !== 1 ? 's' : ''} for <strong style="color:var(--text)">${_ebEsc(proto.name)}</strong> (${_ebEsc(proto.modality)} / ${_ebEsc(proto.condition)})</div>
     <div style="display:flex;flex-direction:column;gap:12px">
