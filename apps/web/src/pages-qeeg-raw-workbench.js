@@ -242,144 +242,185 @@ function workbenchShell(state) {
 }
 
 function clinicalCss() {
-  // Single concentrated stylesheet so the workbench keeps a clinical look
-  // regardless of the host theme. Class names are stable contracts that the
-  // node-test suite asserts on.
+  // Paper-tone clinical palette inspired by WinEEG / EDFbrowser. Class names
+  // and data-testid are stable contracts asserted by the node-test suite.
+  // Tokens: paper #FAF7F2, ink #1a1a1a, AI semantics teal/amber/red/indigo.
   return `
     .qwb-clinical {
       position:fixed; inset:0; z-index:9000;
       display:flex; flex-direction:column;
-      background:#ffffff; color:#1a1a1a;
-      font-family: 'Inter', -apple-system, system-ui, sans-serif;
+      background:#FAF7F2; color:#1a1a1a;
+      font-family: 'Inter Tight', 'Inter', -apple-system, system-ui, sans-serif;
       font-size: 12px; line-height:1.3;
+      --qwb-paper:#FAF7F2;
+      --qwb-paper-2:#F2EEE6;
+      --qwb-ink:#1a1a1a;
+      --qwb-muted:#5b6370;
+      --qwb-line:#d6cfc2;
+      --qwb-line-soft:#e8e2d4;
+      --qwb-ai:#1d6f7a;
+      --qwb-warn:#b8741a;
+      --qwb-bad:#b03434;
+      --qwb-ok:#2f6b3a;
+      --qwb-select:#2851a3;
     }
     .qwb-topbar {
       display:flex; align-items:center; gap:12px;
       padding: 6px 12px;
-      background:#f7f7f8; border-bottom:1px solid #cfd4da;
+      background:#F2EEE6; border-bottom:1px solid #d6cfc2;
       height:46px; flex-shrink:0;
     }
     .qwb-back-cluster {
       display:flex; align-items:center; gap:8px;
-      padding-right:12px; border-right:1px solid #d8dde3;
+      padding-right:12px; border-right:1px solid #d6cfc2;
       min-width:0;
     }
+    .qwb-brand {
+      font-family:'JetBrains Mono', ui-monospace, monospace;
+      font-size:11px; font-weight:700; color:#1a1a1a;
+      letter-spacing:0.5px;
+    }
     .qwb-back-btn {
-      background:#ffffff; color:#1c4a8a;
-      border:1px solid #b6c4d6; border-radius:4px;
+      background:#FAF7F2; color:#2851a3;
+      border:1px solid #c9bfac; border-radius:4px;
       padding:5px 10px; font-size:12px; font-weight:600;
       cursor:pointer;
     }
-    .qwb-back-btn:hover { background:#eef3fa; }
+    .qwb-back-btn:hover { background:#f0e9da; }
     .qwb-context {
       display:flex; flex-direction:column; gap:0; line-height:1.15;
     }
     .qwb-context-line { font-size:11px; color:#3a4150; }
-    .qwb-context-meta { font-size:10px; color:#6b7280; }
+    .qwb-context-meta { font-size:10px; color:#5b6370; }
+    .qwb-pat-chip {
+      display:inline-flex; align-items:center; gap:6px;
+      padding:3px 8px; background:#FAF7F2; border:1px solid #c9bfac;
+      border-radius:12px; font-size:11px; color:#1a1a1a;
+    }
+    .qwb-pat-chip .qwb-pat-dot {
+      width:6px; height:6px; border-radius:50%; background:#2f6b3a;
+    }
+    .qwb-clock {
+      margin-left:auto;
+      font-family:'JetBrains Mono', ui-monospace, monospace;
+      font-size:11px; color:#5b6370;
+    }
     .qwb-controls { display:flex; align-items:center; gap:10px; flex-wrap:wrap; flex:1; min-width:0; }
     .qwb-ctrl { display:flex; align-items:center; gap:4px; font-size:11px; color:#3a4150; }
     .qwb-ctrl select {
-      background:#ffffff; color:#1a1a1a;
-      border:1px solid #b6c4d6; border-radius:3px;
+      background:#FAF7F2; color:#1a1a1a;
+      border:1px solid #c9bfac; border-radius:3px;
       padding:3px 6px; font-size:12px;
     }
     .qwb-actions { display:flex; align-items:center; gap:6px; }
     .qwb-btn {
-      background:#ffffff; color:#1a1a1a;
-      border:1px solid #b6c4d6; border-radius:4px;
+      background:#FAF7F2; color:#1a1a1a;
+      border:1px solid #c9bfac; border-radius:4px;
       padding:5px 10px; font-size:11px; font-weight:500;
       cursor:pointer;
     }
-    .qwb-btn:hover { background:#f0f4f9; border-color:#92a3bb; }
+    .qwb-btn:hover { background:#f0e9da; border-color:#a8987c; }
     .qwb-btn-primary {
-      background:#1c4a8a; color:#ffffff; border-color:#1c4a8a; font-weight:600;
+      background:#2851a3; color:#FAF7F2; border-color:#2851a3; font-weight:600;
     }
-    .qwb-btn-primary:hover { background:#15396b; border-color:#15396b; }
+    .qwb-btn-primary:hover { background:#1f3f80; border-color:#1f3f80; }
     .qwb-help-btn {
-      background:#eef3fa; color:#1c4a8a; border:1px solid #b6c4d6;
+      background:#f0e9da; color:#2851a3; border:1px solid #c9bfac;
       border-radius:50%; width:26px; height:26px; padding:0;
       font-weight:700; font-size:13px; cursor:pointer;
     }
     .qwb-body { flex:1; display:flex; min-height:0; overflow:hidden; }
     .qwb-rail {
       width:130px; flex-shrink:0;
-      background:#ffffff; border-right:1px solid #d8dde3;
+      background:#FAF7F2; border-right:1px solid #d6cfc2;
       overflow-y:auto;
     }
     .qwb-rail-header {
       padding:8px 10px; font-size:10px; font-weight:700;
       letter-spacing:0.5px; text-transform:uppercase;
-      color:#6b7280; border-bottom:1px solid #e6ebf2;
-      background:#f7f7f8;
+      color:#5b6370; border-bottom:1px solid #e8e2d4;
+      background:#F2EEE6;
     }
     .qwb-ch {
-      padding:6px 10px; border-bottom:1px solid #eff2f6;
+      padding:6px 10px; border-bottom:1px solid #efe9db;
       cursor:pointer; display:flex; flex-direction:column; gap:2px;
-      color:#1a1a1a; background:#ffffff;
+      color:#1a1a1a; background:#FAF7F2;
     }
-    .qwb-ch.sel { background:#e8f0fb; color:#0c2f5c; }
-    .qwb-ch.bad .qwb-ch-label { color:#b21f2d; font-weight:700; }
+    .qwb-ch.sel { background:#e6edfb; color:#13306a; }
+    .qwb-ch.bad .qwb-ch-label { color:#b03434; font-weight:700; }
     .qwb-ch.hidden { color:#aab1bc; }
     .qwb-ch-label { font-size:12px; font-weight:600; }
-    .qwb-ch-meta { font-size:10px; color:#6b7280; }
+    .qwb-ch-meta { font-size:10px; color:#5b6370; }
     .qwb-canvas-wrap {
       flex:1; position:relative;
-      background:#ffffff;
-      border-right:1px solid #d8dde3;
+      background:#FAF7F2;
+      border-right:1px solid #d6cfc2;
       overflow:hidden;
     }
-    .qwb-canvas-el { display:block; width:100%; height:100%; background:#ffffff; }
+    .qwb-canvas-el { display:block; width:100%; height:100%; background:#FAF7F2; }
     .qwb-immutable-notice {
       position:absolute; top:8px; right:8px;
-      background:#ffffff; border:1px solid #cfd4da;
+      background:#FAF7F2; border:1px solid #c9bfac;
       padding:4px 8px; border-radius:3px;
       font-size:10px; color:#3a4150; z-index:5;
     }
     .qwb-rerun-notice {
       position:absolute; left:50%; top:14px; transform:translateX(-50%);
-      background:#e8f0fb; border:1px solid #1c4a8a; color:#0c2f5c;
+      background:#e6edfb; border:1px solid #2851a3; color:#13306a;
       padding:8px 14px; border-radius:4px; font-size:12px; z-index:6;
-      box-shadow: 0 2px 8px rgba(28,74,138,0.10);
+      box-shadow: 0 2px 8px rgba(40,81,163,0.10);
     }
     .qwb-right {
       width:360px; flex-shrink:0;
-      background:#ffffff; border-left:1px solid #d8dde3;
+      background:#FAF7F2; border-left:1px solid #d6cfc2;
       display:flex; flex-direction:column;
       transition: width 0.18s ease;
     }
     .qwb-right.collapsed { width:36px; }
     .qwb-right-toggle {
       width:36px; height:36px; padding:0; cursor:pointer;
-      background:#f7f7f8; color:#3a4150;
-      border:none; border-bottom:1px solid #d8dde3;
+      background:#F2EEE6; color:#3a4150;
+      border:none; border-bottom:1px solid #d6cfc2;
       font-size:14px; font-weight:700;
     }
-    .qwb-right-tabs { display:flex; border-bottom:1px solid #d8dde3; background:#f7f7f8; }
+    .qwb-right-tabs { display:flex; border-bottom:1px solid #d6cfc2; background:#F2EEE6; }
     .qwb-tab {
       flex:1; padding:8px 4px;
-      background:transparent; color:#6b7280;
+      background:transparent; color:#5b6370;
       border:none; border-bottom:2px solid transparent;
       font-size:11px; font-weight:600; cursor:pointer;
     }
-    .qwb-tab.active { color:#1c4a8a; border-bottom-color:#1c4a8a; background:#ffffff; }
+    .qwb-tab.active { color:#2851a3; border-bottom-color:#2851a3; background:#FAF7F2; }
     .qwb-right-body { flex:1; overflow-y:auto; padding:12px; }
     .qwb-bottombar {
       height:28px; flex-shrink:0;
       display:flex; align-items:center; gap:14px;
       padding:0 12px;
-      background:#f7f7f8; border-top:1px solid #cfd4da;
+      background:#F2EEE6; border-top:1px solid #d6cfc2;
       font-size:11px; color:#3a4150;
-      font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+      font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace;
     }
     .qwb-bottombar .qwb-st-save { margin-left:auto; }
-    .qwb-bottombar .qwb-dirty { color:#b27500; font-weight:600; }
+    .qwb-bottombar .qwb-dirty { color:#b8741a; font-weight:600; }
+    .qwb-ai-watch {
+      display:inline-flex; align-items:center; gap:6px;
+      color:#1d6f7a; font-weight:600;
+    }
+    .qwb-ai-watch .qwb-pulse {
+      width:8px; height:8px; border-radius:50%; background:#1d6f7a;
+      animation: qwb-pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes qwb-pulse {
+      0%, 100% { opacity:0.45; transform:scale(1); }
+      50%      { opacity:1; transform:scale(1.25); }
+    }
     .qwb-modal-backdrop {
       position:fixed; inset:0; background:rgba(20,30,50,0.45);
       display:none; align-items:center; justify-content:center; z-index:9999;
     }
     .qwb-modal {
-      background:#ffffff; color:#1a1a1a;
-      border:1px solid #cfd4da; border-radius:6px;
+      background:#FAF7F2; color:#1a1a1a;
+      border:1px solid #c9bfac; border-radius:6px;
       padding:20px; min-width:340px; max-width:520px;
       box-shadow: 0 10px 40px rgba(0,0,0,0.18);
     }
@@ -387,21 +428,21 @@ function clinicalCss() {
     .qwb-modal table { width:100%; font-size:12px; border-collapse:collapse; }
     .qwb-modal td { padding:4px 8px; }
     .qwb-section-label {
-      font-size:10px; color:#6b7280; text-transform:uppercase;
+      font-size:10px; color:#5b6370; text-transform:uppercase;
       letter-spacing:0.5px; margin: 12px 0 6px 0; font-weight:700;
     }
     .qwb-card {
-      border:1px solid #d8dde3; border-radius:4px; padding:10px;
-      margin-bottom:8px; background:#ffffff;
+      border:1px solid #d6cfc2; border-radius:4px; padding:10px;
+      margin-bottom:8px; background:#FAF7F2;
     }
     .qwb-ai-banner {
-      padding:8px 10px; background:#fff7e6;
-      border:1px solid #d8a72a; border-radius:4px;
-      font-size:11px; color:#7a4f00; margin-bottom:12px;
+      padding:8px 10px; background:#fbf2e2;
+      border:1px solid #b8741a; border-radius:4px;
+      font-size:11px; color:#7a4d10; margin-bottom:12px;
     }
     .qwb-safety-footer {
-      margin-top:12px; padding:10px; background:#f0f4f9;
-      border:1px solid #cfd4da; border-radius:4px;
+      margin-top:12px; padding:10px; background:#f0e9da;
+      border:1px solid #c9bfac; border-radius:4px;
       font-size:11px; color:#3a4150; line-height:1.5;
     }
   `;
@@ -415,15 +456,22 @@ function topBar(state) {
         ${opts.map(o => `<option value="${esc(o)}" ${String(o)===String(val)?'selected':''}>${esc(o)}</option>`).join('')}
       </select>
     </label>`;
+  const patientLabel = state.metadata?.patient_name || (state.isDemo ? 'demo patient' : 'patient');
+  const sessionLabel = state.metadata?.session_label || (state.isDemo ? 'session DEMO' : '');
   return `
   <div class="qwb-topbar" id="qwb-topbar">
     <div class="qwb-back-cluster" id="qwb-back-cluster">
+      <span class="qwb-brand">DEEPSYNAPS · qEEG</span>
       <button class="qwb-back-btn" id="qwb-back" data-testid="qwb-back-analyzer">← Back to qEEG Analyzer</button>
       <button class="qwb-btn" id="qwb-back-patient" data-testid="qwb-back-patient">Back to Patient</button>
       <div class="qwb-context" id="qwb-context">
         <span class="qwb-context-line" id="qwb-ctx-id">Analysis: <code>${esc((state.analysisId||'').slice(0, 12))}</code>${state.isDemo ? ' · DEMO' : ''}</span>
         <span class="qwb-context-meta" id="qwb-ctx-version">No cleaning version</span>
       </div>
+      <span class="qwb-pat-chip" id="qwb-pat-chip" data-testid="qwb-pat-chip">
+        <span class="qwb-pat-dot"></span>
+        <span>${esc(patientLabel)}${sessionLabel ? ' · ' + esc(sessionLabel) : ''}</span>
+      </span>
     </div>
     <div class="qwb-controls">
       ${sel('qwb-speed', SPEEDS.map(s=>`${s} mm/s`), `${state.speed} mm/s`, 'Speed')}
@@ -444,6 +492,7 @@ function topBar(state) {
       <button class="qwb-btn" id="qwb-return-report" data-testid="qwb-return-report">Return to qEEG Report</button>
       <button class="qwb-help-btn" id="qwb-shortcuts" title="Shortcuts (?)" data-testid="qwb-help">?</button>
     </div>
+    <span class="qwb-clock" id="qwb-titlebar-time" data-testid="qwb-titlebar-time">--:--:--</span>
   </div>`;
 }
 
@@ -496,6 +545,9 @@ function bottomBar(state) {
     <span id="qwb-st-rej">Rejected: 0</span>
     <span id="qwb-st-retain">Retained: 100%</span>
     <span id="qwb-st-version">No cleaning version</span>
+    <span id="qwb-ai-watching" class="qwb-ai-watch" data-testid="qwb-ai-watching">
+      <span class="qwb-pulse"></span><span id="qwb-ai-watching-label">AI watching · 0 pending</span>
+    </span>
     <span id="qwb-st-save" class="qwb-st-save">idle</span>
   </div>`;
 }
@@ -551,23 +603,26 @@ function redrawCanvas(state) {
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr,0,0,dpr,0,0);
 
-  // White background
-  ctx.fillStyle = '#ffffff';
+  // Paper background
+  ctx.fillStyle = '#FAF7F2';
   ctx.fillRect(0, 0, W, H);
 
-  // Light grey grid + grey time markers
+  // Dotted vertical grid + greyed time markers — WinEEG-style paper feel
   const tb = state.timebase;
-  ctx.strokeStyle = '#eef0f3';
+  ctx.strokeStyle = '#d6cfc2';
   ctx.lineWidth = 1;
+  const hasDash = typeof ctx.setLineDash === 'function';
+  if (hasDash) ctx.setLineDash([2, 4]);
   for (let s = 0; s <= tb; s++) {
     const x = (s / tb) * W;
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
     if (s > 0) {
-      ctx.fillStyle = '#6b7280';
-      ctx.font = '10px ui-monospace, monospace';
+      ctx.fillStyle = '#5b6370';
+      ctx.font = '10px JetBrains Mono, ui-monospace, monospace';
       ctx.fillText(String(state.windowStart + s), x + 3, 12);
     }
   }
+  if (hasDash) ctx.setLineDash([]);
 
   // Pale-blue selected row + traces
   const channels = DEFAULT_CHANNELS;
@@ -587,11 +642,11 @@ function redrawCanvas(state) {
     const isSel = state.selectedChannel === ch;
 
     if (isSel) {
-      ctx.fillStyle = '#e8f0fb';
+      ctx.fillStyle = '#e6edfb';
       ctx.fillRect(0, 20 + rowH*idx, W, rowH);
     }
     // Black trace; bad-channel traces in muted red
-    ctx.strokeStyle = isBad ? '#b21f2d' : '#000000';
+    ctx.strokeStyle = isBad ? '#b03434' : '#1a1a1a';
     ctx.lineWidth = isBad ? 1.0 : 0.9;
     ctx.beginPath();
     const sig = synthSignal(idx, totalSamples, sampleRate, archetypeAt);
@@ -605,7 +660,7 @@ function redrawCanvas(state) {
   });
 
   // Rejected segments — transparent red overlay
-  ctx.fillStyle = 'rgba(178,31,45,0.10)';
+  ctx.fillStyle = 'rgba(176,52,52,0.10)';
   for (const seg of state.rejectedSegments) {
     const overlapStart = Math.max(seg.start_sec - state.windowStart, 0);
     const overlapEnd = Math.min(seg.end_sec - state.windowStart, state.timebase);
@@ -616,13 +671,21 @@ function redrawCanvas(state) {
     }
   }
 
-  // AI suggestion markers — small amber ticks at top
-  ctx.fillStyle = '#d8a72a';
+  // AI suggestion markers — kind-coloured ticks at top edge
+  // teal=blink/eye, amber=muscle/movement, red=line/flat, indigo=other
+  const kindColour = (label) => {
+    const k = String(label || '').toLowerCase();
+    if (k.includes('blink') || k.includes('eye')) return '#1d6f7a';
+    if (k.includes('muscle') || k.includes('movement') || k.includes('jaw')) return '#b8741a';
+    if (k.includes('line') || k.includes('flat') || k.includes('saturat')) return '#b03434';
+    return '#2851a3';
+  };
   for (const s of state.aiSuggestions) {
     if (s.start_sec == null) continue;
     const overlap = s.start_sec - state.windowStart;
     if (overlap < 0 || overlap > state.timebase) continue;
     const x = (overlap / state.timebase) * W;
+    ctx.fillStyle = kindColour(s.ai_label);
     ctx.fillRect(x - 2, 14, 4, 6);
   }
 }
@@ -780,6 +843,9 @@ function renderStatusBar(state) {
   const set = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
   const now = new Date();
   set('qwb-st-time', now.toLocaleTimeString('en-GB'));
+  set('qwb-titlebar-time', now.toLocaleTimeString('en-GB'));
+  const pending = (state.aiSuggestions || []).filter(s => (s.decision_status || 'suggested') === 'suggested').length;
+  set('qwb-ai-watching-label', `AI watching · ${pending} pending`);
   set('qwb-st-window', `Window ${state.windowStart}–${state.windowStart + state.timebase}s`);
   set('qwb-st-sel', `Selected: ${state.selectedChannel}`);
   set('qwb-st-amp', `Δamp: —`);
