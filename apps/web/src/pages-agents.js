@@ -401,6 +401,16 @@ let _activityAgentFilter = '';
 let _activityLoading = false;
 let _activityError = null;
 
+// ── Phase 13: Token & cost trend (sparklines on Activity tab) ────────────────
+// Per-agent daily usage rollup powered by `GET /api/v1/agents/usage-chart`.
+// Default window 14 days; pills toggle between 7 / 14 / 30 / 90. Lazy-loaded
+// on first Activity tab open and refetched whenever the window pill changes.
+const USAGE_CHART_WINDOWS = [7, 14, 30, 90];
+let _usageChartSinceDays = 14;
+let _usageChartData = null;          // null=unloaded, []=loaded-empty, [...]=loaded
+let _usageChartLoading = false;
+let _usageChartError = null;
+
 // ── Phase 7: chat suggestion chips ───────────────────────────────────────────
 // Per-agent chip lists rendered above the marketplace modal textarea. Clicking
 // a chip pre-fills the textarea but does NOT auto-send (clinician still
@@ -493,6 +503,33 @@ function _opsSlaApiHours(hours) {
 let _webhookReplayInput = '';
 let _webhookReplayBusy = false;
 let _webhookReplayResult = null;
+
+// ── Phase 13: Onboarding funnel dashboard state (super-admin) ────────────────
+// Renders inside the Ops tab body as a dashboard card. Backed by
+// `GET /api/v1/onboarding/funnel?days=N` (admin+, server clamps 1..90).
+// `_onboardingFunnelByDays` is a tiny per-window cache so re-clicking the
+// same window pill does NOT re-fetch — the brief explicitly requires this.
+// `_onboardingFunnelError` is window-scoped (cleared on every fetch attempt).
+const ONBOARDING_FUNNEL_WINDOW_OPTIONS = [
+  { days: 1, label: '1d' },
+  { days: 7, label: '7d' },
+  { days: 30, label: '30d' },
+  { days: 90, label: '90d' },
+];
+const ONBOARDING_FUNNEL_STEPS = [
+  { key: 'started', label: 'Started' },
+  { key: 'package_selected', label: 'Package selected' },
+  { key: 'stripe_initiated', label: 'Stripe initiated' },
+  { key: 'stripe_skipped', label: 'Stripe skipped' },
+  { key: 'agents_enabled', label: 'Agents enabled' },
+  { key: 'team_invited', label: 'Team invited' },
+  { key: 'completed', label: 'Completed' },
+  { key: 'skipped', label: 'Skipped' },
+];
+let _onboardingFunnelDays = 7;
+let _onboardingFunnelLoading = false;
+let _onboardingFunnelError = null;
+let _onboardingFunnelByDays = Object.create(null); // { [days]: payload }
 
 // ── Phase 9: Prompt overrides panel state (super-admin) ──────────────────────
 // Mirrors the Activation panel pattern: list cached in `_promptOverridesList`
@@ -1134,6 +1171,12 @@ async function _loadActivityRuns(force = false) {
 }
 
 function _renderActivitySection(agents) {
+  // Phase 13 — token & cost trend sparklines render ABOVE the existing run
+  // history table. Lazy-loaded on first Activity tab open and refetched on
+  // window-pill change. The block wraps the existing UI without touching
+  // any of the surrounding tab strip / other tab bodies.
+  const chartSection = _renderUsageChartSection(agents);
+
   // Filter dropdown options come from whatever marketplace catalog we've
   // hydrated; fall back to whatever runs we already have so the dropdown is
   // never empty in demo mode before the catalog finishes loading.
@@ -1159,6 +1202,7 @@ function _renderActivitySection(agents) {
   // Loading placeholder for first paint before the lazy fetch resolves.
   if (_activityRuns === null) {
     return `
+      ${chartSection}
       ${filterRow}
       <div class="card" style="padding:14px 16px;font-size:11.5px;color:var(--text-tertiary)">Loading agent activity…</div>
     `;
@@ -1166,6 +1210,7 @@ function _renderActivitySection(agents) {
 
   if (!_activityRuns.length) {
     return `
+      ${chartSection}
       ${filterRow}
       <div class="card" style="padding:24px 16px;text-align:center">
         <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">No agent runs yet.</div>
@@ -1213,6 +1258,7 @@ function _renderActivitySection(agents) {
   const footerLine = `Total this view: £${(totalPence / 100).toFixed(2)} from ${_activityRuns.length} run${_activityRuns.length === 1 ? '' : 's'}`;
 
   return `
+    ${chartSection}
     ${filterRow}
     <div style="overflow-x:auto">
       <table class="ds-table" style="width:100%;font-size:12px">
@@ -1235,6 +1281,199 @@ function _renderActivitySection(agents) {
     <div class="muted" style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">${footerLine}</div>
   `;
 }
+
+// ── Phase 13: Token & cost trend (sparklines) ────────────────────────────────
+// Pure SVG polyline renderer — no charting library dependency. Each sparkline
+// is ~120px wide × 30px tall and scales to the local maximum so even quiet
+// agents get a readable shape (the absolute totals on the right add the
+// missing magnitude). Hover shows date+value via the SVG ``title`` element.
+
+async function _loadUsageChart(force = false) {
+  if (_usageChartLoading && !force) return _usageChartData;
+  _usageChartLoading = true;
+  _usageChartError = null;
+  try {
+    if (_isMarketplaceDemoMode()) {
+      // Synthetic demo series — three agents with descending activity so the
+      // sparkline shapes visibly differ in offline / preview mode.
+      const today = new Date();
+      const days = (n, ramp) => {
+        const out = [];
+        for (let i = n - 1; i >= 0; i--) {
+          const d = new Date(today);
+          d.setUTCDate(today.getUTCDate() - i);
+          const iso = d.toISOString().slice(0, 10);
+          const v = Math.max(0, Math.round(ramp(i)));
+          out.push({
+            date: iso,
+            runs: v,
+            tokens_in: v * 120,
+            tokens_out: v * 60,
+            cost_pence: v * 1,
+          });
+        }
+        return out;
+      };
+      const n = _usageChartSinceDays;
+      _usageChartData = [
+        { agent_id: 'clinic.reception', days: days(n, i => 4 + Math.sin(i / 2) * 2) },
+        { agent_id: 'clinic.drclaw_telegram', days: days(n, i => 2 + Math.cos(i / 3) * 1.5) },
+        { agent_id: 'clinic.reporting', days: days(n, i => i % 3 === 0 ? 1 : 0) },
+      ];
+      return _usageChartData;
+    }
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      const t = api.getToken && api.getToken();
+      if (t) headers['Authorization'] = 'Bearer ' + t;
+    } catch {}
+    const qs = '?since_days=' + encodeURIComponent(_usageChartSinceDays);
+    let payload = null;
+    try {
+      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/usage-chart${qs}`, {
+        method: 'GET', headers, credentials: 'include',
+      });
+      if (res.ok) payload = await res.json();
+      else _usageChartError = `Failed to load usage chart (${res.status})`;
+    } catch (err) {
+      _usageChartError = err?.message || 'Failed to load usage chart.';
+      payload = null;
+    }
+    let agents = [];
+    if (payload && Array.isArray(payload.agents)) agents = payload.agents;
+    _usageChartData = agents;
+    return _usageChartData;
+  } finally {
+    _usageChartLoading = false;
+  }
+}
+
+// Build a polyline string scaled to the SVG canvas. Empty / all-zero series
+// renders as a flat baseline so the SVG doesn't collapse to a degenerate
+// shape. Uses a fixed local max so each sparkline is readable on its own —
+// cross-agent magnitude is conveyed by the totals column on the right.
+function _renderSparkline(values, label, fmt) {
+  const W = 120;
+  const H = 30;
+  const n = Array.isArray(values) ? values.length : 0;
+  if (!n) return `<svg width="${W}" height="${H}" role="img" aria-label="${_esc(label)}"></svg>`;
+  let max = 0;
+  for (const v of values) {
+    const num = Number(v);
+    if (Number.isFinite(num) && num > max) max = num;
+  }
+  // Avoid div-by-zero and degenerate flat lines for all-zero series.
+  const denom = max > 0 ? max : 1;
+  const stepX = n > 1 ? W / (n - 1) : 0;
+  const points = values.map((v, i) => {
+    const num = Number(v);
+    const safe = Number.isFinite(num) ? num : 0;
+    const x = (i * stepX).toFixed(1);
+    // Invert Y so larger values sit higher on the canvas. Pad 2px top/bottom
+    // so the stroke isn't clipped at the canvas edge.
+    const y = (H - 2 - (safe / denom) * (H - 4)).toFixed(1);
+    return `${x},${y}`;
+  }).join(' ');
+  // Per-point title via tspans isn't trivial in inline SVG without JS; use
+  // the SVG ``<title>`` for an aggregate hover tooltip describing the series
+  // and its peak value.
+  const peakIdx = values.findIndex(v => Number(v) === max);
+  const peakLabel = peakIdx >= 0 ? `peak ${fmt ? fmt(max) : max}` : '';
+  const titleText = `${label}${peakLabel ? ' — ' + peakLabel : ''}`;
+  return `<svg width="${W}" height="${H}" role="img" aria-label="${_esc(label)}" style="vertical-align:middle">
+    <title>${_esc(titleText)}</title>
+    <polyline fill="none" stroke="var(--violet)" stroke-width="1.5" points="${points}" />
+  </svg>`;
+}
+
+function _formatTokensCompact(n) {
+  const num = Number(n);
+  if (!Number.isFinite(num) || num <= 0) return '0';
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'k';
+  return String(Math.round(num));
+}
+
+function _renderUsageChartSection(agents) {
+  const agentNameById = new Map();
+  const opts = Array.isArray(agents) && agents.length ? agents : MARKETPLACE_DEMO_AGENTS;
+  for (const a of opts) agentNameById.set(a.id, a.name || a.id);
+
+  const pillStyle = (active) => active
+    ? 'font-size:10.5px;padding:3px 9px;border-radius:99px;background:var(--violet);color:#fff;border:1px solid var(--violet);font-weight:600;cursor:pointer'
+    : 'font-size:10.5px;padding:3px 9px;border-radius:99px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);font-weight:500;cursor:pointer';
+  const pills = USAGE_CHART_WINDOWS.map(d => {
+    const active = _usageChartSinceDays === d;
+    return `<button type="button" style="${pillStyle(active)}" onclick="window._agentUsageChartSetWindow(${d})">${d}d</button>`;
+  }).join('');
+
+  const heading = `
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <h3 style="font-size:13.5px;font-weight:700;color:var(--text-primary);margin:0">Token & cost trend (last ${_usageChartSinceDays} days)</h3>
+      <div style="display:flex;gap:4px;margin-left:auto">${pills}</div>
+    </div>
+  `;
+
+  let body = '';
+  if (_usageChartLoading && _usageChartData === null) {
+    body = `<div class="muted" style="font-size:11px;color:var(--text-tertiary)">Loading usage…</div>`;
+  } else if (_usageChartError && _usageChartData === null) {
+    body = `<div style="font-size:11px;color:var(--red,#ef4444)">${_esc(_usageChartError)}</div>`;
+  } else if (_usageChartData === null) {
+    body = `<div class="muted" style="font-size:11px;color:var(--text-tertiary)">Loading usage…</div>`;
+  } else if (!_usageChartData.length) {
+    body = `<div class="muted" style="font-size:11.5px;color:var(--text-secondary)">No agent activity yet for this window.</div>`;
+  } else {
+    const rows = _usageChartData.map(block => {
+      const days = Array.isArray(block.days) ? block.days : [];
+      const runsSeries = days.map(d => Number(d.runs) || 0);
+      const tokensSeries = days.map(d => (Number(d.tokens_in) || 0) + (Number(d.tokens_out) || 0));
+      const costSeries = days.map(d => Number(d.cost_pence) || 0);
+      const totalRuns = runsSeries.reduce((a, b) => a + b, 0);
+      const totalTokens = tokensSeries.reduce((a, b) => a + b, 0);
+      const totalCost = costSeries.reduce((a, b) => a + b, 0);
+      const name = agentNameById.get(block.agent_id) || block.agent_id;
+      const sparkRuns = _renderSparkline(runsSeries, `Runs for ${name}`, v => String(v));
+      const sparkTokens = _renderSparkline(tokensSeries, `Tokens for ${name}`, v => _formatTokensCompact(v));
+      const sparkCost = _renderSparkline(costSeries, `Cost (pence) for ${name}`, v => v + 'p');
+      return `<div class="ds-tr" style="display:flex;align-items:center;gap:12px;padding:6px 4px;border-bottom:1px solid var(--border)">
+        <div style="min-width:140px;font-size:11.5px;font-weight:600;color:var(--text-primary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${_esc(block.agent_id)}</div>
+        <div style="display:flex;gap:8px;align-items:center" title="runs / tokens / cost (pence)">
+          ${sparkRuns}${sparkTokens}${sparkCost}
+        </div>
+        <div style="margin-left:auto;font-size:11px;color:var(--text-secondary);text-align:right;line-height:1.5">
+          <div>${totalRuns} run${totalRuns === 1 ? '' : 's'}</div>
+          <div>${_formatTokensCompact(totalTokens)} tok</div>
+          <div>£${(totalCost / 100).toFixed(2)}</div>
+        </div>
+      </div>`;
+    }).join('');
+    const legend = `<div class="muted" style="margin-top:6px;font-size:10.5px;color:var(--text-tertiary)">Sparklines (left → right): runs / tokens / cost-pence per day. Hover for peak value.</div>`;
+    body = `<div>${rows}</div>${legend}`;
+  }
+
+  return `
+    <div class="card" style="padding:12px 14px;margin-bottom:14px">
+      ${heading}
+      ${body}
+    </div>
+  `;
+}
+
+window._agentUsageChartSetWindow = function(days) {
+  const n = Number(days);
+  if (!USAGE_CHART_WINDOWS.includes(n)) return;
+  if (_usageChartSinceDays === n) return;
+  _usageChartSinceDays = n;
+  // Force a refetch — the rollup is window-specific so cached data is stale
+  // the moment the user clicks a different pill.
+  _usageChartData = null;
+  pgAgentChat(_lastSetTopbar);
+  _loadUsageChart(true).then(() => {
+    if (_agentView === 'hub' && _marketplaceTab === 'activity') {
+      try { pgAgentChat(_lastSetTopbar); } catch {}
+    }
+  }).catch(() => {});
+};
 
 // Phase 7: render `cost_pence` as £0.04. Null / 0 / undefined → em-dash so the
 // column reads cleanly when older backends omit the field or a run had no
@@ -1816,6 +2055,173 @@ function _renderOpsWebhookReplayCard() {
   `;
 }
 
+// ── Phase 13: Onboarding funnel card (super-admin) ───────────────────────────
+// Lazy-fetches GET /api/v1/onboarding/funnel?days=N and caches per-window so
+// re-clicking the same pill is a no-op (cache hit). On window change we only
+// fetch if the cache slot is empty. Visual: two top-line conversion stats +
+// 8 horizontal bars (one per funnel step) sized by count/max_count.
+async function _fetchOnboardingFunnel(days) {
+  const n = _onboardingFunnelClampDays(days);
+  if (_onboardingFunnelLoading) return _onboardingFunnelByDays[n] || null;
+  // Cache hit — caller asked for a window we already have. Skip the network.
+  if (Object.prototype.hasOwnProperty.call(_onboardingFunnelByDays, n)) {
+    return _onboardingFunnelByDays[n];
+  }
+  _onboardingFunnelLoading = true;
+  _onboardingFunnelError = null;
+  try {
+    if (_isMarketplaceDemoMode()) {
+      _onboardingFunnelByDays[n] = _onboardingFunnelDemoPayload(n);
+      return _onboardingFunnelByDays[n];
+    }
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      const t = api.getToken && api.getToken();
+      if (t) headers['Authorization'] = 'Bearer ' + t;
+    } catch {}
+    let payload = null;
+    try {
+      const res = await fetch(`${_marketplaceApiBase()}/api/v1/onboarding/funnel?days=${encodeURIComponent(n)}`, {
+        method: 'GET', headers, credentials: 'include',
+      });
+      if (res.ok) payload = await res.json();
+      else if (res.status === 403) _onboardingFunnelError = 'This action requires super-admin privileges.';
+      else if (res.status === 422) _onboardingFunnelError = `Invalid window (HTTP 422)`;
+      else _onboardingFunnelError = `Failed to load onboarding funnel (${res.status})`;
+    } catch (err) {
+      _onboardingFunnelError = err?.message || 'Failed to load onboarding funnel.';
+      payload = null;
+    }
+    if (payload && typeof payload === 'object') {
+      _onboardingFunnelByDays[n] = payload;
+    }
+    return _onboardingFunnelByDays[n] || null;
+  } finally {
+    _onboardingFunnelLoading = false;
+  }
+}
+
+function _onboardingFunnelClampDays(days) {
+  const n = Number(days);
+  if (!Number.isFinite(n) || n < 1) return 1;
+  if (n > 90) return 90;
+  return Math.floor(n);
+}
+
+function _onboardingFunnelDemoPayload(days) {
+  // Conservative demo numbers — taper through the funnel so the bars look
+  // sensible. Used only when VITE_ENABLE_DEMO=1 + demo token; never in prod.
+  const totals = {
+    started: 120,
+    package_selected: 96,
+    stripe_initiated: 60,
+    stripe_skipped: 24,
+    agents_enabled: 70,
+    team_invited: 48,
+    completed: 38,
+    skipped: 12,
+  };
+  return {
+    since_days: days,
+    totals,
+    conversion: {
+      started_to_completed: totals.started ? totals.completed / totals.started : 0,
+      started_to_skipped: totals.started ? totals.skipped / totals.started : 0,
+    },
+  };
+}
+
+function _onboardingConversionColor(rate) {
+  const r = Number(rate || 0);
+  if (r > 0.25) return 'var(--green,#22c55e)';
+  if (r >= 0.10) return 'var(--amber,#f59e0b)';
+  return 'var(--red,#ef4444)';
+}
+
+function _renderOpsOnboardingFunnelCard() {
+  const days = _onboardingFunnelClampDays(_onboardingFunnelDays);
+  const cached = _onboardingFunnelByDays[days] || null;
+
+  const pills = ONBOARDING_FUNNEL_WINDOW_OPTIONS.map(opt => {
+    const active = days === opt.days;
+    const style = active
+      ? 'font-size:11px;padding:3px 10px;border-radius:6px;background:var(--violet);color:#fff;border:1px solid var(--violet);font-weight:600;cursor:pointer'
+      : 'font-size:11px;padding:3px 10px;border-radius:6px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);font-weight:500;cursor:pointer';
+    return `<button type="button" data-test="funnel-window-${opt.days}" style="${style}" onclick="window._agentOpsSetFunnelWindow(${opt.days})">${opt.label}</button>`;
+  }).join('');
+
+  const headerRow = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap">
+      <div style="font-size:13px;font-weight:700;color:var(--text-primary)">Onboarding funnel</div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        ${pills}
+      </div>
+    </div>
+  `;
+
+  let body;
+  if (_onboardingFunnelError) {
+    body = `<div data-test="funnel-error" style="padding:10px 12px;font-size:11.5px;color:var(--red,#ef4444);background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.30);border-radius:6px">${_esc(_onboardingFunnelError)}</div>`;
+  } else if (cached === null) {
+    body = `<div class="muted" style="padding:8px 0;font-size:11.5px;color:var(--text-tertiary)">Loading onboarding funnel…</div>`;
+  } else {
+    const totals = (cached && cached.totals && typeof cached.totals === 'object') ? cached.totals : {};
+    const conversion = (cached && cached.conversion && typeof cached.conversion === 'object') ? cached.conversion : {};
+    const completedRate = Number(conversion.started_to_completed || 0);
+    const skippedRate = Number(conversion.started_to_skipped || 0);
+    const completedPct = (completedRate * 100).toFixed(1) + '%';
+    const skippedPct = (skippedRate * 100).toFixed(1) + '%';
+    const completedColor = _onboardingConversionColor(completedRate);
+    const skippedColor = _onboardingConversionColor(skippedRate);
+
+    const stats = `
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">
+        <div data-test="funnel-stat-completed" style="flex:1 1 200px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary,transparent)">
+          <div class="muted" style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em">Started → Completed</div>
+          <div data-test="funnel-stat-completed-value" style="font-size:24px;font-weight:700;color:${completedColor};margin-top:4px">${completedPct}</div>
+        </div>
+        <div data-test="funnel-stat-skipped" style="flex:1 1 200px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary,transparent)">
+          <div class="muted" style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em">Started → Skipped</div>
+          <div data-test="funnel-stat-skipped-value" style="font-size:24px;font-weight:700;color:${skippedColor};margin-top:4px">${skippedPct}</div>
+        </div>
+      </div>
+    `;
+
+    // Compute max for bar normalisation. Guard against all-zero (avoid /0).
+    let maxCount = 0;
+    for (const step of ONBOARDING_FUNNEL_STEPS) {
+      const v = Number(totals[step.key] || 0);
+      if (v > maxCount) maxCount = v;
+    }
+    const bars = ONBOARDING_FUNNEL_STEPS.map(step => {
+      const count = Number(totals[step.key] || 0);
+      const pct = maxCount > 0 ? Math.max(0, Math.min(100, (count / maxCount) * 100)) : 0;
+      const widthStyle = `width:${pct.toFixed(2)}%`;
+      return `
+        <div data-test="funnel-bar-${step.key}" style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          <div style="flex:0 0 140px;font-size:11.5px;color:var(--text-secondary)">${_esc(step.label)}</div>
+          <div style="flex:1;height:14px;background:var(--bg-secondary,rgba(127,127,127,0.10));border-radius:4px;overflow:hidden;border:1px solid var(--border)">
+            <div style="${widthStyle};height:100%;background:var(--violet);min-width:${count > 0 ? '2px' : '0'}"></div>
+          </div>
+          <div data-test="funnel-bar-count-${step.key}" style="flex:0 0 60px;text-align:right;font-size:11.5px;font-variant-numeric:tabular-nums;color:var(--text-primary);font-weight:600">${count}</div>
+        </div>
+      `;
+    }).join('');
+
+    body = `
+      ${stats}
+      <div data-test="funnel-bars">${bars}</div>
+    `;
+  }
+
+  return `
+    <div class="card" data-test="funnel-card" style="padding:14px 16px;margin-top:14px">
+      ${headerRow}
+      ${body}
+    </div>
+  `;
+}
+
 function _renderOpsSection(agents) {
   const sectionHeader = `
     <div style="margin-bottom:10px">
@@ -1829,6 +2235,7 @@ function _renderOpsSection(agents) {
     ${_renderOpsRunsCard(agents)}
     ${_renderOpsAbuseCard()}
     ${_renderOpsWebhookReplayCard()}
+    ${_renderOpsOnboardingFunnelCard()}
   `;
 }
 
@@ -3198,6 +3605,15 @@ window._agentMarketplaceSetTab = function(tab) {
       }
     }).catch(() => {});
   }
+  // Phase 13 — kick off the per-agent usage chart in parallel with the runs
+  // table so both land on the first paint pass.
+  if (tab === 'activity' && _usageChartData === null && !_usageChartLoading) {
+    _loadUsageChart().then(() => {
+      if (_agentView === 'hub' && _marketplaceTab === 'activity') {
+        try { pgAgentChat(_lastSetTopbar); } catch {}
+      }
+    }).catch(() => {});
+  }
   if (tab === 'activation' && _activationsList === null && !_activationsLoading) {
     _fetchPatientActivations().then(() => {
       if (_agentView === 'hub' && _marketplaceTab === 'activation') {
@@ -3222,6 +3638,15 @@ window._agentMarketplaceSetTab = function(tab) {
     }
     if (_opsSla === null && !_opsSlaLoading) {
       _fetchOpsSla().then(() => {
+        if (_agentView === 'hub' && _marketplaceTab === 'ops') {
+          try { pgAgentChat(_lastSetTopbar); } catch {}
+        }
+      }).catch(() => {});
+    }
+    // Phase 13: lazy-fetch the funnel for the current window if not cached.
+    const _funnelDays = _onboardingFunnelClampDays(_onboardingFunnelDays);
+    if (!Object.prototype.hasOwnProperty.call(_onboardingFunnelByDays, _funnelDays) && !_onboardingFunnelLoading) {
+      _fetchOnboardingFunnel(_funnelDays).then(() => {
         if (_agentView === 'hub' && _marketplaceTab === 'ops') {
           try { pgAgentChat(_lastSetTopbar); } catch {}
         }
@@ -3519,6 +3944,28 @@ window._agentOpsWebhookReplaySubmit = async function() {
       try { pgAgentChat(_lastSetTopbar); } catch {}
     }
   }
+};
+
+// ── Phase 13: Onboarding funnel handlers ─────────────────────────────────────
+// Switching the window pill: if we already have the new window cached, swap
+// the active window and re-render (no fetch). Otherwise fetch then re-render.
+// Re-clicking the active pill is a no-op — required by the brief and tested.
+window._agentOpsSetFunnelWindow = function(days) {
+  const n = _onboardingFunnelClampDays(days);
+  if (_onboardingFunnelDays === n) return;
+  _onboardingFunnelDays = n;
+  if (Object.prototype.hasOwnProperty.call(_onboardingFunnelByDays, n)) {
+    if (_agentView === 'hub' && _marketplaceTab === 'ops') {
+      try { pgAgentChat(_lastSetTopbar); } catch {}
+    }
+    return;
+  }
+  _fetchOnboardingFunnel(n).then(() => {
+    if (_agentView === 'hub' && _marketplaceTab === 'ops') {
+      try { pgAgentChat(_lastSetTopbar); } catch {}
+    }
+  }).catch(() => {});
+  if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
 };
 
 window._agentActivityRefresh = function() {
@@ -3934,6 +4381,49 @@ export const __webhookReplayTestApi__ = {
       input: _webhookReplayInput,
       busy: _webhookReplayBusy,
       result: _webhookReplayResult,
+    };
+  },
+};
+
+// ── Phase 13: Test surface — Onboarding funnel dashboard card ───────────────
+// Mirrors the prompt-override / webhook-replay testing seam so the Phase 13
+// tests in `apps/web/tests/onboarding-funnel-ui.test.js` can drive the card
+// without a DOM. `reset()` wipes the per-window cache, error, and the active
+// window pill back to the 7d default.
+export const __onboardingFunnelTestApi__ = {
+  reset() {
+    _marketplaceTab = 'catalog';
+    _onboardingFunnelDays = 7;
+    _onboardingFunnelLoading = false;
+    _onboardingFunnelError = null;
+    _onboardingFunnelByDays = Object.create(null);
+    _agentView = 'detached';
+    _lastSetTopbar = () => {};
+  },
+  renderCard() {
+    return _renderOpsOnboardingFunnelCard();
+  },
+  renderTabStrip() {
+    return _renderMarketplaceTabStrip();
+  },
+  renderOpsSection(agents) {
+    return _renderOpsSection(agents);
+  },
+  isSuperAdmin() {
+    return _isSuperAdmin();
+  },
+  fetchFunnel(days) {
+    return _fetchOnboardingFunnel(days);
+  },
+  setWindow(days) {
+    _onboardingFunnelDays = _onboardingFunnelClampDays(days);
+  },
+  getState() {
+    return {
+      days: _onboardingFunnelDays,
+      loading: _onboardingFunnelLoading,
+      error: _onboardingFunnelError,
+      byDays: _onboardingFunnelByDays,
     };
   },
 };

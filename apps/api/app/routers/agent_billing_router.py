@@ -21,7 +21,9 @@ seeded via monkeypatch — never hard-code a real key here.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, Request
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -33,6 +35,7 @@ from app.auth import (
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.limiter import limiter
+from app.persistence.models import StripeWebhookEvent
 from app.services import stripe_skus
 
 router = APIRouter(prefix="/api/v1/agent-billing", tags=["agent-billing"])
@@ -289,3 +292,66 @@ def admin_webhook_replay(
         )
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Phase 13 — Admin browser for the stripe_webhook_event table
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/webhook-events")
+def admin_list_webhook_events(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+    limit: int = Query(50, ge=1, le=200),
+    event_type: str | None = Query(None, max_length=128),
+    since_days: int = Query(7, ge=1, le=90),
+):
+    """Super-admin browser of the ``stripe_webhook_event`` dedupe table.
+
+    Pairs with :func:`admin_webhook_replay` — operators use this list to
+    find the row to replay. Cross-dialect SQL only (no Postgres-specific
+    operators) so the SQLite test DB and Postgres prod both work.
+
+    Status mapping
+    --------------
+    * 403 — actor is not a super-admin (mirror :func:`_require_super_admin`).
+    * 422 — ``limit`` outside [1, 200] or ``since_days`` outside [1, 90]
+      (FastAPI ``Query`` constraint validation).
+    * 200 — ``{"since_days": int, "rows": [...]}`` ordered by
+      ``received_at DESC``.
+    """
+    _require_super_admin(actor)
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
+    # SQLite stores naive datetimes — strip tz for the comparison so the
+    # WHERE clause is dialect-agnostic.
+    cutoff_naive = cutoff.replace(tzinfo=None)
+
+    q = db.query(StripeWebhookEvent).filter(
+        StripeWebhookEvent.received_at >= cutoff_naive
+    )
+    if event_type:
+        q = q.filter(StripeWebhookEvent.event_type == event_type)
+
+    rows = (
+        q.order_by(StripeWebhookEvent.received_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "since_days": since_days,
+        "rows": [
+            {
+                "id": r.id,
+                "event_id": r.id,
+                "event_type": r.event_type,
+                "received_at": (
+                    r.received_at.isoformat() if r.received_at is not None else None
+                ),
+                "processed": bool(r.processed),
+            }
+            for r in rows
+        ],
+    }

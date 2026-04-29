@@ -75,6 +75,7 @@ def test_start_scheduler_noop_when_env_not_one(monkeypatch):
 
 
 def test_start_scheduler_registers_single_named_job(monkeypatch):
+    """Phase 13D added a second job (funnel_digest); abuse_scan still appears once."""
     monkeypatch.setenv("DEEPSYNAPS_AGENT_CRON_ENABLED", "1")
     monkeypatch.setenv("DEEPSYNAPS_AGENT_CRON_INTERVAL_MIN", "60")
 
@@ -84,15 +85,19 @@ def test_start_scheduler_registers_single_named_job(monkeypatch):
         assert sched.running is True
 
         jobs = sched.get_jobs()
-        assert len(jobs) == 1
-        assert jobs[0].id == agent_scheduler.ABUSE_SCAN_JOB_ID
-        assert jobs[0].name == agent_scheduler.ABUSE_SCAN_JOB_ID
+        ids = [j.id for j in jobs]
+        # abuse_scan is registered exactly once with the expected id+name.
+        assert ids.count(agent_scheduler.ABUSE_SCAN_JOB_ID) == 1
+        abuse_job = next(
+            j for j in jobs if j.id == agent_scheduler.ABUSE_SCAN_JOB_ID
+        )
+        assert abuse_job.name == agent_scheduler.ABUSE_SCAN_JOB_ID
     finally:
         agent_scheduler.shutdown_scheduler()
 
 
 def test_start_scheduler_is_idempotent(monkeypatch):
-    """Calling start twice keeps a single registered job and a single live scheduler."""
+    """Calling start twice keeps a single abuse_scan job and a single live scheduler."""
     monkeypatch.setenv("DEEPSYNAPS_AGENT_CRON_ENABLED", "1")
 
     first = agent_scheduler.start_scheduler()
@@ -101,8 +106,9 @@ def test_start_scheduler_is_idempotent(monkeypatch):
         assert first is not None
         assert second is first  # idempotent: returns the same instance
         assert second.running is True
-        assert len(second.get_jobs()) == 1
-        assert second.get_jobs()[0].id == agent_scheduler.ABUSE_SCAN_JOB_ID
+        ids = [j.id for j in second.get_jobs()]
+        # abuse_scan is registered exactly once even after a re-call.
+        assert ids.count(agent_scheduler.ABUSE_SCAN_JOB_ID) == 1
     finally:
         agent_scheduler.shutdown_scheduler()
 

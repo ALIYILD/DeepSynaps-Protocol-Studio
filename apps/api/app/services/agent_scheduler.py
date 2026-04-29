@@ -44,8 +44,10 @@ import threading
 from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 from app.database import SessionLocal
+from app.services.funnel_digest import emit_weekly_funnel_digest
 from app.services.ops_alerting import scan_and_alert_abuse_signals
 
 logger = logging.getLogger(__name__)
@@ -58,9 +60,10 @@ logger = logging.getLogger(__name__)
 _SCHEDULER_LOCK = threading.Lock()
 _SCHEDULER: Optional[BackgroundScheduler] = None
 
-# Job ID kept stable so we can assert single-registration in tests and
+# Job IDs kept stable so we can assert single-registration in tests and
 # detect-and-skip on idempotent restarts.
 ABUSE_SCAN_JOB_ID = "abuse_scan"
+FUNNEL_DIGEST_JOB_ID = "funnel_digest"
 
 
 def _resolve_interval_minutes() -> int:
@@ -125,11 +128,56 @@ def _run_abuse_scan() -> None:
             pass
 
 
+def _run_funnel_digest() -> None:
+    """Scheduler tick — opens a fresh session, emits the digest, swallows errors.
+
+    Mirrors :func:`_run_abuse_scan` for the weekly funnel digest. We
+    deliberately do *not* share the abuse-scan callable so that a
+    failure in one cron does not mask the other in the logs (each job
+    gets its own structured ``event`` key).
+    """
+    session = SessionLocal()
+    try:
+        result = emit_weekly_funnel_digest(session)
+        logger.info(
+            "weekly funnel digest tick complete",
+            extra={
+                "event": "funnel_digest_tick",
+                "sent": result.get("sent"),
+                "reason": result.get("reason"),
+            },
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "weekly funnel digest tick failed",
+            extra={
+                "event": "funnel_digest_tick_error",
+                "error": str(exc),
+            },
+        )
+    finally:
+        try:
+            session.close()
+        except Exception:  # pragma: no cover - defensive
+            pass
+
+
 def start_scheduler() -> Optional[BackgroundScheduler]:
     """Start the BackgroundScheduler if enabled by env var; otherwise no-op.
 
     Returns the live scheduler (or ``None`` if disabled / already-running).
-    Idempotent: a second call returns without registering a duplicate job.
+    Idempotent: a second call returns without registering duplicate jobs.
+
+    Registered jobs
+    ---------------
+    * ``abuse_scan`` — Phase 9 hourly (interval) abuse-signal scanner.
+    * ``funnel_digest`` — Phase 13D weekly digest, fires Mondays 09:00 UTC.
+
+    Both jobs are gated by the same ``DEEPSYNAPS_AGENT_CRON_ENABLED=1``
+    env var. We deliberately do not introduce a per-job env var: ops
+    either wants the scheduler thread alive or they don't, and gating
+    individual jobs piecemeal would make staging/prod parity harder to
+    reason about.
     """
     global _SCHEDULER
 
@@ -161,6 +209,19 @@ def start_scheduler() -> Optional[BackgroundScheduler]:
             max_instances=1,
             coalesce=True,
         )
+        # Phase 13D — weekly Monday 09:00 UTC funnel digest. CronTrigger
+        # rather than IntervalTrigger so the fire time is anchored to a
+        # human-readable schedule (ops know to expect it at 09:00 UTC
+        # Monday) rather than drifting based on process start time.
+        scheduler.add_job(
+            _run_funnel_digest,
+            trigger=CronTrigger(day_of_week="mon", hour=9, minute=0),
+            id=FUNNEL_DIGEST_JOB_ID,
+            name=FUNNEL_DIGEST_JOB_ID,
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
         scheduler.start()
         _SCHEDULER = scheduler
 
@@ -169,7 +230,8 @@ def start_scheduler() -> Optional[BackgroundScheduler]:
             extra={
                 "event": "agent_scheduler_started",
                 "interval_minutes": interval_minutes,
-                "job_id": ABUSE_SCAN_JOB_ID,
+                "abuse_scan_job_id": ABUSE_SCAN_JOB_ID,
+                "funnel_digest_job_id": FUNNEL_DIGEST_JOB_ID,
             },
         )
         return scheduler
@@ -215,6 +277,7 @@ def _reset_for_tests() -> None:
 
 __all__ = [
     "ABUSE_SCAN_JOB_ID",
+    "FUNNEL_DIGEST_JOB_ID",
     "shutdown_scheduler",
     "start_scheduler",
 ]
