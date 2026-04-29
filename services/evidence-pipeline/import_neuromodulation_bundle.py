@@ -35,12 +35,18 @@ ASSETS = {
     "raw/neuromodulation_papers_europepmc.csv": "raw",
     "raw/neuromodulation_papers_modalities_europepmc.csv": "raw",
     "raw/neuromodulation_all_papers_master.csv": "raw",
+    "derived/neuromodulation_europepmc_abstracts.csv": "derived",
     "derived/neuromodulation_ai_ingestion_dataset.csv": "derived",
     "derived/neuromodulation_evidence_graph.csv": "derived",
     "derived/neuromodulation_protocol_template_candidates.csv": "derived",
     "derived/neuromodulation_safety_contraindication_signals.csv": "derived",
     "derived/neuromodulation_indication_modality_summary.csv": "derived",
     "derived/neuromodulation_modalities_summary.csv": "derived",
+    "derived/neuromodulation_clinical_trials.csv": "derived",
+    "derived/neuromodulation_fda_510k_devices.csv": "derived",
+    "derived/neuromodulation_condition_mentions.csv": "derived",
+    "derived/neuromodulation_patient_outcomes.csv": "derived",
+    "neuromodulation_master_database_enriched.csv": "enriched",
     "scripts/build_neuromodulation_master_and_ai_dataset.py": "script",
     "scripts/derive_neuromodulation_clinic_outputs.py": "script",
     "scripts/export_neuromodulation_europepmc.py": "script",
@@ -317,7 +323,9 @@ def stage_bundle(source_bundle: Path) -> Path:
     for relative_path in ASSETS:
         destination = TARGET_ROOT / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
-        source = source_bundle / destination.name
+        source = source_bundle / relative_path
+        if not source.exists():
+            source = source_bundle / destination.name
         if not source.exists():
             raise FileNotFoundError(f"missing bundle asset: {source}")
         shutil.copy2(source, destination)
@@ -457,14 +465,61 @@ def upsert_master_paper(conn: sqlite3.Connection, row: dict[str, str], imported_
     return cur.lastrowid
 
 
+def insert_master_paper_fast(conn: sqlite3.Connection, row: dict[str, str], imported_at: str) -> int:
+    pmid = none_if_blank(row.get("pmid"))
+    pmcid = none_if_blank(row.get("pmcid"))
+    doi = none_if_blank(row.get("doi"))
+    europepmc_id = none_if_blank(row.get("id"))
+    title = none_if_blank(row.get("title"))
+    authors_json = parse_authors(row.get("authors"))
+    pub_types_json = parse_pub_types(row.get("pub_type"))
+    cur = conn.execute(
+        "INSERT OR IGNORE INTO papers("
+        "pmid, pmcid, doi, europepmc_id, title, abstract, year, journal, "
+        "authors_json, pub_types_json, cited_by_count, is_oa, oa_url, sources_json, last_ingested"
+        ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            pmid,
+            pmcid,
+            doi.lower() if doi else None,
+            europepmc_id,
+            title,
+            None,
+            to_int(row.get("year")),
+            none_if_blank(row.get("journal")),
+            authors_json,
+            pub_types_json,
+            to_int(row.get("cited_by_count")),
+            boolish(row.get("is_open_access")),
+            none_if_blank(row.get("europe_pmc_url")),
+            json.dumps(["neuromodulation_bundle"]),
+            imported_at,
+        ),
+    )
+    if cur.rowcount:
+        return cur.lastrowid
+    existing = conn.execute(
+        "SELECT id FROM papers "
+        "WHERE (pmid IS NOT NULL AND pmid = ?) "
+        "OR (pmcid IS NOT NULL AND pmcid = ?) "
+        "OR (doi IS NOT NULL AND doi = ?) "
+        "OR (europepmc_id IS NOT NULL AND europepmc_id = ?)",
+        (pmid, pmcid, doi.lower() if doi else None, europepmc_id),
+    ).fetchone()
+    if not existing:
+        raise RuntimeError(f"failed to resolve paper id after INSERT OR IGNORE for {master_row_key(row)}")
+    return existing["id"]
+
+
 def import_master(conn: sqlite3.Connection, path: Path, imported_at: str) -> dict[str, int]:
     key_to_paper_id: dict[str, int] = {}
     inserted = 0
+    fresh_db = conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0] == 0
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
             before = conn.total_changes
-            paper_id = upsert_master_paper(conn, row, imported_at)
+            paper_id = insert_master_paper_fast(conn, row, imported_at) if fresh_db else upsert_master_paper(conn, row, imported_at)
             key_to_paper_id[master_row_key(row)] = paper_id
             if conn.total_changes > before:
                 inserted += 1
@@ -893,33 +948,43 @@ def import_patient_outcomes(conn: sqlite3.Connection, path: Path, key_to_paper_i
     return count
 
 
-def import_bundle(staged_root: Path) -> dict[str, int]:
+def import_bundle(staged_root: Path, db_path: str | Path | None = None) -> dict[str, int | str]:
     manifest_path = staged_root / "manifest.json"
     if not manifest_path.exists():
         raise FileNotFoundError(f"missing manifest: {manifest_path}")
 
-    db.init()
-    conn = db.connect()
+    resolved_db_path = db.init(db_path)
+    conn = db.connect(resolved_db_path)
     ensure_bundle_schema(conn)
     imported_at = now_iso()
-    conn.execute("BEGIN")
+
+    def run_phase(fn, *args):
+        conn.execute("BEGIN")
+        try:
+            result = fn(conn, *args)
+            conn.execute("COMMIT")
+            return result
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
     try:
-        asset_rows = import_assets_table(conn, manifest_path, imported_at)
-        master = import_master(conn, staged_root / "raw" / "neuromodulation_all_papers_master.csv", imported_at)
-        profiles = import_profiles(
-            conn,
+        asset_rows = run_phase(import_assets_table, manifest_path, imported_at)
+        master = run_phase(import_master, staged_root / "raw" / "neuromodulation_all_papers_master.csv", imported_at)
+        profiles = run_phase(
+            import_profiles,
             staged_root / "derived" / "neuromodulation_ai_ingestion_dataset.csv",
             master["key_to_paper_id"],
             imported_at,
         )
-        safety = import_safety(
-            conn,
+        safety = run_phase(
+            import_safety,
             staged_root / "derived" / "neuromodulation_safety_contraindication_signals.csv",
             master["key_to_paper_id"],
             imported_at,
         )
-        graph = import_aggregate_table(
-            conn,
+        graph = run_phase(
+            import_aggregate_table,
             "neuromodulation_evidence_graph",
             staged_root / "derived" / "neuromodulation_evidence_graph.csv",
             [
@@ -948,8 +1013,8 @@ def import_bundle(staged_root: Path) -> dict[str, int]:
             },
             imported_at,
         )
-        templates = import_aggregate_table(
-            conn,
+        templates = run_phase(
+            import_aggregate_table,
             "neuromodulation_protocol_templates",
             staged_root / "derived" / "neuromodulation_protocol_template_candidates.csv",
             [
@@ -973,8 +1038,8 @@ def import_bundle(staged_root: Path) -> dict[str, int]:
             },
             imported_at,
         )
-        indication_summary = import_aggregate_table(
-            conn,
+        indication_summary = run_phase(
+            import_aggregate_table,
             "neuromodulation_indication_modality_summary",
             staged_root / "derived" / "neuromodulation_indication_modality_summary.csv",
             [
@@ -994,50 +1059,47 @@ def import_bundle(staged_root: Path) -> dict[str, int]:
             },
             imported_at,
         )
-        modality_summary = import_aggregate_table(
-            conn,
+        modality_summary = run_phase(
+            import_aggregate_table,
             "neuromodulation_modality_summary",
             staged_root / "derived" / "neuromodulation_modalities_summary.csv",
             ["modality", "paper_count"],
             {"paper_count": to_int},
             imported_at,
         )
-        abstracts = import_abstracts(
-            conn,
+        abstracts = run_phase(
+            import_abstracts,
             staged_root / "derived" / "neuromodulation_europepmc_abstracts.csv",
             master["key_to_paper_id"],
             imported_at,
         )
-        trial_metadata = import_trial_metadata(
-            conn,
+        trial_metadata = run_phase(
+            import_trial_metadata,
             staged_root / "derived" / "neuromodulation_clinical_trials.csv",
             imported_at,
         )
-        fda_510k = import_fda_510k_records(
-            conn,
+        fda_510k = run_phase(
+            import_fda_510k_records,
             staged_root / "derived" / "neuromodulation_fda_510k_devices.csv",
             imported_at,
         )
-        condition_mentions = import_condition_mentions(
-            conn,
+        condition_mentions = run_phase(
+            import_condition_mentions,
             staged_root / "derived" / "neuromodulation_condition_mentions.csv",
             master["key_to_paper_id"],
             imported_at,
         )
-        patient_outcomes = import_patient_outcomes(
-            conn,
+        patient_outcomes = run_phase(
+            import_patient_outcomes,
             staged_root / "derived" / "neuromodulation_patient_outcomes.csv",
             master["key_to_paper_id"],
             imported_at,
         )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
     finally:
         conn.close()
 
     return {
+        "db_path": resolved_db_path,
         "assets": asset_rows,
         "papers": master["count"],
         "profiles": profiles,
@@ -1059,6 +1121,12 @@ def main() -> None:
     parser.add_argument("--stage", action="store_true", help="Copy the Desktop bundle into data/research/neuromodulation.")
     parser.add_argument("--enrich", action="store_true", help="Generate abstract/trial/device/condition/outcome enrichments into the staged bundle.")
     parser.add_argument("--import-db", action="store_true", help="Import the staged CSVs into the SQLite evidence DB.")
+    parser.add_argument(
+        "--db",
+        type=Path,
+        default=None,
+        help="Target SQLite DB path. Defaults to EVIDENCE_DB_PATH/DEEPSYNAPS_DB or services/evidence-pipeline/evidence.db.",
+    )
     parser.add_argument("--source-bundle", type=Path, default=DEFAULT_SOURCE_BUNDLE)
     parser.add_argument("--staged-root", type=Path, default=TARGET_ROOT)
     parser.add_argument("--abstract-fetch-limit", type=int, default=250)
@@ -1085,7 +1153,7 @@ def main() -> None:
         print(json.dumps({"enrichment": summary}, indent=2))
 
     if args.import_db:
-        summary = import_bundle(args.staged_root)
+        summary = import_bundle(args.staged_root, db_path=args.db)
         print(json.dumps(summary, indent=2))
 
 

@@ -1,6 +1,6 @@
 {
   "bundle_name": "neuromodulation_research_bundle_2026-04-22",
-  "generated_at": "2026-04-22T13:58:34Z",
+  "generated_at": "2026-04-29T08:13:59Z",
   "source_bundle": "/Users/aliyildirim/Desktop/neuromodulation_research_bundle_2026-04-22",
   "assets": [
     {
@@ -26,6 +26,14 @@
       "bytes": 80983840,
       "row_count": 184670,
       "kind": "raw"
+    },
+    {
+      "asset_key": "neuromodulation_europepmc_abstracts",
+      "relative_path": "derived/neuromodulation_europepmc_abstracts.csv",
+      "sha256": "2cbe4073091776efa9554b8c1fb47c6ed6b87491e944238e91dc78f30d8b81a0",
+      "bytes": 40960983,
+      "row_count": 184670,
+      "kind": "derived"
     },
     {
       "asset_key": "neuromodulation_ai_ingestion_dataset",
@@ -74,6 +82,46 @@
       "bytes": 757,
       "row_count": 20,
       "kind": "derived"
+    },
+    {
+      "asset_key": "neuromodulation_clinical_trials",
+      "relative_path": "derived/neuromodulation_clinical_trials.csv",
+      "sha256": "d7da6270d8da69ee03765af631773549f38deb44158ad3cee588312757bfe5b0",
+      "bytes": 4000723,
+      "row_count": 1279,
+      "kind": "derived"
+    },
+    {
+      "asset_key": "neuromodulation_fda_510k_devices",
+      "relative_path": "derived/neuromodulation_fda_510k_devices.csv",
+      "sha256": "e14ff1a20e142b8eb78afc383873c4638faf40f2f4c6e3c7ec7d4f4536428cc2",
+      "bytes": 11916,
+      "row_count": 39,
+      "kind": "derived"
+    },
+    {
+      "asset_key": "neuromodulation_condition_mentions",
+      "relative_path": "derived/neuromodulation_condition_mentions.csv",
+      "sha256": "42083e165855b163f28779c62a30bad2cc9e72f66722250f6858272ab465d187",
+      "bytes": 4751954,
+      "row_count": 51375,
+      "kind": "derived"
+    },
+    {
+      "asset_key": "neuromodulation_patient_outcomes",
+      "relative_path": "derived/neuromodulation_patient_outcomes.csv",
+      "sha256": "0a57d72eea0fa83c4e4095193e3ea115f382597fb4f16b80b70089365b69f802",
+      "bytes": 4258320,
+      "row_count": 17547,
+      "kind": "derived"
+    },
+    {
+      "asset_key": "neuromodulation_master_database_enriched",
+      "relative_path": "neuromodulation_master_database_enriched.csv",
+      "sha256": "bc1b05f3c335b1aceae7d4bd3fb63ad93dbaa4ac120c2a7fac0d622a54d6a67a",
+      "bytes": 252418162,
+      "row_count": 184670,
+      "kind": "enriched"
     },
     {
       "asset_key": "build_neuromodulation_master_and_ai_dataset",
