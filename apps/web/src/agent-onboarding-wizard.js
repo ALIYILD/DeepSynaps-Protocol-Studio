@@ -65,6 +65,24 @@ function _agentOnbHeaders() {
   return headers;
 }
 
+// ── Phase 12 — funnel telemetry ──────────────────────────────────────────────
+// Best-effort POST to the onboarding events endpoint. Never blocks or throws
+// — telemetry must not regress wizard UX even when the API is unreachable.
+function reportOnboardingEvent(step, payload) {
+  try {
+    const _fetch = (typeof fetch !== 'undefined') ? fetch : (globalThis && globalThis.fetch);
+    if (typeof _fetch !== 'function') return Promise.resolve();
+    return _fetch(`${_agentOnbApiBase()}/api/v1/onboarding/events`, {
+      method: 'POST',
+      headers: _agentOnbHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({ step, payload: payload || null }),
+    }).catch(() => {}); // never block the wizard on telemetry
+  } catch {
+    return Promise.resolve();
+  }
+}
+
 // ── Catalog fetch ──────────────────────────────────────────────────────────────
 async function _agentOnbFetchCatalog() {
   if (_agentOnb.agentsLoading) return;
@@ -408,6 +426,7 @@ const _g = (typeof window !== 'undefined') ? window : globalThis;
 
 _g._agentOnbSelectPackage = function(pkgId) {
   _agentOnb.packageId = pkgId;
+  reportOnboardingEvent('package_selected', { package_id: pkgId });
   _agentOnbRender();
 };
 
@@ -431,6 +450,8 @@ _g._agentOnbContinue = async function() {
   }
   if (_agentOnb.step === 3) {
     try { localStorage.setItem(AGENT_ONB_STORAGE_KEY, JSON.stringify(_agentOnb.enabledAgents)); } catch {}
+    const selected = Object.keys(_agentOnb.enabledAgents || {}).filter(k => !!_agentOnb.enabledAgents[k]);
+    reportOnboardingEvent('agents_enabled', { selected });
     _agentOnb.step = 4;
     _agentOnbRender();
     return;
@@ -446,6 +467,7 @@ _g._agentOnbBack = function() {
 
 _g._agentOnbSkipBilling = function() {
   if (_agentOnb.packageId !== 'solo') return; // guard
+  reportOnboardingEvent('stripe_skipped');
   _agentOnb.step = 3;
   _agentOnbRender();
   if (!_agentOnb.agents.length && !_agentOnb.agentsLoading) {
@@ -457,6 +479,18 @@ _g._agentOnbStartCheckout = async function() {
   if (!_agentOnb.agents.length) {
     await _agentOnbFetchCatalog();
   }
+  // Surface the agent SKU we're about to send the user to Stripe for. Picked
+  // with the same selection logic as `_agentOnbStartCheckout` so the funnel
+  // row matches the actual checkout target — see that function for rationale.
+  let _agentId = null;
+  try {
+    const _candidates = (_agentOnb.agents || [])
+      .filter(a => Number.isFinite(a.monthly_price_gbp) && a.monthly_price_gbp > 0)
+      .sort((a, b) => (a.monthly_price_gbp || 0) - (b.monthly_price_gbp || 0));
+    const _target = _candidates[0] || (_agentOnb.agents || [])[0];
+    if (_target) _agentId = _target.id || null;
+  } catch {}
+  reportOnboardingEvent('stripe_initiated', { agent_id: _agentId });
   await _agentOnbStartCheckout();
 };
 
@@ -477,6 +511,15 @@ _g._agentOnbSendInvitesUI = async function() {
 _g._agentOnbDone = function() {
   try { localStorage.setItem(AGENT_ONB_DONE_KEY, '1'); } catch {}
   try { localStorage.setItem(AGENT_ONB_STORAGE_KEY, JSON.stringify(_agentOnb.enabledAgents)); } catch {}
+  // Telemetry — fire team_invited (with the count we shipped) followed by
+  // the terminal `completed` event. Both are best-effort.
+  let _inviteCount = 0;
+  try {
+    const _raw = (_agentOnb.invitesText || '').trim();
+    _inviteCount = _raw ? _raw.split(/[\s,;]+/).filter(e => /.+@.+\..+/.test(e)).length : 0;
+  } catch {}
+  reportOnboardingEvent('team_invited', { count: _inviteCount });
+  reportOnboardingEvent('completed');
   // Redirect to agents marketplace.
   if (typeof _g._nav === 'function') {
     _g._nav('agents');
@@ -488,6 +531,7 @@ _g._agentOnbDone = function() {
 _g._agentOnbSkipWizard = function(e) {
   e?.preventDefault?.();
   try { localStorage.setItem(AGENT_ONB_SKIPPED_KEY, '1'); } catch {}
+  reportOnboardingEvent('skipped');
   if (typeof _g._nav === 'function') {
     _g._nav('agents');
   } else if (_g.location && typeof _g.location.assign === 'function') {
@@ -514,6 +558,8 @@ export async function pgAgentOnboarding(setTopbar) {
   _agentOnbFetchCatalog().then(() => {
     if (_agentOnb.step === 3) _agentOnbRender();
   });
+  // Telemetry — funnel entry point. Best-effort, never blocks render.
+  reportOnboardingEvent('started');
   _agentOnbRender();
 }
 
