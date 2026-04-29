@@ -10,6 +10,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+const WORKBENCH_PATH = fileURLToPath(new URL('./pages-qeeg-raw-workbench.js', import.meta.url));
 
 class FakeClassList {
   constructor(host) { this._set = new Set(); this._host = host; }
@@ -104,6 +108,7 @@ function installDom() {
 const root = installDom();
 const mod = await import('./pages-qeeg-raw-workbench.js');
 await mod.pgQEEGRawWorkbench(() => {}, () => {});
+const WORKBENCH_SRC = readFileSync(WORKBENCH_PATH, 'utf8');
 
 // ── Shell + clinical visual contract ─────────────────────────────────────────
 
@@ -194,31 +199,27 @@ await test('cleaning tools panel renders all four sections', () => {
 // ── Source-level checks for tabs that only render after a click ─────────────
 
 await test('AI Assistant panel shows safety wording in source', async () => {
-  const src = await import('node:fs').then(fs => fs.readFileSync('apps/web/src/pages-qeeg-raw-workbench.js', 'utf8'));
-  assert.ok(src.includes('AI Review Queue'), 'AI tab heading present in source');
-  assert.ok(src.includes('AI-assisted suggestion only'), 'AI safety banner present');
-  assert.ok(src.includes('Clinician confirmation required'), 'AI confirmation requirement present');
+  assert.ok(WORKBENCH_SRC.includes('AI Review Queue'), 'AI tab heading present in source');
+  assert.ok(WORKBENCH_SRC.includes('AI-assisted suggestion only'), 'AI safety banner present');
+  assert.ok(WORKBENCH_SRC.includes('Clinician confirmation required'), 'AI confirmation requirement present');
 });
 
 await test('Examples panel covers all canonical artefact archetypes', async () => {
-  const src = await import('node:fs').then(fs => fs.readFileSync('apps/web/src/pages-qeeg-raw-workbench.js', 'utf8'));
   for (const ex of [
     'Posterior alpha','Eye blink','Muscle artefact','Line noise','Flat channel',
     'Electrode pop','Movement artefact','ECG contamination','Poor recording',
   ]) {
-    assert.ok(src.includes(ex), 'example: ' + ex);
+    assert.ok(WORKBENCH_SRC.includes(ex), 'example: ' + ex);
   }
 });
 
 await test('Audit panel labels are present in source', async () => {
-  const src = await import('node:fs').then(fs => fs.readFileSync('apps/web/src/pages-qeeg-raw-workbench.js', 'utf8'));
-  assert.ok(src.includes('Cleaning Audit Trail'), 'audit heading');
+  assert.ok(WORKBENCH_SRC.includes('Cleaning Audit Trail'), 'audit heading');
 });
 
 await test('Best-Practice panel covers required topics', async () => {
-  const src = await import('node:fs').then(fs => fs.readFileSync('apps/web/src/pages-qeeg-raw-workbench.js', 'utf8'));
   for (const topic of ['Bad channel detection','Eye blink','Line noise','When NOT to over-clean','Preserve original raw EEG']) {
-    assert.ok(src.includes(topic), 'best-practice topic: ' + topic);
+    assert.ok(WORKBENCH_SRC.includes(topic), 'best-practice topic: ' + topic);
   }
 });
 
@@ -248,9 +249,8 @@ await test('keyboard shortcuts modal is wired with new shortcuts', async () => {
   const html = root.innerHTML;
   assert.ok(html.includes('data-testid="qwb-shortcuts-modal"'), 'shortcuts modal');
   assert.ok(html.includes('Keyboard shortcuts'), 'shortcuts heading');
-  const src = await import('node:fs').then(fs => fs.readFileSync('apps/web/src/pages-qeeg-raw-workbench.js', 'utf8'));
-  assert.ok(src.includes("'Cmd/Ctrl+S'"), 'Cmd/Ctrl+S shortcut listed');
-  assert.ok(src.includes("'Esc'"), 'Esc shortcut listed');
+  assert.ok(WORKBENCH_SRC.includes("'Cmd/Ctrl+S'"), 'Cmd/Ctrl+S shortcut listed');
+  assert.ok(WORKBENCH_SRC.includes("'Esc'"), 'Esc shortcut listed');
 });
 
 // ── Unsaved-edit modal contract ─────────────────────────────────────────────
@@ -277,26 +277,22 @@ await test('exported entrypoint and helpers match router registration', () => {
 // ── Source-level safety guarantees ──────────────────────────────────────────
 
 await test('source registers beforeunload guard for unsaved edits', async () => {
-  const src = await import('node:fs').then(fs => fs.readFileSync('apps/web/src/pages-qeeg-raw-workbench.js', 'utf8'));
-  assert.ok(src.includes("addEventListener('beforeunload'"), 'beforeunload guard registered');
-  assert.ok(src.includes('isDirty'), 'isDirty flag tracked');
-  assert.ok(src.includes('markDirty'), 'markDirty helper');
+  assert.ok(WORKBENCH_SRC.includes("addEventListener('beforeunload'"), 'beforeunload guard registered');
+  assert.ok(WORKBENCH_SRC.includes('isDirty'), 'isDirty flag tracked');
+  assert.ok(WORKBENCH_SRC.includes('markDirty'), 'markDirty helper');
 });
 
 await test('source wires Cmd/Ctrl+S to saveCleaningVersion', async () => {
-  const src = await import('node:fs').then(fs => fs.readFileSync('apps/web/src/pages-qeeg-raw-workbench.js', 'utf8'));
-  assert.ok(/(metaKey|ctrlKey)[\s\S]+saveCleaningVersion/.test(src), 'Cmd/Ctrl+S handler binds to save');
+  assert.ok(/(metaKey|ctrlKey)[\s\S]+saveCleaningVersion/.test(WORKBENCH_SRC), 'Cmd/Ctrl+S handler binds to save');
 });
 
 await test('source wires Esc key to navBack', async () => {
-  const src = await import('node:fs').then(fs => fs.readFileSync('apps/web/src/pages-qeeg-raw-workbench.js', 'utf8'));
-  assert.ok(/'Escape'[\s\S]+navBack/.test(src), 'Esc handler routes to navBack');
+  assert.ok(/'Escape'[\s\S]+navBack/.test(WORKBENCH_SRC), 'Esc handler routes to navBack');
 });
 
 await test('source has post-rerun confirmation copy mentioning preserved raw EEG', async () => {
-  const src = await import('node:fs').then(fs => fs.readFileSync('apps/web/src/pages-qeeg-raw-workbench.js', 'utf8'));
-  assert.ok(/qEEG analysis (re-run )?(updated|queued) using Cleaning Version/.test(src), 'post-rerun toast copy');
-  assert.ok(src.includes('Original raw EEG preserved'), 'raw preserved phrase in rerun toast');
+  assert.ok(/qEEG analysis (re-run )?(updated|queued) using Cleaning Version/.test(WORKBENCH_SRC), 'post-rerun toast copy');
+  assert.ok(WORKBENCH_SRC.includes('Original raw EEG preserved'), 'raw preserved phrase in rerun toast');
 });
 
 // ── Runtime behaviour: navBack opens unsaved modal when dirty ───────────────
