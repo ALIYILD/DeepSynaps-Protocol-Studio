@@ -15,14 +15,16 @@ const ANALYZER = readFileSync(new URL('./pages-qeeg-analysis.js', import.meta.ur
 const APP = readFileSync(new URL('./app.js', import.meta.url), 'utf8');
 const WORKBENCH = readFileSync(new URL('./pages-qeeg-raw-workbench.js', import.meta.url), 'utf8');
 
-test('analyzer Raw Data tab shows all four launcher buttons', () => {
+test('analyzer Raw Data tab shows launcher bar and workbench entrypoint', () => {
   for (const label of [
+    'Need full-screen editing?',
     'Open Raw EEG Workbench',
-    'Review &amp; Clean Signal',
-    'Compare Raw vs Cleaned',
-    'Re-run Analysis After Cleaning',
+    'qeeg-raw-summary-bar',
+    'qeeg-raw-summary-ch',
+    'qeeg-raw-summary-quality',
+    'qeeg-raw-summary-band',
   ]) {
-    assert.ok(ANALYZER.includes(label), 'launcher button: ' + label);
+    assert.ok(ANALYZER.includes(label), 'launcher contract: ' + label);
   }
 });
 

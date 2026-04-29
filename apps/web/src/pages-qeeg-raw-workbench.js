@@ -92,6 +92,7 @@ const KEYBOARD_SHORTCUTS = [
   ['Cleaning', 'I', 'Interpolate channel'],
   ['Cleaning', 'A', 'Add annotation'],
   ['Cleaning', 'Cmd/Ctrl+S', 'Save cleaning version'],
+  ['Cleaning', 'Cmd/Ctrl+Shift+S', 'Clinician sign-off'],
   ['Cleaning', 'Z', 'Undo'],
   ['View', '+ / −', 'Zoom in / out'],
   ['View', 'G', 'Toggle grid'],
@@ -1843,7 +1844,18 @@ function renderCleaningPanel(state) {
       </div>
     </div>
     <div class="qwb-side-section">
-      <h4><span class="qwb-letter">F</span>Clinician Sign‑Off</h4>
+      <h4><span class="qwb-letter">F</span>Bulk channel ops</h4>
+      <div style="font-size:10px;color:#6b6660;margin-bottom:6px">Mark or clear all channels in a region.</div>
+      <div class="qwb-side-grid">
+        <button class="qwb-side-btn" data-action="bulk-frontal">Frontal</button>
+        <button class="qwb-side-btn" data-action="bulk-central">Central</button>
+        <button class="qwb-side-btn" data-action="bulk-parietal">Parietal</button>
+        <button class="qwb-side-btn" data-action="bulk-occipital">Occipital</button>
+        <button class="qwb-side-btn warn full" data-action="bulk-clear-all">Clear all bad channels</button>
+      </div>
+    </div>
+    <div class="qwb-side-section">
+      <h4><span class="qwb-letter">G</span>Clinician Sign‑Off</h4>
       ${_renderSignOffSection(state)}
     </div>`;
 }
@@ -2342,7 +2354,15 @@ function attachToolBar(state, navigate) {
   onNum('qwb-lowcut', 'lowCut', v => parseFloat(v) || 0.3);
   onNum('qwb-highcut', 'highCut', v => parseFloat(v) || 50);
   onSel('qwb-notch', 'notch');
-  onSel('qwb-montage', 'montage');
+  const montageEl = document.getElementById('qwb-montage');
+  if (montageEl) {
+    montageEl.addEventListener('change', () => {
+      state.montage = montageEl.value;
+      state.saveStatus = 'Montage: ' + state.montage + ' (preview only — original reference preserved)';
+      redrawCanvas(state); renderStatusBar(state);
+      setTimeout(() => { if (state.saveStatus.includes('preview only')) { state.saveStatus = 'idle'; renderStatusBar(state); } }, 4000);
+    });
+  }
   onSel('qwb-timebase', 'timebase', v => parseInt(v) || 10);
 
   document.querySelectorAll('#qwb-view-toggle button').forEach(b => {
@@ -2666,6 +2686,7 @@ function attachKeyboard(state, navigate) {
       redrawCanvas(state);
     }
     else if (e.key === '?') toggleShortcuts(state, true);
+    else if (e.key === 'S' && e.shiftKey && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (!state.signOff) toggleSignOff(state, true); }
   });
 }
 
@@ -2784,7 +2805,26 @@ async function handleCleaningAction(state, action) {
     case 'raw-vs-cleaned': await loadRawVsCleaned(state); break;
     case 'return-report': returnToReport(state); break;
     case 'apply-ica': await applyICARemovals(state); break;
+    case 'bulk-frontal':   pushHistory(state); bulkMarkChannels(state, ['Fp1-Av','Fp2-Av','F7-Av','F3-Av','Fz-Av','F4-Av','F8-Av']); break;
+    case 'bulk-central':   pushHistory(state); bulkMarkChannels(state, ['T3-Av','C3-Av','Cz-Av','C4-Av','T4-Av']); break;
+    case 'bulk-parietal':  pushHistory(state); bulkMarkChannels(state, ['T5-Av','P3-Av','Pz-Av','P4-Av','T6-Av']); break;
+    case 'bulk-occipital': pushHistory(state); bulkMarkChannels(state, ['O1-Av','O2-Av']); break;
+    case 'bulk-clear-all': {
+      pushHistory(state);
+      if (state.badChannels.size > 0 && confirm(`Clear all ${state.badChannels.size} bad channels?`)) {
+        state.badChannels.clear();
+        rerenderRail(state); redrawCanvas(state); markDirty(state);
+        state.auditLog.push({ t: new Date().toISOString(), action: 'bulk_clear_all_bad_channels', source: 'clinician' });
+      }
+      break;
+    }
   }
+}
+
+function bulkMarkChannels(state, channels) {
+  channels.forEach(ch => state.badChannels.add(ch));
+  rerenderRail(state); redrawCanvas(state); markDirty(state);
+  state.auditLog.push({ t: new Date().toISOString(), action: 'bulk_mark_region', channels, source: 'clinician' });
 }
 
 function snapshotState(state) {
