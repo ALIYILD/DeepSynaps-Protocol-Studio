@@ -500,22 +500,37 @@ function recordingMeta(state) {
   };
 }
 
+// Recording-strip status pill. The rule must match the recording-strip subtitle
+// ("No cleaning version" vs "Cleaned (vN)") so clinicians never see a
+// contradictory pair like "In progress" + "No cleaning version" (audit
+// 2026-04-29). Strict precedence:
+//   1. signOff present                          → "Signed off"
+//   2. cleaningVersion present                  → "Cleaned (vN)"
+//   3. cleaningVersion null && isDirty true     → "In progress" (unsaved edits)
+//   4. cleaningVersion null && isDirty false    → "Untouched"
+// We deliberately key on state.isDirty (set by markDirty() on every clinician
+// edit) rather than badChannels/auditLog presence — those can be pre-seeded by
+// bootDemoState or auto-detection without representing an unsaved clinician
+// edit, and using them produced the contradictory pill seen in the audit.
 function recordingStatus(state) {
   if (state.signOff) return { cls: 'signed-off', label: 'Signed off' };
   if (state.cleaningVersion) return { cls: 'cleaned', label: `Cleaned (v${state.cleaningVersion.version_number})` };
-  if (state.isDirty || (state.auditLog && state.auditLog.length > 0) || state.badChannels.size > 0 || state.rejectedSegments.length > 0) {
-    return { cls: 'in-progress', label: 'In progress' };
-  }
+  if (state.isDirty) return { cls: 'in-progress', label: 'In progress' };
   return { cls: 'untouched', label: 'Untouched' };
 }
 
 // ── Tool selector (left of trace) ─────────────────────────────
+// Each label is the human-readable tooltip + aria-label. Where a global
+// keyboard shortcut exists (see attachKeyboard: B/C/A), it is appended in
+// parens so clinicians can discover the shortcut without leaving the trace.
+// 'select' and 'measure' have no keyboard binding today (V is taken by view
+// mode toggle), so their labels stay shortcut-free.
 const QWB_TOOLS = [
-  { id: 'select',      label: 'Select',      glyph: '↖', testid: 'qwb-tool-select' },
-  { id: 'mark-segment', label: 'Mark bad segment', glyph: 'B', testid: 'qwb-tool-bad-segment' },
-  { id: 'mark-channel', label: 'Mark bad channel', glyph: 'C', testid: 'qwb-tool-bad-channel' },
-  { id: 'annotate',    label: 'Annotate',    glyph: '✎', testid: 'qwb-tool-annotate' },
-  { id: 'measure',     label: 'Measure',     glyph: '⇔', testid: 'qwb-tool-measure' },
+  { id: 'select',      label: 'Select',                  glyph: '↖', testid: 'qwb-tool-select' },
+  { id: 'mark-segment', label: 'Mark bad segment (B)',   glyph: 'B', testid: 'qwb-tool-bad-segment' },
+  { id: 'mark-channel', label: 'Mark bad channel (C)',   glyph: 'C', testid: 'qwb-tool-bad-channel' },
+  { id: 'annotate',    label: 'Annotate (A)',            glyph: '✎', testid: 'qwb-tool-annotate' },
+  { id: 'measure',     label: 'Measure',                 glyph: '⇔', testid: 'qwb-tool-measure' },
 ];
 
 function toolSelectorHtml(state) {
