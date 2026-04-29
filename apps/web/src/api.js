@@ -1869,6 +1869,45 @@ export const api = {
     apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/cleaning-config`),
   reprocessQEEGWithCleaning: (analysisId) =>
     apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/reprocess`, { method: 'POST' }),
+
+  // ── qEEG Raw Cleaning Workbench ────────────────────────────────────────────
+  // Decision-support only.  All mutations preserve original raw EEG and
+  // require clinician confirmation before AI suggestions become accepted.
+  getQEEGWorkbenchMetadata: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/metadata`),
+  getQEEGCleaningLog: (analysisId, limit = 200) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/cleaning-log?limit=${limit}`),
+  listQEEGCleaningAnnotations: (analysisId, params = {}) => {
+    const q = new URLSearchParams();
+    if (params.kind) q.set('kind', params.kind);
+    if (params.decisionStatus) q.set('decision_status', params.decisionStatus);
+    if (params.limit != null) q.set('limit', params.limit);
+    const qs = q.toString();
+    return apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/annotations${qs ? '?' + qs : ''}`);
+  },
+  createQEEGCleaningAnnotation: (analysisId, body) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/annotations`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  saveQEEGCleaningVersion: (analysisId, body) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/cleaning-version`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  listQEEGCleaningVersions: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/cleaning-versions`),
+  getQEEGRawVsCleanedSummary: (analysisId, cleaningVersionId) => {
+    const qs = cleaningVersionId ? `?cleaning_version_id=${encodeURIComponent(cleaningVersionId)}` : '';
+    return apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/raw-vs-cleaned-summary${qs}`);
+  },
+  generateQEEGAIArtefactSuggestions: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/ai-artefact-suggestions`, { method: 'POST' }),
+  rerunQEEGAnalysisWithCleaning: (analysisId, cleaningVersionId) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/rerun-analysis`, {
+      method: 'POST',
+      body: JSON.stringify({ cleaning_version_id: cleaningVersionId }),
+    }),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).

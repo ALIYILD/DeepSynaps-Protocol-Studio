@@ -1880,6 +1880,142 @@ class QEEGAnalysis(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+# ── qEEG Raw Cleaning Workbench (migration 058) ──────────────────────────────
+#
+# The clinical-decision-support workbench stores cleaning as a sibling of
+# the qEEG analysis row. The original raw EEG is *immutable* — every
+# cleaning action lives in these tables, scoped by analysis_id and audited.
+#
+# Three tables:
+#
+# * ``qeeg_cleaning_versions`` — one row per saved cleaning version.
+#   Holds the bad-channel list, rejected segments / epochs, ICA decisions,
+#   and a cleaned-summary blob. ``version_number`` increments per analysis.
+# * ``qeeg_cleaning_annotations`` — fine-grained per-action records (mark
+#   bad segment, mark bad channel, reject epoch, AI suggestion accepted,
+#   etc). One row per action regardless of which version persists it.
+# * ``qeeg_cleaning_audit_events`` — immutable audit log. Every mutation
+#   appends here; rows are never updated or deleted.
+#
+# Clinical safety: nothing in these tables is allowed to mutate raw EDF
+# bytes or the parent ``qeeg_analyses`` row's source columns. The
+# workbench router enforces this at the API edge.
+
+
+class QeegCleaningVersion(Base):
+    """A clinician-saved cleaning version of a qEEG analysis.
+
+    Original raw EEG is preserved on the parent ``QEEGAnalysis`` row.
+    Each ``QeegCleaningVersion`` is a derived overlay (annotations,
+    bad channels, rejected segments, ICA decisions). The workbench
+    re-runs analysis using the chosen version_id and links the new
+    analysis back via ``derived_analysis_id``.
+    """
+
+    __tablename__ = "qeeg_cleaning_versions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    analysis_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("qeeg_analyses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    version_number: Mapped[int] = mapped_column(Integer(), nullable=False, default=1)
+    label: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    bad_channels_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    rejected_segments_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    rejected_epochs_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    rejected_ica_components_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    interpolated_channels_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    cleaned_summary_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    review_status: Mapped[str] = mapped_column(String(30), nullable=False, default="draft")
+    derived_analysis_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    created_by_actor_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+
+class QeegCleaningAnnotation(Base):
+    """A single cleaning action (manual or AI-accepted) on an analysis.
+
+    Annotations belong to an analysis (not a version) so the timeline of
+    cleaning decisions survives across version saves.  A version can pin a
+    list of annotation_ids it incorporated via ``cleaned_summary_json``.
+    """
+
+    __tablename__ = "qeeg_cleaning_annotations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    analysis_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("qeeg_analyses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    kind: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    channel: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    start_sec: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    end_sec: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    ica_component: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    ai_confidence: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    ai_label: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    source: Mapped[str] = mapped_column(String(30), nullable=False, default="clinician")
+    decision_status: Mapped[str] = mapped_column(String(30), nullable=False, default="suggested")
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    actor_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+
+class QeegCleaningAuditEvent(Base):
+    """Immutable audit log row for every cleaning mutation.
+
+    Inserts only — never updated or deleted. The router writes one row
+    per mutating call: action_type, channel/segment/component if
+    applicable, previous_value/new_value (JSON snippets), actor, source.
+    """
+
+    __tablename__ = "qeeg_cleaning_audit_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    analysis_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("qeeg_analyses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    cleaning_version_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    action_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    channel: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    start_sec: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    end_sec: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    ica_component: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    previous_value_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    new_value_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    source: Mapped[str] = mapped_column(String(30), nullable=False, default="clinician")
+    actor_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), nullable=False, index=True
+    )
+
+
 class KgEntity(Base):
     """Knowledge-graph entity node (CONTRACT_V2.md §3 hypergraph).
 
