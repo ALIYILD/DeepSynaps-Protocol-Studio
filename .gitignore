@@ -49,6 +49,10 @@ apps/api/tests/local_*.py
 apps/api/tests/*_local.py
 apps/api/tests/e2e_*.py
 
+# ── Platform path artefacts ────────────────────────────────────────────────
+# Windows-style path leakage (e.g., from misconfigured path strings on Unix)
+C:/
+
 # Playwright
 playwright-report/
 test-results/
