@@ -53,6 +53,7 @@ from app.persistence.models import (
 from app.services.agents import cost_cap as cost_cap_service
 from app.services.agents import runner
 from app.services.agents import sla as sla_service
+from app.services.agents import usage_chart as usage_chart_service
 from app.services.agents.registry import (
     AGENT_REGISTRY,
     AgentAudience,
@@ -618,6 +619,77 @@ def ops_per_agent_sla(
     return AgentSlaResponse(
         since_hours=int(since_hours),
         rollup=[AgentSlaRow(**row) for row in rollup],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 13 — per-agent daily token + cost chart for the Activity tab
+# ---------------------------------------------------------------------------
+
+
+class UsageChartDay(BaseModel):
+    """One calendar-day bucket of per-agent token + cost rollup."""
+
+    date: str  # YYYY-MM-DD
+    runs: int
+    tokens_in: int
+    tokens_out: int
+    cost_pence: int
+
+
+class UsageChartAgent(BaseModel):
+    """Per-agent block with the zero-filled days array, sparkline-ready."""
+
+    agent_id: str
+    days: list[UsageChartDay]
+
+
+class UsageChartResponse(BaseModel):
+    since_days: int
+    agents: list[UsageChartAgent]
+
+
+@router.get("/usage-chart", response_model=UsageChartResponse)
+def get_usage_chart(
+    since_days: int = Query(14, ge=1, le=90),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> UsageChartResponse:
+    """Return per-agent daily token + cost rollup for the Activity tab.
+
+    Visibility
+    ----------
+    * Caller must be at least ``clinician`` (same audience as ``GET /runs``).
+    * Clinic-bound actors see only their tenant's audit rows.
+    * Super-admin actors (``actor.clinic_id is None``) see every clinic's
+      rows — same convention as the rest of the marketplace endpoints.
+
+    Window
+    ------
+    ``since_days`` clamped to ``[1, 90]`` by FastAPI; outside the range
+    returns 422. The helper zero-fills missing days so the sparkline has
+    a uniform x-axis.
+
+    Shape
+    -----
+    Sorted by total runs over the window DESC so the busiest agents
+    surface first in the dashboard. Empty data → ``{since_days, agents: []}``.
+    """
+    require_minimum_role(actor, "clinician")
+
+    # Tenant-scoped actors (clinicians + clinic-bound admins) only see
+    # their own clinic's rows. Cross-clinic super-admins (``clinic_id is
+    # None``) get the unfiltered view — same convention as the rest of
+    # the agent endpoints.
+    rollup = usage_chart_service.per_agent_daily_usage(
+        db,
+        since_days=since_days,
+        clinic_id=actor.clinic_id,
+    )
+
+    return UsageChartResponse(
+        since_days=int(since_days),
+        agents=[UsageChartAgent(**entry) for entry in rollup],
     )
 
 
