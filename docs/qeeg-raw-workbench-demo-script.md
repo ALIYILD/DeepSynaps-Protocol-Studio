@@ -107,3 +107,35 @@ raw EEG is unchanged.`
   delegated to the existing `qeeg-ai-panels` flow).
 - Durable undo/redo (currently expressed via corrective annotations).
 - CSV / MAT loader pass-through.
+
+---
+
+## UAT checklist (sign-off)
+
+The reviewer ticks every box, or the build is rejected for staging.
+
+- [ ] **Load data** — Analyzer Raw Data tab shows the launcher banner
+      with all four buttons; clicking *Open Raw EEG Workbench* lands
+      on the full-screen page within 1s; metadata loader populates
+      sample rate / duration / channel count.
+- [ ] **Mark artefacts** — Mark a bad channel (`B`), a bad segment
+      (`S`), and add a clinician annotation (`A`). The status bar
+      Bad / Rejected counters update; the audit tab shows three new
+      rows.
+- [ ] **Save version** — Click Save; status bar shows `Cleaning v1
+      draft`. Click again — `v2`. The audit tab shows two
+      `cleaning_version:save` rows.
+- [ ] **Re-run qEEG** — Click Re-run; status bar shows `rerun queued ·
+      raw EEG preserved`; audit tab shows
+      `cleaning_version:rerun_requested`.
+- [ ] **Verify audit** — `SELECT * FROM qeeg_cleaning_audit_events
+      WHERE analysis_id = '<id>'` returns one row per action with
+      actor_id and timestamp populated. No PHI columns.
+- [ ] **Verify PHI safety** — URL contains no patient name; the
+      `/metadata` response contains no `original_filename`; the AI
+      suggestion explanations contain no patient text.
+- [ ] **Tests pass** — `pytest apps/api/tests/test_qeeg_raw_workbench.py
+      -q` → 13 passed. The `pages-qeeg-raw-workbench` and
+      `qeeg-raw-workbench-launcher` node tests pass.
+
+When all boxes are ticked, the workbench is staging-ready.

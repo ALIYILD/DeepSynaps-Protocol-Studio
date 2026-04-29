@@ -56,3 +56,28 @@ Indexed on `analysis_id`, `cleaning_version_id`, `action_type`,
 
 Audit rows live as long as the parent `qeeg_analyses` row. Cascade
 delete on the FK clears them when the analysis is purged.
+
+## Verification (UAT)
+
+Spot-check the audit table after running the demo script:
+
+```sql
+SELECT action_type, source, actor_id, channel, start_sec, end_sec, created_at
+FROM   qeeg_cleaning_audit_events
+WHERE  analysis_id = '<analysis-id>'
+ORDER BY created_at;
+```
+
+Expected sequence after a typical workbench session:
+
+| action_type                          | source    | required field |
+|--------------------------------------|-----------|----------------|
+| `annotation:bad_channel`             | clinician | `channel`      |
+| `annotation:bad_segment`             | clinician | `start_sec`, `end_sec` |
+| `ai_suggestion:generated`            | ai        | `ai_label` (in `new_value_json`) |
+| `annotation:ai_suggestion`           | clinician | `decision_status` accept/reject |
+| `cleaning_version:save`              | clinician | `cleaning_version_id`  |
+| `cleaning_version:rerun_requested`   | clinician | `cleaning_version_id`  |
+
+Every row carries `actor_id` and `created_at`. PHI is **not** logged —
+no patient name, filename, or chat ID appears in any column.
