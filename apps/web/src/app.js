@@ -176,6 +176,8 @@ let _modQEEGRawWorkbench = null;
 async function loadQEEGRawWorkbench() { return (_modQEEGRawWorkbench ??= await import('./pages-qeeg-raw-workbench.js')); }
 let _modMRIAnalysis = null;
 async function loadMRIAnalysis() { return (_modMRIAnalysis ??= await import('./pages-mri-analysis.js')); }
+let _modFusionWorkbench = null;
+async function loadFusionWorkbench() { return (_modFusionWorkbench ??= await import('./pages-fusion-workbench.js')); }
 let _modMonitor = null;
 async function loadMonitor() { return (_modMonitor ??= await import('./pages-monitor.js')); }
 let _modDeviceDashboard = null;
@@ -470,6 +472,7 @@ const NAV = [
   { id: 'deeptwin',           label: 'Deeptwin',          icon: 'BT', ai: true },
   { id: 'monitor',            label: 'Devices',           icon: '🔌' },
   { id: 'mri-analysis',       label: 'MRI Analyzer',      icon: '🧠', ai: true },
+  { id: 'fusion-workbench',   label: 'Fusion Workbench',  icon: '⚖️', ai: true },
 
   // ── PROTOCOL ─────────────────────────────────────────────────────────────────
   { section: 'Protocol', sectionId: 'protocol', collapsed: false },
@@ -1516,6 +1519,7 @@ async function renderPage() {
     case 'qeeg-analysis':      { const m = await loadQEEGAnalysis(); await m.pgQEEGAnalysis(setTopbar, navigate); break; }
     case 'qeeg-raw-workbench': { const m = await loadQEEGRawWorkbench(); await m.pgQEEGRawWorkbench(setTopbar, navigate); break; }
     case 'mri-analysis':       { const m = await loadMRIAnalysis(); await m.pgMRIAnalysis(setTopbar, navigate); break; }
+    case 'fusion-workbench':   { const m = await loadFusionWorkbench(); await m.pgFusionWorkbench(setTopbar, navigate); break; }
     case 'patient-timeline':   { const m = await loadPatientTimeline(); await m.pgPatientTimeline(setTopbar, navigate); break; }
     case 'biomarkers':         { const m = await loadKnowledge(); await m.pgQEEGMaps(setTopbar); break; }
     case 'handbooks-v2':       { const m = await loadHandbooks(); await m.pgHandbooks(setTopbar); break; }

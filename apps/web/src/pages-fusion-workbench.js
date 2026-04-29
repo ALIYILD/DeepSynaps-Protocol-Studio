@@ -16,6 +16,17 @@
 
 import { api } from './api.js';
 
+// ── Feature flag ─────────────────────────────────────────────────────────────
+function _fusionFeatureFlagEnabled() {
+  try {
+    var v = (typeof window !== 'undefined' && window)
+      ? window.DEEPSYNAPS_ENABLE_FUSION_WORKBENCH
+      : (typeof globalThis !== 'undefined' ? globalThis.DEEPSYNAPS_ENABLE_FUSION_WORKBENCH : undefined);
+    if (v === false || v === 'false' || v === 0 || v === '0') return false;
+    return true;
+  } catch (_) { return true; }
+}
+
 // ── XSS escape ───────────────────────────────────────────────────────────────
 function esc(v) {
   if (v == null) return '';
@@ -369,6 +380,31 @@ export function renderFusionWorkbench(caseData, audits, cases, selectedId) {
   html += renderAuditTrail(audits);
   html += '</div>';
   return html;
+}
+
+// ── Page entrypoint ──────────────────────────────────────────────────────────
+export async function pgFusionWorkbench(setTopbar, navigate) {
+  if (typeof setTopbar === 'function') setTopbar('Fusion Workbench', '');
+  const el = (typeof document !== 'undefined') ? document.getElementById('content') : null;
+  if (!el) return;
+
+  if (!_fusionFeatureFlagEnabled()) {
+    el.innerHTML = '<div style="padding:24px;max-width:800px;margin:0 auto;">'
+      + '<div style="padding:24px;border-radius:12px;background:var(--surface-elevated);border:1px solid var(--border);text-align:center;">'
+      + '<div style="font-size:32px;margin-bottom:12px;">&#x2696;&#xFE0F;</div>'
+      + '<h2 style="margin:0 0 8px;">Fusion Workbench</h2>'
+      + '<p style="color:var(--text-secondary);margin:0;">Disabled by feature flag.</p>'
+      + '</div></div>';
+    return;
+  }
+
+  el.innerHTML = '<div id="fusion-workbench-root"></div>';
+
+  // Extract patient_id from URL if present
+  const params = new URLSearchParams(window.location.search);
+  const patientId = params.get('patient_id') || window._selectedPatientId || null;
+
+  mountFusionWorkbench('fusion-workbench-root', patientId);
 }
 
 // ── Wire event handlers ──────────────────────────────────────────────────────

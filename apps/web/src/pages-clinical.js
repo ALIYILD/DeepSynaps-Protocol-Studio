@@ -3249,7 +3249,7 @@ export async function pgProfile(setTopbar, navigate) {
   </div>
 
   <div class="tab-bar">
-    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'brain-twin', 'assessments', 'analytics', 'patient-dash', 'notes', 'phenotype', 'consent', 'monitoring', 'home-therapy'].map(t => {
+    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'brain-twin', 'fusion-workbench', 'assessments', 'analytics', 'patient-dash', 'notes', 'phenotype', 'consent', 'monitoring', 'home-therapy'].map(t => {
       const labels = {
         'overview':     'Dashboard',
         'courses':      'Treatment Courses',
@@ -3257,6 +3257,7 @@ export async function pgProfile(setTopbar, navigate) {
         'outcomes':     'Outcomes',
         'protocol':     'AI Protocol',
         'brain-twin':   'Deeptwin',
+        'fusion-workbench': 'Fusion',
         'assessments':  'Assessments',
         'analytics':    'Analytics',
         'patient-dash': 'Patient Dash',
@@ -3413,6 +3414,13 @@ export async function pgProfile(setTopbar, navigate) {
       window._profilePatientId = pt.id;
       try { sessionStorage.setItem('ds_pat_selected_id', pt.id); } catch {}
       window._nav('deeptwin');
+      return;
+    }
+    if (t === 'fusion-workbench') {
+      window._selectedPatientId = pt.id;
+      window._profilePatientId = pt.id;
+      try { sessionStorage.setItem('ds_pat_selected_id', pt.id); } catch {}
+      window._nav('fusion-workbench');
       return;
     }
     if (t === 'phenotype') {

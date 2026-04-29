@@ -38,6 +38,8 @@ Thumbs.db
 *.log
 *.tsbuildinfo
 .test_artifacts/
+apps/api/C:/
+.runtime-test-media/
 
 # ── Local test scratch / experiments ───────────────────────────────────────
 # Untracked local experiments must NOT be left as test_*.py in apps/api/tests

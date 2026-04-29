@@ -6736,6 +6736,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     finance:     { label: 'Finance',            icon: '\uD83D\uDCB0', page: 'finance-v2',       fetch: () => (api.finance?.summary?api.finance.summary():Promise.resolve(null)).catch(()=>null) },
     wearables:   { label: 'Wearable Data',      icon: '\u231A',       page: 'monitor',           fetch: () => (api.getClinicAlertSummary?api.getClinicAlertSummary():Promise.resolve(null)).catch(()=>null) },
     qeeg:        { label: 'qEEG Records',       icon: '\uD83C\uDF0A', page: 'qeeg-analysis',    fetch: () => (api.listQEEGRecords?api.listQEEGRecords():Promise.resolve({items:[]})).catch(()=>({items:[]})) },
+    fusion:      { label: 'Fusion Cases',       icon: '\u2696\uFE0F',  page: 'fusion-workbench', fetch: () => (api.listFusionCases?api.listFusionCases():Promise.resolve([])).catch(()=>[]) },
     aggregate:   { label: 'Outcome Aggregates', icon: '\uD83D\uDCC8', page: 'reports-hub',      fetch: () => (api.aggregateOutcomes?api.aggregateOutcomes():Promise.resolve({})).catch(()=>({})) },
   };
 
