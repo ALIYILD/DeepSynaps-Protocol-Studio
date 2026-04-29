@@ -5,43 +5,35 @@ test.describe('Patient Management', () => {
   test.beforeEach(async ({ page }) => {
     await setAuthToken(page);
 
-    // Mock auth/me
-    await page.route('**/api/v1/auth/me', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          id: 'test-user-1',
-          email: 'test@clinic.com',
-          display_name: 'Dr. Test User',
-          role: 'clinician',
-        }),
-      });
-    });
-
-    // Mock patients endpoint (with query params) — must be before catch-all
-    await page.route('**/api/v1/patients*', (route) => {
-      if (route.request().method() === 'GET') {
+    // Single catch-all: handle auth, patients, and everything else
+    await page.route('**/api/v1/**', (route) => {
+      const url = route.request().url();
+      if (url.includes('/auth/me')) {
         route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify([
-            { id: 'p1', first_name: 'Alice', last_name: 'Smith', primary_condition: 'ADHD', created_at: new Date().toISOString() },
-            { id: 'p2', first_name: 'Bob', last_name: 'Jones', primary_condition: 'Anxiety', created_at: new Date().toISOString() },
-          ]),
+          body: JSON.stringify({
+            id: 'test-user-1',
+            email: 'test@clinic.com',
+            display_name: 'Dr. Test User',
+            role: 'clinician',
+          }),
+        });
+      } else if (url.includes('/patients')) {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            items: [
+              { id: 'p1', first_name: 'Alice', last_name: 'Smith', primary_condition: 'ADHD', created_at: new Date().toISOString() },
+              { id: 'p2', first_name: 'Bob', last_name: 'Jones', primary_condition: 'Anxiety', created_at: new Date().toISOString() },
+            ],
+            total: 2,
+          }),
         });
       } else {
-        route.continue();
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
       }
-    });
-
-    // Catch-all for any other API calls
-    await page.route('**/api/v1/**', (route) => {
-      if (route.request().url().includes('/auth/me') || route.request().url().includes('/patients')) {
-        route.fallback();
-        return;
-      }
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
     });
   });
 

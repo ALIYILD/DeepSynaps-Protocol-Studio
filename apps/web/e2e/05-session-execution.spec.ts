@@ -5,15 +5,15 @@ test.describe('Session Execution', () => {
   test.beforeEach(async ({ page }) => {
     await setAuthToken(page);
 
-    await page.route('**/api/v1/auth/me', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ id: 'u1', email: 'tech@clinic.com', display_name: 'Tech User', role: 'technician' }),
-      });
-    });
-
     await page.route('**/api/v1/**', (route) => {
+      if (route.request().url().includes('/auth/me')) {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: 'u1', email: 'tech@clinic.com', display_name: 'Tech User', role: 'technician' }),
+        });
+        return;
+      }
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
     });
   });
