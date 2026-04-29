@@ -783,7 +783,9 @@ function clinicalCss() {
       font-size:11px; font-weight:500; cursor:pointer;
       display:flex; flex-direction:column; align-items:center; gap:2px;
     }
-    .qwb-tab.active { color:#1d6f7a; border-bottom-color:#1d6f7a; background:#F3EEE5; }
+    .qwb-tab.active,
+    .qwb-tab.is-active { color:#1d6f7a; border-bottom-color:#1d6f7a; background:#F3EEE5; font-weight:600; }
+    .qwb-tab.is-active { border-bottom-width:2px; }
     .qwb-tab .qwb-tab-badge {
       display:inline-block; min-width:16px; padding:1px 4px;
       background:#1d6f7a; color:#fff; border-radius:8px;
@@ -815,6 +817,52 @@ function clinicalCss() {
     .qwb-side-btn.ai:hover { background:#155a64; }
     .qwb-side-btn.ink { background:#1a1a1a; color:#FAF7F2; border-color:#1a1a1a; font-weight:500; }
     .qwb-side-btn.warn { background:#b8741a; color:#fff; border-color:#b8741a; }
+
+    /* ── ICA component grid (4 × 3) ──────────────────────────── */
+    .qwb-ica-grid {
+      display:grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap:8px;
+    }
+    .ica-comp {
+      position:relative;
+      display:flex; flex-direction:column; align-items:center; gap:3px;
+      padding:6px 4px 5px;
+      background:#FAF7F2; border:1px solid #d8d1c3; border-radius:5px;
+      cursor:pointer;
+      transition: border-color 0.12s ease, background 0.12s ease;
+    }
+    .ica-comp:hover { border-color:#1d6f7a; background:#fff; }
+    .ica-comp:focus { outline:2px solid #1d6f7a; outline-offset:1px; }
+    .ica-comp.is-rejected {
+      border-color:#b03434; background:#f9e0dd;
+    }
+    .ica-comp.is-rejected .ica-comp-label,
+    .ica-comp.is-rejected .ica-comp-badge {
+      text-decoration: line-through;
+      color:#b03434;
+    }
+    .ica-comp-topo { display:block; }
+    .ica-comp-label {
+      font-family:var(--qwb-mono); font-size:10.5px; font-weight:600;
+      color:#3a3633;
+    }
+    .ica-comp-badge {
+      display:inline-block; padding:1px 5px; border-radius:7px;
+      font-size:9px; font-weight:600; letter-spacing:0.04em;
+      border:1px solid;
+    }
+
+    /* ── Decision-support tooltip in status bar ──────────────── */
+    .qwb-decision-info {
+      display:inline-flex; align-items:center; justify-content:center;
+      width:14px; height:14px; border-radius:50%;
+      background:#1d6f7a; color:#FAF7F2;
+      font-family:var(--qwb-mono); font-size:9px; font-weight:700;
+      cursor:help; user-select:none;
+      margin-right:6px;
+    }
+    .qwb-decision-info:hover { background:#155a64; }
 
     /* ── Mini-map row ────────────────────────────────────────── */
     .qwb-minimap-row {
@@ -1080,11 +1128,6 @@ function clinicalCss() {
       border:1px solid #b8741a; border-radius:4px;
       font-size:11px; color:#7a4d10; margin-bottom:12px;
     }
-    .qwb-safety-footer {
-      margin-top:12px; padding:10px; background:#F3EEE5;
-      border:1px solid #d8d1c3; border-radius:4px;
-      font-size:11px; color:#3a3633; line-height:1.5;
-    }
   `;
 }
 
@@ -1208,13 +1251,13 @@ function channelGutterHtml(state) {
 function rightPanelHtml(state) {
   const aiPending = (state.aiSuggestions || []).filter(s => (s.decision_status || 'suggested') === 'suggested').length;
   const icaBad = state.rejectedICA ? state.rejectedICA.size : 0;
+  // 5-tab right panel — Cleaning / AI Review / Best-Practice / ICA / Audit.
   const tabs = [
-    { id: 'cleaning', label: 'Cleaning' },
-    { id: 'ai',       label: 'AI Review', badge: aiPending },
-    { id: 'help',     label: 'Best-Practice' },
-    { id: 'examples', label: 'Examples' },
-    { id: 'ica',      label: 'ICA',       badge: icaBad },
-    { id: 'log',      label: 'Audit' },
+    { id: 'cleaning', label: 'Cleaning',      testid: 'qwb-tab-cleaning' },
+    { id: 'ai',       label: 'AI Review',     testid: 'qwb-tab-ai',    badge: aiPending },
+    { id: 'help',     label: 'Best-Practice', testid: 'qwb-tab-bp' },
+    { id: 'ica',      label: 'ICA',           testid: 'qwb-tab-ica',   badge: icaBad },
+    { id: 'log',      label: 'Audit',         testid: 'qwb-tab-audit' },
   ];
   return `
   <aside id="qwb-right" class="qwb-right ${state.rightCollapsed ? 'collapsed' : ''}" data-testid="qwb-right">
@@ -1223,7 +1266,14 @@ function rightPanelHtml(state) {
       ${state.rightCollapsed ? '◀' : '▶'}
     </button>
     <div class="qwb-right-tabs" id="qwb-right-tabs" ${state.rightCollapsed ? 'style="display:none"' : ''}>
-      ${tabs.map(t => `<button class="qwb-tab ${state.rightTab===t.id?'active':''}" data-tab="${t.id}">${esc(t.label)}${t.badge ? `<span class="qwb-tab-count" data-tab-count="${t.id}">${t.badge}</span>` : ''}</button>`).join('')}
+      ${tabs.map(t => {
+        const active = state.rightTab === t.id;
+        // Explicit id="..." pins the testid to a stable element identity so
+        // selector-based test polyfills don't conflate this button with
+        // anonymous siblings registered at the same byte position in a
+        // different selector scan.
+        return `<button id="${t.testid}" class="qwb-tab${active ? ' is-active active' : ''}" data-tab="${t.id}" data-testid="${t.testid}">${esc(t.label)}${t.badge ? `<span class="qwb-tab-count" data-tab-count="${t.id}">${t.badge}</span>` : ''}</button>`;
+      }).join('')}
     </div>
     <div id="qwb-right-body" class="qwb-right-body" ${state.rightCollapsed ? 'style="display:none"' : ''}></div>
   </aside>`;
@@ -1340,8 +1390,10 @@ function topoMiniSvg({ id, label, range, accent }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function bottomBar(state) {
+  const decisionTooltip = 'Decision support only. Original raw EEG is preserved. All cleaning actions are saved to a separate version with full audit trail. AI suggestions require clinician confirmation before they take effect.';
   return `
   <div id="qwb-status" class="qwb-bottombar" data-testid="qwb-status">
+    <span class="qwb-decision-info" data-testid="qwb-decision-info" title="${esc(decisionTooltip)}" aria-label="${esc(decisionTooltip)}">i</span>
     <span class="qwb-stat">Time: <b id="qwb-st-time">--:--:--</b></span>
     <span class="qwb-stat">Window: <b id="qwb-st-window">0–${state.timebase}s</b></span>
     <span class="qwb-stat">Selected: <b id="qwb-st-sel">${esc(state.selectedChannel)}</b></span>
@@ -1507,6 +1559,7 @@ function signOffModal(state) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function redrawCanvas(state) {
+
   const canvas = document.getElementById('qwb-canvas');
   if (!canvas) return;
   const wrap = document.getElementById('qwb-canvas-wrap');
@@ -1861,10 +1914,13 @@ function renderRightPanel(state) {
   switch (state.rightTab) {
     case 'cleaning': body.innerHTML = renderCleaningPanel(state); attachCleaningPanelHandlers(state); break;
     case 'ai':       body.innerHTML = renderAIPanel(state);       attachAIPanelHandlers(state);       break;
+    // Best-Practice now hosts the cleaning quality score + checklist alongside
+    // the per-topic guidance and reference artefact examples.
     case 'help':     body.innerHTML = renderHelpPanel(state);     break;
-    case 'examples': body.innerHTML = renderExamplesPanel(state); break;
+    case 'examples': body.innerHTML = renderHelpPanel(state);     break; // legacy alias
     case 'ica':      body.innerHTML = renderICAPanel(state);      attachICAPanelHandlers(state);      break;
     case 'log':      body.innerHTML = renderAuditPanel(state);    attachAuditPanelHandlers(state);    break;
+    default:         body.innerHTML = renderCleaningPanel(state); attachCleaningPanelHandlers(state); break;
   }
 }
 
@@ -1933,11 +1989,6 @@ function renderCleaningPanel(state) {
         <button class="qwb-side-btn" data-action="raw-vs-cleaned">View Raw vs Cleaned</button>
         <button class="qwb-side-btn" data-action="return-report">Return to Report</button>
       </div>
-      <div class="qwb-safety-footer">
-        <strong>Decision-support only.</strong> Original raw EEG is preserved.
-        All cleaning actions are saved to a separate version with full audit trail.
-        AI suggestions require clinician confirmation before they take effect.
-      </div>
     </div>
     <div class="qwb-side-section">
       <h4><span class="qwb-letter">F</span>Bulk channel ops</h4>
@@ -1968,8 +2019,8 @@ function renderAIPanel(state) {
         <button class="qwb-side-btn ai" id="qwb-ai-generate" data-testid="qwb-ai-generate" style="padding:5px 10px">Generate</button>
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:11px;color:#3a3633">
-        <label for="qwb-ai-threshold" style="font-family:var(--qwb-mono);font-size:10px;color:#6b6660;text-transform:uppercase;letter-spacing:0.04em">Threshold</label>
-        <input id="qwb-ai-threshold" data-testid="qwb-ai-threshold" type="range" min="0.5" max="1" step="0.01" value="${threshold}" style="flex:1;accent-color:#1d6f7a" />
+        <label for="qwb-ai-threshold" style="font-family:var(--qwb-mono);font-size:10px;color:#6b6660;text-transform:uppercase;letter-spacing:0.04em">Confidence threshold</label>
+        <input id="qwb-ai-threshold" data-testid="qwb-threshold-slider" type="range" min="0" max="100" step="5" value="${Math.round(threshold * 100)}" style="flex:1;accent-color:#1d6f7a" />
         <span style="font-family:var(--qwb-mono);font-size:11px;font-weight:600;color:#1d6f7a;min-width:34px;text-align:right">${Math.round(threshold * 100)}%</span>
       </div>
       ${hidden > 0 ? `<div style="font-size:10px;color:#6b6660;margin-bottom:8px">${hidden} suggestion${hidden === 1 ? '' : 's'} hidden by threshold</div>` : ''}
@@ -2025,9 +2076,18 @@ function renderHelpPanel(state) {
   var gradeBg   = r.score >= 80 ? '#d6e8d6' : r.score >= 60 ? '#f6e6cb' : '#f3d4d0';
   var readyPill = r.readiness === 'Ready' ? '#2f6b3a' : r.readiness === 'Needs review' ? '#b8741a' : '#b03434';
   var readyBg   = r.readiness === 'Ready' ? '#d6e8d6' : r.readiness === 'Needs review' ? '#f6e6cb' : '#f3d4d0';
+  var notchOn = state.notch && state.notch !== 'Off';
+  var checklist = [
+    { label: 'Notch filter applied',  done: !!notchOn },
+    { label: 'Bad channels marked',   done: state.badChannels.size > 0 },
+    { label: 'Bad epochs rejected',   done: state.rejectedSegments.length > 0 },
+    { label: 'ICA reviewed',          done: state.rejectedICA.size > 0 || (state.ica && state.ica.components && state.ica.components.length > 0) },
+    { label: 'Visual scan complete',  done: (state.auditLog || []).length > 0 },
+    { label: 'Saved cleaned version', done: !!state.cleaningVersion },
+  ];
   return `
     <div class="qwb-side-section">
-      <h4>Report Readiness</h4>
+      <h4>Cleaning quality score</h4>
       <div class="qwb-bp-score">
         <span class="qwb-bp-score-num" data-testid="qwb-bp-score">${r.score}</span>
         <span style="font-size:14px;color:#6b6660">/ 100</span>
@@ -2064,6 +2124,9 @@ function renderHelpPanel(state) {
           <div style="font-weight:600;font-size:14px">${r.artifactBurden}/${r.totalArtifacts}</div>
         </div>
       </div>
+      <ul class="qwb-bp-checklist" data-testid="qwb-bp-checklist" style="list-style:none;padding:0;margin:12px 0 0;display:flex;flex-direction:column;gap:6px">
+        ${checklist.map(c => `<li style="display:flex;align-items:center;gap:8px;font-size:12px;color:${c.done ? '#1a1a1a' : '#6b6660'}"><span aria-hidden="true" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:${c.done ? '#d6e8d6' : 'transparent'};border:1px solid ${c.done ? '#2f6b3a' : '#bdb5a2'};color:#2f6b3a;font-size:11px;font-weight:700;line-height:1">${c.done ? '✓' : '○'}</span><span>${esc(c.label)}</span></li>`).join('')}
+      </ul>
     </div>
     <div class="qwb-side-section">
       <div style="font-weight:600;font-size:13px;margin-bottom:8px">Best-Practice Helper</div>
@@ -2095,43 +2158,66 @@ function renderExamplesPanel(state) {
 }
 
 function renderICAPanel(state) {
-  if (!state.ica || !state.ica.components || state.ica.components.length === 0) {
-    return `
-      <div class="qwb-side-section">
-        <div style="font-weight:600;font-size:13px;margin-bottom:8px">ICA Review</div>
-        <div class="qwb-card" style="text-align:center;color:#6b6660;font-size:12px">
-          ICA decomposition not available for this analysis yet.<br><br>
-          Run preprocessing or click <em>Re-run qEEG analysis</em> to generate ICA components.
-        </div>
-      </div>`;
+  // Normalise component list — pad to 12 cells so the 4×3 grid is always
+  // present even when the backend returns fewer components.
+  const fromApi = (state.ica && Array.isArray(state.ica.components)) ? state.ica.components : [];
+  const cells = [];
+  for (let i = 0; i < 12; i++) {
+    const real = fromApi[i];
+    if (real) {
+      cells.push({ index: real.index, label: real.label || 'unknown', placeholder: false });
+    } else {
+      cells.push({ index: i, label: ['Brain','Eye','Muscle','Mixed'][i % 4].toLowerCase(), placeholder: true });
+    }
   }
   const flagged = state.rejectedICA.size;
+  const hasReal = fromApi.length > 0;
+  const grid = cells.map((c, slot) => {
+    const isBad = state.rejectedICA.has(c.index);
+    const badge = labelToICABadge(c.label);
+    const dispLabel = hasReal ? `IC ${c.index}` : `IC${slot + 1}`;
+    return `<button class="ica-comp${isBad ? ' is-rejected' : ''}" data-comp="${slot + 1}" data-ica-toggle="${esc(c.index)}" data-ic-label="${esc(c.label)}" aria-label="${esc(dispLabel)} ${esc(badge.label)}">${icaTopomapSvg(slot, badge.color)}<span class="ica-comp-label">${esc(dispLabel)}</span><span class="ica-comp-badge" style="background:${badge.bg};color:${badge.color};border-color:${badge.color}">${esc(badge.label)}</span></button>`;
+  }).join('');
+  const placeholderNote = hasReal ? '' : `<div class="qwb-card" style="text-align:center;color:#6b6660;font-size:11px;margin-bottom:8px">ICA decomposition not available yet — preview grid shown. Run preprocessing or click <em>Re-run qEEG analysis</em> to generate real components.</div>`;
   return `
     <div class="qwb-side-section">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <div style="font-weight:600;font-size:13px">ICA Components (${state.ica.n_components || state.ica.components.length})</div>
+        <div style="font-weight:600;font-size:13px">ICA Components (${hasReal ? (state.ica.n_components || fromApi.length) : 12})</div>
         <span style="font-family:var(--qwb-mono);font-size:10px;color:#b03434">${flagged} flagged</span>
       </div>
-      <div style="font-size:10.5px;color:#6b6660;margin-bottom:10px;line-height:1.5">
-        AI classified each component. Click Reject / Restore to flag or unflag for removal.
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-      ${state.ica.components.slice(0, 30).map(c => {
-        const isBad = state.rejectedICA.has(c.index);
-        return `
-        <div class="qwb-card" style="${isBad?'border-color:#b03434;background:#f3d4d0':''};margin-bottom:0;padding:8px">
-          <div style="font-weight:600;font-size:11px">IC ${esc(c.index)}</div>
-          <div style="font-size:10px;color:#6b6660;margin-bottom:4px">${esc(c.label || 'unknown')}</div>
-          <button class="qwb-side-btn" data-ica-toggle="${esc(c.index)}" style="font-size:10px;padding:4px 6px">${isBad ? 'Restore' : 'Reject'}</button>
-        </div>`;
-      }).join('')}
-      </div>
+      <div style="font-size:10.5px;color:#6b6660;margin-bottom:10px;line-height:1.5">AI classified each component. Click a tile to flag / restore for removal.</div>
+      <button class="qwb-side-btn ai full" id="qwb-ica-run" style="margin-bottom:10px">Run ICA decomposition</button>
+      ${placeholderNote}
+      <div class="qwb-ica-grid" data-testid="qwb-ica-grid">${grid}</div>
     </div>
     <div class="qwb-side-section">
-      <button class="qwb-side-btn ai full" id="qwb-ica-apply" data-action="apply-ica" data-testid="qwb-ica-apply" style="width:100%">
-        Apply: remove ${flagged} component${flagged === 1 ? '' : 's'}
-      </button>
+      <button class="qwb-side-btn ai full" id="qwb-ica-apply" data-action="apply-ica" data-testid="qwb-ica-apply" style="width:100%">Apply ICA cleaning · remove ${flagged} component${flagged === 1 ? '' : 's'}</button>
     </div>`;
+}
+
+// Map ICA classifier labels to one of four canonical buckets the user-facing
+// grid surfaces (Brain / Eye / Muscle / Mixed) plus its accent colour.
+function labelToICABadge(label) {
+  const k = String(label || '').toLowerCase();
+  if (k.includes('eye') || k.includes('blink') || k.includes('saccade')) return { label: 'Eye',    color: '#1d6f7a', bg: '#d6ebee' };
+  if (k.includes('muscle') || k.includes('emg'))                          return { label: 'Muscle', color: '#b8741a', bg: '#f6e6cb' };
+  if (k.includes('brain') || k === 'unknown' || k === '')                 return { label: 'Brain',  color: '#2f6b3a', bg: '#d6e8d6' };
+  return { label: 'Mixed', color: '#5a2f8a', bg: '#e6d8f3' };
+}
+
+// Inline 60×60 placeholder topomap. Varies a teal/red dipole pair by slot so
+// the grid reads as 12 distinct components even without a real backend payload.
+function icaTopomapSvg(slot, accent) {
+  const W = 60, H = 60;
+  const ax = 18 + ((slot * 7) % 24);
+  const ay = 18 + ((slot * 11) % 24);
+  const bx = 60 - ax;
+  const by = 60 - ay;
+  const r1 = 10 + (slot % 5) * 2;
+  const r2 = 8  + ((slot + 3) % 4) * 2;
+  const teal = '#1d6f7a';
+  const red  = '#b03434';
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true" class="ica-comp-topo"><defs><radialGradient id="ica-pos-${slot}" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="${teal}" stop-opacity="0.85"/><stop offset="100%" stop-color="${teal}" stop-opacity="0"/></radialGradient><radialGradient id="ica-neg-${slot}" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="${red}" stop-opacity="0.7"/><stop offset="100%" stop-color="${red}" stop-opacity="0"/></radialGradient><clipPath id="ica-clip-${slot}"><ellipse cx="${W/2}" cy="${H/2}" rx="${W/2 - 2}" ry="${H/2 - 2}"/></clipPath></defs><ellipse cx="${W/2}" cy="${H/2}" rx="${W/2 - 2}" ry="${H/2 - 2}" fill="#FAF7F2" stroke="${accent || '#a39d94'}" stroke-width="0.8"/><g clip-path="url(#ica-clip-${slot})"><circle cx="${ax}" cy="${ay}" r="${r1}" fill="url(#ica-pos-${slot})"/><circle cx="${bx}" cy="${by}" r="${r2}" fill="url(#ica-neg-${slot})"/></g><path d="M ${W/2 - 3} 4 L ${W/2} 1 L ${W/2 + 3} 4" fill="none" stroke="#a39d94" stroke-width="0.8"/></svg>`;
 }
 
 function renderAuditPanel(state) {
@@ -2150,7 +2236,7 @@ function renderAuditPanel(state) {
         </div>
       </div>
     </div>
-    <div class="qwb-side-section">
+    <div class="qwb-side-section" data-testid="qwb-audit-log">
       <div style="font-weight:600;font-size:13px;margin-bottom:8px">Cleaning Audit Trail</div>
       ${items.length === 0
         ? `<div style="color:#6b6660;font-size:12px;padding:18px 0;text-align:center">No audit events recorded yet.</div>`
@@ -2684,11 +2770,21 @@ function attachRightPanel(state) {
   document.querySelectorAll('.qwb-tab').forEach(b => {
     b.addEventListener('click', () => {
       state.rightTab = b.dataset.tab;
-      document.querySelectorAll('.qwb-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === state.rightTab));
+      syncTabActive(state);
       renderRightPanel(state);
     });
   });
   renderRightPanel(state);
+}
+
+// Toggle both .active (legacy) and .is-active (new) so tab styling and any
+// downstream selectors stay aligned.
+function syncTabActive(state) {
+  document.querySelectorAll('.qwb-tab').forEach(t => {
+    const on = t.dataset.tab === state.rightTab;
+    t.classList.toggle('active', on);
+    t.classList.toggle('is-active', on);
+  });
 }
 
 function attachStatusBar(state) {
@@ -2721,7 +2817,10 @@ function attachAIPanelHandlers(state) {
   const slider = document.getElementById('qwb-ai-threshold');
   if (slider) {
     slider.addEventListener('input', (e) => {
-      state.aiThreshold = parseFloat(e.target.value);
+      // Slider is 0-100 (percent). Internally we still keep aiThreshold as a
+      // 0-1 fraction so the existing filter / accept-all logic is unchanged.
+      const raw = parseFloat(e.target.value);
+      state.aiThreshold = raw > 1 ? (raw / 100) : raw;
       renderRightPanel(state);
       redrawCanvas(state);
     });
@@ -2731,6 +2830,14 @@ function attachAIPanelHandlers(state) {
 function attachICAPanelHandlers(state) {
   document.querySelectorAll('#qwb-right-body [data-ica-toggle]').forEach(b => {
     b.addEventListener('click', () => toggleICAComponent(state, parseInt(b.dataset.icaToggle, 10)));
+    if (b.classList && b.classList.contains && b.classList.contains('ica-comp')) {
+      b.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          toggleICAComponent(state, parseInt(b.dataset.icaToggle, 10));
+        }
+      });
+    }
   });
 }
 

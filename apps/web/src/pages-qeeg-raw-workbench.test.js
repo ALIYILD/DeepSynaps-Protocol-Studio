@@ -187,12 +187,68 @@ await test('channel rail renders the 19-channel 10-20 montage (no ECG)', () => {
 
 // ── Right panel: tabs + collapsible ─────────────────────────────────────────
 
-await test('right panel exposes all six tabs and collapse toggle', () => {
+await test('right panel exposes all five tabs and collapse toggle', () => {
   const html = root.innerHTML;
-  for (const tab of ['Cleaning','AI Review','Best-Practice','Examples','ICA','Audit']) {
+  for (const tab of ['Cleaning','AI Review','Best-Practice','ICA','Audit']) {
     assert.ok(html.includes(tab), 'tab: ' + tab);
   }
   assert.ok(html.includes('data-testid="qwb-right-toggle"'), 'collapsible toggle present');
+});
+
+await test('right panel tabs each carry a testid + the new is-active class hook', () => {
+  const html = root.innerHTML;
+  for (const tid of ['qwb-tab-cleaning','qwb-tab-ai','qwb-tab-bp','qwb-tab-ica','qwb-tab-audit']) {
+    assert.ok(html.includes('data-testid="' + tid + '"'), 'tab testid: ' + tid);
+  }
+  // The default active tab carries the new is-active class hook for styling.
+  assert.ok(/qwb-tab[^"]*is-active[^"]*"\s+data-tab="cleaning"/.test(html),
+    'default Cleaning tab marked is-active');
+});
+
+await test('AI Review tab declares the threshold-slider testid in source', () => {
+  assert.ok(WORKBENCH_SRC.includes('data-testid="qwb-threshold-slider"'),
+    'qwb-threshold-slider testid present in source');
+  assert.ok(WORKBENCH_SRC.includes('Confidence threshold'),
+    'Confidence threshold label present');
+});
+
+await test('ICA panel declares the 12-cell grid testid + Brain/Eye/Muscle/Mixed badges', () => {
+  assert.ok(WORKBENCH_SRC.includes('data-testid="qwb-ica-grid"'), 'qwb-ica-grid testid');
+  assert.ok(WORKBENCH_SRC.includes('class="ica-comp'), 'ica-comp tile class');
+  assert.ok(WORKBENCH_SRC.includes('is-rejected'), 'is-rejected toggle class');
+  for (const badge of ['Brain','Eye','Muscle','Mixed']) {
+    assert.ok(WORKBENCH_SRC.includes(`label: '${badge}'`),
+      'ICA badge bucket: ' + badge);
+  }
+  assert.ok(WORKBENCH_SRC.includes('Run ICA decomposition'), 'Run ICA decomposition button');
+  assert.ok(WORKBENCH_SRC.includes('Apply ICA cleaning'), 'Apply ICA cleaning button');
+});
+
+await test('decision-support disclaimer lives in the status bar tooltip, not the panel', () => {
+  const html = root.innerHTML;
+  assert.ok(html.includes('data-testid="qwb-decision-info"'), 'qwb-decision-info icon present');
+  // The full disclaimer text must appear inside a title="" attribute, not as
+  // panel body copy.
+  assert.ok(html.includes('Decision support only.'), 'disclaimer text in status-bar tooltip');
+  assert.ok(!html.includes('qwb-safety-footer'), 'old safety-footer block removed from cleaning panel');
+});
+
+await test('Best-Practice tab includes the cleaning quality checklist', () => {
+  for (const item of [
+    'Notch filter applied',
+    'Bad channels marked',
+    'Bad epochs rejected',
+    'ICA reviewed',
+    'Visual scan complete',
+    'Saved cleaned version',
+  ]) {
+    assert.ok(WORKBENCH_SRC.includes(item), 'checklist row: ' + item);
+  }
+  assert.ok(WORKBENCH_SRC.includes('data-testid="qwb-bp-checklist"'), 'checklist testid');
+});
+
+await test('Audit tab declares the audit-log testid', () => {
+  assert.ok(WORKBENCH_SRC.includes('data-testid="qwb-audit-log"'), 'audit-log testid');
 });
 
 await test('cleaning tools panel renders all four sections', () => {
@@ -208,7 +264,9 @@ await test('cleaning tools panel renders all four sections', () => {
   assert.ok(html.includes('Save Cleaning Version'), 'save reprocess button');
   assert.ok(html.includes('Re-run qEEG analysis'), 'rerun reprocess button');
   assert.ok(html.includes('Return to Report'), 'return-to-report button in panel');
-  assert.ok(html.includes('Decision-support only'), 'safety footer');
+  // Decision-support disclaimer no longer lives inside the cleaning panel —
+  // it has moved to the status-bar tooltip (qwb-decision-info).
+  assert.ok(!html.includes('Decision-support only'), 'safety footer moved out of cleaning panel');
 });
 
 // ── Source-level checks for tabs that only render after a click ─────────────
