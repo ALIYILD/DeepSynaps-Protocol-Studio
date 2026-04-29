@@ -146,6 +146,84 @@ function readModeFromHash() {
   return m ? m[1] : null;
 }
 
+// Canonical 9-artefact demo seed (matches AI_ARTIFACTS in RAW DATA/data.jsx).
+// Used by bootDemoState() on initial load and by generateAISuggestions() when
+// the clinician re-clicks "Generate" in demo mode.
+function buildDemoAISuggestions(timebase) {
+  return [
+    { id: 'a1', ai_label: 'eye_blink', ai_confidence: 0.96, channel: 'Fp1-Av',
+      start_sec: 0.7, end_sec: 1.2,
+      explanation: 'Bilateral frontopolar deflection, ~120 µV.',
+      suggested_action: 'review_ica', decision_status: 'suggested' },
+    { id: 'a2', ai_label: 'muscle', ai_confidence: 0.88, channel: 'T3-Av',
+      start_sec: 2.2, end_sec: 2.8,
+      explanation: 'Bilateral temporal high-frequency burst.',
+      suggested_action: 'mark_bad_segment', decision_status: 'suggested' },
+    { id: 'a3', ai_label: 'eye_blink', ai_confidence: 0.94, channel: 'Fp2-Av',
+      start_sec: 3.7, end_sec: 4.2,
+      explanation: 'Frontopolar single blink.',
+      suggested_action: 'review_ica', decision_status: 'suggested' },
+    { id: 'a4', ai_label: 'movement', ai_confidence: 0.79, channel: 'all',
+      start_sec: 5.0, end_sec: 5.8,
+      explanation: 'Whole-head low-frequency drift.',
+      suggested_action: 'mark_bad_segment', decision_status: 'suggested' },
+    { id: 'a5', ai_label: 'line_noise', ai_confidence: 0.91, channel: 'T4-Av',
+      start_sec: 6.5, end_sec: 9.4,
+      explanation: 'T4 — recommend notch filter or interpolate.',
+      suggested_action: 'ignore', decision_status: 'suggested' },
+    { id: 'a6', ai_label: 'muscle', ai_confidence: 0.72, channel: 'T6-Av',
+      start_sec: 7.4, end_sec: 7.9,
+      explanation: 'Posterior temporal jaw clench.',
+      suggested_action: 'mark_bad_segment', decision_status: 'suggested' },
+    { id: 'a7', ai_label: 'eye_blink', ai_confidence: 0.92, channel: 'Fp1-Av',
+      start_sec: 8.5, end_sec: 8.9,
+      explanation: 'Frontopolar.',
+      suggested_action: 'review_ica', decision_status: 'suggested' },
+    { id: 'a8', ai_label: 'sweat', ai_confidence: 0.83, channel: 'F3-Av',
+      start_sec: 9.8, end_sec: 11.4,
+      explanation: 'F3 — slow rising baseline.',
+      suggested_action: 'ignore', decision_status: 'suggested' },
+    { id: 'a9', ai_label: 'flat', ai_confidence: 0.99, channel: 'C4-Av',
+      start_sec: 0, end_sec: timebase,
+      explanation: 'C4 — no signal detected; recommend exclude or interpolate.',
+      suggested_action: 'mark_bad_channel', decision_status: 'suggested' },
+  ];
+}
+
+// Seed the demo workbench: 9 candidate artefacts at 70% threshold, C4 marked
+// as flat / bad, and Eyes Closed / Photic 6 Hz event markers. Idempotent —
+// safe to re-call (e.g. on re-mount) without duplicating state.
+//
+// NOTE: real-data flows skip this entirely. `pgQEEGRawWorkbench` only calls
+// `bootDemoState` when `state.isDemo === true`.
+export function bootDemoState(state) {
+  if (!state || state._demoSeeded) return;
+  state._demoSeeded = true;
+
+  // 1) AI artefact suggestions — populate ≥9 items at confidence threshold 70%.
+  if (!Array.isArray(state.aiSuggestions) || state.aiSuggestions.length === 0) {
+    state.aiSuggestions = buildDemoAISuggestions(state.timebase || 10);
+  }
+
+  // 2) Pre-mark C4 as a flat / bad channel so the channel rail picks up the
+  //    .qwb-bad-channel hatching on first render. Channel ids in this page
+  //    are of the form 'C4-Av' (DEFAULT_CHANNELS).
+  if (state.badChannels && typeof state.badChannels.add === 'function') {
+    state.badChannels.add('C4-Av');
+  }
+
+  // 3) Inject the two canonical demo events. The mini-map / inline trace
+  //    renderers consume the module-level EVENT_TIMELINE constant for the
+  //    full recording timeline; state.events is the per-session list a
+  //    clinician (or future detector) can append to.
+  if (Array.isArray(state.events) && state.events.length === 0) {
+    state.events.push(
+      { t:  60, kind: 'eyes-closed', label: 'Eyes Closed' },
+      { t: 240, kind: 'photic',      label: 'Photic 6 Hz' },
+    );
+  }
+}
+
 // Recording-level event timeline for the mini-map / inline trace markers.
 // Mirrors the design source's MiniMap eventMarkers + inline labels.
 const EVENT_TIMELINE = [
@@ -282,7 +360,17 @@ export async function pgQEEGRawWorkbench(setTopbar, navigate) {
     aiThreshold: 0.7,       // confidence threshold filter for AI Review
     aiCursor: 0,            // J/K artefact navigation index
     signOff: null,          // { signedBy, signedAt, notes, readinessScore }
+    // Recording-event timeline — separate from the constant EVENT_TIMELINE so
+    // demo seeding can pre-populate Eyes Closed / Photic markers without
+    // mutating module-level state.
+    events: [],
+    _demoSeeded: false,
   };
+
+  // Pre-shell: seed the demo state so the very first render shows the canonical
+  // "9 candidate artefacts at 70% threshold + flat C4 + Eyes Closed / Photic
+  // 6 Hz markers" demo state described in the chat-transcript spec.
+  if (state.isDemo) bootDemoState(state);
 
   const beforeUnload = (e) => {
     if (state.isDirty) {
@@ -661,6 +749,14 @@ function clinicalCss() {
       padding:1px 5px; border-radius:2px;
       color:#fff; pointer-events:none; z-index:6;
       white-space:nowrap;
+    }
+    /* ── Bad-channel hatching (demo seed + clinician-marked) ─── */
+    .qwb-bad-channel {
+      background: repeating-linear-gradient(45deg,
+        transparent 0,
+        transparent 6px,
+        rgba(176,52,52,0.15) 6px,
+        rgba(176,52,52,0.15) 12px);
     }
 
     /* ── Right panel ─────────────────────────────────────────── */
@@ -1093,7 +1189,7 @@ function channelGutterHtml(state) {
   const rows = DEFAULT_CHANNELS.map(ch => {
     const isBad = state.badChannels.has(ch);
     const isSel = state.selectedChannel === ch;
-    return `<div class="qwb-ch-row ${isBad?'bad':''} ${isSel?'active':''}" data-channel="${esc(ch)}">
+    return `<div class="qwb-ch-row ${isBad?'bad qwb-bad-channel':''} ${isSel?'active':''}" data-channel="${esc(ch)}">
       <span class="qwb-ch-name">${esc(ch)}${isBad?' ⚠':''}</span>
       <span class="qwb-ch-scale">${state.gain} µV/cm</span>
     </div>`;
@@ -2956,44 +3052,7 @@ async function postAnnotation(state, body) {
 async function generateAISuggestions(state) {
   if (state.isDemo) {
     // 9 demo suggestions matching AI_ARTIFACTS in RAW DATA/data.jsx.
-    state.aiSuggestions = [
-      { id: 'a1', ai_label: 'eye_blink', ai_confidence: 0.96, channel: 'Fp1-Av',
-        start_sec: 0.7, end_sec: 1.2,
-        explanation: 'Bilateral frontopolar deflection, ~120 µV.',
-        suggested_action: 'review_ica', decision_status: 'suggested' },
-      { id: 'a2', ai_label: 'muscle', ai_confidence: 0.88, channel: 'T3-Av',
-        start_sec: 2.2, end_sec: 2.8,
-        explanation: 'Bilateral temporal high-frequency burst.',
-        suggested_action: 'mark_bad_segment', decision_status: 'suggested' },
-      { id: 'a3', ai_label: 'eye_blink', ai_confidence: 0.94, channel: 'Fp2-Av',
-        start_sec: 3.7, end_sec: 4.2,
-        explanation: 'Frontopolar single blink.',
-        suggested_action: 'review_ica', decision_status: 'suggested' },
-      { id: 'a4', ai_label: 'movement', ai_confidence: 0.79, channel: 'all',
-        start_sec: 5.0, end_sec: 5.8,
-        explanation: 'Whole-head low-frequency drift.',
-        suggested_action: 'mark_bad_segment', decision_status: 'suggested' },
-      { id: 'a5', ai_label: 'line_noise', ai_confidence: 0.91, channel: 'T4-Av',
-        start_sec: 6.5, end_sec: 9.4,
-        explanation: 'T4 — recommend notch filter or interpolate.',
-        suggested_action: 'ignore', decision_status: 'suggested' },
-      { id: 'a6', ai_label: 'muscle', ai_confidence: 0.72, channel: 'T6-Av',
-        start_sec: 7.4, end_sec: 7.9,
-        explanation: 'Posterior temporal jaw clench.',
-        suggested_action: 'mark_bad_segment', decision_status: 'suggested' },
-      { id: 'a7', ai_label: 'eye_blink', ai_confidence: 0.92, channel: 'Fp1-Av',
-        start_sec: 8.5, end_sec: 8.9,
-        explanation: 'Frontopolar.',
-        suggested_action: 'review_ica', decision_status: 'suggested' },
-      { id: 'a8', ai_label: 'sweat', ai_confidence: 0.83, channel: 'F3-Av',
-        start_sec: 9.8, end_sec: 11.4,
-        explanation: 'F3 — slow rising baseline.',
-        suggested_action: 'ignore', decision_status: 'suggested' },
-      { id: 'a9', ai_label: 'flat', ai_confidence: 0.99, channel: 'C4-Av',
-        start_sec: 0, end_sec: state.timebase,
-        explanation: 'C4 — no signal detected; recommend exclude or interpolate.',
-        suggested_action: 'mark_bad_channel', decision_status: 'suggested' },
-    ];
+    state.aiSuggestions = buildDemoAISuggestions(state.timebase);
     if (state.rightTab === 'ai') renderRightPanel(state);
     refreshTabBadges(state);
     redrawCanvas(state); renderStatusBar(state);
