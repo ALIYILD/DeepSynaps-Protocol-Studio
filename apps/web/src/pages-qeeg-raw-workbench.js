@@ -1136,7 +1136,7 @@ function renderRightPanel(state) {
     case 'ai':       body.innerHTML = renderAIPanel(state);       attachAIPanelHandlers(state);       break;
     case 'help':     body.innerHTML = renderHelpPanel(state);     break;
     case 'examples': body.innerHTML = renderExamplesPanel(state); break;
-    case 'ica':      body.innerHTML = renderICAPanel(state);      break;
+    case 'ica':      body.innerHTML = renderICAPanel(state);      attachICAPanelHandlers(state);      break;
     case 'log':      body.innerHTML = renderAuditPanel(state);    break;
   }
 }
@@ -1344,11 +1344,62 @@ function renderRerunNotice(state) {
 
 function attachTitleBar(state, navigate) {
   document.querySelectorAll('.qwb-menu-btn').forEach(b => {
-    b.addEventListener('click', () => {
-      state.saveStatus = `${b.dataset.menu} menu (coming soon)`;
-      renderStatusBar(state);
-    });
+    b.addEventListener('click', () => handleTitleMenu(state, b.dataset.menu, navigate));
   });
+}
+
+function handleTitleMenu(state, menu, navigate) {
+  switch (menu) {
+    case 'File':      return toggleExport(state, true);
+    case 'Edit':      state.rightTab = 'cleaning'; document.querySelectorAll('.qwb-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'cleaning')); return renderRightPanel(state);
+    case 'View':      return toggleRightPanel(state);
+    case 'Format':    state.rightTab = 'cleaning'; document.querySelectorAll('.qwb-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'cleaning')); return renderRightPanel(state);
+    case 'Recording': return loadRawVsCleaned(state);
+    case 'Analysis':  return rerunAnalysis(state);
+    case 'Setup':     state.rightTab = 'ica'; document.querySelectorAll('.qwb-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'ica')); return renderRightPanel(state);
+    case 'Window':    state.rightTab = 'log'; document.querySelectorAll('.qwb-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'log')); return renderRightPanel(state);
+    case 'Help':      return toggleShortcuts(state, true);
+    default:
+      state.saveStatus = `${menu} menu (no action)`;
+      renderStatusBar(state);
+  }
+}
+
+function toggleRightPanel(state) {
+  state.rightCollapsed = !state.rightCollapsed;
+  const right = document.getElementById('qwb-right');
+  const tabs = document.getElementById('qwb-right-tabs');
+  const body = document.getElementById('qwb-right-body');
+  if (right) right.classList.toggle('collapsed', state.rightCollapsed);
+  if (tabs) tabs.style.display = state.rightCollapsed ? 'none' : '';
+  if (body) body.style.display = state.rightCollapsed ? 'none' : '';
+  const tog = document.getElementById('qwb-right-toggle');
+  if (tog) tog.textContent = state.rightCollapsed ? '◀' : '▶';
+}
+
+function togglePlay(state) {
+  const btn = document.getElementById('qwb-play');
+  if (state.playTimer) {
+    clearInterval(state.playTimer);
+    state.playTimer = null;
+    if (btn) btn.textContent = '▶';
+    state.saveStatus = 'paused';
+    renderStatusBar(state);
+    return;
+  }
+  if (typeof setInterval !== 'function') return;
+  state.playTimer = setInterval(() => {
+    state.windowStart += Math.max(1, Math.floor(state.timebase / 4));
+    if (state.windowStart >= 600) {
+      clearInterval(state.playTimer); state.playTimer = null;
+      const b2 = document.getElementById('qwb-play'); if (b2) b2.textContent = '▶';
+      state.saveStatus = 'end of recording';
+    }
+    redrawCanvas(state); renderStatusBar(state);
+  }, 500);
+  if (btn) btn.textContent = '⏸';
+  state.saveStatus = 'playing';
+  renderStatusBar(state);
 }
 
 function attachToolBar(state, navigate) {
@@ -1395,8 +1446,7 @@ function attachToolBar(state, navigate) {
     redrawCanvas(state); renderStatusBar(state);
   });
   document.getElementById('qwb-play')?.addEventListener('click', () => {
-    state.saveStatus = 'play / pause not yet wired';
-    renderStatusBar(state);
+    togglePlay(state);
   });
 
   document.getElementById('qwb-baseline-reset')?.addEventListener('click', () => {
@@ -1474,17 +1524,7 @@ function rerenderRail(state) {
 }
 
 function attachRightPanel(state) {
-  document.getElementById('qwb-right-toggle')?.addEventListener('click', () => {
-    state.rightCollapsed = !state.rightCollapsed;
-    const right = document.getElementById('qwb-right');
-    const tabs = document.getElementById('qwb-right-tabs');
-    const body = document.getElementById('qwb-right-body');
-    if (right) right.classList.toggle('collapsed', state.rightCollapsed);
-    if (tabs) tabs.style.display = state.rightCollapsed ? 'none' : '';
-    if (body) body.style.display = state.rightCollapsed ? 'none' : '';
-    const tog = document.getElementById('qwb-right-toggle');
-    if (tog) tog.textContent = state.rightCollapsed ? '◀' : '▶';
-  });
+  document.getElementById('qwb-right-toggle')?.addEventListener('click', () => toggleRightPanel(state));
   document.querySelectorAll('.qwb-tab').forEach(b => {
     b.addEventListener('click', () => {
       state.rightTab = b.dataset.tab;
@@ -1512,6 +1552,25 @@ function attachAIPanelHandlers(state) {
   document.getElementById('qwb-ai-accept-all')?.addEventListener('click', () => acceptAllAI(state, 0.7));
   document.querySelectorAll('#qwb-right-body [data-ai-decision]').forEach(b => {
     b.addEventListener('click', () => recordAIDecision(state, b.dataset.aiId, b.dataset.aiDecision));
+  });
+}
+
+function attachICAPanelHandlers(state) {
+  document.querySelectorAll('#qwb-right-body [data-ica-toggle]').forEach(b => {
+    b.addEventListener('click', () => toggleICAComponent(state, parseInt(b.dataset.icaToggle, 10)));
+  });
+}
+
+async function toggleICAComponent(state, idx) {
+  if (Number.isNaN(idx)) return;
+  if (state.rejectedICA.has(idx)) state.rejectedICA.delete(idx);
+  else state.rejectedICA.add(idx);
+  markDirty(state);
+  renderRightPanel(state);
+  await postAnnotation(state, {
+    kind: 'rejected_ica_component',
+    note: `IC${idx} ${state.rejectedICA.has(idx) ? 'rejected' : 'restored'}`,
+    decision_status: 'accepted',
   });
 }
 
@@ -1840,29 +1899,45 @@ async function refreshAuditLog(state) {
   } catch (_e) {}
 }
 
-function exportBundle(state) {
+async function exportBundle(state) {
   const fmt = state.exportFormat || 'edf';
   const includes = Array.from(document.querySelectorAll('[data-export-include]'))
     .filter(b => b.checked).map(b => b.dataset.exportInclude);
+  // Pull a fresh server-side summary so retained_data_pct + bad_channels_excluded
+  // come from the same canonical source the qEEG report sees. Falls back to
+  // local state in demo mode or if the call fails.
+  let summary = state.rawCleanedSummary || null;
+  if (!state.isDemo) {
+    try {
+      summary = await api.getQEEGRawVsCleanedSummary(state.analysisId, state.cleaningVersion?.id);
+      state.rawCleanedSummary = summary;
+    } catch (_e) {}
+  }
   const bundle = {
     analysisId: state.analysisId,
     cleaning_version: state.cleaningVersion?.version_number || null,
+    cleaning_version_id: state.cleaningVersion?.id || null,
     format: fmt,
     includes,
     bad_channels: Array.from(state.badChannels),
     rejected_segments: state.rejectedSegments,
+    rejected_ica_components: Array.from(state.rejectedICA),
+    summary: summary || { note: 'no server summary' },
     audit_log: state.auditLog,
     note: 'Original raw EEG preserved. Cleaning version + audit trail only.',
+    exported_at: new Date().toISOString(),
   };
   if (typeof Blob === 'function' && typeof URL !== 'undefined') {
     const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `qeeg-cleaning-${state.analysisId}-v${state.cleaningVersion?.version_number || 'draft'}.${fmt === 'csv' ? 'csv' : 'json'}`;
+    a.download = `qeeg-cleaning-${state.analysisId}-v${state.cleaningVersion?.version_number || 'draft'}.${fmt}.json`;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
   }
+  state.saveStatus = `exported v${state.cleaningVersion?.version_number || 'draft'} (${fmt}, local snapshot)`;
+  renderStatusBar(state);
   toggleExport(state, false);
 }
 
