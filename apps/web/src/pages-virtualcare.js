@@ -3,9 +3,9 @@
 // Video Visits · Voice Calls · Messaging · Note Capture · AI Transcription
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { api as repoApi } from './api.js';
 import { CONDITION_HOME_TEMPLATES } from './home-program-condition-templates.js';
 import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
+import { loadResearchBundleOverview } from './research-bundle-overview.js';
 
 const _e = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const _fmtTime = iso => { try { return new Date(iso).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'}); } catch { return iso; } };
@@ -825,7 +825,7 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
   const today = new Date().toISOString().slice(0, 10);
   const weekStart = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
 
-  const [rMe, rTodaySessions, rWeekSessions, rPatients, rCohort, rOutcomes, rAudit, rAlerts, rEvidenceSummary, rEvidenceStatus, rEvidenceCoverage, rEvidenceSignals, rEvidenceTemplates, rEvidenceConditions] =
+  const [rMe, rTodaySessions, rWeekSessions, rPatients, rCohort, rOutcomes, rAudit, rAlerts, rEvidenceOverview] =
     await Promise.allSettled([
       api.me?.(),
       api.listSessions?.({ date: today }),
@@ -835,12 +835,7 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
       api.aggregateOutcomes?.(),
       api.auditTrail?.(),
       api.getClinicAlertSummary?.(),
-      repoApi.getResearchSummary?.(),
-      repoApi.evidenceStatus?.(),
-      repoApi.protocolCoverage?.({ limit: 6 }),
-      repoApi.listResearchSafetySignals?.({ limit: 6 }),
-      repoApi.listResearchProtocolTemplates?.({ limit: 6 }),
-      repoApi.listResearchConditions?.(),
+      loadResearchBundleOverview({ summaryLimit: 6, coverageLimit: 6, templateLimit: 6, safetyLimit: 6 }),
     ]);
 
   const ok = r => r.status === 'fulfilled' && r.value;
@@ -872,14 +867,15 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
     { grade:'A', name:'rTMS · 10Hz · DLPFC-L — 62 RCTs · pinned v4.0.0 · TRD primary',       rerender:false },
   ];
 
-  const evidenceSummary = ok(rEvidenceSummary) || null;
-  const evidenceStatus = ok(rEvidenceStatus) || null;
-  const evidenceCoverage = Array.isArray(ok(rEvidenceCoverage)) ? ok(rEvidenceCoverage) : [];
-  const evidenceSignals = Array.isArray(ok(rEvidenceSignals)) ? ok(rEvidenceSignals) : [];
-  const evidenceTemplates = Array.isArray(ok(rEvidenceTemplates)) ? ok(rEvidenceTemplates) : [];
-  const evidenceConditions = Array.isArray(ok(rEvidenceConditions)) ? ok(rEvidenceConditions) : [];
-  const evidencePaperCount = Number(evidenceStatus?.total_papers || evidenceSummary?.paper_count || EVIDENCE_TOTAL_PAPERS) || EVIDENCE_TOTAL_PAPERS;
-  const evidenceConditionCount = evidenceConditions.length || Number(evidenceSummary?.condition_count || 0) || null;
+  const evidenceOverview = ok(rEvidenceOverview) || null;
+  const evidenceSummary = evidenceOverview?.summary || null;
+  const evidenceStatus = evidenceOverview?.status || null;
+  const evidenceCoverage = evidenceOverview?.coverageRows || [];
+  const evidenceSignals = evidenceOverview?.safetySignals || [];
+  const evidenceTemplates = evidenceOverview?.templates || [];
+  const evidenceConditions = evidenceOverview?.conditions || [];
+  const evidencePaperCount = Number(evidenceOverview?.paperCount || EVIDENCE_TOTAL_PAPERS) || EVIDENCE_TOTAL_PAPERS;
+  const evidenceConditionCount = evidenceOverview?.conditionCount || null;
 
   function evidenceGradeFrom(row) {
     const raw = String(row?.grade || row?.evidence_grade || row?.evidence_tier || '').trim().toUpperCase();

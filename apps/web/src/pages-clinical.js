@@ -2,6 +2,7 @@ import { api, downloadBlob } from './api.js';
 import { cardWrap, fr, evBar, pillSt, initials, tag, spinner, emptyState, spark, brainMapSVG, evidenceBadge, labelBadge, approvalBadge, safetyBadge, govFlag } from './helpers.js';
 import { currentUser } from './auth.js';
 import { FALLBACK_CONDITIONS, FALLBACK_MODALITIES, FALLBACK_ASSESSMENT_TEMPLATES, COURSE_STATUS_COLORS } from './constants.js';
+import { loadResearchBundleOverview } from './research-bundle-overview.js';
 import { getProtocolWatchSignalTitle, loadProtocolWatchContext } from './protocol-watch-context.js';
 import { renderHomeTherapyTab, bindHomeTherapyActions } from './pages-home-therapy.js';
 import {
@@ -1838,9 +1839,9 @@ export async function pgDash(setTopbar, navigate) {
   </div>`;
 
   // ── Protocol Studio connection card (87K evidence dataset) ───────────────────
-  const _liveCoverageRows = Array.isArray(protocolCoverageRes?.rows) ? protocolCoverageRes.rows : [];
-  const _liveTemplateRows = Array.isArray(protocolTemplateRows) ? protocolTemplateRows : [];
-  const _liveSafetyRows = Array.isArray(protocolSafetyRows) ? protocolSafetyRows : [];
+  const _liveCoverageRows = protocolOverview?.coverageRows || [];
+  const _liveTemplateRows = protocolOverview?.templates || [];
+  const _liveSafetyRows = protocolOverview?.safetySignals || [];
   const _protoCount = _liveTemplateRows.length || PROTOCOL_LIBRARY?.length || 0;
   const _condCount  = liveEvidence.totalConditions || PROTO_CONDITIONS?.length || 0;
   const _deviceCount = PROTO_DEVICES?.length || 0;
@@ -12194,8 +12195,9 @@ function _hlMark(text, query) {
     fallbackSummary: EVIDENCE_SUMMARY,
     fallbackConditionCount: CONDITION_EVIDENCE.length,
   });
-  const [protocolCoverageRes, protocolTemplateRows, protocolSafetyRows] = await Promise.all([
-    api.protocolCoverage({ limit: 12 }).catch(() => null),
-    api.listResearchProtocolTemplates({ limit: 12 }).catch(() => []),
-    api.listResearchSafetySignals({ limit: 18 }).catch(() => []),
-  ]);
+  const protocolOverview = await loadResearchBundleOverview({
+    coverageLimit: 12,
+    templateLimit: 12,
+    safetyLimit: 18,
+    includeConditions: false,
+  });
