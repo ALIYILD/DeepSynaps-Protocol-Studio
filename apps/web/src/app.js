@@ -472,7 +472,6 @@ const NAV = [
   { id: 'deeptwin',           label: 'Deeptwin',          icon: 'BT', ai: true },
   { id: 'monitor',            label: 'Devices',           icon: '🔌' },
   { id: 'mri-analysis',       label: 'MRI Analyzer',      icon: '🧠', ai: true },
-  { id: 'fusion-workbench',   label: 'Fusion Workbench',  icon: '⚖️', ai: true },
 
   // ── PROTOCOL ─────────────────────────────────────────────────────────────────
   { section: 'Protocol', sectionId: 'protocol', collapsed: false },

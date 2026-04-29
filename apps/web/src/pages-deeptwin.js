@@ -307,6 +307,9 @@ function _setTopbar(setTopbar) {
       { label: 'qEEG analyzer', onClick: () => {
           if (id) { window._selectedPatientId = id; window._nav('qeeg-analysis'); }
         } },
+      { label: 'Fusion Workbench', onClick: () => {
+          if (id) { window._selectedPatientId = id; window._nav('fusion-workbench'); }
+        } },
     ],
   });
 }
