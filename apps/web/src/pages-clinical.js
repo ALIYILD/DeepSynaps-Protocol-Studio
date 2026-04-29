@@ -2,6 +2,7 @@ import { api, downloadBlob } from './api.js';
 import { cardWrap, fr, evBar, pillSt, initials, tag, spinner, emptyState, spark, brainMapSVG, evidenceBadge, labelBadge, approvalBadge, safetyBadge, govFlag } from './helpers.js';
 import { currentUser } from './auth.js';
 import { FALLBACK_CONDITIONS, FALLBACK_MODALITIES, FALLBACK_ASSESSMENT_TEMPLATES, COURSE_STATUS_COLORS } from './constants.js';
+import { getModalitySignalTitle, getModalityTemplateHint, loadModalityEvidenceContext } from './modality-evidence-context.js';
 import { loadResearchBundleOverview } from './research-bundle-overview.js';
 import { getProtocolWatchSignalTitle, loadProtocolWatchContext } from './protocol-watch-context.js';
 import { renderHomeTherapyTab, bindHomeTherapyActions } from './pages-home-therapy.js';
@@ -10371,32 +10372,7 @@ export async function pgProtocolBuilder(setTopbar) {
       hasTDCS ? 'tdcs' : null,
       hasHRV ? 'biofeedback' : null,
     ].filter(Boolean);
-    const liveBundle = {};
-    await Promise.all(liveModalities.map(async (modality) => {
-      try {
-        const [templates, safety] = await Promise.all([
-          api.listResearchProtocolTemplates({ modality, limit: 4 }).catch(() => []),
-          api.listResearchSafetySignals({ modality, limit: 4 }).catch(() => []),
-        ]);
-        liveBundle[modality] = {
-          templates: Array.isArray(templates) ? templates : [],
-          safety: Array.isArray(safety) ? safety : [],
-        };
-      } catch {
-        liveBundle[modality] = { templates: [], safety: [] };
-      }
-    }));
-    const _signalTitle = (signal) =>
-      (signal.safety_signal_tags || []).concat(signal.contraindication_signal_tags || []).join(', ')
-      || signal.title
-      || signal.example_titles
-      || 'Safety signal';
-    const _templateHint = (modality) => {
-      const row = liveBundle[modality]?.templates?.[0];
-      if (!row) return '';
-      const bits = [row.indication, row.target, row.evidence_tier].filter(Boolean);
-      return bits.length ? `Live template: ${bits.join(' · ')}.` : '';
-    };
+    const liveBundle = await loadModalityEvidenceContext(liveModalities, { templateLimit: 4, safetyLimit: 4 });
 
     // Session count recommendation
     let sessionRec = '20–30 sessions recommended for most neuromodulation courses.';
@@ -10410,22 +10386,22 @@ export async function pgProtocolBuilder(setTopbar) {
     if (hasTMS) {
       paramTips.push('Set intensity to 120% motor threshold for left DLPFC protocols. Consider 80–90% MT for anxious patients.');
       paramTips.push('Inter-train interval of ≥2 seconds reduces seizure risk. Verify device default settings match protocol.');
-      const hint = _templateHint('tms');
+      const hint = getModalityTemplateHint(liveBundle, 'tms');
       if (hint) paramTips.push(hint);
     }
     if (hasNFB) {
       paramTips.push('For ADHD: SMR reward (12–15 Hz) at Cz + theta inhibit (4–8 Hz). Threshold should auto-adjust to keep reward rate 60–70%.');
       paramTips.push('Electrode placement: always use EEG-grade gel for impedance <5 kΩ. Check before each session.');
-      const hint = _templateHint('neurofeedback');
+      const hint = getModalityTemplateHint(liveBundle, 'neurofeedback');
       if (hint) paramTips.push(hint);
     }
     if (hasTDCS) {
       paramTips.push('tDCS: ramp current up over 30 seconds to reduce skin sensation. Current density should not exceed 0.06 mA/cm².');
-      const hint = _templateHint('tdcs');
+      const hint = getModalityTemplateHint(liveBundle, 'tdcs');
       if (hint) paramTips.push(hint);
     }
     if (hasHRV) {
-      const hint = _templateHint('biofeedback');
+      const hint = getModalityTemplateHint(liveBundle, 'biofeedback');
       if (hint) paramTips.push(hint);
     }
     if (!hasRest && (hasTMS || hasTDCS)) {
@@ -10448,7 +10424,7 @@ export async function pgProtocolBuilder(setTopbar) {
     }
     for (const modality of liveModalities) {
       const signal = liveBundle[modality]?.safety?.[0];
-      if (signal) warnings.push(`Live ${modality.toUpperCase()} safety watch: ${_signalTitle(signal)}.`);
+      if (signal) warnings.push(`Live ${modality.toUpperCase()} safety watch: ${getModalitySignalTitle(signal)}.`);
     }
 
     // Literature links (bundle-backed when available, rule-based otherwise)

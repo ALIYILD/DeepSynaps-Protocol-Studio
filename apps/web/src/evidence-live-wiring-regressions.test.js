@@ -23,7 +23,8 @@ test('Clinical route keeps live evidence watch in wizard and builder flows', () 
   const src = read('./pages-clinical.js');
   assert.match(src, /generatedLiveEvidenceContext/);
   assert.match(src, /Live evidence watch/);
-  assert.match(src, /listResearchProtocolTemplates\(\{ modality, limit: 4 \}\)/);
+  assert.match(src, /loadModalityEvidenceContext\(liveModalities, \{ templateLimit: 4, safetyLimit: 4 \}\)/);
+  assert.match(src, /modality-evidence-context\.js/);
   assert.match(src, /loadProtocolWatchContext\(\{/);
   assert.match(src, /protocol-watch-context\.js/);
 });

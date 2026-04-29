@@ -12,6 +12,7 @@ import {
   getTopConditionsByPaperCount, searchEvidenceByKeyword,
 } from './evidence-dataset.js';
 import { getEvidenceUiStats } from './evidence-ui-live.js';
+import { loadResearchBundleWorkspace } from './research-bundle-workspace.js';
 import {
   CONDITION_REGISTRY, ASSESSMENT_REGISTRY, PROTOCOL_REGISTRY,
   DEVICE_REGISTRY, BRAIN_TARGET_REGISTRY,
@@ -100,28 +101,21 @@ async function _ensureResearchBundleData() {
   if (_researchBundleState.loading) return _researchBundleState.loading;
   _researchBundleState.loading = (async () => {
     try {
-      const [summary, coverageRes, templates, exactProtocols, safetySignals, evidenceGraph] = await Promise.all([
-        api.getResearchSummary({ limit: 12 }).catch(() => null),
-        api.protocolCoverage({ limit: 24 }).catch(() => null),
-        api.listResearchProtocolTemplates({ limit: 24 }).catch(() => []),
-        api.listResearchExactProtocols({ limit: 24 }).catch(() => []),
-        api.listResearchSafetySignals({ limit: 40 }).catch(() => []),
-        api.listResearchEvidenceGraph({ limit: 24 }).catch(() => []),
-      ]);
-      _researchBundleState.summary = summary || null;
-      _researchBundleState.coverageRows = Array.isArray(coverageRes?.rows) ? coverageRes.rows : [];
-      _researchBundleState.templates = Array.isArray(templates) ? templates : [];
-      _researchBundleState.exactProtocols = Array.isArray(exactProtocols) ? exactProtocols : [];
-      _researchBundleState.safetySignals = Array.isArray(safetySignals) ? safetySignals : [];
-      _researchBundleState.evidenceGraph = Array.isArray(evidenceGraph) ? evidenceGraph : [];
-      _researchBundleState.loaded =
-        _researchBundleState.coverageRows.length > 0 ||
-        _researchBundleState.templates.length > 0 ||
-        _researchBundleState.exactProtocols.length > 0 ||
-        _researchBundleState.safetySignals.length > 0 ||
-        _researchBundleState.evidenceGraph.length > 0;
-    } catch {
-      _researchBundleState.loaded = false;
+      const data = await loadResearchBundleWorkspace({
+        summaryLimit: 12,
+        coverageLimit: 24,
+        templateLimit: 24,
+        exactProtocolLimit: 24,
+        safetyLimit: 40,
+        evidenceGraphLimit: 24,
+      });
+      _researchBundleState.summary = data.summary || null;
+      _researchBundleState.coverageRows = data.coverageRows || [];
+      _researchBundleState.templates = data.templates || [];
+      _researchBundleState.exactProtocols = data.exactProtocols || [];
+      _researchBundleState.safetySignals = data.safetySignals || [];
+      _researchBundleState.evidenceGraph = data.evidenceGraph || [];
+      _researchBundleState.loaded = !!data.live;
     } finally {
       _researchBundleState.loading = null;
     }

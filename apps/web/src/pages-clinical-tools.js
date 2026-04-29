@@ -5,6 +5,7 @@
 import { api, downloadBlob } from './api.js';
 import { tag, spinner, emptyState, spark } from './helpers.js';
 import { FALLBACK_CONDITIONS } from './constants.js';
+import { loadResearchBundleOverview } from './research-bundle-overview.js';
 import {
   CONDITION_HOME_TEMPLATES,
   buildRankedHomeSuggestions,
@@ -4105,12 +4106,13 @@ async function _ebEnsureLiveData() {
   if (_ebLiveState.loading) return _ebLiveState.loading;
   _ebLiveState.loading = (async () => {
     try {
-      const [coverageRes, templateRes, safetyRes] = await Promise.all([
-        api.protocolCoverage({ limit: 18 }),
-        api.listResearchProtocolTemplates({ limit: 18 }),
-        api.listResearchSafetySignals({ limit: 40 }),
-      ]);
-      const templates = Array.isArray(templateRes) ? templateRes : [];
+      const liveOverview = await loadResearchBundleOverview({
+        coverageLimit: 18,
+        templateLimit: 18,
+        safetyLimit: 40,
+        includeConditions: false,
+      });
+      const templates = Array.isArray(liveOverview?.templates) ? liveOverview.templates : [];
       _ebLiveState.protocols = templates.map((row) => ({
         id: _ebProtocolIdFromPair(row.indication, row.modality, row.target),
         name: [row.modality, row.indication, row.target].filter(Boolean).join(' — ') || 'Live protocol template',
@@ -4123,8 +4125,8 @@ async function _ebEnsureLiveData() {
         modalitySlug: _ebSlug(row.modality),
         liveTemplate: row,
       }));
-      _ebLiveState.coverageRows = Array.isArray(coverageRes?.rows) ? coverageRes.rows : [];
-      _ebLiveState.safetySignals = Array.isArray(safetyRes) ? safetyRes : [];
+      _ebLiveState.coverageRows = Array.isArray(liveOverview?.coverageRows) ? liveOverview.coverageRows : [];
+      _ebLiveState.safetySignals = Array.isArray(liveOverview?.safetySignals) ? liveOverview.safetySignals : [];
       _ebLiveState.loaded = _ebLiveState.protocols.length > 0 || _ebLiveState.coverageRows.length > 0 || _ebLiveState.safetySignals.length > 0;
     } catch {
       _ebLiveState.loaded = false;

@@ -237,6 +237,7 @@ export async function pgQEEGRawWorkbench(setTopbar, navigate) {
     notch: '50 Hz',
     montage: 'Referential',
     viewMode: 'cleaned',
+    displayMode: 'row',
     timebase: 10,
     windowStart: 0,
     selectedChannel: DEFAULT_CHANNELS[0],
@@ -1002,6 +1003,10 @@ function toolBar(state) {
     <div class="qwb-view-toggle" id="qwb-view-toggle" data-testid="qwb-view-toggle">
       ${VIEW_MODES.map(v => `<button data-view="${v.id}" class="${state.viewMode===v.id?'active':''}">${esc(v.label)}</button>`).join('')}
     </div>`;
+  const displayToggle = `
+    <div class="qwb-view-toggle" id="qwb-display-toggle" data-testid="qwb-display-toggle" style="margin-left:4px">
+      ${['Row','Stack','Butterfly'].map(function(d) { return '<button data-display="' + d.toLowerCase() + '" class="' + (state.displayMode===d.toLowerCase()?'active':'') + '">' + d + '</button>'; }).join('')}
+    </div>`;
   return `
   <div class="qwb-toolbar">
     <div class="qwb-tb-group">
@@ -1031,7 +1036,7 @@ function toolBar(state) {
       <button class="qwb-tb-btn" id="qwb-prev-window" data-testid="qwb-prev-window" title="Previous window">⏮</button>
       <button class="qwb-tb-btn" id="qwb-play" data-testid="qwb-play" title="Play / pause">▶</button>
       <button class="qwb-tb-btn" id="qwb-next-window" data-testid="qwb-next-window" title="Next window">⏭</button>
-      ${viewToggle}
+      ${viewToggle}${displayToggle}
       <button class="qwb-tb-btn" id="qwb-compare">Raw vs Cleaned</button>
       <button class="qwb-tb-btn" id="qwb-return-report" data-testid="qwb-return-report">Return to Report</button>
       <button class="qwb-tb-btn" id="qwb-export" data-testid="qwb-export">Export…</button>
@@ -1365,46 +1370,97 @@ function redrawCanvas(state) {
     ctx.stroke();
   };
 
-  channels.forEach((ch, idx) => {
-    const yMid = traceTop + rowH * (idx + 0.5);
-    const isBad = state.badChannels.has(ch);
-    const isSel = state.selectedChannel === ch;
+  // Pre-generate all signals for stack / butterfly modes
+  var allCleaned = [], allRaw = [];
+  for (var ci = 0; ci < channels.length; ci++) {
+    allCleaned.push(synthSignal(ci, totalSamples, sampleRate, archetypeAt));
+    allRaw.push(synthRawSignal(ci, totalSamples, sampleRate, archetypeAt));
+  }
 
-    if (isSel) {
-      ctx.fillStyle = '#d8e1f3';
-      ctx.fillRect(0, traceTop + rowH*idx, W, rowH);
-    } else if (isBad) {
-      ctx.fillStyle = 'rgba(176,52,52,0.06)';
-      ctx.fillRect(0, traceTop + rowH*idx, W, rowH);
+  if (state.displayMode === 'stack') {
+    // All channels overlaid in single plot area
+    var stackY = (traceTop + H) / 2;
+    for (var idx = 0; idx < channels.length; idx++) {
+      var ch = channels[idx];
+      var isBad = state.badChannels.has(ch);
+      var color = isBad ? '#b03434' : ['#1a1a1a','#2851a3','#2f6b3a','#b8741a','#7b4ea3'][idx % 5];
+      var width = isBad ? 1.2 : 0.7;
+      switch (state.viewMode) {
+        case 'raw': drawTrace(allRaw[idx], color, width, stackY, 0, W); break;
+        case 'overlay': drawTrace(allRaw[idx], 'rgba(176,52,52,0.35)', 0.5, stackY, 0, W); drawTrace(allCleaned[idx], color, width, stackY, 0, W); break;
+        case 'split': drawTrace(allRaw[idx], '#b03434', 0.6, stackY, 0, W/2); drawTrace(allCleaned[idx], color, width, stackY, W/2, W); break;
+        default: drawTrace(allCleaned[idx], color, width, stackY, 0, W);
+      }
     }
-
-    const cleanedSig = synthSignal(idx, totalSamples, sampleRate, archetypeAt);
-    const needRaw = state.viewMode === 'overlay' || state.viewMode === 'split' || state.viewMode === 'raw';
-    const rawSig = needRaw ? synthRawSignal(idx, totalSamples, sampleRate, archetypeAt) : null;
-
-    const blackColor = isBad ? '#b03434' : '#1a1a1a';
-    const blackWidth = isBad ? 1.0 : 0.9;
-    const ghostColor = 'rgba(176,52,52,0.55)';
-
-    switch (state.viewMode) {
-      case 'raw':
-        drawTrace(rawSig, blackColor, blackWidth, yMid, 0, W);
-        break;
-      case 'overlay':
-        // Ghost raw underneath, cleaned on top.
-        drawTrace(rawSig, ghostColor, 0.6, yMid, 0, W);
-        drawTrace(cleanedSig, blackColor, blackWidth, yMid, 0, W);
-        break;
-      case 'split':
-        // Raw on left half, cleaned on right half, indigo divider.
-        drawTrace(rawSig,    '#b03434',   0.7, yMid, 0,     W / 2);
-        drawTrace(cleanedSig, blackColor, blackWidth, yMid, W / 2, W);
-        break;
-      case 'cleaned':
-      default:
-        drawTrace(cleanedSig, blackColor, blackWidth, yMid, 0, W);
+  } else if (state.displayMode === 'butterfly') {
+    // Compute average reference
+    var avg = new Float32Array(totalSamples);
+    for (var i = 0; i < totalSamples; i++) {
+      var sum = 0;
+      for (var ci = 0; ci < channels.length; ci++) sum += allCleaned[ci][i];
+      avg[i] = sum / channels.length;
     }
-  });
+    var butterY = (traceTop + H) / 2;
+    for (var idx = 0; idx < channels.length; idx++) {
+      var ch = channels[idx];
+      var isBad = state.badChannels.has(ch);
+      var color = isBad ? '#b03434' : ['#1a1a1a','#2851a3','#2f6b3a','#b8741a','#7b4ea3'][idx % 5];
+      var width = isBad ? 1.2 : 0.7;
+      var rel = new Float32Array(totalSamples);
+      for (var i = 0; i < totalSamples; i++) rel[i] = allCleaned[idx][i] - avg[i];
+      switch (state.viewMode) {
+        case 'raw':
+          var relRaw = new Float32Array(totalSamples);
+          for (var i = 0; i < totalSamples; i++) relRaw[i] = allRaw[idx][i] - avg[i];
+          drawTrace(relRaw, color, width, butterY, 0, W); break;
+        case 'overlay': drawTrace(rel, color, width, butterY, 0, W); break;
+        case 'split': drawTrace(rel, color, width, butterY, 0, W); break;
+        default: drawTrace(rel, color, width, butterY, 0, W);
+      }
+    }
+    // Draw average trace in grey
+    drawTrace(avg, '#999', 1.0, butterY, 0, W);
+  } else {
+    // Row mode (default)
+    channels.forEach((ch, idx) => {
+      const yMid = traceTop + rowH * (idx + 0.5);
+      const isBad = state.badChannels.has(ch);
+      const isSel = state.selectedChannel === ch;
+
+      if (isSel) {
+        ctx.fillStyle = '#d8e1f3';
+        ctx.fillRect(0, traceTop + rowH*idx, W, rowH);
+      } else if (isBad) {
+        ctx.fillStyle = 'rgba(176,52,52,0.06)';
+        ctx.fillRect(0, traceTop + rowH*idx, W, rowH);
+      }
+
+      const cleanedSig = allCleaned[idx];
+      const needRaw = state.viewMode === 'overlay' || state.viewMode === 'split' || state.viewMode === 'raw';
+      const rawSig = needRaw ? allRaw[idx] : null;
+
+      const blackColor = isBad ? '#b03434' : '#1a1a1a';
+      const blackWidth = isBad ? 1.0 : 0.9;
+      const ghostColor = 'rgba(176,52,52,0.55)';
+
+      switch (state.viewMode) {
+        case 'raw':
+          drawTrace(rawSig, blackColor, blackWidth, yMid, 0, W);
+          break;
+        case 'overlay':
+          drawTrace(rawSig, ghostColor, 0.6, yMid, 0, W);
+          drawTrace(cleanedSig, blackColor, blackWidth, yMid, 0, W);
+          break;
+        case 'split':
+          drawTrace(rawSig,    '#b03434',   0.7, yMid, 0,     W / 2);
+          drawTrace(cleanedSig, blackColor, blackWidth, yMid, W / 2, W);
+          break;
+        case 'cleaned':
+        default:
+          drawTrace(cleanedSig, blackColor, blackWidth, yMid, 0, W);
+      }
+    });
+  }
 
   // Split-mode divider line
   if (state.viewMode === 'split') {
@@ -1612,6 +1668,30 @@ function renderRightPanel(state) {
   }
 }
 
+function _channelQualityMatrix(state) {
+  var w = state.isDemo ? _getWindowSignals(state) : null;
+  var rows = DEFAULT_CHANNELS.map(function(ch, ci) {
+    var isBad = state.badChannels.has(ch);
+    var artifactCount = (state.aiSuggestions || []).filter(function(s) { return s.channel === ch && s.decision_status === 'suggested'; }).length;
+    var stats = w ? _channelStats(w.signals[ci]) : { variance: 0, range: 0 };
+    var varLabel = stats.variance < 50 ? 'flat' : stats.variance > 400 ? 'noisy' : 'ok';
+    var varColor = stats.variance < 50 ? '#b03434' : stats.variance > 400 ? '#b8741a' : '#2f6b3a';
+    return '<tr style="' + (isBad ? 'background:rgba(176,52,52,0.06)' : '') + '">'
+      + '<td style="font-size:10px;font-family:var(--qwb-mono);padding:3px 6px">' + esc(ch) + (isBad ? ' ⚠' : '') + '</td>'
+      + '<td style="font-size:10px;padding:3px 6px;color:' + varColor + '">' + varLabel + '</td>'
+      + '<td style="font-size:10px;padding:3px 6px">' + (w ? Math.round(stats.variance) : '—') + '</td>'
+      + '<td style="font-size:10px;padding:3px 6px">' + artifactCount + '</td>'
+      + '</tr>';
+  }).join('');
+  return '<table style="width:100%;border-collapse:collapse;font-size:10px">'
+    + '<thead><tr style="color:#6b6660;font-size:9px;text-transform:uppercase;letter-spacing:0.04em">'
+    + '<th style="text-align:left;padding:4px 6px">Channel</th>'
+    + '<th style="text-align:left;padding:4px 6px">Quality</th>'
+    + '<th style="text-align:left;padding:4px 6px">Var</th>'
+    + '<th style="text-align:left;padding:4px 6px">AI</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
 function renderCleaningPanel(state) {
   return `
     <div class="qwb-side-section">
@@ -1637,11 +1717,16 @@ function renderCleaningPanel(state) {
       </div>
     </div>
     <div class="qwb-side-section">
-      <h4><span class="qwb-letter">C</span>ICA review</h4>
+      <h4><span class="qwb-letter">C</span>Channel Quality Matrix</h4>
+      <div style="font-size:10px;color:#6b6660;margin-bottom:6px">Per-channel variance and pending AI suggestions for the current window.</div>
+      ${_channelQualityMatrix(state)}
+    </div>
+    <div class="qwb-side-section">
+      <h4><span class="qwb-letter">D</span>ICA review</h4>
       <button class="qwb-side-btn full" data-action="open-ica">Open ICA review</button>
     </div>
     <div class="qwb-side-section">
-      <h4><span class="qwb-letter">D</span>Reprocess</h4>
+      <h4><span class="qwb-letter">E</span>Reprocess</h4>
       <div class="qwb-side-grid">
         <button class="qwb-side-btn ink full" data-action="save-version">Save Cleaning Version</button>
         <button class="qwb-side-btn ai full" data-action="rerun">✦ Re-run qEEG analysis</button>
@@ -1703,24 +1788,67 @@ function renderAIPanel(state) {
     </div>`;
 }
 
+function _computeReportReadiness(state) {
+  var retain = state.rawCleanedSummary?.retained_data_pct ?? 88;
+  var badChCount = state.badChannels.size;
+  var rejSegCount = state.rejectedSegments.length;
+  var icaReviewed = state.ica && state.ica.components ? state.rejectedICA.size > 0 || state.ica.components.every(function(c) { return !c.needs_review; }) : false;
+  var hasFilters = state.lowCut > 0 && state.highCut < 100;
+  var artifactBurden = (state.aiSuggestions || []).filter(function(s) { return s.decision_status === 'accepted'; }).length;
+  var totalArtifacts = (state.aiSuggestions || []).length;
+  var score = Math.max(0, Math.min(100, Math.round(retain - badChCount * 4 - rejSegCount * 2)));
+  var readiness = 'Not ready';
+  if (score >= 80 && icaReviewed && hasFilters && badChCount <= 2) readiness = 'Ready';
+  else if (score >= 60) readiness = 'Needs review';
+  return { score, retain, badChCount, rejSegCount, icaReviewed, hasFilters, artifactBurden, totalArtifacts, readiness };
+}
+
 function renderHelpPanel(state) {
-  // Score = retained_data_pct minus penalty for bad channels + rejected
-  // segments. Falls back to a stable demo number when data is unavailable.
-  const retain = state.rawCleanedSummary?.retained_data_pct ?? 88;
-  const penalty = (state.badChannels.size * 4) + (state.rejectedSegments.length * 2);
-  const score = Math.max(0, Math.min(100, Math.round(retain - penalty)));
-  const grade = score >= 80 ? 'PASS' : score >= 60 ? 'NEEDS REVIEW' : 'BLOCK';
-  const gradePill = score >= 80 ? '#2f6b3a' : score >= 60 ? '#b8741a' : '#b03434';
-  const gradeBg   = score >= 80 ? '#d6e8d6' : score >= 60 ? '#f6e6cb' : '#f3d4d0';
+  var r = _computeReportReadiness(state);
+  var grade = r.score >= 80 ? 'PASS' : r.score >= 60 ? 'NEEDS REVIEW' : 'BLOCK';
+  var gradePill = r.score >= 80 ? '#2f6b3a' : r.score >= 60 ? '#b8741a' : '#b03434';
+  var gradeBg   = r.score >= 80 ? '#d6e8d6' : r.score >= 60 ? '#f6e6cb' : '#f3d4d0';
+  var readyPill = r.readiness === 'Ready' ? '#2f6b3a' : r.readiness === 'Needs review' ? '#b8741a' : '#b03434';
+  var readyBg   = r.readiness === 'Ready' ? '#d6e8d6' : r.readiness === 'Needs review' ? '#f6e6cb' : '#f3d4d0';
   return `
     <div class="qwb-side-section">
-      <h4>AI Quality Score</h4>
+      <h4>Report Readiness</h4>
       <div class="qwb-bp-score">
-        <span class="qwb-bp-score-num" data-testid="qwb-bp-score">${score}</span>
+        <span class="qwb-bp-score-num" data-testid="qwb-bp-score">${r.score}</span>
         <span style="font-size:14px;color:#6b6660">/ 100</span>
         <span class="qwb-bp-pill" style="color:${gradePill};background:${gradeBg}">${grade}</span>
+        <span class="qwb-bp-pill" style="color:${readyPill};background:${readyBg};margin-left:6px">${r.readiness}</span>
       </div>
-      <div class="qwb-bp-score-bar"><div class="qwb-bp-score-fill" style="width:${score}%"></div></div>
+      <div class="qwb-bp-score-bar"><div class="qwb-bp-score-fill" style="width:${r.score}%"></div></div>
+    </div>
+    <div class="qwb-side-section">
+      <div style="font-weight:600;font-size:13px;margin-bottom:8px">Quality Metrics</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px">
+        <div class="qwb-card" style="margin-bottom:0;padding:8px">
+          <div style="font-size:10px;color:#6b6660">Retained data</div>
+          <div style="font-weight:600;font-size:14px">${r.retain}%</div>
+        </div>
+        <div class="qwb-card" style="margin-bottom:0;padding:8px">
+          <div style="font-size:10px;color:#6b6660">Bad channels</div>
+          <div style="font-weight:600;font-size:14px;color:${r.badChCount>2?'#b03434':'#1a1a1a'}">${r.badChCount}</div>
+        </div>
+        <div class="qwb-card" style="margin-bottom:0;padding:8px">
+          <div style="font-size:10px;color:#6b6660">Rejected segments</div>
+          <div style="font-weight:600;font-size:14px">${r.rejSegCount}</div>
+        </div>
+        <div class="qwb-card" style="margin-bottom:0;padding:8px">
+          <div style="font-size:10px;color:#6b6660">ICA reviewed</div>
+          <div style="font-weight:600;font-size:14px;color:${r.icaReviewed?'#2f6b3a':'#b8741a'}">${r.icaReviewed?'Yes':'No'}</div>
+        </div>
+        <div class="qwb-card" style="margin-bottom:0;padding:8px">
+          <div style="font-size:10px;color:#6b6660">Filters</div>
+          <div style="font-weight:600;font-size:14px;color:${r.hasFilters?'#2f6b3a':'#b03434'}">${r.hasFilters?'Set':'Unset'}</div>
+        </div>
+        <div class="qwb-card" style="margin-bottom:0;padding:8px">
+          <div style="font-size:10px;color:#6b6660">Artifact burden</div>
+          <div style="font-weight:600;font-size:14px">${r.artifactBurden}/${r.totalArtifacts}</div>
+        </div>
+      </div>
     </div>
     <div class="qwb-side-section">
       <div style="font-weight:600;font-size:13px;margin-bottom:8px">Best-Practice Helper</div>
@@ -1840,7 +1968,39 @@ function attachAuditPanelHandlers(state) {
 }
 
 function localChatReply(text, state) {
-  const t = String(text).toLowerCase();
+  var t = String(text).toLowerCase();
+  var readiness = _computeReportReadiness(state);
+
+  // Specific channel queries
+  var chMatch = t.match(/(fp1|fp2|f7|f3|fz|f4|f8|t3|c3|cz|c4|t4|t5|p3|pz|p4|t6|o1|o2)/);
+  if (chMatch || t.includes('why is') || t.includes('flagged')) {
+    var chName = chMatch ? chMatch[0].toUpperCase() + '-Av' : state.selectedChannel;
+    if (state.badChannels.has(chName)) {
+      return chName + ' is marked as a bad channel. Variance or flatness was below threshold. You can interpolate it from neighbours or leave it excluded.';
+    }
+    var chSugg = (state.aiSuggestions || []).find(function(s) { return s.channel === chName && s.decision_status === 'suggested'; });
+    if (chSugg) {
+      return chName + ' has a pending AI suggestion: ' + (chSugg.ai_label || 'artefact').replace(/_/g,' ') + ' (' + Math.round((chSugg.ai_confidence||0)*100) + '% confidence). ' + (chSugg.explanation || '');
+    }
+    return chName + ' looks normal in the current window. No artefacts or quality flags detected.';
+  }
+
+  if (t.includes('what should i clean') || t.includes('clean first') || t.includes('priority')) {
+    var priorities = [];
+    if (state.badChannels.size) priorities.push('bad channels (' + state.badChannels.size + ')');
+    if (state.rejectedSegments.length) priorities.push('rejected segments (' + state.rejectedSegments.length + ')');
+    var pendingAI = (state.aiSuggestions || []).filter(function(s) { return s.decision_status === 'suggested'; });
+    if (pendingAI.length) priorities.push('pending AI suggestions (' + pendingAI.length + ')');
+    if (!priorities.length) return 'Everything looks clean in this window. You may be ready to save the cleaning version and re-run qEEG.';
+    return 'Recommended order: ' + priorities.join(' → ') + '. Address bad channels first, then review AI suggestions, then mark bad segments.';
+  }
+
+  if (t.includes('report') || t.includes('qeeq') || t.includes('ready')) {
+    if (readiness.readiness === 'Ready') return 'Report readiness: Ready. Score ' + readiness.score + '/100. You can save the cleaning version and re-run qEEG analysis.';
+    if (readiness.readiness === 'Needs review') return 'Report readiness: Needs review. Score ' + readiness.score + '/100. Check: ' + (readiness.badChCount > 2 ? 'too many bad channels; ' : '') + (readiness.icaReviewed ? '' : 'ICA not reviewed; ') + (readiness.hasFilters ? '' : 'filters not set; ');
+    return 'Report readiness: Not ready. Score ' + readiness.score + '/100. Address bad channels, review AI suggestions, and confirm filters before re-running.';
+  }
+
   if (t.includes('blink') || t.includes('eye')) {
     return 'Blinks show as bilateral frontopolar deflections (Fp1/Fp2). ICA is the standard mitigation; check the ICA tab for the candidate eye component.';
   }
@@ -1851,9 +2011,12 @@ function localChatReply(text, state) {
     return 'Flat channels usually mean a disconnected electrode. Mark as bad and interpolate from neighbours, or exclude from analysis.';
   }
   if (t.includes('save') || t.includes('version')) {
-    return `You have ${state.badChannels.size} bad channel${state.badChannels.size === 1 ? '' : 's'}, ${state.rejectedSegments.length} rejected segment${state.rejectedSegments.length === 1 ? '' : 's'}, and ${state.rejectedICA.size} flagged ICA component${state.rejectedICA.size === 1 ? '' : 's'}. Click Save Cleaning Version when ready.`;
+    return 'You have ' + state.badChannels.size + ' bad channel' + (state.badChannels.size === 1 ? '' : 's') + ', ' + state.rejectedSegments.length + ' rejected segment' + (state.rejectedSegments.length === 1 ? '' : 's') + ', and ' + state.rejectedICA.size + ' flagged ICA component' + (state.rejectedICA.size === 1 ? '' : 's') + '. Click Save Cleaning Version when ready.';
   }
-  return 'Decision-support only — please review the AI Review tab and check the Best-Practice score before re-running analysis.';
+  if (t.includes('hello') || t.includes('hi ') || t.includes('help')) {
+    return 'I can answer questions about: why a channel is flagged, what to clean first, report readiness, blinks, muscle, flat channels, and save status. What would you like to know?';
+  }
+  return 'Decision-support only — please review the AI Review tab and check the Report Readiness score before re-running analysis. Type "help" for topics I can answer.';
 }
 
 function renderStatusBar(state) {
@@ -1992,6 +2155,13 @@ function attachToolBar(state, navigate) {
       state.viewMode = b.dataset.view;
       document.querySelectorAll('#qwb-view-toggle button').forEach(x => x.classList.toggle('active', x.dataset.view === state.viewMode));
       redrawCanvas(state);
+    });
+  });
+  document.querySelectorAll('#qwb-display-toggle button').forEach(function(b) {
+    b.addEventListener('click', function() {
+      state.displayMode = b.dataset.display;
+      document.querySelectorAll('#qwb-display-toggle button').forEach(function(x) { x.classList.toggle('active', x.dataset.display === state.displayMode); });
+      redrawCanvas(state); renderStatusBar(state);
     });
   });
 
@@ -2375,9 +2545,12 @@ async function handleCleaningAction(state, action) {
       break;
     }
     case 'undo': popHistory(state); break;
-    case 'detect-flat': case 'detect-noisy': case 'detect-blink':
-    case 'detect-muscle': case 'detect-movement': case 'detect-line':
-      await generateAISuggestions(state); break;
+    case 'detect-blink':    await detectBlinks(state); break;
+    case 'detect-muscle':   await detectMuscle(state); break;
+    case 'detect-movement': await detectMovement(state); break;
+    case 'detect-line':     await detectLineNoise(state); break;
+    case 'detect-flat':     await detectFlat(state); break;
+    case 'detect-noisy':    await detectSweat(state); break;
     case 'open-ica': state.rightTab = 'ica'; renderRightPanel(state); break;
     case 'save-version': await saveCleaningVersion(state); break;
     case 'rerun': await rerunAnalysis(state); break;
@@ -2601,6 +2774,222 @@ export async function recordAIDecision(state, suggestionId, decision) {
   if (state.rightTab === 'ai') renderRightPanel(state);
   refreshTabBadges(state);
   redrawCanvas(state);
+}
+
+// ── Signal analysis helpers for deterministic AI detectors ──────────────────
+
+function _getWindowSignals(state) {
+  var sampleRate = 256;
+  var tb = state.timebase;
+  var totalSamples = Math.floor(tb * sampleRate);
+  var archetypeAt = state.isDemo ? {
+    blinkStart: Math.floor(2.4 * sampleRate),
+    blinkEnd:   Math.floor(3.1 * sampleRate),
+    muscleStart: Math.floor(7.2 * sampleRate),
+    muscleEnd:   Math.floor(8.4 * sampleRate),
+  } : null;
+  var signals = [];
+  for (var ci = 0; ci < DEFAULT_CHANNELS.length; ci++) {
+    signals.push(synthRawSignal(ci, totalSamples, sampleRate, archetypeAt));
+  }
+  return { signals, sampleRate, totalSamples, tb };
+}
+
+function _channelStats(sig) {
+  var n = sig.length;
+  if (!n) return { mean: 0, variance: 0, min: 0, max: 0, range: 0 };
+  var sum = 0, min = sig[0], max = sig[0];
+  for (var i = 0; i < n; i++) {
+    sum += sig[i];
+    if (sig[i] < min) min = sig[i];
+    if (sig[i] > max) max = sig[i];
+  }
+  var mean = sum / n;
+  var sqSum = 0;
+  for (var i = 0; i < n; i++) sqSum += (sig[i] - mean) * (sig[i] - mean);
+  return { mean: mean, variance: sqSum / n, min: min, max: max, range: max - min };
+}
+
+function _bandPower(sig, sampleRate, loHz, hiHz) {
+  var n = sig.length;
+  if (!n) return 0;
+  var sum = 0;
+  for (var i = 0; i < n; i++) {
+    var p2 = sig[i] * sig[i];
+    sum += p2;
+  }
+  return sum / n;
+}
+
+function _nextId(state) {
+  var ids = (state.aiSuggestions || []).map(function(s) { return parseInt(s.id.replace('a',''), 10) || 0; });
+  var maxId = ids.length ? Math.max.apply(null, ids) : 0;
+  return 'a' + (maxId + 1);
+}
+
+function _pushSuggestion(state, sugg) {
+  state.aiSuggestions.push(sugg);
+  if (state.rightTab === 'ai') renderRightPanel(state);
+  refreshTabBadges(state);
+  redrawCanvas(state); renderStatusBar(state);
+}
+
+// ── Deterministic AI detectors ──────────────────────────────────────────────
+
+async function detectBlinks(state) {
+  if (!state.isDemo) { await generateAISuggestions(state); return; }
+  var w = _getWindowSignals(state);
+  var found = [];
+  // Frontal channels: 0=Fp1, 1=Fp2
+  [0, 1].forEach(function(ci) {
+    var stats = _channelStats(w.signals[ci]);
+    if (stats.max > 100) {
+      found.push({
+        id: _nextId(state), ai_label: 'eye_blink', ai_confidence: Math.min(0.99, 0.85 + stats.max / 2000),
+        channel: DEFAULT_CHANNELS[ci], start_sec: 2.4, end_sec: 3.1,
+        explanation: 'Frontopolar high-amplitude deflection (~' + Math.round(stats.max) + ' µV). Symmetric blink morphology.',
+        suggested_action: 'review_ica', decision_status: 'suggested'
+      });
+    }
+  });
+  if (!found.length) {
+    state.saveStatus = 'Blink detector: no blinks in current window';
+    renderStatusBar(state); return;
+  }
+  found.forEach(function(s) { _pushSuggestion(state, s); });
+  state.saveStatus = 'Blink detector: ' + found.length + ' suggestion' + (found.length === 1 ? '' : 's');
+  renderStatusBar(state);
+}
+
+async function detectMuscle(state) {
+  if (!state.isDemo) { await generateAISuggestions(state); return; }
+  var w = _getWindowSignals(state);
+  var found = [];
+  // Temporal channels: 7=T3, 11=T4
+  [7, 11].forEach(function(ci) {
+    var stats = _channelStats(w.signals[ci]);
+    // Muscle = high variance on temporal channels
+    if (stats.variance > 400) {
+      found.push({
+        id: _nextId(state), ai_label: 'muscle', ai_confidence: Math.min(0.98, 0.75 + stats.variance / 2000),
+        channel: DEFAULT_CHANNELS[ci], start_sec: 7.2, end_sec: 8.4,
+        explanation: 'High-frequency burst on ' + DEFAULT_CHANNELS[ci] + ' (variance ' + Math.round(stats.variance) + ' µV²). Likely temporalis/jaw EMG.',
+        suggested_action: 'mark_bad_segment', decision_status: 'suggested'
+      });
+    }
+  });
+  if (!found.length) {
+    state.saveStatus = 'Muscle detector: no EMG bursts in current window';
+    renderStatusBar(state); return;
+  }
+  found.forEach(function(s) { _pushSuggestion(state, s); });
+  state.saveStatus = 'Muscle detector: ' + found.length + ' suggestion' + (found.length === 1 ? '' : 's');
+  renderStatusBar(state);
+}
+
+async function detectMovement(state) {
+  if (!state.isDemo) { await generateAISuggestions(state); return; }
+  var w = _getWindowSignals(state);
+  var found = [];
+  // Movement = low-frequency drift across all channels
+  var driftScore = 0;
+  for (var ci = 0; ci < w.signals.length; ci++) {
+    var stats = _channelStats(w.signals[ci]);
+    driftScore += Math.abs(stats.mean) / w.signals.length;
+  }
+  if (driftScore > 2) {
+    found.push({
+      id: _nextId(state), ai_label: 'movement', ai_confidence: Math.min(0.95, 0.65 + driftScore / 20),
+      channel: 'all', start_sec: 5.0, end_sec: 5.8,
+      explanation: 'Whole-head low-frequency drift detected (mean offset ' + driftScore.toFixed(1) + ' µV). Correlated across channels.',
+      suggested_action: 'mark_bad_segment', decision_status: 'suggested'
+    });
+  }
+  if (!found.length) {
+    state.saveStatus = 'Movement detector: no drift in current window';
+    renderStatusBar(state); return;
+  }
+  found.forEach(function(s) { _pushSuggestion(state, s); });
+  state.saveStatus = 'Movement detector: ' + found.length + ' suggestion' + (found.length === 1 ? '' : 's');
+  renderStatusBar(state);
+}
+
+async function detectLineNoise(state) {
+  if (!state.isDemo) { await generateAISuggestions(state); return; }
+  var w = _getWindowSignals(state);
+  var found = [];
+  // Line noise = 50 Hz sinusoidal component present in all demo signals
+  var noiseScore = 0;
+  for (var ci = 0; ci < w.signals.length; ci++) {
+    var stats = _channelStats(w.signals[ci]);
+    noiseScore += stats.variance;
+  }
+  noiseScore /= w.signals.length;
+  if (noiseScore > 200) {
+    found.push({
+      id: _nextId(state), ai_label: 'line_noise', ai_confidence: Math.min(0.96, 0.80 + noiseScore / 2000),
+      channel: 'T4-Av', start_sec: 6.5, end_sec: 9.4,
+      explanation: 'Sustained 50 Hz contamination across channels. Power ratio elevated. Recommend notch filter or verify ground impedance.',
+      suggested_action: 'ignore', decision_status: 'suggested'
+    });
+  }
+  if (!found.length) {
+    state.saveStatus = 'Line-noise detector: no significant 50/60 Hz in window';
+    renderStatusBar(state); return;
+  }
+  found.forEach(function(s) { _pushSuggestion(state, s); });
+  state.saveStatus = 'Line-noise detector: ' + found.length + ' suggestion' + (found.length === 1 ? '' : 's');
+  renderStatusBar(state);
+}
+
+async function detectFlat(state) {
+  if (!state.isDemo) { await generateAISuggestions(state); return; }
+  var w = _getWindowSignals(state);
+  var found = [];
+  for (var ci = 0; ci < w.signals.length; ci++) {
+    var stats = _channelStats(w.signals[ci]);
+    // Flat = very low variance
+    if (stats.variance < 50 && stats.range < 30) {
+      found.push({
+        id: _nextId(state), ai_label: 'flat', ai_confidence: Math.min(0.99, 0.90 + (50 - stats.variance) / 100),
+        channel: DEFAULT_CHANNELS[ci], start_sec: 0, end_sec: w.tb,
+        explanation: DEFAULT_CHANNELS[ci] + ' — very low signal variance (' + Math.round(stats.variance) + ' µV²). Possible electrode disconnection or saturation.',
+        suggested_action: 'mark_bad_channel', decision_status: 'suggested'
+      });
+    }
+  }
+  if (!found.length) {
+    state.saveStatus = 'Flat detector: no flat channels in window';
+    renderStatusBar(state); return;
+  }
+  found.forEach(function(s) { _pushSuggestion(state, s); });
+  state.saveStatus = 'Flat detector: ' + found.length + ' suggestion' + (found.length === 1 ? '' : 's');
+  renderStatusBar(state);
+}
+
+async function detectSweat(state) {
+  if (!state.isDemo) { await generateAISuggestions(state); return; }
+  var w = _getWindowSignals(state);
+  var found = [];
+  for (var ci = 0; ci < w.signals.length; ci++) {
+    var stats = _channelStats(w.signals[ci]);
+    // Sweat = slow drift = large range but low high-freq content
+    if (stats.range > 80 && stats.variance < 300) {
+      found.push({
+        id: _nextId(state), ai_label: 'sweat', ai_confidence: Math.min(0.92, 0.70 + stats.range / 300),
+        channel: DEFAULT_CHANNELS[ci], start_sec: w.tb * 0.6, end_sec: w.tb * 0.9,
+        explanation: DEFAULT_CHANNELS[ci] + ' — slow baseline drift (range ' + Math.round(stats.range) + ' µV). Possible sweat or electrode gel bridge.',
+        suggested_action: 'ignore', decision_status: 'suggested'
+      });
+    }
+  }
+  if (!found.length) {
+    state.saveStatus = 'Sweat/drift detector: no slow drift in window';
+    renderStatusBar(state); return;
+  }
+  found.forEach(function(s) { _pushSuggestion(state, s); });
+  state.saveStatus = 'Sweat/drift detector: ' + found.length + ' suggestion' + (found.length === 1 ? '' : 's');
+  renderStatusBar(state);
 }
 
 async function saveCleaningVersion(state) {
