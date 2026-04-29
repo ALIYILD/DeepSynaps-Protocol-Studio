@@ -11,9 +11,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const ANALYZER = readFileSync('apps/web/src/pages-qeeg-analysis.js', 'utf8');
-const APP = readFileSync('apps/web/src/app.js', 'utf8');
-const WORKBENCH = readFileSync('apps/web/src/pages-qeeg-raw-workbench.js', 'utf8');
+const ANALYZER = readFileSync(new URL('./pages-qeeg-analysis.js', import.meta.url), 'utf8');
+const APP = readFileSync(new URL('./app.js', import.meta.url), 'utf8');
+const WORKBENCH = readFileSync(new URL('./pages-qeeg-raw-workbench.js', import.meta.url), 'utf8');
 
 test('analyzer Raw Data tab shows all four launcher buttons', () => {
   for (const label of [

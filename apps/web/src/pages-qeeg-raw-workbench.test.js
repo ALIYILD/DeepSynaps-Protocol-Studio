@@ -11,6 +11,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const WORKBENCH_SRC = resolve(__dirname, 'pages-qeeg-raw-workbench.js');
 
 // ── Tiny DOM polyfill ───────────────────────────────────────────────────────
 //
@@ -166,14 +171,14 @@ await test('AI Assistant panel shows safety wording', async () => {
   // The cleaning state survives because it's local; we just verify the body
   // can render the ai variant by directly invoking the helper through a
   // dynamic shim.
-  const src = await import('node:fs').then(fs => fs.readFileSync('apps/web/src/pages-qeeg-raw-workbench.js', 'utf8'));
+  const src = await import('node:fs').then(fs => fs.readFileSync(WORKBENCH_SRC, 'utf8'));
   assert.ok(src.includes('AI Artefact Assistant'), 'AI tab heading present in source');
   assert.ok(src.includes('AI-assisted suggestion only'), 'AI safety banner present');
   assert.ok(src.includes('Clinician confirmation required'), 'AI confirmation requirement present');
 });
 
 await test('Examples panel covers all canonical artefact archetypes', async () => {
-  const src = await import('node:fs').then(fs => fs.readFileSync('apps/web/src/pages-qeeg-raw-workbench.js', 'utf8'));
+  const src = await import('node:fs').then(fs => fs.readFileSync(WORKBENCH_SRC, 'utf8'));
   for (const ex of [
     'Posterior alpha',
     'Eye blink',
@@ -190,12 +195,12 @@ await test('Examples panel covers all canonical artefact archetypes', async () =
 });
 
 await test('Audit panel labels are present in source', async () => {
-  const src = await import('node:fs').then(fs => fs.readFileSync('apps/web/src/pages-qeeg-raw-workbench.js', 'utf8'));
+  const src = await import('node:fs').then(fs => fs.readFileSync(WORKBENCH_SRC, 'utf8'));
   assert.ok(src.includes('Cleaning Audit Trail'), 'audit heading');
 });
 
 await test('Best-Practice panel covers required topics', async () => {
-  const src = await import('node:fs').then(fs => fs.readFileSync('apps/web/src/pages-qeeg-raw-workbench.js', 'utf8'));
+  const src = await import('node:fs').then(fs => fs.readFileSync(WORKBENCH_SRC, 'utf8'));
   for (const topic of ['Bad channel detection','Eye blink','Line noise','When NOT to over-clean','Preserve original raw EEG']) {
     assert.ok(src.includes(topic), 'best-practice topic: ' + topic);
   }
