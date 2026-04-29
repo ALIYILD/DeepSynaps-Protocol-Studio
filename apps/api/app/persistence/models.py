@@ -2711,3 +2711,79 @@ class ClinicMonthlyCostCap(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+
+
+# ── Fusion Workbench Models (migration 054) ───────────────────────────────────
+
+class FusionCase(Base):
+    """Persistent, review-governed multimodal fusion case summary."""
+    __tablename__ = "fusion_cases"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    qeeg_analysis_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    mri_analysis_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    assessment_ids_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    course_ids_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    # ── AI-generated payload (additive JSON columns) ──
+    summary: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    confidence: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    confidence_grade: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, default="heuristic")
+    recommendations_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    modality_agreement_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    protocol_fusion_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    explainability_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    safety_cockpit_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    red_flags_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    governance_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    patient_facing_report_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    limitations_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    missing_modalities_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    provenance_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    # ── Review state machine ──
+    report_state: Mapped[str] = mapped_column(String(30), nullable=False, default="FUSION_DRAFT_AI")
+    reviewer_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    clinician_amendments: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    report_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    signed_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    signed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    # ── Metadata ──
+    partial: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    source_qeeg_state: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    source_mri_state: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    radiology_review_required: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class FusionCaseAudit(Base):
+    """Immutable audit trail for FusionCase state transitions."""
+    __tablename__ = "fusion_case_audits"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    fusion_case_id: Mapped[str] = mapped_column(String(36), ForeignKey("fusion_cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor_role: Mapped[str] = mapped_column(String(50), nullable=False)
+    previous_state: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    new_state: Mapped[str] = mapped_column(String(30), nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class FusionCaseFinding(Base):
+    """Per-target finding review record for fusion cases."""
+    __tablename__ = "fusion_case_findings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    fusion_case_id: Mapped[str] = mapped_column(String(36), ForeignKey("fusion_cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    target_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    claim_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="PENDING_REVIEW")
+    evidence_grade: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    clinician_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    amended_text: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
