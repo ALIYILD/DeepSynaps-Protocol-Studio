@@ -4759,7 +4759,7 @@ export async function pgPatientQueue(setTopbar) {
     const hh = String(t.getHours()).padStart(2,'0'), mm = String(t.getMinutes()).padStart(2,'0');
     q.push({ id, time:hh+':'+mm, patientId:'pt_wi_'+Date.now(), patientName:name, condition, sessionNum:1, sessionTotal:1, protocol, status:'waiting', alerts:[], notes:'Walk-in patient' });
     _pqSave('ds_today_queue', q); _pqRender();
-    window._showNotifToast?.({ title:'Walk-in Added', body:name + ' added to today\'s queue', severity:'info' });
+    window._showNotifToast?.({ title:'Walk-in Added', body:name + ' added to today\'s local preview queue', severity:'info' });
   };
 
   window._pqChangeDate = function(dateVal) {
@@ -5106,7 +5106,7 @@ export async function pgClinicDay(setTopbar) {
     q.push({ id:'pq_wi_'+Date.now(), time:String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0'),
       patientId:'pt_wi_'+Date.now(), patientName:name, condition, sessionNum:1, sessionTotal:1, protocol, status:'waiting', alerts:[], notes:'Walk-in' });
     _save(QUEUE_KEY, q); render();
-    window._showNotifToast?.({ title:'Walk-in Added', body:name + ' added to queue', severity:'info' });
+    window._showNotifToast?.({ title:'Walk-in Added', body:name + ' added to the local preview queue', severity:'info' });
   };
 
   window._cdApprove = function(id) {
@@ -5115,7 +5115,7 @@ export async function pgClinicDay(setTopbar) {
     item.status = 'approved';
     try { localStorage.setItem(REVIEW_KEY, JSON.stringify(items)); } catch {}
     render();
-    window._showNotifToast?.({ title:'Approved', body:'Item approved successfully', severity:'success' });
+    window._showNotifToast?.({ title:'Approved', body:'Item marked approved in this browser view', severity:'success' });
   };
 
   window._cdOpenReview = function(id) {
@@ -13102,7 +13102,7 @@ export async function pgHomePrograms(setTopbar, navigate) {
         _lsSet(_compKey(pid), comps);
         // Also update the patient bridge
         const ptTasks = _ls(_patKey(pid), []); const idx = ptTasks.findIndex(t=>t.id===tid); if(idx>=0){ptTasks[idx].done=true;ptTasks[idx].completedAt=new Date().toISOString(); _lsSet(_patKey(pid),ptTasks);}
-        renderPage(); window._dsToast?.({title:'Task completed',body:'Marked as done in patient view.',severity:'success'});
+        renderPage(); window._dsToast?.({title:'Task updated',body:'Marked as done in the local patient view.',severity:'success'});
       };
       window._hpPatUncompleteTask = (pid, tid) => {
         const comps = _ls(_compKey(pid), {}); delete comps[tid]; _lsSet(_compKey(pid), comps);
@@ -13381,7 +13381,7 @@ export async function pgHomePrograms(setTopbar, navigate) {
     comps[tid] = new Date().toISOString();
     _lsSet(_compKey(pid), comps);
     _allTasks = _loadAllTasks(); renderPage();
-    window._showNotifToast?.({ title:'Marked Complete', body:'Task marked as completed.', severity:'success' });
+    window._showNotifToast?.({ title:'Task updated', body:'Task marked complete in this browser view.', severity:'success' });
   };
 
   window._hpArchive = (tid, pid) => {

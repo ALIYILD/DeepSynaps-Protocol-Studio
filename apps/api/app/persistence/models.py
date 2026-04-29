@@ -1880,6 +1880,142 @@ class QEEGAnalysis(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+# ── qEEG Raw Cleaning Workbench (migration 058) ──────────────────────────────
+#
+# The clinical-decision-support workbench stores cleaning as a sibling of
+# the qEEG analysis row. The original raw EEG is *immutable* — every
+# cleaning action lives in these tables, scoped by analysis_id and audited.
+#
+# Three tables:
+#
+# * ``qeeg_cleaning_versions`` — one row per saved cleaning version.
+#   Holds the bad-channel list, rejected segments / epochs, ICA decisions,
+#   and a cleaned-summary blob. ``version_number`` increments per analysis.
+# * ``qeeg_cleaning_annotations`` — fine-grained per-action records (mark
+#   bad segment, mark bad channel, reject epoch, AI suggestion accepted,
+#   etc). One row per action regardless of which version persists it.
+# * ``qeeg_cleaning_audit_events`` — immutable audit log. Every mutation
+#   appends here; rows are never updated or deleted.
+#
+# Clinical safety: nothing in these tables is allowed to mutate raw EDF
+# bytes or the parent ``qeeg_analyses`` row's source columns. The
+# workbench router enforces this at the API edge.
+
+
+class QeegCleaningVersion(Base):
+    """A clinician-saved cleaning version of a qEEG analysis.
+
+    Original raw EEG is preserved on the parent ``QEEGAnalysis`` row.
+    Each ``QeegCleaningVersion`` is a derived overlay (annotations,
+    bad channels, rejected segments, ICA decisions). The workbench
+    re-runs analysis using the chosen version_id and links the new
+    analysis back via ``derived_analysis_id``.
+    """
+
+    __tablename__ = "qeeg_cleaning_versions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    analysis_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("qeeg_analyses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    version_number: Mapped[int] = mapped_column(Integer(), nullable=False, default=1)
+    label: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    bad_channels_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    rejected_segments_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    rejected_epochs_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    rejected_ica_components_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    interpolated_channels_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    cleaned_summary_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    review_status: Mapped[str] = mapped_column(String(30), nullable=False, default="draft")
+    derived_analysis_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    created_by_actor_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+
+class QeegCleaningAnnotation(Base):
+    """A single cleaning action (manual or AI-accepted) on an analysis.
+
+    Annotations belong to an analysis (not a version) so the timeline of
+    cleaning decisions survives across version saves.  A version can pin a
+    list of annotation_ids it incorporated via ``cleaned_summary_json``.
+    """
+
+    __tablename__ = "qeeg_cleaning_annotations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    analysis_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("qeeg_analyses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    kind: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    channel: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    start_sec: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    end_sec: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    ica_component: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    ai_confidence: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    ai_label: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    source: Mapped[str] = mapped_column(String(30), nullable=False, default="clinician")
+    decision_status: Mapped[str] = mapped_column(String(30), nullable=False, default="suggested")
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    actor_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+
+class QeegCleaningAuditEvent(Base):
+    """Immutable audit log row for every cleaning mutation.
+
+    Inserts only — never updated or deleted. The router writes one row
+    per mutating call: action_type, channel/segment/component if
+    applicable, previous_value/new_value (JSON snippets), actor, source.
+    """
+
+    __tablename__ = "qeeg_cleaning_audit_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    analysis_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("qeeg_analyses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    cleaning_version_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    action_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    channel: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    start_sec: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    end_sec: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    ica_component: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    previous_value_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    new_value_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    source: Mapped[str] = mapped_column(String(30), nullable=False, default="clinician")
+    actor_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), nullable=False, index=True
+    )
+
+
 class KgEntity(Base):
     """Knowledge-graph entity node (CONTRACT_V2.md §3 hypergraph).
 
@@ -2711,6 +2847,82 @@ class ClinicMonthlyCostCap(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+
+
+# ── Fusion Workbench Models (migration 054) ───────────────────────────────────
+
+class FusionCase(Base):
+    """Persistent, review-governed multimodal fusion case summary."""
+    __tablename__ = "fusion_cases"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    qeeg_analysis_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    mri_analysis_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    assessment_ids_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    course_ids_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    # ── AI-generated payload (additive JSON columns) ──
+    summary: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    confidence: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    confidence_grade: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, default="heuristic")
+    recommendations_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    modality_agreement_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    protocol_fusion_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    explainability_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    safety_cockpit_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    red_flags_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    governance_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    patient_facing_report_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    limitations_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    missing_modalities_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    provenance_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    # ── Review state machine ──
+    report_state: Mapped[str] = mapped_column(String(30), nullable=False, default="FUSION_DRAFT_AI")
+    reviewer_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    clinician_amendments: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    report_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    signed_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    signed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    # ── Metadata ──
+    partial: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    source_qeeg_state: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    source_mri_state: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    radiology_review_required: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class FusionCaseAudit(Base):
+    """Immutable audit trail for FusionCase state transitions."""
+    __tablename__ = "fusion_case_audits"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    fusion_case_id: Mapped[str] = mapped_column(String(36), ForeignKey("fusion_cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor_role: Mapped[str] = mapped_column(String(50), nullable=False)
+    previous_state: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    new_state: Mapped[str] = mapped_column(String(30), nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class FusionCaseFinding(Base):
+    """Per-target finding review record for fusion cases."""
+    __tablename__ = "fusion_case_findings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    fusion_case_id: Mapped[str] = mapped_column(String(36), ForeignKey("fusion_cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    target_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    claim_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="PENDING_REVIEW")
+    evidence_grade: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    clinician_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    amended_text: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 # ── Phase 12 — onboarding wizard funnel telemetry (migration 056) ────────────

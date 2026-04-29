@@ -53,3 +53,66 @@ test('MRI fusion card renders dual-modality summary and confidence badge', () =>
   assert.match(html, /confidence 72%/);
   assert.match(html, /heuristic/);
 });
+
+
+test('qEEG fusion card links to workbench when patientId provided', () => {
+  const html = qeeg.renderFusionSummaryCard({
+    patient_id: 'pat-1',
+    qeeg_analysis_id: 'qeeg-1',
+    mri_analysis_id: null,
+    recommendations: [],
+    summary: 'Partial fusion.',
+    confidence: 0.4,
+    confidence_disclaimer: 'Disclaimer.',
+    confidence_grade: 'heuristic',
+  }, 'pat-1');
+
+  assert.match(html, /Open Fusion Workbench/);
+  assert.match(html, /fusion-workbench/);
+});
+
+test('qEEG fusion card omits workbench link when no patientId', () => {
+  const html = qeeg.renderFusionSummaryCard({
+    patient_id: 'pat-1',
+    qeeg_analysis_id: 'qeeg-1',
+    mri_analysis_id: null,
+    recommendations: [],
+    summary: 'Partial fusion.',
+    confidence: 0.4,
+    confidence_disclaimer: 'Disclaimer.',
+    confidence_grade: 'heuristic',
+  }, null);
+
+  assert.doesNotMatch(html, /Open Fusion Workbench/);
+});
+
+test('MRI fusion card links to workbench when patientId provided', () => {
+  const html = mri.renderFusionSummaryCard({
+    patient_id: 'pat-2',
+    qeeg_analysis_id: 'qeeg-2',
+    mri_analysis_id: 'mri-2',
+    recommendations: [],
+    summary: 'Dual-modality fusion.',
+    confidence: 0.72,
+    confidence_disclaimer: 'Disclaimer.',
+    confidence_grade: 'heuristic',
+  }, 'pat-2');
+
+  assert.match(html, /Open Fusion Workbench/);
+  assert.match(html, /fusion-workbench/);
+});
+
+test('MRI fusion card omits workbench link when no patientId', () => {
+  const html = mri.renderFusionSummaryCard({
+    patient_id: 'pat-2',
+    qeeg_analysis_id: 'qeeg-2',
+    mri_analysis_id: 'mri-2',
+    recommendations: [],
+    summary: 'Dual-modality fusion.',
+    confidence: 0.72,
+    confidence_disclaimer: 'Disclaimer.',
+    confidence_grade: 'heuristic',
+  }, null);
+
+  assert.doesNotMatch(html, /Open Fusion Workbench/);
+});

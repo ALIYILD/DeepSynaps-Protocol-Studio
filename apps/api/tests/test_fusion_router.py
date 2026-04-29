@@ -241,3 +241,484 @@ def test_mri_sse_stream_emits_terminal_snapshot(
     assert "event: complete" in first_chunk
     assert '"analysis_id": "mri-sse-1"' in first_chunk
     assert '"state": "SUCCESS"' in first_chunk
+
+
+# ── Fusion Workbench endpoints (Migration 054) ───────────────────────────────
+
+from app.persistence.models import FusionCase, FusionCaseAudit
+
+
+def _seed_qeeg_and_mri(
+    patient_id: str,
+    qeeg_state: str = "completed",
+    mri_state: str = "SUCCESS",
+    qeeg_safety: dict | None = None,
+    mri_safety: dict | None = None,
+    qeeg_report_state: str | None = None,
+    mri_report_state: str | None = None,
+) -> tuple[str, str]:
+    """Create QEEGAnalysis + MriAnalysis rows directly. Returns (qeeg_id, mri_id)."""
+    db = SessionLocal()
+    try:
+        qeeg_id = f"qeeg-wb-{uuid.uuid4().hex[:8]}"
+        mri_id = f"mri-wb-{uuid.uuid4().hex[:8]}"
+        db.add(
+            QEEGAnalysis(
+                id=qeeg_id,
+                patient_id=patient_id,
+                clinician_id="actor-clinician-demo",
+                analysis_status=qeeg_state,
+                band_powers_json=json.dumps({"bands": {}}),
+                advanced_analyses_json=None,
+                brain_age_json=json.dumps({"gap_years": 3.0}),
+                risk_scores_json=None,
+                protocol_recommendation_json=json.dumps({"target_region": "DLPFC", "frequency_hz": 10}),
+                flagged_conditions=json.dumps([{"condition": "Depression"}]),
+                quality_metrics_json=json.dumps({"bad_channels": []}),
+                safety_cockpit_json=json.dumps(qeeg_safety) if qeeg_safety else json.dumps({"red_flags": []}),
+                red_flags_json=None,
+                analyzed_at=datetime.now(timezone.utc),
+            )
+        )
+        db.add(
+            MriAnalysis(
+                analysis_id=mri_id,
+                patient_id=patient_id,
+                state=mri_state,
+                structural_json=json.dumps({"findings": []}),
+                functional_json=None,
+                diffusion_json=None,
+                stim_targets_json=json.dumps([{"region": "DLPFC", "x": 1, "y": 2, "z": 3}]),
+                qc_json=None,
+                condition="Depression",
+                safety_cockpit_json=json.dumps(mri_safety) if mri_safety else json.dumps({"red_flags": []}),
+                red_flags_json=None,
+                report_state=mri_report_state,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+        return qeeg_id, mri_id
+    finally:
+        db.close()
+
+
+# ── Create case ──────────────────────────────────────────────────────────────
+
+
+def test_create_fusion_case_success(
+    client: TestClient,
+    auth_headers: dict[str, dict[str, str]],
+) -> None:
+    patient_id = _seed_patient(client, auth_headers)
+    _seed_qeeg_and_mri(patient_id)
+
+    resp = client.post(
+        "/api/v1/fusion/cases",
+        json={"patient_id": patient_id},
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["patient_id"] == patient_id
+    assert body["report_state"] == "FUSION_DRAFT_AI"
+    assert body["partial"] is False
+    assert body["qeeg_analysis_id"]
+    assert body["mri_analysis_id"]
+    assert body["modality_agreement"]["overall_status"] in ("agreement", "partial")
+    assert body["protocol_fusion"]["fusion_status"] == "merged"
+    assert body["safety_cockpit"]["overall_status"] == "safe"
+    assert body["limitations"]
+    assert body["provenance"]["generator"] == "fusion_workbench_service.v1"
+
+
+def test_create_fusion_case_blocked_by_red_flags(
+    client: TestClient,
+    auth_headers: dict[str, dict[str, str]],
+) -> None:
+    patient_id = _seed_patient(client, auth_headers)
+    _seed_qeeg_and_mri(
+        patient_id,
+        mri_safety={
+            "red_flags": [
+                {"code": "RADIOLOGY_REVIEW_REQUIRED", "severity": "high", "resolved": False}
+            ]
+        },
+    )
+
+    resp = client.post(
+        "/api/v1/fusion/cases",
+        json={"patient_id": patient_id},
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["blocked"] is True
+    assert any("radiology review" in r.lower() for r in body["reasons"])
+    assert body["next_steps"]
+
+
+# ── List / Get ───────────────────────────────────────────────────────────────
+
+
+def test_list_fusion_cases(
+    client: TestClient,
+    auth_headers: dict[str, dict[str, str]],
+) -> None:
+    patient_id = _seed_patient(client, auth_headers)
+    _seed_qeeg_and_mri(patient_id)
+
+    # Create two cases
+    for _ in range(2):
+        resp = client.post(
+            "/api/v1/fusion/cases",
+            json={"patient_id": patient_id},
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 201, resp.text
+
+    resp = client.get(
+        f"/api/v1/fusion/cases?patient_id={patient_id}",
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body) == 2
+    assert body[0]["report_state"] == "FUSION_DRAFT_AI"
+
+
+def test_get_fusion_case(
+    client: TestClient,
+    auth_headers: dict[str, dict[str, str]],
+) -> None:
+    patient_id = _seed_patient(client, auth_headers)
+    _seed_qeeg_and_mri(patient_id)
+
+    resp = client.post(
+        "/api/v1/fusion/cases",
+        json={"patient_id": patient_id},
+        headers=auth_headers["clinician"],
+    )
+    case_id = resp.json()["id"]
+
+    resp = client.get(
+        f"/api/v1/fusion/cases/{case_id}",
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["id"] == case_id
+    assert body["patient_id"] == patient_id
+
+
+def test_get_fusion_case_not_found(
+    client: TestClient,
+    auth_headers: dict[str, dict[str, str]],
+) -> None:
+    resp = client.get(
+        "/api/v1/fusion/cases/nonexistent-id",
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 404, resp.text
+
+
+# ── State transitions ────────────────────────────────────────────────────────
+
+
+def test_transition_approve_and_sign(
+    client: TestClient,
+    auth_headers: dict[str, dict[str, str]],
+) -> None:
+    patient_id = _seed_patient(client, auth_headers)
+    _seed_qeeg_and_mri(patient_id)
+
+    resp = client.post(
+        "/api/v1/fusion/cases",
+        json={"patient_id": patient_id},
+        headers=auth_headers["clinician"],
+    )
+    case_id = resp.json()["id"]
+
+    # needs_clinical_review
+    resp = client.post(
+        f"/api/v1/fusion/cases/{case_id}/transition",
+        json={"action": "needs_clinical_review"},
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["report_state"] == "FUSION_NEEDS_CLINICAL_REVIEW"
+
+    # approve
+    resp = client.post(
+        f"/api/v1/fusion/cases/{case_id}/transition",
+        json={"action": "approve", "note": "Looks good"},
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["report_state"] == "FUSION_APPROVED"
+    assert body["reviewer_id"] == "actor-clinician-demo"
+    assert body["reviewed_at"]
+
+    # sign
+    resp = client.post(
+        f"/api/v1/fusion/cases/{case_id}/transition",
+        json={"action": "sign"},
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["report_state"] == "FUSION_SIGNED"
+    assert body["signed_by"] == "actor-clinician-demo"
+    assert body["signed_at"]
+
+
+def test_transition_invalid_action(
+    client: TestClient,
+    auth_headers: dict[str, dict[str, str]],
+) -> None:
+    patient_id = _seed_patient(client, auth_headers)
+    _seed_qeeg_and_mri(patient_id)
+
+    resp = client.post(
+        "/api/v1/fusion/cases",
+        json={"patient_id": patient_id},
+        headers=auth_headers["clinician"],
+    )
+    case_id = resp.json()["id"]
+
+    resp = client.post(
+        f"/api/v1/fusion/cases/{case_id}/transition",
+        json={"action": "sign"},
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 400, resp.text
+    assert "Invalid transition" in resp.json()["message"]
+
+
+# ── Patient-facing report ────────────────────────────────────────────────────
+
+
+def test_patient_report_gated_before_approval(
+    client: TestClient,
+    auth_headers: dict[str, dict[str, str]],
+) -> None:
+    patient_id = _seed_patient(client, auth_headers)
+    _seed_qeeg_and_mri(patient_id)
+
+    resp = client.post(
+        "/api/v1/fusion/cases",
+        json={"patient_id": patient_id},
+        headers=auth_headers["clinician"],
+    )
+    case_id = resp.json()["id"]
+
+    resp = client.get(
+        f"/api/v1/fusion/cases/{case_id}/patient-report",
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 403, resp.text
+    assert "not yet available" in resp.json()["message"]
+
+
+def test_patient_report_returns_after_sign(
+    client: TestClient,
+    auth_headers: dict[str, dict[str, str]],
+) -> None:
+    patient_id = _seed_patient(client, auth_headers)
+    _seed_qeeg_and_mri(patient_id)
+
+    resp = client.post(
+        "/api/v1/fusion/cases",
+        json={"patient_id": patient_id},
+        headers=auth_headers["clinician"],
+    )
+    case_id = resp.json()["id"]
+
+    # Move to signed
+    for action in ("needs_clinical_review", "approve", "sign"):
+        resp = client.post(
+            f"/api/v1/fusion/cases/{case_id}/transition",
+            json={"action": action},
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 200, resp.text
+
+    resp = client.get(
+        f"/api/v1/fusion/cases/{case_id}/patient-report",
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["disclaimer"]
+    assert body["decision_support_only"] is True
+    assert "sha256:" in body["patient_id_hash"]
+
+
+# ── Agreement / Protocol Fusion ──────────────────────────────────────────────
+
+
+def test_agreement_endpoint(
+    client: TestClient,
+    auth_headers: dict[str, dict[str, str]],
+) -> None:
+    patient_id = _seed_patient(client, auth_headers)
+    _seed_qeeg_and_mri(patient_id)
+
+    resp = client.post(
+        "/api/v1/fusion/cases",
+        json={"patient_id": patient_id},
+        headers=auth_headers["clinician"],
+    )
+    case_id = resp.json()["id"]
+
+    resp = client.get(
+        f"/api/v1/fusion/cases/{case_id}/agreement",
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "overall_status" in body
+    assert "items" in body
+    assert body["decision_support_only"] is True
+
+
+def test_protocol_fusion_endpoint(
+    client: TestClient,
+    auth_headers: dict[str, dict[str, str]],
+) -> None:
+    patient_id = _seed_patient(client, auth_headers)
+    _seed_qeeg_and_mri(patient_id)
+
+    resp = client.post(
+        "/api/v1/fusion/cases",
+        json={"patient_id": patient_id},
+        headers=auth_headers["clinician"],
+    )
+    case_id = resp.json()["id"]
+
+    resp = client.get(
+        f"/api/v1/fusion/cases/{case_id}/protocol-fusion",
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["fusion_status"] == "merged"
+    assert body["decision_support_only"] is True
+
+
+# ── Audit trail ──────────────────────────────────────────────────────────────
+
+
+def test_audit_endpoint(
+    client: TestClient,
+    auth_headers: dict[str, dict[str, str]],
+) -> None:
+    patient_id = _seed_patient(client, auth_headers)
+    _seed_qeeg_and_mri(patient_id)
+
+    resp = client.post(
+        "/api/v1/fusion/cases",
+        json={"patient_id": patient_id},
+        headers=auth_headers["clinician"],
+    )
+    case_id = resp.json()["id"]
+
+    # Transition to create audit entries
+    resp = client.post(
+        f"/api/v1/fusion/cases/{case_id}/transition",
+        json={"action": "needs_clinical_review"},
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+
+    resp = client.get(
+        f"/api/v1/fusion/cases/{case_id}/audit",
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body) >= 2
+    assert any(a["action"] == "create" for a in body)
+    assert any(a["action"] == "needs_clinical_review" for a in body)
+
+
+# ── Export gating ────────────────────────────────────────────────────────────
+
+
+def test_export_blocked_before_signed(
+    client: TestClient,
+    auth_headers: dict[str, dict[str, str]],
+) -> None:
+    patient_id = _seed_patient(client, auth_headers)
+    _seed_qeeg_and_mri(patient_id)
+
+    resp = client.post(
+        "/api/v1/fusion/cases",
+        json={"patient_id": patient_id},
+        headers=auth_headers["clinician"],
+    )
+    case_id = resp.json()["id"]
+
+    resp = client.post(
+        f"/api/v1/fusion/cases/{case_id}/export",
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 403, resp.text
+    assert "must be signed" in resp.json()["message"]
+
+
+def test_export_allowed_after_signed(
+    client: TestClient,
+    auth_headers: dict[str, dict[str, str]],
+) -> None:
+    patient_id = _seed_patient(client, auth_headers)
+    _seed_qeeg_and_mri(patient_id)
+
+    resp = client.post(
+        "/api/v1/fusion/cases",
+        json={"patient_id": patient_id},
+        headers=auth_headers["clinician"],
+    )
+    case_id = resp.json()["id"]
+
+    for action in ("needs_clinical_review", "approve", "sign"):
+        resp = client.post(
+            f"/api/v1/fusion/cases/{case_id}/transition",
+            json={"action": action},
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 200, resp.text
+
+    resp = client.post(
+        f"/api/v1/fusion/cases/{case_id}/export",
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["format"] == "deepsynaps-fusion-v1"
+    assert body["download_url"].startswith("data:application/json;base64,")
+
+
+# ── Auth / role checks ───────────────────────────────────────────────────────
+
+
+def test_workbench_endpoints_forbid_guest(
+    client: TestClient,
+    auth_headers: dict[str, dict[str, str]],
+) -> None:
+    patient_id = _seed_patient(client, auth_headers)
+    _seed_qeeg_and_mri(patient_id)
+
+    resp = client.post(
+        "/api/v1/fusion/cases",
+        json={"patient_id": patient_id},
+        headers=auth_headers["guest"],
+    )
+    assert resp.status_code == 403, resp.text
+
+    resp = client.get(
+        f"/api/v1/fusion/cases?patient_id={patient_id}",
+        headers=auth_headers["guest"],
+    )
+    assert resp.status_code == 403, resp.text

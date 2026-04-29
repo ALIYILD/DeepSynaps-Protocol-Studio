@@ -781,6 +781,7 @@ function _renderStateRail(snapshot, context) {
     <div style="padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.025)">
       <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em">Fusion recommendation</div>
       <div style="font-size:12.5px;color:var(--text);line-height:1.7;margin-top:8px">${_esc(context.fusion?.summary || context.fusion?.recommendation || 'No fusion summary available yet.')}</div>
+      ${context.patientId ? `<div style="margin-top:8px;"><a href="/fusion-workbench?patient_id=${encodeURIComponent(context.patientId)}" style="font-size:11px;color:var(--teal);text-decoration:none;">Open Fusion Workbench &rarr;</a></div>` : ''}
     </div>
   </div>`);
 }

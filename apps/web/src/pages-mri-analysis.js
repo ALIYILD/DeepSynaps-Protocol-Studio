@@ -333,6 +333,9 @@ export function renderFusionSummaryCard(fusion, patientId) {
     ? '<div style="margin-top:10px;font-size:11px;color:var(--text-tertiary);line-height:1.5;border-left:2px solid var(--amber);padding-left:8px">'
         + esc(fusion.confidence_disclaimer) + '</div>'
     : '';
+  var workbenchLink = patientId
+    ? '<div style="margin-top:10px;"><a href="/fusion-workbench?patient_id=' + encodeURIComponent(patientId) + '" style="font-size:12px;color:var(--teal);text-decoration:none;">Open Fusion Workbench &rarr;</a></div>'
+    : '';
   return card('Fusion summary',
     '<div style="font-size:13px;color:var(--text-primary);line-height:1.55">' + esc(fusion.summary || '') + '</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">' + tags.map(function (item) {
@@ -344,6 +347,7 @@ export function renderFusionSummaryCard(fusion, patientId) {
         + '</ul>'
       : '')
     + disclaimerHtml
+    + workbenchLink
   );
 }
 

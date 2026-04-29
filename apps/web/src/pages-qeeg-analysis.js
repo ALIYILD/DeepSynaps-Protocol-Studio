@@ -760,6 +760,9 @@ export function renderFusionSummaryCard(fusion, patientId) {
     ? '<div style="margin-top:10px;font-size:11px;color:var(--text-tertiary);line-height:1.5;border-left:2px solid var(--amber);padding-left:8px">'
         + esc(fusion.confidence_disclaimer) + '</div>'
     : '';
+  var workbenchLink = patientId
+    ? '<div style="margin-top:10px;"><a href="/fusion-workbench?patient_id=' + encodeURIComponent(patientId) + '" style="font-size:12px;color:var(--teal);text-decoration:none;">Open Fusion Workbench &rarr;</a></div>'
+    : '';
   return card('Fusion summary',
     '<div style="font-size:13px;color:var(--text-primary);line-height:1.55">' + esc(fusion.summary || '') + '</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">' + meta.map(function (item) {
@@ -767,6 +770,7 @@ export function renderFusionSummaryCard(fusion, patientId) {
     }).join('') + '</div>'
     + recHtml
     + disclaimerHtml
+    + workbenchLink
   );
 }
 
@@ -4879,6 +4883,25 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     try {
       const { renderRawDataTab } = await import('./pages-qeeg-raw.js');
       await renderRawDataTab(tabEl, analysisId, patientId);
+      // Inject the full-screen workbench launcher above the inline viewer.
+      // Decision-support only: original raw EEG is preserved on the backend.
+      const wbBar = document.createElement('div');
+      wbBar.style.cssText = 'background:linear-gradient(90deg,#1f4a8a,#2563aa);color:#fff;padding:14px 18px;border-radius:8px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+      wbBar.innerHTML =
+        '<div><div style="font-weight:600;font-size:14px;margin-bottom:2px">Raw EEG Cleaning Workbench</div>'
+        + '<div style="font-size:11px;opacity:0.9">Full-screen clinical workstation: inspect traces, mark artefacts, review AI suggestions, save cleaning version, re-run qEEG. <strong>Original raw EEG preserved.</strong></div></div>'
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+        + '<button class="btn btn-sm" style="background:#fff;color:#1f4a8a;font-weight:600" onclick="window._qeegOpenWorkbench(\'' + esc(analysisId) + '\')">Open Raw EEG Workbench</button>'
+        + '<button class="btn btn-sm" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4)" onclick="window._qeegOpenWorkbench(\'' + esc(analysisId) + '\')">Review &amp; Clean Signal</button>'
+        + '<button class="btn btn-sm" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4)" onclick="window._qeegOpenWorkbench(\'' + esc(analysisId) + '\',\'compare\')">Compare Raw vs Cleaned</button>'
+        + '<button class="btn btn-sm" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4)" onclick="window._qeegOpenWorkbench(\'' + esc(analysisId) + '\',\'rerun\')">Re-run Analysis After Cleaning</button>'
+        + '</div>';
+      tabEl.insertBefore(wbBar, tabEl.firstChild);
+      window._qeegOpenWorkbench = function(id, mode) {
+        window._qeegSelectedId = id;
+        window.location.hash = '#/qeeg-raw-workbench/' + encodeURIComponent(id) + (mode ? '?mode=' + encodeURIComponent(mode) : '');
+        if (typeof window._nav === 'function') window._nav('qeeg-raw-workbench');
+      };
     } catch (err) {
       tabEl.innerHTML = '<div style="color:var(--red);padding:24px" role="alert">Failed to load Raw Data viewer: ' + esc(String(err.message || err)) + '</div>';
     }
