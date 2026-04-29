@@ -45,10 +45,12 @@ from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from app.database import SessionLocal
 from app.services.funnel_digest import emit_weekly_funnel_digest
 from app.services.ops_alerting import scan_and_alert_abuse_signals
+from app.services.webhook_auto_replay import scan_and_auto_replay
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +66,15 @@ _SCHEDULER: Optional[BackgroundScheduler] = None
 # detect-and-skip on idempotent restarts.
 ABUSE_SCAN_JOB_ID = "abuse_scan"
 FUNNEL_DIGEST_JOB_ID = "funnel_digest"
+WEBHOOK_AUTO_REPLAY_JOB_ID = "webhook_auto_replay"
+
+# Phase 14 — half-hourly cadence for the webhook auto-replay scanner.
+# Hard-coded rather than env-gated per Phase 14 constraint ("DO NOT
+# introduce a new env var"). 30 minutes is short enough to recover quickly
+# from a transient outage while still leaving Stripe's own retry window
+# (the helper itself enforces a 1h minimum age on each event before
+# replaying, so we are not racing Stripe).
+_WEBHOOK_AUTO_REPLAY_INTERVAL_MIN = 30
 
 
 def _resolve_interval_minutes() -> int:
@@ -162,6 +173,43 @@ def _run_funnel_digest() -> None:
             pass
 
 
+def _run_webhook_auto_replay() -> None:
+    """Scheduler tick — opens a fresh session, runs the auto-replay scan,
+    swallows errors.
+
+    Mirrors :func:`_run_abuse_scan` and :func:`_run_funnel_digest`. Each
+    cron has its own wrapper + structured ``event`` log key so a failure
+    in one job doesn't mask another in the logs.
+    """
+    session = SessionLocal()
+    try:
+        result = scan_and_auto_replay(session)
+        logger.info(
+            "webhook auto-replay tick complete",
+            extra={
+                "event": "webhook_auto_replay_tick",
+                "scanned": result.get("scanned"),
+                "attempted": result.get("attempted"),
+                "succeeded": result.get("succeeded"),
+                "failed": result.get("failed"),
+                "alerted": result.get("alerted"),
+            },
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "webhook auto-replay tick failed",
+            extra={
+                "event": "webhook_auto_replay_tick_error",
+                "error": str(exc),
+            },
+        )
+    finally:
+        try:
+            session.close()
+        except Exception:  # pragma: no cover - defensive
+            pass
+
+
 def start_scheduler() -> Optional[BackgroundScheduler]:
     """Start the BackgroundScheduler if enabled by env var; otherwise no-op.
 
@@ -172,8 +220,10 @@ def start_scheduler() -> Optional[BackgroundScheduler]:
     ---------------
     * ``abuse_scan`` — Phase 9 hourly (interval) abuse-signal scanner.
     * ``funnel_digest`` — Phase 13D weekly digest, fires Mondays 09:00 UTC.
+    * ``webhook_auto_replay`` — Phase 14 half-hourly Stripe webhook
+      auto-replay scanner.
 
-    Both jobs are gated by the same ``DEEPSYNAPS_AGENT_CRON_ENABLED=1``
+    All jobs are gated by the same ``DEEPSYNAPS_AGENT_CRON_ENABLED=1``
     env var. We deliberately do not introduce a per-job env var: ops
     either wants the scheduler thread alive or they don't, and gating
     individual jobs piecemeal would make staging/prod parity harder to
@@ -222,6 +272,19 @@ def start_scheduler() -> Optional[BackgroundScheduler]:
             max_instances=1,
             coalesce=True,
         )
+        # Phase 14 — half-hourly Stripe webhook auto-replay scanner. Uses
+        # IntervalTrigger because the cadence is "as fast as is sane to
+        # recover from a transient outage" rather than anchored to a
+        # human-visible time of day.
+        scheduler.add_job(
+            _run_webhook_auto_replay,
+            trigger=IntervalTrigger(minutes=_WEBHOOK_AUTO_REPLAY_INTERVAL_MIN),
+            id=WEBHOOK_AUTO_REPLAY_JOB_ID,
+            name=WEBHOOK_AUTO_REPLAY_JOB_ID,
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
         scheduler.start()
         _SCHEDULER = scheduler
 
@@ -232,6 +295,7 @@ def start_scheduler() -> Optional[BackgroundScheduler]:
                 "interval_minutes": interval_minutes,
                 "abuse_scan_job_id": ABUSE_SCAN_JOB_ID,
                 "funnel_digest_job_id": FUNNEL_DIGEST_JOB_ID,
+                "webhook_auto_replay_job_id": WEBHOOK_AUTO_REPLAY_JOB_ID,
             },
         )
         return scheduler
@@ -278,6 +342,7 @@ def _reset_for_tests() -> None:
 __all__ = [
     "ABUSE_SCAN_JOB_ID",
     "FUNNEL_DIGEST_JOB_ID",
+    "WEBHOOK_AUTO_REPLAY_JOB_ID",
     "shutdown_scheduler",
     "start_scheduler",
 ]

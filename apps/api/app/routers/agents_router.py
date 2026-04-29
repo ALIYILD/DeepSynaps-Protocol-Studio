@@ -27,12 +27,15 @@ Auth + entitlement gates
 """
 from __future__ import annotations
 
+import csv as _csv
+import io as _io
 import json as _json
 import statistics
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -346,6 +349,166 @@ def list_agent_runs(
             )
         )
     return AgentRunListResponse(runs=runs)
+
+
+# ---------------------------------------------------------------------------
+# Phase 14 — GET /api/v1/agents/runs.csv — finance-friendly CSV export
+# ---------------------------------------------------------------------------
+
+# Safety cap on row count so a single CSV download cannot pull the whole
+# audit table into memory. When the table exceeds this for the requested
+# window, the response truncates to the most recent ``CSV_MAX_ROWS`` and
+# adds a footer comment line so the consumer knows.
+CSV_MAX_ROWS = 10_000
+
+# Column order is the contract — finance scripts depend on it. Keep this
+# tuple in lockstep with ``_csv_row_for`` below.
+CSV_COLUMNS = (
+    "created_at",
+    "agent_id",
+    "actor_id",
+    "clinic_id",
+    "ok",
+    "error_code",
+    "latency_ms",
+    "tokens_in",
+    "tokens_out",
+    "cost_pence",
+    "message_preview",
+    "reply_preview",
+)
+
+
+def _iso_utc(ts: datetime | None) -> str:
+    """Render a possibly-naive UTC timestamp as ISO-8601 with ``Z`` suffix.
+
+    Mirrors the convention used by :func:`list_agent_runs` so the CSV
+    timestamps line up byte-for-byte with the JSON history endpoint.
+    """
+    if ts is None:
+        return ""
+    if ts.tzinfo is None:
+        return ts.isoformat() + "Z"
+    return ts.isoformat()
+
+
+def _csv_row_for(row: AgentRunAudit) -> list[str]:
+    """Project one ``AgentRunAudit`` to the documented CSV column tuple."""
+    return [
+        _iso_utc(row.created_at),
+        row.agent_id or "",
+        row.actor_id or "",
+        row.clinic_id or "",
+        "true" if bool(row.ok) else "false",
+        row.error_code or "",
+        "" if row.latency_ms is None else str(int(row.latency_ms)),
+        "" if row.tokens_in_used is None else str(int(row.tokens_in_used)),
+        "" if row.tokens_out_used is None else str(int(row.tokens_out_used)),
+        "" if row.cost_pence is None else str(int(row.cost_pence)),
+        row.message_preview or "",
+        row.reply_preview or "",
+    ]
+
+
+@router.get("/runs.csv")
+def export_agent_runs_csv(
+    since_days: int = Query(30, ge=1, le=365),
+    agent_id: str | None = Query(None, max_length=64),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> StreamingResponse:
+    """Stream the calling clinic's recent ``AgentRunAudit`` rows as CSV.
+
+    Visibility
+    ----------
+    Same gate as :func:`list_agent_runs` — caller must be at least
+    ``clinician``. Clinic-bound actors only see their own clinic's rows.
+    A cross-clinic super-admin (``actor.clinic_id is None``) sees the
+    whole table — finance ops occasionally needs the full month for a
+    cross-tenant invoice reconciliation pass.
+
+    Filters
+    -------
+    ``since_days``
+        Window to filter ``created_at >= now - N days``. Clamped to
+        ``[1, 365]`` by FastAPI; out-of-range returns 422.
+    ``agent_id``
+        Optional narrow to a single agent. Unknown agent ids return 404
+        so the caller can fix a typo before re-downloading.
+
+    Truncation
+    ----------
+    Hard cap at :data:`CSV_MAX_ROWS` rows (newest-first). When the cap is
+    hit the CSV body ends with a ``# truncated …`` comment line so the
+    consumer knows there are older rows that did not make it into the
+    file.
+
+    Quoting / escaping is handled by Python's ``csv`` module with
+    ``QUOTE_MINIMAL`` — commas, double-quotes and newlines inside the
+    preview columns survive a round-trip through ``csv.reader``.
+    """
+    require_minimum_role(actor, "clinician")
+
+    if agent_id is not None and agent_id not in AGENT_REGISTRY:
+        raise ApiServiceError(
+            code="agent_not_found",
+            message=f"No agent is registered with id '{agent_id}'.",
+            status_code=404,
+        )
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=int(since_days))
+    # SQLite stores naive datetimes; strip tz for the comparison so the
+    # filter works regardless of backend (mirrors ops_abuse_signals).
+    cutoff_naive = cutoff.replace(tzinfo=None)
+
+    q = db.query(AgentRunAudit).filter(AgentRunAudit.created_at >= cutoff_naive)
+
+    # Tenant scoping — clinic-bound actors only see their clinic's rows.
+    # ``clinic_id is None`` (super-admin / unbound demo) sees everything,
+    # matching how cross-clinic ops endpoints surface the full table.
+    if actor.clinic_id is not None:
+        q = q.filter(AgentRunAudit.clinic_id == actor.clinic_id)
+
+    if agent_id is not None:
+        q = q.filter(AgentRunAudit.agent_id == agent_id)
+
+    # Pull one extra row to detect truncation without a second COUNT(*)
+    # query — cheap on the audit table thanks to the (created_at) index.
+    rows = (
+        q.order_by(AgentRunAudit.created_at.desc())
+        .limit(CSV_MAX_ROWS + 1)
+        .all()
+    )
+    truncated = len(rows) > CSV_MAX_ROWS
+    if truncated:
+        rows = rows[:CSV_MAX_ROWS]
+
+    buf = _io.StringIO()
+    writer = _csv.writer(buf, quoting=_csv.QUOTE_MINIMAL, lineterminator="\n")
+    writer.writerow(CSV_COLUMNS)
+    for row in rows:
+        writer.writerow(_csv_row_for(row))
+    if truncated:
+        # Comment line so finance scripts (and a human eyeballing the
+        # file) can see the file was capped. Plain ``#``-prefixed line —
+        # most CSV parsers either ignore it or treat it as a single-cell
+        # row, neither of which corrupts the data above.
+        buf.write(
+            f"# truncated at {CSV_MAX_ROWS} rows — narrow the window or "
+            f"filter by agent_id to fetch the rest\n"
+        )
+
+    body = buf.getvalue()
+    today_utc = datetime.now(timezone.utc).strftime("%Y%m%d")
+    filename = f"agent-runs-{today_utc}.csv"
+
+    return StreamingResponse(
+        iter([body]),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
