@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from app.persistence.models import FusionCase
 from app.services.fusion_workbench_service import (
     _build_patient_facing_report,
     _generate_summary,
@@ -386,3 +387,84 @@ def test_create_fusion_case_success():
     if hasattr(result, "report_state"):
         assert result.report_state == "FUSION_DRAFT_AI"
         assert result.partial is False
+
+
+# ── Claim governance tests ──────────────────────────────────────────────────
+
+def test_classify_fusion_claim_blocks_confirms_adhd():
+    from app.services.fusion_workbench_service import _classify_fusion_claim
+    ctype, reason = _classify_fusion_claim("The analysis confirms ADHD.")
+    assert ctype == "BLOCKED"
+    assert "BLOCKED_CONFIRMS_DISEASE" in reason
+
+
+def test_classify_fusion_claim_blocks_diagnosis():
+    from app.services.fusion_workbench_service import _classify_fusion_claim
+    ctype, reason = _classify_fusion_claim("This is a diagnostic finding.")
+    assert ctype == "BLOCKED"
+    assert "BLOCKED_DIAGNOSTIC_WORDING" in reason
+
+
+def test_classify_fusion_claim_blocks_cure():
+    from app.services.fusion_workbench_service import _classify_fusion_claim
+    ctype, reason = _classify_fusion_claim("The protocol cures depression.")
+    assert ctype == "BLOCKED"
+    assert "BLOCKED_CURE" in reason
+
+
+def test_classify_fusion_claim_blocks_guaranteed():
+    from app.services.fusion_workbench_service import _classify_fusion_claim
+    ctype, reason = _classify_fusion_claim("We guarantee a response within 2 weeks.")
+    assert ctype == "BLOCKED"
+    assert "BLOCKED_GUARANTEE" in reason
+
+
+def test_classify_fusion_claim_blocks_safe_to_treat():
+    from app.services.fusion_workbench_service import _classify_fusion_claim
+    ctype, reason = _classify_fusion_claim("The scan shows it is safe to treat.")
+    assert ctype == "BLOCKED"
+    assert "BLOCKED_SAFE_TO_TREAT" in reason
+
+
+def test_classify_fusion_claim_allows_safe_text():
+    from app.services.fusion_workbench_service import _classify_fusion_claim
+    ctype, reason = _classify_fusion_claim("Elevated theta/beta ratio consistent with ADHD.")
+    assert ctype == "INFERRED"
+    assert reason is None
+
+
+def test_sanitize_patient_summary_softens_blocked():
+    from app.services.fusion_workbench_service import _sanitize_patient_summary
+    out = _sanitize_patient_summary("The analysis confirms ADHD. Proceed with protocol.")
+    assert "confirms ADHD" not in out
+    assert "[Language softened" in out or "consistent with" in out
+    assert "Proceed with protocol" in out
+
+
+def test_sanitize_patient_summary_softens_inferred():
+    from app.services.fusion_workbench_service import _sanitize_patient_summary
+    out = _sanitize_patient_summary("qEEG suggests elevated theta.")
+    assert "suggests" not in out
+    assert "could be associated with" in out
+
+
+def test_patient_facing_strips_blocked_claims():
+    from app.services.fusion_workbench_service import _build_patient_facing_report
+    case = FusionCase(
+        id="case-gov-1",
+        patient_id="p-1",
+        clinician_id="c-1",
+        summary="The analysis confirms ADHD.",
+        confidence=0.72,
+        confidence_grade="heuristic",
+        governance_json=json.dumps([
+            {"section": "summary", "claim_type": "BLOCKED", "text": "The analysis confirms ADHD.", "block_reason": "BLOCKED_CONFIRMS_DISEASE"},
+        ]),
+        protocol_fusion_json=json.dumps({"recommendation": "tDCS F3-F4"}),
+        limitations_json=json.dumps([]),
+        generated_at=datetime.now(timezone.utc),
+    )
+    report = _build_patient_facing_report(case)
+    claims = report["claims"]
+    assert all(c["claim_type"] != "BLOCKED" for c in claims)
+    assert "confirms ADHD" not in report["summary"]

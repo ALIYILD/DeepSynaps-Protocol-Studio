@@ -1,27 +1,29 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Raw EEG Cleaning Workbench — full-page clinical workstation.
+// Raw EEG Cleaning Workbench — clinical EEG workstation (WinEEG / EDFbrowser
+// visual style: white background, black traces, light grey grid).
 //
-// Decision-support only. Original raw EEG is never overwritten — every cleaning
-// action lives in a separate cleaning version with full audit trail. AI
-// artefact suggestions require clinician confirmation before any cleaning is
-// applied.
+// Decision-support only. Original raw EEG is never overwritten — every
+// cleaning action lives in a separate cleaning version with full audit
+// trail. AI artefact suggestions require clinician confirmation before any
+// cleaning is applied.
 //
 // Layout:
-//   ┌──────────────────────────────────────────────────────────────────┐
-//   │ Top toolbar: speed, gain, low/high cut, notch, montage, view... │
-//   ├──────────┬───────────────────────────────────┬──────────────────┤
-//   │ Channel  │      EEG trace canvas             │  Cleaning Tools  │
-//   │  rail    │  (synthetic demo when no real     │  AI Assistant    │
-//   │          │   raw signal available)           │  Best-Practice   │
-//   │          │                                   │  Examples / ICA  │
-//   ├──────────┴───────────────────────────────────┴──────────────────┤
-//   │ Status bar: time | window | selected | bad | rejected | version │
-//   └──────────────────────────────────────────────────────────────────┘
+//   ┌──────────────────────────────────────────────────────────────────────┐
+//   │ Top: ← Back · patient/session · controls · Save · Re-run · ?       │
+//   ├──────────┬───────────────────────────────────┬───────────────────────┤
+//   │ Channel  │     White EEG canvas              │   Right panel        │
+//   │  rail    │     Black traces                  │   (collapsible)      │
+//   │          │     Light grey grid               │   Cleaning · AI ·   │
+//   │          │     Pale-blue selected row        │   Examples · etc.   │
+//   │          │     Red overlay on rejected       │                     │
+//   ├──────────┴───────────────────────────────────┴───────────────────────┤
+//   │ Bottom: time | window | selected | Δamp | bad | rej | retain | ver │
+//   └──────────────────────────────────────────────────────────────────────┘
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { api } from './api.js';
 
-const DEFAULT_CHANNELS = [
+export const DEFAULT_CHANNELS = [
   'Fp1-Av','Fp2-Av','F7-Av','F3-Av','Fz-Av','F4-Av','F8-Av',
   'T3-Av','C3-Av','Cz-Av','C4-Av','T4-Av',
   'T5-Av','P3-Av','Pz-Av','P4-Av','T6-Av',
@@ -87,10 +89,12 @@ const KEYBOARD_SHORTCUTS = [
   ['B', 'Mark selected channel as bad'],
   ['S', 'Mark current segment as bad'],
   ['A', 'Add annotation'],
+  ['Cmd/Ctrl+S', 'Save cleaning version'],
   ['Z', 'Undo'],
   ['Shift+Z', 'Redo'],
   ['Space', 'Play / pause scroll'],
   ['R', 'Reset view'],
+  ['Esc', 'Back / exit confirmation'],
   ['?', 'Show shortcuts'],
 ];
 
@@ -102,8 +106,7 @@ function esc(s) {
 }
 
 function readAnalysisIdFromHash() {
-  // Accept both /#/qeeg-raw-workbench/:id and ?analysisId=:id
-  const h = window.location.hash || '';
+  const h = (window.location && window.location.hash) || '';
   const m = h.match(/qeeg-raw-workbench[\/=:]([A-Za-z0-9_\-]+)/);
   if (m) return m[1];
   try {
@@ -114,9 +117,12 @@ function readAnalysisIdFromHash() {
   }
 }
 
-// Realistic-ish synthetic EEG generator for demo mode. Each channel gets a
-// blend of alpha (10 Hz) + beta (20 Hz) noise plus channel-specific
-// archetype artefacts. Demo data is clearly labelled in the UI.
+function readModeFromHash() {
+  const h = (window.location && window.location.hash) || '';
+  const m = h.match(/[?&]mode=([A-Za-z0-9_\-]+)/);
+  return m ? m[1] : null;
+}
+
 function synthSignal(channelIndex, totalSamples, sampleRate, archetypeAt) {
   const out = new Float32Array(totalSamples);
   const baseFreqAlpha = 9.5 + (channelIndex % 5) * 0.2;
@@ -126,14 +132,12 @@ function synthSignal(channelIndex, totalSamples, sampleRate, archetypeAt) {
     let v = Math.sin(2 * Math.PI * baseFreqAlpha * t) * 18
           + Math.sin(2 * Math.PI * baseFreqBeta * t) * 6
           + (Math.random() - 0.5) * 14;
-    // Archetype injection: blink on Fp1/Fp2, muscle on T3, line noise on all.
     if (archetypeAt && i >= archetypeAt.blinkStart && i <= archetypeAt.blinkEnd && (channelIndex === 0 || channelIndex === 1)) {
       v += Math.exp(-Math.pow(i - (archetypeAt.blinkStart + archetypeAt.blinkEnd) / 2, 2) / 1500) * 220;
     }
     if (archetypeAt && i >= archetypeAt.muscleStart && i <= archetypeAt.muscleEnd && channelIndex === 7) {
       v += (Math.random() - 0.5) * 70;
     }
-    // Line noise low-amplitude background on every channel
     v += Math.sin(2 * Math.PI * 50 * t) * 2;
     out[i] = v;
   }
@@ -148,11 +152,13 @@ export async function pgQEEGRawWorkbench(setTopbar, navigate) {
   if (!root) return;
 
   const analysisId = readAnalysisIdFromHash();
+  const mode = readModeFromHash();
   const isDemo = analysisId === 'demo' || (typeof window._isDemoMode === 'function' && window._isDemoMode());
 
   const state = {
     analysisId,
     isDemo,
+    mode,
     speed: 30,
     gain: 50,
     lowCut: 0.5,
@@ -172,101 +178,287 @@ export async function pgQEEGRawWorkbench(setTopbar, navigate) {
     cleaningVersion: null,
     showShortcuts: false,
     rightTab: 'cleaning',
+    rightCollapsed: false,
     saveStatus: 'idle',
     metadata: null,
     ica: null,
     rawCleanedSummary: null,
+    isDirty: false,
+    pendingNav: null,
+    rerunDoneNotice: null,
   };
 
-  // Build the workbench shell
-  root.innerHTML = workbenchShell(state);
+  // Browser navigation guard for unsaved edits.
+  const beforeUnload = (e) => {
+    if (state.isDirty) {
+      e.preventDefault();
+      e.returnValue = 'You have unsaved EEG cleaning edits.';
+      return e.returnValue;
+    }
+  };
+  window.addEventListener('beforeunload', beforeUnload);
+  window._qeegRawWorkbenchTeardown = () => {
+    window.removeEventListener('beforeunload', beforeUnload);
+  };
 
-  // Attach handlers and render dynamic regions
-  attachToolbar(state);
+  root.innerHTML = workbenchShell(state);
+  attachTopBar(state, navigate);
   attachChannelRail(state);
   attachRightPanel(state);
   attachStatusBar(state);
   attachKeyboard(state, navigate);
 
-  // Initial async load
   await loadAll(state);
   redrawCanvas(state);
   renderRightPanel(state);
   renderStatusBar(state);
+  renderRerunNotice(state);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shell
+// ─────────────────────────────────────────────────────────────────────────────
 
 function workbenchShell(state) {
   return `
-  <div class="qeeg-wb" style="position:fixed;inset:0;display:flex;flex-direction:column;background:#0f1115;color:#e7eaf0;font-family:system-ui,-apple-system,sans-serif;z-index:9000">
-    ${topToolbar(state)}
-    <div style="flex:1;display:flex;min-height:0;overflow:hidden">
+  <style>${clinicalCss()}</style>
+  <div class="qwb-root qwb-clinical" data-testid="qwb-root">
+    ${topBar(state)}
+    <div class="qwb-body">
       ${channelRailHtml(state)}
-      <div id="qwb-canvas-wrap" style="flex:1;position:relative;background:#0a0c10;border-left:1px solid #1f242c;border-right:1px solid #1f242c;overflow:hidden">
-        <div id="qwb-immutable-banner" style="position:absolute;top:8px;right:8px;background:#1c2230;border:1px solid #2a3140;padding:6px 10px;border-radius:6px;font-size:11px;color:#9fb1c8;z-index:5">
+      <div id="qwb-canvas-wrap" class="qwb-canvas-wrap">
+        <div id="qwb-immutable-banner" class="qwb-immutable-notice">
           Original raw EEG preserved · Decision-support only
         </div>
-        <canvas id="qwb-canvas" style="width:100%;height:100%;display:block"></canvas>
+        <canvas id="qwb-canvas" class="qwb-canvas-el"></canvas>
+        <div id="qwb-rerun-notice" class="qwb-rerun-notice" style="display:none"></div>
       </div>
       ${rightPanelHtml(state)}
     </div>
-    ${statusBarHtml(state)}
+    ${bottomBar(state)}
     ${shortcutsModal(state)}
+    ${unsavedModal(state)}
   </div>`;
 }
 
-function topToolbar(state) {
+function clinicalCss() {
+  // Single concentrated stylesheet so the workbench keeps a clinical look
+  // regardless of the host theme. Class names are stable contracts that the
+  // node-test suite asserts on.
+  return `
+    .qwb-clinical {
+      position:fixed; inset:0; z-index:9000;
+      display:flex; flex-direction:column;
+      background:#ffffff; color:#1a1a1a;
+      font-family: 'Inter', -apple-system, system-ui, sans-serif;
+      font-size: 12px; line-height:1.3;
+    }
+    .qwb-topbar {
+      display:flex; align-items:center; gap:12px;
+      padding: 6px 12px;
+      background:#f7f7f8; border-bottom:1px solid #cfd4da;
+      height:46px; flex-shrink:0;
+    }
+    .qwb-back-cluster {
+      display:flex; align-items:center; gap:8px;
+      padding-right:12px; border-right:1px solid #d8dde3;
+      min-width:0;
+    }
+    .qwb-back-btn {
+      background:#ffffff; color:#1c4a8a;
+      border:1px solid #b6c4d6; border-radius:4px;
+      padding:5px 10px; font-size:12px; font-weight:600;
+      cursor:pointer;
+    }
+    .qwb-back-btn:hover { background:#eef3fa; }
+    .qwb-context {
+      display:flex; flex-direction:column; gap:0; line-height:1.15;
+    }
+    .qwb-context-line { font-size:11px; color:#3a4150; }
+    .qwb-context-meta { font-size:10px; color:#6b7280; }
+    .qwb-controls { display:flex; align-items:center; gap:10px; flex-wrap:wrap; flex:1; min-width:0; }
+    .qwb-ctrl { display:flex; align-items:center; gap:4px; font-size:11px; color:#3a4150; }
+    .qwb-ctrl select {
+      background:#ffffff; color:#1a1a1a;
+      border:1px solid #b6c4d6; border-radius:3px;
+      padding:3px 6px; font-size:12px;
+    }
+    .qwb-actions { display:flex; align-items:center; gap:6px; }
+    .qwb-btn {
+      background:#ffffff; color:#1a1a1a;
+      border:1px solid #b6c4d6; border-radius:4px;
+      padding:5px 10px; font-size:11px; font-weight:500;
+      cursor:pointer;
+    }
+    .qwb-btn:hover { background:#f0f4f9; border-color:#92a3bb; }
+    .qwb-btn-primary {
+      background:#1c4a8a; color:#ffffff; border-color:#1c4a8a; font-weight:600;
+    }
+    .qwb-btn-primary:hover { background:#15396b; border-color:#15396b; }
+    .qwb-help-btn {
+      background:#eef3fa; color:#1c4a8a; border:1px solid #b6c4d6;
+      border-radius:50%; width:26px; height:26px; padding:0;
+      font-weight:700; font-size:13px; cursor:pointer;
+    }
+    .qwb-body { flex:1; display:flex; min-height:0; overflow:hidden; }
+    .qwb-rail {
+      width:130px; flex-shrink:0;
+      background:#ffffff; border-right:1px solid #d8dde3;
+      overflow-y:auto;
+    }
+    .qwb-rail-header {
+      padding:8px 10px; font-size:10px; font-weight:700;
+      letter-spacing:0.5px; text-transform:uppercase;
+      color:#6b7280; border-bottom:1px solid #e6ebf2;
+      background:#f7f7f8;
+    }
+    .qwb-ch {
+      padding:6px 10px; border-bottom:1px solid #eff2f6;
+      cursor:pointer; display:flex; flex-direction:column; gap:2px;
+      color:#1a1a1a; background:#ffffff;
+    }
+    .qwb-ch.sel { background:#e8f0fb; color:#0c2f5c; }
+    .qwb-ch.bad .qwb-ch-label { color:#b21f2d; font-weight:700; }
+    .qwb-ch.hidden { color:#aab1bc; }
+    .qwb-ch-label { font-size:12px; font-weight:600; }
+    .qwb-ch-meta { font-size:10px; color:#6b7280; }
+    .qwb-canvas-wrap {
+      flex:1; position:relative;
+      background:#ffffff;
+      border-right:1px solid #d8dde3;
+      overflow:hidden;
+    }
+    .qwb-canvas-el { display:block; width:100%; height:100%; background:#ffffff; }
+    .qwb-immutable-notice {
+      position:absolute; top:8px; right:8px;
+      background:#ffffff; border:1px solid #cfd4da;
+      padding:4px 8px; border-radius:3px;
+      font-size:10px; color:#3a4150; z-index:5;
+    }
+    .qwb-rerun-notice {
+      position:absolute; left:50%; top:14px; transform:translateX(-50%);
+      background:#e8f0fb; border:1px solid #1c4a8a; color:#0c2f5c;
+      padding:8px 14px; border-radius:4px; font-size:12px; z-index:6;
+      box-shadow: 0 2px 8px rgba(28,74,138,0.10);
+    }
+    .qwb-right {
+      width:360px; flex-shrink:0;
+      background:#ffffff; border-left:1px solid #d8dde3;
+      display:flex; flex-direction:column;
+      transition: width 0.18s ease;
+    }
+    .qwb-right.collapsed { width:36px; }
+    .qwb-right-toggle {
+      width:36px; height:36px; padding:0; cursor:pointer;
+      background:#f7f7f8; color:#3a4150;
+      border:none; border-bottom:1px solid #d8dde3;
+      font-size:14px; font-weight:700;
+    }
+    .qwb-right-tabs { display:flex; border-bottom:1px solid #d8dde3; background:#f7f7f8; }
+    .qwb-tab {
+      flex:1; padding:8px 4px;
+      background:transparent; color:#6b7280;
+      border:none; border-bottom:2px solid transparent;
+      font-size:11px; font-weight:600; cursor:pointer;
+    }
+    .qwb-tab.active { color:#1c4a8a; border-bottom-color:#1c4a8a; background:#ffffff; }
+    .qwb-right-body { flex:1; overflow-y:auto; padding:12px; }
+    .qwb-bottombar {
+      height:28px; flex-shrink:0;
+      display:flex; align-items:center; gap:14px;
+      padding:0 12px;
+      background:#f7f7f8; border-top:1px solid #cfd4da;
+      font-size:11px; color:#3a4150;
+      font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+    }
+    .qwb-bottombar .qwb-st-save { margin-left:auto; }
+    .qwb-bottombar .qwb-dirty { color:#b27500; font-weight:600; }
+    .qwb-modal-backdrop {
+      position:fixed; inset:0; background:rgba(20,30,50,0.45);
+      display:none; align-items:center; justify-content:center; z-index:9999;
+    }
+    .qwb-modal {
+      background:#ffffff; color:#1a1a1a;
+      border:1px solid #cfd4da; border-radius:6px;
+      padding:20px; min-width:340px; max-width:520px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.18);
+    }
+    .qwb-modal h3 { margin:0 0 12px 0; font-size:15px; }
+    .qwb-modal table { width:100%; font-size:12px; border-collapse:collapse; }
+    .qwb-modal td { padding:4px 8px; }
+    .qwb-section-label {
+      font-size:10px; color:#6b7280; text-transform:uppercase;
+      letter-spacing:0.5px; margin: 12px 0 6px 0; font-weight:700;
+    }
+    .qwb-card {
+      border:1px solid #d8dde3; border-radius:4px; padding:10px;
+      margin-bottom:8px; background:#ffffff;
+    }
+    .qwb-ai-banner {
+      padding:8px 10px; background:#fff7e6;
+      border:1px solid #d8a72a; border-radius:4px;
+      font-size:11px; color:#7a4f00; margin-bottom:12px;
+    }
+    .qwb-safety-footer {
+      margin-top:12px; padding:10px; background:#f0f4f9;
+      border:1px solid #cfd4da; border-radius:4px;
+      font-size:11px; color:#3a4150; line-height:1.5;
+    }
+  `;
+}
+
+function topBar(state) {
   const sel = (id, opts, val, label) => `
-    <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#9fb1c8">
+    <label class="qwb-ctrl">
       <span>${label}</span>
-      <select id="${id}" style="background:#161a21;color:#e7eaf0;border:1px solid #2a3140;border-radius:4px;padding:3px 6px;font-size:12px">
+      <select id="${id}">
         ${opts.map(o => `<option value="${esc(o)}" ${String(o)===String(val)?'selected':''}>${esc(o)}</option>`).join('')}
       </select>
     </label>`;
   return `
-  <div style="height:48px;background:#13171e;border-bottom:1px solid #1f242c;display:flex;align-items:center;gap:14px;padding:0 14px;flex-wrap:wrap">
-    <div style="display:flex;align-items:center;gap:10px;font-weight:600;font-size:13px">
-      <span style="font-size:18px">🧠</span> Raw EEG Workbench
-      ${state.isDemo ? '<span style="background:#5a3a00;color:#ffd28a;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">DEMO DATA</span>' : ''}
+  <div class="qwb-topbar" id="qwb-topbar">
+    <div class="qwb-back-cluster" id="qwb-back-cluster">
+      <button class="qwb-back-btn" id="qwb-back" data-testid="qwb-back-analyzer">← Back to qEEG Analyzer</button>
+      <button class="qwb-btn" id="qwb-back-patient" data-testid="qwb-back-patient">Back to Patient</button>
+      <div class="qwb-context" id="qwb-context">
+        <span class="qwb-context-line" id="qwb-ctx-id">Analysis: <code>${esc((state.analysisId||'').slice(0, 12))}</code>${state.isDemo ? ' · DEMO' : ''}</span>
+        <span class="qwb-context-meta" id="qwb-ctx-version">No cleaning version</span>
+      </div>
     </div>
-    ${sel('qwb-speed', SPEEDS.map(s=>`${s} mm/s`), `${state.speed} mm/s`, 'Speed')}
-    ${sel('qwb-gain', GAINS.map(g=>`${g} µV/cm`), `${state.gain} µV/cm`, 'Gain')}
-    ${sel('qwb-lowcut', LOW_CUTS.map(c=>`${c} Hz`), `${state.lowCut} Hz`, 'Low cut')}
-    ${sel('qwb-highcut', HIGH_CUTS.map(c=>`${c} Hz`), `${state.highCut} Hz`, 'High cut')}
-    ${sel('qwb-notch', NOTCHES, state.notch, 'Notch')}
-    ${sel('qwb-montage', MONTAGES, state.montage, 'Montage')}
-    ${sel('qwb-view', VIEW_MODES, state.viewMode, 'View')}
-    ${sel('qwb-timebase', TIMEBASES.map(t=>`${t} s`), `${state.timebase} s`, 'Timebase')}
-    <button id="qwb-baseline-reset" class="qwb-btn">Reset baseline</button>
-    <button id="qwb-reset-view" class="qwb-btn">Reset view</button>
-    <button id="qwb-save" class="qwb-btn qwb-btn-primary">Save cleaning version</button>
-    <button id="qwb-rerun" class="qwb-btn qwb-btn-primary">Re-run qEEG analysis</button>
-    <button id="qwb-shortcuts" class="qwb-btn" title="Shortcuts (?)">⌨︎</button>
-    <button id="qwb-back" class="qwb-btn">← Analyzer</button>
-  </div>
-  <style>
-    .qwb-btn{background:#1a1f28;color:#e7eaf0;border:1px solid #2a3140;border-radius:4px;padding:5px 10px;font-size:11px;cursor:pointer;font-weight:500}
-    .qwb-btn:hover{background:#222a36;border-color:#3a4658}
-    .qwb-btn-primary{background:#1f4a8a;border-color:#2563aa;color:#fff}
-    .qwb-btn-primary:hover{background:#2563aa}
-  </style>`;
+    <div class="qwb-controls">
+      ${sel('qwb-speed', SPEEDS.map(s=>`${s} mm/s`), `${state.speed} mm/s`, 'Speed')}
+      ${sel('qwb-gain', GAINS.map(g=>`${g} µV/cm`), `${state.gain} µV/cm`, 'Gain')}
+      ${sel('qwb-lowcut', LOW_CUTS.map(c=>`${c} Hz`), `${state.lowCut} Hz`, 'Low cut')}
+      ${sel('qwb-highcut', HIGH_CUTS.map(c=>`${c} Hz`), `${state.highCut} Hz`, 'High cut')}
+      ${sel('qwb-notch', NOTCHES, state.notch, 'Notch')}
+      ${sel('qwb-montage', MONTAGES, state.montage, 'Montage')}
+      ${sel('qwb-view', VIEW_MODES, state.viewMode, 'View')}
+      ${sel('qwb-timebase', TIMEBASES.map(t=>`${t} s`), `${state.timebase} s`, 'Timebase')}
+    </div>
+    <div class="qwb-actions">
+      <button class="qwb-btn" id="qwb-baseline-reset">Reset baseline</button>
+      <button class="qwb-btn" id="qwb-reset-view">Reset view</button>
+      <button class="qwb-btn qwb-btn-primary" id="qwb-save" data-testid="qwb-save">Save Cleaning Version</button>
+      <button class="qwb-btn qwb-btn-primary" id="qwb-rerun" data-testid="qwb-rerun">Re-run qEEG Analysis</button>
+      <button class="qwb-btn" id="qwb-compare">Raw vs Cleaned</button>
+      <button class="qwb-btn" id="qwb-return-report" data-testid="qwb-return-report">Return to qEEG Report</button>
+      <button class="qwb-help-btn" id="qwb-shortcuts" title="Shortcuts (?)" data-testid="qwb-help">?</button>
+    </div>
+  </div>`;
 }
 
 function channelRailHtml(state) {
   const items = DEFAULT_CHANNELS.map(ch => {
     const isBad = state.badChannels.has(ch);
     const isSel = state.selectedChannel === ch;
-    return `<div class="qwb-ch ${isBad?'bad':''} ${isSel?'sel':''}" data-channel="${esc(ch)}"
-      style="padding:6px 8px;border-bottom:1px solid #181d25;cursor:pointer;display:flex;flex-direction:column;gap:2px;
-      background:${isSel?'#1f4a8a':'transparent'};color:${isBad?'#ff8a8a':(isSel?'#fff':'#e7eaf0')}">
-      <span style="font-weight:600;font-size:12px">${esc(ch)}</span>
-      <span style="font-size:9px;color:#7d8da3">${state.gain} µV/cm${isBad?' · BAD':''}</span>
+    return `<div class="qwb-ch ${isBad?'bad':''} ${isSel?'sel':''}" data-channel="${esc(ch)}">
+      <span class="qwb-ch-label">${esc(ch)}${isBad?' ⚠':''}</span>
+      <span class="qwb-ch-meta">${state.gain} µV/cm${isBad?' · BAD':''}</span>
     </div>`;
   }).join('');
   return `
-  <div id="qwb-rail" style="width:120px;background:#10141a;overflow-y:auto;flex-shrink:0">
-    <div style="padding:8px;font-size:10px;color:#7d8da3;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #1f242c">
-      Channels (${DEFAULT_CHANNELS.length})
-    </div>
+  <div id="qwb-rail" class="qwb-rail" data-testid="qwb-rail">
+    <div class="qwb-rail-header">Channels (${DEFAULT_CHANNELS.length})</div>
     ${items}
   </div>`;
 }
@@ -274,83 +466,110 @@ function channelRailHtml(state) {
 function rightPanelHtml(state) {
   const tabs = [
     { id: 'cleaning', label: 'Cleaning' },
-    { id: 'ai', label: 'AI Assistant' },
+    { id: 'ai', label: 'AI Review' },
     { id: 'help', label: 'Best-Practice' },
     { id: 'examples', label: 'Examples' },
     { id: 'ica', label: 'ICA' },
     { id: 'log', label: 'Audit' },
   ];
   return `
-  <div id="qwb-right" style="width:380px;background:#10141a;display:flex;flex-direction:column;flex-shrink:0">
-    <div style="display:flex;border-bottom:1px solid #1f242c;background:#13171e">
-      ${tabs.map(t => `<button class="qwb-tab" data-tab="${t.id}"
-        style="flex:1;padding:10px 6px;background:transparent;color:${state.rightTab===t.id?'#fff':'#9fb1c8'};
-        border:none;border-bottom:2px solid ${state.rightTab===t.id?'#2563aa':'transparent'};font-size:11px;cursor:pointer;font-weight:600">
-        ${esc(t.label)}</button>`).join('')}
+  <aside id="qwb-right" class="qwb-right ${state.rightCollapsed ? 'collapsed' : ''}" data-testid="qwb-right">
+    <button class="qwb-right-toggle" id="qwb-right-toggle" data-testid="qwb-right-toggle"
+      title="${state.rightCollapsed ? 'Expand panel' : 'Collapse panel'}">
+      ${state.rightCollapsed ? '◀' : '▶'}
+    </button>
+    <div class="qwb-right-tabs" id="qwb-right-tabs" ${state.rightCollapsed ? 'style="display:none"' : ''}>
+      ${tabs.map(t => `<button class="qwb-tab ${state.rightTab===t.id?'active':''}" data-tab="${t.id}">${esc(t.label)}</button>`).join('')}
     </div>
-    <div id="qwb-right-body" style="flex:1;overflow-y:auto;padding:14px"></div>
-  </div>`;
+    <div id="qwb-right-body" class="qwb-right-body" ${state.rightCollapsed ? 'style="display:none"' : ''}></div>
+  </aside>`;
 }
 
-function statusBarHtml(state) {
+function bottomBar(state) {
   return `
-  <div id="qwb-status" style="height:28px;background:#13171e;border-top:1px solid #1f242c;display:flex;align-items:center;gap:18px;padding:0 14px;font-size:11px;color:#9fb1c8;font-family:'SF Mono',Menlo,monospace">
+  <div id="qwb-status" class="qwb-bottombar" data-testid="qwb-status">
     <span id="qwb-st-time">--:--:--</span>
     <span id="qwb-st-window">Window 0–${state.timebase}s</span>
     <span id="qwb-st-sel">Selected: ${esc(state.selectedChannel)}</span>
+    <span id="qwb-st-amp">Δamp: —</span>
     <span id="qwb-st-bad">Bad: 0</span>
     <span id="qwb-st-rej">Rejected: 0</span>
     <span id="qwb-st-retain">Retained: 100%</span>
     <span id="qwb-st-version">No cleaning version</span>
-    <span id="qwb-st-save" style="margin-left:auto;color:#7d8da3">idle</span>
+    <span id="qwb-st-save" class="qwb-st-save">idle</span>
   </div>`;
 }
 
 function shortcutsModal(state) {
   return `
-  <div id="qwb-shortcuts-modal" style="position:fixed;inset:0;display:none;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center">
-    <div style="background:#13171e;border:1px solid #2a3140;border-radius:8px;padding:24px;min-width:360px;max-width:520px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <h3 style="margin:0;font-size:15px">Keyboard shortcuts</h3>
-        <button id="qwb-close-shortcuts" class="qwb-btn">Close</button>
+  <div id="qwb-shortcuts-modal" class="qwb-modal-backdrop" data-testid="qwb-shortcuts-modal">
+    <div class="qwb-modal">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3>Keyboard shortcuts</h3>
+        <button class="qwb-btn" id="qwb-close-shortcuts">Close</button>
       </div>
-      <table style="width:100%;font-size:12px;border-collapse:collapse">
-        ${KEYBOARD_SHORTCUTS.map(([k,v]) => `<tr><td style="padding:4px 8px;color:#9fb1c8;font-family:monospace">${esc(k)}</td><td style="padding:4px 8px">${esc(v)}</td></tr>`).join('')}
+      <table>
+        ${KEYBOARD_SHORTCUTS.map(([k,v]) => `<tr><td style="color:#6b7280;font-family:'SF Mono',monospace">${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}
       </table>
     </div>
   </div>`;
 }
 
-// ──── Renderers ─────────────────────────────────────────────────────────────
+function unsavedModal(state) {
+  return `
+  <div id="qwb-unsaved-modal" class="qwb-modal-backdrop" data-testid="qwb-unsaved-modal">
+    <div class="qwb-modal" role="alertdialog" aria-labelledby="qwb-unsaved-title">
+      <h3 id="qwb-unsaved-title">Unsaved cleaning edits</h3>
+      <p style="font-size:12px;color:#3a4150;line-height:1.5;margin:0 0 14px 0">
+        You have unsaved EEG cleaning edits. Save cleaning version before leaving?
+      </p>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="qwb-btn" id="qwb-unsaved-cancel" data-testid="qwb-unsaved-cancel">Cancel</button>
+        <button class="qwb-btn" id="qwb-unsaved-leave" data-testid="qwb-unsaved-leave">Leave without saving</button>
+        <button class="qwb-btn qwb-btn-primary" id="qwb-unsaved-save" data-testid="qwb-unsaved-save">Save and leave</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Canvas renderer (clinical white / black / grey)
+// ─────────────────────────────────────────────────────────────────────────────
 
 function redrawCanvas(state) {
   const canvas = document.getElementById('qwb-canvas');
   if (!canvas) return;
   const wrap = document.getElementById('qwb-canvas-wrap');
   if (!wrap) return;
-  const dpr = window.devicePixelRatio || 1;
-  const W = wrap.clientWidth;
-  const H = wrap.clientHeight;
-  canvas.width = W * dpr; canvas.height = H * dpr;
-  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+  const W = wrap.clientWidth || 800;
+  const H = wrap.clientHeight || 600;
+  if (canvas.width !== W * dpr || canvas.height !== H * dpr) {
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  }
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr,0,0,dpr,0,0);
-  ctx.fillStyle = '#0a0c10';
-  ctx.fillRect(0,0,W,H);
 
-  // Grid + time markers
-  ctx.strokeStyle = '#1a212c';
-  ctx.lineWidth = 1;
+  // White background
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+
+  // Light grey grid + grey time markers
   const tb = state.timebase;
+  ctx.strokeStyle = '#eef0f3';
+  ctx.lineWidth = 1;
   for (let s = 0; s <= tb; s++) {
     const x = (s / tb) * W;
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
     if (s > 0) {
-      ctx.fillStyle = '#5a6a82'; ctx.font = '10px monospace';
+      ctx.fillStyle = '#6b7280';
+      ctx.font = '10px ui-monospace, monospace';
       ctx.fillText(String(state.windowStart + s), x + 3, 12);
     }
   }
-  // Draw traces
+
+  // Pale-blue selected row + traces
   const channels = DEFAULT_CHANNELS;
   const rowH = (H - 20) / channels.length;
   const sampleRate = 256;
@@ -368,11 +587,12 @@ function redrawCanvas(state) {
     const isSel = state.selectedChannel === ch;
 
     if (isSel) {
-      ctx.fillStyle = 'rgba(37,99,170,0.10)';
+      ctx.fillStyle = '#e8f0fb';
       ctx.fillRect(0, 20 + rowH*idx, W, rowH);
     }
-    ctx.strokeStyle = isBad ? '#ff6b6b' : (isSel ? '#9bd1ff' : '#a8c5e8');
-    ctx.lineWidth = isBad ? 1.4 : 1.0;
+    // Black trace; bad-channel traces in muted red
+    ctx.strokeStyle = isBad ? '#b21f2d' : '#000000';
+    ctx.lineWidth = isBad ? 1.0 : 0.9;
     ctx.beginPath();
     const sig = synthSignal(idx, totalSamples, sampleRate, archetypeAt);
     const ampScale = (rowH * 0.45) / state.gain;
@@ -384,8 +604,8 @@ function redrawCanvas(state) {
     ctx.stroke();
   });
 
-  // Rejected segment shading
-  ctx.fillStyle = 'rgba(255,80,80,0.15)';
+  // Rejected segments — transparent red overlay
+  ctx.fillStyle = 'rgba(178,31,45,0.10)';
   for (const seg of state.rejectedSegments) {
     const overlapStart = Math.max(seg.start_sec - state.windowStart, 0);
     const overlapEnd = Math.min(seg.end_sec - state.windowStart, state.timebase);
@@ -396,8 +616,8 @@ function redrawCanvas(state) {
     }
   }
 
-  // AI suggestion markers (orange ticks at top)
-  ctx.fillStyle = '#ffb84d';
+  // AI suggestion markers — small amber ticks at top
+  ctx.fillStyle = '#d8a72a';
   for (const s of state.aiSuggestions) {
     if (s.start_sec == null) continue;
     const overlap = s.start_sec - state.windowStart;
@@ -406,6 +626,10 @@ function redrawCanvas(state) {
     ctx.fillRect(x - 2, 14, 4, 6);
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Right panel renderers
+// ─────────────────────────────────────────────────────────────────────────────
 
 function renderRightPanel(state) {
   const body = document.getElementById('qwb-right-body');
@@ -422,8 +646,8 @@ function renderRightPanel(state) {
 
 function renderCleaningPanel(state) {
   return `
-    <div style="font-size:10px;color:#7d8da3;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">A. Manual cleaning</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">
+    <div class="qwb-section-label">A. Manual cleaning</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
       <button class="qwb-btn" data-action="mark-segment">Mark bad segment</button>
       <button class="qwb-btn" data-action="mark-channel">Mark bad channel</button>
       <button class="qwb-btn" data-action="reject-epoch">Reject epoch</button>
@@ -432,8 +656,8 @@ function renderCleaningPanel(state) {
       <button class="qwb-btn" data-action="undo">Undo</button>
     </div>
 
-    <div style="font-size:10px;color:#7d8da3;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">B. Automated suggestions</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">
+    <div class="qwb-section-label">B. Automated suggestions</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
       <button class="qwb-btn" data-action="detect-flat">Detect flat</button>
       <button class="qwb-btn" data-action="detect-noisy">Detect noisy</button>
       <button class="qwb-btn" data-action="detect-blink">Detect blinks</button>
@@ -442,20 +666,19 @@ function renderCleaningPanel(state) {
       <button class="qwb-btn" data-action="detect-line">Detect line noise</button>
     </div>
 
-    <div style="font-size:10px;color:#7d8da3;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">C. ICA review</div>
-    <div style="margin-bottom:14px">
-      <button class="qwb-btn" data-action="open-ica" style="width:100%">Open ICA review</button>
-    </div>
+    <div class="qwb-section-label">C. ICA review</div>
+    <button class="qwb-btn" data-action="open-ica" style="width:100%">Open ICA review</button>
 
-    <div style="font-size:10px;color:#7d8da3;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">D. Reprocess</div>
+    <div class="qwb-section-label">D. Reprocess (next steps)</div>
     <div style="display:grid;gap:6px">
-      <button class="qwb-btn qwb-btn-primary" data-action="save-version">Save cleaning version</button>
-      <button class="qwb-btn qwb-btn-primary" data-action="rerun">Re-run qEEG pipeline</button>
-      <button class="qwb-btn" data-action="raw-vs-cleaned">View Raw vs Cleaned summary</button>
+      <button class="qwb-btn qwb-btn-primary" data-action="save-version">Save Cleaning Version</button>
+      <button class="qwb-btn qwb-btn-primary" data-action="rerun">Re-run qEEG Analysis</button>
+      <button class="qwb-btn" data-action="raw-vs-cleaned">View Raw vs Cleaned</button>
+      <button class="qwb-btn" data-action="return-report">Return to qEEG Report</button>
     </div>
 
-    <div style="margin-top:18px;padding:10px;background:#1c2230;border:1px solid #2a3140;border-radius:6px;font-size:11px;color:#9fb1c8;line-height:1.5">
-      <strong style="color:#e7eaf0">Decision-support only.</strong> Original raw EEG is preserved.
+    <div class="qwb-safety-footer">
+      <strong>Decision-support only.</strong> Original raw EEG is preserved.
       All cleaning actions are saved to a separate version with full audit trail.
       AI suggestions require clinician confirmation before they take effect.
     </div>`;
@@ -464,56 +687,56 @@ function renderCleaningPanel(state) {
 function renderAIPanel(state) {
   const items = state.aiSuggestions || [];
   return `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <div style="font-weight:600;font-size:13px">AI Artefact Assistant</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-weight:600;font-size:13px">AI Review Queue</div>
       <button class="qwb-btn qwb-btn-primary" id="qwb-ai-generate">Generate suggestions</button>
     </div>
-    <div style="padding:8px 10px;background:#3a2a14;border:1px solid #5a3a00;color:#ffd28a;border-radius:6px;font-size:11px;margin-bottom:14px">
+    <div class="qwb-ai-banner">
       AI-assisted suggestion only. Clinician confirmation required before any cleaning is applied.
     </div>
-    ${items.length === 0 ? '<div style="color:#7d8da3;font-size:12px;padding:20px 0;text-align:center">No suggestions yet — click <em>Generate suggestions</em>.</div>'
+    ${items.length === 0 ? '<div style="color:#6b7280;font-size:12px;padding:18px 0;text-align:center">No suggestions yet — click <em>Generate suggestions</em>.</div>'
       : items.map(s => `
-      <div data-suggestion="${esc(s.id)}" style="border:1px solid #2a3140;border-radius:6px;padding:10px;margin-bottom:8px;background:#161a21">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <span style="font-weight:600;font-size:12px;color:#ffb84d">${esc((s.ai_label||'').replace('_',' '))}</span>
-          <span style="font-size:11px;color:#9fb1c8">conf ${esc((s.ai_confidence*100||0).toFixed(0))}%</span>
+      <div class="qwb-card" data-suggestion="${esc(s.id)}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="font-weight:600;color:#7a4f00">${esc((s.ai_label||'').replace('_',' '))}</span>
+          <span style="font-size:11px;color:#6b7280">conf ${esc((s.ai_confidence*100||0).toFixed(0))}%</span>
         </div>
-        <div style="font-size:11px;color:#9fb1c8;margin-bottom:4px">
+        <div style="font-size:11px;color:#6b7280;margin-bottom:4px">
           ${s.channel ? 'Ch: '+esc(s.channel)+' · ' : ''}${s.start_sec!=null ? esc(s.start_sec.toFixed(1))+'s' : ''}${s.end_sec!=null ? '–'+esc(s.end_sec.toFixed(1))+'s' : ''}
         </div>
-        <div style="font-size:11px;color:#cdd5e1;margin-bottom:8px;line-height:1.4">${esc(s.explanation||'')}</div>
+        <div style="font-size:11px;color:#1a1a1a;margin-bottom:8px;line-height:1.4">${esc(s.explanation||'')}</div>
         <div style="display:flex;gap:6px">
           <button class="qwb-btn" data-ai-decision="accepted" data-ai-id="${esc(s.id)}">Accept</button>
           <button class="qwb-btn" data-ai-decision="rejected" data-ai-id="${esc(s.id)}">Reject</button>
           <button class="qwb-btn" data-ai-decision="needs_review" data-ai-id="${esc(s.id)}">Needs review</button>
         </div>
-        <div style="font-size:10px;color:#7d8da3;margin-top:6px">Suggested action: ${esc(s.suggested_action||'review')}</div>
+        <div style="font-size:10px;color:#6b7280;margin-top:6px">Suggested action: ${esc(s.suggested_action||'review')} · status: ${esc(s.decision_status||'suggested')}</div>
       </div>`).join('')}`;
 }
 
 function renderHelpPanel(state) {
   return `
     <div style="font-weight:600;font-size:13px;margin-bottom:8px">Best-Practice Helper</div>
-    <div style="font-size:11px;color:#9fb1c8;margin-bottom:12px">Local guidance — links are decision-support only.</div>
+    <div style="font-size:11px;color:#6b7280;margin-bottom:10px">Local guidance — links are decision-support only.</div>
     ${BEST_PRACTICE.map(b => `
-      <div style="border:1px solid #2a3140;border-radius:6px;padding:10px;margin-bottom:8px;background:#161a21">
+      <div class="qwb-card">
         <div style="font-weight:600;font-size:12px;margin-bottom:4px">${esc(b.topic)}</div>
-        <div style="font-size:11px;color:#cdd5e1;line-height:1.4;margin-bottom:6px">${esc(b.why)}</div>
-        <div style="font-size:10px;color:#7d8da3">References: ${b.references.map(esc).join(' · ')}</div>
+        <div style="font-size:11px;color:#1a1a1a;line-height:1.4;margin-bottom:6px">${esc(b.why)}</div>
+        <div style="font-size:10px;color:#6b7280">References: ${b.references.map(esc).join(' · ')}</div>
       </div>`).join('')}`;
 }
 
 function renderExamplesPanel(state) {
   return `
     <div style="font-weight:600;font-size:13px;margin-bottom:8px">Artefact Examples</div>
-    <div style="font-size:11px;color:#9fb1c8;margin-bottom:12px">Reference cases to help recognise and act on common patterns.</div>
+    <div style="font-size:11px;color:#6b7280;margin-bottom:10px">Reference cases to help recognise and act on common patterns.</div>
     ${ARTEFACT_EXAMPLES.map(ex => `
-      <div style="border:1px solid #2a3140;border-radius:6px;padding:10px;margin-bottom:8px;background:#161a21">
+      <div class="qwb-card">
         <div style="font-weight:600;font-size:12px;margin-bottom:4px">${esc(ex.title)}</div>
-        <div style="font-size:10px;color:#7d8da3;margin-bottom:6px">Channels: ${esc(ex.channels)}</div>
-        <div style="font-size:11px;color:#cdd5e1;line-height:1.4;margin-bottom:4px"><strong>Why:</strong> ${esc(ex.why)}</div>
-        <div style="font-size:11px;color:#cdd5e1;line-height:1.4;margin-bottom:4px"><strong>Action:</strong> ${esc(ex.action)}</div>
-        <div style="font-size:11px;color:#9fb1c8;line-height:1.4"><strong>Check:</strong> ${esc(ex.check)}</div>
+        <div style="font-size:10px;color:#6b7280;margin-bottom:4px">Channels: ${esc(ex.channels)}</div>
+        <div style="font-size:11px;line-height:1.4;margin-bottom:3px"><strong>Why:</strong> ${esc(ex.why)}</div>
+        <div style="font-size:11px;line-height:1.4;margin-bottom:3px"><strong>Action:</strong> ${esc(ex.action)}</div>
+        <div style="font-size:11px;line-height:1.4;color:#3a4150"><strong>Check:</strong> ${esc(ex.check)}</div>
       </div>`).join('')}`;
 }
 
@@ -521,18 +744,18 @@ function renderICAPanel(state) {
   if (!state.ica || !state.ica.components || state.ica.components.length === 0) {
     return `
       <div style="font-weight:600;font-size:13px;margin-bottom:8px">ICA Review</div>
-      <div style="padding:24px;text-align:center;color:#7d8da3;font-size:12px;background:#161a21;border:1px solid #2a3140;border-radius:6px">
+      <div class="qwb-card" style="text-align:center;color:#6b7280;font-size:12px">
         ICA decomposition not available for this analysis yet.<br><br>
-        Run preprocessing or click <em>Re-run qEEG pipeline</em> to generate ICA components.
+        Run preprocessing or click <em>Re-run qEEG analysis</em> to generate ICA components.
       </div>`;
   }
   return `
     <div style="font-weight:600;font-size:13px;margin-bottom:8px">ICA Components (${state.ica.n_components || state.ica.components.length})</div>
     ${state.ica.components.slice(0, 30).map(c => `
-      <div style="border:1px solid #2a3140;border-radius:6px;padding:8px;margin-bottom:6px;background:#161a21;display:flex;justify-content:space-between;align-items:center">
+      <div class="qwb-card" style="display:flex;justify-content:space-between;align-items:center">
         <div>
           <div style="font-weight:600;font-size:12px">IC ${esc(c.index)}</div>
-          <div style="font-size:10px;color:#7d8da3">${esc(c.label || 'unknown')}</div>
+          <div style="font-size:10px;color:#6b7280">${esc(c.label || 'unknown')}</div>
         </div>
         <button class="qwb-btn" data-ica-toggle="${esc(c.index)}">${state.rejectedICA.has(c.index) ? 'Restore' : 'Reject'}</button>
       </div>`).join('')}`;
@@ -541,15 +764,15 @@ function renderICAPanel(state) {
 function renderAuditPanel(state) {
   const items = state.auditLog || [];
   if (items.length === 0) {
-    return `<div style="color:#7d8da3;font-size:12px;padding:20px 0;text-align:center">No audit events recorded yet.</div>`;
+    return `<div style="color:#6b7280;font-size:12px;padding:18px 0;text-align:center">No audit events recorded yet.</div>`;
   }
   return `
     <div style="font-weight:600;font-size:13px;margin-bottom:8px">Cleaning Audit Trail</div>
     ${items.slice(0, 80).map(e => `
-      <div style="border-left:2px solid ${e.source==='ai'?'#ffb84d':'#2563aa'};padding:6px 10px;margin-bottom:4px;background:#161a21;font-size:11px">
-        <div style="display:flex;justify-content:space-between"><span style="font-weight:600">${esc(e.action_type)}</span><span style="color:#7d8da3">${esc((e.created_at||'').slice(11,19))}</span></div>
-        <div style="color:#9fb1c8">${e.channel?esc(e.channel)+' · ':''}${e.start_sec!=null?esc(e.start_sec.toFixed(1))+'s':''}${e.end_sec!=null?'–'+esc(e.end_sec.toFixed(1))+'s':''} · ${esc(e.source)}</div>
-        ${e.note ? `<div style="color:#cdd5e1;margin-top:2px">${esc(e.note)}</div>` : ''}
+      <div class="qwb-card" style="border-left:3px solid ${e.source==='ai'?'#d8a72a':'#1c4a8a'};padding:6px 10px">
+        <div style="display:flex;justify-content:space-between"><span style="font-weight:600;font-size:11px">${esc(e.action_type)}</span><span style="color:#6b7280;font-size:10px">${esc((e.created_at||'').slice(11,19))}</span></div>
+        <div style="color:#6b7280;font-size:11px">${e.channel?esc(e.channel)+' · ':''}${e.start_sec!=null?esc(e.start_sec.toFixed(1))+'s':''}${e.end_sec!=null?'–'+esc(e.end_sec.toFixed(1))+'s':''} · ${esc(e.source)}</div>
+        ${e.note ? `<div style="font-size:11px;margin-top:2px">${esc(e.note)}</div>` : ''}
       </div>`).join('')}`;
 }
 
@@ -559,25 +782,45 @@ function renderStatusBar(state) {
   set('qwb-st-time', now.toLocaleTimeString('en-GB'));
   set('qwb-st-window', `Window ${state.windowStart}–${state.windowStart + state.timebase}s`);
   set('qwb-st-sel', `Selected: ${state.selectedChannel}`);
+  set('qwb-st-amp', `Δamp: —`);
   set('qwb-st-bad', `Bad: ${state.badChannels.size}`);
   set('qwb-st-rej', `Rejected: ${state.rejectedSegments.length}`);
   const rs = state.rawCleanedSummary;
   set('qwb-st-retain', `Retained: ${rs && rs.retained_data_pct != null ? rs.retained_data_pct.toFixed(0) : '100'}%`);
   set('qwb-st-version', state.cleaningVersion ? `Cleaning v${state.cleaningVersion.version_number} ${state.cleaningVersion.review_status}` : 'No cleaning version');
-  set('qwb-st-save', state.saveStatus || 'idle');
+  const saveEl = document.getElementById('qwb-st-save');
+  if (saveEl) {
+    if (state.isDirty) { saveEl.textContent = '● unsaved edits'; saveEl.className = 'qwb-st-save qwb-dirty'; }
+    else { saveEl.textContent = state.saveStatus || 'idle'; saveEl.className = 'qwb-st-save'; }
+  }
+  const ctxVer = document.getElementById('qwb-ctx-version');
+  if (ctxVer) ctxVer.textContent = state.cleaningVersion
+    ? `Cleaning v${state.cleaningVersion.version_number}`
+    : 'No cleaning version';
 }
 
-// ──── Handlers ──────────────────────────────────────────────────────────────
+function renderRerunNotice(state) {
+  const el = document.getElementById('qwb-rerun-notice');
+  if (!el) return;
+  if (state.rerunDoneNotice) {
+    el.textContent = state.rerunDoneNotice;
+    el.style.display = 'block';
+  } else {
+    el.style.display = 'none';
+  }
+}
 
-function attachToolbar(state) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Handlers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function attachTopBar(state, navigate) {
   const onSel = (id, key, parser) => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('change', () => {
-      const v = el.value;
-      state[key] = parser ? parser(v) : v;
-      redrawCanvas(state);
-      renderStatusBar(state);
+      state[key] = parser ? parser(el.value) : el.value;
+      redrawCanvas(state); renderStatusBar(state);
     });
   };
   onSel('qwb-speed', 'speed', v => parseInt(v));
@@ -589,42 +832,78 @@ function attachToolbar(state) {
   onSel('qwb-view', 'viewMode');
   onSel('qwb-timebase', 'timebase', v => parseInt(v));
 
-  document.getElementById('qwb-baseline-reset')?.addEventListener('click', () => { redrawCanvas(state); });
+  document.getElementById('qwb-baseline-reset')?.addEventListener('click', () => redrawCanvas(state));
   document.getElementById('qwb-reset-view')?.addEventListener('click', () => {
     state.windowStart = 0; state.timebase = 10;
     redrawCanvas(state); renderStatusBar(state);
   });
   document.getElementById('qwb-save')?.addEventListener('click', () => saveCleaningVersion(state));
   document.getElementById('qwb-rerun')?.addEventListener('click', () => rerunAnalysis(state));
-  document.getElementById('qwb-back')?.addEventListener('click', () => {
-    if (typeof window._nav === 'function') window._nav('qeeg-analysis');
-    else window.location.hash = '#/qeeg-analysis';
-  });
+  document.getElementById('qwb-compare')?.addEventListener('click', () => loadRawVsCleaned(state));
+  document.getElementById('qwb-return-report')?.addEventListener('click', () => returnToReport(state, navigate));
+  document.getElementById('qwb-back')?.addEventListener('click', () => navBack(state, navigate, 'analyzer'));
+  document.getElementById('qwb-back-patient')?.addEventListener('click', () => navBack(state, navigate, 'patient'));
+
   document.getElementById('qwb-shortcuts')?.addEventListener('click', () => toggleShortcuts(state, true));
   document.getElementById('qwb-close-shortcuts')?.addEventListener('click', () => toggleShortcuts(state, false));
-  window.addEventListener('resize', () => redrawCanvas(state));
+
+  document.getElementById('qwb-unsaved-cancel')?.addEventListener('click', () => closeUnsaved(state));
+  document.getElementById('qwb-unsaved-leave')?.addEventListener('click', () => {
+    state.isDirty = false; closeUnsaved(state);
+    if (state.pendingNav) state.pendingNav();
+    state.pendingNav = null;
+  });
+  document.getElementById('qwb-unsaved-save')?.addEventListener('click', async () => {
+    await saveCleaningVersion(state);
+    closeUnsaved(state);
+    if (!state.isDirty && state.pendingNav) {
+      state.pendingNav();
+      state.pendingNav = null;
+    }
+  });
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('resize', () => redrawCanvas(state));
+  }
 }
 
 function attachChannelRail(state) {
   document.getElementById('qwb-rail')?.addEventListener('click', e => {
-    const row = e.target.closest('.qwb-ch');
+    let row = e.target;
+    while (row && !(row.classList && row.classList.contains('qwb-ch'))) row = row.parentElement;
     if (!row) return;
     state.selectedChannel = row.dataset.channel;
-    document.getElementById('qwb-rail').outerHTML = channelRailHtml(state);
-    attachChannelRail(state);
+    rerenderRail(state);
     redrawCanvas(state); renderStatusBar(state);
   });
 }
 
+function rerenderRail(state) {
+  const rail = document.getElementById('qwb-rail');
+  if (!rail || !rail.parentElement) return;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = channelRailHtml(state);
+  const fresh = tmp.firstElementChild;
+  rail.parentElement.replaceChild(fresh, rail);
+  attachChannelRail(state);
+}
+
 function attachRightPanel(state) {
+  document.getElementById('qwb-right-toggle')?.addEventListener('click', () => {
+    state.rightCollapsed = !state.rightCollapsed;
+    const right = document.getElementById('qwb-right');
+    const tabs = document.getElementById('qwb-right-tabs');
+    const body = document.getElementById('qwb-right-body');
+    if (right) right.classList.toggle('collapsed', state.rightCollapsed);
+    if (tabs) tabs.style.display = state.rightCollapsed ? 'none' : '';
+    if (body) body.style.display = state.rightCollapsed ? 'none' : '';
+    const tog = document.getElementById('qwb-right-toggle');
+    if (tog) tog.textContent = state.rightCollapsed ? '◀' : '▶';
+  });
   document.querySelectorAll('.qwb-tab').forEach(b => {
     b.addEventListener('click', () => {
       state.rightTab = b.dataset.tab;
-      document.querySelectorAll('.qwb-tab').forEach(t => {
-        const on = t.dataset.tab === state.rightTab;
-        t.style.color = on ? '#fff' : '#9fb1c8';
-        t.style.borderBottom = `2px solid ${on ? '#2563aa' : 'transparent'}`;
-      });
+      document.querySelectorAll('.qwb-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === state.rightTab));
       renderRightPanel(state);
     });
   });
@@ -632,7 +911,9 @@ function attachRightPanel(state) {
 }
 
 function attachStatusBar(state) {
-  setInterval(() => renderStatusBar(state), 1000);
+  if (typeof setInterval === 'function') {
+    setInterval(() => renderStatusBar(state), 1000);
+  }
 }
 
 function attachCleaningPanelHandlers(state) {
@@ -651,23 +932,25 @@ function attachAIPanelHandlers(state) {
 function attachKeyboard(state, navigate) {
   document.addEventListener('keydown', e => {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
+    if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
+      e.preventDefault(); saveCleaningVersion(state); return;
+    }
+    if (e.key === 'Escape') { e.preventDefault(); navBack(state, navigate, 'analyzer'); return; }
     if (e.key === 'ArrowRight') { state.windowStart += state.timebase; redrawCanvas(state); renderStatusBar(state); }
     else if (e.key === 'ArrowLeft') { state.windowStart = Math.max(0, state.windowStart - state.timebase); redrawCanvas(state); renderStatusBar(state); }
     else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       const idx = DEFAULT_CHANNELS.indexOf(state.selectedChannel);
       const next = e.key === 'ArrowUp' ? Math.max(0, idx - 1) : Math.min(DEFAULT_CHANNELS.length - 1, idx + 1);
       state.selectedChannel = DEFAULT_CHANNELS[next];
-      document.getElementById('qwb-rail').outerHTML = channelRailHtml(state);
-      attachChannelRail(state); redrawCanvas(state); renderStatusBar(state);
+      rerenderRail(state); redrawCanvas(state); renderStatusBar(state);
     }
     else if (e.key === '+' || e.key === '=') { state.gain = Math.max(GAINS[0], state.gain / 2); redrawCanvas(state); }
     else if (e.key === '-' || e.key === '_') { state.gain = Math.min(GAINS[GAINS.length-1], state.gain * 2); redrawCanvas(state); }
-    else if (e.key === 'b' || e.key === 'B') { handleCleaningAction(state, 'mark-channel'); }
-    else if (e.key === 's' || e.key === 'S') { handleCleaningAction(state, 'mark-segment'); }
-    else if (e.key === 'a' || e.key === 'A') { handleCleaningAction(state, 'annotate'); }
+    else if (e.key === 'b' || e.key === 'B') handleCleaningAction(state, 'mark-channel');
+    else if (e.key === 's' || e.key === 'S') handleCleaningAction(state, 'mark-segment');
+    else if (e.key === 'a' || e.key === 'A') handleCleaningAction(state, 'annotate');
     else if (e.key === 'r' || e.key === 'R') { state.windowStart = 0; redrawCanvas(state); renderStatusBar(state); }
-    else if (e.key === '?') { toggleShortcuts(state, true); }
-    else if (e.key === 'Escape') { toggleShortcuts(state, false); }
+    else if (e.key === '?') toggleShortcuts(state, true);
   });
 }
 
@@ -677,7 +960,56 @@ function toggleShortcuts(state, show) {
   state.showShortcuts = !!show;
 }
 
-// ──── Mutations ────────────────────────────────────────────────────────────
+function openUnsaved(state, pending) {
+  state.pendingNav = pending;
+  const m = document.getElementById('qwb-unsaved-modal');
+  if (m) m.style.display = 'flex';
+}
+
+function closeUnsaved(state) {
+  const m = document.getElementById('qwb-unsaved-modal');
+  if (m) m.style.display = 'none';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Navigation
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function navBack(state, navigate, target) {
+  const go = () => {
+    if (typeof window._qeegRawWorkbenchTeardown === 'function') {
+      try { window._qeegRawWorkbenchTeardown(); } catch (_e) {}
+    }
+    if (target === 'patient' && (window._qeegSelectedPatientId || window._currentPatientId)) {
+      window._patientHubSelectedId = window._qeegSelectedPatientId || window._currentPatientId;
+      if (typeof window._nav === 'function') return window._nav('patients-v2');
+    }
+    if (typeof window._nav === 'function') {
+      window._qeegTab = 'raw';
+      return window._nav('qeeg-analysis');
+    }
+    window.location.hash = '#/qeeg-analysis';
+  };
+  if (state.isDirty) { openUnsaved(state, go); return false; }
+  go();
+  return true;
+}
+
+function returnToReport(state, navigate) {
+  const go = () => {
+    if (typeof window._nav === 'function') {
+      window._qeegTab = 'report';
+      return window._nav('qeeg-analysis');
+    }
+    window.location.hash = '#/qeeg-analysis';
+  };
+  if (state.isDirty) { openUnsaved(state, go); return; }
+  go();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mutations
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function handleCleaningAction(state, action) {
   switch (action) {
@@ -686,7 +1018,7 @@ async function handleCleaningAction(state, action) {
     case 'reject-epoch': await rejectEpoch(state, state.windowStart); break;
     case 'interpolate': await interpolateChannel(state, state.selectedChannel); break;
     case 'annotate': {
-      const note = window.prompt('Annotation note (clinician):', '');
+      const note = (typeof window.prompt === 'function') ? window.prompt('Annotation note (clinician):', '') : '';
       if (note != null && note.trim()) await addNote(state, note.trim());
       break;
     }
@@ -698,35 +1030,41 @@ async function handleCleaningAction(state, action) {
     case 'save-version': await saveCleaningVersion(state); break;
     case 'rerun': await rerunAnalysis(state); break;
     case 'raw-vs-cleaned': await loadRawVsCleaned(state); break;
+    case 'return-report': returnToReport(state); break;
   }
 }
+
+function markDirty(state) { state.isDirty = true; renderStatusBar(state); }
 
 async function markBadChannel(state, channel) {
   if (!channel) return;
   if (state.badChannels.has(channel)) state.badChannels.delete(channel);
   else state.badChannels.add(channel);
-  document.getElementById('qwb-rail').outerHTML = channelRailHtml(state);
-  attachChannelRail(state);
-  redrawCanvas(state); renderStatusBar(state);
+  rerenderRail(state); redrawCanvas(state);
+  markDirty(state);
   await postAnnotation(state, { kind: 'bad_channel', channel, decision_status: 'accepted' });
 }
 
 async function markBadSegment(state, startSec, endSec) {
   state.rejectedSegments.push({ start_sec: startSec, end_sec: endSec, description: 'BAD_user' });
-  redrawCanvas(state); renderStatusBar(state);
+  redrawCanvas(state);
+  markDirty(state);
   await postAnnotation(state, { kind: 'bad_segment', start_sec: startSec, end_sec: endSec, decision_status: 'accepted' });
 }
 
 async function rejectEpoch(state, startSec) {
+  markDirty(state);
   await postAnnotation(state, { kind: 'rejected_epoch', start_sec: startSec, end_sec: startSec + 1.0, decision_status: 'accepted' });
 }
 
 async function interpolateChannel(state, channel) {
   if (!channel) return;
+  markDirty(state);
   await postAnnotation(state, { kind: 'interpolated_channel', channel, decision_status: 'accepted' });
 }
 
 async function addNote(state, note) {
+  markDirty(state);
   await postAnnotation(state, { kind: 'note', note, decision_status: 'accepted' });
 }
 
@@ -761,15 +1099,15 @@ async function generateAISuggestions(state) {
       { id: 'demo-1', ai_label: 'eye_blink', ai_confidence: 0.78, channel: 'Fp1-Av',
         start_sec: 2.4, end_sec: 3.1,
         explanation: 'Frontal high-amplitude deflection lasting <1s consistent with eye-blink artefact.',
-        suggested_action: 'review_ica' },
+        suggested_action: 'review_ica', decision_status: 'suggested' },
       { id: 'demo-2', ai_label: 'muscle', ai_confidence: 0.65, channel: 'T3-Av',
         start_sec: 7.2, end_sec: 8.4,
         explanation: 'High-frequency burst over temporal channel suggests muscle contamination.',
-        suggested_action: 'mark_bad_segment' },
+        suggested_action: 'mark_bad_segment', decision_status: 'suggested' },
       { id: 'demo-3', ai_label: 'line_noise', ai_confidence: 0.55, channel: null,
         start_sec: 0, end_sec: null,
         explanation: 'Narrow spectral peak near power-line frequency. Confirm notch filter is active.',
-        suggested_action: 'ignore' },
+        suggested_action: 'ignore', decision_status: 'suggested' },
     ];
     if (state.rightTab === 'ai') renderRightPanel(state);
     return;
@@ -784,10 +1122,10 @@ async function generateAISuggestions(state) {
 }
 
 async function recordAIDecision(state, suggestionId, decision) {
-  // The persisted annotation already exists from generateQEEGAIArtefactSuggestions;
-  // we record the clinician decision as a sibling annotation linking the source.
   const sugg = (state.aiSuggestions || []).find(s => s.id === suggestionId);
   if (!sugg) return;
+  sugg.decision_status = decision;
+  if (decision === 'accepted') markDirty(state);
   await postAnnotation(state, {
     kind: 'ai_suggestion',
     channel: sugg.channel,
@@ -799,13 +1137,11 @@ async function recordAIDecision(state, suggestionId, decision) {
     source: 'clinician',
     note: `Decision on AI suggestion ${suggestionId}: ${decision}`,
   });
-  if (decision === 'accepted') {
-    if (sugg.suggested_action === 'mark_bad_segment' && sugg.start_sec != null && sugg.end_sec != null) {
-      state.rejectedSegments.push({ start_sec: sugg.start_sec, end_sec: sugg.end_sec, description: 'BAD_ai_accepted' });
-      redrawCanvas(state); renderStatusBar(state);
-    }
+  if (decision === 'accepted' && sugg.suggested_action === 'mark_bad_segment'
+      && sugg.start_sec != null && sugg.end_sec != null) {
+    state.rejectedSegments.push({ start_sec: sugg.start_sec, end_sec: sugg.end_sec, description: 'BAD_ai_accepted' });
+    redrawCanvas(state); renderStatusBar(state);
   }
-  // Re-render so the badge updates
   if (state.rightTab === 'ai') renderRightPanel(state);
 }
 
@@ -816,7 +1152,9 @@ async function saveCleaningVersion(state) {
       version_number: (state.cleaningVersion?.version_number || 0) + 1,
       review_status: 'draft',
     };
-    state.saveStatus = 'demo: cleaning version saved locally'; renderStatusBar(state);
+    state.isDirty = false;
+    state.saveStatus = `demo: cleaning v${state.cleaningVersion.version_number} saved`;
+    renderStatusBar(state);
     return;
   }
   try {
@@ -830,6 +1168,7 @@ async function saveCleaningVersion(state) {
       annotation_ids: [],
     });
     state.cleaningVersion = r;
+    state.isDirty = false;
     state.saveStatus = `saved v${r.version_number}`;
     await refreshAuditLog(state);
   } catch (err) {
@@ -844,12 +1183,16 @@ async function rerunAnalysis(state) {
     if (!state.cleaningVersion) return;
   }
   if (state.isDemo) {
-    state.saveStatus = 'demo: rerun queued'; renderStatusBar(state); return;
+    state.saveStatus = 'demo: rerun queued';
+    state.rerunDoneNotice = `qEEG analysis updated using Cleaning Version ${state.cleaningVersion.version_number}. Original raw EEG preserved.`;
+    renderStatusBar(state); renderRerunNotice(state); return;
   }
   try {
     state.saveStatus = 'queuing rerun…'; renderStatusBar(state);
     await api.rerunQEEGAnalysisWithCleaning(state.analysisId, state.cleaningVersion.id);
     state.saveStatus = 'rerun queued · raw EEG preserved';
+    state.rerunDoneNotice = `qEEG analysis re-run queued using Cleaning Version ${state.cleaningVersion.version_number}. Original raw EEG preserved.`;
+    renderRerunNotice(state);
   } catch (err) {
     state.saveStatus = 'rerun error: ' + (err.message || err);
   }
@@ -863,7 +1206,9 @@ async function loadRawVsCleaned(state) {
       bad_channels_excluded: Array.from(state.badChannels), notice: 'demo summary',
     };
     renderStatusBar(state);
-    alert(`Raw vs Cleaned\n\nRetained: 88%\nBad channels: ${state.badChannels.size}\nRejected segments: ${state.rejectedSegments.length}\n\nDecision-support only. Original raw EEG preserved.`);
+    if (typeof alert === 'function') {
+      alert(`Raw vs Cleaned\n\nRetained: 88%\nBad channels: ${state.badChannels.size}\nRejected segments: ${state.rejectedSegments.length}\n\nDecision-support only. Original raw EEG preserved.`);
+    }
     return;
   }
   try {

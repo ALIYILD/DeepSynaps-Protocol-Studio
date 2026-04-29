@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -519,6 +520,59 @@ def _generate_summary(
 # ── Patient-facing report ────────────────────────────────────────────────────
 
 
+# ── Claim governance (fusion-specific) ─────────────────────────────────────
+
+_FUSION_BLOCKED_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\bconfirms?\s+(ADHD|autism|depression|dementia|bipolar|anxiety|OCD|PTSD|schizophrenia|epilepsy|stroke|tumou?r)\b", re.IGNORECASE), "BLOCKED_CONFIRMS_DISEASE"),
+    (re.compile(r"\bdiagnos(?:is|es|tic)\s+(ADHD|autism|depression|dementia|bipolar|anxiety|OCD|PTSD|schizophrenia|epilepsy|stroke|tumou?r)\b", re.IGNORECASE), "BLOCKED_DIAGNOSIS"),
+    (re.compile(r"\bdiagnos(?:is|es|tic)\b", re.IGNORECASE), "BLOCKED_DIAGNOSTIC_WORDING"),
+    (re.compile(r"\bcures?\b", re.IGNORECASE), "BLOCKED_CURE"),
+    (re.compile(r"\bguarantee[d]?\b.*?(response|outcome|improvement|result)\b", re.IGNORECASE), "BLOCKED_GUARANTEE"),
+    (re.compile(r"\bsafe\s+to\s+treat\b", re.IGNORECASE), "BLOCKED_SAFE_TO_TREAT"),
+    (re.compile(r"\bno\s+side\s+effects\b", re.IGNORECASE), "BLOCKED_NO_SIDE_EFFECTS"),
+    (re.compile(r"\blesion\s+detected\b", re.IGNORECASE), "BLOCKED_LESION"),
+    (re.compile(r"\btumou?r\s+detected\b", re.IGNORECASE), "BLOCKED_TUMOUR"),
+    (re.compile(r"\bstroke\s+detected\b", re.IGNORECASE), "BLOCKED_STROKE"),
+]
+
+_FUSION_SOFTEN_RULES: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\bsuggests\b", re.IGNORECASE), "could be associated with"),
+    (re.compile(r"\bindicates\b", re.IGNORECASE), "may reflect"),
+    (re.compile(r"\bconfirms\b", re.IGNORECASE), "is consistent with"),
+    (re.compile(r"\bshows\b", re.IGNORECASE), "appears to show"),
+    (re.compile(r"\bevidence\s+of\b", re.IGNORECASE), "possible evidence of"),
+]
+
+
+def _classify_fusion_claim(text: str) -> tuple[str, str | None]:
+    for pattern, reason in _FUSION_BLOCKED_PATTERNS:
+        if pattern.search(text):
+            return "BLOCKED", reason
+    return "INFERRED", None
+
+
+def _soften_fusion_text(text: str) -> str:
+    for pattern, replacement in _FUSION_SOFTEN_RULES:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+def _sanitize_patient_summary(text: str) -> str:
+    """Scan summary for blocked patterns; replace with safe language."""
+    claim_type, reason = _classify_fusion_claim(text)
+    if claim_type == "BLOCKED":
+        # Replace the offending sentence/phrase with a safe fallback
+        text = re.sub(
+            r"[^.]*\b(confirms?|diagnos(?:is|es|tic)|cures?|guaranteed?|safe\s+to\s+treat|no\s+side\s+effects|lesion\s+detected|tumou?r\s+detected|stroke\s+detected)\b[^.]*\.?",
+            "[Language softened — requires clinician review.] ",
+            text,
+            flags=re.IGNORECASE,
+        )
+        # Clean up double spaces
+        text = re.sub(r"\s+", " ", text).strip()
+    return _soften_fusion_text(text)
+
+
 def _build_patient_facing_report(fusion_case: FusionCase) -> dict[str, Any]:
     """Strip BLOCKED content, soften INFERRED claims, pseudonymize."""
     governance = _load_json(fusion_case.governance_json) or []
@@ -534,16 +588,17 @@ def _build_patient_facing_report(fusion_case: FusionCase) -> dict[str, Any]:
         if ctype == "BLOCKED":
             continue
         if ctype == "INFERRED":
-            text = text.replace("suggests", "could be associated with")
-            text = text.replace("indicates", "may reflect")
-            text = text.replace("confirms", "is consistent with")
+            text = _soften_fusion_text(text)
         allowed_claims.append({"claim_type": ctype, "text": text})
 
     patient_id_hash = hashlib.sha256(fusion_case.patient_id.encode()).hexdigest()[:16]
 
+    # Sanitize the summary itself for patient-facing output
+    safe_summary = _sanitize_patient_summary(fusion_case.summary or "")
+
     return {
         "patient_id_hash": f"sha256:{patient_id_hash}",
-        "summary": fusion_case.summary,
+        "summary": safe_summary,
         "confidence": fusion_case.confidence,
         "confidence_grade": fusion_case.confidence_grade,
         "protocol_recommendation": (_load_json(fusion_case.protocol_fusion_json) or {}).get("recommendation"),
@@ -695,7 +750,7 @@ def create_fusion_case(
         }),
         red_flags_json=_dump_json([]),
         governance_json=_dump_json([
-            {"section": "summary", "claim_type": "INFERRED", "text": summary},
+            {"section": "summary", "claim_type": _classify_fusion_claim(summary)[0], "text": summary, "block_reason": _classify_fusion_claim(summary)[1]},
         ]),
         limitations_json=_dump_json(limitations),
         missing_modalities_json=_dump_json(missing_modalities),
