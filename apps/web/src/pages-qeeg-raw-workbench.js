@@ -137,6 +137,55 @@ function readModeFromHash() {
   return m ? m[1] : null;
 }
 
+// Recording-level event timeline for the mini-map / inline trace markers.
+// Mirrors the design source's MiniMap eventMarkers + inline labels.
+const EVENT_TIMELINE = [
+  { t:   0, label: 'Start',        colour: '#2851a3' },
+  { t:  60, label: 'Eyes Open',    colour: '#2851a3' },
+  { t: 180, label: 'Eyes Closed',  colour: '#2851a3' },
+  { t: 300, label: 'Photic 6 Hz',  colour: '#b8741a' },
+  { t: 360, label: 'Photic 14 Hz', colour: '#b8741a' },
+  { t: 420, label: 'Eyes Open',    colour: '#2851a3' },
+  { t: 540, label: 'End',          colour: '#2851a3' },
+];
+
+// Synthetic full-recording artefact density — coloured by kind, used for
+// the mini-map's bar layer (matches RAW DATA/extras.jsx genRawChannel
+// inline artefacts).
+function recordingArtifactDensity(totalSec) {
+  const out = [];
+  const kinds = ['blink','muscle','movement','line-noise','flat'];
+  const colours = {
+    'blink':       '#1d6f7a',
+    'muscle':      '#b8741a',
+    'movement':    '#7a4ea3',
+    'line-noise':  '#1a4f7a',
+    'flat':        '#6b6660',
+  };
+  // Seeded so the bars are stable across renders within the session.
+  let seed = 0xb02e;
+  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  for (let i = 0; i < 38; i++) {
+    const kind = kinds[Math.floor(rnd() * kinds.length)];
+    out.push({ t: rnd() * totalSec, kind, colour: colours[kind] });
+  }
+  return out;
+}
+
+function synthRawSignal(channelIndex, totalSamples, sampleRate, archetypeAt) {
+  // "Raw" signal carries stronger artefacts so the Overlay / Raw / Split
+  // modes show a visible difference vs the cleaned baseline.
+  const out = synthSignal(channelIndex, totalSamples, sampleRate, archetypeAt);
+  for (let i = 0; i < totalSamples; i++) {
+    out[i] += (Math.random() - 0.5) * 14;
+    if (channelIndex === 10) {
+      // C4 stays near-flat in cleaned mode — in raw it has spikes.
+      if ((i % 64) < 6) out[i] += 30;
+    }
+  }
+  return out;
+}
+
 function synthSignal(channelIndex, totalSamples, sampleRate, archetypeAt) {
   const out = new Float32Array(totalSamples);
   const isPosterior = channelIndex >= 17;
@@ -220,6 +269,8 @@ export async function pgQEEGRawWorkbench(setTopbar, navigate) {
     chatLog: [              // local-only chat history (shown in Audit tab)
       { who: 'ai', text: 'I detected candidate artefacts in this window. Bilateral frontopolar blinks (Fp1/Fp2) and a possibly flat C4 are the most likely concerns.' },
     ],
+    aiThreshold: 0.7,       // confidence threshold filter for AI Review
+    aiCursor: 0,            // J/K artefact navigation index
   };
 
   const beforeUnload = (e) => {
@@ -271,7 +322,8 @@ function workbenchShell(state) {
           <div id="qwb-rerun-notice" class="qwb-rerun-notice" style="display:none"></div>
         </div>
         <div class="qwb-spectro-strip" data-testid="qwb-spectro-strip">
-          <span class="qwb-spectro-label">SPECTROGRAM</span>
+          <span class="qwb-spectro-label">SPECTROGRAM · 0–50 Hz</span>
+          <canvas id="qwb-spectro-canvas" class="qwb-spectro-canvas"></canvas>
         </div>
       </div>
       ${rightPanelHtml(state)}
@@ -545,13 +597,30 @@ function clinicalCss() {
       pointer-events:none; z-index:3;
     }
 
-    /* ── Spectrogram strip (decorative paper-tone band) ──────── */
+    /* ── Spectrogram strip (real canvas heatmap) ─────────────── */
     .qwb-spectro-strip {
-      background:linear-gradient(180deg, #d6ebee, #FAF7F2 60%, #f6e6cb);
+      position:relative;
+      background:#FAF7F2;
       border-top:1px solid #d8d1c3;
-      display:flex; align-items:flex-start; padding:6px 10px;
-      font-family:var(--qwb-mono); font-size:9.5px;
+      overflow:hidden;
+    }
+    .qwb-spectro-canvas {
+      position:absolute; inset:0; width:100%; height:100%;
+      display:block;
+    }
+    .qwb-spectro-label {
+      position:absolute; top:4px; left:8px; z-index:2;
+      font-family:var(--qwb-mono); font-size:9px;
       color:#3a3633; text-transform:uppercase; letter-spacing:0.06em;
+      background:rgba(250,247,242,0.85); padding:1px 5px; border-radius:2px;
+    }
+    /* ── Trace event markers (EYES CLOSED / PHOTIC) ──────────── */
+    .qwb-event-marker {
+      position:absolute; top:0;
+      font-family:var(--qwb-mono); font-size:9px;
+      padding:1px 5px; border-radius:2px;
+      color:#fff; pointer-events:none; z-index:6;
+      white-space:nowrap;
     }
 
     /* ── Right panel ─────────────────────────────────────────── */
@@ -1011,6 +1080,12 @@ function miniMapRow(state) {
   const winLen = state.timebase;
   const leftPct  = (winStart / total) * 100;
   const widthPct = (winLen / total) * 100;
+  // Cache the seeded density so it stays stable across renders.
+  if (!state._artefactDensity) state._artefactDensity = recordingArtifactDensity(total);
+  const bars = state._artefactDensity.map(e => `<div style="position:absolute;left:${(e.t/total*100).toFixed(2)}%;top:14px;bottom:4px;width:2px;background:${e.colour};opacity:0.7"></div>`).join('');
+  const evMarkers = EVENT_TIMELINE.map(ev => `<div style="position:absolute;left:${(ev.t/total*100).toFixed(2)}%;top:0;bottom:0;width:1px;background:${ev.colour};opacity:0.45">
+    <span style="position:absolute;top:-2px;left:4px;font-size:9px;font-family:var(--qwb-mono);color:${ev.colour};white-space:nowrap;background:#F3EEE5;padding:0 3px;border-radius:2px">${esc(ev.label)}</span>
+  </div>`).join('');
   const legend = [
     ['blink', '#1d6f7a'],
     ['muscle', '#b8741a'],
@@ -1033,6 +1108,8 @@ function miniMapRow(state) {
         <div class="qwb-minimap-legend">${legend}</div>
       </div>
       <div class="qwb-minimap-track" id="qwb-minimap-track">
+        ${evMarkers}
+        ${bars}
         <div class="qwb-minimap-window" id="qwb-minimap-window"
           style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%"></div>
       </div>
@@ -1226,6 +1303,23 @@ function redrawCanvas(state) {
     muscleEnd:   Math.floor(8.4 * sampleRate),
   } : null;
 
+  const ampScale = (rowH * 0.45) / state.gain;
+  const drawTrace = (sig, color, lineWidth, yMid, xStart, xEnd) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    ctx.beginPath();
+    const stride = Math.max(1, Math.floor(totalSamples / W));
+    let firstDrawn = false;
+    for (let i = 0; i < totalSamples; i += stride) {
+      const x = (i / totalSamples) * W;
+      if (x < xStart || x > xEnd) continue;
+      const y = yMid - sig[i] * ampScale;
+      if (!firstDrawn) { ctx.moveTo(x, y); firstDrawn = true; }
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  };
+
   channels.forEach((ch, idx) => {
     const yMid = traceTop + rowH * (idx + 0.5);
     const isBad = state.badChannels.has(ch);
@@ -1239,20 +1333,129 @@ function redrawCanvas(state) {
       ctx.fillRect(0, traceTop + rowH*idx, W, rowH);
     }
 
-    ctx.strokeStyle = isBad ? '#b03434' : '#1a1a1a';
-    ctx.lineWidth = isBad ? 1.0 : 0.9;
-    ctx.beginPath();
-    const sig = synthSignal(idx, totalSamples, sampleRate, archetypeAt);
-    const ampScale = (rowH * 0.45) / state.gain;
-    for (let i = 0; i < totalSamples; i += Math.max(1, Math.floor(totalSamples / W))) {
-      const x = (i / totalSamples) * W;
-      const y = yMid - sig[i] * ampScale;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    const cleanedSig = synthSignal(idx, totalSamples, sampleRate, archetypeAt);
+    const needRaw = state.viewMode === 'overlay' || state.viewMode === 'split' || state.viewMode === 'raw';
+    const rawSig = needRaw ? synthRawSignal(idx, totalSamples, sampleRate, archetypeAt) : null;
+
+    const blackColor = isBad ? '#b03434' : '#1a1a1a';
+    const blackWidth = isBad ? 1.0 : 0.9;
+    const ghostColor = 'rgba(176,52,52,0.55)';
+
+    switch (state.viewMode) {
+      case 'raw':
+        drawTrace(rawSig, blackColor, blackWidth, yMid, 0, W);
+        break;
+      case 'overlay':
+        // Ghost raw underneath, cleaned on top.
+        drawTrace(rawSig, ghostColor, 0.6, yMid, 0, W);
+        drawTrace(cleanedSig, blackColor, blackWidth, yMid, 0, W);
+        break;
+      case 'split':
+        // Raw on left half, cleaned on right half, indigo divider.
+        drawTrace(rawSig,    '#b03434',   0.7, yMid, 0,     W / 2);
+        drawTrace(cleanedSig, blackColor, blackWidth, yMid, W / 2, W);
+        break;
+      case 'cleaned':
+      default:
+        drawTrace(cleanedSig, blackColor, blackWidth, yMid, 0, W);
     }
-    ctx.stroke();
   });
 
+  // Split-mode divider line
+  if (state.viewMode === 'split') {
+    ctx.strokeStyle = '#2851a3';
+    ctx.lineWidth = 1.5;
+    const hasDash = typeof ctx.setLineDash === 'function';
+    if (hasDash) ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(W / 2, traceTop); ctx.lineTo(W / 2, H); ctx.stroke();
+    if (hasDash) ctx.setLineDash([]);
+  }
+
   renderOverlays(state, W, H, rulerH);
+  renderTraceEventMarkers(state, W);
+  redrawSpectrogram(state);
+}
+
+function redrawSpectrogram(state) {
+  const canvas = document.getElementById('qwb-spectro-canvas');
+  if (!canvas) return;
+  const wrap = canvas.parentElement;
+  if (!wrap) return;
+  const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+  const W = wrap.clientWidth || 800;
+  const H = wrap.clientHeight || 56;
+  if (canvas.width !== W * dpr || canvas.height !== H * dpr) {
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#FAF7F2'; ctx.fillRect(0, 0, W, H);
+
+  const cols = 240, rows = 50;
+  const cellW = W / cols, cellH = H / rows;
+  const archetypeT = (kind) => {
+    // Approximate windows in the 12s display where each kind dominates.
+    if (kind === 'blink')      return [[0.06, 0.10], [0.31, 0.35], [0.71, 0.745]];
+    if (kind === 'muscle')     return [[0.18, 0.23], [0.62, 0.66]];
+    if (kind === 'line-noise') return [[0.54, 0.78]];
+    if (kind === 'movement')   return [[0.42, 0.48]];
+    return [];
+  };
+  const inWindow = (t, ws) => ws.some(([a, b]) => t >= a && t <= b);
+
+  for (let x = 0; x < cols; x++) {
+    const t = x / cols; // 0..1 across the window
+    for (let y = 0; y < rows; y++) {
+      const freq = (rows - y) / rows * 50; // 0..50 Hz, top = high
+      let p = 0;
+      // Background spectrum
+      if (freq > 8 && freq < 12) p += 0.55 + 0.20 * Math.sin(t * 8);
+      if (freq < 4)              p += 0.30 + 0.12 * Math.sin(t * 3);
+      if (freq > 18 && freq < 28) p += 0.12;
+      // Artefact bursts
+      if (inWindow(t, archetypeT('muscle'))     && freq > 25) p += 0.65;
+      if (inWindow(t, archetypeT('blink'))      && freq < 5)  p += 0.80;
+      if (inWindow(t, archetypeT('line-noise')) && freq > 48 && freq < 52) p += 1.00;
+      if (inWindow(t, archetypeT('movement'))   && freq < 3)  p += 0.55;
+      p += (Math.random() - 0.5) * 0.08;
+      p = Math.max(0, Math.min(1, p));
+      ctx.fillStyle = spectroColour(p);
+      ctx.fillRect(x * cellW, y * cellH, cellW + 1, cellH + 1);
+    }
+  }
+}
+
+function spectroColour(p) {
+  // paper → teal → amber ramp (matches RAW DATA/extras.jsx spectroColor)
+  if (p < 0.15) return '#FAF7F2';
+  if (p < 0.30) return '#ECE5D8';
+  if (p < 0.45) return '#d6ebee';
+  if (p < 0.60) return '#a8d4d9';
+  if (p < 0.75) return '#4ea3ad';
+  if (p < 0.90) return '#1d6f7a';
+  return '#0d3a40';
+}
+
+function renderTraceEventMarkers(state, W) {
+  const wrap = document.getElementById('qwb-canvas-wrap');
+  if (!wrap) return;
+  // Remove any existing inline markers (innerHTML wipe would break canvas)
+  const old = wrap.querySelectorAll ? wrap.querySelectorAll('.qwb-event-marker') : [];
+  old.forEach(n => n.remove && n.remove());
+  // Render only markers within the current 12-second window.
+  const tb = state.timebase;
+  for (const ev of EVENT_TIMELINE) {
+    const overlap = ev.t - state.windowStart;
+    if (overlap < 0 || overlap > tb) continue;
+    const left = (overlap / tb) * 100;
+    const el = document.createElement('div');
+    el.className = 'qwb-event-marker';
+    el.style.left = left.toFixed(2) + '%';
+    el.style.background = ev.colour;
+    el.textContent = ev.label.toUpperCase() + ' ▾';
+    wrap.appendChild(el);
+  }
 }
 
 function renderTimeRuler(state) {
@@ -1409,13 +1612,22 @@ function renderCleaningPanel(state) {
 }
 
 function renderAIPanel(state) {
-  const items = state.aiSuggestions || [];
+  const all = state.aiSuggestions || [];
+  const threshold = state.aiThreshold ?? 0.7;
+  const items = all.filter(s => (s.ai_confidence || 0) >= threshold);
+  const hidden = all.length - items.length;
   return `
     <div class="qwb-side-section">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div style="font-weight:600;font-size:13px">AI Review Queue</div>
         <button class="qwb-side-btn ai" id="qwb-ai-generate" data-testid="qwb-ai-generate" style="padding:5px 10px">Generate</button>
       </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:11px;color:#3a3633">
+        <label for="qwb-ai-threshold" style="font-family:var(--qwb-mono);font-size:10px;color:#6b6660;text-transform:uppercase;letter-spacing:0.04em">Threshold</label>
+        <input id="qwb-ai-threshold" data-testid="qwb-ai-threshold" type="range" min="0.5" max="1" step="0.01" value="${threshold}" style="flex:1;accent-color:#1d6f7a" />
+        <span style="font-family:var(--qwb-mono);font-size:11px;font-weight:600;color:#1d6f7a;min-width:34px;text-align:right">${Math.round(threshold * 100)}%</span>
+      </div>
+      ${hidden > 0 ? `<div style="font-size:10px;color:#6b6660;margin-bottom:8px">${hidden} suggestion${hidden === 1 ? '' : 's'} hidden by threshold</div>` : ''}
       <div class="qwb-ai-banner">
         AI-assisted suggestion only. Clinician confirmation required before any cleaning is applied.
       </div>
@@ -1957,10 +2169,18 @@ function attachCleaningPanelHandlers(state) {
 
 function attachAIPanelHandlers(state) {
   document.getElementById('qwb-ai-generate')?.addEventListener('click', () => generateAISuggestions(state));
-  document.getElementById('qwb-ai-accept-all')?.addEventListener('click', () => acceptAllAI(state, 0.7));
+  document.getElementById('qwb-ai-accept-all')?.addEventListener('click', () => acceptAllAI(state, state.aiThreshold ?? 0.7));
   document.querySelectorAll('#qwb-right-body [data-ai-decision]').forEach(b => {
     b.addEventListener('click', () => recordAIDecision(state, b.dataset.aiId, b.dataset.aiDecision));
   });
+  const slider = document.getElementById('qwb-ai-threshold');
+  if (slider) {
+    slider.addEventListener('input', (e) => {
+      state.aiThreshold = parseFloat(e.target.value);
+      renderRightPanel(state);
+      redrawCanvas(state);
+    });
+  }
 }
 
 function attachICAPanelHandlers(state) {
@@ -2007,6 +2227,8 @@ function attachKeyboard(state, navigate) {
     else if (e.key === 'g' || e.key === 'G') { state.showGrid = !state.showGrid; redrawCanvas(state); }
     else if (e.key === 'o' || e.key === 'O') { state.showAiOverlays = !state.showAiOverlays; redrawCanvas(state); }
     else if (e.key === 'z' || e.key === 'Z') { popHistory(state); }
+    else if (e.key === 'j' || e.key === 'J' || e.key === 'k' || e.key === 'K') { jumpToAIArtefact(state, (e.key === 'j' || e.key === 'J') ? 1 : -1); }
+    else if (e.key === 'Enter') { acceptHoveredAI(state); }
     else if (e.key === 'v' || e.key === 'V') {
       const ids = VIEW_MODES.map(v => v.id);
       const i = ids.indexOf(state.viewMode);
@@ -2153,6 +2375,27 @@ function popHistory(state) {
   redrawCanvas(state);
   renderRightPanel(state);
   renderStatusBar(state);
+}
+
+function jumpToAIArtefact(state, dir) {
+  const items = (state.aiSuggestions || []).filter(s => s.start_sec != null);
+  if (items.length === 0) return;
+  state.aiCursor = ((state.aiCursor ?? 0) + dir + items.length) % items.length;
+  const target = items[state.aiCursor];
+  // Centre the window on the targeted artefact.
+  const center = target.start_sec;
+  state.windowStart = Math.max(0, Math.floor(center - state.timebase / 2));
+  state.saveStatus = `→ AI ${(target.ai_label || '').replace(/_/g,' ')} @ ${center.toFixed(1)}s`;
+  redrawCanvas(state); renderStatusBar(state);
+}
+
+function acceptHoveredAI(state) {
+  // Without a true hover signal, accept the artefact under the J/K cursor.
+  const items = (state.aiSuggestions || []).filter(s => s.start_sec != null);
+  if (items.length === 0) return;
+  const idx = ((state.aiCursor ?? 0)) % items.length;
+  const target = items[idx];
+  if (target) recordAIDecision(state, target.id, 'accepted');
 }
 
 async function applyICARemovals(state) {
