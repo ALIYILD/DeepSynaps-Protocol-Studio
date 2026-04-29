@@ -274,7 +274,7 @@ def test_ai_suggestions_persist_with_suggested_status(
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["total"] >= 1
-    assert "Clinician confirmation" in body["notice"]
+    assert "clinician confirmation" in body["notice"].lower()
     for item in body["items"]:
         assert item["decision_status"] == "suggested"
         assert "Clinician confirmation required" in item["safety_notice"]

@@ -174,3 +174,46 @@ electrode pop, movement, ECG contamination, poor recording.
 
 See [`qeeg-cleaning-audit.md`](./qeeg-cleaning-audit.md) for the full
 audit-event shape and retention policy.
+
+---
+
+## UAT checklist (staging readiness)
+
+Before promoting a workbench build to staging, run through this short
+checklist. Each item must pass; otherwise the build is not ready.
+
+- [ ] **Load data.** Open the qEEG Analyzer → Raw Data tab. The blue
+      launcher banner is visible with all four buttons. Click *Open
+      Raw EEG Workbench*; the full-screen page appears within 1s.
+- [ ] **Demo mode renders.** Visit `#/qeeg-raw-workbench/demo`; the
+      DEMO DATA badge is visible, traces draw, immutable-raw notice
+      is displayed.
+- [ ] **Toolbar functional.** Speed / Gain / Low-cut / High-cut /
+      Notch / Montage / View / Timebase selectors all change UI state
+      without errors.
+- [ ] **Channel rail.** All 20 default channels render. Click a row
+      to select; press `B` to mark bad — row turns red, status bar
+      Bad count increments.
+- [ ] **Mark artefacts.** Press `S` to mark current window as bad
+      segment; the canvas shades red and Rejected count increments.
+- [ ] **AI Assistant.** Switch to AI tab → Generate suggestions.
+      Three archetypes appear, each labelled with confidence and the
+      banner *AI-assisted suggestion only. Clinician confirmation
+      required.* Accept / Reject / Needs review buttons all respond.
+- [ ] **Save cleaning version.** Click Save; status bar shows
+      `Cleaning v1 draft`. Click again — `v2` appears.
+- [ ] **Re-run qEEG analysis.** Click Re-run; status bar shows
+      `rerun queued · raw EEG preserved`.
+- [ ] **Audit trail.** Switch to Audit tab. Every action above is
+      listed with action_type, source, actor_id, timestamp.
+- [ ] **PHI safety.** The browser URL contains no patient name. The
+      `/metadata` response (DevTools → Network) does not include
+      `original_filename` or any PHI field.
+- [ ] **Cross-clinic gate.** A clinician at a different clinic
+      receives 404 (not 403) on every workbench endpoint.
+- [ ] **Raw immutability.** After Save + Re-run, query the database
+      directly: `qeeg_analyses.file_ref` and `original_filename` are
+      unchanged from the pre-test snapshot.
+- [ ] **Tests pass.** `pytest apps/api/tests/test_qeeg_raw_workbench.py
+      -q` → 13 passed. `npm --prefix apps/web run test:unit` →
+      workbench + launcher suites pass.
