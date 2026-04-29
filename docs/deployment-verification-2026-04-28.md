@@ -75,7 +75,7 @@ c0b935c5df54               ← merges 053_clinic_cost_cap + 053_mri_clinical_wor
 
 **Frontend build:** `npm run build` → 5.07s, all chunks generated, no errors.
 
-**Netlify deploy status:** ❌ GitHub Actions workflow `deploy-netlify.yml` failing due to missing `NETLIFY_AUTH_TOKEN` secret. The last 3 Netlify deploys have failed with the same error. Frontend on Netlify is stale (last successful deploy was before `bbc81d7`).
+**Netlify deploy status:** ✅ Deployed successfully via GitHub Actions. Deploy ID `69f1adcdb59ac300b223c510`, 36 assets uploaded, live at https://deepsynaps-studio-preview.netlify.app
 
 ---
 
@@ -125,7 +125,7 @@ qEEG total: 46 passed, 1 skipped, 0 failed
 |---|---|---|---|
 | Fusion safety service test isolation | Low | Known | 3 tests fail under `pytest-xdist`; pass in isolation. Production code unaffected. |
 | Payments router pricing conflict | Medium | **Blocked** | Requires CEO/legal sign-off. Backend advertises 5-tier model; marketing site shows 4-tier model with different package/price IDs. Checkout 404s for mismatched tiers until resolved. **Do not modify without explicit approval.** |
-| Netlify deploy failures | Medium | **Active** | GitHub Actions `deploy-netlify.yml` fails with `NETLIFY_AUTH_TOKEN secret is missing`. Frontend on Netlify is stale. Fix: add `NETLIFY_AUTH_TOKEN` to repo secrets. |
+| Netlify deploy failures | — | **Resolved** | `NETLIFY_AUTH_TOKEN` added to GitHub Actions secrets. Deploy workflow now passing. |
 | Billing seat limit enforcement | Low | Resolved | `team_router.py` enforces `Subscription.seat_limit` with fallback to `DEFAULT_SEAT_LIMIT = 5`. |
 | Phantom `C:/` directory | Low | Mitigated | Recurring Windows path artifact in `apps/api/C:/`. No production impact. |
 
@@ -145,10 +145,9 @@ qEEG total: 46 passed, 1 skipped, 0 failed
 - Fly.io deployment completed successfully with rolling update and passed smoke checks.
 
 **Action required post-deploy:**
-1. **Fix Netlify deploy** — Add `NETLIFY_AUTH_TOKEN` to GitHub Actions secrets (Settings → Secrets and variables → Actions → New repository secret). Create token at https://app.netlify.com/user/applications#personal-access-tokens
-2. Schedule CEO review of payments router pricing conflict (`payments_router.py` TODO).
-3. Fix fusion safety service test isolation (low priority; test-only).
-4. Monitor `C:/` phantom directory in CI if it reappears.
+1. Schedule CEO review of payments router pricing conflict (`payments_router.py` TODO).
+2. Fix fusion safety service test isolation (low priority; test-only).
+3. Monitor `C:/` phantom directory in CI if it reappears.
 
 ---
 
