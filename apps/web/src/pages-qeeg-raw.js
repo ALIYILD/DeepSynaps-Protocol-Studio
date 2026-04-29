@@ -520,6 +520,9 @@ function _buildLayout(state, isDemo) {
     + '<button class="eeg-tb__action-btn eeg-tb__action-btn--primary" id="eeg-reprocess-btn" title="Re-process with edits">'
     + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M2.5 12A10 10 0 0119 5.6"/><path d="M21.5 12A10 10 0 015 18.4"/></svg>'
     + ' Reprocess</button>'
+    + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-workbench-btn" title="Open full-screen workbench">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>'
+    + ' Workbench</button>'
     + '</div>';
 
   html += '</div>'; // toolbar
@@ -1187,6 +1190,16 @@ function _wireToolbar(analysisId, state, renderer, spectralPanel) {
       state.hasUnsavedChanges = false; showToast('Re-processing started', 'success');
     } catch (err) { showToast('Reprocess failed: ' + (err.message || err), 'error'); }
     finally { btn.disabled = false; btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M2.5 12A10 10 0 0119 5.6"/><path d="M21.5 12A10 10 0 015 18.4"/></svg> Reprocess'; }
+  });
+
+  // Workbench
+  document.getElementById('eeg-workbench-btn')?.addEventListener('click', function () {
+    if (window._qeegOpenWorkbench) {
+      window._qeegOpenWorkbench(analysisId);
+    } else {
+      window.location.hash = '#/qeeg-raw-workbench/' + encodeURIComponent(analysisId);
+      if (typeof window._nav === 'function') window._nav('qeeg-raw-workbench');
+    }
   });
 
   // Channel checkboxes

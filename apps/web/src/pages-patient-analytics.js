@@ -15,47 +15,14 @@ import {
   openEvidenceDrawer,
   wireEvidenceChips,
 } from './evidence-intelligence.js';
+import { emptyPatientEvidenceContext, loadPatientEvidenceContext } from './patient-evidence-context.js';
 
 function emptyAnalyticsEvidenceContext(patientId = '') {
-  return {
-    live: false,
-    patientId,
-    overview: null,
-    reports: [],
-    reportCount: 0,
-    savedCitationCount: 0,
-    highlightCount: 0,
-    contradictionCount: 0,
-    reportCitationCount: 0,
-    phenotypeTags: [],
-    latestReport: null,
-  };
+  return emptyPatientEvidenceContext(patientId);
 }
 
 async function loadAnalyticsEvidenceContext(patientId) {
-  const base = emptyAnalyticsEvidenceContext(patientId);
-  const [overviewRes, reportsRes] = await Promise.allSettled([
-    api.evidencePatientOverview?.(patientId),
-    api.listReports?.(patientId),
-  ]);
-  const overview = overviewRes.status === 'fulfilled' ? overviewRes.value : null;
-  const reports = reportsRes.status === 'fulfilled' && Array.isArray(reportsRes.value) ? reportsRes.value : [];
-  const latestReport = reports[0] || null;
-  return {
-    ...base,
-    live: !!overview || reports.length > 0,
-    overview,
-    reports,
-    reportCount: reports.length,
-    savedCitationCount: Array.isArray(overview?.saved_citations) ? overview.saved_citations.length : 0,
-    highlightCount: Array.isArray(overview?.highlights) ? overview.highlights.length : 0,
-    contradictionCount: Array.isArray(overview?.contradictory_findings) ? overview.contradictory_findings.length : 0,
-    reportCitationCount: Array.isArray(overview?.evidence_used_in_report) ? overview.evidence_used_in_report.length : 0,
-    phenotypeTags: Array.isArray(overview?.compare_with_literature_phenotype?.matched_tags)
-      ? overview.compare_with_literature_phenotype.matched_tags
-      : [],
-    latestReport,
-  };
+  return loadPatientEvidenceContext(patientId, { fetchReports: true });
 }
 
 // ── Demo telemetry generators ────────────────────────────────────────────────

@@ -2,6 +2,7 @@ import { api, downloadBlob } from './api.js';
 import { cardWrap, fr, evBar, pillSt, initials, tag, spinner, emptyState, spark, brainMapSVG, evidenceBadge, labelBadge, approvalBadge, safetyBadge, govFlag } from './helpers.js';
 import { currentUser } from './auth.js';
 import { FALLBACK_CONDITIONS, FALLBACK_MODALITIES, FALLBACK_ASSESSMENT_TEMPLATES, COURSE_STATUS_COLORS } from './constants.js';
+import { getProtocolWatchSignalTitle, loadProtocolWatchContext } from './protocol-watch-context.js';
 import { renderHomeTherapyTab, bindHomeTherapyActions } from './pages-home-therapy.js';
 import {
   CONDITION_HOME_TEMPLATES,
@@ -6299,11 +6300,6 @@ function renderWizStep4Result(result) {
   const warnings = result?.governance_warnings || result?.warnings || [];
   const rationale = result?.rationale || result?.notes || result?.description || result?.summary || '';
   const liveCtx = ws.generatedLiveEvidenceContext || null;
-  const signalTitle = (signal) =>
-    (signal?.safety_signal_tags || []).concat(signal?.contraindication_signal_tags || []).join(', ')
-    || signal?.title
-    || signal?.example_titles
-    || 'Safety signal';
 
   // Save this generation as a new version (only if there's meaningful content)
   const draftText = result?.protocol || result?.draft || rationale || JSON.stringify(result);
@@ -6336,7 +6332,7 @@ function renderWizStep4Result(result) {
         <strong>Live evidence watch</strong>
         ${liveCtx.coverage ? ` · coverage ${liveCtx.coverage.coverage}% across ${Number(liveCtx.coverage.paper_count || 0).toLocaleString()} papers${liveCtx.coverage.gap && liveCtx.coverage.gap !== 'None' ? ` · gap: ${liveCtx.coverage.gap}` : ''}` : ''}
         ${liveCtx.template ? ` · template ${String([liveCtx.template.modality, liveCtx.template.indication, liveCtx.template.target].filter(Boolean).join(' — ')).replace(/</g, '&lt;')}` : ''}
-        ${liveCtx.safety ? ` · safety ${String(signalTitle(liveCtx.safety)).replace(/</g, '&lt;')}` : ''}
+        ${liveCtx.safety ? ` · safety ${String(getProtocolWatchSignalTitle(liveCtx.safety)).replace(/</g, '&lt;')}` : ''}
       </div>`
     : '';
 
@@ -6730,21 +6726,10 @@ function _wizBindActions() {
 
       const result = await api.generateProtocol(payload);
       ws.generatedProtocol = result;
-      try {
-        const [coverageRes, templates, safety] = await Promise.all([
-          api.protocolCoverage({ condition: conditionName, modality: modalityName, limit: 8 }).catch(() => null),
-          api.listResearchProtocolTemplates({ indication: conditionName, modality: modalityName, limit: 4 }).catch(() => []),
-          api.listResearchSafetySignals({ indication: conditionName, modality: modalityName, limit: 4 }).catch(() => []),
-        ]);
-        const coverageRows = Array.isArray(coverageRes?.rows) ? coverageRes.rows : [];
-        ws.generatedLiveEvidenceContext = {
-          coverage: coverageRows[0] || null,
-          template: Array.isArray(templates) ? templates[0] || null : null,
-          safety: Array.isArray(safety) ? safety[0] || null : null,
-        };
-      } catch {
-        ws.generatedLiveEvidenceContext = null;
-      }
+      ws.generatedLiveEvidenceContext = await loadProtocolWatchContext({
+        condition: conditionName,
+        modality: modalityName,
+      });
       const dbg = result.personalization_why_selected_debug;
       ws.generatedProtocolPersistedExplainability = dbg
         ? toPersistedPersonalizationExplainability(dbg)

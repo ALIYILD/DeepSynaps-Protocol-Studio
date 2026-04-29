@@ -20,6 +20,7 @@ import {
   getConditionEvidence,
 } from './evidence-dataset.js';
 import { getEvidenceUiStats } from './evidence-ui-live.js';
+import { emptyPatientEvidenceContext, loadPatientEvidenceContext } from './patient-evidence-context.js';
 
 // ── Nav definition ────────────────────────────────────────────────────────────
 // Patient nav: each item is tagged with a `tone` so the sidebar renders
@@ -220,36 +221,11 @@ function spinner() {
 }
 
 function _emptyPatientEvidenceContext(patientId = '') {
-  return {
-    live: false,
-    patientId,
-    overview: null,
-    reportCount: 0,
-    savedCitationCount: 0,
-    highlightCount: 0,
-    contradictionCount: 0,
-    reportCitationCount: 0,
-    phenotypeTags: [],
-  };
+  return emptyPatientEvidenceContext(patientId);
 }
 
 async function _loadPatientEvidenceContext(patientId, reports = null) {
-  const base = _emptyPatientEvidenceContext(patientId);
-  if (!patientId) return { ...base, reportCount: Array.isArray(reports) ? reports.length : 0 };
-  const overview = await api.evidencePatientOverview?.(patientId).catch(() => null);
-  return {
-    ...base,
-    live: !!overview || (Array.isArray(reports) && reports.length > 0),
-    overview,
-    reportCount: Array.isArray(reports) ? reports.length : 0,
-    savedCitationCount: Array.isArray(overview?.saved_citations) ? overview.saved_citations.length : 0,
-    highlightCount: Array.isArray(overview?.highlights) ? overview.highlights.length : 0,
-    contradictionCount: Array.isArray(overview?.contradictory_findings) ? overview.contradictory_findings.length : 0,
-    reportCitationCount: Array.isArray(overview?.evidence_used_in_report) ? overview.evidence_used_in_report.length : 0,
-    phenotypeTags: Array.isArray(overview?.compare_with_literature_phenotype?.matched_tags)
-      ? overview.compare_with_literature_phenotype.matched_tags
-      : [],
-  };
+  return loadPatientEvidenceContext(patientId, { reports });
 }
 
 // ── Sparkline helper ──────────────────────────────────────────────────────────

@@ -24,7 +24,8 @@ test('Clinical route keeps live evidence watch in wizard and builder flows', () 
   assert.match(src, /generatedLiveEvidenceContext/);
   assert.match(src, /Live evidence watch/);
   assert.match(src, /listResearchProtocolTemplates\(\{ modality, limit: 4 \}\)/);
-  assert.match(src, /protocolCoverage\(\{ condition: conditionName, modality: modalityName, limit: 8 \}\)/);
+  assert.match(src, /loadProtocolWatchContext\(\{/);
+  assert.match(src, /protocol-watch-context\.js/);
 });
 
 test('Courses route keeps live protocol watch in detail and session execution', () => {
@@ -32,12 +33,14 @@ test('Courses route keeps live protocol watch in detail and session execution', 
   assert.match(src, /Live protocol watch:/);
   assert.match(src, /sex-live-evidence-watch/);
   assert.match(src, /Live Protocol Watch/);
-  assert.match(src, /api\.protocolCoverage\(\{ condition: course\.condition_slug \|\| '', modality: course\.modality_slug \|\| '', limit: 8 \}\)/);
+  assert.match(src, /loadProtocolWatchContext\(\{/);
+  assert.match(src, /protocol-watch-context\.js/);
 });
 
 test('Patient route keeps live evidence context on Home and Reports surfaces', () => {
   const src = read('./pages-patient.js');
-  assert.match(src, /api\.evidencePatientOverview\?\.\(patientId\)/);
+  assert.match(src, /loadPatientEvidenceContext/);
+  assert.match(src, /patient-evidence-context\.js/);
   assert.match(src, /For you today/);
   assert.match(src, /live evidence highlights/);
   assert.match(src, /Evidence linked to your reports/);
@@ -45,7 +48,8 @@ test('Patient route keeps live evidence context on Home and Reports surfaces', (
 
 test('Patient Analytics route keeps live evidence and report context wiring', () => {
   const src = read('./pages-patient-analytics.js');
-  assert.match(src, /api\.evidencePatientOverview\?\.\(patientId\)/);
+  assert.match(src, /loadPatientEvidenceContext\(patientId, \{ fetchReports: true \}\)/);
+  assert.match(src, /patient-evidence-context\.js/);
   assert.match(src, /Evidence highlights/);
   assert.match(src, /saved citations/);
   assert.match(src, /saved reports/);

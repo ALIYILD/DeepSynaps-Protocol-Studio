@@ -4972,25 +4972,24 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     try {
       const { renderRawDataTab } = await import('./pages-qeeg-raw.js');
       await renderRawDataTab(tabEl, analysisId, patientId);
-      // Inject the full-screen workbench launcher above the inline viewer.
-      // Decision-support only: original raw EEG is preserved on the backend.
-      const wbBar = document.createElement('div');
-      wbBar.style.cssText = 'background:linear-gradient(90deg,#1f4a8a,#2563aa);color:#fff;padding:14px 18px;border-radius:8px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
-      wbBar.innerHTML =
-        '<div><div style="font-weight:600;font-size:14px;margin-bottom:2px">Raw EEG Cleaning Workbench</div>'
-        + '<div style="font-size:11px;opacity:0.9">Full-screen clinical workstation: inspect traces, mark artefacts, review AI suggestions, save cleaning version, re-run qEEG. <strong>Original raw EEG preserved.</strong></div></div>'
-        + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
-        + '<button class="btn btn-sm" style="background:#fff;color:#1f4a8a;font-weight:600" onclick="window._qeegOpenWorkbench(\'' + esc(analysisId) + '\')">Open Raw EEG Workbench</button>'
-        + '<button class="btn btn-sm" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4)" onclick="window._qeegOpenWorkbench(\'' + esc(analysisId) + '\')">Review &amp; Clean Signal</button>'
-        + '<button class="btn btn-sm" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4)" onclick="window._qeegOpenWorkbench(\'' + esc(analysisId) + '\',\'compare\')">Compare Raw vs Cleaned</button>'
-        + '<button class="btn btn-sm" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4)" onclick="window._qeegOpenWorkbench(\'' + esc(analysisId) + '\',\'rerun\')">Re-run Analysis After Cleaning</button>'
-        + '</div>';
-      tabEl.insertBefore(wbBar, tabEl.firstChild);
+      // Compact workbench link bar below the viewer
+      var summaryBar = document.createElement('div');
+      summaryBar.style.cssText = 'display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px;padding:10px 14px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);font-size:11px;color:var(--text-secondary)';
+      summaryBar.id = 'qeeg-raw-summary-bar';
+      summaryBar.innerHTML = '<span>Need full-screen editing? <a href="#" style="color:var(--blue)" onclick="window._qeegOpenWorkbench&&window._qeegOpenWorkbench(\'' + esc(analysisId) + '\');return false;">Open Raw EEG Workbench</a></span>'
+        + '<span style="margin-left:auto;display:flex;gap:10px;align-items:center">'
+        + '<span id="qeeg-raw-summary-ch">-- channels</span>'
+        + '<span id="qeeg-raw-summary-quality">--% good</span>'
+        + '<span id="qeeg-raw-summary-band">-- dominant</span>'
+        + '</span>';
+      tabEl.appendChild(summaryBar);
       window._qeegOpenWorkbench = function(id, mode) {
         window._qeegSelectedId = id;
         window.location.hash = '#/qeeg-raw-workbench/' + encodeURIComponent(id) + (mode ? '?mode=' + encodeURIComponent(mode) : '');
         if (typeof window._nav === 'function') window._nav('qeeg-raw-workbench');
       };
+      // Wire live summary updates from the raw viewer state
+      _wireRawViewerSummary(tabEl, analysisId);
     } catch (err) {
       tabEl.innerHTML = '<div style="color:var(--red);padding:24px" role="alert">Failed to load Raw Data viewer: ' + esc(String(err.message || err)) + '</div>';
     }
@@ -6097,4 +6096,43 @@ function _renderAsymmetryTable(pairs) {
     html += '</tr>';
   });
   return html + '</tbody></table></div>';
+}
+
+// ── Raw viewer live summary bar (below inline viewer on Analysis > Raw Data tab) ──
+function _wireRawViewerSummary(tabEl, analysisId) {
+  var chEl = document.getElementById('qeeg-raw-summary-ch');
+  var qualityEl = document.getElementById('qeeg-raw-summary-quality');
+  var bandEl = document.getElementById('qeeg-raw-summary-band');
+  if (!chEl && !qualityEl && !bandEl) return;
+
+  function _update() {
+    var st = window._qeegRawState;
+    if (!st) return;
+    var info = st.channelInfo || {};
+    var nCh = info.n_channels || 0;
+    if (chEl) chEl.textContent = nCh + ' channels';
+    // Quality: count good vs total from quality map
+    var qualityMap = st.channelManager ? st.channelManager._qualityCache : {};
+    var totalQ = 0, goodQ = 0;
+    for (var k in qualityMap) {
+      totalQ++;
+      if (qualityMap[k] && (qualityMap[k].grade === 'good' || qualityMap[k].grade === 'moderate')) goodQ++;
+    }
+    if (qualityEl) qualityEl.textContent = (totalQ ? Math.round(goodQ / totalQ * 100) : 0) + '% good';
+    // Dominant band
+    var bp = st.bandPower || {};
+    var dom = '—', domVal = -1;
+    for (var b in bp) {
+      if (bp[b] > domVal) { domVal = bp[b]; dom = b; }
+    }
+    if (bandEl) bandEl.textContent = dom ? dom.charAt(0).toUpperCase() + dom.slice(1) + ' dominant' : '—';
+  }
+
+  // Poll every 500ms while tab is visible
+  var iv = setInterval(_update, 500);
+  // Stop polling when tab changes away
+  var observer = new MutationObserver(function (mutations) {
+    if (!document.body.contains(tabEl)) { clearInterval(iv); observer.disconnect(); }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
 }

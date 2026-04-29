@@ -3,6 +3,7 @@ import { spinner, emptyState, evidenceBadge, labelBadge, safetyBadge, approvalBa
 import { FALLBACK_ASSESSMENT_TEMPLATES, FALLBACK_CONDITIONS, FALLBACK_MODALITIES } from './constants.js';
 import { currentUser } from './auth.js';
 import { getEvidenceUiStats } from './evidence-ui-live.js';
+import { getProtocolWatchSignalTitle, loadProtocolWatchContext } from './protocol-watch-context.js';
 import {
   EVIDENCE_TOTAL_PAPERS,
   EVIDENCE_TOTAL_TRIALS,
@@ -1099,21 +1100,10 @@ export async function pgCourseDetail(setTopbar, navigate) {
     catch { protocolDetail = null; } // protocol detail not critical for go-live
   }
   try { outcomeSummary = await api.courseOutcomeSummary(id); } catch { outcomeSummary = null; }
-  try {
-    const [coverageRes, templates, safety] = await Promise.all([
-      api.protocolCoverage({ condition: course?.condition_slug || '', modality: course?.modality_slug || '', limit: 8 }).catch(() => null),
-      api.listResearchProtocolTemplates({ indication: course?.condition_slug || '', modality: course?.modality_slug || '', limit: 4 }).catch(() => []),
-      api.listResearchSafetySignals({ indication: course?.condition_slug || '', modality: course?.modality_slug || '', limit: 4 }).catch(() => []),
-    ]);
-    const coverageRows = Array.isArray(coverageRes?.rows) ? coverageRes.rows : [];
-    liveEvidenceContext = {
-      coverage: coverageRows[0] || null,
-      template: Array.isArray(templates) ? templates[0] || null : null,
-      safety: Array.isArray(safety) ? safety[0] || null : null,
-    };
-  } catch {
-    liveEvidenceContext = null;
-  }
+  liveEvidenceContext = await loadProtocolWatchContext({
+    condition: course?.condition_slug || '',
+    modality: course?.modality_slug || '',
+  });
 
   // Course-scoped normalized reads (assessment severity, audit trail, AE roll-up).
   // Each is non-blocking; failures fall back to existing behavior.
@@ -1129,12 +1119,6 @@ export async function pgCourseDetail(setTopbar, navigate) {
     : 0;
   const statusCol = STATUS_COLOR[course.status] || 'var(--text-tertiary)';
   const finalization = _courseFinalizationSummary(sessions, adverseEvents, aeSummary);
-  const signalTitle = (signal) =>
-    (signal?.safety_signal_tags || []).concat(signal?.contraindication_signal_tags || []).join(', ')
-    || signal?.title
-    || signal?.example_titles
-    || 'Safety signal';
-
   setTopbar(
     `${course.condition_slug ? course.condition_slug.replace(/-/g,' ') : 'Course'} · ${course.modality_slug || ''}`,
     `<button class="btn btn-ghost btn-sm" onclick="window._nav('courses')">← Courses</button>
@@ -1244,7 +1228,7 @@ export async function pgCourseDetail(setTopbar, navigate) {
         ${[
           liveEvidenceContext.coverage ? `Coverage <strong>${_cdEscHtml(String(liveEvidenceContext.coverage.coverage ?? 0))}%</strong> across <strong>${Number(liveEvidenceContext.coverage.paper_count || 0).toLocaleString()}</strong> papers${liveEvidenceContext.coverage.gap && liveEvidenceContext.coverage.gap !== 'None' ? ` · gap ${_cdEscHtml(liveEvidenceContext.coverage.gap)}` : ''}` : null,
           liveEvidenceContext.template ? `Template <strong>${_cdEscHtml([liveEvidenceContext.template.modality, liveEvidenceContext.template.indication, liveEvidenceContext.template.target].filter(Boolean).join(' — '))}</strong>` : null,
-          liveEvidenceContext.safety ? `Safety <strong>${_cdEscHtml(signalTitle(liveEvidenceContext.safety))}</strong>` : null,
+          liveEvidenceContext.safety ? `Safety <strong>${_cdEscHtml(getProtocolWatchSignalTitle(liveEvidenceContext.safety))}</strong>` : null,
         ].filter(Boolean).join(' &middot; ')}.
       </div>`;
     })()}
@@ -3934,18 +3918,13 @@ export async function pgSessionExecution(setTopbar, navigate) {
     // ── Live protocol watch ──────────────────────────────────────────────────
     if (liveWatchEl) {
       try {
-        const [coverageRes, templates, safety] = await Promise.all([
-          api.protocolCoverage({ condition: course.condition_slug || '', modality: course.modality_slug || '', limit: 8 }).catch(() => null),
-          api.listResearchProtocolTemplates({ indication: course.condition_slug || '', modality: course.modality_slug || '', limit: 4 }).catch(() => []),
-          api.listResearchSafetySignals({ indication: course.condition_slug || '', modality: course.modality_slug || '', limit: 4 }).catch(() => []),
-        ]);
-        const coverage = Array.isArray(coverageRes?.rows) ? coverageRes.rows[0] || null : null;
-        const template = Array.isArray(templates) ? templates[0] || null : null;
-        const signal = Array.isArray(safety) ? safety[0] || null : null;
-        const signalTitle = (signal?.safety_signal_tags || []).concat(signal?.contraindication_signal_tags || []).join(', ')
-          || signal?.title
-          || signal?.example_titles
-          || 'Safety signal';
+        const liveWatch = await loadProtocolWatchContext({
+          condition: course.condition_slug || '',
+          modality: course.modality_slug || '',
+        });
+        const coverage = liveWatch?.coverage || null;
+        const template = liveWatch?.template || null;
+        const signal = liveWatch?.safety || null;
         if (!coverage && !template && !signal) {
           liveWatchEl.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary)">No live evidence watch rows were returned for this course.</div>';
         } else {
@@ -3961,7 +3940,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
               </div>` : ''}
               ${signal ? `<div style="padding:10px 12px;border-radius:8px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.18)">
                 <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--amber);margin-bottom:4px">Safety watch</div>
-                <div style="font-size:12px;color:var(--text-secondary)">${esc(signalTitle)}</div>
+                <div style="font-size:12px;color:var(--text-secondary)">${esc(getProtocolWatchSignalTitle(signal))}</div>
               </div>` : ''}
             </div>`;
         }
