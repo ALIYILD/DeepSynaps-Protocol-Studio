@@ -327,3 +327,69 @@ await test('navBack is a no-op-on-dirty path that does not call window._nav', ()
   mod.navBack(state, () => {}, 'analyzer');
   assert.equal(navCalled, false, 'window._nav not called while dirty');
 });
+
+// ── Backend wiring: every workbench API method is referenced ───────────────
+
+await test('workbench source references every backend API method', () => {
+  const REQUIRED_API = [
+    'getQEEGWorkbenchMetadata',
+    'getQEEGCleaningLog',
+    'createQEEGCleaningAnnotation',
+    'saveQEEGCleaningVersion',
+    'listQEEGCleaningVersions',
+    'getQEEGRawVsCleanedSummary',
+    'generateQEEGAIArtefactSuggestions',
+    'rerunQEEGAnalysisWithCleaning',
+    'getQEEGICAComponents',
+  ];
+  for (const m of REQUIRED_API) {
+    assert.ok(WORKBENCH_SRC.includes('api.' + m), 'api.' + m + ' is called from the workbench');
+  }
+});
+
+await test('every interactive button is wired to a handler', () => {
+  // Every data-action / data-ai-decision / data-ica-toggle / data-export-* /
+  // data-menu attribute must have a matching addEventListener / handler call
+  // somewhere in the source.
+  const HANDLER_BINDINGS = [
+    ['[data-action]', 'handleCleaningAction'],
+    ['[data-ai-decision]', 'recordAIDecision'],
+    ['[data-ica-toggle]', 'toggleICAComponent'],
+    ['[data-export-fmt]', 'state.exportFormat'],
+    ['.qwb-menu-btn', 'handleTitleMenu'],
+    ['#qwb-view-toggle button', 'state.viewMode'],
+    ['qwb-minimap-track', 'state.windowStart'],
+  ];
+  for (const [selector, handler] of HANDLER_BINDINGS) {
+    assert.ok(WORKBENCH_SRC.includes(selector), 'source emits selector: ' + selector);
+    assert.ok(WORKBENCH_SRC.includes(handler), 'source contains handler ref: ' + handler);
+  }
+});
+
+await test('play button is wired to togglePlay (not a placeholder)', () => {
+  assert.ok(WORKBENCH_SRC.includes('togglePlay(state)'), 'play click calls togglePlay');
+  assert.ok(WORKBENCH_SRC.includes('function togglePlay'), 'togglePlay function defined');
+  assert.ok(!WORKBENCH_SRC.includes("'play / pause not yet wired'"), 'play placeholder string removed');
+});
+
+await test('ICA reject/restore is wired through toggleICAComponent → postAnnotation', () => {
+  assert.ok(WORKBENCH_SRC.includes('attachICAPanelHandlers'), 'ICA panel handler attach exists');
+  assert.ok(/toggleICAComponent[\s\S]+postAnnotation/.test(WORKBENCH_SRC),
+    'toggleICAComponent posts an annotation to the audit trail');
+  assert.ok(WORKBENCH_SRC.includes("kind: 'rejected_ica_component'"),
+    'ICA rejection annotation kind is canonical');
+});
+
+await test('export bundle calls server-side summary in non-demo mode', () => {
+  assert.ok(/api\.getQEEGRawVsCleanedSummary[\s\S]*exportBundle|exportBundle[\s\S]*api\.getQEEGRawVsCleanedSummary/.test(WORKBENCH_SRC),
+    'exportBundle pulls real summary from backend');
+});
+
+await test('title-bar menus dispatch to real actions, not placeholders', () => {
+  assert.ok(WORKBENCH_SRC.includes('handleTitleMenu'), 'handleTitleMenu defined');
+  for (const route of ['toggleExport', 'toggleRightPanel', 'toggleShortcuts', 'rerunAnalysis', 'loadRawVsCleaned']) {
+    assert.ok(WORKBENCH_SRC.includes(route), 'menu routes to: ' + route);
+  }
+  assert.ok(!/'\$\{menu\} menu \(coming soon\)'/.test(WORKBENCH_SRC),
+    'placeholder "(coming soon)" copy removed');
+});
