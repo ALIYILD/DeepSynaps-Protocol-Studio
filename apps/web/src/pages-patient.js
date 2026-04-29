@@ -6252,7 +6252,7 @@ export async function pgPatientReports() {
     if (delta !== null) {
       const abs = Math.abs(delta.delta);
       const dir = delta.delta < 0 ? 'dropped' : 'increased';
-      const tone = delta.delta < 0 ? 'This is a positive sign.' : 'Your care team is monitoring this.';
+      const tone = delta.delta < 0 ? 'This is a positive sign.' : 'This change is being tracked in your portal workflow.';
       deltaRow = `<div class="pt-doc-pl-row"><span class="pt-doc-pl-label">What changed</span>Your score ${dir} by ${abs} point${abs !== 1 ? 's' : ''} since your last report on ${esc(delta.prevDate)}. ${tone}</div>`;
     } else if (doc.score != null && doc.templateKey) {
       deltaRow = `<div class="pt-doc-pl-row"><span class="pt-doc-pl-label">What changed</span>This is your first recorded result for this measure — future reports will show how you are progressing.</div>`;
@@ -6369,7 +6369,7 @@ export async function pgPatientReports() {
     if (heroDelta !== null) {
       const abs = Math.abs(heroDelta.delta);
       const dir = heroDelta.delta < 0 ? 'dropped' : 'increased';
-      const tone = heroDelta.delta < 0 ? 'This is a positive sign.' : 'Your care team is monitoring this.';
+      const tone = heroDelta.delta < 0 ? 'This is a positive sign.' : 'This change is being tracked in your portal workflow.';
       deltaText = `Your score ${dir} by <strong>${abs}</strong> point${abs !== 1 ? 's' : ''} since your last report on ${esc(heroDelta.prevDate)}. ${tone}`;
     } else if (doc.score != null) {
       deltaText = 'This is your first recorded result for this measure — future reports will show your progress over time.';
@@ -11662,17 +11662,17 @@ function _wireSettingsPage() {
     },
     transfer: {
       title: 'Start record transfer?',
-      body: "Your coordinator will prepare a full FHIR export and reach out within 1 business day to coordinate with your new clinic.",
+      body: "A transfer request will be saved in this portal view. Coordinator outreach and FHIR export are not confirmed from this beta portal.",
       ok: 'Request transfer',
       needInput: false,
-      success: 'Transfer requested · your coordinator will contact you'
+      success: 'Transfer request saved in this portal view'
     },
     delete: {
       title: 'Delete your account?',
       body: "This removes all personal identifiers after the 7-year HIPAA retention window. This cannot be reversed.",
       ok: 'Delete forever',
       needInput: true,
-      success: 'Account deletion scheduled · you have 30 days to cancel'
+      success: 'Account deletion request saved in this portal view'
     }
   };
 
@@ -14307,7 +14307,7 @@ export async function pgPatientWearables() {
     window._pdwCloseModal();
     showToast(
       syncedToBackend
-        ? 'Session logged. Your care team can see this.'
+        ? 'Session logged. Synced entries are available in your portal workflow.'
         : 'Session saved locally. Ask your clinician to activate home-device sync so it reaches your care team.',
       syncedToBackend ? undefined : '#d97706',
     );
@@ -18199,7 +18199,7 @@ function _pgpBrainCards(progress) {
       subtitle: 'Fronto-limbic balance',
       detail: progress.improvementPct !== null && progress.improvementPct >= 20
         ? 'Signals look steadier than at the start of treatment.'
-        : 'Your care team is working on steadier emotional regulation.',
+        : 'This area focuses on steadier emotional regulation over time.',
       targetRegion: 'ACC',
       highlightSites: ['F3', 'F4', 'Fz'],
     },
@@ -18332,7 +18332,7 @@ function _pgpMilestones(progress) {
   ];
   var nextTarget = nextGoal
     ? (nextGoal.name + ' · current ' + nextGoal.current + ' / target ' + nextGoal.target)
-    : 'You have reached all current goals. Your care team can add new targets when you are ready.';
+    : 'You have reached all current goals. New targets will appear here when they are added to your portal workflow.';
   return (
     '<section class="pgp-panel">' +
       '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Milestones and goals</div><h3>Your next targets</h3></div></div>' +
@@ -20300,7 +20300,7 @@ export async function pgPatientHomeDevice() {
       <div class="pt-portal-empty" style="padding:60px 24px">
         <div class="pt-portal-empty-ico" aria-hidden="true" style="font-size:32px">⚡</div>
         <div class="pt-portal-empty-title">No Home Device Assigned</div>
-        <div class="pt-portal-empty-body">Your care team has not assigned a home device yet. Once they do, your device details, schedule, and session log will appear here.</div>
+        <div class="pt-portal-empty-body">A home device has not been assigned yet. Device details, schedule, and session logs will appear here after your portal workflow is updated.</div>
         <button class="btn btn-ghost btn-sm" style="margin-top:18px" onclick="window._navPatient('patient-messages')">Contact Your Care Team →</button>
       </div>`;
     return;
@@ -20391,7 +20391,7 @@ export async function pgPatientHomeDevice() {
       <div class="card-body" style="padding:16px 20px">
         <div style="font-size:13px;font-weight:600;color:var(--teal);margin-bottom:6px">Keep going!</div>
         <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65">
-          Consistent home device use is an important part of your treatment plan. Even short sessions as prescribed help your brain respond to therapy. Your care team can see your session logs and will check in with you regularly.
+          Consistent home device use is an important part of your treatment plan. Even short sessions as prescribed help your brain respond to therapy. Your care team can review synced session logs, and follow-up timing depends on portal workflow.
         </div>
       </div>
     </div>
@@ -20734,7 +20734,7 @@ export async function pgPatientAdherenceEvents() {
       if (statusEl) {
         statusEl.style.display='';
         statusEl.style.color='var(--teal)';
-        statusEl.textContent='Report submitted successfully. Clinic review timing depends on portal sync and workflow.';
+        statusEl.textContent='Report recorded. Clinic review timing depends on portal workflow.';
       }
       if (btn) { btn.disabled = false; btn.textContent = 'Submit Report →'; }
       setTimeout(() => pgPatientAdherenceEvents(), 1000);
@@ -21097,8 +21097,8 @@ export async function pgPatientTickets() {
     if (!savedToBackend) saveLocalTickets(tickets);
     _renderTickets();
     window._showNotifToast && window._showNotifToast({
-      title: savedToBackend ? 'Reply sent' : 'Reply saved locally',
-      body: savedToBackend ? 'Your clinic can review this request thread.' : 'This reply is stored on this device only.',
+      title: savedToBackend ? 'Reply recorded' : 'Reply saved locally',
+      body: savedToBackend ? 'This reply was accepted by the support workflow.' : 'This reply is stored on this device only.',
       severity: savedToBackend ? 'success' : 'warning'
     });
   };
@@ -21156,8 +21156,8 @@ export async function pgPatientTickets() {
     if (m) m.remove();
     _renderTickets();
     window._showNotifToast && window._showNotifToast({
-      title: savedToBackend ? 'Request submitted' : 'Request saved locally',
-      body: savedToBackend ? 'Your clinic can review this support request.' : 'This request is stored on this device only.',
+      title: savedToBackend ? 'Request recorded' : 'Request saved locally',
+      body: savedToBackend ? 'This request was accepted by the support workflow.' : 'This request is stored on this device only.',
       severity: savedToBackend ? 'success' : 'warning'
     });
   };

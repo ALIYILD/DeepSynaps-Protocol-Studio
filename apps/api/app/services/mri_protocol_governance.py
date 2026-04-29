@@ -60,7 +60,7 @@ def compute_target_plan_governance(
             contras.append("Motion artifact may degrade target accuracy")
         if qc.get("registration_score", 1.0) < 0.7:
             contras.append("Poor registration confidence")
-        if patient.implant_risk == "red":
+        if getattr(patient, "implant_risk", None) == "red":
             contras.append("Patient has implant risk flag — verify MRI safety screening")
 
         # Evidence grade

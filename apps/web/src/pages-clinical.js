@@ -10029,7 +10029,7 @@ window._vcSaveRecordedNote = function() {
   const body = document.getElementById('vc-note-body')?.value?.trim();
   if (!body) { _dsToast('Please enter note content before saving.', 'warn'); return; }
   document.querySelector('.modal-overlay')?.remove();
-  _vcToast('Note Saved', `"${subj||'Note'}" saved as draft. AI summary generation is not verified from this page.`, 'success');
+  _vcToast('Note Saved', `"${subj||'Note'}" was saved as a draft in this browser view. AI summary generation is not verified from this page.`, 'success');
 };
 window._vcStartCall = function(reqId, type) {
   _vcToast(`Start ${type==='video'?'Video Visit':'Voice Call'}`, 'Connect your video/telephony provider to launch calls from this page.', 'info');
@@ -10049,7 +10049,7 @@ window._vcLaunchConsult = function(type, id) {
 window._vcScheduleFollowUp = function(pid) {
   _vcToast('Schedule Follow-up', 'Open the Scheduling page to book a follow-up session for this patient.', 'info');
 };
-window._vcMarkFollowUpDone = function(id) { _vcRender(); _vcToast('Marked', 'Item marked as reviewed.', 'success'); };
+window._vcMarkFollowUpDone = function(id) { _vcRender(); _vcToast('Marked', 'Item marked as reviewed in this preview workflow.', 'success'); };
 window._vcMarkMediaReviewed = function(id) {
   const item = VC_MOCK.sharedMedia.find(m => m.id === id);
   if (item) item.reviewed = true;
@@ -10475,8 +10475,8 @@ export async function pgProtocolBuilder(setTopbar) {
     try {
       localStorage.setItem('ds_builder_protocol', JSON.stringify(_builderGetJSON()));
       const status = document.getElementById('builder-status');
-      if (status) { status.textContent = '✓ Saved'; setTimeout(() => { if (status) status.textContent = ''; }, 2500); }
-      window._announce?.('Protocol saved');
+      if (status) { status.textContent = '✓ Saved in this browser view'; setTimeout(() => { if (status) status.textContent = ''; }, 2500); }
+      window._announce?.('Protocol saved in this browser view');
     } catch { window._announce?.('Save failed', true); }
   };
 
@@ -11567,7 +11567,7 @@ export async function pgPatientProfile(setTopbar) {
     savePatientProfile(p);
     _ppEditMode = false;
     _ppRerender();
-    window._announce?.('Demographics saved');
+    window._announce?.('Demographics saved in this browser view');
     // ── Sync core fields to backend ────────────────────────────────────────
     const nameParts = (p.name || '').trim().split(/\s+/);
     const backendData = {
@@ -11599,7 +11599,7 @@ export async function pgPatientProfile(setTopbar) {
     savePatientProfile(p);
     _ppEditMode = false;
     _ppRerender();
-    window._announce?.('Insurance saved');
+    window._announce?.('Insurance saved in this browser view');
   };
 
   window._profileAddMedication = function() {
@@ -11622,7 +11622,7 @@ export async function pgPatientProfile(setTopbar) {
     });
     savePatientProfile(p);
     document.getElementById('pp-tab-content').innerHTML = _ppRenderMedications(p, _ppEditMode);
-    window._announce?.('Medication added');
+    window._announce?.('Medication added in this browser view');
   };
 
   window._profileDeleteMedication = function(idx) {
@@ -11651,7 +11651,7 @@ export async function pgPatientProfile(setTopbar) {
     });
     savePatientProfile(p);
     document.getElementById('pp-tab-content').innerHTML = _ppRenderAllergies(p, _ppEditMode);
-    window._announce?.('Allergy added');
+    window._announce?.('Allergy added in this browser view');
   };
 
   window._profileDeleteAllergy = function(idx) {
@@ -11682,7 +11682,7 @@ export async function pgPatientProfile(setTopbar) {
     });
     savePatientProfile(p);
     document.getElementById('pp-tab-content').innerHTML = _ppRenderHistory(p, _ppEditMode);
-    window._announce?.('Treatment entry added');
+    window._announce?.('Treatment entry added in this browser view');
   };
 
   window._profileSaveNotes = function() {
@@ -11692,7 +11692,7 @@ export async function pgPatientProfile(setTopbar) {
     savePatientProfile(p);
     _ppEditMode = false;
     _ppRerender();
-    window._announce?.('Notes saved');
+    window._announce?.('Notes saved in this browser view');
   };
 
   window._profileAddFlag = function(flag) {

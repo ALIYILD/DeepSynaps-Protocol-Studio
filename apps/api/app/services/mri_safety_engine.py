@@ -107,12 +107,13 @@ def compute_mri_safety_cockpit(analysis: MriAnalysis) -> dict[str, Any]:
 def _overall_status(checks: list[dict], red_flags: list[dict]) -> str:
     fail_count = sum(1 for c in checks if c["status"] == "fail")
     high_flags = sum(1 for f in red_flags if f["severity"] == "high")
+    # Radiology review takes precedence over generic repeat recommendation
+    if any(f["code"] == "RADIOLOGY_REVIEW_REQUIRED" for f in red_flags):
+        return "MRI_RADIOLOGY_REVIEW_REQUIRED"
     if high_flags > 0 or fail_count > 1:
         return "MRI_REPEAT_RECOMMENDED"
     if fail_count == 1 or any(f["severity"] == "medium" for f in red_flags):
         return "MRI_LIMITED_QUALITY"
-    if any(f["code"] == "RADIOLOGY_REVIEW_REQUIRED" for f in red_flags):
-        return "MRI_RADIOLOGY_REVIEW_REQUIRED"
     return "MRI_VALID_FOR_REVIEW"
 
 

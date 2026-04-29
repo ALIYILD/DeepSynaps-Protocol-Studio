@@ -347,7 +347,7 @@ export async function pgAdvancedSearch(setTopbar) {
     if (!_query || _query.length < 2) return;
     saveSearch(_query, Object.assign({}, _filters), _curResults.length);
     _refreshSavedUI();
-    window._showNotifToast?.({ title: 'Search Saved', body: '"' + _query + '" saved for quick access', severity: 'success' });
+    window._showNotifToast?.({ title: 'Search Saved', body: '"' + _query + '" was saved in this browser for quick access', severity: 'success' });
   };
 
   window._ttLoadSearch = function(id) {
@@ -10257,7 +10257,7 @@ export async function pgDocumentsHub(setTopbar) {
     const newDoc = { id:'doc_'+Date.now(), patientId:pid, templateId, name, category:cat, desc, status:'pending', sigState:cat==='Consent'?'unsigned':'not-required', assignedBy:'Clinician', assignedDate:today(), completedDate:null, updatedDate:today(), expiryDate:null };
     docs.push(newDoc);
     saveDocs(docs); renderPage(); _dhPersistUpdate(newDoc);
-    window._showNotifToast?.({ title:'Form Added', body:`${name} was added to the patient workflow.`, severity:'success' });
+    window._showNotifToast?.({ title:'Form Added', body:`${name} was added to the patient workflow in this browser view.`, severity:'success' });
   };
   window._dhAssignBundle = function(bundleId) {
     const pid=activePid;

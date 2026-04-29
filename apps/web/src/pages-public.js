@@ -3704,7 +3704,7 @@ export async function pgMultiSiteDashboard(setTopbar) {
     document.getElementById('hhh-transfer-modal')?.remove();
     const tbody = document.getElementById('hhh-transfers-body');
     if (tbody) tbody.innerHTML = renderTransferRows(transfers);
-    window._announce?.('Transfer request submitted');
+    window._announce?.('Transfer request saved in this browser view.');
   };
 
   window._hhhExportNetworkCSV = function() {
@@ -3717,6 +3717,6 @@ export async function pgMultiSiteDashboard(setTopbar) {
     });
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    window._announce?.('CSV export downloaded');
+    window._announce?.('CSV export download started.');
   };
 }

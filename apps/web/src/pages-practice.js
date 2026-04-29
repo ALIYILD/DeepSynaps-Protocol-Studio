@@ -2962,9 +2962,9 @@ export async function pgSettings(setTopbar, currentUser) {
       const apiVal = transform ? transform(raw) : raw;
       btn.disabled = true;
       try {
-        await _saveClinicField({ [apiKey]: apiVal });
+        const ok = await _saveClinicField({ [apiKey]: apiVal });
         persist(lsKey, raw);
-        toast(`${label} saved.`);
+        toast(ok ? `${label} saved.` : `${label} updated in this browser view.`, ok ? 'success' : 'info');
       } catch {
         persist(lsKey, raw);
       } finally {
@@ -5815,7 +5815,7 @@ export async function pgTelehealthRecorder(setTopbar) {
 
       _recSetStatus('idle');
       _recRefreshButtons();
-      _recShowToast('Recording saved!', 'success');
+      _recShowToast('Recording saved in this browser library.', 'success');
     };
 
     _recMediaRecorder.stop();
@@ -5903,7 +5903,7 @@ export async function pgTelehealthRecorder(setTopbar) {
     deleteRecording(id);
     const item = document.getElementById(`lib-item-${id}`);
     if (item) item.remove();
-    _recShowToast('Recording deleted.', 'success');
+    _recShowToast('Recording removed from this browser library.', 'success');
   };
 
   // ── Export Transcript ──────────────────────────────────────────────────────
