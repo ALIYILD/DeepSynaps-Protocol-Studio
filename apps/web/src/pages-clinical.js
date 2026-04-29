@@ -42,6 +42,7 @@ import {
 } from './personalization-explainability.js';
 import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getTopConditionsByPaperCount } from './evidence-dataset.js';
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES } from './protocols-data.js';
+import { getEvidenceUiStats } from './evidence-ui-live.js';
 import {
   DEMO_PATIENT,
   DEMO_CLINICIAN_DASHBOARD,
@@ -1002,7 +1003,7 @@ export async function pgDash(setTopbar, navigate) {
     `Today's clinic queue (courses): ${clinicQueue.length}`,
     // Risk stratification summary
     `Risk stratification: ${_totalRed} red flags, ${_totalAmber} amber flags across ${riskSummaryData.length} patients`,
-    `Protocol Studio: ${PROTOCOL_LIBRARY?.length || 0} protocols across ${PROTO_CONDITIONS?.length || 0} conditions; ${(EVIDENCE_SUMMARY?.totalPapers || 87000).toLocaleString()} evidence papers indexed; ${EVIDENCE_SUMMARY?.totalTrials || 0} clinical trials`,
+    `Protocol Studio: ${PROTOCOL_LIBRARY?.length || 0} protocols across ${PROTO_CONDITIONS?.length || 0} conditions; ${liveEvidence.totalPapers.toLocaleString()} evidence papers indexed; ${liveEvidence.totalTrials || 0} clinical trials`,
     ...(riskSummaryData.filter(p => (p.categories || []).some(c => c.level === 'red')).map(p => {
       const reds = (p.categories || []).filter(c => c.level === 'red').map(c => c.category.replace(/_/g, ' ')).join(', ');
       return `  RED risk: ${p.patient_name || p.patient_id} — ${reds}`;
@@ -1839,12 +1840,12 @@ export async function pgDash(setTopbar, navigate) {
   const _protoCount = PROTOCOL_LIBRARY?.length || 0;
   const _condCount  = PROTO_CONDITIONS?.length || 0;
   const _deviceCount = PROTO_DEVICES?.length || 0;
-  const _totalPapers = EVIDENCE_SUMMARY?.totalPapers || 87000;
-  const _totalTrials = EVIDENCE_SUMMARY?.totalTrials || 0;
-  const _totalMeta   = EVIDENCE_SUMMARY?.totalMetaAnalyses || 0;
+  const _totalPapers = liveEvidence.totalPapers;
+  const _totalTrials = liveEvidence.totalTrials;
+  const _totalMeta   = liveEvidence.totalMetaAnalyses;
   const _topCondByPapers = getTopConditionsByPaperCount ? getTopConditionsByPaperCount(6) : [];
-  const _evGradeDist = EVIDENCE_SUMMARY?.gradeDistribution || {};
-  const _modDist = EVIDENCE_SUMMARY?.modalityDistribution || {};
+  const _evGradeDist = Object.keys(liveEvidence.gradeDistribution || {}).length ? liveEvidence.gradeDistribution : (EVIDENCE_SUMMARY?.gradeDistribution || {});
+  const _modDist = Object.keys(liveEvidence.modalityDistribution || {}).length ? liveEvidence.modalityDistribution : (EVIDENCE_SUMMARY?.modalityDistribution || {});
   const _topModalities2 = Object.entries(_modDist).sort((a,b) => b[1] - a[1]).slice(0, 5);
 
   const _protocolStudioCard = `<div class="dh2-card" style="position:relative;overflow:hidden">
@@ -1854,7 +1855,7 @@ export async function pgDash(setTopbar, navigate) {
         <div class="dh2-card-title" style="display:flex;align-items:center;gap:8px">Protocol Studio
           <span style="font-size:10px;font-weight:700;letter-spacing:0.5px;padding:2px 7px;border-radius:4px;background:rgba(0,212,188,0.12);color:var(--teal)">CONNECTED</span>
         </div>
-        <div class="dh2-card-sub">87K evidence-backed research papers &middot; ${_protoCount} protocols &middot; ${_condCount} conditions</div>
+        <div class="dh2-card-sub">${_totalPapers.toLocaleString()} evidence-backed research papers &middot; ${_protoCount} protocols &middot; ${_condCount} conditions</div>
       </div>
       <div class="dh2-card-actions">
         <button class="dh2-launch-btn primary" onclick="window._nav('protocol-hub')">Open Studio &rarr;</button>
@@ -1925,7 +1926,7 @@ export async function pgDash(setTopbar, navigate) {
       <button class="dh2-launch-btn" onclick="window._nav('protocol-hub')">Browse protocols</button>
       <button class="dh2-launch-btn" onclick="window._protocolHubTab='generate';window._nav('protocol-hub')">Generate protocol</button>
       <button class="dh2-launch-btn" onclick="window._nav('research-evidence')">Evidence library</button>
-      <span style="margin-left:auto;font-size:10px;color:var(--text-tertiary);align-self:center">Sources: ${(EVIDENCE_SUMMARY?.sources || []).slice(0, 4).join(', ')}${(EVIDENCE_SUMMARY?.sources || []).length > 4 ? ' +' + ((EVIDENCE_SUMMARY?.sources || []).length - 4) + ' more' : ''}</span>
+      <span style="margin-left:auto;font-size:10px;color:var(--text-tertiary);align-self:center">Sources: ${(liveEvidence.sources || EVIDENCE_SUMMARY?.sources || []).slice(0, 4).join(', ')}${(liveEvidence.sources || EVIDENCE_SUMMARY?.sources || []).length > 4 ? ' +' + (((liveEvidence.sources || EVIDENCE_SUMMARY?.sources || []).length) - 4) + ' more' : ''}</span>
     </div>
   </div>`;
   if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
@@ -11978,3 +11979,7 @@ function _hlMark(text, query) {
 }
 
 // ── Type badge colors ─────────────────────────────────────────────────────────
+  const liveEvidence = await getEvidenceUiStats({
+    fallbackSummary: EVIDENCE_SUMMARY,
+    fallbackConditionCount: CONDITION_EVIDENCE.length,
+  });

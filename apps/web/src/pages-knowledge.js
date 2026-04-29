@@ -5,6 +5,7 @@ import { renderLiveEvidencePanel } from './live-evidence.js';
 import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence, getTopConditionsByPaperCount } from './evidence-dataset.js';
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition } from './protocols-data.js';
 import { renderBrainMap10_20, SITES_10_20 } from './brain-map-svg.js';
+import { getEvidenceUiStats } from './evidence-ui-live.js';
 
 function _kEsc(v) {
   if (v == null) return '';
@@ -26,11 +27,14 @@ export async function pgEvidence(setTopbar) {
     items = [];
   }
 
-  // Evidence KPI banner from 87K dataset
-  const _tp = EVIDENCE_SUMMARY?.totalPapers || 87000;
-  const _tt = EVIDENCE_SUMMARY?.totalTrials || 0;
-  const _tm = EVIDENCE_SUMMARY?.totalMetaAnalyses || 0;
-  const _tc = CONDITION_EVIDENCE?.length || 0;
+  const liveEvidence = await getEvidenceUiStats({
+    fallbackSummary: EVIDENCE_SUMMARY,
+    fallbackConditionCount: CONDITION_EVIDENCE.length,
+  });
+  const _tp = liveEvidence.totalPapers;
+  const _tt = liveEvidence.totalTrials;
+  const _tm = liveEvidence.totalMetaAnalyses;
+  const _tc = liveEvidence.totalConditions;
 
   // Build modality options from data
   const modalitySet = new Set(items.map(e => e.modality).filter(Boolean));
@@ -76,7 +80,7 @@ export async function pgEvidence(setTopbar) {
   <div id="ev-count" style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:10px">${items.length} evidence records · ${(_tp/1000).toFixed(0)}K papers indexed across ${_tc} conditions</div>
   <div id="ev-body">
     ${items.length === 0
-      ? emptyState('◈', 'No evidence records loaded. Start the backend to load clinical data. 87K papers are indexed in the local evidence dataset.')
+      ? emptyState('◈', `No evidence records loaded. Start the backend to load clinical data. ${_tp.toLocaleString()} papers are available in the current evidence corpus.`)
       : renderEvidenceTable(items)}
   </div>`;
 

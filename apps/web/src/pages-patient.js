@@ -19,6 +19,7 @@ import {
   EVIDENCE_SUMMARY,
   getConditionEvidence,
 } from './evidence-dataset.js';
+import { getEvidenceUiStats } from './evidence-ui-live.js';
 
 // ── Nav definition ────────────────────────────────────────────────────────────
 // Patient nav: each item is tagged with a `tone` so the sidebar renders
@@ -448,6 +449,10 @@ export async function pgPatientDashboard(user) {
   setTopbar('Home');
   function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
   const firstName = esc((user?.display_name || 'there').split(' ')[0]);
+  const liveEvidence = await getEvidenceUiStats({
+    fallbackSummary: EVIDENCE_SUMMARY,
+    fallbackConditionCount: EVIDENCE_SUMMARY.totalConditions,
+  });
 
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
@@ -1209,7 +1214,7 @@ export async function pgPatientDashboard(user) {
           <svg width="18" height="18"><use href="#i-book-open"/></svg>
         </div>
         <div class="pth2-tile-title">Education Library</div>
-        <div class="pth2-tile-sub">${targetAreaLine ? esc(targetAreaLine) : (EVIDENCE_TOTAL_PAPERS.toLocaleString() + '+ papers, courses, podcasts & clinic videos')}</div>
+        <div class="pth2-tile-sub">${targetAreaLine ? esc(targetAreaLine) : (liveEvidence.totalPapers.toLocaleString() + '+ papers, courses, podcasts & clinic videos')}</div>
         <div class="pth2-tile-meta">Explore</div>
       </button>`);
 
@@ -12675,6 +12680,10 @@ const LEARN_ARTICLES = [
 export async function pgPatientLearn() {
   setTopbar(t('patient.nav.learn'));
   const el = document.getElementById('patient-content');
+  const liveEvidence = await getEvidenceUiStats({
+    fallbackSummary: EVIDENCE_SUMMARY,
+    fallbackConditionCount: EVIDENCE_SUMMARY.totalConditions,
+  });
 
   // Track read articles — fetch from API, fall back to localStorage
   let readArticles = [];
@@ -12760,9 +12769,9 @@ export async function pgPatientLearn() {
       <div style="font-size:20px;font-weight:700;color:var(--text-primary);margin-bottom:6px">Education Library</div>
       <div style="font-size:12.5px;color:var(--text-secondary);max-width:900px">Academic journals, YouTube explainers, podcasts, Udemy and edX courses, clinic premium videos, and conference or seminar replays curated for neuromodulation patients.</div>
       <div style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text-tertiary)">
-        <span>${EVIDENCE_TOTAL_PAPERS.toLocaleString()} peer-reviewed papers</span>
-        <span>${EVIDENCE_TOTAL_TRIALS.toLocaleString()} clinical trials</span>
-        <span>${EVIDENCE_SUMMARY.totalConditions} conditions indexed</span>
+        <span>${liveEvidence.totalPapers.toLocaleString()} peer-reviewed papers</span>
+        <span>${liveEvidence.totalTrials.toLocaleString()} clinical trials</span>
+        <span>${liveEvidence.totalConditions} conditions indexed</span>
       </div>
     </div>
 

@@ -11,6 +11,7 @@ import {
   EVIDENCE_SOURCES, CONDITION_EVIDENCE, EVIDENCE_SUMMARY,
   getTopConditionsByPaperCount, searchEvidenceByKeyword,
 } from './evidence-dataset.js';
+import { getEvidenceUiStats } from './evidence-ui-live.js';
 import {
   CONDITION_REGISTRY, ASSESSMENT_REGISTRY, PROTOCOL_REGISTRY,
   DEVICE_REGISTRY, BRAIN_TARGET_REGISTRY,
@@ -54,6 +55,7 @@ function hBar(label, value, maxVal, color) {
 
 /* ── grade color ───────────────────────────────────────────────────────────── */
 const GRADE_CLR = { A: '#2dd4bf', B: '#60a5fa', C: '#fbbf24', D: '#f97316', E: '#ef4444' };
+let _liveEvidenceUiStats = null;
 
 /* ── lazy-loaded protocol data (shared by search + review tabs) ─────────── */
 let _protosAll = [], _condsAll = [], _devsAll = [];
@@ -88,9 +90,15 @@ export async function pgResearchEvidence(setTopbar, navigate) {
   const tab = window._resEvidenceTab || 'overview';
   window._resEvidenceTab = tab;
   const el = document.getElementById('content');
+  const liveEvidence = await getEvidenceUiStats({
+    fallbackSummary: EVIDENCE_SUMMARY,
+    fallbackConditionCount: CONDITION_EVIDENCE.length,
+    fallbackMetaAnalyses: EVIDENCE_TOTAL_META,
+  });
+  _liveEvidenceUiStats = liveEvidence;
 
   setTopbar('Research Evidence',
-    '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--teal);color:#fff;font-weight:600">87K Papers</span>');
+    `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--teal);color:#fff;font-weight:600">${esc(fmtK(liveEvidence.totalPapers))} Papers</span>`);
 
   /* ── tab bar ─────────────────────────────────────────────────────────────── */
   function tabBar() {
@@ -142,7 +150,7 @@ export async function pgResearchEvidence(setTopbar, navigate) {
   const body = document.getElementById('re-body');
 
   /* ── render per tab ──────────────────────────────────────────────────────── */
-  if (tab === 'overview')         renderOverview(body);
+  if (tab === 'overview')         renderOverview(body, liveEvidence);
   else if (tab === 'conditions')  renderConditions(body, q, filt, sort, sInput, pills, sortBtn);
   else if (tab === 'assessments') renderAssessments(body, q, filt, sInput, pills);
   else if (tab === 'protocols')   renderProtocols(body, q, sInput);
@@ -156,17 +164,22 @@ export async function pgResearchEvidence(setTopbar, navigate) {
 /* ══════════════════════════════════════════════════════════════════════════════
    TAB 1 — Overview
    ══════════════════════════════════════════════════════════════════════════════ */
-function renderOverview(body) {
+function renderOverview(body, liveEvidence = null) {
   const S = EVIDENCE_SUMMARY;
-  const top10 = getTopConditionsByPaperCount(10);
+  const top10 = Array.isArray(liveEvidence?.topConditions) && liveEvidence.topConditions.length
+    ? liveEvidence.topConditions.slice(0, 10).map((row) => ({
+        conditionId: row.key,
+        paperCount: Number(row.count) || 0,
+      }))
+    : getTopConditionsByPaperCount(10);
 
   /* KPI strip */
   const kpis = [
-    { val: fmtK(EVIDENCE_TOTAL_PAPERS), label: 'Papers', color: 'var(--teal)' },
-    { val: fmtK(EVIDENCE_TOTAL_TRIALS), label: 'Clinical Trials', color: 'var(--blue)' },
-    { val: fmtK(EVIDENCE_TOTAL_META),   label: 'Meta-analyses', color: 'var(--violet)' },
-    { val: S.totalConditions,            label: 'Conditions', color: 'var(--rose)' },
-    { val: S.totalDevices,               label: 'Modalities', color: 'var(--amber)' },
+    { val: fmtK(liveEvidence?.totalPapers || EVIDENCE_TOTAL_PAPERS), label: 'Papers', color: 'var(--teal)' },
+    { val: fmtK(liveEvidence?.totalTrials || EVIDENCE_TOTAL_TRIALS), label: 'Clinical Trials', color: 'var(--blue)' },
+    { val: fmtK(liveEvidence?.totalMetaAnalyses || EVIDENCE_TOTAL_META), label: 'Meta-analyses', color: 'var(--violet)' },
+    { val: liveEvidence?.totalConditions || S.totalConditions, label: 'Conditions', color: 'var(--rose)' },
+    { val: Object.keys(liveEvidence?.modalityDistribution || {}).length || S.totalDevices, label: 'Modalities', color: 'var(--amber)' },
   ];
   let kpiHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">';
   for (const k of kpis) {
@@ -179,7 +192,7 @@ function renderOverview(body) {
 
   /* sources strip */
   let srcHtml = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px">';
-  for (const s of EVIDENCE_SOURCES) {
+  for (const s of (liveEvidence?.sources?.length ? liveEvidence.sources : EVIDENCE_SOURCES)) {
     srcHtml += `<span style="padding:3px 10px;font-size:11px;border-radius:12px;background:var(--surface-2);color:var(--text-secondary)">${esc(s)}</span>`;
   }
   srcHtml += '</div>';
@@ -194,7 +207,7 @@ function renderOverview(body) {
   yearHtml += '</div>';
 
   /* evidence grade distribution */
-  const gd = S.gradeDistribution;
+  const gd = Object.keys(liveEvidence?.gradeDistribution || {}).length ? liveEvidence.gradeDistribution : S.gradeDistribution;
   const gdMax = Math.max(...Object.values(gd));
   let gradeHtml = '<div class="ch-card" style="padding:16px;margin-bottom:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Evidence Grade Distribution</div>';
   for (const [g, cnt] of Object.entries(gd)) {
@@ -203,7 +216,7 @@ function renderOverview(body) {
   gradeHtml += '</div>';
 
   /* modality distribution */
-  const md = S.modalityDistribution;
+  const md = Object.keys(liveEvidence?.modalityDistribution || {}).length ? liveEvidence.modalityDistribution : S.modalityDistribution;
   const mdEntries = Object.entries(md).sort(([, a], [, b]) => b - a);
   const mdMax = mdEntries[0]?.[1] || 1;
   let modHtml = '<div class="ch-card" style="padding:16px;margin-bottom:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Top Modalities by Paper Count</div>';
@@ -623,8 +636,8 @@ async function renderEvidenceSearch(body) {
     .join('');
   const curatedCount = curatedLitItems.length;
   const evDbAvailable = overview?.evidence_db_available;
-  const _totalEvPapers = EVIDENCE_SUMMARY?.totalPapers || 87000;
-  const _totalEvTrials = EVIDENCE_SUMMARY?.totalTrials || 0;
+  const _totalEvPapers = _liveEvidenceUiStats?.totalPapers || EVIDENCE_SUMMARY?.totalPapers || 87000;
+  const _totalEvTrials = _liveEvidenceUiStats?.totalTrials || EVIDENCE_SUMMARY?.totalTrials || 0;
 
   /* ── window handlers ─────────────────────────────────────────────────── */
   window._libPromoteExternal = async (paperId, title) => {
@@ -718,9 +731,9 @@ async function renderEvidenceSearch(body) {
     '<div class="ch-kpi-strip" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px;margin-bottom:16px">' +
       kpi('var(--teal)',   overview?.curated_paper_count || fmtK(_totalEvPapers), 'Curated papers', 'Public PubMed/OpenAlex ingest — 87K indexed') +
       kpi('var(--blue)',   overview?.curated_trial_count || fmt(_totalEvTrials), 'Curated trials') +
-      kpi('var(--rose)',   EVIDENCE_SUMMARY?.totalMetaAnalyses || 0, 'Meta-analyses') +
+      kpi('var(--rose)',   _liveEvidenceUiStats?.totalMetaAnalyses || EVIDENCE_SUMMARY?.totalMetaAnalyses || 0, 'Meta-analyses') +
       kpi('var(--violet)', curatedCount, 'Your library', 'Per-clinician promoted papers') +
-      kpi('var(--amber)',  CONDITION_EVIDENCE.length, 'Conditions covered') +
+      kpi('var(--amber)',  _liveEvidenceUiStats?.totalConditions || CONDITION_EVIDENCE.length, 'Conditions covered') +
       kpi('var(--teal)',   evDbAvailable ? 'Online' : 'Offline', 'Evidence index') +
     '</div>' +
     /* External brokered search */
@@ -862,7 +875,7 @@ async function renderNeedsReview(body) {
   const totalVerify     = rows.filter(r => r.hasVerify).length;
   const gradeABHighPri  = rows.filter(r => r.isUnreviewed && ['A','B'].includes(String(r.p.evidenceGrade || '').toUpperCase())).length;
   const pendingPapers   = _litQueue.length;
-  const _totalEvPapers  = EVIDENCE_SUMMARY?.totalPapers || 87000;
+  const _totalEvPapers  = _liveEvidenceUiStats?.totalPapers || EVIDENCE_SUMMARY?.totalPapers || 87000;
 
   /* ── Section 1: Protocols requiring review ──────────────────────────── */
   const sInput = '<div style="position:relative;max-width:280px;flex:1 1 220px">' +
@@ -984,8 +997,8 @@ async function renderNeedsReview(body) {
       kpi('var(--blue)',   totalVerify,     'Verify flags', 'notes field mentions "verify"') +
       kpi('var(--teal)',   gradeABHighPri,  'Grade A/B priority', 'Highest clinical priority — strong evidence awaiting review') +
       kpi('var(--violet)', pendingPapers,   'Pending papers', 'Cross-protocol literature_watch rows (verdict=pending)') +
-      kpi('var(--rose)',   _protosAll.length, 'Total protocols', 'From curated 87K-paper evidence library') +
-      kpi('var(--teal)',   fmtK(_totalEvPapers), 'Evidence base', '87K papers indexed across ' + CONDITION_EVIDENCE.length + ' conditions') +
+      kpi('var(--rose)',   _protosAll.length, 'Total protocols', 'From curated neuromodulation evidence library') +
+      kpi('var(--teal)',   fmtK(_totalEvPapers), 'Evidence base', _totalEvPapers.toLocaleString() + ' papers indexed across ' + (_liveEvidenceUiStats?.totalConditions || CONDITION_EVIDENCE.length) + ' conditions') +
     '</div>' +
     protosSection +
     papersSection;
