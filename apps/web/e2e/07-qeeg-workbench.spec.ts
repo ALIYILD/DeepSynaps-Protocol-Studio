@@ -35,9 +35,11 @@ test.describe('qEEG Raw Workbench', () => {
     await page.goto('/#/qeeg-raw-workbench/demo');
     await page.waitForSelector('#qwb-canvas', { timeout: 10000 });
     const initial = parseInt((await page.locator('#qwb-st-bad').textContent()) || '0', 10);
-    await page.click('[data-channel="Fp1-Av"]');
+    // Scope to the channel-rail row — `[data-channel="…"]` also matches the mini-headmap SVG node.
+    const railRow = page.locator('.qwb-ch-row[data-channel="Fp1-Av"]');
+    await railRow.click();
     await page.click('button[data-action="mark-channel"]');
-    await expect(page.locator('[data-channel="Fp1-Av"]')).toHaveClass(/bad/);
+    await expect(railRow).toHaveClass(/bad/);
     await expect(page.locator('#qwb-st-bad')).toHaveText(String(initial + 1));
     await page.click('button[data-action="mark-channel"]');
     await expect(page.locator('#qwb-st-bad')).toHaveText(String(initial));
@@ -47,7 +49,8 @@ test.describe('qEEG Raw Workbench', () => {
     await page.goto('/#/qeeg-raw-workbench/demo');
     await page.waitForSelector('#qwb-canvas', { timeout: 10000 });
     const initial = parseInt((await page.locator('#qwb-st-bad').textContent()) || '0', 10);
-    await page.click('[data-channel="Fp1-Av"]');
+    const railRow = page.locator('.qwb-ch-row[data-channel="Fp1-Av"]');
+    await railRow.click();
     await page.click('button[data-action="mark-channel"]');
     await expect(page.locator('#qwb-st-bad')).toHaveText(String(initial + 1));
     await page.click('button[data-action="undo"]');
