@@ -13,6 +13,7 @@ venv/
 *.db
 *.sqlite3
 *.db-journal
+*.db.backup.*
 
 # Python build artefacts
 **/*.egg-info/
