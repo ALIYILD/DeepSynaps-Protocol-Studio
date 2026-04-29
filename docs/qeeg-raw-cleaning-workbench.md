@@ -11,6 +11,56 @@ the original raw EEG immutable.
 
 ---
 
+## Visual style
+
+WinEEG / EDFbrowser-style clinical workstation:
+
+- **White** trace background; **black** signal lines; **light grey**
+  grid; grey time markers.
+- **Pale-blue** highlight on the selected channel row only; bad channels
+  marked in muted red.
+- Rejected segments shown as a transparent red overlay; AI suggestion
+  candidates as small amber ticks at the top of the canvas.
+- Compact, high-information-density toolbar; no dark dashboard
+  background, no SaaS gradients, no cards inside the trace area. The
+  EEG signal occupies the majority of the screen.
+
+## Navigation safety
+
+The full-screen workbench never traps the clinician:
+
+- Fixed top-left back-cluster: **← Back to qEEG Analyzer**, **Back to
+  Patient**, current analysis id, and current cleaning version.
+- Esc opens the back-confirmation flow.
+- If there are **unsaved cleaning edits**, every back-or-leave path
+  surfaces a modal: *"You have unsaved EEG cleaning edits. Save
+  cleaning version before leaving?"* with three options:
+  *Save and leave* · *Leave without saving* · *Cancel*.
+- The browser `beforeunload` guard fires the same warning if the user
+  tries to close the tab or hit refresh while dirty.
+- After re-run completes, the canvas shows a banner toast:
+  *"qEEG analysis re-run queued using Cleaning Version X. Original
+  raw EEG preserved."*
+
+## Keyboard shortcuts
+
+| Key                | Action                                  |
+|--------------------|-----------------------------------------|
+| ←/→                | Previous / next time window             |
+| ↑/↓                | Previous / next channel                 |
+| `+` / `−`          | Zoom in / out                           |
+| `B`                | Mark selected channel as bad            |
+| `S`                | Mark current segment as bad             |
+| `A`                | Add annotation                          |
+| `Cmd/Ctrl+S`       | Save cleaning version                   |
+| `Z` / `Shift+Z`    | Undo / redo                             |
+| `Space`            | Play / pause scroll                     |
+| `R`                | Reset view                              |
+| `Esc`              | Back / exit confirmation                |
+| `?`                | Show shortcuts                          |
+
+The `?` button at the top right of the toolbar opens the same modal.
+
 ## Route
 
 The workbench is a full-screen page reachable from the qEEG Analyzer
