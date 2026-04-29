@@ -367,7 +367,7 @@ function clinicalCss() {
     .qwb-clinical {
       position:fixed; inset:0; z-index:9000;
       display:grid;
-      grid-template-rows: 44px 40px 1fr 64px 24px;
+      grid-template-rows: 44px 40px 1fr 110px 24px;
       background:#FAF7F2; color:#1a1a1a;
       font-family: 'Inter Tight', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
       font-size: 12px; line-height:1.3;
@@ -396,28 +396,30 @@ function clinicalCss() {
     .qwb-titlebar {
       display:flex; align-items:center; gap:0;
       padding:0 14px;
-      background:linear-gradient(to bottom, #fdfaf4, #f3ede0);
-      border-bottom:1px solid #d8d1c3;
+      background:#F2EDE5;
+      color:#1a1a1a;
+      border-bottom:1px solid rgba(0,0,0,0.08);
       font-size:12px;
     }
     .qwb-brand {
       display:flex; align-items:center; gap:8px;
       font-weight:600; letter-spacing:-0.01em;
-      padding-right:14px; margin-right:12px;
-      border-right:1px solid #d8d1c3;
+      padding:4px 10px; margin-right:12px;
+      background:#1d6f7a; color:#ffffff;
+      border-radius:4px;
     }
-    .qwb-brand-name { font-size:13px; }
-    .qwb-brand-name b { font-weight:700; }
-    .qwb-brand-name .sub { color:#6b6660; margin-left:6px; font-weight:500; }
+    .qwb-brand-name { font-size:13px; color:#ffffff; }
+    .qwb-brand-name b { font-weight:700; color:#ffffff; }
+    .qwb-brand-name .sub { color:rgba(255,255,255,0.78); margin-left:6px; font-weight:500; }
     .qwb-menus { display:flex; gap:0; }
     .qwb-menu-btn {
       background:transparent; border:0; padding:4px 9px; font-size:12px;
-      color:#3a3633; border-radius:4px; cursor:pointer;
+      color:#1a1a1a; border-radius:4px; cursor:pointer;
     }
-    .qwb-menu-btn:hover { background:rgba(0,0,0,0.05); }
+    .qwb-menu-btn:hover { background:rgba(0,0,0,0.05); color:#1a1a1a; }
     .qwb-titlebar-right {
       margin-left:auto; display:flex; align-items:center; gap:10px;
-      font-family:var(--qwb-mono); font-size:11px; color:#6b6660;
+      font-family:var(--qwb-mono); font-size:11px; color:#3a3633;
     }
     .qwb-pat-chip {
       display:inline-flex; align-items:center; gap:8px;
@@ -532,7 +534,7 @@ function clinicalCss() {
 
     /* ── Trace column ─────────────────────────────────────────── */
     .qwb-trace-col {
-      display:grid; grid-template-rows: 1fr 56px;
+      display:grid; grid-template-rows: 1fr 80px;
       min-width:0; min-height:0; overflow:hidden;
     }
     .qwb-canvas-wrap {
@@ -604,12 +606,39 @@ function clinicalCss() {
       border-top:1px solid #d8d1c3;
       overflow:hidden;
     }
+    /* y-axis Hz scale (0/10/20/30/40/50) rendered as inline-SVG background.
+       Reserves an 18px column on the left. */
+    .qwb-spectro-strip::before {
+      content:"";
+      position:absolute; top:0; bottom:0; left:0; width:18px; z-index:2;
+      background:#F3EEE5;
+      border-right:1px solid #d8d1c3;
+      background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='18' height='80' viewBox='0 0 18 80' preserveAspectRatio='none'>\
+<g font-family='ui-monospace,Menlo,monospace' font-size='7' fill='%236b6660' text-anchor='end'>\
+<text x='15' y='8'>50</text>\
+<text x='15' y='23'>40</text>\
+<text x='15' y='38'>30</text>\
+<text x='15' y='53'>20</text>\
+<text x='15' y='68'>10</text>\
+<text x='15' y='78'>0</text>\
+</g>\
+<g stroke='%23d8d1c3' stroke-width='0.5'>\
+<line x1='16' y1='5' x2='18' y2='5'/>\
+<line x1='16' y1='20' x2='18' y2='20'/>\
+<line x1='16' y1='35' x2='18' y2='35'/>\
+<line x1='16' y1='50' x2='18' y2='50'/>\
+<line x1='16' y1='65' x2='18' y2='65'/>\
+<line x1='16' y1='75' x2='18' y2='75'/>\
+</g></svg>");
+      background-repeat:no-repeat; background-size:100% 100%;
+    }
     .qwb-spectro-canvas {
-      position:absolute; inset:0; width:100%; height:100%;
+      position:absolute; top:0; right:0; bottom:0; left:18px;
+      width:calc(100% - 18px); height:100%;
       display:block;
     }
     .qwb-spectro-label {
-      position:absolute; top:4px; left:8px; z-index:2;
+      position:absolute; top:4px; left:24px; z-index:3;
       font-family:var(--qwb-mono); font-size:9px;
       color:#3a3633; text-transform:uppercase; letter-spacing:0.06em;
       background:rgba(250,247,242,0.85); padding:1px 5px; border-radius:2px;
@@ -694,7 +723,7 @@ function clinicalCss() {
       text-transform:uppercase; letter-spacing:0.06em;
     }
     .qwb-minimap {
-      padding:6px 10px 8px; min-width:0;
+      padding:8px 10px 10px; min-width:0;
     }
     .qwb-minimap-head {
       display:flex; justify-content:space-between; align-items:center;
@@ -709,7 +738,7 @@ function clinicalCss() {
       font-size:9.5px; color:#6b6660;
     }
     .qwb-minimap-track {
-      position:relative; height:36px;
+      position:relative; height:60px;
       background:#FAF7F2; border:1px solid #d8d1c3; border-radius:3px;
       cursor:pointer;
     }
@@ -720,19 +749,34 @@ function clinicalCss() {
       pointer-events:none;
     }
     .qwb-topo-strip {
+      position:relative;
       border-left:1px solid #d8d1c3; background:#FAF7F2;
-      display:flex; justify-content:space-around;
-      padding:6px 4px;
+      display:flex; justify-content:space-around; align-items:center;
+      padding:6px 22px 6px 4px;
     }
     .qwb-topo-mini {
-      display:flex; flex-direction:column; align-items:center; gap:2px;
+      display:flex; flex-direction:column; align-items:center; gap:3px;
     }
-    .qwb-topo-mini svg { width:46px; height:46px; }
+    .qwb-topo-mini svg { width:90px; height:90px; }
     .qwb-topo-label {
-      font-size:9.5px; font-weight:600; color:#3a3633;
+      font-size:11px; font-weight:600; color:#666;
     }
     .qwb-topo-band {
       font-family:var(--qwb-mono); font-size:8.5px; color:#6b6660;
+    }
+    /* Power ramp scale on the right side of the topo strip. */
+    .qwb-topo-strip::after {
+      content:"low high";
+      position:absolute; top:8px; bottom:8px; right:6px;
+      width:12px; padding:0;
+      background:linear-gradient(to top, #FAF7F2, #1d6f7a, #b8741a);
+      border:1px solid #d8d1c3; border-radius:2px;
+      font-family:var(--qwb-mono); font-size:8px; color:#6b6660;
+      letter-spacing:0;
+      writing-mode:vertical-rl; transform:rotate(180deg);
+      text-align:center; line-height:12px;
+      word-spacing:60px;
+      text-shadow:0 0 2px #FAF7F2, 0 0 2px #FAF7F2;
     }
 
     /* ── Status bar ──────────────────────────────────────────── */
@@ -1133,6 +1177,7 @@ function topoMiniSvg({ id, label, range, accent }) {
     const cy = c[1] * H + 2;
     return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r}" fill="${accent}" fill-opacity="${(0.18 + 0.04 * (i % 5)).toFixed(2)}"/>`;
   }).join('');
+  const glyph = { delta:'δ', theta:'θ', alpha:'α', beta:'β' }[id] || '';
   return `
     <div class="qwb-topo-mini" data-band="${id}">
       <svg viewBox="0 0 ${W} ${H}" aria-hidden="true">
@@ -1145,7 +1190,7 @@ function topoMiniSvg({ id, label, range, accent }) {
         <g clip-path="url(#qwb-topo-clip-${id})">${dots}</g>
         <path d="M ${W/2 - 4} 6 L ${W/2} 1 L ${W/2 + 4} 6" fill="none" stroke="#a39d94" stroke-width="0.8"/>
       </svg>
-      <div class="qwb-topo-label">${esc(label)}</div>
+      <div class="qwb-topo-label">${glyph} ${esc(label)}</div>
       <div class="qwb-topo-band">${esc(range)}</div>
     </div>`;
 }
