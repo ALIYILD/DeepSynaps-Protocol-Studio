@@ -4759,7 +4759,7 @@ export async function pgPatientQueue(setTopbar) {
     const hh = String(t.getHours()).padStart(2,'0'), mm = String(t.getMinutes()).padStart(2,'0');
     q.push({ id, time:hh+':'+mm, patientId:'pt_wi_'+Date.now(), patientName:name, condition, sessionNum:1, sessionTotal:1, protocol, status:'waiting', alerts:[], notes:'Walk-in patient' });
     _pqSave('ds_today_queue', q); _pqRender();
-    window._showNotifToast?.({ title:'Walk-in Added', body:name + ' added to today\'s queue', severity:'info' });
+    window._showNotifToast?.({ title:'Walk-in Added', body:name + ' added to today\'s local preview queue', severity:'info' });
   };
 
   window._pqChangeDate = function(dateVal) {
@@ -5106,7 +5106,7 @@ export async function pgClinicDay(setTopbar) {
     q.push({ id:'pq_wi_'+Date.now(), time:String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0'),
       patientId:'pt_wi_'+Date.now(), patientName:name, condition, sessionNum:1, sessionTotal:1, protocol, status:'waiting', alerts:[], notes:'Walk-in' });
     _save(QUEUE_KEY, q); render();
-    window._showNotifToast?.({ title:'Walk-in Added', body:name + ' added to queue', severity:'info' });
+    window._showNotifToast?.({ title:'Walk-in Added', body:name + ' added to the local preview queue', severity:'info' });
   };
 
   window._cdApprove = function(id) {
@@ -5115,7 +5115,7 @@ export async function pgClinicDay(setTopbar) {
     item.status = 'approved';
     try { localStorage.setItem(REVIEW_KEY, JSON.stringify(items)); } catch {}
     render();
-    window._showNotifToast?.({ title:'Approved', body:'Item approved successfully', severity:'success' });
+    window._showNotifToast?.({ title:'Approved', body:'Item marked approved in this browser view', severity:'success' });
   };
 
   window._cdOpenReview = function(id) {
