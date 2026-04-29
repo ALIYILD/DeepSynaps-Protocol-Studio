@@ -1794,7 +1794,7 @@ async function acceptAllAI(state, threshold) {
   }
 }
 
-async function recordAIDecision(state, suggestionId, decision) {
+export async function recordAIDecision(state, suggestionId, decision) {
   const sugg = (state.aiSuggestions || []).find(s => s.id === suggestionId);
   if (!sugg) return;
   sugg.decision_status = decision;
