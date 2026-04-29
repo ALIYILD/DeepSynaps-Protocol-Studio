@@ -441,6 +441,39 @@ await test('navBack with dirty state opens unsaved modal; Cancel closes it witho
   assert.equal(navCalled, false, 'cancel did not nav');
 });
 
+// ── Demo seed: bootDemoState pre-populates the canonical demo workbench
+await test('bootDemoState seeds 9 AI artefacts, flat C4, and 2 events (idempotent)', () => {
+  // Build a fresh synthetic state mirroring pgQEEGRawWorkbench's init shape.
+  const demoState = {
+    isDemo: true, timebase: 10, aiThreshold: 0.7,
+    aiSuggestions: [], badChannels: new Set(), events: [],
+    _demoSeeded: false,
+  };
+  mod.bootDemoState(demoState);
+  assert.ok(demoState.aiSuggestions.length >= 9,
+    `>=9 AI suggestions seeded, got ${demoState.aiSuggestions.length}`);
+  // Spec asks for state.badChannels.includes('C4'); the implementation uses
+  // a Set keyed on the full channel id ('C4-Av'). Verify membership flexibly.
+  const badList = Array.from(demoState.badChannels);
+  assert.ok(badList.some(c => /^C4(-|$)/.test(c)),
+    `bad-channel set includes C4 (got ${JSON.stringify(badList)})`);
+  assert.ok(demoState.events.length >= 2,
+    `>=2 events seeded, got ${demoState.events.length}`);
+  assert.ok(demoState.events.some(e => /Eyes Closed/i.test(e.label)),
+    'Eyes Closed event present');
+  assert.ok(demoState.events.some(e => /Photic/i.test(e.label)),
+    'Photic event present');
+
+  // Idempotency: a second call must not duplicate any seeded data.
+  const aiCount = demoState.aiSuggestions.length;
+  const badCount = demoState.badChannels.size;
+  const eventCount = demoState.events.length;
+  mod.bootDemoState(demoState);
+  assert.equal(demoState.aiSuggestions.length, aiCount, 'AI suggestions not duplicated');
+  assert.equal(demoState.badChannels.size, badCount, 'bad channels not duplicated');
+  assert.equal(demoState.events.length, eventCount, 'events not duplicated');
+});
+
 // ── Final summary
 await test('summary: every workbench API method got at least one real call', () => {
   const methods = [
