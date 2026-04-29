@@ -358,7 +358,7 @@ async def transition_fusion_case(
     try:
         updated = transition_fusion_case_state(
             db,
-            case_id=case_id,
+            fusion_case_id=case_id,
             action=body.action,
             actor_id=actor.actor_id,
             actor_role=actor.role,

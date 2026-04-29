@@ -1253,6 +1253,25 @@ export const api = {
     apiFetch(`/api/v1/mri/patients/${encodeURIComponent(patientId)}/analyses`),
   getFusionRecommendation: (patientId) =>
     apiFetch(`/api/v1/fusion/recommend/${encodeURIComponent(patientId)}`, { method: 'POST' }),
+  // Fusion Workbench (Migration 054)
+  createFusionCase: (patientId, opts = {}) =>
+    apiFetch('/api/v1/fusion/cases', { method: 'POST', body: JSON.stringify({ patient_id: patientId, ...opts }) }),
+  listFusionCases: (patientId) =>
+    apiFetch(`/api/v1/fusion/cases?patient_id=${encodeURIComponent(patientId)}`),
+  getFusionCase: (caseId) =>
+    apiFetch(`/api/v1/fusion/cases/${encodeURIComponent(caseId)}`),
+  transitionFusionCase: (caseId, action, note, amendments) =>
+    apiFetch(`/api/v1/fusion/cases/${encodeURIComponent(caseId)}/transition`, { method: 'POST', body: JSON.stringify({ action, note, amendments }) }),
+  getFusionAgreement: (caseId) =>
+    apiFetch(`/api/v1/fusion/cases/${encodeURIComponent(caseId)}/agreement`),
+  getFusionProtocolFusion: (caseId) =>
+    apiFetch(`/api/v1/fusion/cases/${encodeURIComponent(caseId)}/protocol-fusion`),
+  getFusionPatientReport: (caseId) =>
+    apiFetch(`/api/v1/fusion/cases/${encodeURIComponent(caseId)}/patient-report`),
+  getFusionAudit: (caseId) =>
+    apiFetch(`/api/v1/fusion/cases/${encodeURIComponent(caseId)}/audit`),
+  exportFusionCase: (caseId) =>
+    apiFetch(`/api/v1/fusion/cases/${encodeURIComponent(caseId)}/export`, { method: 'POST' }),
   getMRIPatientTimeline: (patientId) =>
     apiFetch(`/api/v1/mri/patients/${encodeURIComponent(patientId)}/timeline`),
   exportFHIRBundle: (data) =>

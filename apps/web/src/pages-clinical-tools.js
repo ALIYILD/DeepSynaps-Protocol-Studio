@@ -13102,7 +13102,7 @@ export async function pgHomePrograms(setTopbar, navigate) {
         _lsSet(_compKey(pid), comps);
         // Also update the patient bridge
         const ptTasks = _ls(_patKey(pid), []); const idx = ptTasks.findIndex(t=>t.id===tid); if(idx>=0){ptTasks[idx].done=true;ptTasks[idx].completedAt=new Date().toISOString(); _lsSet(_patKey(pid),ptTasks);}
-        renderPage(); window._dsToast?.({title:'Task completed',body:'Marked as done in patient view.',severity:'success'});
+        renderPage(); window._dsToast?.({title:'Task updated',body:'Marked as done in the local patient view.',severity:'success'});
       };
       window._hpPatUncompleteTask = (pid, tid) => {
         const comps = _ls(_compKey(pid), {}); delete comps[tid]; _lsSet(_compKey(pid), comps);
@@ -13381,7 +13381,7 @@ export async function pgHomePrograms(setTopbar, navigate) {
     comps[tid] = new Date().toISOString();
     _lsSet(_compKey(pid), comps);
     _allTasks = _loadAllTasks(); renderPage();
-    window._showNotifToast?.({ title:'Marked Complete', body:'Task marked as completed.', severity:'success' });
+    window._showNotifToast?.({ title:'Task updated', body:'Task marked complete in this browser view.', severity:'success' });
   };
 
   window._hpArchive = (tid, pid) => {

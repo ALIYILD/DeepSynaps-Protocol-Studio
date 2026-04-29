@@ -125,7 +125,10 @@ def _check_recency(
     if ts is None:
         return warnings
 
-    age = datetime.now(timezone.utc) - ts
+    now = datetime.now(timezone.utc)
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    age = now - ts
     if age > timedelta(days=max_days):
         warnings.append(
             f"{source} analysis is {age.days} days old (older than {max_days} days). "
