@@ -644,6 +644,11 @@ export async function pgProtocolDetail(setTopbar, navigate) {
             <div class="prot-tags">${(proto.tags||[]).map(t=>`<span class="prot-tag">${_esc(t)}</span>`).join('')}</div>
           </div>` : ''}
 
+          <div class="prot-detail-card" id="prot-detail-bundle-evidence-card">
+            <div class="prot-detail-card-title">Bundle evidence context</div>
+            <div id="prot-detail-bundle-body" style="font-size:12px;color:var(--text-secondary)">Loading bundle-backed template and safety context…</div>
+          </div>
+
           <div class="prot-detail-card" id="prot-detail-evidence-card">
             <div class="prot-detail-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
               <span>Evidence</span>
@@ -944,6 +949,61 @@ export async function pgProtocolDetail(setTopbar, navigate) {
 
   let _evData = null;
   let _evActiveTab = 'papers';
+  const _bundleIndication = cond?.label || proto.conditionId || '';
+  const _bundleModality = proto.device || '';
+  const _bundleTarget = proto.target || '';
+
+  const _renderBundleEvidence = ({ templates = [], safetySignals = [] } = {}) => {
+    const host = document.getElementById('prot-detail-bundle-body');
+    if (!host) return;
+    if (!templates.length && !safetySignals.length) {
+      host.innerHTML = '<div style="color:var(--text-tertiary)">No bundle-backed protocol templates or safety signals matched this protocol yet.</div>';
+      return;
+    }
+    const templateHtml = templates.length
+      ? `
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${templates.slice(0, 3).map((tpl) => `
+            <div style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(31,95,179,0.05)">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                <div style="font-weight:600;color:var(--text-primary)">${_esc(tpl.protocol_name || tpl.template_name || tpl.title || tpl.condition_label || 'Protocol template')}</div>
+                ${(tpl.evidence_grade || tpl.evidence_tier) ? `<span style="font-size:10px;color:var(--teal);border:1px solid var(--teal);padding:1px 6px;border-radius:999px">${_esc(String(tpl.evidence_grade || tpl.evidence_tier).replace(/^EV-/, ''))}</span>` : ''}
+              </div>
+              <div style="margin-top:3px;color:var(--text-tertiary);font-size:11px">${_esc(tpl.target_region || tpl.target || tpl.coil_or_electrode_placement || tpl.condition_label || '')}</div>
+              ${(tpl.supporting_paper_count || tpl.paper_count || tpl.linked_paper_count) ? `<div style="margin-top:4px;color:var(--text-secondary);font-size:11px">${_esc(String(tpl.supporting_paper_count || tpl.paper_count || tpl.linked_paper_count))} supporting papers</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      `
+      : '<div style="color:var(--text-tertiary)">No bundle template matches for this indication/device pair.</div>';
+    const signalHtml = safetySignals.length
+      ? `
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${safetySignals.slice(0, 3).map((sig) => `
+            <div style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,181,71,0.06)">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                <div style="font-weight:600;color:var(--text-primary)">${_esc(sig.signal || sig.title || sig.label || sig.risk || 'Safety signal')}</div>
+                ${(sig.paper_count || sig.supporting_paper_count || sig.mention_count) ? `<span style="font-size:10px;color:var(--text-tertiary)">${_esc(String(sig.paper_count || sig.supporting_paper_count || sig.mention_count))} refs</span>` : ''}
+              </div>
+              <div style="margin-top:3px;color:var(--text-tertiary);font-size:11px">${_esc(sig.summary || sig.notes || sig.description || 'Bundle-backed safety signal.')}</div>
+            </div>
+          `).join('')}
+        </div>
+      `
+      : '<div style="color:var(--text-tertiary)">No bundle safety signals matched this protocol yet.</div>';
+    host.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <section>
+          <div style="font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:6px">Template support</div>
+          ${templateHtml}
+        </section>
+        <section>
+          <div style="font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:6px">Safety signals</div>
+          ${signalHtml}
+        </section>
+      </div>
+    `;
+  };
 
   const _renderEvTab = () => {
     const body = document.getElementById('prot-detail-ev-body');
@@ -988,6 +1048,19 @@ export async function pgProtocolDetail(setTopbar, navigate) {
   };
 
   window._protEvTab = tab => { _evActiveTab = tab; _renderEvTab(); };
+
+  Promise.allSettled([
+    api.listResearchProtocolTemplates?.({ indication: _bundleIndication, modality: _bundleModality, target: _bundleTarget, limit: 4 }),
+    api.listResearchSafetySignals?.({ indication: _bundleIndication, modality: _bundleModality, target: _bundleTarget, limit: 4 }),
+  ]).then(([tplRes, sigRes]) => {
+    _renderBundleEvidence({
+      templates: tplRes.status === 'fulfilled' ? (Array.isArray(tplRes.value?.items) ? tplRes.value.items : Array.isArray(tplRes.value) ? tplRes.value : []) : [],
+      safetySignals: sigRes.status === 'fulfilled' ? (Array.isArray(sigRes.value?.items) ? sigRes.value.items : Array.isArray(sigRes.value) ? sigRes.value : []) : [],
+    });
+  }).catch(() => {
+    const host = document.getElementById('prot-detail-bundle-body');
+    if (host) host.innerHTML = '<div style="color:var(--text-tertiary)">Bundle-backed evidence context is unavailable right now.</div>';
+  });
 
   // Load evidence + status concurrently
   Promise.all([

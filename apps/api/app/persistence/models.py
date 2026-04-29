@@ -2890,6 +2890,7 @@ class FusionCase(Base):
     source_qeeg_state: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     source_mri_state: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     radiology_review_required: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    mri_registration_confidence: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

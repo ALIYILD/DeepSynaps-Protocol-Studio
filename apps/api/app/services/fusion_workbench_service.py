@@ -702,11 +702,15 @@ def create_fusion_case(
 
     source_mri_state = mri.report_state if mri else None
     radiology_required = False
+    reg_confidence = None
     if mri is not None:
         cockpit = _load_json(mri.safety_cockpit_json) or {}
         for flag in cockpit.get("red_flags", []):
             if isinstance(flag, dict) and flag.get("code") == "RADIOLOGY_REVIEW_REQUIRED":
                 radiology_required = not flag.get("resolved", False)
+        structural = _load_json(getattr(mri, "structural_json", None)) or {}
+        reg = structural.get("registration") or {}
+        reg_confidence = reg.get("confidence")
 
     # Provenance
     provenance = {
@@ -760,6 +764,7 @@ def create_fusion_case(
         source_qeeg_state=source_qeeg_state,
         source_mri_state=source_mri_state,
         radiology_review_required=radiology_required,
+        mri_registration_confidence=reg_confidence,
         generated_at=datetime.now(timezone.utc),
     )
 

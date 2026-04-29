@@ -201,6 +201,7 @@ test('renderFusionWorkbench shows all sections when caseData provided', () => {
   assert.match(html, /Fusion Cases/);
   assert.match(html, /Modality Status/);
   assert.match(html, /Safety Cockpit/);
+  assert.match(html, /Source Review Status/);
   assert.match(html, /Agreement Dashboard/);
   assert.match(html, /Protocol Fusion/);
   assert.match(html, /AI Summary/);
@@ -222,4 +223,33 @@ test('XSS escape in all dynamic content', () => {
   const html = wb.renderAiSummary(malicious);
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /&lt;script&gt;/);
+});
+
+// ── Source Review Status ─────────────────────────────────────────────────────
+
+test('renderSourceReviewStatus shows all fields', () => {
+  const caseData = {
+    source_qeeg_state: 'APPROVED',
+    source_mri_state: 'MRI_NEEDS_CLINICAL_REVIEW',
+    radiology_review_required: true,
+    mri_registration_confidence: 'moderate',
+  };
+  const html = wb.renderSourceReviewStatus(caseData);
+  assert.match(html, /APPROVED/);
+  assert.match(html, /MRI_NEEDS_CLINICAL_REVIEW/);
+  assert.match(html, /REQUIRED/);
+  assert.match(html, /moderate/);
+});
+
+test('renderSourceReviewStatus shows cleared radiology and not assessed reg', () => {
+  const caseData = {
+    source_qeeg_state: 'SIGNED',
+    source_mri_state: 'APPROVED',
+    radiology_review_required: false,
+    mri_registration_confidence: null,
+  };
+  const html = wb.renderSourceReviewStatus(caseData);
+  assert.match(html, /SIGNED/);
+  assert.match(html, /Cleared/);
+  assert.match(html, /not assessed/);
 });

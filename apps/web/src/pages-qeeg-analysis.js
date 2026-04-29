@@ -2071,11 +2071,65 @@ var _catSummaryExtractors = {
 // ── Module-scoped state for exports ──────────────────────────────────────────
 var _currentAnalysis = null;
 var _currentReport = null;
+var _qeegSavedEvidenceCitations = [];
+
+function _getQEEGReportEvidenceContext() {
+  return {
+    kind: 'qeeg',
+    patientId: (_currentAnalysis && _currentAnalysis.patient_id) || _getContextPatientIdForQEEG() || '',
+    analysisId: (_currentAnalysis && _currentAnalysis.id) || window._qeegSelectedId || '',
+    reportId: (_currentReport && _currentReport.id) || window._qeegSelectedReportId || '',
+  };
+}
+
+function _filterQEEGSavedEvidenceCitations(rows, context) {
+  rows = Array.isArray(rows) ? rows : [];
+  if (!context || !context.analysisId) return [];
+  return rows.filter(function (item) {
+    var savedCtx = item && item.citation_payload ? item.citation_payload.report_context : null;
+    if (!savedCtx || savedCtx.kind !== 'qeeg') return false;
+    if (savedCtx.analysisId !== context.analysisId) return false;
+    if (context.reportId && savedCtx.reportId && savedCtx.reportId !== context.reportId) return false;
+    return true;
+  });
+}
+
+async function _loadQEEGSavedEvidenceCitations(patientId) {
+  if (!patientId || patientId === 'qeeg-context') {
+    _qeegSavedEvidenceCitations = [];
+    return [];
+  }
+  try {
+    var rows = await api.listEvidenceSavedCitations(patientId);
+    _qeegSavedEvidenceCitations = Array.isArray(rows) ? rows : (rows && rows.items) || [];
+  } catch (_) {
+    _qeegSavedEvidenceCitations = [];
+  }
+  return _qeegSavedEvidenceCitations;
+}
+
+function _renderQEEGSavedEvidencePanel(citations) {
+  citations = Array.isArray(citations) ? citations : [];
+  return card('Evidence citations saved for report',
+    citations.length
+      ? '<div class="qeeg-report-callouts">'
+        + citations.slice(0, 6).map(function (item) {
+          var meta = [item.finding_label, item.pmid ? ('PMID ' + item.pmid) : '', item.doi || ''].filter(Boolean).join(' · ');
+          return '<div class="qeeg-report-callout"><div class="qeeg-report-callout__label">'
+            + esc(item.paper_title || 'Evidence citation')
+            + '</div><div class="qeeg-report-callout__value">'
+            + esc(meta || item.claim || 'Saved evidence citation')
+            + '</div></div>';
+        }).join('')
+        + '</div>'
+      : '<div style="font-size:12px;color:var(--text-tertiary)">No evidence citations have been added from the evidence drawer for this patient yet.</div>'
+  );
+}
 var _coherenceBand = 'alpha';
 
 // ── Comprehensive Report Renderer ────────────────────────────────────────────
 // Generates the full clinical qEEG report HTML from a report object + analysis data.
-function _renderComprehensiveReport(report, analysis) {
+function _renderComprehensiveReport(report, analysis, savedEvidenceCitations) {
   var narrative = report.ai_narrative || report.ai_narrative_json || {};
   var conditions = report.condition_matches || report.condition_matches_json || [];
   var suggestions = report.protocol_suggestions || report.protocol_suggestions_json || [];
@@ -2126,6 +2180,8 @@ function _renderComprehensiveReport(report, analysis) {
     );
     html += '</div>';
   }
+
+  html += _renderQEEGSavedEvidencePanel(savedEvidenceCitations);
 
   // ── MNE narrative + RAG citations (§4.6 of CONTRACT.md) ─────────────────
   // Rendered when the new-shape narrative is present (executive_summary or
@@ -4126,7 +4182,15 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   pageHtml += '<div id="qeeg-tab-content"></div>';
   pageHtml += '</div>';
   el.innerHTML = pageHtml;
-  initEvidenceDrawer({ patientId: patientId || _getContextPatientIdForQEEG() || 'qeeg-context' });
+  initEvidenceDrawer({
+    patientId: patientId || _getContextPatientIdForQEEG() || 'qeeg-context',
+    getReportContext: function () { return _getQEEGReportEvidenceContext(); },
+    onAddToReport: async function (payload) {
+      var all = Array.isArray(payload && payload.savedCitations) ? payload.savedCitations : [];
+      _qeegSavedEvidenceCitations = _filterQEEGSavedEvidenceCitations(all, payload && payload.reportContext ? payload.reportContext : _getQEEGReportEvidenceContext());
+      if (window._qeegTab === 'report') window._nav('qeeg-analysis');
+    },
+  });
   wireEvidenceChips(el, { onOpen: (query) => openEvidenceDrawer(query) });
 
   // Init patient selector
@@ -4772,11 +4836,14 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         } catch (_) { /* analysis data enhances report but is not required */ }
       }
       if (analysisData) _currentAnalysis = analysisData;
+      var reportPatientId = (analysisData && analysisData.patient_id) || _getContextPatientIdForQEEG() || (_patient && _patient.id) || null;
+      await _loadQEEGSavedEvidenceCitations(reportPatientId);
+      _qeegSavedEvidenceCitations = _filterQEEGSavedEvidenceCitations(_qeegSavedEvidenceCitations, _getQEEGReportEvidenceContext());
 
       var html = renderQEEGSessionRail(analysisData, {
         title: 'qEEG report context',
         note: 'This rail keeps the recording and quality context visible while reviewing AI narrative output.'
-      }) + _renderComprehensiveReport(report, analysisData);
+      }) + _renderComprehensiveReport(report, analysisData, _qeegSavedEvidenceCitations);
       if (reports.length > 1) {
         html = card('Report Versions',
           '<div class="qeeg-report-version-bar">'
@@ -5572,6 +5639,14 @@ window._qeegPrintReport = function () {
   }
   if (_currentReport.clinician_amendments) {
     html += '<h2>Clinician Amendments</h2><p>' + esc(_currentReport.clinician_amendments) + '</p>';
+  }
+  if (_qeegSavedEvidenceCitations && _qeegSavedEvidenceCitations.length) {
+    html += '<h2>Evidence Citations Added from Drawer</h2><ul>';
+    _qeegSavedEvidenceCitations.slice(0, 8).forEach(function (item) {
+      var meta = [item.finding_label, item.pmid ? ('PMID ' + item.pmid) : '', item.doi || ''].filter(Boolean).join(' · ');
+      html += '<li><strong>' + esc(item.paper_title || 'Evidence citation') + '</strong>' + (meta ? ' — ' + esc(meta) : '') + '</li>';
+    });
+    html += '</ul>';
   }
   html += '<button class="print-btn" onclick="window.print()">Print / Save PDF</button>';
   html += '</body></html>';

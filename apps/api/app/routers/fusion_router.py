@@ -113,6 +113,7 @@ class FusionCaseResponse(BaseModel):
     source_qeeg_state: str | None = None
     source_mri_state: str | None = None
     radiology_review_required: bool
+    mri_registration_confidence: str | None = None
     generated_at: str | None = None
     created_at: str
     updated_at: str
@@ -225,6 +226,7 @@ def _case_to_response(case: FusionCase) -> FusionCaseResponse:
         source_qeeg_state=case.source_qeeg_state,
         source_mri_state=case.source_mri_state,
         radiology_review_required=case.radiology_review_required,
+        mri_registration_confidence=case.mri_registration_confidence,
         generated_at=case.generated_at.isoformat() if case.generated_at else None,
         created_at=case.created_at.isoformat() if case.created_at else "",
         updated_at=case.updated_at.isoformat() if case.updated_at else "",

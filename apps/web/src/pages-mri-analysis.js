@@ -45,6 +45,28 @@ var _jobWatchAbort = null;       // AbortController for SSE-over-fetch
 var _jobError      = null;
 var _selectedCondition = 'mdd';
 var _fusionSummary = null;
+var _mriSavedEvidenceCitations = [];
+
+function _getMRIReportEvidenceContext() {
+  return {
+    kind: 'mri',
+    patientId: (_patientMeta && _patientMeta.patient_id) || (_report && _report.patient && _report.patient.patient_id) || '',
+    analysisId: (_report && _report.analysis_id) || _mriAnalysisId || '',
+    reportId: (_report && (_report.report_id || _report.id)) || '',
+  };
+}
+
+function _filterMRISavedEvidenceCitations(rows, context) {
+  rows = Array.isArray(rows) ? rows : [];
+  if (!context || !context.analysisId) return [];
+  return rows.filter(function (item) {
+    var savedCtx = item && item.citation_payload ? item.citation_payload.report_context : null;
+    if (!savedCtx || savedCtx.kind !== 'mri') return false;
+    if (savedCtx.analysisId !== context.analysisId) return false;
+    if (context.reportId && savedCtx.reportId && savedCtx.reportId !== context.reportId) return false;
+    return true;
+  });
+}
 // Populated by pgMRIAnalysis() and re-read by the compare modal's submit
 // handler so we don't refetch on every click.
 var _patientAnalysesCache = { patientId: null, rows: [] };
@@ -302,6 +324,36 @@ function _demoFusionSummary(patientId) {
     confidence_grade: 'heuristic',
     generated_at: new Date().toISOString(),
   };
+}
+
+async function _loadMRISavedEvidenceCitations(patientId) {
+  if (!patientId || patientId === 'mri-context') {
+    _mriSavedEvidenceCitations = [];
+    return [];
+  }
+  try {
+    var rows = await api.listEvidenceSavedCitations(patientId);
+    _mriSavedEvidenceCitations = Array.isArray(rows) ? rows : (rows && rows.items) || [];
+  } catch (_) {
+    _mriSavedEvidenceCitations = [];
+  }
+  return _mriSavedEvidenceCitations;
+}
+
+function renderMRIEvidenceCitations(citations) {
+  citations = Array.isArray(citations) ? citations : [];
+  return '<div class="ds-mri-panel ds-mri-panel--evidence" style="margin-bottom:12px">'
+    + '<div style="font-weight:700;margin-bottom:6px">Evidence citations saved for report</div>'
+    + (citations.length
+      ? citations.slice(0, 6).map(function (item) {
+        var meta = [item.finding_label, item.pmid ? ('PMID ' + item.pmid) : '', item.doi || ''].filter(Boolean).join(' · ');
+        return '<div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);margin-bottom:8px">'
+          + '<div style="font-size:12px;font-weight:600;color:var(--text-primary)">' + esc(item.paper_title || 'Evidence citation') + '</div>'
+          + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:3px">' + esc(meta || item.claim || 'Saved evidence citation') + '</div>'
+          + '</div>';
+      }).join('')
+      : '<div style="font-size:12px;color:var(--text-tertiary)">No evidence citations have been added from the evidence drawer for this patient yet.</div>')
+    + '</div>';
 }
 
 async function _fetchFusionSummary(patientId) {
@@ -2321,6 +2373,7 @@ export function renderFullView(state) {
       + renderBrainAtlasViewer(report)
       + renderGlassBrain(report)
       + renderMedRAGPanel(state.medrag || _synthesiseMedRAGFromReport(report))
+      + renderMRIEvidenceCitations(state.evidenceCitations || [])
       + renderMRIRegistrationQA(state.registrationQA || null)
       + renderMRIPhiAudit(state.phiAudit || null)
       + renderMRIClinicianReview(report)
@@ -2912,7 +2965,10 @@ function _wireRightColumn(navigate) {
   var jsonBtn = document.querySelector('.ds-mri-dl-json');
   if (jsonBtn) jsonBtn.addEventListener('click', function () {
     if (!_report) return;
-    var blob = new Blob([JSON.stringify(_report, null, 2)], { type: 'application/json' });
+    var exportPayload = Object.assign({}, _report, {
+      saved_evidence_citations: _mriSavedEvidenceCitations || [],
+    });
+    var blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url; a.download = 'mri_report_' + (aid || 'demo') + '.json'; a.click();
@@ -3070,6 +3126,8 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
   var patientAnalyses = [];
   var pid = _patientMeta && _patientMeta.patient_id;
   _fusionSummary = await _fetchFusionSummary(pid || (_report && _report.patient && _report.patient.patient_id));
+  await _loadMRISavedEvidenceCitations(pid || (_report && _report.patient && _report.patient.patient_id));
+  _mriSavedEvidenceCitations = _filterMRISavedEvidenceCitations(_mriSavedEvidenceCitations, _getMRIReportEvidenceContext());
   if (pid && !_isDemoMode()) {
     try {
       var res2 = await api.listPatientMRIAnalyses(pid);
@@ -3093,6 +3151,7 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
       status: _jobStatus,
       medrag: medrag,
       fusion: _fusionSummary,
+      evidenceCitations: _mriSavedEvidenceCitations,
       patientId: pid || (_report && _report.patient && _report.patient.patient_id) || null,
       patientAnalyses: patientAnalyses,
     });
@@ -3101,7 +3160,15 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
     _wireRunButton(navigate);
     _wireRightColumn(navigate);
     _wireCompareButton(patientAnalyses);
-    initEvidenceDrawer({ patientId: pid || (_report && _report.patient && _report.patient.patient_id) || 'mri-context' });
+    initEvidenceDrawer({
+      patientId: pid || (_report && _report.patient && _report.patient.patient_id) || 'mri-context',
+      getReportContext: function () { return _getMRIReportEvidenceContext(); },
+      onAddToReport: async function (payload) {
+        var all = Array.isArray(payload && payload.savedCitations) ? payload.savedCitations : [];
+        _mriSavedEvidenceCitations = _filterMRISavedEvidenceCitations(all, payload && payload.reportContext ? payload.reportContext : _getMRIReportEvidenceContext());
+        window._nav?.('mri-analysis');
+      },
+    });
     wireEvidenceChips(el, { onOpen: function (query) { openEvidenceDrawer(query); } });
   }
 }

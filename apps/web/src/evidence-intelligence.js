@@ -236,6 +236,12 @@ export function initEvidenceDrawer({ patientId = '', onOpenFullTab = null } = {}
   if (onOpenFullTab) {
     window.__dsEvidenceOpenFullTab = onOpenFullTab;
   }
+  if (typeof arguments[0]?.onAddToReport === 'function') {
+    window.__dsEvidenceAddToReport = arguments[0].onAddToReport;
+  }
+  if (typeof arguments[0]?.getReportContext === 'function') {
+    window.__dsEvidenceGetReportContext = arguments[0].getReportContext;
+  }
   return host;
 }
 
@@ -313,6 +319,56 @@ function ensureEvidenceHost() {
   return host;
 }
 
+function _toastEvidence(title, body, severity = 'success') {
+  if (typeof window !== 'undefined' && typeof window._dsToast === 'function') {
+    window._dsToast({ title, body, severity });
+  }
+}
+
+function _buildReportCitationPayloads(result) {
+  const exportCitations = Array.isArray(result?.export_citations) ? result.export_citations : [];
+  if (exportCitations.length) {
+    return exportCitations.slice(0, 5).map((citation, index) => ({
+      finding_id: result.finding_id || result.target_name || `finding-${index}`,
+      finding_label: result.target_name || result.label || 'Evidence finding',
+      claim: result.claim || '',
+      paper_id: citation.paper_id || citation.id || citation.pmid || citation.doi || `paper-${index}`,
+      paper_title: citation.title || citation.paper_title || citation.inline_citation || 'Evidence citation',
+      pmid: citation.pmid || null,
+      doi: citation.doi || null,
+      citation_payload: citation,
+    }));
+  }
+  return (result?.supporting_papers || []).slice(0, 3).map((paper, index) => ({
+    finding_id: result.finding_id || result.target_name || `finding-${index}`,
+    finding_label: result.target_name || result.label || 'Evidence finding',
+    claim: result.claim || '',
+    paper_id: paper.paper_id || paper.id || paper.pmid || paper.doi || `paper-${index}`,
+    paper_title: paper.title || 'Evidence paper',
+    pmid: paper.pmid || null,
+    doi: paper.doi || null,
+    citation_payload: {
+      paper_id: paper.paper_id || paper.id || null,
+      title: paper.title || null,
+      pmid: paper.pmid || null,
+      doi: paper.doi || null,
+      url: paper.url || null,
+      inline_citation: paper.title || null,
+    },
+  }));
+}
+
+function _contextAwareFindingId(baseFindingId, context) {
+  if (!context || !context.kind) return baseFindingId;
+  var parts = [
+    context.kind,
+    context.patientId || '',
+    context.analysisId || '',
+    context.reportId || '',
+  ].filter(Boolean);
+  return parts.length ? `${baseFindingId}::${parts.join(':')}` : baseFindingId;
+}
+
 function wireDrawer(host, result, patientId) {
   host.querySelectorAll('[data-evidence-close]').forEach((node) => node.addEventListener('click', () => {
     host.classList?.remove?.('is-open');
@@ -345,7 +401,52 @@ function wireDrawer(host, result, patientId) {
     window._paPatientId = node.getAttribute('data-evidence-full-tab') || patientId;
     window._nav?.('patient-analytics');
   }));
-  host.querySelectorAll('[data-evidence-add-report]').forEach((node) => node.addEventListener('click', () => {
-    window._dsToast?.({ title: 'Evidence staged', body: 'Citation payload is ready for report export.', severity: 'success' });
+  host.querySelectorAll('[data-evidence-add-report]').forEach((node) => node.addEventListener('click', async () => {
+    if (!result) return;
+    const resolvedPatientId = patientId || result.patient_id || host.dataset.patientId || '';
+    const reportContext = typeof window.__dsEvidenceGetReportContext === 'function'
+      ? window.__dsEvidenceGetReportContext()
+      : null;
+    const payloads = _buildReportCitationPayloads(result).map((payload) => {
+      const baseFindingId = payload.finding_id;
+      return {
+        ...payload,
+        finding_id: _contextAwareFindingId(baseFindingId, reportContext),
+        citation_payload: {
+          ...(payload.citation_payload || {}),
+          report_context: reportContext || null,
+          base_finding_id: baseFindingId,
+        },
+      };
+    });
+    if (!resolvedPatientId || !payloads.length) {
+      _toastEvidence('Evidence not added', 'No patient context or export citations were available for this evidence set.', 'warning');
+      return;
+    }
+    node.disabled = true;
+    const originalText = node.textContent;
+    node.textContent = 'Adding…';
+    try {
+      await Promise.all(payloads.map((payload) => api.saveEvidenceCitation({
+        patient_id: resolvedPatientId,
+        ...payload,
+      })));
+      const saved = await api.listEvidenceSavedCitations(resolvedPatientId);
+      if (typeof window.__dsEvidenceAddToReport === 'function') {
+        await window.__dsEvidenceAddToReport({
+          patientId: resolvedPatientId,
+          result,
+          reportContext: reportContext || null,
+          savedCitations: Array.isArray(saved) ? saved : (saved?.items || []),
+          addedCount: payloads.length,
+        });
+      }
+      node.textContent = 'Added to report';
+      _toastEvidence('Evidence added to report', `${payloads.length} citation${payloads.length === 1 ? '' : 's'} saved for this patient report workflow.`, 'success');
+    } catch (err) {
+      node.disabled = false;
+      node.textContent = originalText;
+      _toastEvidence('Evidence add failed', err?.message || String(err), 'error');
+    }
   }));
 }

@@ -41,6 +41,11 @@ function _list(v) {
     .filter(Boolean);
 }
 
+function _items(v) {
+  if (Array.isArray(v?.items)) return v.items;
+  return Array.isArray(v) ? v : [];
+}
+
 function _brainMapTargetQuery(code) {
   const raw = String(code || '').toLowerCase();
   if (!raw) return '';
@@ -117,6 +122,72 @@ function _normalizeEvidence(rows) {
     delta: row?.research_summary || row?.trial_protocol_parameter_summary || '',
     n: row?.citation_count || null,
   }));
+}
+
+function _normalizeTemplateMatches(rows) {
+  return _items(rows).map((row, index) => ({
+    id: row?.protocol_id || row?.template_id || `template-${index}`,
+    title: row?.protocol_name || row?.template_name || row?.condition_label || row?.title || 'Protocol template',
+    target: row?.target_region || row?.target || '',
+    grade: String(row?.evidence_grade || row?.evidence_tier || '').replace(/^EV-/, '') || '',
+    modality: row?.modality_name || row?.modality_id || '',
+    placement: row?.coil_or_electrode_placement || row?.placement_summary || '',
+    indication: row?.condition_label || row?.condition_slug || row?.indication || '',
+    support: row?.supporting_paper_count || row?.paper_count || row?.support_count || row?.linked_paper_count || null,
+  })).filter((row) => row.title);
+}
+
+function _normalizeGraphLinks(rows) {
+  return _items(rows).map((row, index) => ({
+    id: row?.edge_id || row?.id || `graph-${index}`,
+    label: row?.relationship_label || row?.edge_label || row?.signal || row?.finding || row?.title || 'Evidence link',
+    source: row?.source_label || row?.source_target || row?.source || row?.from_node || '',
+    target: row?.target_label || row?.target_region || row?.target || row?.to_node || '',
+    weight: row?.supporting_paper_count || row?.paper_count || row?.weight || row?.evidence_count || null,
+    summary: row?.summary || row?.edge_summary || row?.notes || '',
+  })).filter((row) => row.label);
+}
+
+function _normalizeSafetySignals(rows) {
+  return _items(rows).map((row, index) => ({
+    id: row?.signal_id || row?.id || `signal-${index}`,
+    label: row?.signal || row?.title || row?.label || row?.risk || 'Safety signal',
+    severity: String(row?.severity || row?.level || row?.risk_level || '').toLowerCase(),
+    count: row?.paper_count || row?.supporting_paper_count || row?.mention_count || null,
+    summary: row?.summary || row?.notes || row?.description || '',
+  })).filter((row) => row.label);
+}
+
+async function _loadBrainMapEvidenceBundle(targetRegion) {
+  const target = _brainMapTargetQuery(targetRegion);
+  const modality = 'tDCS';
+  const data = { evidence: null, templates: null, graph: null, safetySignals: null };
+  try {
+    if (typeof api.listProtocolEvidence === 'function') {
+      data.evidence = await api.listProtocolEvidence({ target, modality, limit: 8 });
+    }
+  } catch (_) { data.evidence = null; }
+  try {
+    if (typeof api.listResearchExactProtocols === 'function') {
+      data.templates = await api.listResearchExactProtocols({ target, modality, limit: 4 });
+    }
+  } catch (_) { data.templates = null; }
+  try {
+    if (typeof api.listResearchEvidenceGraph === 'function') {
+      data.graph = await api.listResearchEvidenceGraph({ target, modality, limit: 4 });
+    }
+  } catch (_) { data.graph = null; }
+  try {
+    if (typeof api.listResearchSafetySignals === 'function') {
+      data.safetySignals = await api.listResearchSafetySignals({ target, modality, limit: 5 });
+    }
+  } catch (_) { data.safetySignals = null; }
+  return {
+    evidence: _normalizeEvidence(data.evidence),
+    templates: _normalizeTemplateMatches(data.templates),
+    graph: _normalizeGraphLinks(data.graph),
+    safetySignals: _normalizeSafetySignals(data.safetySignals),
+  };
 }
 
 // Default state factory
@@ -208,26 +279,19 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
   const S = window._bmState;
 
   // Data fetch (all endpoints optional, graceful stubs)
-  const data = { targets: null, montages: null, evidence: null, efield: null };
+  const data = { targets: null, montages: null, efield: null };
   try {
     if (typeof api.listTargets === 'function') data.targets = await api.listTargets();
   } catch (_) { data.targets = null; }
   try {
     if (typeof api.listMontages === 'function') data.montages = await api.listMontages();
   } catch (_) { data.montages = null; }
-  try {
-    if (typeof api.listProtocolEvidence === 'function') {
-      data.evidence = await api.listProtocolEvidence({ target: _brainMapTargetQuery(S.targetRegion), modality: 'tDCS', limit: 8 });
-    }
-  } catch (_) { data.evidence = null; }
-
   const liveAtlas = _normalizeAtlas(data.targets);
   const liveMontages = _normalizeMontages(data.montages);
-  const liveEvidence = _normalizeEvidence(data.evidence);
+  let bundle = await _loadBrainMapEvidenceBundle(S.targetRegion);
   const atlas = liveAtlas.length ? liveAtlas : TARGET_ATLAS_FALLBACK;
   const montages = liveMontages.length ? liveMontages : MONTAGE_LIBRARY_FALLBACK;
-  const evidence = liveEvidence.length ? liveEvidence : EVIDENCE_FALLBACK;
-  const usingFallback = !(liveAtlas.length && liveMontages.length && liveEvidence.length);
+  const usingFallback = !(liveAtlas.length && liveMontages.length && bundle.evidence.length);
   const topbarMeta = document.getElementById('dv2bm-topbar-meta');
   if (topbarMeta) {
     topbarMeta.textContent = usingFallback
@@ -235,21 +299,37 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
       : 'tDCS · 10-20 montage · evidence-graded';
   }
 
+  const _ctx = () => ({
+    atlas,
+    montages,
+    evidence: bundle.evidence.length ? bundle.evidence : EVIDENCE_FALLBACK,
+    templates: bundle.templates || [],
+    graph: bundle.graph || [],
+    safetySignals: bundle.safetySignals || [],
+    navigate,
+    usingFallback,
+  });
+
+  const _refreshEvidence = async () => {
+    bundle = await _loadBrainMapEvidenceBundle(S.targetRegion);
+  };
+
   // Handlers
-  window._bmSwitchTab = (tab) => { S.tab = tab; render(root, { atlas, montages, evidence, navigate, usingFallback }); };
-  window._bmSelectSite = (code, anchor) => {
+  window._bmSwitchTab = (tab) => { S.tab = tab; render(root, _ctx()); };
+  window._bmSelectSite = async (code, anchor) => {
     S.selectedRegion = code;
     S.targetRegion   = code;
     S.targetAnchor   = anchor;
-    render(root, { atlas, montages, evidence, navigate, usingFallback });
+    await _refreshEvidence();
+    render(root, _ctx());
   };
   window._bmApplyRole = (role, anchor) => {
     if (role === 'anode')   S.anode = anchor;
     if (role === 'cathode') S.cathode = anchor;
     if (role === 'target') { S.targetAnchor = anchor; }
-    render(root, { atlas, montages, evidence, navigate, usingFallback });
+    render(root, _ctx());
   };
-  window._bmSetViewMode = (mode) => { S.viewMode = mode; render(root, { atlas, montages, evidence, navigate, usingFallback }); };
+  window._bmSetViewMode = (mode) => { S.viewMode = mode; render(root, _ctx()); };
   window._bmSetCurrent = (v) => {
     S.currentMA = clamp(parseFloat(v) || 0.5, 0.5, 2.5);
     const valEl = document.getElementById('dv2bm-current-val');
@@ -266,7 +346,7 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
     const valEl = document.getElementById('dv2bm-sessions-val');
     if (valEl) valEl.textContent = S.sessions + ' sessions';
   };
-  window._bmLoadMontage = (id) => {
+  window._bmLoadMontage = async (id) => {
     const m = montages.find(x => x.id === id);
     if (!m) return;
     S.anode        = m.anode        || S.anode;
@@ -274,7 +354,8 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
     S.targetRegion = m.targetRegion || S.targetRegion;
     S.targetAnchor = (atlas.flatMap(g => g.sites).find(s => s.code === S.targetRegion)?.anchor) || m.anode;
     S.tab = 'clinical';
-    render(root, { atlas, montages, evidence, navigate, usingFallback });
+    await _refreshEvidence();
+    render(root, _ctx());
   };
   window._bmSave = async () => {
     const snapshot = {
@@ -313,7 +394,7 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
     else console.info('[brainmap]', title, body);
   }
 
-  render(root, { atlas, montages, evidence, navigate, usingFallback });
+  render(root, _ctx());
 }
 
 // ── Top-level render ─────────────────────────────────────────────────────────
@@ -361,7 +442,7 @@ function renderClinical(ctx) {
     <div class="dv2bm-clinical">
       ${leftRail(ctx.atlas)}
       ${centerCanvas()}
-      ${rightRail(ctx.evidence)}
+      ${rightRail(ctx)}
     </div>
   `;
 }
@@ -511,11 +592,12 @@ function viewPlaceholder(mode) {
   `;
 }
 
-function rightRail(evidence) {
+function rightRail(ctx) {
   const S = window._bmState;
-  const currentWarn = S.currentMA > 2.0
-    ? `<div class="dv2bm-warn amb"><b>Current &gt; 2 mA</b><span>Moderate risk — confirm patient tolerance and supervised session.</span></div>`
-    : `<div class="dv2bm-warn ok"><b>Within safety envelope</b><span>Current density ≈ ${(S.currentMA/35).toFixed(3)} mA/cm² · below 0.08 mA/cm² NIBS limit.</span></div>`;
+  const evidence = ctx.evidence || [];
+  const templates = ctx.templates || [];
+  const graph = ctx.graph || [];
+  const safetySignals = ctx.safetySignals || [];
 
   return `
     <aside class="dv2bm-right">
@@ -544,6 +626,11 @@ function rightRail(evidence) {
         <div class="dv2bm-group">
           <div class="dv2bm-group-title"><span class="num">03</span>Safety</div>
           <div id="dv2bm-safety">${safetyBanners()}</div>
+          ${safetySignals.length ? `
+            <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+              ${safetySignals.slice(0, 3).map(safetySignalCard).join('')}
+            </div>
+          ` : `<div style="margin-top:8px;color:${T.t3};font-size:11px">No bundle-backed safety signals matched this target.</div>`}
         </div>
 
         <div class="dv2bm-group">
@@ -552,7 +639,17 @@ function rightRail(evidence) {
         </div>
 
         <div class="dv2bm-group">
-          <div class="dv2bm-group-title"><span class="num">05</span>Contraindications</div>
+          <div class="dv2bm-group-title"><span class="num">05</span>Protocol support</div>
+          ${templates.length ? templates.slice(0, 3).map(templateCard).join('') : `<div style="color:${T.t3};font-size:11px">No exact protocol templates matched this target.</div>`}
+          ${graph.length ? `
+            <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+              ${graph.slice(0, 3).map(graphCard).join('')}
+            </div>
+          ` : ''}
+        </div>
+
+        <div class="dv2bm-group">
+          <div class="dv2bm-group-title"><span class="num">06</span>Contraindications</div>
           ${CONTRAINDICATIONS.map(c => `
             <label class="dv2bm-contra">
               <input type="checkbox"/>
@@ -610,6 +707,51 @@ function evidenceCard(e) {
       <div class="dv2bm-evi-meta">${esc(e.authors||'')} · ${esc(String(e.year||''))}${e.n?` · n=${esc(e.n)}`:''}</div>
       ${e.delta ? `<div class="dv2bm-evi-delta">${esc(e.delta)}</div>` : ''}
       ${e.doi   ? `<div class="dv2bm-evi-doi">DOI ${esc(e.doi)}</div>` : ''}
+    </div>
+  `;
+}
+
+function templateCard(tpl) {
+  return `
+    <div class="dv2bm-evi" style="border-left-color:${T.blue}">
+      <div class="dv2bm-evi-hd">
+        <span class="dv2bm-evi-title">${esc(tpl.title)}</span>
+        ${tpl.grade ? `<span class="dv2bm-evi-grade" style="color:${T.blue};border-color:${T.blue}">${esc(tpl.grade)}</span>` : ''}
+      </div>
+      <div class="dv2bm-evi-meta">${esc(tpl.indication || tpl.modality || 'Protocol template')}${tpl.support ? ` · ${esc(String(tpl.support))} papers` : ''}</div>
+      ${tpl.target ? `<div class="dv2bm-evi-delta">Target: ${esc(tpl.target)}</div>` : ''}
+      ${tpl.placement ? `<div class="dv2bm-evi-doi">${esc(tpl.placement)}</div>` : ''}
+    </div>
+  `;
+}
+
+function graphCard(edge) {
+  const label = [edge.source, edge.target].filter(Boolean).join(' → ') || edge.label;
+  return `
+    <div style="padding:8px 10px;border:1px solid ${T.border};border-radius:8px;background:${T.surface}">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <div style="font-size:11px;font-weight:600;color:${T.t1}">${esc(edge.label)}</div>
+        ${edge.weight ? `<span style="font-size:10px;font-family:${T.fmono};color:${T.teal}">${esc(String(edge.weight))} refs</span>` : ''}
+      </div>
+      <div style="margin-top:4px;font-size:10.5px;color:${T.t2}">${esc(label)}</div>
+      ${edge.summary ? `<div style="margin-top:4px;font-size:10.5px;color:${T.t3}">${esc(edge.summary)}</div>` : ''}
+    </div>
+  `;
+}
+
+function safetySignalCard(signal) {
+  const color = signal.severity.includes('high') || signal.severity.includes('severe')
+    ? T.rose
+    : signal.severity.includes('mod') || signal.severity.includes('warn')
+      ? T.amber
+      : T.blue;
+  return `
+    <div style="padding:8px 10px;border:1px solid ${color}55;border-radius:8px;background:${color}12">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <div style="font-size:11px;font-weight:600;color:${T.t1}">${esc(signal.label)}</div>
+        ${signal.count ? `<span style="font-size:10px;font-family:${T.fmono};color:${color}">${esc(String(signal.count))} papers</span>` : ''}
+      </div>
+      ${signal.summary ? `<div style="margin-top:4px;font-size:10.5px;color:${T.t2}">${esc(signal.summary)}</div>` : ''}
     </div>
   `;
 }

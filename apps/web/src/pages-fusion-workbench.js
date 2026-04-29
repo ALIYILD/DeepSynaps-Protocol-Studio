@@ -164,6 +164,53 @@ export function renderSafetyCockpit(caseData) {
   return _card('Safety Cockpit', html);
 }
 
+// ── Section 3b: Source Review Status ─────────────────────────────────────────
+export function renderSourceReviewStatus(caseData) {
+  const qeegState = caseData.source_qeeg_state || '—';
+  const mriState = caseData.source_mri_state || '—';
+  const radRequired = caseData.radiology_review_required;
+  const regConfidence = caseData.mri_registration_confidence || 'not assessed';
+
+  const stateColor = (state) => {
+    if (state === 'APPROVED' || state === 'SIGNED') return '#2a9d8f';
+    if (state === 'NEEDS_REVIEW' || state === 'MRI_NEEDS_CLINICAL_REVIEW') return '#f4a261';
+    if (state === 'DRAFT_AI' || state === 'MRI_DRAFT_AI') return '#e63946';
+    return '#8e9aaf';
+  };
+
+  const regColor = (c) => {
+    if (c === 'high') return '#2a9d8f';
+    if (c === 'moderate') return '#f4a261';
+    if (c === 'low' || c === 'unknown') return '#e63946';
+    return '#8e9aaf';
+  };
+
+  let html = '<div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">';
+
+  html += '<div style="display:flex;align-items:center;gap:8px;">'
+    + '<span style="width:140px;color:var(--text-secondary);">qEEG Report State</span>'
+    + _pill(qeegState, stateColor(qeegState))
+    + '</div>';
+
+  html += '<div style="display:flex;align-items:center;gap:8px;">'
+    + '<span style="width:140px;color:var(--text-secondary);">MRI Report State</span>'
+    + _pill(mriState, stateColor(mriState))
+    + '</div>';
+
+  html += '<div style="display:flex;align-items:center;gap:8px;">'
+    + '<span style="width:140px;color:var(--text-secondary);">Radiology Review</span>'
+    + (radRequired ? _pill('REQUIRED', '#e63946') : _pill('Cleared', '#2a9d8f'))
+    + '</div>';
+
+  html += '<div style="display:flex;align-items:center;gap:8px;">'
+    + '<span style="width:140px;color:var(--text-secondary);">MRI Registration</span>'
+    + _pill(regConfidence, regColor(regConfidence))
+    + '</div>';
+
+  html += '</div>';
+  return _card('Source Review Status', html);
+}
+
 // ── Section 4: Agreement Dashboard ───────────────────────────────────────────
 export function renderAgreementDashboard(caseData) {
   const agreement = caseData.modality_agreement || {};
@@ -371,6 +418,7 @@ export function renderFusionWorkbench(caseData, audits, cases, selectedId) {
   html += renderCaseSelector(cases, selectedId);
   html += renderModalityStatusBar(caseData);
   html += renderSafetyCockpit(caseData);
+  html += renderSourceReviewStatus(caseData);
   html += renderAgreementDashboard(caseData);
   html += renderProtocolFusionPanel(caseData);
   html += renderAiSummary(caseData);
