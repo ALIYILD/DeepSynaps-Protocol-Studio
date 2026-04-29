@@ -118,12 +118,21 @@ await test('workbench shell renders root container with clinical class', () => {
   assert.ok(html.includes('data-testid="qwb-root"'), 'root testid present');
 });
 
-await test('clinical CSS uses white background and pale-blue selected row', () => {
+await test('clinical CSS uses paper-tone background and indigo selected row', () => {
   const html = root.innerHTML;
-  assert.ok(html.includes('background:#ffffff'), 'white background CSS');
-  assert.ok(html.includes('#e8f0fb'), 'pale blue selected row');
+  assert.ok(html.includes('background:#FAF7F2'), 'paper-tone background CSS');
+  assert.ok(html.includes('#e6edfb'), 'pale indigo selected row');
   assert.ok(!html.includes('#0f1115'), 'no dark background colour leaks through');
   assert.ok(html.includes('.qwb-canvas-el'), 'clinical canvas class block');
+});
+
+await test('paper-tone redesign exposes patient chip, clock, and AI-watching pulse', () => {
+  const html = root.innerHTML;
+  assert.ok(html.includes('data-testid="qwb-pat-chip"'), 'patient chip in title bar');
+  assert.ok(html.includes('data-testid="qwb-titlebar-time"'), 'live clock in title bar');
+  assert.ok(html.includes('data-testid="qwb-ai-watching"'), 'AI-watching pulse in status bar');
+  assert.ok(html.includes('AI watching'), 'AI watching label rendered');
+  assert.ok(html.includes('DEEPSYNAPS'), 'brand label in title cluster');
 });
 
 // ── Top toolbar + back navigation ────────────────────────────────────────────
