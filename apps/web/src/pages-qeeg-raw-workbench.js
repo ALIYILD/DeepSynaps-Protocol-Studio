@@ -418,6 +418,7 @@ function workbenchShell(state) {
           <div class="qwb-immutable-notice" id="qwb-immutable-banner">Original raw EEG preserved · Decision-support only</div>
           <canvas id="qwb-canvas" class="qwb-canvas-el"></canvas>
           <div id="qwb-overlays" class="qwb-overlays" data-testid="qwb-overlays"></div>
+          ${inlineTraceEventsHtml(state)}
           <div id="qwb-rerun-notice" class="qwb-rerun-notice" style="display:none"></div>
         </div>
         <div class="qwb-spectro-strip" data-testid="qwb-spectro-strip">
@@ -677,9 +678,9 @@ function clinicalCss() {
     .qwb-ai-chip .qwb-ai-chip-dot {
       width:6px; height:6px; border-radius:50%; flex-shrink:0;
     }
-    .qwb-ai-chip .qwb-ai-chip-conf {
-      font-family:var(--qwb-mono); font-size:9.5px; opacity:0.8;
-      padding-left:4px; border-left:1px solid currentColor; margin-left:2px;
+    .qwb-ai-chip .qwb-ai-chip-pct {
+      font-family:var(--qwb-mono); font-size:9px; opacity:0.85;
+      margin-left:4px;
     }
     .qwb-bad-segment {
       position:absolute; top:22px; bottom:0;
@@ -749,6 +750,27 @@ function clinicalCss() {
       padding:1px 5px; border-radius:2px;
       color:#fff; pointer-events:none; z-index:6;
       white-space:nowrap;
+    }
+    /* Inline state.events labels on the trace itself — paper-tone pill +
+       dashed vertical line, distinct from AI chips and from the constant
+       EVENT_TIMELINE markers above. */
+    .qwb-trace-events {
+      position:absolute; inset:0; pointer-events:none; z-index:5;
+    }
+    .qwb-trace-event-line {
+      position:absolute; top:22px; bottom:0; width:0;
+      border-left:1px dashed rgba(40,81,163,0.4);
+      pointer-events:none;
+    }
+    .qwb-trace-event-label {
+      position:absolute; top:0;
+      transform:translateX(-50%);
+      display:inline-flex; align-items:center;
+      padding:2px 7px; border-radius:10px;
+      font-family:var(--qwb-mono); font-size:10px; font-weight:500;
+      background:#FFFFFF; border:1px solid rgba(40,81,163,0.4); color:#2851a3;
+      white-space:nowrap; pointer-events:none;
+      box-shadow:0 1px 2px rgba(0,0,0,0.04);
     }
     /* ── Bad-channel hatching (demo seed + clinician-marked) ─── */
     .qwb-bad-channel {
@@ -1810,6 +1832,43 @@ function renderTraceEventMarkers(state, W) {
     el.textContent = ev.label.toUpperCase() + ' ▾';
     wrap.appendChild(el);
   }
+  // Refresh the per-session state.events overlay (vertical dashed line +
+  // paper-tone pill label) for whatever window is now visible.
+  renderInlineTraceEvents(state);
+}
+
+// Emit the inline state.events overlay that lives inside qwb-canvas-wrap.
+// Each entry produces a dashed vertical line spanning the trace height and
+// a paper-tone pill label at the top. Visibility is keyed off the current
+// window so events outside the visible range are suppressed via display:none
+// (the markup remains so static-render assertions can still find them).
+function inlineTraceEventsInnerHtml(state) {
+  const events = Array.isArray(state && state.events) ? state.events : [];
+  const tb = (state && state.timebase) || 10;
+  const wsec = (state && state.windowStart) || 0;
+  return events.map(ev => {
+    const kind = (ev.kind || ev.label || 'event').toString().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const overlap = ev.t - wsec;
+    const visible = overlap >= 0 && overlap <= tb;
+    const left = visible ? (overlap / tb) * 100 : 0;
+    const display = visible ? '' : 'display:none;';
+    return `<div class="qwb-trace-event" data-event-kind="${esc(kind)}" data-event-t="${ev.t}" style="${display}">
+      <div class="qwb-trace-event-line" style="left:${left.toFixed(2)}%"></div>
+      <div class="qwb-trace-event-label" data-testid="qwb-event-marker-${esc(kind)}" style="left:${left.toFixed(2)}%">${esc(ev.label || '')}</div>
+    </div>`;
+  }).join('');
+}
+
+function inlineTraceEventsHtml(state) {
+  return `<div id="qwb-trace-events" class="qwb-trace-events" data-testid="qwb-event-marker">${inlineTraceEventsInnerHtml(state)}</div>`;
+}
+
+function renderInlineTraceEvents(state) {
+  const host = document.getElementById('qwb-trace-events');
+  if (!host) return;
+  // Re-render in place so the static testid wrapper stays put while the
+  // per-event lines/labels follow the current window.
+  host.innerHTML = inlineTraceEventsInnerHtml(state);
 }
 
 function renderTimeRuler(state) {
@@ -1881,7 +1940,7 @@ function renderOverlays(state, W, H, rulerH) {
       pieces.push(`<div class="qwb-ai-chip" data-ai-chip="${esc(s.id)}" style="left:${left.toFixed(2)}%;top:18px;background:${accepted ? '#d6e8d6' : c.bg};border-color:${accepted ? '#2f6b3a' : c.border};color:${accepted ? '#2f6b3a' : c.line}">
         <span class="qwb-ai-chip-dot" style="background:${accepted ? '#2f6b3a' : c.line}"></span>
         <span>${esc((s.ai_label||'').replace(/_/g,' '))}</span>
-        <span class="qwb-ai-chip-conf">${conf}%</span>
+        <span class="qwb-ai-chip-pct">${conf}%</span>
       </div>`);
     }
   }
