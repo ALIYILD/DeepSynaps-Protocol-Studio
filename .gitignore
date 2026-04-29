@@ -39,6 +39,14 @@ Thumbs.db
 *.tsbuildinfo
 .test_artifacts/
 
+# ── Local test scratch / experiments ───────────────────────────────────────
+# Untracked local experiments must NOT be left as test_*.py in apps/api/tests
+# because pytest discovers them and they pollute shared state under xdist.
+apps/api/tests/_scratch/
+apps/api/tests/local_*.py
+apps/api/tests/*_local.py
+apps/api/tests/e2e_*.py
+
 # Playwright
 playwright-report/
 test-results/
