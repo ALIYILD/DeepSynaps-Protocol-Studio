@@ -3,9 +3,9 @@
 // Video Visits · Voice Calls · Messaging · Note Capture · AI Transcription
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { api } from './api.js';
+import { api as repoApi } from './api.js';
 import { CONDITION_HOME_TEMPLATES } from './home-program-condition-templates.js';
-import { EVIDENCE_TOTAL_PAPERS, EVIDENCE_SUMMARY } from './evidence-dataset.js';
+import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
 
 const _e = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const _fmtTime = iso => { try { return new Date(iso).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'}); } catch { return iso; } };
@@ -825,7 +825,7 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
   const today = new Date().toISOString().slice(0, 10);
   const weekStart = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
 
-  const [rMe, rTodaySessions, rWeekSessions, rPatients, rCohort, rOutcomes, rAudit, rAlerts] =
+  const [rMe, rTodaySessions, rWeekSessions, rPatients, rCohort, rOutcomes, rAudit, rAlerts, rEvidenceSummary, rEvidenceStatus, rEvidenceCoverage, rEvidenceSignals, rEvidenceTemplates, rEvidenceConditions] =
     await Promise.allSettled([
       api.me?.(),
       api.listSessions?.({ date: today }),
@@ -835,6 +835,12 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
       api.aggregateOutcomes?.(),
       api.auditTrail?.(),
       api.getClinicAlertSummary?.(),
+      repoApi.getResearchSummary?.(),
+      repoApi.evidenceStatus?.(),
+      repoApi.protocolCoverage?.({ limit: 6 }),
+      repoApi.listResearchSafetySignals?.({ limit: 6 }),
+      repoApi.listResearchProtocolTemplates?.({ limit: 6 }),
+      repoApi.listResearchConditions?.(),
     ]);
 
   const ok = r => r.status === 'fulfilled' && r.value;
@@ -865,6 +871,68 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
     { grade:'B', name:'CES · bilateral · 0.5 Hz — 9 RCTs · pinned v1.2.0 · Insomnia',        rerender:false },
     { grade:'A', name:'rTMS · 10Hz · DLPFC-L — 62 RCTs · pinned v4.0.0 · TRD primary',       rerender:false },
   ];
+
+  const evidenceSummary = ok(rEvidenceSummary) || null;
+  const evidenceStatus = ok(rEvidenceStatus) || null;
+  const evidenceCoverage = Array.isArray(ok(rEvidenceCoverage)) ? ok(rEvidenceCoverage) : [];
+  const evidenceSignals = Array.isArray(ok(rEvidenceSignals)) ? ok(rEvidenceSignals) : [];
+  const evidenceTemplates = Array.isArray(ok(rEvidenceTemplates)) ? ok(rEvidenceTemplates) : [];
+  const evidenceConditions = Array.isArray(ok(rEvidenceConditions)) ? ok(rEvidenceConditions) : [];
+  const evidencePaperCount = Number(evidenceStatus?.total_papers || evidenceSummary?.paper_count || EVIDENCE_TOTAL_PAPERS) || EVIDENCE_TOTAL_PAPERS;
+  const evidenceConditionCount = evidenceConditions.length || Number(evidenceSummary?.condition_count || 0) || null;
+
+  function evidenceGradeFrom(row) {
+    const raw = String(row?.grade || row?.evidence_grade || row?.evidence_tier || '').trim().toUpperCase();
+    if (raw === 'A' || raw === 'HIGH' || raw === 'EV-A') return 'A';
+    if (raw === 'B' || raw === 'MODERATE' || raw === 'EV-B') return 'B';
+    return 'C';
+  }
+
+  function liveCoverageLabel(row) {
+    const modality = row?.modality || row?.primary_modality || 'Protocol';
+    const target = row?.target || row?.target_label || row?.primary_target || 'target unspecified';
+    const condition = row?.condition || row?.indication || row?.condition_slug || 'mixed indication';
+    const papers = Number(row?.paper_count || row?.supporting_papers || 0) || 0;
+    const gap = row?.gap || row?.coverage_gap || 'None';
+    return `${modality} · ${target} · ${condition} — ${papers} papers${gap && gap !== 'None' ? ` · gap: ${gap}` : ''}`;
+  }
+
+  function liveSignalLabel(row) {
+    const modality = row?.modality || row?.primary_modality || 'Protocol';
+    const condition = row?.condition || row?.indication || 'mixed indication';
+    const signal = row?.signal || row?.safety_signal || row?.tag || row?.label || 'Safety review';
+    return `${modality} · ${condition} — safety signal: ${signal}`;
+  }
+
+  function liveTemplateLabel(row) {
+    const modality = row?.modality || row?.primary_modality || 'Protocol';
+    const target = row?.target || row?.primary_target || 'target unspecified';
+    const condition = row?.condition || row?.indication || 'mixed indication';
+    return `${modality} · ${target} · ${condition} — template available`;
+  }
+
+  const liveEvidenceRows = [
+    ...evidenceCoverage.slice(0, 3).map(row => ({
+      grade: evidenceGradeFrom(row),
+      name: liveCoverageLabel(row),
+      rerender: String(row?.gap || row?.coverage_gap || 'None') !== 'None',
+    })),
+    ...evidenceSignals.slice(0, 2).map(row => ({
+      grade: evidenceGradeFrom(row),
+      name: liveSignalLabel(row),
+      rerender: true,
+    })),
+    ...(!evidenceCoverage.length && !evidenceSignals.length ? evidenceTemplates.slice(0, 3).map(row => ({
+      grade: evidenceGradeFrom(row),
+      name: liveTemplateLabel(row),
+      rerender: false,
+    })) : []),
+  ].slice(0, 5);
+  const evidenceIsDemo = liveEvidenceRows.length === 0;
+  const evidenceCardMeta = evidenceIsDemo
+    ? `Active registry grades · ${evidencePaperCount.toLocaleString()} papers indexed · last synced 12 min ago`
+    : `Live registry evidence · ${evidencePaperCount.toLocaleString()} papers indexed${evidenceConditionCount ? ` · ${evidenceConditionCount} conditions mapped` : ''}`;
+  const evidenceRowsData = evidenceIsDemo ? DB_EVIDENCE : liveEvidenceRows;
 
   const DEMO_ACTIVITY = [
     { icon:'check',    text:'Samantha L. completed session 12/20 · tDCS. Side-effect check-in: clear.',    time:'8m'  },
@@ -1223,7 +1291,7 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
   const scheduleRows = renderScheduleRows('All');
   const caseloadRows = renderCaseloadRows('All');
 
-  const evidenceRows = DB_EVIDENCE.map(row => `
+  const evidenceRows = evidenceRowsData.map(row => `
     <div class="vc-db-ev-row${row.rerender?' vc-db-ev-warn':''}">
       ${gradeBadge(row.grade)}
       <span class="vc-db-ev-name">${_e(row.name)}</span>
@@ -1516,8 +1584,8 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
     <div class="vc-db-card">
       <div class="vc-db-card-hd">
         <div>
-          <div class="vc-db-card-title">Evidence governance${demoChip}</div>
-          <div class="vc-db-card-meta">Active registry grades &middot; ${EVIDENCE_TOTAL_PAPERS.toLocaleString()} papers indexed &middot; last synced 12 min ago</div>
+          <div class="vc-db-card-title">Evidence governance${evidenceIsDemo?demoChip:''}</div>
+          <div class="vc-db-card-meta">${evidenceCardMeta}</div>
         </div>
         <button class="vc-db-tab active" id="vc-db-ev-all-btn">All current</button>
       </div>

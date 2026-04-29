@@ -93,6 +93,49 @@ async function _ensureCoursesEvidenceStats() {
   } catch {}
 }
 
+function _emptyCoursePatientEvidenceContext() {
+  return {
+    live: false,
+    course: null,
+    patientId: null,
+    patientName: '',
+    reportCount: 0,
+    savedCitationCount: 0,
+    highlightCount: 0,
+    contradictionCount: 0,
+    reportCitationCount: 0,
+    phenotypeTags: [],
+  };
+}
+
+async function _resolveCoursePatientEvidenceContext(courseId) {
+  if (!courseId) return _emptyCoursePatientEvidenceContext();
+  const course = await api.getCourse(courseId).catch(() => null);
+  const patientId = course?.patient_id || null;
+  const patientName = course?.patient_name || '';
+  if (!patientId) {
+    return { ..._emptyCoursePatientEvidenceContext(), course, patientName };
+  }
+  const [overview, reports] = await Promise.all([
+    api.evidencePatientOverview?.(patientId).catch(() => null),
+    api.listReports?.(patientId).catch(() => []),
+  ]);
+  return {
+    live: !!overview || (Array.isArray(reports) && reports.length > 0),
+    course,
+    patientId,
+    patientName,
+    reportCount: Array.isArray(reports) ? reports.length : 0,
+    savedCitationCount: Array.isArray(overview?.saved_citations) ? overview.saved_citations.length : 0,
+    highlightCount: Array.isArray(overview?.highlights) ? overview.highlights.length : 0,
+    contradictionCount: Array.isArray(overview?.contradictory_findings) ? overview.contradictory_findings.length : 0,
+    reportCitationCount: Array.isArray(overview?.evidence_used_in_report) ? overview.evidence_used_in_report.length : 0,
+    phenotypeTags: Array.isArray(overview?.compare_with_literature_phenotype?.matched_tags)
+      ? overview.compare_with_literature_phenotype.matched_tags
+      : [],
+  };
+}
+
 // ── Shared color maps ─────────────────────────────────────────────────────────
 const STATUS_COLOR = {
   pending_approval: 'var(--amber)',
@@ -1023,6 +1066,7 @@ export async function pgCourseDetail(setTopbar, navigate) {
   el.innerHTML = spinner();
 
   let course = null, sessions = [], adverseEvents = [], patient = null, protocolDetail = null, outcomes = [], outcomeSummary = null;
+  let liveEvidenceContext = null;
   const loadErrors = [];
   try {
     course = await api.getCourse(id);
@@ -1055,6 +1099,21 @@ export async function pgCourseDetail(setTopbar, navigate) {
     catch { protocolDetail = null; } // protocol detail not critical for go-live
   }
   try { outcomeSummary = await api.courseOutcomeSummary(id); } catch { outcomeSummary = null; }
+  try {
+    const [coverageRes, templates, safety] = await Promise.all([
+      api.protocolCoverage({ condition: course?.condition_slug || '', modality: course?.modality_slug || '', limit: 8 }).catch(() => null),
+      api.listResearchProtocolTemplates({ indication: course?.condition_slug || '', modality: course?.modality_slug || '', limit: 4 }).catch(() => []),
+      api.listResearchSafetySignals({ indication: course?.condition_slug || '', modality: course?.modality_slug || '', limit: 4 }).catch(() => []),
+    ]);
+    const coverageRows = Array.isArray(coverageRes?.rows) ? coverageRes.rows : [];
+    liveEvidenceContext = {
+      coverage: coverageRows[0] || null,
+      template: Array.isArray(templates) ? templates[0] || null : null,
+      safety: Array.isArray(safety) ? safety[0] || null : null,
+    };
+  } catch {
+    liveEvidenceContext = null;
+  }
 
   // Course-scoped normalized reads (assessment severity, audit trail, AE roll-up).
   // Each is non-blocking; failures fall back to existing behavior.
@@ -1070,6 +1129,11 @@ export async function pgCourseDetail(setTopbar, navigate) {
     : 0;
   const statusCol = STATUS_COLOR[course.status] || 'var(--text-tertiary)';
   const finalization = _courseFinalizationSummary(sessions, adverseEvents, aeSummary);
+  const signalTitle = (signal) =>
+    (signal?.safety_signal_tags || []).concat(signal?.contraindication_signal_tags || []).join(', ')
+    || signal?.title
+    || signal?.example_titles
+    || 'Safety signal';
 
   setTopbar(
     `${course.condition_slug ? course.condition_slug.replace(/-/g,' ') : 'Course'} · ${course.modality_slug || ''}`,
@@ -1171,6 +1235,17 @@ export async function pgCourseDetail(setTopbar, navigate) {
           aeSummary?.unresolved > 0 ? `<strong>${aeSummary.unresolved}</strong> unresolved adverse event${aeSummary.unresolved === 1 ? '' : 's'}` : null,
         ].filter(Boolean).join(' &middot; ')}.
         <button class="btn btn-sm" style="margin-left:10px" onclick="window._cdSwitchTab('sessions')">Open Sessions</button>
+      </div>`;
+    })()}
+    ${(() => {
+      if (!liveEvidenceContext || (!liveEvidenceContext.coverage && !liveEvidenceContext.template && !liveEvidenceContext.safety)) return '';
+      return `<div role="status" style="margin-bottom:16px;padding:12px 16px;border-radius:8px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.22);color:var(--text-secondary);font-size:12.5px">
+        <strong style="color:var(--text-primary)">Live protocol watch:</strong>
+        ${[
+          liveEvidenceContext.coverage ? `Coverage <strong>${_cdEscHtml(String(liveEvidenceContext.coverage.coverage ?? 0))}%</strong> across <strong>${Number(liveEvidenceContext.coverage.paper_count || 0).toLocaleString()}</strong> papers${liveEvidenceContext.coverage.gap && liveEvidenceContext.coverage.gap !== 'None' ? ` · gap ${_cdEscHtml(liveEvidenceContext.coverage.gap)}` : ''}` : null,
+          liveEvidenceContext.template ? `Template <strong>${_cdEscHtml([liveEvidenceContext.template.modality, liveEvidenceContext.template.indication, liveEvidenceContext.template.target].filter(Boolean).join(' — '))}</strong>` : null,
+          liveEvidenceContext.safety ? `Safety <strong>${_cdEscHtml(signalTitle(liveEvidenceContext.safety))}</strong>` : null,
+        ].filter(Boolean).join(' &middot; ')}.
       </div>`;
     })()}
 
@@ -2843,6 +2918,12 @@ export async function pgSessionExecution(setTopbar, navigate) {
               <div id="sex-guide-instructions" class="sex-guide-text"></div>
             </div>
           </div>
+
+          <!-- Live Protocol Watch -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="sex-section-hd">Live Protocol Watch</div>
+            <div id="sex-live-evidence-watch" style="padding:14px 16px;color:var(--text-tertiary);font-size:12px">Select a course to load live evidence context…</div>
+          </div>
         </div>
 
         <!-- RIGHT COLUMN -->
@@ -3679,6 +3760,8 @@ export async function pgSessionExecution(setTopbar, navigate) {
     if (!courseId) return;
     const course = (window._seActiveCourses || []).find(c => c.id === courseId);
     if (!course) return;
+    const liveWatchEl = document.getElementById('sex-live-evidence-watch');
+    if (liveWatchEl) liveWatchEl.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary)">Loading live evidence context…</div>';
 
     // ── Populate ghost fields ─────────────────────────────────────────────────
     const setGhost = (id, val) => { const el2 = document.getElementById(id); if (el2 && val != null) el2.value = val; };
@@ -3846,6 +3929,45 @@ export async function pgSessionExecution(setTopbar, navigate) {
       if (course.target_region) parts.push(course.target_region);
       if (course.coil_placement) parts.push(course.coil_placement);
       setupPlacementNote.textContent = parts.join(' · ') || 'No placement details on file';
+    }
+
+    // ── Live protocol watch ──────────────────────────────────────────────────
+    if (liveWatchEl) {
+      try {
+        const [coverageRes, templates, safety] = await Promise.all([
+          api.protocolCoverage({ condition: course.condition_slug || '', modality: course.modality_slug || '', limit: 8 }).catch(() => null),
+          api.listResearchProtocolTemplates({ indication: course.condition_slug || '', modality: course.modality_slug || '', limit: 4 }).catch(() => []),
+          api.listResearchSafetySignals({ indication: course.condition_slug || '', modality: course.modality_slug || '', limit: 4 }).catch(() => []),
+        ]);
+        const coverage = Array.isArray(coverageRes?.rows) ? coverageRes.rows[0] || null : null;
+        const template = Array.isArray(templates) ? templates[0] || null : null;
+        const signal = Array.isArray(safety) ? safety[0] || null : null;
+        const signalTitle = (signal?.safety_signal_tags || []).concat(signal?.contraindication_signal_tags || []).join(', ')
+          || signal?.title
+          || signal?.example_titles
+          || 'Safety signal';
+        if (!coverage && !template && !signal) {
+          liveWatchEl.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary)">No live evidence watch rows were returned for this course.</div>';
+        } else {
+          liveWatchEl.innerHTML = `
+            <div style="display:flex;flex-direction:column;gap:10px">
+              ${coverage ? `<div style="padding:10px 12px;border-radius:8px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.18)">
+                <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--accent-teal,#10b981);margin-bottom:4px">Coverage</div>
+                <div style="font-size:12px;color:var(--text-secondary)">Coverage <strong style="color:var(--text-primary)">${esc(String(coverage.coverage ?? 0))}%</strong> across <strong style="color:var(--text-primary)">${Number(coverage.paper_count || 0).toLocaleString()}</strong> papers${coverage.gap && coverage.gap !== 'None' ? ` · gap ${esc(coverage.gap)}` : ''}</div>
+              </div>` : ''}
+              ${template ? `<div style="padding:10px 12px;border-radius:8px;background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.18)">
+                <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--blue);margin-bottom:4px">Template</div>
+                <div style="font-size:12px;color:var(--text-secondary)"><strong style="color:var(--text-primary)">${esc([template.modality, template.indication, template.target].filter(Boolean).join(' — '))}</strong>${template.evidence_tier ? ` · ${esc(template.evidence_tier)}` : ''}</div>
+              </div>` : ''}
+              ${signal ? `<div style="padding:10px 12px;border-radius:8px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.18)">
+                <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--amber);margin-bottom:4px">Safety watch</div>
+                <div style="font-size:12px;color:var(--text-secondary)">${esc(signalTitle)}</div>
+              </div>` : ''}
+            </div>`;
+        }
+      } catch {
+        liveWatchEl.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary)">Live evidence watch unavailable for this course.</div>';
+      }
     }
 
     // ── Aftercare items ───────────────────────────────────────────────────────
@@ -8600,7 +8722,7 @@ function _predGaugeSVG(score) {
   </svg>`;
 }
 
-function _predResultHTML(result, ci) {
+function _predResultHTML(result, ci, patientEvidence = null) {
   const { predictedScore, riskLevel, confidence, featureImportance } = result;
   const riskColor = riskLevel === 'low' ? '#10b981' : riskLevel === 'moderate' ? '#f59e0b' : '#ef4444';
   const riskLabel = riskLevel === 'low' ? 'Low Risk' : riskLevel === 'moderate' ? 'Moderate Risk' : 'High Risk';
@@ -8658,17 +8780,23 @@ function _predResultHTML(result, ci) {
   const isSecondPos = (sortedFeats[1]?.[1]?.signed ?? 0) >= 0;
 
   let scoreInterpretation;
+  const liveTail = patientEvidence?.live
+    ? ` This patient currently has ${patientEvidence.highlightCount} live evidence highlight${patientEvidence.highlightCount === 1 ? '' : 's'}, ${patientEvidence.savedCitationCount} saved citation${patientEvidence.savedCitationCount === 1 ? '' : 's'}, and ${patientEvidence.reportCount} report${patientEvidence.reportCount === 1 ? '' : 's'} available for clinical review.`
+    : '';
   if (predictedScore >= 75) {
-    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> indicates a <strong>strong likelihood of clinical improvement</strong> with current treatment parameters. This patient profile aligns closely with high-responder cohorts in the ${_coursesTotalPapers().toLocaleString()}-paper neuromodulation evidence base.`;
+    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> indicates a <strong>strong likelihood of clinical improvement</strong> with current treatment parameters. This patient profile aligns closely with high-responder cohorts in the ${_coursesTotalPapers().toLocaleString()}-paper neuromodulation evidence base.${liveTail}`;
   } else if (predictedScore >= 55) {
-    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> suggests a <strong>moderate probability of meaningful improvement</strong>. Close monitoring and protocol optimisation are recommended to maximise this patient's response trajectory.`;
+    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> suggests a <strong>moderate probability of meaningful improvement</strong>. Close monitoring and protocol optimisation are recommended to maximise this patient's response trajectory.${liveTail}`;
   } else if (predictedScore >= 40) {
-    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> reflects a <strong>guarded prognosis</strong>. This patient may require additional support, enhanced session frequency, or a protocol adjustment to achieve clinically meaningful gains.`;
+    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> reflects a <strong>guarded prognosis</strong>. This patient may require additional support, enhanced session frequency, or a protocol adjustment to achieve clinically meaningful gains.${liveTail}`;
   } else {
-    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> signals a <strong>high-risk trajectory</strong>. Consider a multidisciplinary review, barrier assessment, and protocol intensification or adjunct interventions.`;
+    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> signals a <strong>high-risk trajectory</strong>. Consider a multidisciplinary review, barrier assessment, and protocol intensification or adjunct interventions.${liveTail}`;
   }
 
-  const drivingFactors = `The two strongest predictors in this model are <strong>${topFeatLabel}</strong> (${isTopPos ? 'positively' : 'negatively'} influencing outcome) and <strong>${secondFeatLabel}</strong> (${isSecondPos ? 'positively' : 'negatively'} influencing outcome). Targeting improvements in these dimensions is likely to shift the predicted score most efficiently.`;
+  const phenotypeTail = patientEvidence?.phenotypeTags?.length
+    ? ` Literature phenotype tags currently linked to this patient: <strong>${_esc(patientEvidence.phenotypeTags.slice(0, 5).join(' · '))}</strong>.`
+    : '';
+  const drivingFactors = `The two strongest predictors in this model are <strong>${topFeatLabel}</strong> (${isTopPos ? 'positively' : 'negatively'} influencing outcome) and <strong>${secondFeatLabel}</strong> (${isSecondPos ? 'positively' : 'negatively'} influencing outcome). Targeting improvements in these dimensions is likely to shift the predicted score most efficiently.${phenotypeTail}`;
 
   let adjustmentAdvice;
   if (predictedScore < 50) {
@@ -8677,6 +8805,9 @@ function _predResultHTML(result, ci) {
     adjustmentAdvice = 'Maintain current protocol with standard review at session 10. If adherence drops below 80%, implement a proactive outreach plan. Consider adding a structured home practice component to reinforce in-clinic gains.';
   } else {
     adjustmentAdvice = 'Current parameters appear well-matched to this patient profile. Continue standard monitoring cadence. Document response markers carefully — this case may be suitable for evidence contribution or protocol benchmarking.';
+  }
+  if (patientEvidence?.live && patientEvidence.savedCitationCount > 0) {
+    adjustmentAdvice += ` ${patientEvidence.savedCitationCount} saved evidence citation${patientEvidence.savedCitationCount === 1 ? '' : 's'} can already be reused in the next report review.`;
   }
 
   const aiInterpHTML = `
@@ -8834,10 +8965,18 @@ export async function pgOutcomePrediction(setTopbar) {
   await _ensureCoursesEvidenceStats();
   setTopbar('Outcome Prediction & ML Scoring', '');
   _initPredictions();
+  const patientEvidence = await _resolveCoursePatientEvidenceContext(window._selectedCourseId || null).catch(() => _emptyCoursePatientEvidenceContext());
 
   const el = document.getElementById('content');
   el.innerHTML = `
     <div style="padding:16px 0;max-width:1200px;margin:0 auto">
+
+      <div style="margin-bottom:16px;padding:14px 16px;border-radius:12px;border:1px solid ${patientEvidence.live ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.22)'};background:${patientEvidence.live ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)'};font-size:12px;line-height:1.55;color:var(--text-secondary)">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:${patientEvidence.live ? 'var(--accent-teal,#10b981)' : 'var(--amber,#f59e0b)'};margin-bottom:6px">Prediction context</div>
+        ${patientEvidence.live
+          ? `Using live patient evidence context for <strong style="color:var(--text-primary)">${_esc(patientEvidence.patientName || 'selected patient')}</strong>: ${patientEvidence.highlightCount} evidence highlight${patientEvidence.highlightCount === 1 ? '' : 's'}, ${patientEvidence.savedCitationCount} saved citation${patientEvidence.savedCitationCount === 1 ? '' : 's'}, ${patientEvidence.reportCount} report${patientEvidence.reportCount === 1 ? '' : 's'}, and ${patientEvidence.reportCitationCount} citation${patientEvidence.reportCitationCount === 1 ? '' : 's'} already staged for reports.${patientEvidence.phenotypeTags.length ? ` Phenotype tags: ${_esc(patientEvidence.phenotypeTags.slice(0, 5).join(' · '))}.` : ''}`
+          : `This prediction workspace is currently using general evidence/corpus context only. Select a course with a resolvable patient if you want live patient evidence and report context to appear here.`}
+      </div>
 
       <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid var(--border)">
         <button id="pred-tab-predict" onclick="window._qqSwitchPredTab('predict')"
@@ -8858,7 +8997,7 @@ export async function pgOutcomePrediction(setTopbar) {
 
             <label style="display:block;margin-bottom:12px">
               <span style="font-size:.78rem;color:var(--text-muted);display:block;margin-bottom:4px">Patient Name</span>
-              <input id="pred-patient-name" type="text" placeholder="Enter patient name"
+              <input id="pred-patient-name" type="text" placeholder="Enter patient name" value="${_esc(patientEvidence.patientName || '')}"
                 style="width:100%;padding:7px 10px;background:var(--input-bg,var(--surface-2,#1e293b));border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:.875rem;box-sizing:border-box">
             </label>
 
@@ -9027,7 +9166,7 @@ export async function pgOutcomePrediction(setTopbar) {
     if (panel) {
       panel.style.alignItems = 'flex-start';
       panel.style.justifyContent = 'flex-start';
-      panel.innerHTML = _predResultHTML(result, ci);
+      panel.innerHTML = _predResultHTML(result, ci, patientEvidence);
     }
     const saveBtn = document.getElementById('pred-save-btn');
     if (saveBtn) saveBtn.style.display = '';

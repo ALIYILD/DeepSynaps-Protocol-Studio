@@ -2,13 +2,13 @@ import { test, expect, Page } from '@playwright/test';
 
 // ── Auth helpers ────────────────────────────────────────────────────────────────
 // The app calls api.me() on boot; mock it so pages render without a real backend.
-function mockClinicianAuth(page: Page) {
-  page.addInitScript(() => {
+async function mockClinicianAuth(page: Page) {
+  await page.addInitScript(() => {
     localStorage.setItem('ds_access_token', 'mock-flows-token');
     localStorage.setItem('ds_refresh_token', 'mock-refresh');
     localStorage.setItem('ds_onboarding_done', '1');
   });
-  page.route('**/api/v1/auth/me', (route) => {
+  await page.route('**/api/v1/auth/me', (route) => {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -22,18 +22,22 @@ function mockClinicianAuth(page: Page) {
     });
   });
   // Catch-all: return empty arrays for any other API call
-  page.route('**/api/v1/**', (route) => {
+  await page.route('**/api/v1/**', (route) => {
+    if (route.request().url().includes('/auth/me')) {
+      route.fallback();
+      return;
+    }
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
   });
 }
 
-function mockPatientAuth(page: Page) {
-  page.addInitScript(() => {
+async function mockPatientAuth(page: Page) {
+  await page.addInitScript(() => {
     localStorage.setItem('ds_access_token', 'mock-patient-flows-token');
     localStorage.setItem('ds_refresh_token', 'mock-refresh');
     localStorage.setItem('ds_onboarding_done', '1');
   });
-  page.route('**/api/v1/auth/me', (route) => {
+  await page.route('**/api/v1/auth/me', (route) => {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -47,10 +51,14 @@ function mockPatientAuth(page: Page) {
       }),
     });
   });
-  page.route('**/api/v1/**', (route) => {
+  await page.route('**/api/v1/**', (route) => {
+    if (route.request().url().includes('/auth/me')) {
+      route.fallback();
+      return;
+    }
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
   });
-  page.route('**/api/v1/patient-portal/**', (route) => {
+  await page.route('**/api/v1/patient-portal/**', (route) => {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
   });
 }
@@ -97,7 +105,7 @@ test.describe('Flow 1: Public landing', () => {
 // ── Flow 2: Clinician dashboard ─────────────────────────────────────────────────
 test.describe('Flow 2: Clinician dashboard', () => {
   test('dashboard loads with content when authenticated', async ({ page }) => {
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     // #content should have dashboard content
@@ -107,7 +115,7 @@ test.describe('Flow 2: Clinician dashboard', () => {
   });
 
   test('patient list renders after navigation', async ({ page }) => {
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     await navTo(page, 'patients');
@@ -115,7 +123,7 @@ test.describe('Flow 2: Clinician dashboard', () => {
   });
 
   test('protocol builder canvas renders', async ({ page }) => {
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     await navTo(page, 'protocol-builder');
@@ -123,7 +131,7 @@ test.describe('Flow 2: Clinician dashboard', () => {
   });
 
   test('calendar renders with view controls', async ({ page }) => {
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     await navTo(page, 'calendar');
@@ -134,7 +142,7 @@ test.describe('Flow 2: Clinician dashboard', () => {
 // ── Flow 3: Patient portal ───────────────────────────────────────────────────────
 test.describe('Flow 3: Patient portal', () => {
   test('patient portal boots when role is patient', async ({ page }) => {
-    mockPatientAuth(page);
+    await mockPatientAuth(page);
     await page.goto('/');
     await waitForPatientApp(page);
     // Patient shell should be visible
@@ -143,7 +151,7 @@ test.describe('Flow 3: Patient portal', () => {
   });
 
   test('patient portal has bottom nav or sidebar', async ({ page }) => {
-    mockPatientAuth(page);
+    await mockPatientAuth(page);
     await page.goto('/');
     await waitForPatientApp(page);
     // Either bottom-nav or patient-sidebar should be in the DOM
@@ -154,7 +162,7 @@ test.describe('Flow 3: Patient portal', () => {
   });
 
   test('symptom journal loads in patient portal', async ({ page }) => {
-    mockPatientAuth(page);
+    await mockPatientAuth(page);
     await page.goto('/');
     await waitForPatientApp(page);
     // Navigate within patient portal
@@ -165,7 +173,7 @@ test.describe('Flow 3: Patient portal', () => {
 
   test('guardian portal loads in clinician app', async ({ page }) => {
     // guardian-portal is a clinician-side page
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     await navTo(page, 'guardian-portal');
@@ -176,7 +184,7 @@ test.describe('Flow 3: Patient portal', () => {
 // ── Flow 4: Media & messaging ───────────────────────────────────────────────────
 test.describe('Flow 4: Media and messaging', () => {
   test('messaging hub loads', async ({ page }) => {
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     await navTo(page, 'messaging');
@@ -184,7 +192,7 @@ test.describe('Flow 4: Media and messaging', () => {
   });
 
   test('telehealth recorder loads', async ({ page }) => {
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     await navTo(page, 'telehealth-recorder');
@@ -192,7 +200,7 @@ test.describe('Flow 4: Media and messaging', () => {
   });
 
   test('clinical notes loads', async ({ page }) => {
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     await navTo(page, 'clinical-notes');
@@ -203,7 +211,7 @@ test.describe('Flow 4: Media and messaging', () => {
 // ── Flow 5: Research & evidence ─────────────────────────────────────────────────
 test.describe('Flow 5: Research and evidence', () => {
   test('evidence library loads and shows papers', async ({ page }) => {
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     await navTo(page, 'literature');
@@ -211,7 +219,7 @@ test.describe('Flow 5: Research and evidence', () => {
   });
 
   test('IRB manager loads', async ({ page }) => {
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     await navTo(page, 'irb-manager');
@@ -219,7 +227,7 @@ test.describe('Flow 5: Research and evidence', () => {
   });
 
   test('forms builder shows validated scales', async ({ page }) => {
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     await navTo(page, 'forms-builder');
@@ -227,7 +235,7 @@ test.describe('Flow 5: Research and evidence', () => {
   });
 
   test('medication safety page loads', async ({ page }) => {
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     await navTo(page, 'med-interactions');
@@ -238,7 +246,7 @@ test.describe('Flow 5: Research and evidence', () => {
 // ── Global: UI chrome ───────────────────────────────────────────────────────────
 test.describe('Global: UI chrome', () => {
   test('command palette opens with Ctrl+K', async ({ page }) => {
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));
     await page.goto('/');
@@ -256,7 +264,7 @@ test.describe('Global: UI chrome', () => {
   });
 
   test('AI co-pilot FAB exists on dashboard', async ({ page }) => {
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     // AI FAB is injected by app.js initAICopilot
@@ -272,7 +280,7 @@ test.describe('Global: UI chrome', () => {
   test('no uncaught JS errors on dashboard', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     await page.waitForTimeout(1000);
@@ -285,21 +293,21 @@ test.describe('Global: UI chrome', () => {
   });
 
   test('sidebar is visible when authenticated', async ({ page }) => {
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     await expect(page.locator('#sidebar')).toBeVisible();
   });
 
   test('theme toggle button is present', async ({ page }) => {
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     await expect(page.locator('#theme-toggle-btn')).toBeVisible();
   });
 
   test('skip link is present for accessibility', async ({ page }) => {
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     const skipLink = page.locator('.skip-link');
@@ -307,7 +315,7 @@ test.describe('Global: UI chrome', () => {
   });
 
   test('offline banner appears when offline event fired', async ({ page }) => {
-    mockClinicianAuth(page);
+    await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     await page.evaluate(() => {

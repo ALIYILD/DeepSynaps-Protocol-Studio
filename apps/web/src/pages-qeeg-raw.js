@@ -18,7 +18,7 @@
 import { api } from './api.js';
 import { emptyState, showToast } from './helpers.js';
 import { EEGSignalRenderer } from './eeg-signal-renderer.js';
-import { EEGSpectralPanel } from './eeg-spectral-panel.js';
+import { EEGSpectralPanel, _computePSD } from './eeg-spectral-panel.js';
 import { EEGEventEditor, EEGMeasurementTool, EEGExporter, EEGUndoManager } from './eeg-tools.js';
 import { EEGMontageEditor, EEGChannelManager, EEGRecordingInfo } from './eeg-montage-editor.js';
 
@@ -539,6 +539,7 @@ function _buildLayout(state, isDemo) {
   // Right sidebar
   html += '<div class="eeg-viewer__sidebar" id="eeg-sidebar">';
   html += _buildRecordingInfoSection(state);
+  html += _buildBandPowerSection(state);
   html += _buildChannelSection(state);
   html += _buildSegmentsSection(state);
   html += _buildEventsSection(state);
@@ -610,6 +611,7 @@ function _buildChannelSection(state) {
     regionMap[r].forEach(function (ch) {
       var isBad = state.badChannels.indexOf(ch) >= 0;
       html += '<label class="eeg-sb__ch-chip' + (isBad ? ' eeg-sb__ch-chip--bad' : '') + '">'
+        + '<span class="eeg-sb__ch-quality" data-ch-q="' + esc(ch) + '"></span>'
         + '<input type="checkbox"' + (isBad ? '' : ' checked') + ' data-ch="' + esc(ch) + '">'
         + '<span class="eeg-sb__ch-name">' + esc(ch) + '</span>'
         + '</label>';
@@ -646,6 +648,89 @@ function _buildICASection(state) {
     + '<div id="eeg-ica-content">'
     + (state.icaExpanded && state.icaData ? _renderICAGrid(state) : '')
     + '</div></div>';
+}
+
+// ── Band Power section ──────────────────────────────────────────────────────
+// Clinical EEG frequency bands
+var BAND_DEFS = [
+  { name: 'Delta',  lo: 1,  hi: 4,  color: '#ab47bc', desc: '1–4 Hz \u2014 deep sleep, infants' },
+  { name: 'Theta',  lo: 4,  hi: 8,  color: '#42a5f5', desc: '4–8 Hz \u2014 drowsiness, meditation' },
+  { name: 'Alpha',  lo: 8,  hi: 13, color: '#66bb6a', desc: '8–13 Hz \u2014 relaxed awareness' },
+  { name: 'Beta',   lo: 13, hi: 30, color: '#ffa726', desc: '13–30 Hz \u2014 active thinking' },
+  { name: 'Gamma',  lo: 30, hi: 60, color: '#ef5350', desc: '30–60 Hz \u2014 high-level cognition' },
+];
+
+function _buildBandPowerSection(state) {
+  var bars = BAND_DEFS.map(function (b) {
+    return '<div class="eeg-sb__bp-row" data-band="' + b.name.toLowerCase() + '">'
+      + '<div class="eeg-sb__bp-label">'
+      + '<span class="eeg-sb__bp-dot" style="background:' + b.color + '"></span>'
+      + b.name + '</div>'
+      + '<div class="eeg-sb__bp-bar-wrap">'
+      + '<div class="eeg-sb__bp-bar" style="width:0%;background:' + b.color + '"></div>'
+      + '</div>'
+      + '<div class="eeg-sb__bp-val">--%</div>'
+      + '</div>';
+  }).join('');
+
+  return '<div class="eeg-sb__section">'
+    + '<div class="eeg-sb__title">Band Power <span class="eeg-sb__hint-inline">visible window</span></div>'
+    + '<div class="eeg-sb__bp-list" id="eeg-bandpower">' + bars + '</div>'
+    + '<div class="eeg-sb__bp-legend">Relative power across all channels</div>'
+    + '</div>';
+}
+
+function _updateBandPower(state, renderer) {
+  var container = document.getElementById('eeg-bandpower');
+  if (!container || !renderer || !renderer.data) return;
+
+  var data = renderer.data;
+  var sfreq = renderer.sfreq || 256;
+  if (!data.length || !data[0] || !data[0].length) return;
+
+  // Compute PSD for each channel and average
+  var nfft = 1;
+  while (nfft < data[0].length) nfft <<= 1;
+  var bandSums = BAND_DEFS.map(function () { return 0; });
+  var totalPower = 0;
+  var validCh = 0;
+
+  for (var ci = 0; ci < data.length; ci++) {
+    if (!data[ci] || !data[ci].length) continue;
+    try {
+      var psd = _computePSD(data[ci], sfreq, nfft);
+      var freqs = psd.freqs;
+      var power = psd.power;
+      var chTotal = 0;
+      for (var k = 0; k < freqs.length; k++) chTotal += power[k];
+      if (chTotal <= 0) continue;
+      for (var bi = 0; bi < BAND_DEFS.length; bi++) {
+        var b = BAND_DEFS[bi];
+        var bandPow = 0;
+        for (var k = 0; k < freqs.length; k++) {
+          if (freqs[k] >= b.lo && freqs[k] < b.hi) bandPow += power[k];
+        }
+        bandSums[bi] += bandPow / chTotal;
+      }
+      validCh++;
+    } catch (_) {}
+  }
+
+  if (validCh === 0) return;
+
+  // Average across channels and normalise so max ≈ 100%
+  var avgBands = bandSums.map(function (s) { return s / validCh; });
+  var maxVal = Math.max.apply(null, avgBands);
+  if (maxVal <= 0) maxVal = 1;
+
+  var rows = container.querySelectorAll('.eeg-sb__bp-row');
+  for (var ri = 0; ri < rows.length && ri < BAND_DEFS.length; ri++) {
+    var pct = avgBands[ri];
+    var bar = rows[ri].querySelector('.eeg-sb__bp-bar');
+    var val = rows[ri].querySelector('.eeg-sb__bp-val');
+    if (bar) bar.style.width = Math.min(100, (pct / maxVal * 100)).toFixed(1) + '%';
+    if (val) val.textContent = (pct * 100).toFixed(1) + '%';
+  }
 }
 
 function _renderICAGrid(state) {
@@ -721,8 +806,9 @@ async function _loadSignalWindow(analysisId, state, renderer, spectralPanel) {
       } else { renderer.clearOverlay(); }
       // Feed spectral panel
       if (spectralPanel) spectralPanel.setData(demoData.channels, demoData.data, demoData.sfreq, demoData.t_start);
-      // Compute channel quality
+      // Compute channel quality and band power
       _computeChannelQuality(state, demoData.channels, demoData.data, demoData.sfreq, renderer);
+      _updateBandPower(state, renderer);
       return;
     }
 
@@ -749,8 +835,9 @@ async function _loadSignalWindow(analysisId, state, renderer, spectralPanel) {
     }
     // Feed spectral panel
     if (spectralPanel && _lastChannels) spectralPanel.setData(_lastChannels, _lastData, _lastSfreq, _lastTStart);
-    // Compute channel quality
+    // Compute channel quality and band power
     if (_lastChannels) _computeChannelQuality(state, _lastChannels, _lastData, _lastSfreq, renderer);
+    _updateBandPower(state, renderer);
   } catch (err) {
     showToast('Signal load failed: ' + (err.message || err), 'error');
   }
@@ -1178,6 +1265,15 @@ function _computeChannelQuality(state, channels, data, sfreq, renderer) {
     }
   }
   renderer.setChannelQuality(qualityMap);
+  // Update sidebar quality dots
+  var GRADE_CLASS = { good: 'eeg-sb__ch-quality--good', moderate: 'eeg-sb__ch-quality--fair', bad: 'eeg-sb__ch-quality--poor', flat: 'eeg-sb__ch-quality--poor' };
+  for (var ch in qualityMap) {
+    var dot = document.querySelector('.eeg-sb__ch-quality[data-ch-q="' + ch + '"]');
+    if (dot) {
+      var grade = qualityMap[ch] && qualityMap[ch].grade;
+      dot.className = 'eeg-sb__ch-quality ' + (GRADE_CLASS[grade] || '');
+    }
+  }
 }
 
 // ── CSS injection ───────────────────────────────────────────────────────────
@@ -1305,6 +1401,22 @@ function _injectCSS() {
 .eeg-sb__evt-label { font-size:10px; color:#cbd5e1; flex:1; }
 .eeg-sb__evt-remove { background:none; border:none; color:#64748b; cursor:pointer; font-size:14px; padding:0 2px; line-height:1; }
 .eeg-sb__evt-remove:hover { color:#ef5350; }
+
+/* Band Power sidebar */
+.eeg-sb__bp-list { display:flex; flex-direction:column; gap:5px; }
+.eeg-sb__bp-row { display:flex; align-items:center; gap:6px; }
+.eeg-sb__bp-label { display:flex; align-items:center; gap:5px; font-size:10px; font-weight:600; color:#94a3b8; width:46px; flex-shrink:0; }
+.eeg-sb__bp-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.eeg-sb__bp-bar-wrap { flex:1; height:10px; background:rgba(255,255,255,0.04); border-radius:5px; overflow:hidden; }
+.eeg-sb__bp-bar { height:100%; border-radius:5px; transition:width .4s ease; }
+.eeg-sb__bp-val { font-family:'JetBrains Mono','SF Mono',monospace; font-size:9px; color:#cbd5e1; width:36px; text-align:right; flex-shrink:0; }
+.eeg-sb__bp-legend { font-size:9px; color:#475569; margin-top:6px; text-align:center; }
+
+/* Channel quality indicator */
+.eeg-sb__ch-quality { width:5px; height:5px; border-radius:50%; flex-shrink:0; }
+.eeg-sb__ch-quality--good { background:#66bb6a; }
+.eeg-sb__ch-quality--fair { background:#ffa726; }
+.eeg-sb__ch-quality--poor { background:#ef5350; }
 
 /* Disabled nav buttons */
 .eeg-tb__nav-btn:disabled { opacity:0.35; cursor:not-allowed; pointer-events:none; }

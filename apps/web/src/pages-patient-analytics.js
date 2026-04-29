@@ -6,6 +6,7 @@
 //     opened from a row click, deep-linked from URL, or DeepTwin tile.
 
 import { DEMO_PATIENT_ROSTER, demoPtFromRoster } from './patient-dashboard-helpers.js';
+import { api } from './api.js';
 import {
   EvidenceChip,
   PatientEvidenceTab,
@@ -14,6 +15,48 @@ import {
   openEvidenceDrawer,
   wireEvidenceChips,
 } from './evidence-intelligence.js';
+
+function emptyAnalyticsEvidenceContext(patientId = '') {
+  return {
+    live: false,
+    patientId,
+    overview: null,
+    reports: [],
+    reportCount: 0,
+    savedCitationCount: 0,
+    highlightCount: 0,
+    contradictionCount: 0,
+    reportCitationCount: 0,
+    phenotypeTags: [],
+    latestReport: null,
+  };
+}
+
+async function loadAnalyticsEvidenceContext(patientId) {
+  const base = emptyAnalyticsEvidenceContext(patientId);
+  const [overviewRes, reportsRes] = await Promise.allSettled([
+    api.evidencePatientOverview?.(patientId),
+    api.listReports?.(patientId),
+  ]);
+  const overview = overviewRes.status === 'fulfilled' ? overviewRes.value : null;
+  const reports = reportsRes.status === 'fulfilled' && Array.isArray(reportsRes.value) ? reportsRes.value : [];
+  const latestReport = reports[0] || null;
+  return {
+    ...base,
+    live: !!overview || reports.length > 0,
+    overview,
+    reports,
+    reportCount: reports.length,
+    savedCitationCount: Array.isArray(overview?.saved_citations) ? overview.saved_citations.length : 0,
+    highlightCount: Array.isArray(overview?.highlights) ? overview.highlights.length : 0,
+    contradictionCount: Array.isArray(overview?.contradictory_findings) ? overview.contradictory_findings.length : 0,
+    reportCitationCount: Array.isArray(overview?.evidence_used_in_report) ? overview.evidence_used_in_report.length : 0,
+    phenotypeTags: Array.isArray(overview?.compare_with_literature_phenotype?.matched_tags)
+      ? overview.compare_with_literature_phenotype.matched_tags
+      : [],
+    latestReport,
+  };
+}
 
 // ── Demo telemetry generators ────────────────────────────────────────────────
 // Deterministic pseudo-random so the same patient renders the same view
@@ -632,10 +675,16 @@ function widgetPredictions(_tel, patientId) {
   }).join('')}</div>`;
 }
 
-function widgetEhr() {
+function widgetEhr(context = null) {
+  const live = !!context?.live;
+  const latestReportTitle = context?.latestReport?.title || context?.latestReport?.report_title || null;
   return `<div class="pa-ehr">
-    <div><span>EMR preview</span><span>Epic sample feed</span></div>
+    <div><span>EMR preview</span><span>${live ? 'Epic sample feed + live evidence context' : 'Epic sample feed'}</span></div>
     <div><span>Last sample refresh</span><span class="mono">14m ago</span></div>
+    <div><span>Saved citations</span><span>${context?.savedCitationCount ?? 0}</span></div>
+    <div><span>Evidence highlights</span><span>${context?.highlightCount ?? 0}</span></div>
+    <div><span>Reports available</span><span>${context?.reportCount ?? 0}</span></div>
+    <div><span>Latest report</span><span>${latestReportTitle ? esc(latestReportTitle) : 'No saved report yet'}</span></div>
     <div><span>Documents</span><span>132</span></div>
     <div><span>Lab panels</span><span>14</span></div>
     <div><span>Allergies</span><span style="color:#F6B23C">Penicillin</span></div>
@@ -657,7 +706,7 @@ const WIDGETS = [
   { id: 'video',       title: 'Video / facial affect',   icon: '🎥', source: 'Session capture',           col: 'span 2', h: 180, body: widgetVideo, ai: true, color: '#FF6B8B' },
   { id: 'text',        title: 'Text sentiment',          icon: '💬', source: 'Journals + chat',           col: 'span 2', h: 180, body: widgetText,  ai: true, color: '#5BB6FF' },
   { id: 'location',    title: 'Location & mobility',     icon: '📍', source: 'GPS · activity',            col: 'span 3', h: 140, body: () => widgetLocation(), color: '#B6E66A' },
-  { id: 'ehr',         title: 'EMR & medical records',   icon: '📄', source: 'Preview: Epic sample feed', col: 'span 3', h: 140, body: () => widgetEhr(),  color: '#9BAEC2' },
+  { id: 'ehr',         title: 'EMR & medical records',   icon: '📄', source: 'Preview: Epic sample feed', col: 'span 3', h: 140, body: (context) => widgetEhr(context),  color: '#9BAEC2' },
 ];
 
 function renderWidget(w, body) {
@@ -675,7 +724,7 @@ function renderWidget(w, body) {
 }
 
 // ── Patient header strip ────────────────────────────────────────────────────
-function renderHeader(p, tel, activeTab = 'analytics') {
+function renderHeader(p, tel, activeTab = 'analytics', context = null) {
   const phqDelta = Math.round(tel.seriesPHQ[tel.seriesPHQ.length - 1] - tel.phqStart);
   return `<div class="pa-header">
     <div class="pa-header-tabs">
@@ -688,6 +737,7 @@ function renderHeader(p, tel, activeTab = 'analytics') {
         <div class="pa-header-name-row">
           <h1>${esc((p.first_name||'') + ' ' + (p.last_name||''))}</h1>
           <span class="pa-chip pa-chip-sky">DEMO PATIENT</span>
+          ${context?.live ? '<span class="pa-chip pa-chip-mint">LIVE EVIDENCE</span>' : ''}
           ${tel.seriesPHQ[tel.seriesPHQ.length - 1] <= 10 ? '<span class="pa-chip pa-chip-mint">RESPONDER</span>' : ''}
           <span class="pa-chip pa-chip-amber">2 ALERTS</span>
         </div>
@@ -709,6 +759,9 @@ function renderHeader(p, tel, activeTab = 'analytics') {
       ${stripStat('Sessions', `${tel.sessionsCompleted}/${tel.sessionsTotal}`, '2 missed', '#3EE0C5')}
       ${stripStat('PHQ-9 Delta', `${phqDelta}`, `${tel.phqStart} -> ${Math.round(tel.seriesPHQ[tel.seriesPHQ.length - 1])}`, '#3EE0C5')}
       ${stripStat('Adherence', tel.adherence + '%', '30-day', '#3EE0C5')}
+      ${stripStat('Evidence highlights', String(context?.highlightCount ?? 0), context?.live ? 'Live patient evidence' : 'Unavailable', '#5BB6FF')}
+      ${stripStat('Saved citations', String(context?.savedCitationCount ?? 0), context?.live ? 'Report-ready evidence' : 'Unavailable', '#8B7DFF')}
+      ${stripStat('Reports', String(context?.reportCount ?? 0), context?.latestReport ? (context.latestReport.title || context.latestReport.report_title || 'Latest report saved') : 'No saved reports', '#B6E66A')}
       ${stripStat('Risk index', String(tel.riskScore), '↓ low', '#F6B23C')}
       ${stripStat('Last session', 'Yesterday', '09:14 · 30 min', 'var(--text-primary)')}
       ${stripStat('Next session', 'Tomorrow', '09:00 · ' + esc(p.primary_modality || 'tDCS'), '#5BB6FF')}
@@ -745,6 +798,29 @@ function renderTimelineHero(tel) {
       }).join('')}
       <span class="pa-timeline-ai">✦ AI-detected: 3 inflection points · 2 strong correlations</span>
     </div>
+  </div>`;
+}
+
+function renderEvidenceContextBanner(context) {
+  if (!context?.live) {
+    return `<div style="margin-bottom:14px;padding:12px 14px;border:1px solid rgba(245,158,11,0.28);border-radius:12px;background:rgba(245,158,11,0.08);font-size:12px;line-height:1.5;color:var(--text-secondary)">
+      Demo telemetry preview only. This page does not currently have verified live evidence or saved report context for this patient.
+    </div>`;
+  }
+  return `<div style="margin-bottom:14px;padding:12px 14px;border:1px solid rgba(62,224,197,0.22);border-radius:12px;background:rgba(62,224,197,0.08);font-size:12px;line-height:1.5;color:var(--text-secondary)">
+    <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between">
+      <div>
+        <strong style="color:var(--text-primary)">Mixed-source patient analytics.</strong>
+        Telemetry widgets remain preview/sample data, but evidence highlights, saved citations, and report availability below are loaded from the live patient evidence/report store.
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px 14px">
+        <span><strong style="color:var(--text-primary)">${context.highlightCount}</strong> evidence highlights</span>
+        <span><strong style="color:var(--text-primary)">${context.savedCitationCount}</strong> saved citations</span>
+        <span><strong style="color:var(--text-primary)">${context.reportCount}</strong> saved reports</span>
+        <span><strong style="color:var(--text-primary)">${context.reportCitationCount}</strong> report citations</span>
+      </div>
+    </div>
+    ${context.phenotypeTags.length ? `<div style="margin-top:8px;color:var(--text-tertiary)">Phenotype tags: ${esc(context.phenotypeTags.slice(0, 6).join(' · '))}</div>` : ''}
   </div>`;
 }
 
@@ -830,6 +906,7 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
   const id = patientId || window._paPatientId || (DEMO_PATIENT_ROSTER[0] && DEMO_PATIENT_ROSTER[0].id);
   const p = demoPtFromRoster(id) || DEMO_PATIENT_ROSTER[0];
   const tel = buildPatientTelemetry(p);
+  const evidenceContext = await loadAnalyticsEvidenceContext(id).catch(() => emptyAnalyticsEvidenceContext(id));
 
   setTopbar(`${p.first_name} ${p.last_name}`,
     `<button class="btn btn-sm" onclick="window._patientHubTab='analytics';window._nav('patients-hub')">← All patients</button>` +
@@ -837,17 +914,15 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
   );
 
   const activeTab = window._paActiveTab || 'analytics';
-  const header = renderHeader(p, tel, activeTab);
+  const header = renderHeader(p, tel, activeTab, evidenceContext);
   const timeline = renderTimelineHero(tel);
-  const grid = WIDGETS.map(w => renderWidget(w, w.body(tel, id))).join('');
-  const evidenceTab = PatientEvidenceTab({ patientId: id });
+  const grid = WIDGETS.map(w => renderWidget(w, w.id === 'ehr' ? w.body(evidenceContext) : w.body(tel, id))).join('');
+  const evidenceTab = PatientEvidenceTab(evidenceContext.overview || { patientId: id });
 
   el.innerHTML = `<div class="pa-shell">
     ${header}
     <div class="pa-body" style="${activeTab === 'analytics' ? '' : 'display:none'}">
-      <div style="margin-bottom:14px;padding:12px 14px;border:1px solid rgba(245,158,11,0.28);border-radius:12px;background:rgba(245,158,11,0.08);font-size:12px;line-height:1.5;color:var(--text-secondary)">
-        Demo analytics preview. This patient analytics page is currently rendered from sample telemetry, not a live EMR or device feed.
-      </div>
+      ${renderEvidenceContextBanner(evidenceContext)}
       ${timeline}
       <div class="pa-grid-head">
         <div class="pa-overline">DOMAIN GRID</div>
@@ -866,7 +941,7 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
       <span style="flex:1"></span>
       <span>Last sample refresh 4m ago</span>
       <span>·</span>
-      <span class="pa-foot-live"><span class="pa-foot-dot"></span> Demo preview</span>
+      <span class="pa-foot-live"><span class="pa-foot-dot"></span> ${evidenceContext.live ? 'Telemetry preview · evidence context live' : 'Demo preview'}</span>
     </footer>
   </div>`;
 

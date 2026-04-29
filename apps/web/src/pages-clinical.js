@@ -1837,8 +1837,11 @@ export async function pgDash(setTopbar, navigate) {
   </div>`;
 
   // ── Protocol Studio connection card (87K evidence dataset) ───────────────────
-  const _protoCount = PROTOCOL_LIBRARY?.length || 0;
-  const _condCount  = PROTO_CONDITIONS?.length || 0;
+  const _liveCoverageRows = Array.isArray(protocolCoverageRes?.rows) ? protocolCoverageRes.rows : [];
+  const _liveTemplateRows = Array.isArray(protocolTemplateRows) ? protocolTemplateRows : [];
+  const _liveSafetyRows = Array.isArray(protocolSafetyRows) ? protocolSafetyRows : [];
+  const _protoCount = _liveTemplateRows.length || PROTOCOL_LIBRARY?.length || 0;
+  const _condCount  = liveEvidence.totalConditions || PROTO_CONDITIONS?.length || 0;
   const _deviceCount = PROTO_DEVICES?.length || 0;
   const _totalPapers = liveEvidence.totalPapers;
   const _totalTrials = liveEvidence.totalTrials;
@@ -1847,6 +1850,14 @@ export async function pgDash(setTopbar, navigate) {
   const _evGradeDist = Object.keys(liveEvidence.gradeDistribution || {}).length ? liveEvidence.gradeDistribution : (EVIDENCE_SUMMARY?.gradeDistribution || {});
   const _modDist = Object.keys(liveEvidence.modalityDistribution || {}).length ? liveEvidence.modalityDistribution : (EVIDENCE_SUMMARY?.modalityDistribution || {});
   const _topModalities2 = Object.entries(_modDist).sort((a,b) => b[1] - a[1]).slice(0, 5);
+  const _topCoverageRows = _liveCoverageRows.filter((row) => row.gap && row.gap !== 'None').slice(0, 4);
+  const _topTemplateRows = _liveTemplateRows.slice(0, 4);
+  const _topSafetyRows = _liveSafetyRows.slice(0, 4);
+  const _signalTitle = (signal) =>
+    (signal.safety_signal_tags || []).concat(signal.contraindication_signal_tags || []).join(', ')
+    || signal.title
+    || signal.example_titles
+    || 'Safety signal';
 
   const _protocolStudioCard = `<div class="dh2-card" style="position:relative;overflow:hidden">
     <div style="position:absolute;top:0;right:0;width:180px;height:100%;opacity:0.04;pointer-events:none;background:radial-gradient(circle at 80% 30%, var(--teal), transparent 70%)"></div>
@@ -1855,7 +1866,7 @@ export async function pgDash(setTopbar, navigate) {
         <div class="dh2-card-title" style="display:flex;align-items:center;gap:8px">Protocol Studio
           <span style="font-size:10px;font-weight:700;letter-spacing:0.5px;padding:2px 7px;border-radius:4px;background:rgba(0,212,188,0.12);color:var(--teal)">CONNECTED</span>
         </div>
-        <div class="dh2-card-sub">${_totalPapers.toLocaleString()} evidence-backed research papers &middot; ${_protoCount} protocols &middot; ${_condCount} conditions</div>
+        <div class="dh2-card-sub">${_totalPapers.toLocaleString()} evidence-backed research papers &middot; ${_protoCount} ${_liveTemplateRows.length ? 'live templates' : 'protocols'} &middot; ${_condCount} conditions</div>
       </div>
       <div class="dh2-card-actions">
         <button class="dh2-launch-btn primary" onclick="window._nav('protocol-hub')">Open Studio &rarr;</button>
@@ -1920,6 +1931,41 @@ export async function pgDash(setTopbar, navigate) {
         ${_topModalities2.map(([mod, count]) =>
           `<span style="font-size:11px;padding:4px 10px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-secondary);white-space:nowrap">${_esc(mod)} <span style="color:var(--teal);font-weight:600;font-family:var(--font-mono)">${(count/1000).toFixed(1)}K</span></span>`
         ).join('')}
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px">
+      <div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">
+        <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Coverage watch</div>
+        ${_topCoverageRows.length
+          ? _topCoverageRows.map((row) => {
+              const gapColor = row.paper_count < 10 ? 'var(--rose)' : 'var(--amber)';
+              return `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+                <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+                  <div style="font-size:11.5px;font-weight:600;color:var(--text-primary)">${_esc(row.modality)} · ${_esc(row.condition)}</div>
+                  <span style="font-size:10px;padding:2px 7px;border-radius:999px;background:${gapColor}22;color:${gapColor};border:1px solid ${gapColor}55">${_esc(row.gap || 'Gap')}</span>
+                </div>
+                <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px">${(row.paper_count || 0).toLocaleString()} papers · coverage ${_esc(row.coverage ?? 0)}%</div>
+              </div>`;
+            }).join('')
+          : '<div style="font-size:11px;color:var(--text-tertiary)">No live coverage gaps surfaced.</div>'}
+      </div>
+      <div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">
+        <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Template watch</div>
+        ${_topTemplateRows.length
+          ? _topTemplateRows.map((row) => `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+              <div style="font-size:11.5px;font-weight:600;color:var(--text-primary)">${_esc(row.modality || 'Modality')} · ${_esc(row.indication || 'Indication')}</div>
+              <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px">${_esc(row.target || 'Target pending')} · ${_esc(row.evidence_tier || 'Tier not set')}</div>
+            </div>`).join('')
+          : '<div style="font-size:11px;color:var(--text-tertiary)">Using registry fallback templates.</div>'}
+      </div>
+      <div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">
+        <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Safety watch</div>
+        ${_topSafetyRows.length
+          ? _topSafetyRows.map((row) => `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+              <div style="font-size:11.5px;font-weight:600;color:var(--text-primary)">${_esc(row.primary_modality || 'Modality')}${row.indication_tags?.length ? ' · ' + _esc(row.indication_tags.slice(0, 2).join(' · ')) : ''}</div>
+              <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px">${_esc(_signalTitle(row))}</div>
+            </div>`).join('')
+          : '<div style="font-size:11px;color:var(--text-tertiary)">No live safety signals loaded.</div>'}
       </div>
     </div>
     <div style="display:flex;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);flex-wrap:wrap">
@@ -6252,6 +6298,12 @@ function renderWizStep4Result(result) {
   const onLabel = result?.on_label_vs_off_label || result?.on_label || '';
   const warnings = result?.governance_warnings || result?.warnings || [];
   const rationale = result?.rationale || result?.notes || result?.description || result?.summary || '';
+  const liveCtx = ws.generatedLiveEvidenceContext || null;
+  const signalTitle = (signal) =>
+    (signal?.safety_signal_tags || []).concat(signal?.contraindication_signal_tags || []).join(', ')
+    || signal?.title
+    || signal?.example_titles
+    || 'Safety signal';
 
   // Save this generation as a new version (only if there's meaningful content)
   const draftText = result?.protocol || result?.draft || rationale || JSON.stringify(result);
@@ -6278,6 +6330,14 @@ function renderWizStep4Result(result) {
 
   const govHtml = warnings.length
     ? warnings.map(w => govFlag(w)).join('')
+    : '';
+  const liveContextHtml = liveCtx && (liveCtx.coverage || liveCtx.template || liveCtx.safety)
+    ? `<div class="notice notice-info" style="margin-bottom:12px;font-size:11px;line-height:1.55">
+        <strong>Live evidence watch</strong>
+        ${liveCtx.coverage ? ` · coverage ${liveCtx.coverage.coverage}% across ${Number(liveCtx.coverage.paper_count || 0).toLocaleString()} papers${liveCtx.coverage.gap && liveCtx.coverage.gap !== 'None' ? ` · gap: ${liveCtx.coverage.gap}` : ''}` : ''}
+        ${liveCtx.template ? ` · template ${String([liveCtx.template.modality, liveCtx.template.indication, liveCtx.template.target].filter(Boolean).join(' — ')).replace(/</g, '&lt;')}` : ''}
+        ${liveCtx.safety ? ` · safety ${String(signalTitle(liveCtx.safety)).replace(/</g, '&lt;')}` : ''}
+      </div>`
     : '';
 
   const explainabilityBanner = result?.personalization_why_selected_debug
@@ -6307,6 +6367,7 @@ function renderWizStep4Result(result) {
           </div>
         </div>
         ${explainabilityBanner}
+        ${liveContextHtml}
         ${govHtml}
         ${result?.device_resolution ? `<div class="notice notice-info" style="margin-bottom:12px;font-size:11px;line-height:1.55">
           <strong>Registry trace</strong> — device <strong>${String(result.device_resolution.resolved_device || '').replace(/</g, '&lt;')}</strong>
@@ -6630,6 +6691,7 @@ function _wizBindActions() {
     ws.generatedProtocolPersistedExplainability = null;
     ws.draftGenContextFingerprint = null;
     ws.generatedProtocolDebugPresent = false;
+    ws.generatedLiveEvidenceContext = null;
 
     ws.step = 3;
     ws._step4Html = renderWizStep4Loading();
@@ -6668,6 +6730,21 @@ function _wizBindActions() {
 
       const result = await api.generateProtocol(payload);
       ws.generatedProtocol = result;
+      try {
+        const [coverageRes, templates, safety] = await Promise.all([
+          api.protocolCoverage({ condition: conditionName, modality: modalityName, limit: 8 }).catch(() => null),
+          api.listResearchProtocolTemplates({ indication: conditionName, modality: modalityName, limit: 4 }).catch(() => []),
+          api.listResearchSafetySignals({ indication: conditionName, modality: modalityName, limit: 4 }).catch(() => []),
+        ]);
+        const coverageRows = Array.isArray(coverageRes?.rows) ? coverageRes.rows : [];
+        ws.generatedLiveEvidenceContext = {
+          coverage: coverageRows[0] || null,
+          template: Array.isArray(templates) ? templates[0] || null : null,
+          safety: Array.isArray(safety) ? safety[0] || null : null,
+        };
+      } catch {
+        ws.generatedLiveEvidenceContext = null;
+      }
       const dbg = result.personalization_why_selected_debug;
       ws.generatedProtocolPersistedExplainability = dbg
         ? toPersistedPersonalizationExplainability(dbg)
@@ -10275,7 +10352,7 @@ export async function pgProtocolBuilder(setTopbar) {
     </div>`;
 
   // ── AI Suggest ─────────────────────────────────────────────────────────────
-  window._pbAISuggest = function() {
+  window._pbAISuggest = async function() {
     const panel = document.getElementById('pb-ai-suggest-panel');
     if (!panel) return;
 
@@ -10291,6 +10368,9 @@ export async function pgProtocolBuilder(setTopbar) {
       return;
     }
 
+    panel.style.display = '';
+    panel.innerHTML = `<div id="pb-ai-suggest-panel"><h4>🤖 AI Protocol Suggestion</h4><p style="font-size:12.5px;color:var(--text-secondary)">Loading live evidence context for the current builder blocks…</p></div>`;
+
     // Detect modalities present on canvas
     const types = nodes.map(n => n.type);
     const hasTMS = types.some(t => ['tms', 'theta-burst', 'deep-tms'].includes(t));
@@ -10299,6 +10379,38 @@ export async function pgProtocolBuilder(setTopbar) {
     const hasHRV = types.some(t => ['hrv-biofeedback', 'biofeedback'].includes(t));
     const hasRest = types.some(t => t === 'rest');
     const hasRepeat = types.some(t => t === 'repeat');
+    const liveModalities = [
+      hasTMS ? 'tms' : null,
+      hasNFB ? 'neurofeedback' : null,
+      hasTDCS ? 'tdcs' : null,
+      hasHRV ? 'biofeedback' : null,
+    ].filter(Boolean);
+    const liveBundle = {};
+    await Promise.all(liveModalities.map(async (modality) => {
+      try {
+        const [templates, safety] = await Promise.all([
+          api.listResearchProtocolTemplates({ modality, limit: 4 }).catch(() => []),
+          api.listResearchSafetySignals({ modality, limit: 4 }).catch(() => []),
+        ]);
+        liveBundle[modality] = {
+          templates: Array.isArray(templates) ? templates : [],
+          safety: Array.isArray(safety) ? safety : [],
+        };
+      } catch {
+        liveBundle[modality] = { templates: [], safety: [] };
+      }
+    }));
+    const _signalTitle = (signal) =>
+      (signal.safety_signal_tags || []).concat(signal.contraindication_signal_tags || []).join(', ')
+      || signal.title
+      || signal.example_titles
+      || 'Safety signal';
+    const _templateHint = (modality) => {
+      const row = liveBundle[modality]?.templates?.[0];
+      if (!row) return '';
+      const bits = [row.indication, row.target, row.evidence_tier].filter(Boolean);
+      return bits.length ? `Live template: ${bits.join(' · ')}.` : '';
+    };
 
     // Session count recommendation
     let sessionRec = '20–30 sessions recommended for most neuromodulation courses.';
@@ -10312,13 +10424,23 @@ export async function pgProtocolBuilder(setTopbar) {
     if (hasTMS) {
       paramTips.push('Set intensity to 120% motor threshold for left DLPFC protocols. Consider 80–90% MT for anxious patients.');
       paramTips.push('Inter-train interval of ≥2 seconds reduces seizure risk. Verify device default settings match protocol.');
+      const hint = _templateHint('tms');
+      if (hint) paramTips.push(hint);
     }
     if (hasNFB) {
       paramTips.push('For ADHD: SMR reward (12–15 Hz) at Cz + theta inhibit (4–8 Hz). Threshold should auto-adjust to keep reward rate 60–70%.');
       paramTips.push('Electrode placement: always use EEG-grade gel for impedance <5 kΩ. Check before each session.');
+      const hint = _templateHint('neurofeedback');
+      if (hint) paramTips.push(hint);
     }
     if (hasTDCS) {
       paramTips.push('tDCS: ramp current up over 30 seconds to reduce skin sensation. Current density should not exceed 0.06 mA/cm².');
+      const hint = _templateHint('tdcs');
+      if (hint) paramTips.push(hint);
+    }
+    if (hasHRV) {
+      const hint = _templateHint('biofeedback');
+      if (hint) paramTips.push(hint);
     }
     if (!hasRest && (hasTMS || hasTDCS)) {
       paramTips.push('Consider adding Rest Period blocks between stimulation blocks to reduce fatigue and support consolidation.');
@@ -10338,12 +10460,29 @@ export async function pgProtocolBuilder(setTopbar) {
     if (hasRepeat && hasTMS) {
       warnings.push('Repeat blocks with TMS: ensure cumulative pulse count per day does not exceed safety limits (typically ≤3000 standard, ≤6000 in published iTBS protocols).');
     }
+    for (const modality of liveModalities) {
+      const signal = liveBundle[modality]?.safety?.[0];
+      if (signal) warnings.push(`Live ${modality.toUpperCase()} safety watch: ${_signalTitle(signal)}.`);
+    }
 
-    // Literature links (rule-based)
+    // Literature links (bundle-backed when available, rule-based otherwise)
     const links = [];
-    if (hasTMS) links.push({ text: 'George et al. (2010) — TMS for depression, d=0.55', page: 'evidence' });
-    if (hasNFB) links.push({ text: 'Arns et al. (2009) — Neurofeedback for ADHD, d=0.59', page: 'evidence' });
-    if (hasTDCS) links.push({ text: 'Brunoni et al. (2017) — tDCS meta-analysis, d=0.37', page: 'evidence' });
+    const _pushTemplateLinks = (modality) => {
+      const rows = liveBundle[modality]?.templates || [];
+      rows.slice(0, 2).forEach((row) => {
+        const label = [row.modality || modality.toUpperCase(), row.indication, row.target].filter(Boolean).join(' — ');
+        links.push({ text: `${label} · ${row.evidence_tier || 'Tier unset'}`, page: 'research-evidence' });
+      });
+    };
+    _pushTemplateLinks('tms');
+    _pushTemplateLinks('neurofeedback');
+    _pushTemplateLinks('tdcs');
+    _pushTemplateLinks('biofeedback');
+    if (!links.length) {
+      if (hasTMS) links.push({ text: 'George et al. (2010) — TMS for depression, d=0.55', page: 'research-evidence' });
+      if (hasNFB) links.push({ text: 'Arns et al. (2009) — Neurofeedback for ADHD, d=0.59', page: 'research-evidence' });
+      if (hasTDCS) links.push({ text: 'Brunoni et al. (2017) — tDCS meta-analysis, d=0.37', page: 'research-evidence' });
+    }
     links.push({ text: 'Browse full evidence library →', page: 'evidence' });
 
     panel.style.display = '';
@@ -10776,6 +10915,93 @@ export async function pgDecisionSupport(setTopbar) {
 
   const content = document.getElementById('content');
   if (!content) return;
+  const [dsCoverageRes, dsTemplateRows, dsSafetyRows] = await Promise.all([
+    api.protocolCoverage({ limit: 48 }).catch(() => null),
+    api.listResearchProtocolTemplates({ limit: 48 }).catch(() => []),
+    api.listResearchSafetySignals({ limit: 48 }).catch(() => []),
+  ]);
+  const dsCoverageRows = Array.isArray(dsCoverageRes?.rows) ? dsCoverageRes.rows : [];
+  const dsTemplates = Array.isArray(dsTemplateRows) ? dsTemplateRows : [];
+  const dsSafetySignals = Array.isArray(dsSafetyRows) ? dsSafetyRows : [];
+  const _dsSlug = (v) => String(v || '').trim().toLowerCase().replace(/[_\s/]+/g, '-').replace(/[^a-z0-9-]/g, '');
+  const _dsLiveSignalTitle = (signal) =>
+    (signal.safety_signal_tags || []).concat(signal.contraindication_signal_tags || []).join(', ')
+    || signal.title
+    || signal.example_titles
+    || 'Safety signal';
+  const _dsFindLiveContext = (modality, conditions = []) => {
+    const modSlug = _dsSlug(modality);
+    const condSlugs = conditions.map(_dsSlug);
+    const coverage = dsCoverageRows.filter((row) =>
+      _dsSlug(row.modality) === modSlug &&
+      (!condSlugs.length || condSlugs.includes(_dsSlug(row.condition)))
+    );
+    const templates = dsTemplates.filter((row) =>
+      _dsSlug(row.modality) === modSlug &&
+      (!condSlugs.length || condSlugs.includes(_dsSlug(row.indication)))
+    );
+    const safety = dsSafetySignals.filter((signal) => {
+      const modalityHit = (signal.canonical_modalities || []).some((tag) => _dsSlug(tag) === modSlug)
+        || _dsSlug(signal.primary_modality) === modSlug;
+      const indicationHit = !condSlugs.length || (signal.indication_tags || []).some((tag) => condSlugs.includes(_dsSlug(tag)));
+      return modalityHit && indicationHit;
+    });
+    return { coverage, templates, safety };
+  };
+  const _dsRenderEvidenceTable = (filterModality, filterLevel) => {
+    const liveRows = dsTemplates
+      .filter((row) => {
+        const mod = _dsSlug(row.modality);
+        const level = String(row.evidence_tier || '').replace(/^EV-?/i, '').toUpperCase();
+        if (filterModality && mod !== filterModality) return false;
+        if (filterLevel && level !== filterLevel) return false;
+        return true;
+      })
+      .map((row) => {
+        const ctx = _dsFindLiveContext(row.modality, [row.indication]);
+        const level = String(row.evidence_tier || '').replace(/^EV-?/i, '').toUpperCase() || 'B';
+        const gap = ctx.coverage[0]?.gap && ctx.coverage[0]?.gap !== 'None' ? ` · gap: ${ctx.coverage[0].gap}` : '';
+        const safety = ctx.safety.length ? ` · safety: ${_dsLiveSignalTitle(ctx.safety[0])}` : '';
+        return `<tr>
+          <td style="font-weight:500">${DS_MODALITY_ICONS[_dsSlug(row.modality)] || ''} ${row.modality}</td>
+          <td style="text-transform:capitalize">${row.indication || '—'}</td>
+          <td><span class="evidence-badge-${level}">Level ${level}</span></td>
+          <td class="mono">${Number(row.paper_count || 0).toLocaleString()}</td>
+          <td style="font-size:11px;color:var(--text-secondary)">${row.target || 'Target pending'}${gap}${safety}</td>
+        </tr>`;
+      }).join('');
+    if (liveRows) {
+      return `<table class="ds-table" style="font-size:12px">
+        <thead><tr><th>Modality</th><th>Condition</th><th>Evidence Level</th><th>Papers</th><th>Live bundle context</th></tr></thead>
+        <tbody>${liveRows}</tbody>
+      </table>`;
+    }
+    return _dsEvidenceTable(filterModality, filterLevel);
+  };
+  const _dsRenderLiveRecommendationCard = (rec) => {
+    const base = _dsRecCard(rec);
+    const ctx = _dsFindLiveContext(rec.modality, rec.conditions);
+    if (!ctx.coverage.length && !ctx.templates.length && !ctx.safety.length) return base;
+    const liveBits = [];
+    if (ctx.coverage.length) {
+      const row = ctx.coverage[0];
+      liveBits.push(`Coverage ${row.coverage}% across ${Number(row.paper_count || 0).toLocaleString()} papers${row.gap && row.gap !== 'None' ? ` · gap: ${row.gap}` : ''}`);
+    }
+    if (ctx.templates.length) {
+      const tpl = ctx.templates[0];
+      liveBits.push(`Template: ${(tpl.target || 'target pending')} · ${tpl.evidence_tier || 'tier unset'}`);
+    }
+    if (ctx.safety.length) {
+      liveBits.push(`Safety: ${_dsLiveSignalTitle(ctx.safety[0])}`);
+    }
+    return base.replace(
+      '</button>\n  </div>',
+      `${liveBits.length ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:var(--text-secondary);line-height:1.5">${liveBits.map(_esc).join('<br>')}</div>` : ''}<button class="btn btn-primary btn-sm" onclick="window._applyModalityRecommendation('${rec.modality}')"${rec.matchScore === 0 ? ' disabled' : ''}>
+      Use This Modality &rarr;
+    </button>
+  </div>`
+    );
+  };
 
   const modOptions = Object.keys(MODALITY_INDICATIONS)
     .map(m => `<option value="${m}">${DS_MODALITY_ICONS[m] || ''} ${m.charAt(0).toUpperCase() + m.slice(1)}</option>`)
@@ -10794,7 +11020,7 @@ export async function pgDecisionSupport(setTopbar) {
 
   <div style="margin-bottom:20px">
     <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:4px">Clinical Decision Support</h2>
-    <p style="font-size:12.5px;color:var(--text-secondary)">Rule-based protocol recommendations derived from modality-indication evidence mapping. All logic is deterministic &mdash; no external API calls.</p>
+    <p style="font-size:12.5px;color:var(--text-secondary)">Rule-based protocol recommendations derived from modality-indication evidence mapping. Contraindication logic remains deterministic; evidence context now prefers the live neuromodulation research bundle when available.</p>
   </div>
 
   <div style="display:grid;grid-template-columns:40% 60%;gap:20px;align-items:start">
@@ -10868,7 +11094,7 @@ export async function pgDecisionSupport(setTopbar) {
         </select>
       </div>
     </div>
-    <div id="ds-ev-table">${_dsEvidenceTable('', '')}</div>
+    <div id="ds-ev-table">${_dsRenderEvidenceTable('', '')}</div>
   </div>
 
 </div>`;
@@ -10902,7 +11128,7 @@ export async function pgDecisionSupport(setTopbar) {
         No modalities match the selected symptoms &mdash; consider broadening your symptom selection.
       </div>`;
     } else {
-      html += scored.map(_dsRecCard).join('');
+      html += scored.map(_dsRenderLiveRecommendationCard).join('');
     }
 
     if (unmatched.length > 0 && scored.length > 0) {
@@ -10910,7 +11136,7 @@ export async function pgDecisionSupport(setTopbar) {
         <summary style="font-size:11.5px;color:var(--text-tertiary);cursor:pointer;padding:4px 0">
           Show ${unmatched.length} modalities with no symptom match
         </summary>
-        <div style="margin-top:8px">${unmatched.map(_dsRecCard).join('')}</div>
+        <div style="margin-top:8px">${unmatched.map(_dsRenderLiveRecommendationCard).join('')}</div>
       </details>`;
     }
 
@@ -10963,7 +11189,7 @@ export async function pgDecisionSupport(setTopbar) {
 
   window._filterEvidenceLibrary = function(modality, level) {
     const el = document.getElementById('ds-ev-table');
-    if (el) el.innerHTML = _dsEvidenceTable(modality || '', level || '');
+    if (el) el.innerHTML = _dsRenderEvidenceTable(modality || '', level || '');
   };
 }
 
@@ -11983,3 +12209,8 @@ function _hlMark(text, query) {
     fallbackSummary: EVIDENCE_SUMMARY,
     fallbackConditionCount: CONDITION_EVIDENCE.length,
   });
+  const [protocolCoverageRes, protocolTemplateRows, protocolSafetyRows] = await Promise.all([
+    api.protocolCoverage({ limit: 12 }).catch(() => null),
+    api.listResearchProtocolTemplates({ limit: 12 }).catch(() => []),
+    api.listResearchSafetySignals({ limit: 18 }).catch(() => []),
+  ]);

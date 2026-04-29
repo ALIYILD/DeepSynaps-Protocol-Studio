@@ -219,6 +219,39 @@ function spinner() {
   return '<div style="text-align:center;padding:48px;color:var(--teal);font-size:24px">◈</div>';
 }
 
+function _emptyPatientEvidenceContext(patientId = '') {
+  return {
+    live: false,
+    patientId,
+    overview: null,
+    reportCount: 0,
+    savedCitationCount: 0,
+    highlightCount: 0,
+    contradictionCount: 0,
+    reportCitationCount: 0,
+    phenotypeTags: [],
+  };
+}
+
+async function _loadPatientEvidenceContext(patientId, reports = null) {
+  const base = _emptyPatientEvidenceContext(patientId);
+  if (!patientId) return { ...base, reportCount: Array.isArray(reports) ? reports.length : 0 };
+  const overview = await api.evidencePatientOverview?.(patientId).catch(() => null);
+  return {
+    ...base,
+    live: !!overview || (Array.isArray(reports) && reports.length > 0),
+    overview,
+    reportCount: Array.isArray(reports) ? reports.length : 0,
+    savedCitationCount: Array.isArray(overview?.saved_citations) ? overview.saved_citations.length : 0,
+    highlightCount: Array.isArray(overview?.highlights) ? overview.highlights.length : 0,
+    contradictionCount: Array.isArray(overview?.contradictory_findings) ? overview.contradictory_findings.length : 0,
+    reportCitationCount: Array.isArray(overview?.evidence_used_in_report) ? overview.evidence_used_in_report.length : 0,
+    phenotypeTags: Array.isArray(overview?.compare_with_literature_phenotype?.matched_tags)
+      ? overview.compare_with_literature_phenotype.matched_tags
+      : [],
+  };
+}
+
 // ── Sparkline helper ──────────────────────────────────────────────────────────
 function sparklineSVG(data, color, width = 120, height = 32) {
   if (!data || data.length < 2) return '';
@@ -470,6 +503,7 @@ export async function pgPatientDashboard(user) {
     wellnessLogsRaw,
     dashboardRaw,
     patientSummaryRaw,
+    patientReportsRaw,
   ] = await Promise.all([
     api.patientPortalSessions().catch(() => null),
     api.patientPortalCourses().catch(() => null),
@@ -481,6 +515,7 @@ export async function pgPatientDashboard(user) {
     (api.patientPortalWellnessLogs ? api.patientPortalWellnessLogs(7).catch(() => null) : Promise.resolve(null)),
     (api.patientPortalDashboard ? api.patientPortalDashboard().catch(() => null) : Promise.resolve(null)),
     (api.patientPortalSummary ? api.patientPortalSummary().catch(() => null) : Promise.resolve(null)),
+    (api.patientPortalReports ? api.patientPortalReports().catch(() => null) : Promise.resolve(null)),
   ]);
 
   const _hmLoadFailed =
@@ -493,7 +528,8 @@ export async function pgPatientDashboard(user) {
     homeTasksPortalRaw == null &&
     wellnessLogsRaw == null &&
     dashboardRaw == null &&
-    patientSummaryRaw == null;
+    patientSummaryRaw == null &&
+    patientReportsRaw == null;
 
   // In demo mode, seed sample data instead of showing the error page.
   const _demoEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1';
@@ -518,6 +554,8 @@ export async function pgPatientDashboard(user) {
   const coursesArr   = Array.isArray(portalCourses) ? portalCourses : [];
   const messages     = Array.isArray(portalMessagesRaw) ? portalMessagesRaw : [];
   const patientSummary = (patientSummaryRaw && typeof patientSummaryRaw === 'object') ? patientSummaryRaw : null;
+  const patientReports = Array.isArray(patientReportsRaw) ? patientReportsRaw : [];
+  const patientEvidence = await _loadPatientEvidenceContext(patientId, patientReports).catch(() => _emptyPatientEvidenceContext(patientId));
 
   // Wearable daily summary → flatten to latest-valued metrics.
   const wearableDays = Array.isArray(wearableSummaryRaw) ? wearableSummaryRaw : [];
@@ -691,6 +729,14 @@ export async function pgPatientDashboard(user) {
     return '<div class="hm-simple-summary">'
       + '<div class="hm-simple-summary__hd"><div><h3>Your latest summaries</h3><p>Plain-language updates from your most recent clinic reviews.</p></div>'
       + '<button class="btn btn-ghost btn-sm" onclick="window._navPatient(\'patient-reports\')">Open reports →</button></div>'
+      + (patientEvidence.live
+        ? '<div class="hm-simple-summary__note" style="margin-bottom:12px;font-size:12px;color:var(--text-secondary)">'
+          + patientEvidence.highlightCount + ' live evidence highlight' + (patientEvidence.highlightCount === 1 ? '' : 's')
+          + ' · ' + patientEvidence.savedCitationCount + ' saved citation' + (patientEvidence.savedCitationCount === 1 ? '' : 's')
+          + ' · ' + patientEvidence.reportCount + ' report' + (patientEvidence.reportCount === 1 ? '' : 's')
+          + ' available'
+          + '</div>'
+        : '')
       + '<div class="hm-simple-summary__grid">' + cards.join('') + '</div>'
       + outcomesHtml
       + '</div>';
@@ -1214,8 +1260,8 @@ export async function pgPatientDashboard(user) {
           <svg width="18" height="18"><use href="#i-book-open"/></svg>
         </div>
         <div class="pth2-tile-title">Education Library</div>
-        <div class="pth2-tile-sub">${targetAreaLine ? esc(targetAreaLine) : (liveEvidence.totalPapers.toLocaleString() + '+ papers, courses, podcasts & clinic videos')}</div>
-        <div class="pth2-tile-meta">Explore</div>
+        <div class="pth2-tile-sub">${patientEvidence.phenotypeTags.length ? esc(patientEvidence.phenotypeTags.slice(0, 3).join(' · ')) : (targetAreaLine ? esc(targetAreaLine) : (liveEvidence.totalPapers.toLocaleString() + '+ papers, courses, podcasts & clinic videos'))}</div>
+        <div class="pth2-tile-meta">${patientEvidence.live ? (patientEvidence.highlightCount + ' evidence highlights') : 'Explore'}</div>
       </button>`);
 
     const unreadCount = messages.filter(m => !m.is_read && m.sender_type !== 'patient').length;
@@ -1875,7 +1921,7 @@ export async function pgPatientDashboard(user) {
     return `
       <div class="hm-card">
         <div class="hm-card-head">
-          <div><h3>For you today</h3><p>${picks.length} sample picks${weekN ? ' matched to Week ' + weekN : ''} &mdash; your clinic will curate real content here</p></div>
+          <div><h3>For you today</h3><p>${patientEvidence.live ? (patientEvidence.highlightCount + ' live evidence highlights' + (patientEvidence.phenotypeTags.length ? ' · ' + esc(patientEvidence.phenotypeTags.slice(0, 3).join(' · ')) : '')) : (picks.length + ' sample picks' + (weekN ? ' matched to Week ' + weekN : '') + ' — your clinic will curate real content here')}</p></div>
           <button class="hm-card-link" onclick="window._navPatient('pt-learn')">Library &rarr;</button>
         </div>
         <div class="hm-edu-list">
@@ -5802,18 +5848,19 @@ export async function pgPatientReports() {
     Promise.resolve(p).catch(() => null),
     _timeout(3000),
   ]);
-  let outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw, wearableSummaryRaw, reportsRaw;
+  let outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw, wearableSummaryRaw, reportsRaw, evidenceOverviewRaw;
   try {
-    [outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw, wearableSummaryRaw, reportsRaw] = await Promise.all([
+    [outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw, wearableSummaryRaw, reportsRaw, evidenceOverviewRaw] = await Promise.all([
       _raceNull(api.patientPortalOutcomes()),
       _raceNull(api.patientPortalAssessments()),
       _raceNull(api.patientPortalCourses()),
       _raceNull(api.patientPortalSessions()),
       _raceNull(api.patientPortalWearableSummary(30)),
       _raceNull(api.patientPortalReports()),
+      _raceNull(_loadPatientEvidenceContext(currentUser?.patient_id || currentUser?.id || null)),
     ]);
   } catch (_e) {
-    outcomesRaw = assessmentsRaw = coursesRaw = sessionsRaw = wearableSummaryRaw = reportsRaw = null;
+    outcomesRaw = assessmentsRaw = coursesRaw = sessionsRaw = wearableSummaryRaw = reportsRaw = evidenceOverviewRaw = null;
   }
   // Soft-error: fall through to an empty docs list (which renders an
   // empty-state card) instead of the hard "Could not load" state when
@@ -5844,6 +5891,9 @@ export async function pgPatientReports() {
   const courses     = Array.isArray(coursesRaw)     ? coursesRaw     : [];
   const sessions    = Array.isArray(sessionsRaw)    ? sessionsRaw    : [];
   const reports     = Array.isArray(reportsRaw)     ? reportsRaw     : [];
+  const patientEvidence = (evidenceOverviewRaw && typeof evidenceOverviewRaw === 'object')
+    ? { ..._emptyPatientEvidenceContext(currentUser?.patient_id || currentUser?.id || null), ...evidenceOverviewRaw, reportCount: reports.length }
+    : _emptyPatientEvidenceContext(currentUser?.patient_id || currentUser?.id || null);
 
   // ── Plain-language knowledge base ────────────────────────────────────────
   // Extension point: clinician-approved per-patient summaries can be supplied
@@ -6515,7 +6565,7 @@ export async function pgPatientReports() {
         <div class="rpt-overview-head">
           <div>
             <div class="rpt-overview-eyebrow">Your reports, by source</div>
-            <div class="rpt-overview-count">${docs.length} report${docs.length === 1 ? '' : 's'} available <span class="rpt-overview-sep">·</span> last updated ${esc(lastUpdated)}</div>
+            <div class="rpt-overview-count">${docs.length} report${docs.length === 1 ? '' : 's'} available <span class="rpt-overview-sep">·</span> last updated ${esc(lastUpdated)}${patientEvidence.live ? `<span class="rpt-overview-sep">·</span>${patientEvidence.highlightCount} evidence highlight${patientEvidence.highlightCount === 1 ? '' : 's'}` : ''}</div>
           </div>
         </div>
         <div class="rpt-overview-grid">
@@ -6532,10 +6582,64 @@ export async function pgPatientReports() {
       </div>`;
   }
 
+  function evidenceLinkedHTML() {
+    const saved = Array.isArray(patientEvidence.overview?.saved_citations) ? patientEvidence.overview.saved_citations : [];
+    const used = Array.isArray(patientEvidence.overview?.evidence_used_in_report) ? patientEvidence.overview.evidence_used_in_report : [];
+    if (!patientEvidence.live && !saved.length && !used.length) return '';
+    return `
+      <div class="pt-docs-evidence-panel" style="margin:16px 0 18px;padding:16px 18px;border-radius:16px;border:1px solid rgba(91,182,255,0.18);background:rgba(91,182,255,0.06)">
+        <div style="display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap">
+          <div>
+            <div style="font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--blue,#5bb6ff);margin-bottom:8px">Evidence linked to your reports</div>
+            <div style="font-size:14px;font-weight:600;color:var(--text-primary)">Saved citations and evidence notes your care team can use during report review</div>
+            <div style="margin-top:6px;font-size:12px;color:var(--text-secondary)">
+              ${patientEvidence.highlightCount} evidence highlight${patientEvidence.highlightCount === 1 ? '' : 's'}
+              <span style="opacity:.5">·</span>
+              ${patientEvidence.savedCitationCount} saved citation${patientEvidence.savedCitationCount === 1 ? '' : 's'}
+              <span style="opacity:.5">·</span>
+              ${patientEvidence.reportCitationCount} citation${patientEvidence.reportCitationCount === 1 ? '' : 's'} already staged for report payloads
+            </div>
+          </div>
+          ${patientEvidence.phenotypeTags.length ? `<div style="font-size:11px;color:var(--text-tertiary);max-width:340px">Phenotype tags: ${esc(patientEvidence.phenotypeTags.slice(0, 6).join(' · '))}</div>` : ''}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:14px">
+          <div style="padding:12px 14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">
+            <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Saved evidence citations</div>
+            ${saved.length
+              ? saved.slice(0, 4).map(function (row) {
+                  const label = row.finding_label || row.claim || 'Saved evidence';
+                  const paper = row.paper_title || row.title || 'Evidence paper';
+                  const cite = row.citation_payload?.inline_citation || '';
+                  return `<div style="padding:8px 0;border-top:1px solid rgba(255,255,255,0.06)">
+                    <div style="font-size:11px;font-weight:600;color:var(--text-primary)">${esc(label)}</div>
+                    <div style="font-size:11.5px;color:var(--text-secondary)">${esc(paper)}</div>
+                    ${cite ? `<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:3px">${esc(cite)}</div>` : ''}
+                  </div>`;
+                }).join('')
+              : '<div style="font-size:12px;color:var(--text-tertiary)">No saved evidence citations yet.</div>'}
+          </div>
+          <div style="padding:12px 14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">
+            <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Evidence already staged for reports</div>
+            ${used.length
+              ? used.slice(0, 4).map(function (row) {
+                  const cite = row.inline_citation || '';
+                  const title = row.title || 'Evidence citation';
+                  return `<div style="padding:8px 0;border-top:1px solid rgba(255,255,255,0.06)">
+                    <div style="font-size:11px;font-weight:600;color:var(--text-primary)">${esc(title)}</div>
+                    ${cite ? `<div style="font-size:10.5px;color:var(--text-secondary);margin-top:3px">${esc(cite)}</div>` : ''}
+                  </div>`;
+                }).join('')
+              : '<div style="font-size:12px;color:var(--text-tertiary)">No report-scoped evidence citations staged yet.</div>'}
+          </div>
+        </div>
+      </div>`;
+  }
+
   el.innerHTML = `
     <div class="pt-docs-wrap">
       <div id="pt-docs-ask-anchor"></div>
       ${overviewStripHTML()}
+      ${evidenceLinkedHTML()}
       ${heroCardHTML(latest)}
       ${catChipsHTML()}
       <div class="pt-docs-sections-wrap">
