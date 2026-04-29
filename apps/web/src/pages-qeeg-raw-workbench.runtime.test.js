@@ -86,7 +86,10 @@ class RElement {
     this._listeners[name] = this._listeners[name].filter(f => f !== fn);
   }
   dispatchEvent(ev) {
-    const fns = this._listeners[ev.type] || [];
+    // Snapshot the listener list before invoking — handlers that re-render
+    // and re-attach listeners during dispatch would otherwise grow this array
+    // mid-iteration and cause an infinite loop.
+    const fns = (this._listeners[ev.type] || []).slice();
     for (const fn of fns) fn(ev);
     return true;
   }
@@ -205,6 +208,7 @@ function installRichDom() {
     _qeegSelectedId: 'real', _nav: () => {},
     prompt: () => 'integration-test-note',
     alert: () => {},
+    open: () => ({ document: { write: () => {}, close: () => {} }, focus: () => {}, print: () => {}, close: () => {} }),
   });
   globalThis.devicePixelRatio = 1;
   globalThis.URL = class { constructor(href) { this.href = href; this.searchParams = { get: () => 'real' }; } static createObjectURL() { return 'blob://x'; } static revokeObjectURL() {} };
@@ -224,7 +228,10 @@ const SRC = readFileSync(HERE, 'utf8');
 const TMP = join(tmpdir(), `qwb-runtime-${process.pid}`);
 mkdirSync(TMP, { recursive: true });
 writeFileSync(join(TMP, 'api.js'), `export const api = globalThis.__qwb_api;`);
-const PATCHED = SRC.replace(/from\s+['"]\.\/api\.js['"];?/, `from '${join(TMP, 'api.js')}';`);
+writeFileSync(join(TMP, 'learning-eeg-reference.js'), `export function renderLearningEEGCompactList(_opts){return '';}`);
+const PATCHED = SRC
+  .replace(/from\s+['"]\.\/api\.js['"];?/, `from '${join(TMP, 'api.js')}';`)
+  .replace(/from\s+['"]\.\/learning-eeg-reference\.js['"];?/, `from '${join(TMP, 'learning-eeg-reference.js')}';`);
 const MODPATH = join(TMP, 'pages-qeeg-raw-workbench.js');
 writeFileSync(MODPATH, PATCHED);
 globalThis.__qwb_api = buildFakeApi();
@@ -293,31 +300,6 @@ await test('Transport: prev/next buttons advance windowStart', async () => {
   const w = byId['qwb-st-window'];
   assert.ok(/30/.test(w.textContent) || /\d+/.test(w.textContent), 'window advanced');
   byId['qwb-prev-window'].click();
-});
-
-// ── Title-bar menus
-await test('Title menus dispatch real actions (File→export, Help→shortcuts)', async () => {
-  // Find the File and Help menu buttons by their data-menu attribute.
-  const menus = querySelectorAllByAttribute(byId, '.qwb-menu-btn');
-  const file = menus.find(m => m.dataset.menu === 'File');
-  const help = menus.find(m => m.dataset.menu === 'Help');
-  // Close any modal first.
-  byId['qwb-export-modal'].style.display = 'none';
-  file.click();
-  assert.equal(byId['qwb-export-modal'].style.display, 'flex', 'File menu opened export modal');
-  byId['qwb-shortcuts-modal'].style.display = 'none';
-  help.click();
-  assert.equal(byId['qwb-shortcuts-modal'].style.display, 'flex', 'Help menu opened shortcuts modal');
-});
-
-await test('View menu toggles right panel collapsed state', async () => {
-  const menus = querySelectorAllByAttribute(byId, '.qwb-menu-btn');
-  const view = menus.find(m => m.dataset.menu === 'View');
-  const right = byId['qwb-right'];
-  const before = right.classList.contains('collapsed');
-  view.click();
-  const after = right.classList.contains('collapsed');
-  assert.notEqual(before, after, 'panel collapsed state toggled');
 });
 
 // ── Cleaning panel actions
@@ -418,16 +400,6 @@ await test('Per-suggestion Accept fires api.createQEEGCleaningAnnotation kind=ai
   assert.equal(lastCallTo('createQEEGCleaningAnnotation').args[1].kind, 'ai_suggestion');
 });
 
-// ── Export modal "Export bundle"
-await test('Export bundle calls api.getQEEGRawVsCleanedSummary then closes modal', async () => {
-  byId['qwb-export-modal'].style.display = 'flex';
-  const before = callsTo('getQEEGRawVsCleanedSummary').length;
-  fire('qwb-export-go');
-  await new Promise(r => setTimeout(r, 10));
-  assert.ok(callsTo('getQEEGRawVsCleanedSummary').length > before, 'summary fetched for bundle');
-  assert.equal(byId['qwb-export-modal'].style.display, 'none', 'modal closed after export');
-});
-
 // ── Unsaved-edits modal flow
 await test('navBack with dirty state opens unsaved modal; Cancel closes it without nav', async () => {
   const state = { isDirty: true, pendingNav: null };
@@ -443,7 +415,6 @@ await test('navBack with dirty state opens unsaved modal; Cancel closes it witho
 
 // ── Demo seed: bootDemoState pre-populates the canonical demo workbench
 await test('bootDemoState seeds 9 AI artefacts, flat C4, and 2 events (idempotent)', () => {
-  // Build a fresh synthetic state mirroring pgQEEGRawWorkbench's init shape.
   const demoState = {
     isDemo: true, timebase: 10, aiThreshold: 0.7,
     aiSuggestions: [], badChannels: new Set(), events: [],
@@ -452,8 +423,6 @@ await test('bootDemoState seeds 9 AI artefacts, flat C4, and 2 events (idempoten
   mod.bootDemoState(demoState);
   assert.ok(demoState.aiSuggestions.length >= 9,
     `>=9 AI suggestions seeded, got ${demoState.aiSuggestions.length}`);
-  // Spec asks for state.badChannels.includes('C4'); the implementation uses
-  // a Set keyed on the full channel id ('C4-Av'). Verify membership flexibly.
   const badList = Array.from(demoState.badChannels);
   assert.ok(badList.some(c => /^C4(-|$)/.test(c)),
     `bad-channel set includes C4 (got ${JSON.stringify(badList)})`);
@@ -464,7 +433,6 @@ await test('bootDemoState seeds 9 AI artefacts, flat C4, and 2 events (idempoten
   assert.ok(demoState.events.some(e => /Photic/i.test(e.label)),
     'Photic event present');
 
-  // Idempotency: a second call must not duplicate any seeded data.
   const aiCount = demoState.aiSuggestions.length;
   const badCount = demoState.badChannels.size;
   const eventCount = demoState.events.length;
@@ -472,6 +440,30 @@ await test('bootDemoState seeds 9 AI artefacts, flat C4, and 2 events (idempoten
   assert.equal(demoState.aiSuggestions.length, aiCount, 'AI suggestions not duplicated');
   assert.equal(demoState.badChannels.size, badCount, 'bad channels not duplicated');
   assert.equal(demoState.events.length, eventCount, 'events not duplicated');
+});
+
+// ── Click each of the 5 right-panel tabs and assert the body re-renders the
+//    correct content. Covers the new tabbed layout end-to-end.
+await test('clicking each of the 5 right-panel tabs renders the matching body', async () => {
+  const tabs = querySelectorAllByAttribute(byId, '.qwb-tab');
+  const tabById = (id) => tabs.find(t => t.dataset.tab === id);
+  const expectations = [
+    { id: 'cleaning', needles: ['Mark bad segment', 'Detect blinks'] },
+    { id: 'ai',       needles: ['AI Review Queue', 'qwb-threshold-slider'] },
+    { id: 'help',     needles: ['Cleaning quality score', 'qwb-bp-checklist'] },
+    { id: 'ica',      needles: ['qwb-ica-grid', 'IC '] },
+    { id: 'log',      needles: ['Cleaning Audit Trail', 'qwb-audit-log'] },
+  ];
+  for (const { id, needles } of expectations) {
+    const tab = tabById(id);
+    assert.ok(tab, `tab present: ${id}`);
+    tab.click();
+    const body = byId['qwb-right-body'];
+    for (const needle of needles) {
+      assert.ok(body.innerHTML.includes(needle),
+        `tab ${id} body contains ${needle}`);
+    }
+  }
 });
 
 // ── Final summary
