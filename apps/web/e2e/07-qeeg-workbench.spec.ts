@@ -132,4 +132,23 @@ test.describe('qEEG Raw Workbench', () => {
       await expect(page.locator(`#qwb-display-toggle button[data-display="${mode}"]`)).toHaveClass(/active/);
     }
   });
+
+  test('clinician sign-off records and shows in status bar', async ({ page }) => {
+    await page.goto('/#/qeeg-raw-workbench/demo');
+    await page.waitForSelector('#qwb-canvas', { timeout: 10000 });
+    // Ensure Cleaning tab is open
+    await page.click('.qwb-tab[data-tab="cleaning"]');
+    // Open sign-off modal
+    await page.click('#qwb-open-signoff');
+    await expect(page.locator('#qwb-signoff-modal')).toBeVisible();
+    // Fill notes
+    await page.fill('#qwb-signoff-notes', 'Reviewed and approved for reporting.');
+    // Confirm sign-off
+    await page.click('#qwb-signoff-confirm');
+    await expect(page.locator('#qwb-signoff-modal')).toBeHidden();
+    // Status bar should show signed off
+    await expect(page.locator('#qwb-st-signoff')).toContainText('Signed off');
+    // Cleaning panel should show signed-off card
+    await expect(page.locator('#qwb-right-body')).toContainText('Signed off');
+  });
 });

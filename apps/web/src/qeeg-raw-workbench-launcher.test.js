@@ -32,6 +32,12 @@ test('analyzer launcher navigates into the workbench route', () => {
   assert.ok(ANALYZER.includes('window._nav'), 'nav function call');
 });
 
+test('analyzer registers a dedicated Learning EEG tab', () => {
+  assert.ok(ANALYZER.includes("learning:  { label: 'Learning EEG'"), 'tab metadata');
+  assert.ok(ANALYZER.includes("if (tab === 'learning')"), 'tab route branch');
+  assert.ok(ANALYZER.includes('Learning EEG Library'), 'tab content heading');
+});
+
 test('app.js registers the workbench route', () => {
   assert.ok(APP.includes("'qeeg-raw-workbench'"), 'route registered');
   assert.ok(APP.includes('loadQEEGRawWorkbench'), 'lazy loader hook');

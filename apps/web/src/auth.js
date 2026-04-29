@@ -70,7 +70,7 @@ export function showLogin() {
 }
 
 function _demoEnabled() {
-  return import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1';
+  return import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
 }
 
 export function doLogout() {
@@ -251,7 +251,7 @@ function renderLoginPage() {
             <button type="button" class="dv2-link" onclick="window._navPublic?.('signup-patient')">First time? Activate &rarr;</button>
           </div>
 
-          ${import.meta.env.DEV ? `<div class="dv2-auth-devhint">Demo: <code>clinician@demo.com</code> / <code>demo1234</code></div>` : ''}
+          ${import.meta.env?.DEV ? `<div class="dv2-auth-devhint">Demo: <code>clinician@demo.com</code> / <code>demo1234</code></div>` : ''}
         </div>
 
         <!-- ───────── REGISTER ───────── -->
@@ -736,7 +736,7 @@ window.demoLogin = async function(token) {
   }
 };
 
-const DEMO_CREDENTIALS = import.meta.env.DEV ? {
+const DEMO_CREDENTIALS = import.meta.env?.DEV ? {
   'clinician@demo.com': { password: 'demo1234', token: 'clinician-demo-token' },
   'admin@demo.com':     { password: 'demo1234', token: 'admin-demo-token' },
 } : {};
@@ -766,7 +766,7 @@ window.submitLogin = async function() {
   } catch (_) { /* fall through to offline demo */ }
   if (btn) { btn.textContent = origLabel; btn.disabled = false; }
   // Offline demo credentials fallback — dev only
-  if (import.meta.env.DEV) {
+  if (import.meta.env?.DEV) {
     const cred = DEMO_CREDENTIALS[email];
     if (cred && cred.password === password) {
       const demoUser = DEMO_USERS[cred.token];

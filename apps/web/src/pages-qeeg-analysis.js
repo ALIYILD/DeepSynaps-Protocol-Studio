@@ -30,6 +30,7 @@ import { renderClinicianReview, mountClinicianReview } from './qeeg-clinician-re
 import { renderPatientReport, mountPatientReport } from './qeeg-patient-report.js';
 import { renderTimeline, mountTimeline } from './qeeg-timeline.js';
 import { EvidenceChip, createEvidenceQueryForTarget, initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips } from './evidence-intelligence.js';
+import { renderLearningEEGReferenceCard } from './learning-eeg-reference.js';
 
 const FUSION_API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const FUSION_TOKEN_KEY = 'ds_access_token';
@@ -2784,6 +2785,7 @@ const TAB_META = {
   raw:       { label: 'Raw Data',          color: 'var(--green)' },
   report:    { label: 'AI Report',         color: 'var(--violet)' },
   compare:   { label: 'Compare',           color: 'var(--amber)' },
+  learning:  { label: 'Learning EEG',      color: 'var(--rose)' },
 };
 
 // ── Demo Mode ────────────────────────────────────────────────────────────────
@@ -4957,6 +4959,46 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
+  // TAB: LEARNING EEG
+  // ══════════════════════════════════════════════════════════════════════════
+  if (tab === 'learning') {
+    var learningHtml = '';
+    learningHtml += renderLaunchNotice(
+      'Educational reference only',
+      'Use this tab to cross-check qEEG and raw EEG findings against standard EEG teaching concepts. These summaries support interpretation but do not replace direct waveform review or supervised clinical training.',
+      'info'
+    );
+    learningHtml += card('Learning EEG Workflow',
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">'
+        + '<div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+        + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--blue)">1. Check raw signal</div>'
+        + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-top:6px">Confirm artefact, montage, state, and basic morphology before trusting derived metrics.</div>'
+        + '</div>'
+        + '<div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+        + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--teal)">2. Review quantitative output</div>'
+        + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-top:6px">Map band-power, asymmetry, and normative deviations back to standard EEG language and age/state context.</div>'
+        + '</div>'
+        + '<div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+        + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--amber)">3. Escalate carefully</div>'
+        + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-top:6px">Suspicious rhythmic or sharply contoured events still require direct EEG review for evolution, field, and context.</div>'
+        + '</div>'
+      + '</div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">'
+      + '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\')">Open Analysis</button>'
+      + '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'raw\';window._nav(\'qeeg-analysis\')">Open Raw Data</button>'
+      + '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Open AI Report</button>'
+      + '</div>'
+    );
+    learningHtml += renderLearningEEGReferenceCard({
+      audience: 'analyzer',
+      title: 'Learning EEG Library',
+      intro: 'Verified topic map for the qEEG analyzer and raw-data workbench. The app stores original summaries and links to the source site rather than copying the full educational content.'
+    });
+    tabEl.innerHTML = learningHtml;
+    return;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
   // TAB: RAW DATA
   // ══════════════════════════════════════════════════════════════════════════
   if (tab === 'raw') {
@@ -4983,6 +5025,14 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         + '<span id="qeeg-raw-summary-band">-- dominant</span>'
         + '</span>';
       tabEl.appendChild(summaryBar);
+      var learningWrap = document.createElement('div');
+      learningWrap.style.marginTop = '12px';
+      learningWrap.innerHTML = renderLearningEEGReferenceCard({
+        audience: 'analyzer',
+        title: 'Learning EEG Companion',
+        intro: 'Structured reference material for the qEEG analyzer and raw viewer. Use it to connect quantitative outputs back to standard EEG interpretation concepts.'
+      });
+      tabEl.appendChild(learningWrap);
       window._qeegOpenWorkbench = function(id, mode) {
         window._qeegSelectedId = id;
         window.location.hash = '#/qeeg-raw-workbench/' + encodeURIComponent(id) + (mode ? '?mode=' + encodeURIComponent(mode) : '');

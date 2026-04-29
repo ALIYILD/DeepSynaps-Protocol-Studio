@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const WORKBENCH_PATH = fileURLToPath(new URL('./pages-qeeg-raw-workbench.js', import.meta.url));
+const LEARNING_REF_PATH = fileURLToPath(new URL('./learning-eeg-reference.js', import.meta.url));
 
 class FakeClassList {
   constructor(host) { this._set = new Set(); this._host = host; }
@@ -109,6 +110,7 @@ const root = installDom();
 const mod = await import('./pages-qeeg-raw-workbench.js');
 await mod.pgQEEGRawWorkbench(() => {}, () => {});
 const WORKBENCH_SRC = readFileSync(WORKBENCH_PATH, 'utf8');
+const LEARNING_REF_SRC = readFileSync(LEARNING_REF_PATH, 'utf8');
 
 // ── Shell + clinical visual contract ─────────────────────────────────────────
 
@@ -234,6 +236,14 @@ await test('Best-Practice panel covers required topics', async () => {
   for (const topic of ['Bad channel detection','Eye blink','Line noise','When NOT to over-clean','Preserve original raw EEG']) {
     assert.ok(WORKBENCH_SRC.includes(topic), 'best-practice topic: ' + topic);
   }
+});
+
+await test('Learning EEG reference is integrated without mirroring full site content', async () => {
+  assert.ok(WORKBENCH_SRC.includes('renderLearningEEGCompactList'), 'workbench imports shared reference renderer');
+  assert.ok(LEARNING_REF_SRC.includes('Learning EEG Reference'), 'learning EEG section heading');
+  assert.ok(LEARNING_REF_SRC.includes('Short summaries with source links only'), 'non-mirroring note');
+  assert.ok(LEARNING_REF_SRC.includes('https://www.learningeeg.com/artifacts'), 'artifact source link');
+  assert.ok(LEARNING_REF_SRC.includes('https://www.learningeeg.com/epileptiform-activity'), 'epileptiform source link');
 });
 
 // ── Canvas, status bar, immutable notice ─────────────────────────────────────

@@ -12,6 +12,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { api } from './api.js';
+import { renderLearningEEGCompactList } from './learning-eeg-reference.js';
 
 // 19-channel 10-20 montage, no ECG (matches design source data.jsx).
 export const DEFAULT_CHANNELS = [
@@ -36,7 +37,7 @@ const VIEW_MODES = [
 ];
 const TIMEBASES = [5, 10, 12, 30];
 
-const TITLE_MENUS = ['File','Edit','View','Format','Recording','Analysis','Setup','Window','Help'];
+const TITLE_MENUS = ['File','Edit','View','Format','Recording','Analysis','Setup','Window','Language','Help'];
 
 const ARTEFACT_EXAMPLES = [
   { id: 'alpha-eyes-closed', title: 'Posterior alpha (eyes closed)',
@@ -117,6 +118,13 @@ function esc(s) {
   return String(s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function currentUserLabel() {
+  try {
+    const u = JSON.parse(localStorage.getItem('auth_user') || '{}');
+    return u.name || u.email || u.display_name || 'Clinician';
+  } catch (_e) { return 'Clinician'; }
 }
 
 function readAnalysisIdFromHash() {
@@ -272,6 +280,7 @@ export async function pgQEEGRawWorkbench(setTopbar, navigate) {
     ],
     aiThreshold: 0.7,       // confidence threshold filter for AI Review
     aiCursor: 0,            // J/K artefact navigation index
+    signOff: null,          // { signedBy, signedAt, notes, readinessScore }
   };
 
   const beforeUnload = (e) => {
@@ -1244,6 +1253,7 @@ function bottomBar(state) {
     <span class="qwb-stat">Rejected: <b id="qwb-st-rej">0</b></span>
     <span class="qwb-stat">Retained: <b id="qwb-st-retain">100%</b></span>
     <span class="qwb-stat" id="qwb-st-version">No cleaning version</span>
+    <span class="qwb-stat" id="qwb-st-signoff">Not signed off</span>
     <div class="qwb-bottombar-right">
       <span class="qwb-ai-watch" id="qwb-ai-watching" data-testid="qwb-ai-watching">
         <span class="qwb-pulse"></span><span id="qwb-ai-watching-label">AI watching · 0 pending</span>
@@ -1326,6 +1336,70 @@ function exportModal(state) {
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button class="qwb-tb-btn" id="qwb-export-cancel">Cancel</button>
         <button class="qwb-tb-btn ai" id="qwb-export-go">Export bundle</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function _renderSignOffSection(state) {
+  const so = state.signOff;
+  const r = _computeReportReadiness(state);
+  if (so) {
+    return `
+      <div class="qwb-card" style="border-left:3px solid #2f6b3a;background:#d6e8d6">
+        <div style="font-weight:600;color:#2f6b3a;font-size:12px;margin-bottom:4px">✓ Signed off</div>
+        <div style="font-size:11px;color:#3a3633;margin-bottom:2px">By: <b>${esc(so.signedBy)}</b></div>
+        <div style="font-size:11px;color:#6b6660;margin-bottom:4px">${new Date(so.signedAt).toLocaleString()}</div>
+        ${so.notes ? `<div style="font-size:11px;color:#3a3633;margin-bottom:6px;font-style:italic">"${esc(so.notes)}"</div>` : ''}
+        <div style="font-size:10px;color:#6b6660">Readiness score at sign‑off: <b>${so.readinessScore}</b>/100</div>
+        <div style="margin-top:8px">
+          <button class="qwb-side-btn" id="qwb-revoke-signoff" style="font-size:11px;padding:4px 8px">Revoke sign‑off</button>
+        </div>
+      </div>`;
+  }
+  return `
+    <div style="font-size:11px;color:#6b6660;margin-bottom:8px">
+      Current readiness: <b style="color:${r.score >= 80 ? '#2f6b3a' : r.score >= 60 ? '#b8741a' : '#b03434'}">${r.score}/100</b> — ${r.readiness}
+    </div>
+    <button class="qwb-side-btn ink full" id="qwb-open-signoff" data-testid="qwb-open-signoff">Sign off cleaning</button>
+    <div style="font-size:10px;color:#9e9a93;margin-top:6px;line-height:1.4">
+      Signing off records your clinical review and locks the cleaning version from further edits until revoked.
+    </div>`;
+}
+
+function signOffModal(state) {
+  const r = _computeReportReadiness(state);
+  const patient = state.metadata?.patient_name || (state.isDemo ? 'Azzi Glasser' : '—');
+  return `
+  <div id="qwb-signoff-modal" class="qwb-modal-backdrop" data-testid="qwb-signoff-modal">
+    <div class="qwb-modal" style="width:520px;max-width:90vw">
+      <h3>Clinician Sign‑Off</h3>
+      <p class="qwb-modal-sub">Confirm that you have reviewed the cleaning and the recording is ready for reporting.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+        <div class="qwb-card" style="margin-bottom:0">
+          <div style="font-size:10px;color:#6b6660;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:2px">Patient</div>
+          <div style="font-size:13px;font-weight:600">${esc(patient)}</div>
+        </div>
+        <div class="qwb-card" style="margin-bottom:0">
+          <div style="font-size:10px;color:#6b6660;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:2px">Readiness</div>
+          <div style="font-size:13px;font-weight:600;color:${r.score >= 80 ? '#2f6b3a' : r.score >= 60 ? '#b8741a' : '#b03434'}">${r.score}/100 — ${r.readiness}</div>
+        </div>
+        <div class="qwb-card" style="margin-bottom:0">
+          <div style="font-size:10px;color:#6b6660;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:2px">Bad channels</div>
+          <div style="font-size:13px;font-weight:600">${r.badChCount}</div>
+        </div>
+        <div class="qwb-card" style="margin-bottom:0">
+          <div style="font-size:10px;color:#6b6660;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:2px">Rejected segments</div>
+          <div style="font-size:13px;font-weight:600">${r.rejSegCount}</div>
+        </div>
+      </div>
+      <div style="margin-bottom:14px">
+        <label style="font-size:11px;color:#6b6660;display:block;margin-bottom:4px">Sign‑off notes (optional)</label>
+        <textarea id="qwb-signoff-notes" rows="3" style="width:100%;padding:8px;border:1px solid #d8d1c3;border-radius:4px;font-family:inherit;font-size:12px;resize:vertical" placeholder="e.g. C4 flat — acceptable for eyes-closed protocol. Blink ICA rejected."></textarea>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="qwb-tb-btn" id="qwb-signoff-cancel">Cancel</button>
+        <button class="qwb-tb-btn ink" id="qwb-signoff-confirm" data-testid="qwb-signoff-confirm">Sign off</button>
       </div>
     </div>
   </div>`;
@@ -1767,6 +1841,10 @@ function renderCleaningPanel(state) {
         All cleaning actions are saved to a separate version with full audit trail.
         AI suggestions require clinician confirmation before they take effect.
       </div>
+    </div>
+    <div class="qwb-side-section">
+      <h4><span class="qwb-letter">F</span>Clinician Sign‑Off</h4>
+      ${_renderSignOffSection(state)}
     </div>`;
 }
 
@@ -1888,7 +1966,8 @@ function renderHelpPanel(state) {
           <div style="font-size:11px;color:#1a1a1a;line-height:1.4;margin-bottom:6px">${esc(b.why)}</div>
           <div style="font-size:10px;color:#6b6660">References: ${b.references.map(esc).join(' · ')}</div>
         </div>`).join('')}
-    </div>`;
+    </div>
+    ${renderLearningEEGCompactList({ audience: 'raw' })}`;
 }
 
 function renderExamplesPanel(state) {
@@ -2062,6 +2141,8 @@ function renderStatusBar(state) {
   const rs = state.rawCleanedSummary;
   set('qwb-st-retain', `${rs && rs.retained_data_pct != null ? rs.retained_data_pct.toFixed(0) : '100'}%`);
   set('qwb-st-version', state.cleaningVersion ? `Cleaning v${state.cleaningVersion.version_number} ${state.cleaningVersion.review_status}` : 'No cleaning version');
+  const so = state.signOff;
+  set('qwb-st-signoff', so ? `✓ Signed off by ${so.signedBy}` : 'Not signed off');
   const pending = (state.aiSuggestions || []).filter(s => (s.decision_status || 'suggested') === 'suggested').length;
   set('qwb-ai-watching-label', `AI watching · ${pending} pending`);
   const saveEl = document.getElementById('qwb-st-save');
@@ -2107,6 +2188,7 @@ var MENU_ITEMS = {
   Analysis:  ['Re-run qEEG analysis', 'Generate AI suggestions', '---', 'Report readiness'],
   Setup:     ['Montage…', 'Filters…', '---', 'Preferences'],
   Window:    ['Previous window', 'Next window', '---', '5 sec', '10 sec', '12 sec', '30 sec'],
+  Language:  ['English', 'Deutsch', 'Français'],
   Help:      ['Keyboard shortcuts', 'Artefact examples', 'Best practices', '---', 'About DeepSynaps'],
 };
 
@@ -2169,6 +2251,12 @@ function handleMenuItem(state, item) {
     case '10 sec': state.timebase = 10; redrawCanvas(state); renderStatusBar(state); break;
     case '12 sec': state.timebase = 12; redrawCanvas(state); renderStatusBar(state); break;
     case '30 sec': state.timebase = 30; redrawCanvas(state); renderStatusBar(state); break;
+    case 'English':
+    case 'Deutsch':
+    case 'Français':
+      state.saveStatus = item + ' (language switching not available in demo)';
+      renderStatusBar(state);
+      break;
     default:
       state.saveStatus = item + ' (not available in demo)';
       renderStatusBar(state);
@@ -2185,6 +2273,7 @@ function handleTitleMenu(state, menu, navigate) {
     case 'Analysis':  return showMenuDropdown(state, 'Analysis');
     case 'Setup':     return showMenuDropdown(state, 'Setup');
     case 'Window':    return showMenuDropdown(state, 'Window');
+    case 'Language':  return showMenuDropdown(state, 'Language');
     case 'Help':      return showMenuDropdown(state, 'Help');
     default:
       state.saveStatus = menu + ' menu opened';
@@ -2496,6 +2585,15 @@ function attachCleaningPanelHandlers(state) {
   document.querySelectorAll('#qwb-right-body [data-action]').forEach(b => {
     b.addEventListener('click', () => handleCleaningAction(state, b.dataset.action));
   });
+  document.getElementById('qwb-open-signoff')?.addEventListener('click', () => toggleSignOff(state, true));
+  document.getElementById('qwb-revoke-signoff')?.addEventListener('click', () => {
+    if (!confirm('Revoke sign‑off? This will allow further editing.')) return;
+    state.signOff = null;
+    state.auditLog.push({ t: new Date().toISOString(), action: 'revoke_signoff', user: currentUserLabel() });
+    renderRightPanel(state);
+    renderStatusBar(state);
+    state.saveStatus = 'sign‑off revoked';
+  });
 }
 
 function attachAIPanelHandlers(state) {
@@ -2581,6 +2679,19 @@ function toggleExport(state, show) {
   const m = document.getElementById('qwb-export-modal');
   if (m) m.style.display = show ? 'flex' : 'none';
   state.showExport = !!show;
+}
+
+function toggleSignOff(state, show) {
+  const existing = document.getElementById('qwb-signoff-modal');
+  if (existing) { existing.style.display = show ? 'flex' : 'none'; return; }
+  if (!show) return;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = signOffModal(state);
+  const modal = tmp.firstElementChild;
+  modal.style.display = 'flex';
+  document.body.appendChild(modal);
+  document.getElementById('qwb-signoff-cancel')?.addEventListener('click', () => toggleSignOff(state, false));
+  document.getElementById('qwb-signoff-confirm')?.addEventListener('click', () => handleSignOff(state));
 }
 
 function openUnsaved(state, pending) {
@@ -3162,6 +3273,33 @@ async function rerunAnalysis(state) {
   renderStatusBar(state);
 }
 
+async function handleSignOff(state) {
+  const notesEl = document.getElementById('qwb-signoff-notes');
+  const notes = notesEl ? notesEl.value.trim() : '';
+  const r = _computeReportReadiness(state);
+  const user = currentUserLabel();
+  const signedAt = new Date().toISOString();
+  state.signOff = { signedBy: user, signedAt, notes, readinessScore: r.score };
+  state.auditLog.push({ t: signedAt, action: 'clinician_signoff', user, notes, readinessScore: r.score });
+  toggleSignOff(state, false);
+  state.saveStatus = `signed off by ${user} · ${r.readiness}`;
+  renderRightPanel(state);
+  renderStatusBar(state);
+  if (!state.isDemo) {
+    try {
+      await api.saveQEEGCleaningVersion(state.analysisId, {
+        bad_channels: Array.from(state.badChannels),
+        rejected_segments: state.rejectedSegments,
+        rejected_epochs: [],
+        rejected_ica_components: Array.from(state.rejectedICA),
+        interpolated_channels: [],
+        annotation_ids: [],
+        sign_off: { signed_by: user, signed_at: signedAt, notes, readiness_score: r.score },
+      });
+    } catch (_e) {}
+  }
+}
+
 function _computeBeforeAfterMetrics(state) {
   var totalSec = 600; // 10 min demo recording
   var rejectedSec = state.rejectedSegments.reduce(function(sum, seg) { return sum + (seg.end_sec - seg.start_sec); }, 0);
@@ -3235,6 +3373,11 @@ async function exportBundle(state) {
   const fmt = state.exportFormat || 'edf';
   const includes = Array.from(document.querySelectorAll('[data-export-include]'))
     .filter(b => b.checked).map(b => b.dataset.exportInclude);
+  if (includes.includes('report')) {
+    exportPDF(state);
+    toggleExport(state, false);
+    return;
+  }
   // Pull a fresh server-side summary so retained_data_pct + bad_channels_excluded
   // come from the same canonical source the qEEG report sees. Falls back to
   // local state in demo mode or if the call fails.
@@ -3271,6 +3414,108 @@ async function exportBundle(state) {
   state.saveStatus = `exported v${state.cleaningVersion?.version_number || 'draft'} (${fmt}, local snapshot)`;
   renderStatusBar(state);
   toggleExport(state, false);
+}
+
+function exportPDF(state) {
+  const r = _computeReportReadiness(state);
+  const patient = state.metadata?.patient_name || (state.isDemo ? 'Azzi Glasser' : '—');
+  const dob = state.metadata?.patient_dob || '—';
+  const session = state.metadata?.session_label || (state.isDemo ? 'DNEW0000 · Eyes Closed' : '—');
+  const date = state.metadata?.recording_date || new Date().toLocaleDateString();
+  const so = state.signOff;
+  const badCh = Array.from(state.badChannels).join(', ') || 'None';
+  const segCount = state.rejectedSegments.length;
+  const icaCount = state.rejectedICA.size;
+  const audit = (state.auditLog || []).slice(0, 20);
+
+  const html = `
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>qEEG Cleaning Report</title>
+<style>
+@page { size: A4; margin: 18mm; }
+body { font-family: Georgia, serif; font-size: 11px; line-height: 1.45; color: #1a1a1a; background:#fff; max-width: 720px; margin: 0 auto; padding: 20px; }
+h1 { font-size: 18px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.01em; }
+h2 { font-size: 13px; font-weight: 700; margin: 18px 0 8px; border-bottom: 1px solid #1a1a1a; padding-bottom: 3px; text-transform: uppercase; letter-spacing: 0.04em; }
+.header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
+.header-right { text-align: right; font-size: 10px; color: #6b6660; }
+.meta-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.meta-box { border: 1px solid #d8d1c3; padding: 6px 8px; border-radius: 3px; }
+.meta-box label { display: block; font-size: 9px; text-transform: uppercase; color: #6b6660; letter-spacing: 0.04em; margin-bottom: 2px; }
+.score-row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+.score-pill { padding: 3px 10px; border-radius: 10px; font-weight: 700; font-size: 11px; }
+table { width: 100%; border-collapse: collapse; font-size: 10.5px; margin-bottom: 10px; }
+th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #e8e0d0; }
+th { font-weight: 600; background: #f6f3ed; }
+.footer { margin-top: 20px; font-size: 9.5px; color: #6b6660; border-top: 1px solid #d8d1c3; padding-top: 8px; }
+.signoff-box { border: 1.5px solid #2f6b3a; background: #f6faf6; padding: 10px; border-radius: 4px; margin-top: 12px; }
+</style></head><body>
+<div class="header">
+  <div>
+    <h1>qEEG Cleaning Report</h1>
+    <div style="font-size:11px;color:#6b6660">DeepSynaps Studio · Decision-support only</div>
+  </div>
+  <div class="header-right">
+    <div>Generated ${new Date().toLocaleString()}</div>
+    <div>Analysis: ${state.analysisId}</div>
+  </div>
+</div>
+<div class="meta-grid">
+  <div class="meta-box"><label>Patient</label><div>${esc(patient)}</div></div>
+  <div class="meta-box"><label>DOB</label><div>${esc(dob)}</div></div>
+  <div class="meta-box"><label>Session</label><div>${esc(session)}</div></div>
+  <div class="meta-box"><label>Recording date</label><div>${esc(date)}</div></div>
+</div>
+<h2>Readiness Summary</h2>
+<div class="score-row">
+  <div style="font-size:22px;font-weight:700;color:#1a1a1a">${r.score}<span style="font-size:12px;color:#6b6660">/100</span></div>
+  <div class="score-pill" style="background:${r.score>=80?'#d6e8d6':r.score>=60?'#f6e6cb':'#f3d4d0'};color:${r.score>=80?'#2f6b3a':r.score>=60?'#b8741a':'#b03434'}">${r.readiness}</div>
+</div>
+<table>
+  <tr><th>Metric</th><th>Value</th></tr>
+  <tr><td>Retained data</td><td>${r.retain}%</td></tr>
+  <tr><td>Bad channels</td><td>${r.badChCount}</td></tr>
+  <tr><td>Rejected segments</td><td>${r.rejSegCount}</td></tr>
+  <tr><td>ICA reviewed</td><td>${r.icaReviewed ? 'Yes' : 'No'}</td></tr>
+  <tr><td>Filters applied</td><td>${r.hasFilters ? 'Yes' : 'No'}</td></tr>
+  <tr><td>Artifact burden (accepted)</td><td>${r.artifactBurden}${r.totalArtifacts ? ' / ' + r.totalArtifacts + ' detected' : ''}</td></tr>
+</table>
+<h2>Cleaning Details</h2>
+<table>
+  <tr><th>Category</th><th>Details</th></tr>
+  <tr><td>Bad channels</td><td>${esc(badCh)}</td></tr>
+  <tr><td>Rejected segments</td><td>${segCount}</td></tr>
+  <tr><td>Rejected ICA components</td><td>${icaCount}</td></tr>
+  <tr><td>Cleaning version</td><td>${state.cleaningVersion?.version_number || 'Draft'}</td></tr>
+  <tr><td>Montage</td><td>${state.montage}</td></tr>
+  <tr><td>Filters</td><td>Low ${state.lowCut} Hz · High ${state.highCut} Hz · Notch ${state.notch}</td></tr>
+</table>
+${audit.length ? `<h2>Recent Audit Log (${audit.length} entries)</h2>
+<table>
+  <tr><th>Time</th><th>Action</th><th>Channel</th></tr>
+  ${audit.map(a => '<tr><td>' + (a.created_at ? new Date(a.created_at).toLocaleString() : '—') + '</td><td>' + esc(a.action_type || a.action || '—') + '</td><td>' + esc(a.channel || '—') + '</td></tr>').join('')}
+</table>` : ''}
+${so ? `<div class="signoff-box">
+  <div style="font-weight:700;color:#2f6b3a;margin-bottom:4px">✓ Clinician Sign‑Off</div>
+  <div>Signed by <b>${esc(so.signedBy)}</b> on ${new Date(so.signedAt).toLocaleString()}</div>
+  ${so.notes ? '<div style="margin-top:4px;font-style:italic">"' + esc(so.notes) + '"</div>' : ''}
+  <div style="margin-top:4px">Readiness at sign‑off: <b>${so.readinessScore}</b>/100</div>
+</div>` : '<div style="margin-top:12px;padding:10px;border:1px dashed #d8d1c3;border-radius:4px;color:#6b6660;font-size:10.5px">No clinician sign‑off recorded.</div>'}
+<div class="footer">
+  Original raw EEG is preserved. This report reflects the cleaning version and audit trail only.
+  AI suggestions require clinician confirmation before they take effect.
+</div>
+</body></html>`;
+
+  const w = window.open('', '_blank');
+  if (w) {
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => w.print(), 400);
+    state.saveStatus = 'PDF report opened for printing';
+  } else {
+    state.saveStatus = 'PDF: popup blocked';
+  }
+  renderStatusBar(state);
 }
 
 async function loadAll(state) {
