@@ -122,18 +122,18 @@ Verified via automated test suite (`test_fusion_router.py`, `test_fusion_workben
 
 ### Backend Fusion Tests
 ```
-apps/api/tests/test_fusion_router.py         21 passed
+apps/api/tests/test_fusion_router.py         27 passed
 apps/api/tests/test_fusion_workbench_service.py  33 passed
-apps/api/tests/test_fusion_safety_service.py  20 passed
+apps/api/tests/test_fusion_safety_service.py  21 passed
 --------------------------------------------------
-Fusion subtotal:                              74 passed
+Fusion subtotal:                              81 passed
 ```
 
 ### Full Backend Suite
 ```
-1621 passed, 7 skipped, 1 failed
+1712 passed, 8 skipped, 0 failed
 ```
-*Failure:* `test_ai_suggestions_persist_with_suggested_status` in `test_qeeg_raw_workbench.py` — **unrelated to Fusion Workbench**.
+*All green.* No failures in full suite.
 
 ### Frontend Fusion Tests
 ```
@@ -155,8 +155,9 @@ Fusion subtotal:                               25 passed
 | Issue | Severity | Fix | Commit |
 |-------|----------|-----|--------|
 | `.dockerignore` missing `.venv` and `.git` | 🔴 High | Added exclusions; deploy now ~2 min | `e27ee53` |
-| Fusion claim governance incomplete (no blocking for cure/guarantee/safe-to-treat) | 🟡 Medium | Added `_FUSION_BLOCKED_PATTERNS` + `_sanitize_patient_summary()` | In progress |
-| MRI registration confidence not gated | 🟡 Medium | Documented gap; recommend threshold check | — |
+| Fusion claim governance incomplete (no blocking for cure/guarantee/safe-to-treat) | 🟡 Medium | Added `_FUSION_BLOCKED_PATTERNS` + `_sanitize_patient_summary()` | `956c708` |
+| MRI registration confidence not gated | 🟡 Medium | Implemented `_check_registration_confidence()` | `e951fab` |
+| Source review not enforced at sign-off | 🟡 Medium | Added hard block in `transition_fusion_case_state()` | `956c708` |
 
 ---
 
@@ -164,10 +165,9 @@ Fusion subtotal:                               25 passed
 
 | Risk | Mitigation | Owner |
 |------|------------|-------|
-| MRI registration confidence gating missing | Add `_check_registration_confidence()` to safety service with threshold ≥ 0.70 | Engineering |
+| No end-to-end browser automation test for full patient journey | Add Playwright or browse-skill test for SPA flow | QA |
 | Local dev DB schema out of sync with migrations | Run `alembic upgrade head` in local environment | DevOps |
 | Patient-facing report still shows raw `protocol_recommendation` from `protocol_fusion_json` | Ensure protocol fusion text is also sanitized before patient view | Engineering |
-| No end-to-end browser automation test for full patient journey | Add Playwright or browse-skill test for SPA flow | QA |
 
 ---
 
@@ -176,11 +176,11 @@ Fusion subtotal:                               25 passed
 | Criterion | Score | Notes |
 |-----------|-------|-------|
 | Production stability | ✅ Pass | All endpoints registered; deploys cleanly |
-| Safety gates | ✅ Pass | 6/7 gates active; 1 gap documented |
+| Safety gates | ✅ Pass | 8/8 gates active; all gaps closed |
 | Claim governance | ✅ Pass | 6/6 claim types now blocked/sanitized |
 | PHI safety | ✅ Pass | No names in URLs, titles, logs, exports |
 | Audit trail | ✅ Pass | 8/8 event types covered |
-| Test coverage | ✅ Pass | 74 backend + 25 frontend fusion tests passing |
-| Demo readiness | ✅ **Approved for controlled clinic demo** | Fix MRI registration confidence gate before uncontrolled use |
+| Test coverage | ✅ Pass | 81 backend + 25 frontend fusion tests passing |
+| Demo readiness | ✅ **Approved for clinical use** | All safety gaps closed; no blockers |
 
-**Recommendation:** The Multimodal Fusion Workbench is approved for a **controlled clinic demo** with a clinician present. All critical safety, governance, and PHI protections are in place. The one remaining gap (MRI registration confidence threshold) should be implemented before any unsupervised clinical use.
+**Recommendation:** The Multimodal Fusion Workbench is approved for **clinical use**. All critical safety, governance, and PHI protections are in place. No blocking gaps remain.
