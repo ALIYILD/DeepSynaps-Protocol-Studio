@@ -1359,9 +1359,11 @@ def _deterministic_stub(severity: Optional[str], template_title: str, score: Opt
     rf_line = f" Red flags: {'; '.join(red_flags)}." if red_flags else ""
     score_str = f"{score}" if score is not None else "(unrecorded)"
     return (
+        f"[Deterministic fallback — LLM unavailable] "
         f"{template_title} score {score_str} {band_narrative}"
         f"{rf_line} Recommended action: review in next clinical contact and document rationale. "
-        "This deterministic summary is a stub; replace with an AI-generated summary once the LLM proxy is configured."
+        "This summary was produced by the deterministic stub because the LLM proxy is not configured "
+        "or did not respond — do not treat the wording as an AI-generated narrative."
     )
 
 
