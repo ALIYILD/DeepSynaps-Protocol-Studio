@@ -4366,7 +4366,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   // click is a no-op and the disabled state is announced.
   var heroAnalysisId = window._qeegSelectedId || null;
   var heroHasExportTarget = !!heroAnalysisId;
-  var heroExportDisabled = heroHasExportTarget ? '' : ' disabled aria-disabled="true" title="Select or upload a recording first"';
+  var heroExportDisabled = heroHasExportTarget ? '' : ' disabled title="Select or upload a recording first"';
   var heroIsDemo = !!(heroAnalysisId === 'demo' && _isDemoMode());
   var heroDemoFlag = heroIsDemo ? ' data-demo="true"' : '';
 
@@ -5038,7 +5038,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         });
       }, 50);
     } catch (err) {
-      tabEl.innerHTML = '<div style="color:var(--red);padding:24px" aria-live="assertive" role="alert">Failed to load analysis: ' + esc(err.message || err) + '</div>';
+      tabEl.innerHTML = '<div role="alert" style="color:var(--red);padding:24px"><strong>Failed to load analysis.</strong><div style="margin-top:6px;font-size:13px">' + esc(String(err.message || err)) + '</div><div style="margin-top:8px;font-size:12px;color:var(--text-tertiary)">Try refreshing the page. If the error persists, contact support.</div></div>';
     }
     return;
   }
@@ -5241,7 +5241,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         });
       }
     } catch (err) {
-      tabEl.innerHTML = '<div style="color:var(--red);padding:24px" aria-live="assertive" role="alert">Failed to load report: ' + esc(err.message || err) + '</div>';
+      tabEl.innerHTML = '<div role="alert" style="color:var(--red);padding:24px"><strong>Failed to load report.</strong><div style="margin-top:6px;font-size:13px">' + esc(String(err.message || err)) + '</div><div style="margin-top:8px;font-size:12px;color:var(--text-tertiary)">Try refreshing the page. If the error persists, contact support.</div></div>';
     }
     return;
   }
@@ -5375,7 +5375,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         }
         tabEl.innerHTML = compHtml;
       } catch (err) {
-        tabEl.innerHTML = '<div style="color:var(--red);padding:24px" aria-live="assertive" role="alert">Failed: ' + esc(err.message || err) + '</div>';
+        tabEl.innerHTML = '<div role="alert" style="color:var(--red);padding:24px"><strong>Comparison failed.</strong><div style="margin-top:6px;font-size:13px">' + esc(String(err.message || err)) + '</div><div style="margin-top:8px;font-size:12px;color:var(--text-tertiary)">Try refreshing or pick different analyses. If this persists, contact support.</div></div>';
       }
       return;
     }
