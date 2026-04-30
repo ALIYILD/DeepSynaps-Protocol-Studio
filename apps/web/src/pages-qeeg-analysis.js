@@ -621,7 +621,7 @@ function renderAnalysisWorkspace(data, bands, ratios, artifact, normDev, analyse
       + '<div style="display:grid;grid-template-columns:minmax(0,1.65fr) minmax(300px,.9fr);gap:16px;align-items:start">'
         + '<div style="display:flex;flex-direction:column;gap:16px">'
           + _renderWorkspacePrimaryLens(data, bands, normDev, state)
-          + '<div style="padding:12px 14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+          + '<div style="padding:12px 14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
             + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Lens guidance</div>'
             + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6">Use <strong>' + esc(QEEG_WORKSPACE_LENS_META[state.lens].label) + '</strong> to inspect the dominant pattern in ' + esc(state.band) + '. Switch to z-score when you want deviation from the normative baseline rather than raw distribution.</div>'
           + '</div>'
@@ -4222,7 +4222,7 @@ function renderUploadArea(patientId) {
     + '<div><label class="form-label" style="display:block;margin-bottom:4px">Recording Date</label>'
     + '<input type="date" id="qeeg-rec-date" class="form-control" style="width:100%;font-size:12px"></div>'
     + '</div>'
-    + '<div id="qeeg-upload-status" aria-live="polite" style="margin-top:12px"></div>'
+    + '<div id="qeeg-upload-status" role="status" aria-live="polite" aria-atomic="true" style="margin-top:12px"></div>'
     + '<div id="qeeg-quality-indicator"></div>'
     + '</div>'
   );
