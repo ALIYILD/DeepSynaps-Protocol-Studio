@@ -822,17 +822,59 @@ async function _openQEEGAnnotationDrawer(context) {
   var host = document.getElementById('qeeg-annotation-drawer-host');
   if (!host) return;
   host.innerHTML = '<div class="analysis-anno-backdrop" data-annotation-close="1"></div>'
-    + '<aside class="analysis-anno-drawer">'
+    + '<aside class="analysis-anno-drawer" role="dialog" aria-modal="true" aria-label="Study notes">'
     + '<div class="analysis-anno-drawer__hd"><div><strong>Study notes</strong><div class="analysis-anno-drawer__sub">'
-    + esc(context.anchor_label || 'qEEG analysis') + '</div></div><button class="analysis-anno-drawer__close" data-annotation-close="1">Close</button></div>'
+    + esc(context.anchor_label || 'qEEG analysis') + '</div></div><button class="analysis-anno-drawer__close" data-annotation-close="1" aria-label="Close notes drawer">Close</button></div>'
     + '<div id="qeeg-annotation-list" class="analysis-anno-list">' + spinner('Loading notes...') + '</div>'
     + '<div class="analysis-anno-form">'
-    + '<input id="qeeg-annotation-title" class="form-control" maxlength="160" placeholder="Short title (optional)"/>'
-    + '<textarea id="qeeg-annotation-body" class="form-control" rows="4" maxlength="5000" placeholder="Add a note for this study"></textarea>'
-    + '<input id="qeeg-annotation-anchor" class="form-control" maxlength="120" placeholder="Anchor label (optional)" value="' + esc(context.anchor_label || '') + '"/>'
+    + '<label for="qeeg-annotation-title" style="font-size:11px;color:var(--text-tertiary);display:flex;justify-content:space-between"><span>Title</span><span><span id="qeeg-annotation-title-count">0</span>/160</span></label>'
+    + '<input id="qeeg-annotation-title" class="form-control" maxlength="160" placeholder="Short title (optional)" aria-describedby="qeeg-annotation-title-count"/>'
+    + '<label for="qeeg-annotation-body" style="font-size:11px;color:var(--text-tertiary);display:flex;justify-content:space-between"><span>Note</span><span><span id="qeeg-annotation-body-count">0</span>/5000</span></label>'
+    + '<textarea id="qeeg-annotation-body" class="form-control" rows="4" maxlength="5000" placeholder="Add a note for this study" aria-describedby="qeeg-annotation-body-count"></textarea>'
+    + '<label for="qeeg-annotation-anchor" style="font-size:11px;color:var(--text-tertiary);display:flex;justify-content:space-between"><span>Anchor</span><span><span id="qeeg-annotation-anchor-count">' + (context.anchor_label || '').length + '</span>/120</span></label>'
+    + '<input id="qeeg-annotation-anchor" class="form-control" maxlength="120" placeholder="Anchor label (optional)" value="' + esc(context.anchor_label || '') + '" aria-describedby="qeeg-annotation-anchor-count"/>'
     + '<div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn btn-sm btn-primary" id="qeeg-annotation-save">Save note</button></div>'
     + '</div></aside>';
   host.classList.add('analysis-anno-host--open');
+  // Wire character counters
+  ['title', 'body', 'anchor'].forEach(function (k) {
+    var input = document.getElementById('qeeg-annotation-' + k);
+    var count = document.getElementById('qeeg-annotation-' + k + '-count');
+    if (!input || !count) return;
+    var sync = function () { count.textContent = (input.value || '').length; };
+    input.addEventListener('input', sync);
+    sync();
+  });
+  // Focus management — store previous focus, focus first field, restore on close
+  var _annoPrevFocus = document.activeElement;
+  setTimeout(function () { var f = document.getElementById('qeeg-annotation-title'); if (f) f.focus(); }, 30);
+  function _annoCloseFocusRestore() {
+    if (_annoPrevFocus && typeof _annoPrevFocus.focus === 'function') {
+      try { _annoPrevFocus.focus(); } catch (_e) {}
+    }
+  }
+  // Trap focus inside the drawer (Tab cycles within first/last focusable)
+  var _annoTrap = function (ev) {
+    if (ev.key !== 'Tab') return;
+    var nodes = host.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    if (!nodes.length) return;
+    var first = nodes[0], last = nodes[nodes.length - 1];
+    if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+    else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+  };
+  host.addEventListener('keydown', _annoTrap);
+  // Escape closes the drawer
+  var _annoEsc = function (ev) {
+    if (ev.key === 'Escape' && host.classList.contains('analysis-anno-host--open')) {
+      ev.preventDefault();
+      host.classList.remove('analysis-anno-host--open');
+      host.innerHTML = '';
+      document.removeEventListener('keydown', _annoEsc);
+      _annoCloseFocusRestore();
+    }
+  };
+  document.addEventListener('keydown', _annoEsc);
+  host.__annoCloseFocusRestore = _annoCloseFocusRestore;
   _qeegAnnotationDrawerLoadedFor = context;
   var listEl = document.getElementById('qeeg-annotation-list');
   try {
@@ -850,6 +892,7 @@ async function _openQEEGAnnotationDrawer(context) {
     node.addEventListener('click', function () {
       host.classList.remove('analysis-anno-host--open');
       host.innerHTML = '';
+      if (typeof host.__annoCloseFocusRestore === 'function') host.__annoCloseFocusRestore();
     });
   });
   host.querySelectorAll('[data-annotation-delete]').forEach(function (node) {
@@ -5529,6 +5572,14 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           cmpBtn.textContent = cmpBtnDefaultText;
         }
       });
+    }
+
+    // Hint when only 2 analyses exist — trend section unlocks at 3
+    if (completedAnalyses.length === 2) {
+      var trendHintHost = document.createElement('div');
+      trendHintHost.style.cssText = 'margin-top:16px;padding:14px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.12);font-size:12px;color:var(--text-secondary);text-align:center';
+      trendHintHost.innerHTML = '<strong>Longitudinal trend</strong> requires <strong>3+ completed analyses</strong>. Upload one more recording to unlock trend tracking.';
+      tabEl.appendChild(trendHintHost);
     }
 
     // Longitudinal trend section when 3+ completed analyses available
