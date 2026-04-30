@@ -3889,7 +3889,7 @@ def record_qeeg_audit_event(
     # the prefix to avoid arbitrary user-supplied strings ending up in audit
     # `action` rows. Default "qeeg" preserves prior behaviour.
     raw_surface = (payload.surface or "qeeg").strip().lower()
-    surface = raw_surface if raw_surface in {"qeeg", "brain_map_planner", "session_runner", "adverse_events", "audit_trail", "reports", "documents", "quality_assurance"} else "qeeg"
+    surface = raw_surface if raw_surface in {"qeeg", "brain_map_planner", "session_runner", "adverse_events", "audit_trail", "reports", "documents", "quality_assurance", "irb_manager"} else "qeeg"
     event_id = f"{surface}-{payload.event}-{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
     target_id = payload.analysis_id or payload.patient_id or actor.clinic_id or actor.actor_id
     note_parts: list[str] = []

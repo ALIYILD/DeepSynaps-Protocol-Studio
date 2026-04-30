@@ -3198,3 +3198,103 @@ class QualityFindingRevision(Base):
     actor_role: Mapped[str] = mapped_column(String(32), nullable=False)
     note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+# ── IRB Manager (launch-audit 2026-04-30) ────────────────────────────────────
+# Regulator-credible IRB protocol register. Distinct from the legacy
+# ``irb_studies`` table (kept intact for back-compat with the old IRB router):
+# this surface is the canonical /api/v1/irb/protocols home, with PI validation
+# against the ``users`` table, append-only revision history, and explicit
+# amendment / closure / reopen audit events.
+class IRBProtocol(Base):
+    """An IRB-approved protocol registered in the IRB Manager.
+
+    Honest, regulator-credible record. PI must be a real ``User``; status
+    transitions are append-only via :class:`IRBProtocolRevision`; closed
+    protocols are immutable in-place (reopen creates a new revision so the
+    audit trail is preserved). ``risk_level`` aligns with the IRB-recognised
+    minimal / greater_than_minimal categories.
+    """
+
+    __tablename__ = "irb_protocols"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinic_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    protocol_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)  # site-assigned (e.g. DS-2024-001)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    description: Mapped[str] = mapped_column(Text(), nullable=False, default="")
+    irb_board: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    irb_number: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    sponsor: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    pi_user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    phase: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, index=True)  # I, II, III, IV, observational, pilot, feasibility
+    status: Mapped[str] = mapped_column(
+        String(24),
+        nullable=False,
+        default="pending",
+        index=True,
+    )  # pending | active | suspended | closed | reopened
+    risk_level: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, index=True)  # minimal | greater_than_minimal
+    approval_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    expiry_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
+    enrollment_target: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    enrolled_count: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
+    consent_version: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    is_demo: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    closed_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    closure_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
+
+class IRBProtocolAmendment(Base):
+    """Amendment record on an IRB protocol.
+
+    Distinct from ``irb_amendments`` (legacy table for ``irb_studies``).
+    Every amendment requires a non-empty ``reason`` so a regulator can audit
+    the rationale; a ``revision_idx`` tracks ordering.
+    """
+
+    __tablename__ = "irb_protocol_amendments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    protocol_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("irb_protocols.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    amendment_type: Mapped[str] = mapped_column(String(60), nullable=False)
+    description: Mapped[str] = mapped_column(Text(), nullable=False)
+    reason: Mapped[str] = mapped_column(Text(), nullable=False)
+    submitted_by: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="submitted")  # submitted | approved | rejected
+    consent_version_after: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+
+
+class IRBProtocolRevision(Base):
+    """Append-only revision row for every IRBProtocol state change."""
+
+    __tablename__ = "irb_protocol_revisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    protocol_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("irb_protocols.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    revision_idx: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    action: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    snapshot_json: Mapped[str] = mapped_column(Text(), nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))

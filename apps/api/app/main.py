@@ -80,6 +80,7 @@ from app.routers.agent_skills_router import router as agent_skills_router
 from app.routers.annotations_router import router as annotations_router
 from app.routers.reminders_router import router as reminders_router
 from app.routers.irb_router import router as irb_router
+from app.routers.irb_manager_router import router as irb_manager_router
 from app.routers.evidence_router import router as evidence_router
 from app.routers.literature_router import router as literature_router
 from app.routers.literature_watch_router import router as literature_watch_router
@@ -277,6 +278,7 @@ app.include_router(agent_skills_router)
 app.include_router(annotations_router)
 app.include_router(reminders_router)
 app.include_router(irb_router)
+app.include_router(irb_manager_router)
 app.include_router(literature_router)
 app.include_router(literature_watch_router)
 app.include_router(evidence_router)
