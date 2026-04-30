@@ -113,12 +113,20 @@ def test_suggest_protocols_picks_up_left_dlpfc_deficit() -> None:
     assert s0["fit_score"] > 0.5
 
 
-def test_suggest_protocols_picks_up_bilateral_occipital_deficit() -> None:
+def test_suggest_protocols_skips_disabled_lateraloccipital_pattern() -> None:
+    """The bilateral lateraloccipital deficit → tDCS-O1/O2 mapping was
+    disabled in the evidence-gap-gating PR (no published trial supports
+    that montage for insomnia/chronic pain — see
+    `deepsynaps-qeeg-evidence-gaps.md`). `suggest_protocols_from_report`
+    must skip disabled hints rather than surface them to clinicians.
+    """
     payload = _fixture_payload()
     suggestions = suggest_protocols_from_report(payload)
     occ = [s for s in suggestions if s.get("pattern") == "lateraloccipital_bilateral_deficit"]
-    assert occ, f"no bilateral occipital deficit suggestion in {[s['pattern'] for s in suggestions]}"
-    assert occ[0]["modality"] == "tDCS"
+    assert not occ, (
+        "lateraloccipital_bilateral_deficit suggestion should be gated off; "
+        f"got: {occ}"
+    )
 
 
 def test_suggest_protocols_required_checks_no_diagnosis_word() -> None:
