@@ -2831,7 +2831,7 @@ function _renderComprehensiveReport(report, analysis, savedEvidenceCitations) {
     + esc(report.clinician_amendments || '') + '</textarea>'
     + '<div style="margin-top:8px;text-align:right">'
     + '<button class="btn btn-sm btn-outline" id="qeeg-save-review">Save & Mark Reviewed</button></div>'
-    + '<div id="qeeg-review-status" aria-live="polite" style="margin-top:8px"></div></div>'
+    + '<div id="qeeg-review-status" role="status" aria-live="polite" style="margin-top:8px"></div></div>'
   );
 
   return html;
@@ -4725,7 +4725,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           + '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'patient\';window._nav(\'qeeg-analysis\')">Back to upload</button>'
           + '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Open report tab</button>'
           + '</div>'
-          + '<div id="qeeg-analyze-status" aria-live="polite" style="margin-top:12px"></div></div>'
+          + '<div id="qeeg-analyze-status" role="status" aria-live="polite" style="margin-top:12px"></div></div>'
         );
         const runBtn = document.getElementById('qeeg-run-btn');
         if (runBtn) {
@@ -4770,7 +4770,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         tabEl.innerHTML = renderLaunchNotice('Analysis running', 'Wait for preprocessing and quantification to finish. If the run stalls, return to the upload tab and verify session metadata.', 'info')
           + '<div style="text-align:center;padding:48px">'
           + spinner('Analysis in progress... This usually takes a few seconds.')
-          + '<div id="qeeg-analysis-progress" aria-live="polite"></div>'
+          + '<div id="qeeg-analysis-progress" role="status" aria-live="polite"></div>'
           + '</div>';
         var pollInterval = setInterval(async function () {
           try {
@@ -5042,8 +5042,8 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           anchor_label: (data && data.original_filename) || 'qEEG analysis',
         })
       )
-        + '<div id="qeeg-mne-run-status" aria-live="polite" style="text-align:center;margin-top:8px"></div>'
-        + '<div id="qeeg-ai-run-status" aria-live="polite" style="text-align:center;margin-top:4px"></div>'
+        + '<div id="qeeg-mne-run-status" role="status" aria-live="polite" style="text-align:center;margin-top:8px"></div>'
+        + '<div id="qeeg-ai-run-status" role="status" aria-live="polite" style="text-align:center;margin-top:4px"></div>'
         + '<div id="qeeg-annotation-drawer-host" class="analysis-anno-host"></div>';
 
       // ── Advanced Analyses Section ───────────────────────────────────────
@@ -5266,7 +5266,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           + '</select>'
           + '<button class="btn btn-primary" id="qeeg-gen-report-btn">Generate AI Report</button>'
           + '</div>'
-          + '<div id="qeeg-gen-status" aria-live="polite" style="margin-top:12px"></div></div>'
+          + '<div id="qeeg-gen-status" role="status" aria-live="polite" style="margin-top:12px"></div></div>'
         );
         const btn = document.getElementById('qeeg-gen-report-btn');
         if (btn) {
@@ -5346,7 +5346,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       // position). Appended inside the tab so it survives tab re-renders
       // but is removed when the tab is navigated away from.
       if (_aiUpgradesFeatureFlagEnabled()) {
-        html += '<div id="qeeg-copilot-mount" aria-live="polite"></div>';
+        html += '<div id="qeeg-copilot-mount" role="status" aria-live="polite"></div>';
       }
 
       if (analysisId === 'demo' && _isDemoMode()) {
@@ -5594,7 +5594,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       + '<div><label style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;display:block;margin-bottom:4px">Follow-up Analysis</label>'
       + '<select id="qeeg-followup-sel" class="form-control"><option value="">Select follow-up...</option>' + optionsList('', defaultFollowup && defaultFollowup.id) + '</select></div></div>'
       + '<div style="text-align:center"><button class="btn btn-primary" id="qeeg-compare-btn">Compare</button></div>'
-      + '<div id="qeeg-compare-status" aria-live="polite" style="margin-top:12px"></div></div>'
+      + '<div id="qeeg-compare-status" role="status" aria-live="polite" style="margin-top:12px"></div></div>'
     );
 
     var baselineSel = document.getElementById('qeeg-baseline-sel');
