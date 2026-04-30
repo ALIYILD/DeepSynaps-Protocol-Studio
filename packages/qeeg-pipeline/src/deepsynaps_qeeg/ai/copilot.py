@@ -602,6 +602,7 @@ def mock_llm_tool_dispatch(user_message: str, context: dict[str, Any]) -> dict[s
     - "explain: <feature>" -> tool_explain_feature
     - "norm: <feature>=<value>" -> tool_compare_to_norm
     - "section: <name>" -> tool_get_recommendation_detail
+    - "medication: <name>" -> tool_explain_medication
     - anything else -> plain echo
 
     Returns a dict ``{"tool": str | None, "result": Any, "reply": str}``.
@@ -709,7 +710,7 @@ def _sanitize_banned_words(text: str) -> str:
 
 
 def _tools_schema() -> list[dict[str, Any]]:
-    """Return Anthropic/OpenAI-compatible JSON schema for the 4 tools.
+    """Return Anthropic/OpenAI-compatible JSON schema for the 6 tools.
 
     Returns
     -------
@@ -814,6 +815,24 @@ def _tools_schema() -> list[dict[str, Any]]:
                     },
                 },
                 "required": ["section"],
+            },
+        },
+        {
+            "name": "tool_explain_medication",
+            "description": (
+                "Return the expected EEG-effect profile for a medication "
+                "(e.g. 'lorazepam', 'lithium', 'caffeine'). Includes affected "
+                "bands, typical channels, onset, washout, and clinical notes."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "medication_name": {
+                        "type": "string",
+                        "description": "Medication name, e.g. 'lorazepam' or 'methylphenidate'.",
+                    },
+                },
+                "required": ["medication_name"],
             },
         },
     ]
@@ -963,7 +982,7 @@ def _dispatch_tool_call(
     Parameters
     ----------
     tool_name : str
-        One of the 4 registered tool names.
+        One of the 6 registered tool names.
     tool_input : dict
         Arguments from the model's tool-use block.
     context : dict
@@ -999,6 +1018,8 @@ def _dispatch_tool_call(
             section = str(tool_input.get("section", ""))
             rec = context.get("recommendation") or {}
             return tool_get_recommendation_detail(section, rec)
+        if tool_name == "tool_explain_medication":
+            return tool_explain_medication(str(tool_input.get("medication_name", "")))
     except Exception as exc:  # pragma: no cover — defensive
         log.warning("Tool %s failed: %s", tool_name, exc)
         return {"error": f"{type(exc).__name__}: {exc}"}
