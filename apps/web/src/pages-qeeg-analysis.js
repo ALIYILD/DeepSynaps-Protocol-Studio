@@ -56,8 +56,8 @@ function esc(v) {
 
 // ── Shared helpers ───────────────────────────────────────────────────────────
 function spinner(msg) {
-  return '<div style="display:flex;align-items:center;gap:8px;padding:24px;color:var(--text-secondary)">'
-    + '<span class="spinner"></span>' + esc(msg || 'Loading...') + '</div>';
+  return '<div role="status" aria-live="polite" aria-busy="true" style="display:flex;align-items:center;gap:8px;padding:24px;color:var(--text-secondary)">'
+    + '<span class="spinner" aria-hidden="true"></span>' + esc(msg || 'Loading...') + '</div>';
 }
 
 function card(title, body, extra) {
