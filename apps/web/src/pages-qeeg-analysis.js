@@ -623,6 +623,7 @@ function renderAnalysisWorkspace(data, bands, ratios, artifact, normDev, analyse
         + '<div style="display:flex;flex-direction:column;gap:16px">'
           + _renderWorkspacePrimaryLens(data, bands, normDev, state)
           + '<div style="padding:12px 14px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
+          + '<div style="padding:12px 14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
             + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Lens guidance</div>'
             + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6">Use <strong>' + esc(QEEG_WORKSPACE_LENS_META[state.lens].label) + '</strong> to inspect the dominant pattern in ' + esc(state.band) + '. Switch to z-score when you want deviation from the normative baseline rather than raw distribution.</div>'
           + '</div>'
@@ -4402,6 +4403,7 @@ function renderAnalysisList(analyses) {
     const statusColor = status === 'completed' ? 'var(--green)' : status === 'failed' ? 'var(--red)' : 'var(--amber)';
     const idShort = String(a.id || '').slice(0, 8);
     html += '<div class="qeeg-analysis-row" style="background:var(--surface-tint-1);border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;transition:background .15s">'
+    html += '<div class="qeeg-analysis-row" style="background:rgba(255,255,255,0.03);border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;transition:background .15s">'
       + '<div style="min-width:0;flex:1;cursor:pointer" '
       + 'onclick="window._qeegSelectedId=\'' + a.id + '\';window._qeegSwitchTab(\'analysis\')">'
       + '<div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.original_filename || 'EDF File') + '</div>'
@@ -4703,6 +4705,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         : '';
       tabEl.innerHTML =
         '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:var(--surface-tint-1);border:1px solid var(--border);text-align:center">'
+        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);text-align:center">'
         + '<div style="font-size:32px;margin-bottom:8px">📊</div>'
         + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No analysis selected</div>'
         + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Open the analysis view with sample data, jump to an existing analysis, or upload a new EDF.</div>'
@@ -5236,6 +5239,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         : '';
       tabEl.innerHTML =
         '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:var(--surface-tint-1);border:1px solid var(--border);text-align:center">'
+        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);text-align:center">'
         + '<div style="font-size:32px;margin-bottom:8px">📝</div>'
         + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No analysis selected</div>'
         + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Open the AI report with sample data, jump to an existing analysis, or upload a new EDF.</div>'
@@ -5718,6 +5722,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     if (completedAnalyses.length === 2) {
       var trendHintHost = document.createElement('div');
       trendHintHost.style.cssText = 'margin-top:16px;padding:14px;border-radius:10px;background:var(--surface-tint-1);border:1px dashed rgba(255,255,255,0.12);font-size:12px;color:var(--text-secondary);text-align:center';
+      trendHintHost.style.cssText = 'margin-top:16px;padding:14px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.12);font-size:12px;color:var(--text-secondary);text-align:center';
       trendHintHost.innerHTML = '<strong>Longitudinal trend</strong> requires <strong>3+ completed analyses</strong>. Upload one more recording to unlock trend tracking.';
       tabEl.appendChild(trendHintHost);
     }

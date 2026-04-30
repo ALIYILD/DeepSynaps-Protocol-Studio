@@ -155,7 +155,6 @@ def test_render_system_prompt_medication_confounds_fallback() -> None:
     assert "Medication / confound awareness" in rendered
     assert "(none)" in rendered
 
-
 def test_banned_word_sanitiser_rewrites_all_forms() -> None:
     """The sanitiser must rewrite ``diagnos*`` and
     ``treatment recommendation`` case-insensitively."""

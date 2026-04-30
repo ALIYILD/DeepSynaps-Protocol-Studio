@@ -6561,7 +6561,6 @@ export async function pgMonitorHub(setTopbar, navigate) {
           <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${summary.awaiting_review||0}</div><div class="ch-kpi-label">Awaiting Review</div></div>
           <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${summary.reportable||0}</div><div class="ch-kpi-label">Reportable</div></div>
         </div>
-
         <div class="ch-card">
           <div class="ch-card-hd" style="flex-wrap:wrap;gap:6px">
             <span class="ch-card-title">Adverse Events</span>
@@ -6652,6 +6651,125 @@ export async function pgMonitorHub(setTopbar, navigate) {
       _aeAudit('filter_changed', { note: 'cleared' });
       window._monitorHubTab = 'adverse';
       window._nav('monitor-hub');
+    };
+    window._mhAeClearFilters = function() {
+      window._mhAeFilters = {};
+      _aeAudit('filter_changed', { note: 'cleared' });
+      window._monitorHubTab = 'adverse';
+      window._nav('monitor-hub');
+    };
+
+    // ── CSV export — uses currently active filters ─────────────────────
+    window._mhAeExportCsv = async function() {
+      try {
+        const result = await api.exportAdverseEventsCsv?.(filterParams);
+        if (!result || !result.blob) {
+          window._dsToast?.({title:'Export failed', body:'CSV export endpoint unavailable.', severity:'error'});
+          return;
+        }
+        _aeAudit('export_csv', { note: JSON.stringify(filterParams).slice(0,200) });
+        const url = URL.createObjectURL(result.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = result.filename || ('adverse-events-'+new Date().toISOString().slice(0,10)+'.csv');
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        window._dsToast?.({title:'CSV exported', severity:'success'});
+      } catch (e) {
+        window._dsToast?.({title:'Export failed', body:e?.message||'Try again.', severity:'error'});
+      }
+    };
+
+    // ── Detail drawer + actions ────────────────────────────────────────
+    window._mhAeOpenDetail = async function(id) {
+      if (!id) return;
+      _aeAudit('viewed', { note: 'id='+id });
+      // Reuse modal overlay element
+      document.getElementById('mh-ae-detail-modal')?.remove();
+      const overlay = document.createElement('div');
+      overlay.id = 'mh-ae-detail-modal';
+      overlay.className = 'ch-modal-overlay';
+      overlay.innerHTML = '<div class="ch-modal" style="width:min(720px,95vw)"><div class="ch-modal-hd"><span>Adverse Event</span><button class="ch-modal-close" onclick="document.getElementById(\'mh-ae-detail-modal\')?.remove()">✕</button></div><div class="ch-modal-body" id="mh-ae-detail-body">'+spinner()+'</div></div>';
+      document.body.appendChild(overlay);
+
+      let ae;
+      try {
+        ae = await api.getAdverseEvent(id);
+      } catch (e) {
+        const body = document.getElementById('mh-ae-detail-body');
+        if (body) body.innerHTML = '<div class="ch-empty" style="padding:30px;text-align:center;color:var(--red)">Failed to load: '+(e?.message||'unknown error')+'</div>';
+        return;
+      }
+
+      const patName = patById[ae.patient_id] || ae.patient_id || '—';
+      const sev = ae.severity || 'mild';
+      const st  = _aeStatus(ae);
+      const _safe = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+      const detailBody = document.getElementById('mh-ae-detail-body');
+      if (!detailBody) return;
+      detailBody.innerHTML =
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12.5px">'+
+          '<div><b>Patient:</b> '+_safe(patName)+(ae.patient_id?' <button class="ch-btn-sm" style="margin-left:4px" onclick="window._nav(\'patient-profile\',{id:\''+ae.patient_id+'\'});document.getElementById(\'mh-ae-detail-modal\')?.remove()">Open patient →</button>':'')+'</div>'+
+          '<div><b>Reported:</b> '+_safe((ae.reported_at||'').slice(0,16).replace('T',' '))+'</div>'+
+          '<div><b>Event type:</b> '+_safe(ae.event_type)+'</div>'+
+          '<div><b>Onset:</b> '+_safe(ae.onset_timing||'—')+'</div>'+
+          '<div><b>Severity:</b> '+_safe(sev)+(ae.is_serious?' <span style="color:var(--red);font-weight:700">SAE</span>':'')+'</div>'+
+          '<div><b>Status:</b> '+_safe(st)+'</div>'+
+          '<div><b>Body system:</b> '+_safe(ae.body_system||'—')+'</div>'+
+          '<div><b>Expectedness:</b> '+_safe(ae.expectedness||'—')+(ae.expectedness_source?' ('+_safe(ae.expectedness_source)+')':'')+'</div>'+
+          '<div><b>Relatedness:</b> '+_safe(ae.relatedness||'—')+'</div>'+
+          '<div><b>Reportable:</b> '+(ae.reportable?'<span style="color:var(--red);font-weight:700">YES</span>':'no')+'</div>'+
+          '<div><b>SAE criteria:</b> '+_safe(ae.sae_criteria||'—')+'</div>'+
+          '<div><b>Action taken:</b> '+_safe(ae.action_taken||'—')+'</div>'+
+          '<div><b>MedDRA PT:</b> '+_safe(ae.meddra_pt||'—')+'</div>'+
+          '<div><b>MedDRA SOC:</b> '+_safe(ae.meddra_soc||'—')+'</div>'+
+          (ae.session_id?'<div><b>Session:</b> <button class="ch-btn-sm" onclick="window._nav(\'session-execution\',{id:\''+ae.session_id+'\'});document.getElementById(\'mh-ae-detail-modal\')?.remove()">Open session →</button></div>':'')+
+          (ae.course_id?'<div><b>Course:</b> <button class="ch-btn-sm" onclick="window._selectedCourseId=\''+ae.course_id+'\';window._nav(\'course-detail\');document.getElementById(\'mh-ae-detail-modal\')?.remove()">Open course →</button></div>':'')+
+        '</div>'+
+        (ae.description?'<div style="margin-top:10px;padding:8px;background:var(--bg-secondary);border-radius:4px;font-size:12px;color:var(--text-secondary)"><b>Description:</b> '+_safe(ae.description)+'</div>':'')+
+        (ae.reviewed_at?'<div style="margin-top:8px;font-size:11px;color:var(--blue)">✓ Reviewed by '+_safe(ae.reviewed_by||'')+' at '+_safe((ae.reviewed_at||'').slice(0,16).replace('T',' '))+(ae.signed_at?' (signed)':'')+'</div>':'')+
+        (ae.escalated_at?'<div style="margin-top:8px;font-size:11px;color:var(--red)">⚑ Escalated to '+_safe(ae.escalation_target||'')+' at '+_safe((ae.escalated_at||'').slice(0,16).replace('T',' '))+(ae.escalation_note?' — '+_safe(ae.escalation_note):'')+'</div>':'')+
+        '<div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:6px">'+
+          (ae.reviewed_at?'':'<button class="ch-btn-sm ch-btn-teal" onclick="window._mhAeReview(\''+ae.id+'\', false)">Mark Reviewed</button>')+
+          '<button class="ch-btn-sm" onclick="window._mhAeReview(\''+ae.id+'\', true)" title="Review and sign-off in one step">Review &amp; Sign-off</button>'+
+          (ae.escalated_at?'':'<button class="ch-btn-sm" style="border-color:var(--red);color:var(--red)" onclick="window._mhAeEscalate(\''+ae.id+'\')">Escalate to IRB / Regulator</button>')+
+          '<button class="ch-btn-sm" onclick="window._mhAeOpenClassify(\''+ae.id+'\')">Edit Classification</button>'+
+          (ae.resolved_at?'':'<button class="ch-btn-sm" onclick="window._mhAeResolve(\''+ae.id+'\')">Resolve</button>')+
+          '<button class="ch-btn-sm" onclick="window._mhAeExportCioms(\''+ae.id+'\')">Export CIOMS</button>'+
+        '</div>'+
+        '<div style="margin-top:10px;font-size:10.5px;color:var(--text-tertiary);line-height:1.5">'+
+          'Severity and expectedness are clinician-confirmed inputs — never AI-derived. SAE and reportable flags are computed from your inputs per ICH E2A.'+
+        '</div>';
+    };
+
+    window._mhAeReview = async function(id, signOff) {
+      if (!id) return;
+      try {
+        await api.reviewAdverseEvent(id, { sign_off: !!signOff });
+        _aeAudit(signOff?'signed':'reviewed', { note: 'id='+id });
+        window._dsToast?.({title:signOff?'Reviewed & signed':'Reviewed', severity:'success'});
+        document.getElementById('mh-ae-detail-modal')?.remove();
+        window._nav('monitor-hub');
+      } catch (e) {
+        window._dsToast?.({title:'Review failed', body:e?.message||'Try again.', severity:'error'});
+      }
+    };
+
+    window._mhAeEscalate = async function(id) {
+      if (!id) return;
+      const target = (prompt('Escalation target (IRB / FDA / MHRA / EMA / internal_qa / other):', 'IRB') || '').trim();
+      if (!target) return;
+      const note = prompt('Note for escalation (optional):', '') || null;
+      try {
+        await api.escalateAdverseEvent(id, { target: target.toLowerCase(), note });
+        _aeAudit('escalated', { note: 'target='+target });
+        window._dsToast?.({title:'Escalated', severity:'success'});
+        document.getElementById('mh-ae-detail-modal')?.remove();
+        window._nav('monitor-hub');
+      } catch (e) {
+        window._dsToast?.({title:'Escalation failed', body:e?.message||'Try again.', severity:'error'});
+      }
     };
 
     // ── CSV export — uses currently active filters ─────────────────────
@@ -7686,8 +7804,15 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
         fd.append('file', f, f.name);
         fd.append('title', f.name);
         fd.append('doc_type', 'uploaded');
-        await api.uploadDocument(fd);
+        const out = await api.uploadDocument(fd);
         results.ok += 1;
+        // Server-side _audit already runs in the upload handler. The UI also
+        // logs its own event so the audit trail sees the path (UI → API).
+        api.logDocumentsAudit?.({
+          event: 'uploaded',
+          document_id: out?.id || null,
+          note: 'ui upload: ' + f.name.slice(0, 120),
+        }).catch(() => {});
       } catch (e) {
         results.fail += 1;
         results.errors.push(f.name + ': ' + (e?.message || 'upload failed'));
@@ -8002,8 +8127,37 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     window._docsUpload = () => document.getElementById('docs-file-input')?.click();
   }
 
+  // Filter-change audit hook. Fires per filter change so the audit trail
+  // captures the analysis path (search → filter → export). Non-blocking.
+  window._docsLogFilter = (key, value) => {
+    if (!api.logDocumentsAudit) return;
+    api.logDocumentsAudit({
+      event: 'filter_changed',
+      note: 'tab=' + tab + ' ' + key + '=' + String(value).slice(0, 80),
+    }).catch(() => {});
+  };
+
+  // Disclaimers banner (Documents Hub launch-audit 2026-04-30) — strings
+  // come from the server /summary so the audit trail and the UI banner
+  // share a source of truth. Falls back to a static list if the API is
+  // unreachable.
+  const _disclaimers = (docsSummary?.disclaimers && docsSummary.disclaimers.length)
+    ? docsSummary.disclaimers
+    : [
+        'Documents are clinical records and require clinician sign-off.',
+        'Signed documents are immutable; supersede creates a revision with audit trail.',
+        'Patient-identifiable documents must comply with local privacy law.',
+      ];
+  const _disclaimerHtml = (
+    '<div class="ch-disclaimers" role="note" aria-label="Documents Hub clinical-safety disclaimers" '+
+    'style="padding:8px 12px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.2);border-radius:8px;color:var(--text-secondary);font-size:11.5px;line-height:1.55">'+
+    _disclaimers.map(d => '<div>• ' + String(d).replace(/[<>]/g, '') + '</div>').join('') +
+    '</div>'
+  );
+
   el.innerHTML = `
   <div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px">
+  ${_disclaimerHtml}
   <div class="ch-shell">
     <div class="ch-tab-bar">${tabBar()}</div>
     <div class="ch-body">${main}</div>

@@ -478,6 +478,43 @@ def tool_explain_medication(medication_name: str) -> dict[str, Any]:
 # ── Recommendation detail ───────────────────────────────────────────────────
 
 
+def tool_explain_medication(medication_name: str) -> dict[str, Any]:
+    """Return EEG-effect profile for a medication.
+
+    Uses the knowledge-base ``MedicationEEGAtlas`` to give deterministic,
+    citation-free advisory context about expected EEG changes.
+    """
+    if not medication_name:
+        return {"name": "", "drug_class": "", "eeg_effects": [], "clinical_note": ""}
+
+    try:
+        from deepsynaps_qeeg.knowledge import MedicationEEGAtlas
+    except Exception as exc:
+        log.warning("Knowledge layer unavailable for tool_explain_medication: %s", exc)
+        return {"name": medication_name, "drug_class": "", "eeg_effects": [], "clinical_note": ""}
+
+    profile = MedicationEEGAtlas.lookup(medication_name)
+    if profile is None:
+        return {
+            "name": medication_name,
+            "drug_class": "Unknown",
+            "eeg_effects": [],
+            "affected_bands": [],
+            "clinical_note": "No EEG-effect profile found for this medication.",
+        }
+
+    return {
+        "name": profile.name,
+        "drug_class": profile.drug_class,
+        "eeg_effects": list(profile.eeg_effects),
+        "affected_bands": list(profile.affected_bands),
+        "typical_channels": list(profile.typical_channels),
+        "onset_hours": profile.onset_hours,
+        "washout_days": profile.washout_days,
+        "clinical_note": profile.clinical_note,
+    }
+
+
 def tool_get_recommendation_detail(
     section: str,
     recommendation: dict[str, Any],
