@@ -1499,6 +1499,36 @@ class ClinicTeamInvite(Base):
     revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
 
 
+
+
+class RoomResource(Base):
+    """Clinic room or treatment space."""
+    __tablename__ = "room_resources"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinic_id: Mapped[str] = mapped_column(String(36), ForeignKey("clinics.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    modalities: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # JSON list of supported modalities
+    is_active: Mapped[bool] = mapped_column(Boolean(), default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class DeviceResource(Base):
+    """Clinic treatment device or equipment."""
+    __tablename__ = "device_resources"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinic_id: Mapped[str] = mapped_column(String(36), ForeignKey("clinics.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    device_type: Mapped[str] = mapped_column(String(60), nullable=False)  # tDCS, rTMS, NF, etc.
+    serial_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean(), default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
 class User2FASecret(Base):
     """TOTP secret (one row per user). Fernet-encrypted at rest.
 
