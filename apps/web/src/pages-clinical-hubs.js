@@ -237,23 +237,43 @@ export async function pgPatientHub(setTopbar, navigate) {
     function todaysSessionTimeFor(p) {
       // Real backend field first; fallback to derived patterns; then a deterministic
       // demo time for offline mode so the panel is never silently empty.
+      const today = new Date().toDateString();
+      const sameDay = (val) => {
+        if (!val) return false;
+        const d = new Date(val);
+        return !isNaN(d.getTime()) && d.toDateString() === today;
+      };
       const candidates = [
         p?.todays_session_time,
         p?.todaysSessionTime,
-        p?.next_session_at && new Date(p.next_session_at).toDateString() === new Date().toDateString()
+        p?.next_session_at && sameDay(p.next_session_at)
           ? new Date(p.next_session_at).toTimeString().slice(0,5)
           : null,
-        p?.next_session_date && new Date(p.next_session_date).toDateString() === new Date().toDateString()
+        p?.next_session_date && sameDay(p.next_session_date)
+          ? '09:00'
+          : null,
+        // Demo-roster shape uses `next_session` (a YYYY-MM-DD date string).
+        p?.next_session && sameDay(p.next_session)
           ? '09:00'
           : null,
       ];
       for (const c of candidates) if (c) return String(c).slice(0,5);
       return null;
     }
+    // Single source of truth for the "Today's Queue" predicate. Both the
+    // chip count and the right-panel queue list use this — guaranteed to agree.
+    function isTodayPatient(p) {
+      return !!todaysSessionTimeFor(p);
+    }
+    // Single source of truth for the "Adverse Events" predicate. Used by
+    // both the chip count and any per-row status pill that flags adverse.
+    function hasAdverseEvent(p) {
+      return !!(p && p.has_adverse_event);
+    }
     function patientStatusKind(p) {
-      if (p?.has_adverse_event) return 'adverse';
+      if (hasAdverseEvent(p)) return 'adverse';
       if (p?.assessment_overdue || p?.needs_review) return 'overdue';
-      if (todaysSessionTimeFor(p)) return 'today';
+      if (isTodayPatient(p)) return 'today';
       return 'stable';
     }
     function statusPill(p) {
@@ -288,17 +308,19 @@ export async function pgPatientHub(setTopbar, navigate) {
       '</div>';
     }
 
-    // Quick-filter cohort counts. Pulled from server summary when present and
-    // augmented by client-side scan over the current page so chips always
-    // reflect *something* real, never a hardcoded constant.
+    // Quick-filter cohort counts. The "today" and "adverse" counts derive from
+    // the *same* predicate / queue list as the right-panel Today's Queue and
+    // status pills — chip counts can never disagree with what's rendered.
     function quickFilterCounts() {
       const items = (_currentList?.items) || [];
       const summary = _currentSummary || {};
       const all = (summary.total != null ? summary.total : items.length) || items.length;
-      const today = items.filter(p => todaysSessionTimeFor(p)).length;
+      // Today count = number of rows that the right-panel queue would render.
+      // Includes the demo fallback when offline so chip and panel agree.
+      const today = todaysQueueEntries().length;
       const overdueServer = (summary.kpis?.follow_up_count) ?? null;
       const overdue = overdueServer != null ? overdueServer : items.filter(p => p.assessment_overdue || p.needs_review).length;
-      const adverse = items.filter(p => p.has_adverse_event).length;
+      const adverse = items.filter(hasAdverseEvent).length;
       const recent  = items.filter(p => {
         if (!p.created_at) return false;
         const d = new Date(p.created_at);
@@ -320,8 +342,12 @@ export async function pgPatientHub(setTopbar, navigate) {
       return '<div class="ds-qf-row" data-testid="ds-patients-quick-filters" role="tablist" aria-label="Quick filter">' +
         chips.map(ch => {
           const isActive = (active === ch.id);
+          // Screen readers get the label + count together so the chip is
+          // self-describing without relying on visual whitespace.
+          const ariaLabel = ch.label + ': ' + ch.n + ' patient' + (ch.n === 1 ? '' : 's');
           return '<button type="button" class="ds-qf-chip' + (isActive ? ' ds-qf-chip--active' : '') + '" ' +
             'data-quick-filter="' + ch.id + '" role="tab" aria-selected="' + (isActive ? 'true' : 'false') + '" ' +
+            'aria-label="' + esc(ariaLabel) + '" ' +
             'onclick="window._phSetQuickFilter(\'' + ch.id + '\')">' +
             esc(ch.label) + ' <span class="ds-qf-count">' + ch.n + '</span></button>';
         }).join('') +
@@ -334,9 +360,9 @@ export async function pgPatientHub(setTopbar, navigate) {
     function applyQuickFilter(items) {
       const f = window._phState.activeQuickFilter || 'all';
       if (f === 'all') return items;
-      if (f === 'today')   return items.filter(p => todaysSessionTimeFor(p));
+      if (f === 'today')   return items.filter(isTodayPatient);
       if (f === 'overdue') return items.filter(p => p.assessment_overdue || p.needs_review);
-      if (f === 'adverse') return items.filter(p => p.has_adverse_event);
+      if (f === 'adverse') return items.filter(hasAdverseEvent);
       if (f === 'recent')  return items.filter(p => {
         if (!p.created_at) return false;
         const d = new Date(p.created_at);
@@ -346,31 +372,39 @@ export async function pgPatientHub(setTopbar, navigate) {
     }
 
     // Today's Queue: real-data first, deterministic demo entries as fallback so
-    // the panel is never silently empty in the demo build.
+    // the panel is never silently empty in the demo build. Sort by start time
+    // ascending (next session first) with name as a stable alphabetical tiebreak.
+    function _sortQueueByTime(rows) {
+      return rows.slice().sort((a, b) => {
+        const t = String(a.time || '').localeCompare(String(b.time || ''));
+        if (t !== 0) return t;
+        return String(a.name || '').localeCompare(String(b.name || ''));
+      });
+    }
     function todaysQueueEntries() {
       const items = (_currentList?.items) || [];
-      const real = items
-        .map(p => {
-          const t = todaysSessionTimeFor(p);
-          if (!t) return null;
-          const fname = p.first_name || '';
-          const lname = p.last_name || '';
-          const name  = (fname + ' ' + lname).trim() || 'Unknown';
-          const modality = (p.primary_modality || '').replace(/_/g,' ') || '—';
-          return { id: p.id, time: t, name, modality, sessionId: p.next_session_id || null };
-        })
-        .filter(Boolean)
-        .sort((a, b) => a.time.localeCompare(b.time));
+      const real = _sortQueueByTime(
+        items
+          .filter(isTodayPatient)
+          .map(p => {
+            const t = todaysSessionTimeFor(p);
+            const fname = p.first_name || '';
+            const lname = p.last_name || '';
+            const name  = (fname + ' ' + lname).trim() || 'Unknown';
+            const modality = (p.primary_modality || '').replace(/_/g,' ') || '—';
+            return { id: p.id, time: t, name, modality, sessionId: p.next_session_id || null };
+          })
+      );
       if (real.length) return real.slice(0, 8);
       // Demo fallback — only used when no real session-today data is present.
       const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
       if (!_demoOk) return [];
-      return [
+      return _sortQueueByTime([
         { id:'demo-pt-aisha-rahman', time:'09:00', name:'Aisha Rahman',     modality:'TPS',           sessionId:null, demo:true },
         { id:'demo-pt-samantha-li',  time:'10:30', name:'Samantha Li',      modality:'tDCS',          sessionId:null, demo:true },
         { id:'demo-pt-marcus-chen',  time:'13:15', name:'Marcus Chen',      modality:'rTMS',          sessionId:null, demo:true },
         { id:'demo-pt-james-okonkwo',time:'15:45', name:'James Okonkwo',    modality:'Neurofeedback', sessionId:null, demo:true },
-      ];
+      ]);
     }
     function todaysQueueHtml() {
       const queue = todaysQueueEntries();
@@ -451,12 +485,19 @@ export async function pgPatientHub(setTopbar, navigate) {
     };
     // Doctor-friendly redesign state (density, quick filter chip, kbd selection,
     // shortcuts modal). Density persists in localStorage; default = compact.
+    // Write the default on first init so analytics / other tabs see a real
+    // value rather than null when a user never clicks the toggle.
     if (window._phState.density == null) {
       let stored = null;
       try { stored = localStorage.getItem('ds.patients.density'); } catch {}
       window._phState.density = (stored === 'comfortable' || stored === 'compact')
         ? stored
         : 'compact';
+      try {
+        if (localStorage.getItem('ds.patients.density') == null) {
+          localStorage.setItem('ds.patients.density', 'compact');
+        }
+      } catch {}
     }
     if (window._phState.activeQuickFilter == null) window._phState.activeQuickFilter = 'all';
     if (window._phState.selectedRowIndex == null) window._phState.selectedRowIndex = -1;
@@ -1197,8 +1238,8 @@ export async function pgPatientHub(setTopbar, navigate) {
           </div>
           <div class="d2p7-topbar-search" style="margin-left:auto">
             <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            <input id="d2p7-search" type="text" placeholder="Search by name, MRN, condition, protocol…  (press / to focus)"
-              oninput="window._phOnSearch(event)" aria-label="Search patients">
+            <input id="d2p7-search" type="text" placeholder="Search patients · / to focus"
+              oninput="window._phOnSearch(event)" aria-label="Search patients" aria-keyshortcuts="/">
             <span class="kbd">/</span>
           </div>
           <div class="d2p7-bell-wrap">

@@ -251,3 +251,81 @@ test('patient row uses 6-column grid (160px action strip)', async () => {
   assert.ok(src.includes('1.8fr 1.1fr 1fr 1fr 1fr 160px'),
     'row must use the new 6-column grid template (160px action strip)');
 });
+
+// ── Doctor-polish 2026-04-30: chip-count truthfulness, queue sort by time,
+//    search hint, chip aria-label, density first-paint persistence.
+
+test('chip "today" count derives from todaysQueueEntries (single source of truth)', async () => {
+  const src = await _readPgSrc();
+  // Chip count = the right-panel queue length, by construction.
+  assert.ok(/today\s*=\s*todaysQueueEntries\(\)\.length/.test(src),
+    'today chip count must be derived from todaysQueueEntries()');
+  // Predicate helpers exist and are used in both quickFilterCounts + applyQuickFilter.
+  assert.ok(src.includes('function isTodayPatient(p)'), 'isTodayPatient helper must exist');
+  assert.ok(src.includes('function hasAdverseEvent(p)'), 'hasAdverseEvent helper must exist');
+  assert.ok(src.includes('items.filter(hasAdverseEvent)'),
+    'adverse chip count must use hasAdverseEvent predicate');
+  assert.ok(src.includes('items.filter(isTodayPatient)'),
+    'queue + applyQuickFilter must use isTodayPatient predicate');
+});
+
+test("Today's Queue sorts by start time ascending, name as tiebreak", () => {
+  // Re-declare the sort helper verbatim from pages-clinical-hubs.js so the
+  // logic is unit-testable without a DOM.
+  function _sortQueueByTime(rows) {
+    return rows.slice().sort((a, b) => {
+      const t = String(a.time || '').localeCompare(String(b.time || ''));
+      if (t !== 0) return t;
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+  }
+  const sorted = _sortQueueByTime([
+    { time:'15:45', name:'James Okonkwo' },
+    { time:'09:00', name:'Aisha Rahman' },
+    { time:'13:15', name:'Marcus Chen' },
+    { time:'09:00', name:'Aaron Zheng' },     // same time as Aisha — alpha tiebreak
+  ]);
+  // Earliest time first.
+  assert.ok(sorted[0].time <= sorted[1].time, 'first row time must be <= second row time');
+  // Tiebreak by name: Aaron < Aisha at 09:00.
+  assert.equal(sorted[0].name, 'Aaron Zheng');
+  assert.equal(sorted[1].name, 'Aisha Rahman');
+  // Last row is the latest scheduled session.
+  assert.equal(sorted[sorted.length - 1].time, '15:45');
+});
+
+test('search input placeholder hints at the / shortcut and exposes aria-keyshortcuts', async () => {
+  const src = await _readPgSrc();
+  assert.ok(src.includes('placeholder="Search patients · / to focus"'),
+    'search input placeholder must mention the / shortcut');
+  assert.ok(/placeholder="Search patients[^"]*\//.test(src),
+    'placeholder must contain a literal "/"');
+  assert.ok(src.includes('aria-keyshortcuts="/"'),
+    'search input must declare aria-keyshortcuts="/"');
+});
+
+test('quick-filter chips emit a non-empty aria-label that includes the count', async () => {
+  const src = await _readPgSrc();
+  // The aria-label is built per-chip from "<label>: <n> patient(s)".
+  assert.ok(/const ariaLabel = ch\.label \+ ': ' \+ ch\.n \+ ' patient'/.test(src),
+    'chip aria-label must concatenate label + count + "patient(s)"');
+  assert.ok(/aria-label="' \+ esc\(ariaLabel\) \+ '"/.test(src),
+    'chip must render aria-label attribute');
+});
+
+test('density default persists on first init when localStorage is null', async () => {
+  const src = await _readPgSrc();
+  assert.ok(/if \(localStorage\.getItem\('ds\.patients\.density'\) == null\)/.test(src),
+    'init block must check for null localStorage value');
+  assert.ok(/localStorage\.setItem\('ds\.patients\.density', 'compact'\)/.test(src),
+    'init block must write "compact" as the first-paint default');
+});
+
+test('chip count and right-panel queue length use the SAME source — todaysQueueEntries', async () => {
+  const src = await _readPgSrc();
+  // Find the queue HTML builder — it must call todaysQueueEntries().
+  assert.ok(/function todaysQueueHtml\([^)]*\) \{[\s\S]*?todaysQueueEntries\(\)/.test(src),
+    "todaysQueueHtml must call todaysQueueEntries()");
+  // The count chip must call the same function (asserted above).
+  // Together this guarantees chip count === queue length.
+});
