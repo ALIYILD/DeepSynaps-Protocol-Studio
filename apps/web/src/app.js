@@ -177,6 +177,8 @@ let _modQEEGRawWorkbench = null;
 async function loadQEEGRawWorkbench() { return (_modQEEGRawWorkbench ??= await import('./pages-qeeg-raw-workbench.js')); }
 let _modQEEGRawLauncher = null;
 async function loadQEEGRawLauncher() { return (_modQEEGRawLauncher ??= await import('./pages-qeeg-raw-launcher.js')); }
+let _modQEEGLauncher = null;
+async function loadQEEGLauncher() { return (_modQEEGLauncher ??= await import('./pages-qeeg-launcher.js')); }
 let _modMRIAnalysis = null;
 async function loadMRIAnalysis() { return (_modMRIAnalysis ??= await import('./pages-mri-analysis.js')); }
 let _modFusionWorkbench = null;
@@ -480,6 +482,7 @@ const NAV = [
   { section: 'Protocol', sectionId: 'protocol', collapsed: false },
   { id: 'protocol-studio',    label: 'Protocol Studio',   icon: '🧪', ai: true },
   { id: 'brainmap-v2',        label: 'Brain Map Planner', icon: '🧠' },
+  { id: 'qeeg-launcher',      label: 'qEEG Brain Map',    icon: '🧠', ai: true },
   { id: 'qeeg-analysis',      label: 'qEEG Analyzer',     icon: '📊', ai: true },
   { id: 'biomarkers',          label: 'Biomarkers',         icon: '🧬' },
   { id: 'handbooks-v2',       label: 'Handbooks',         icon: '📚' },
@@ -1546,6 +1549,7 @@ async function renderPage() {
     case 'device-dashboard':   { const m = await loadDeviceDashboard(); await m.pgDeviceDashboard(setTopbar, navigate); break; }
     case 'protocol-studio':    { const m = await loadClinicalHubs(); await m.pgProtocolHub(setTopbar, navigate); break; }
     case 'brainmap-v2':        { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar, navigate); break; }
+    case 'qeeg-launcher':      { const m = await loadQEEGLauncher(); await m.pgQEEGLauncher(setTopbar, navigate); break; }
     case 'qeeg-analysis':      { const m = await loadQEEGAnalysis(); await m.pgQEEGAnalysis(setTopbar, navigate); break; }
     case 'qeeg-raw-workbench': {
       // Route shape:

@@ -528,7 +528,20 @@ export const api = {
     apiFetch(`/api/v1/patients/${patientId}/medical-history/ai-context`).catch(() => null),
 
   // ── Documents Hub ───────────────────────────────────────────────────────
-  listDocuments: (patientId) => apiFetchWithRetry(`/api/v1/documents${patientId ? '?patient_id=' + patientId : ''}`),
+  // Filter-aware list. ``params`` accepts patient_id / kind / status / since /
+  // until / q / clinic_id / limit / offset (Documents Hub launch-audit
+  // 2026-04-30). The legacy single-arg `listDocuments(patientId)` shape is
+  // preserved for back-compat.
+  listDocuments: (params) => {
+    if (params && typeof params === 'object' && !Array.isArray(params)) {
+      const q = new URLSearchParams(
+        Object.entries(params).filter(([, v]) => v != null && v !== '')
+      ).toString();
+      return apiFetchWithRetry('/api/v1/documents' + (q ? '?' + q : ''));
+    }
+    const patientId = params; // legacy positional shape
+    return apiFetchWithRetry(`/api/v1/documents${patientId ? '?patient_id=' + patientId : ''}`);
+  },
   createDocument: (data) => apiFetch('/api/v1/documents', { method: 'POST', body: JSON.stringify(data) }),
   updateDocument: (id, data) => apiFetch(`/api/v1/documents/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getDocument: (id) => apiFetch(`/api/v1/documents/${id}`),
@@ -543,10 +556,72 @@ export const api = {
     const headers = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
     return fetch(`${API_BASE}/api/v1/documents/upload`, { method: 'POST', headers, body: formData })
-      .then(r => { if (!r.ok) throw new Error(`API error ${r.status}`); return r.json(); });
+      .then(async r => {
+        if (!r.ok) {
+          // Surface the API's `detail.message` instead of a bare status — so
+          // the toast can say "File type not allowed" rather than "API error 422".
+          let detail = `API error ${r.status}`;
+          try {
+            const body = await r.json();
+            detail = body?.detail?.message || body?.message || detail;
+          } catch (_) { /* fall back to status */ }
+          throw new Error(detail);
+        }
+        return r.json();
+      });
   },
   fetchDocumentDownload: (id) =>
     apiFetchBinary(`/api/v1/documents/${encodeURIComponent(id)}/download`),
+  // Plain anchor href for browsers that drive download via `<a download>`.
+  // The server requires Authorization, so this only works with cookie-bearer
+  // setups; for token-bearer setups the caller should use fetchDocumentDownload
+  // and convert to a Blob. Kept here for the Documents Hub `↓` button.
+  documentDownloadUrl: (id) =>
+    `${API_BASE}/api/v1/documents/${encodeURIComponent(id)}/download`,
+
+  // ── Documents Hub launch-audit (2026-04-30) ───────────────────────────
+  // Counts: total / draft / uploaded / signed / superseded / by_kind / by_status.
+  getDocumentsSummary: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch('/api/v1/documents/summary' + (q ? '?' + q : ''));
+  },
+  // Sign-off; idempotent for same actor; 409 if already superseded.
+  signDocument: (docId, note) =>
+    apiFetch(`/api/v1/documents/${encodeURIComponent(docId)}/sign`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || null }),
+    }),
+  // Create a new revision; original is marked superseded with a back-pointer.
+  supersedeDocument: (docId, opts = {}) =>
+    apiFetch(`/api/v1/documents/${encodeURIComponent(docId)}/supersede`, {
+      method: 'POST',
+      body: JSON.stringify({
+        reason: opts.reason || 'no reason given',
+        new_title: opts.new_title || null,
+        new_notes: opts.new_notes == null ? null : opts.new_notes,
+      }),
+    }),
+  // Filtered bulk export — returns a Blob (zip).
+  exportDocumentsZip: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetchBinary('/api/v1/documents/export.zip' + (q ? '?' + q : ''));
+  },
+  // Best-effort page-level audit ingestion for the Documents Hub.
+  logDocumentsAudit: (event) => {
+    try {
+      const body = JSON.stringify(event || {});
+      return apiFetch('/api/v1/documents/audit-events', {
+        method: 'POST',
+        body,
+      });
+    } catch (_) {
+      return Promise.resolve(null);
+    }
+  },
 
   // ── Session Recordings (Virtual Care Recording Studio) ──────────────────
   // Backs the ▶ button in the Recording Studio. Bytes live on the local Fly
