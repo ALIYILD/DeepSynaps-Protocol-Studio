@@ -3883,13 +3883,18 @@ function renderPatientSelector(patients, selectedId) {
     + '<label style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">Patient</label>'
     + '<div style="display:flex;gap:8px;align-items:center">'
     + '<input type="text" id="qeeg-patient-search" class="form-control" '
+    + 'role="combobox" '
+    + 'aria-expanded="false" '
+    + 'aria-controls="qeeg-patient-dropdown" '
+    + 'aria-autocomplete="list" '
+    + 'aria-haspopup="listbox" '
     + 'placeholder="Search patients by name..." '
     + 'value="' + displayName + '" '
     + 'autocomplete="off" '
     + 'style="flex:1">'
-    + (selectedId ? '<button class="btn btn-sm btn-outline" onclick="window._qeegClearPatient()" title="Clear selection" style="padding:4px 8px">&times;</button>' : '')
+    + (selectedId ? '<button class="btn btn-sm btn-outline" onclick="window._qeegClearPatient()" title="Clear selection" aria-label="Clear patient selection" style="padding:4px 8px">&times;</button>' : '')
     + '</div>'
-    + '<div id="qeeg-patient-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:240px;overflow-y:auto;background:var(--surface-2);border:1px solid rgba(255,255,255,0.1);border-radius:8px;z-index:100;margin-top:4px;box-shadow:0 8px 24px rgba(0,0,0,0.4)"></div>'
+    + '<div id="qeeg-patient-dropdown" role="listbox" aria-label="Patient suggestions" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:240px;overflow-y:auto;background:var(--surface-2);border:1px solid rgba(255,255,255,0.1);border-radius:8px;z-index:100;margin-top:4px;box-shadow:0 8px 24px rgba(0,0,0,0.4)"></div>'
     + '</div>';
 }
 
@@ -3897,6 +3902,33 @@ function initPatientSelector() {
   const input = document.getElementById('qeeg-patient-search');
   const dropdown = document.getElementById('qeeg-patient-dropdown');
   if (!input || !dropdown) return;
+
+  let activeIdx = -1;
+  let currentItems = [];
+
+  function setExpanded(expanded) {
+    input.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    dropdown.style.display = expanded ? 'block' : 'none';
+    if (!expanded) {
+      activeIdx = -1;
+      input.removeAttribute('aria-activedescendant');
+    }
+  }
+
+  function setActive(idx) {
+    const opts = dropdown.querySelectorAll('[role="option"]');
+    opts.forEach(function (el, i) {
+      el.setAttribute('aria-selected', i === idx ? 'true' : 'false');
+      el.style.background = i === idx ? 'rgba(255,255,255,0.06)' : 'transparent';
+    });
+    activeIdx = idx;
+    if (idx >= 0 && opts[idx]) {
+      input.setAttribute('aria-activedescendant', opts[idx].id);
+      opts[idx].scrollIntoView({ block: 'nearest' });
+    } else {
+      input.removeAttribute('aria-activedescendant');
+    }
+  }
 
   input.addEventListener('focus', function () {
     if (!window._qeegPatientId) showDropdown('');
@@ -3906,10 +3938,33 @@ function initPatientSelector() {
     showDropdown(input.value);
   });
 
+  input.addEventListener('keydown', function (ev) {
+    const visible = dropdown.style.display !== 'none';
+    if (ev.key === 'ArrowDown') {
+      ev.preventDefault();
+      if (!visible) { showDropdown(input.value); return; }
+      if (currentItems.length) setActive((activeIdx + 1) % currentItems.length);
+    } else if (ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      if (!visible) { showDropdown(input.value); return; }
+      if (currentItems.length) setActive((activeIdx - 1 + currentItems.length) % currentItems.length);
+    } else if (ev.key === 'Enter') {
+      if (visible && activeIdx >= 0 && currentItems[activeIdx]) {
+        ev.preventDefault();
+        if (typeof window._qeegSelectPatient === 'function') window._qeegSelectPatient(currentItems[activeIdx].id);
+      }
+    } else if (ev.key === 'Escape') {
+      if (visible) { ev.preventDefault(); setExpanded(false); }
+    } else if (ev.key === 'Home' && visible) {
+      ev.preventDefault(); if (currentItems.length) setActive(0);
+    } else if (ev.key === 'End' && visible) {
+      ev.preventDefault(); if (currentItems.length) setActive(currentItems.length - 1);
+    }
+  });
+
   document.addEventListener('click', function (e) {
     if (!e.target.closest('#qeeg-patient-selector')) {
-      dropdown.style.display = 'none';
-      // Restore display name if we have a selected patient
+      setExpanded(false);
       if (window._qeegPatientId && _patient) {
         input.value = (_patient.first_name || '') + ' ' + (_patient.last_name || '');
       }
@@ -3922,24 +3977,32 @@ function initPatientSelector() {
       const name = ((p.first_name || '') + ' ' + (p.last_name || '')).toLowerCase();
       return !q || name.indexOf(q) !== -1;
     }).slice(0, 20);
+    currentItems = filtered;
 
     if (!filtered.length) {
-      dropdown.innerHTML = '<div style="padding:12px;color:var(--text-tertiary);font-size:13px">No patients found</div>';
+      dropdown.innerHTML = '<div role="status" style="padding:12px;color:var(--text-tertiary);font-size:13px">No patients found</div>';
     } else {
-      dropdown.innerHTML = filtered.map(function (p) {
+      dropdown.innerHTML = filtered.map(function (p, i) {
         const initials = ((p.first_name || '')[0] || '') + ((p.last_name || '')[0] || '');
-        return '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.04)" '
-          + 'onmouseover="this.style.background=\'rgba(255,255,255,0.06)\'" '
-          + 'onmouseout="this.style.background=\'transparent\'" '
-          + 'onclick="window._qeegSelectPatient(\'' + p.id + '\')">'
+        return '<div id="qeeg-patient-opt-' + i + '" role="option" aria-selected="false" '
+          + 'data-patient-id="' + esc(p.id) + '" '
+          + 'style="display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.04)">'
           + '<div style="width:32px;height:32px;border-radius:50%;background:var(--blue);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0">' + esc(initials.toUpperCase()) + '</div>'
           + '<div style="flex:1;min-width:0">'
           + '<div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc((p.first_name || '') + ' ' + (p.last_name || '')) + '</div>'
           + '<div style="font-size:11px;color:var(--text-tertiary)">' + esc(p.primary_condition || 'No condition') + (p.dob ? ' | ' + esc(p.dob) : '') + '</div>'
           + '</div></div>';
       }).join('');
+      dropdown.querySelectorAll('[role="option"]').forEach(function (el, i) {
+        el.addEventListener('mouseenter', function () { setActive(i); });
+        el.addEventListener('click', function () {
+          const id = el.getAttribute('data-patient-id');
+          if (id && typeof window._qeegSelectPatient === 'function') window._qeegSelectPatient(id);
+        });
+      });
     }
-    dropdown.style.display = 'block';
+    setExpanded(true);
+    setActive(filtered.length ? 0 : -1);
   }
 }
 
